@@ -3,7 +3,7 @@
 
 # The TA Demo (.tad) recording format, and oa-formats-tad-dump, which
 # summarises recordings: header, players, packet timing and record types.
-add_library(oa-formats-tad src/tad.cpp)
+add_library(oa-formats-tad src/tad.cpp src/export.cpp)
 add_library(oa::formats::tad ALIAS oa-formats-tad)
 target_include_directories(oa-formats-tad PUBLIC include)
 target_compile_features(oa-formats-tad PUBLIC cxx_std_20)

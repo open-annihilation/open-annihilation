@@ -770,7 +770,7 @@ void add_source_pill(
     look.text = caption;
     look.state = on ? kit::PillState::active : kit::PillState::inactive;
     look.hovered = hovered(building, id);
-    look.focused = interaction.focus_shown && interaction.focused == id;
+    look.focused = kit::focus_ring_visible(interaction) && interaction.focused == id;
     const std::size_t before = building.list.controls.size();
     kit::add_pill(building.list, rect, look, id, unique_name(building, std::string(name)));
     move_controls(building.list, before, building.top);
@@ -866,7 +866,7 @@ void add_bar(Building& building) {
     kit::SearchLook look;
     look.field = building.state->search;
     const kit::Interaction& interaction = building.state->interaction;
-    look.focused = interaction.focus_shown && interaction.focused == ids::search;
+    look.focused = kit::focus_ring_visible(interaction) && interaction.focused == ids::search;
     look.hovered = hovered(building, ids::search);
     look.placeholder =
         cut(building,
@@ -882,6 +882,7 @@ void add_bar(Building& building) {
         unique_name(building, std::string(name_search))
     );
     move_controls(building.list, before, building.top);
+    building.top.back().label = ids::word(word_search);
     tab_stop(building, building.top.back());
 }
 
@@ -1507,7 +1508,7 @@ void add_footer(Building& building) {
 /// @param[in,out] building the layout
 void add_focus_ring(Building& building) {
     const kit::Interaction& interaction = building.state->interaction;
-    if (!interaction.focus_shown || interaction.focused == kit::no_control ||
+    if (!kit::focus_ring_visible(interaction) || interaction.focused == kit::no_control ||
         interaction.focused == ids::search)
         return;
     for (const auto* group : {&building.top, &building.cards, &building.footer})
@@ -1518,6 +1519,67 @@ void add_focus_ring(Building& building) {
                 kit::FocusRingLook{true};
             return;
         }
+}
+
+/// Groups the source pills into one stop and the cards into one grid. The
+/// players and size strips, the search, Cancel, the primary button and the
+/// close mark stay their own stops: a strip is a group of its own, whose
+/// Left and Right step its choice. A grid with no card adds no card stop.
+///
+/// @param building the layout; its plan gives the grid's columns
+/// @param[in,out] list the display list
+void group_browser_stops(const Building& building, kit::DisplayList& list) {
+    std::vector<kit::ControlId> order;
+    std::vector<kit::ControlId> filters;
+    std::vector<kit::ControlId> cards;
+    const auto flush_filters = [&]() {
+        if (filters.empty())
+            return;
+        kit::Composite composite;
+        composite.id = ids::filters_bar;
+        composite.axis = kit::CompositeAxis::row;
+        composite.role = kit::CompositeRole::list;
+        composite.name = std::string(name_filters);
+        composite.parts = std::move(filters);
+        filters.clear();
+        order.push_back(composite.id);
+        list.composites.push_back(std::move(composite));
+    };
+    const auto flush_cards = [&]() {
+        if (cards.empty())
+            return;
+        kit::Composite composite;
+        composite.id = ids::cards;
+        composite.axis = kit::CompositeAxis::grid;
+        composite.role = kit::CompositeRole::list;
+        composite.columns = static_cast<int32_t>(building.plan->grid.columns);
+        composite.name = std::string(name_cards);
+        composite.parts = std::move(cards);
+        cards.clear();
+        order.push_back(composite.id);
+        list.composites.push_back(std::move(composite));
+    };
+    for (const kit::ControlId id : building.order) {
+        const bool filter =
+            id >= ids::first_source &&
+            id < ids::first_source + static_cast<kit::ControlId>(ids::sources.size());
+        if (filter) {
+            flush_cards();
+            filters.push_back(id);
+            continue;
+        }
+        if (ids::is_card(id)) {
+            flush_filters();
+            cards.push_back(id);
+            continue;
+        }
+        flush_filters();
+        flush_cards();
+        order.push_back(id);
+    }
+    flush_filters();
+    flush_cards();
+    list.tab_order = std::move(order);
 }
 
 } // namespace
@@ -1583,7 +1645,7 @@ kit::DisplayList browser_layout(
         for (kit::Control& control : *group)
             list.controls.push_back(std::move(control));
     building.order.push_back(ids::close);
-    list.tab_order = std::move(building.order);
+    group_browser_stops(building, list);
     return list;
 }
 

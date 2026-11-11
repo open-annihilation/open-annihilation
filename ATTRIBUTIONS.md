@@ -20,8 +20,10 @@ in this repository or in the release packages.
 | [SDL](#sdl) | 3.4.16, changed | zlib | static | static | static |
 | [zlib](#zlib) | 1.3.1 | zlib | static | static | static |
 | [FreeType](#freetype) | 2.14.3 | FreeType License | static | static | static |
+| [HarfBuzz](#harfbuzz) | 15.1.0 | Old MIT | static | static | static |
 | [DejaVu fonts](#dejavu-fonts) | 2.37, DejaVu Sans and DejaVu Sans Bold | Bitstream Vera and Arev licences; DejaVu changes public domain | font files | font files | font files |
 | [Noto Sans CJK](#noto-sans-cjk) | 2.004, SC Bold, cut to the languages' own names and the language notice | SIL Open Font License 1.1 | font file | font file | font file |
+| [Noto Sans Bengali](#noto-sans-bengali) | 3.011, Bold, cut to Bengali's own name and the language notice | SIL Open Font License 1.1 | font file | font file | font file |
 | [Noto Emoji](#noto-emoji) | 3.002, monochrome | SIL Open Font License 1.1 | font file | font file | font file |
 | [Barlow](#barlow) | 1.422, Barlow Regular, Medium, SemiBold and Bold, Barlow Condensed SemiBold and Bold | SIL Open Font License 1.1 | font files | font files | font files |
 | [Liberation fonts](#liberation-fonts) | 2.1.5, Liberation Sans and Liberation Serif | SIL Open Font License 1.1 | font files | font files | font files |
@@ -31,8 +33,10 @@ in this repository or in the release packages.
 | [stb_vorbis](#stb_vorbis) | 1.22, changed | public domain or MIT | static | static | static |
 | [dr_mp3 and dr_flac](#dr_mp3-and-dr_flac) | 0.7.3 and 0.13.3, with later fixes | public domain or MIT No Attribution | static | static | static |
 | [Monocypher](#monocypher) | 4.0.2 | BSD-2-Clause | static | static | static |
+| [zstd](#zstd) | 1.5.7 | BSD-3-Clause | static | static | static |
 | [LZMA SDK](#lzma-sdk) | 25.01, decoder only | public domain | static | static | static |
 | [Lua](#lua) | 5.4.9 | MIT | static | static | static |
+| [AccessKit](#accesskit) | 0.23.2 | MIT | static | beside the game | static |
 | [mingw-w64 runtime and winpthreads](#mingw-w64-runtime-and-winpthreads) | 15.0.0 | ZPL 2.1, MIT, BSD | | static | |
 | [LLVM runtime libraries](#llvm-runtime-libraries) (libc++, libc++abi, libunwind, compiler-rt) | 23.1.2 | Apache 2.0 with LLVM Exceptions | | static | |
 
@@ -52,6 +56,9 @@ repository with CMake links these components as follows:
 - Monocypher 4.0.2, which checks a catalogue's signature, is kept in
   [`third_party/monocypher/`](third_party/monocypher/) and compiled into
   every build.
+- zstd 1.5.7, which stores a replay's recording, is kept in
+  [`third_party/zstd/`](third_party/zstd/) and compiled into every build.
+  Assembly, threads and the legacy frame formats are left out.
 - The LZMA SDK decoder, which reads LZMA and LZMA2 streams, is kept in
   [`src/formats/lzma/vendor/`](src/formats/lzma/vendor/) and compiled into
   every build.
@@ -59,6 +66,12 @@ repository with CMake links these components as follows:
   [`third_party/lua/`](third_party/lua/) and compiled into every build.
   The coroutine, debug, input and output, maths, operating-system and
   package libraries are left out.
+- AccessKit's C bindings 0.23.2, which carry the screen-reader bridge, are
+  fetched by `tools/bootstrap_accesskit.py` into `local/deps`. macOS, iOS
+  and Linux link the static library. Windows copies `accesskit.dll` beside
+  the game and loads it at run time. That DLL also carries mingw-w64
+  11.0.1's C run-time start-up code and libgcc. The header is kept in
+  [`third_party/accesskit-c/`](third_party/accesskit-c/).
 - When CMake is pointed at the SDL that `tools/bootstrap_sdl.py` installs,
   as `run.sh` and the README do, SDL 3.4.16 with the changes described
   under [SDL](#sdl) is linked statically. Otherwise the build takes
@@ -77,12 +90,15 @@ repository with CMake links these components as follows:
   SDL 3.4.16 for arm64 and x86_64 as static libraries with
   `tools/bootstrap_macos_deps.py` and links them into the application, as
   the macOS package in the table above has them.
-- FreeType and the fonts come from `tools/bootstrap_text_fonts.py`, which
-  builds FreeType 2.14.3 as a static library into `local/deps` and puts the
-  fonts in `local/deps/text-fonts`; the build links that FreeType and copies
-  the fonts beside the game. A build CMake points at another FreeType 2.10
-  or later links that one instead. The macOS release build and the Windows
-  cross-build build the same FreeType for their targets.
+- FreeType, HarfBuzz and the fonts come from `tools/bootstrap_text_fonts.py`,
+  which builds FreeType 2.14.3 and HarfBuzz 15.1.0 as static libraries into
+  `local/deps` and puts the fonts in `local/deps/text-fonts`; the build links
+  that FreeType and that HarfBuzz and copies the fonts beside the game.
+  FreeType stays built without HarfBuzz. A build CMake points at another
+  FreeType 2.10 or later links that one instead. A build that finds no
+  HarfBuzz configures with complex text shaping off.
+  The macOS release build and the Windows cross-build build the same
+  FreeType and HarfBuzz for their targets.
 - The movies and music need no other library; the `ffmpeg` program that
   video capture and the director's renders start (docs/capture.md) is a
   separate program that no package contains.
@@ -213,6 +229,100 @@ licence text is in
 > (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 > OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+## zstd
+
+zstd 1.5.7, from
+<https://github.com/facebook/zstd/releases/tag/v1.5.7> (SHA-256
+`eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3`),
+stores a replay's recording. It is compiled into the game unchanged from
+[`third_party/zstd/`](third_party/zstd/). The release offers BSD-3-Clause
+or GPL-2.0-only; this project uses BSD-3-Clause. The GPL text is not
+shipped. The licence text is in
+[`licenses/zstd-LICENSE.txt`](licenses/zstd-LICENSE.txt).
+
+> BSD License
+>
+> For Zstandard software
+>
+> Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+>
+> Redistribution and use in source and binary forms, with or without modification,
+> are permitted provided that the following conditions are met:
+>
+>  * Redistributions of source code must retain the above copyright notice, this
+>    list of conditions and the following disclaimer.
+>
+>  * Redistributions in binary form must reproduce the above copyright notice,
+>    this list of conditions and the following disclaimer in the documentation
+>    and/or other materials provided with the distribution.
+>
+>  * Neither the name Facebook, nor Meta, nor the names of its contributors may
+>    be used to endorse or promote products derived from this software without
+>    specific prior written permission.
+>
+> THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+> ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+> WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+> DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+> ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+> (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+> LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+> ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+> (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+> SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+## AccessKit
+
+AccessKit's C bindings 0.23.2, from
+<https://github.com/AccessKit/accesskit-c/releases/download/0.23.2/accesskit-c-0.23.2.zip>
+(SHA-256 `c7fa84f8f34fca909f662375737a54f98b17cf9eae51fffd94ab3d9f662e3681`).
+The source archive, for a target that release does not build, is
+<https://github.com/AccessKit/accesskit-c/archive/refs/tags/0.23.2.tar.gz>
+(SHA-256 `dca8250dad6b2d21b6bf9bf6bc9e7fa6ede0ff21c0858e952b912d9ddf50ffc8`).
+`tools/bootstrap_accesskit.py` fetches the release. macOS and Linux (and
+iOS) link the static library. Windows keeps `accesskit.dll` beside the game
+and loads it when the player is on Windows 10 or later; a Windows 95 build
+does not ship it. The header is in
+[`third_party/accesskit-c/`](third_party/accesskit-c/). The engine takes
+AccessKit under the MIT licence. The licence texts are
+[`licenses/AccessKit-MIT.txt`](licenses/AccessKit-MIT.txt) and
+[`licenses/AccessKit-Apache-2.0.txt`](licenses/AccessKit-Apache-2.0.txt).
+Parts derived from Chromium keep
+[`licenses/AccessKit-Chromium.txt`](licenses/AccessKit-Chromium.txt). Every
+crate in each target's library is listed in
+[`licenses/AccessKit-crates.txt`](licenses/AccessKit-crates.txt), and so is
+the Rust standard library compiled into each library (rustc 1.99.1),
+including compiler-rt under Apache-2.0 WITH LLVM-exception
+([`licenses/AccessKit-LLVM-exception.txt`](licenses/AccessKit-LLVM-exception.txt)).
+unicode-ident, linked into the Linux libraries, adds Unicode-DFS-2016
+([`licenses/AccessKit-Unicode-DFS-2016.txt`](licenses/AccessKit-Unicode-DFS-2016.txt)).
+`accesskit.dll` also carries mingw-w64 11.0.1's C run-time start-up code
+and libgcc. [`licenses/mingw-w64.txt`](licenses/mingw-w64.txt) covers those
+terms. The project's own Windows packages link mingw-w64 15.0.0, which is
+a different build.
+
+> Copyright 2023 The AccessKit Authors.
+>
+> Permission is hereby granted, free of charge, to any person obtaining
+> a copy of this software and associated documentation files (the
+> "Software"), to deal in the Software without restriction, including
+> without limitation the rights to use, copy, modify, merge, publish,
+> distribute, sublicense, and/or sell copies of the Software, and to
+> permit persons to whom the Software is furnished to do so, subject to
+> the following conditions:
+>
+> The above copyright notice and this permission notice shall be
+> included in all copies or substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+> EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+> MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+> NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+> BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+> ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+> CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+> SOFTWARE.
+
 ## Lua
 
 Lua 5.4.9, from <https://www.lua.org/ftp/lua-5.4.9.tar.gz> (SHA-256
@@ -303,6 +413,19 @@ FreeType License; the full text is in
 > Portions of this software are copyright © 2026 The FreeType
 > Project (https://freetype.org).  All rights reserved.
 
+## HarfBuzz
+
+HarfBuzz 15.1.0, from
+<https://github.com/harfbuzz/harfbuzz/releases/download/15.1.0/harfbuzz-15.1.0.tar.xz>
+(SHA-256 `0fc7c565443a5f4be7da65ac5ee5bd737d9b158dc908708b7689a0a5796b0c8d`),
+shapes Bengali and Devanagari. It is linked statically, built with FreeType
+and without Core Text, glib, ICU, Graphite2, cairo or the Windows shapers.
+It is used under the Old MIT licence; the full text is in
+[`licenses/HarfBuzz-MIT.txt`](licenses/HarfBuzz-MIT.txt).
+
+The packages hold one face for HarfBuzz to shape with, the Bengali cut (see
+[Noto Sans Bengali](#noto-sans-bengali)); a language pack may bring its own.
+
 ## DejaVu fonts
 
 DejaVu Sans and DejaVu Sans Bold 2.37, unmodified, from
@@ -330,6 +453,27 @@ Simplified Chinese language pack carries its own copy of the face, under
 the same licence, for the language's text. © 2014-2021 Adobe (http://www.adobe.com/). It is
 licensed under the SIL Open Font License, Version 1.1; the text is in
 [`licenses/NotoSansCJK-OFL.txt`](licenses/NotoSansCJK-OFL.txt).
+
+## Noto Sans Bengali
+
+Noto Sans Bengali Bold 3.011, the `NotoSansBengali/hinted/ttf/NotoSansBengali-Bold.ttf`
+member (SHA-256
+`923c6a4c2eb618a57ed83f4bca855b4f5287b87906a4d9df40a2ffa8ebd8c2e8`) of
+`NotoSansBengali-v3.011.zip` (SHA-256
+`2aca24bf71665e66c32e14862ee58857dd8b8b07b6321ec7c96f3121ad6683b1`) from
+<https://github.com/notofonts/bengali/releases/tag/NotoSansBengali-v3.011>,
+draws Bengali. The packages hold one cut of it, made by
+`tools/bootstrap_text_fonts.py`: `NotoSansBengali-Bold-Endonyms.ttf` holds
+Bengali's own name and the language notice, the Bengali letters of
+`tools/text-fonts/endonyms-bengali.txt`, with the face's GSUB, GPOS and GDEF
+and its glyph ids as the full face has them, so that HarfBuzz shapes a line
+with the cut as it shapes it with the whole face. The whole face is not
+shipped beside the game: the shaping checks read it from a test folder, and
+the Bengali language pack carries its own copy, under the same licence, for
+the language's text. Copyright 2022 The Noto Project Authors
+(https://github.com/notofonts/bengali). It is licensed under the SIL Open
+Font License, Version 1.1; the text is in
+[`licenses/NotoSansBengali-OFL.txt`](licenses/NotoSansBengali-OFL.txt).
 
 ## Noto Emoji
 

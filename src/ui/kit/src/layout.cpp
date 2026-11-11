@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <stdint.h>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -717,6 +718,79 @@ std::size_t first_live_part(const DisplayList& list) noexcept {
     return first;
 }
 
+namespace {
+
+/// Tells whether a list already uses a name.
+///
+/// @param used the controls named so far
+/// @param candidate the name
+/// @return true when one of them has it
+[[nodiscard]] bool name_taken(const std::vector<Control>& used, std::string_view candidate) {
+    for (const Control& control : used)
+        if (control.name == candidate)
+            return true;
+    return false;
+}
+
+/// Makes a part's name from its words, within the kit's name rule.
+///
+/// ASCII letters are lower-cased and digits are kept. Each run of anything
+/// else is one hyphen, and hyphens are trimmed. The result is at most 100
+/// bytes. Nothing left is part- and the control's id. A name already used
+/// gains -2, -3 and so on, still within 100 bytes.
+///
+/// @param words the words as shown
+/// @param id the control's id, for a name with no letter or digit
+/// @param used the controls named so far
+/// @return the name
+[[nodiscard]] std::string
+part_control_name(std::string_view words, ControlId id, const std::vector<Control>& used) {
+    std::string slug;
+    bool gap = false;
+    for (const char byte : words) {
+        const auto character = static_cast<unsigned char>(byte);
+        const bool capital = character >= 'A' && character <= 'Z';
+        const bool lower = character >= 'a' && character <= 'z';
+        const bool digit = character >= '0' && character <= '9';
+        if (!capital && !lower && !digit) {
+            gap = true;
+            continue;
+        }
+        if (gap && !slug.empty())
+            slug.push_back('-');
+        gap = false;
+        slug.push_back(
+            capital ? static_cast<char>(character - 'A' + 'a') : static_cast<char>(character)
+        );
+    }
+    while (!slug.empty() && slug.back() == '-')
+        slug.pop_back();
+    if (slug.size() > 100)
+        slug.resize(100);
+    while (!slug.empty() && slug.back() == '-')
+        slug.pop_back();
+    if (slug.empty())
+        slug = "part-" + std::to_string(id);
+    if (!name_taken(used, slug))
+        return slug;
+    for (int suffix = 2; suffix < 100000; ++suffix) {
+        const std::string tail = "-" + std::to_string(suffix);
+        std::string base = slug;
+        if (base.size() + tail.size() > 100)
+            base.resize(static_cast<std::size_t>(100) - tail.size());
+        while (!base.empty() && base.back() == '-')
+            base.pop_back();
+        if (base.empty())
+            base = "part";
+        const std::string candidate = base + tail;
+        if (candidate.size() <= 100 && !name_taken(used, candidate))
+            return candidate;
+    }
+    return slug;
+}
+
+} // namespace
+
 void list_part_controls(DisplayList& list) {
     list.controls.clear();
     list.tab_order.clear();
@@ -732,8 +806,16 @@ void list_part_controls(DisplayList& list) {
         control.enabled = !part.state.disabled;
         control.kind = part.role == Role::toggle ? ControlKind::toggle : ControlKind::button;
         control.checked = part.role == Role::toggle && part.state.on;
-        if (!part.lines.empty())
-            control.text = part.lines.front();
+        std::string words;
+        if (!part.lines.empty()) {
+            words = part.lines.front();
+            control.text = words;
+        } else if (!part.text.empty()) {
+            words = part.text;
+        }
+        // The label keeps the words as shown. The name follows the kit's rule.
+        control.label = words;
+        control.name = part_control_name(words, control.id, list.controls);
         list.controls.push_back(std::move(control));
     }
     for (std::size_t index = first; index < list.items.size(); ++index) {

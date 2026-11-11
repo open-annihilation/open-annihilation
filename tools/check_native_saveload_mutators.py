@@ -27,6 +27,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs the executable directly.
@@ -42,6 +43,24 @@ PACKAGE = Path(__file__).resolve().parent.parent / "tests/data/mutators/packages
 
 class ScriptFailure(Exception):
     """A behaviour that differs from the expected one."""
+
+
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding='utf-8') if target.is_file() else 'open-annihilation-preferences 1\n'
+    if 'open-annihilation.update-check' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.update-check" "never"\n'
+    if 'open-annihilation.content-updates' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding='utf-8')
 
 
 def install_package(user):
@@ -60,6 +79,7 @@ def launch(native, game_dir, work, user, *extra, timeout=RUN_TIMEOUT_SECONDS):
         SDL_AUDIO_DRIVER="dummy",
         SDL_RENDER_DRIVER="software",
     )
+    _offline_preferences(work / "preferences.conf")
     command = [
         *RUNNER,
         str(native),

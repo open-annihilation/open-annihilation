@@ -328,15 +328,30 @@ Builder make_builder(const Viewport& viewport) noexcept {
     return builder;
 }
 
+/// Returns one column's width. A non-positive width is the standard column.
+///
+/// @param builder the units
+/// @param column_width the item width, canvas pixels; not positive for the standard column
+/// @return the item width, canvas pixels
+int menu_item_width(const Builder& builder, int column_width) noexcept {
+    if (column_width > 0)
+        return column_width;
+    return builder.px(menu_column_width);
+}
+
 /// Returns the size of a menu panel.
 ///
 /// @param builder the units
 /// @param items how many items it lists
 /// @param columns how many columns they fill
+/// @param column_width one item's width, canvas pixels; not positive for the standard column
 /// @return the panel's size (x and y 0)
-Rect menu_panel_size(const Builder& builder, int items, int columns) noexcept {
+Rect menu_panel_size(
+    const Builder& builder, int items, int columns, int column_width = -1
+) noexcept {
     const int rows = (items + columns - 1) / columns;
-    const int width = 2 * builder.px(sheet_padding) + columns * builder.px(menu_column_width) +
+    const int item_width = menu_item_width(builder, column_width);
+    const int width = 2 * builder.px(sheet_padding) + columns * item_width +
                       (columns - 1) * builder.px(menu_row_gap);
     const int height = 2 * builder.px(sheet_padding) + rows * builder.px(menu_row_height) +
                        std::max(0, rows - 1) * builder.px(menu_row_gap);
@@ -363,17 +378,20 @@ int menu_columns_for(const Builder& builder, int items, int height_available) no
 /// @param panel the sheet's panel, canvas pixels
 /// @param items how many items it lists
 /// @param columns how many columns they fill
-void add_menu_items(Builder& builder, const Rect& panel, int items, int columns) noexcept {
+/// @param column_width one item's width, canvas pixels; not positive for the standard column
+void add_menu_items(
+    Builder& builder, const Rect& panel, int items, int columns, int column_width = -1
+) noexcept {
     const int rows = (items + columns - 1) / columns;
+    const int item_width = menu_item_width(builder, column_width);
     for (int item = 0; item < items; ++item) {
         const int column = item / rows;
         const int row = item % rows;
         const Rect rect{
-            panel.x + builder.px(sheet_padding) +
-                column * (builder.px(menu_column_width) + builder.px(menu_row_gap)),
+            panel.x + builder.px(sheet_padding) + column * (item_width + builder.px(menu_row_gap)),
             panel.y + builder.px(sheet_padding) +
                 row * (builder.px(menu_row_height) + builder.px(menu_row_gap)),
-            builder.px(menu_column_width),
+            item_width,
             builder.px(menu_row_height)
         };
         builder.add(Control::menu_item, static_cast<uint8_t>(item), rect, Layer::sheet);
@@ -391,7 +409,7 @@ int menu_item_count(Sheet sheet) noexcept {
     case Sheet::speed:
         return 2;
     case Sheet::phone_menu:
-        return 4;
+        return 5;
     case Sheet::none:
     case Sheet::more:
     case Sheet::drawer:
@@ -400,7 +418,26 @@ int menu_item_count(Sheet sheet) noexcept {
     return 0;
 }
 
-/// Lays out a one-column menu sheet left of the rail.
+/// Returns the fewest columns, from one, whose menu panel fits a height.
+///
+/// @param builder the units
+/// @param items how many items it lists
+/// @param height_available canvas pixels
+/// @return the columns to use, from 1 to max_menu_columns
+int menu_columns_fitting(const Builder& builder, int items, int height_available) noexcept {
+    for (int columns = 1; columns <= max_menu_columns; ++columns) {
+        if (menu_panel_size(builder, items, columns).height <= height_available)
+            return columns;
+    }
+    return max_menu_columns;
+}
+
+/// Lays out a menu sheet left of the rail. Speed stays one column. The phone
+/// menu uses as many columns as it needs, from two, when one column is taller
+/// than the room, the same rule as SELECT ▾. When that sheet would cover
+/// `clear_of`, it moves into the span from there to the rail: the fewest
+/// columns whose height fits, and items no wider than one column, so it stays
+/// to the right of that edge. Pass 0 to leave the sheet where the rail puts it.
 ///
 /// @param[in,out] builder receives the panel and its items
 /// @param sheet the open sheet (speed or phone_menu)
@@ -408,15 +445,52 @@ int menu_item_count(Sheet sheet) noexcept {
 /// @param top the panel's top, before clamping
 /// @param low the highest top kept
 /// @param high_bottom the lowest bottom kept
+/// @param left_limit the leftmost edge kept, so the items stay in the safe area
+/// @param clear_of the sheet starts at or to the right of this edge; 0 skips the reflow
 void add_rail_menu(
-    Builder& builder, Sheet sheet, int rail_x, int top, int low, int high_bottom
+    Builder& builder,
+    Sheet sheet,
+    int rail_x,
+    int top,
+    int low,
+    int high_bottom,
+    int left_limit,
+    int clear_of = 0
 ) noexcept {
     const int items = menu_item_count(sheet);
-    Rect panel = menu_panel_size(builder, items, 1);
+    const int room = high_bottom - low;
+    int columns = 1;
+    if (sheet == Sheet::phone_menu && menu_panel_size(builder, items, 1).height > room)
+        columns = menu_columns_for(builder, items, room);
+    int item_width = -1;
+    Rect panel = menu_panel_size(builder, items, columns);
     panel.x = rail_x - builder.px(edge_points) - panel.width;
+    if (panel.x < left_limit)
+        panel.x = left_limit;
+    const int edge = builder.px(edge_points);
+    const int span_left = clear_of + edge;
+    const int span_right = rail_x - edge;
+    if (clear_of > 0 && panel.x < clear_of && span_right > span_left) {
+        columns = menu_columns_fitting(builder, items, room);
+        const int gap = builder.px(menu_row_gap);
+        const int gaps = std::max(0, columns - 1) * gap;
+        const int inner = span_right - span_left - 2 * builder.px(sheet_padding) - gaps;
+        const int full = builder.px(menu_column_width);
+        const int floor_width = builder.px(menu_row_height);
+        int width = columns > 0 ? inner / columns : full;
+        if (width > full)
+            width = full;
+        if (width < floor_width)
+            width = floor_width;
+        item_width = width;
+        panel = menu_panel_size(builder, items, columns, item_width);
+        panel.x = span_right - panel.width;
+        if (panel.x < span_left)
+            panel.x = span_left;
+    }
     panel.y = clamp_low_first(top, low, high_bottom - panel.height);
     builder.frame.sheet = panel;
-    add_menu_items(builder, panel, items, 1);
+    add_menu_items(builder, panel, items, columns, item_width);
 }
 
 /// Lays out the banner and its ✕.
@@ -800,7 +874,8 @@ void lay_out_tablet(
             rail_x,
             anchor.y + anchor.height / 2 - height / 2,
             field_top + builder.px(edge_points),
-            bottom_line
+            bottom_line,
+            field_left
         );
         break;
     }
@@ -812,7 +887,8 @@ void lay_out_tablet(
             menu_in_strip ? field_top + builder.px(edge_points)
                           : bottom_of(menu) + builder.px(edge_points),
             field_top + builder.px(edge_points),
-            bottom_line
+            bottom_line,
+            field_left
         );
         break;
     case Sheet::none:
@@ -1138,9 +1214,26 @@ void lay_out_phone(
         break;
     }
     case Sheet::speed:
+        add_rail_menu(
+            builder,
+            Sheet::speed,
+            geometry.rail_x,
+            geometry.rail_top,
+            geometry.rail_top,
+            room_bottom,
+            geometry.left
+        );
+        break;
     case Sheet::phone_menu:
         add_rail_menu(
-            builder, state.sheet, geometry.rail_x, geometry.rail_top, geometry.rail_top, room_bottom
+            builder,
+            Sheet::phone_menu,
+            geometry.rail_x,
+            geometry.rail_top,
+            geometry.rail_top,
+            room_bottom,
+            geometry.left,
+            geometry.column_right
         );
         break;
     case Sheet::none:

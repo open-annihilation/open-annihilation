@@ -213,6 +213,15 @@ void scroll_set_value(ScrollBar& bar, int32_t value) noexcept;
 /// @param forward True to step toward the bar's end.
 void scroll_step(ScrollBar& bar, bool forward) noexcept;
 
+/// How many knob positions Page Up and Page Down move a scroll bar.
+///
+/// A bar with fewer than two positions moves one. Any other moves a tenth of
+/// the travel from its start to its end, and at least one position.
+///
+/// @param range the bar's range, the count of knob positions
+/// @return the page step, at least 1
+[[nodiscard]] int16_t scroll_page_span(int16_t range) noexcept;
+
 /// Presses the pointer on a bar, as 3.1c takes a press on a scroll bar or its arrow.
 ///
 /// Whatever the pointer is on, the press ends the hold before it. An arrow of

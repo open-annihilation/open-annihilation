@@ -28,6 +28,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs the executable directly.
@@ -137,7 +138,7 @@ CLASSIC_TIMEOUT = 500
 def four_player_preferences(path):
     """Four slots: local Arm, Arm computer, Core computer, Arm computer."""
     path.write_text(
-        "open-annihilation-preferences 1\n"
+        "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
         "\"Total Annihilation|NumSkirmishPlayers\" \"4\"\n"
         "\"Total Annihilation\\\\Skirmish|Player0Controller\" \"1\"\n"
         "\"Total Annihilation\\\\Skirmish|Player0Side\" \"0\"\n"

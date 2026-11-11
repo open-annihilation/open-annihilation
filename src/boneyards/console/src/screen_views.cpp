@@ -190,7 +190,11 @@ void load_planetary_map(StatusWidget* owner) {
 /// map and the Main Frame closes the login console, sliding the green off
 /// the map. EXIT leaves for the main menu instead. LOGIN is disabled while
 /// the name, or a member's password, is empty and enabled again once they
-/// are filled.
+/// are filled. A press on LOGIN stays pressed until the pointer is released.
+/// That release is what tells this console the button was clicked. Clearing
+/// Pressed on the pulse between the two would drop the click. A disabled
+/// LOGIN is cleared anyway, and a release while it is disabled still does
+/// nothing.
 ///
 /// @param self the login console
 void login_view_pulse(Window* self) {
@@ -209,9 +213,10 @@ void login_view_pulse(Window* self) {
         main_frame_close_screen(owner->system.main_frame);
     }
     screens::login_update_button(&dialog);
-    window_set_state(
-        view->login, dialog.login_value == 0 ? button_state::disabled : button_state::unpressed
-    );
+    const int32_t wanted =
+        dialog.login_value == 0 ? button_state::disabled : button_state::unpressed;
+    if (view->login->states.current != button_state::pressed || wanted == button_state::disabled)
+        window_set_state(view->login, wanted);
 }
 
 WindowOps make_field_ops(const WindowOps& base, bool (*key_down)(Window*, const Message*)) {
@@ -224,10 +229,44 @@ bool login_field_key_down(Window* self, const Message* msg);
 const WindowOps k_login_field_ops =
     make_field_ops(*screens::lobby_edit_ops(), login_field_key_down);
 
-// Enter in the password field presses LOGIN when it is enabled.
+bool (*g_radio_key_down)(Window*, const Message*) = nullptr;
+
+bool login_radio_key_down(Window* self, const Message* msg) {
+    auto* view = reinterpret_cast<LoginView*>(self->parent);
+    if (msg != nullptr && msg->key == key::enter && self->states.current == button_state::pressed) {
+        login_view_sync(view);
+        screens::login_update_button(&view->view.owner->navigation->login);
+        if (view->view.owner->navigation->login.login_value != 0)
+            login_view_control(view, screens::LoginControl::login_button);
+        return true;
+    }
+    if (g_radio_key_down != nullptr)
+        return g_radio_key_down(self, msg);
+    return false;
+}
+
+WindowOps g_login_radio_ops{};
+bool g_login_radio_ready = false;
+
+void install_login_radio(Window* radio) {
+    if (!g_login_radio_ready) {
+        g_login_radio_ops = *radio->ops;
+        g_radio_key_down = radio->ops->key_down;
+        g_login_radio_ops.key_down = login_radio_key_down;
+        g_login_radio_ready = true;
+    }
+    radio->ops = &g_login_radio_ops;
+    radio->radio_group = 1;
+}
+
+// Enter in either field presses LOGIN once the name, and a member's password,
+// are filled. The fields are read first, so the press does not wait for a pulse.
 bool login_field_key_down(Window* self, const Message* msg) {
     auto* view = reinterpret_cast<LoginView*>(self->parent);
-    if (msg->key == key::enter && &view->password->base == self) {
+    if (msg != nullptr && msg->key == key::enter &&
+        (self == &view->name->base || self == &view->password->base)) {
+        login_view_sync(view);
+        screens::login_update_button(&view->view.owner->navigation->login);
         if (view->view.owner->navigation->login.login_value != 0)
             login_view_control(view, screens::LoginControl::login_button);
         return true;
@@ -304,13 +343,17 @@ void login_show_registration(void* user) {
 /// Builds the login console and makes it the active login console (the dialog's status target), as
 /// its constructor does.
 ///
-/// Adds the title, the Username and Password entries, the Registered User
-/// and Guest Login radios, REGISTER, LOGIN and CANCEL, the server and status
-/// lists and the animated logo. REGISTER opens the registration console. The
-/// server list selects the current server
-/// (else its first row); a saved user name selects member mode and puts the
-/// focus on the password. The controls start zeroed from
-/// console_window_alloc.
+/// Adds the title, then the Registered User and Guest Login radios as one
+/// stop, then Username, Password, LOGIN, REGISTER and CANCEL, the server and
+/// status lists and the animated logo. Password follows the choice that
+/// enables it, and LOGIN follows Password, so a guest whose password is
+/// skipped reaches LOGIN. Return on the chosen radio, or in either field,
+/// runs LOGIN. REGISTER opens the registration console. The server list
+/// selects the current server (else its first row). Registered User is
+/// chosen and the password is shown. Guest Login is drawn from the dialog,
+/// disabled while guests are not offered. A saved user name puts the focus
+/// on the password. A saved guest choice is not restored. The controls start
+/// zeroed from console_window_alloc.
 ///
 /// @param[in,out] view the login console
 void login_view_build(LoginView* view) {
@@ -319,21 +362,23 @@ void login_view_build(LoginView* view) {
     screens::lobby_label_create(&v->base, 0x6f, 0x1d, "BONEYARDS LOGIN", f.big, 1, 0);
     screens::lobby_label_create(&v->base, 0x6b, 0x30, "Username", f.medium, 5, 1);
     screens::lobby_label_create(&v->base, 0x6b, 0x49, "Password", f.medium, 5, 1);
-    view->name = screens::lobby_edit_create(&v->base, 0x6f, 0x2c, 0x63, f.small, 0xf, false);
-    view->password = screens::lobby_edit_create(&v->base, 0x6f, 0x44, 0x63, f.small, 0xf, false);
-    window_set_name(&view->name->base, "Username");
-    window_set_name(&view->password->base, "Password");
-    view->name->scroll = 1;
-    view->password->scroll = 1;
-    view->password->mask = '*';
-    view->name->base.ops = &k_login_field_ops;
-    view->password->base.ops = &k_login_field_ops;
     view->member = screens::lobby_radio_create(&v->base, 0x6f, 0x5c, "Registered User", f.medium);
     view->guest = screens::lobby_radio_create(&v->base, 0x6f, 0x6d, "Guest Login", f.medium);
     screens::lobby_radio_add_member(view->member, &view->guest->base);
     screens::lobby_radio_add_member(view->guest, &view->member->base);
-    view->register_button = add_function_button(v, 0x6f, 0x7e, "REGISTER");
+    install_login_radio(&view->member->base);
+    install_login_radio(&view->guest->base);
+    view->name = screens::lobby_edit_create(&v->base, 0x6f, 0x2c, 0x63, f.small, 0xf, false);
+    window_set_name(&view->name->base, "Username");
+    view->name->scroll = 1;
+    view->name->base.ops = &k_login_field_ops;
+    view->password = screens::lobby_edit_create(&v->base, 0x6f, 0x44, 0x63, f.small, 0xf, false);
+    window_set_name(&view->password->base, "Password");
+    view->password->scroll = 1;
+    view->password->mask = '*';
+    view->password->base.ops = &k_login_field_ops;
     view->login = add_function_button(v, 0x6f, 0xf2, "LOGIN");
+    view->register_button = add_function_button(v, 0x6f, 0x7e, "REGISTER");
     view->cancel = add_function_button(v, 0x6f, 0x10a, "CANCEL");
     window_set_name(view->register_button, "REGISTER");
     window_set_name(view->login, "LOGIN");
@@ -367,10 +412,7 @@ void login_view_build(LoginView* view) {
     if (settings.read_string != nullptr &&
         settings.read_string(settings.user, "Username", saved, sizeof saved))
         view->name->base.ops->set_caption(&view->name->base, saved, 0);
-    screens::login_on_control(
-        &dialog,
-        saved[0] != '\0' ? screens::LoginControl::member_radio : screens::LoginControl::guest_radio
-    );
+    screens::login_on_control(&dialog, screens::LoginControl::member_radio);
     window_set_state(&view->member->base, dialog.member_value);
     window_set_state(&view->guest->base, dialog.guest_value);
     window_set_state(&view->password->base, dialog.password_field_value);

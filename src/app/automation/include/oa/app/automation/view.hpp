@@ -31,10 +31,12 @@ struct ClickPoint {
 
 /// Reads control text the way the MCP server reports it.
 ///
-/// A control's text, each list row and each row's key are game text: bytes
-/// of the game's code page, or UTF-8 where a profile already sent it. Each
-/// becomes UTF-8. A masked field's text is left as the game holds it; the
-/// tree still writes that field empty. The gadgets themselves are not changed.
+/// A control's text, its label, its description, its value as words, each
+/// list row and each row's key are game text: bytes of the game's code page,
+/// or UTF-8 where a profile already sent it. Each becomes UTF-8. A masked
+/// field's text is left as the game holds it, and a label that is that text
+/// is cleared; the tree still writes that field empty. The gadgets themselves
+/// are not changed.
 ///
 /// @param[in,out] controls the controls collect_controls returned
 void read_control_text(std::vector<AutomationControl>& controls);
@@ -103,14 +105,29 @@ find_named(const ControlListing& listing, std::string_view wanted);
 [[nodiscard]] std::optional<ClickPoint>
 list_row_point(const AutomationControl& row_list, int32_t row);
 
+/// The focus a screen reader hears: the first focused control that is not
+/// hidden. A hidden one stays in the tree and is passed over. The label is
+/// read as the tree reads it.
+///
+/// @param[in,out] now gains the name, the label and the role; left empty
+///        when every focused control is hidden
+/// @param controls the controls, in the order the tree lists them
+void read_shown_focus(Observed& now, const std::vector<AutomationControl>& controls);
+
 /// Reads what the event watch compares, for one moment.
 ///
 /// @param check the check host
 /// @param automation the automation host
 /// @param[out] now replaced by this moment
 /// @param dialogs also read the dialogs over the screen
+/// @param read_focus also read which control is focused. The controls are
+///        collected only when the dialogs or the focus is read
 void fill_observed(
-    const CheckHost& check, const AutomationHost& automation, Observed& now, bool dialogs
+    const CheckHost& check,
+    const AutomationHost& automation,
+    Observed& now,
+    bool dialogs,
+    bool read_focus
 );
 
 } // namespace oa::app::automation

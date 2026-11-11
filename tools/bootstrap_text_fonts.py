@@ -2,13 +2,14 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Fetch FreeType and the text fonts, pinned, and build them into local/deps.
+"""Fetch FreeType, HarfBuzz and the text fonts, pinned, and build them into local/deps.
 
 The engine draws text the game's own fonts cannot draw with FreeType, from
-fonts that travel with the game (src/platform/text-font). This script
-downloads FreeType 2.14.3 and the fonts from their projects' own releases,
-checks every download against its SHA-256 and every licence text against
-the one licenses/ holds, and builds:
+fonts that travel with the game (src/platform/text-font). Bengali and
+Devanagari are shaped with HarfBuzz and then drawn with that same FreeType.
+This script downloads FreeType 2.14.3, HarfBuzz 15.1.0 and the fonts from
+their projects' own releases, checks every download against its SHA-256 and
+every licence text against the one licenses/ holds, and builds:
 
   local/deps/freetype-install-2.14.3
       FreeType, a static library for this machine, without zlib, bzip2,
@@ -16,12 +17,16 @@ the one licenses/ holds, and builds:
       (tools/text-fonts/freetype_build_options.cmake); the folder is named
       after the release, so that a project building on the engine that
       pins another FreeType in the same local/deps keeps its own
+  local/deps/harfbuzz-install-15.1.0
+      HarfBuzz, a static library for this machine, with FreeType and
+      without Core Text, GLib, ICU, Graphite, Cairo or the platform
+      shapers, and without its subset, raster, vector and GPU libraries
   local/deps/text-fonts
       the fonts the build copies beside the game: DejaVu Sans Bold and
       DejaVu Sans 2.37, the endonym face cut from Noto Sans CJK SC Bold,
-      Noto Emoji, and the interface faces of the modern look: Barlow 1.422
-      Regular, Medium, SemiBold and Bold, and Barlow Condensed SemiBold and
-      Bold
+      the Bengali endonym face cut from Noto Sans Bengali Bold, Noto Emoji,
+      and the interface faces of the modern look: Barlow 1.422 Regular,
+      Medium, SemiBold and Bold, and Barlow Condensed SemiBold and Bold
 
 The full Simplified Chinese face travels with the language pack from
 open-annihilation/languages, not with the engine. Cuts are made with the
@@ -34,11 +39,25 @@ DejaVu Sans Bold nor DejaVu Sans holds: the languages' own names and the
 lines of the notice shown before a language pack is installed. It is at
 most 64 KiB and its SHA-256 is pinned.
 
+The Bengali endonym face, NotoSansBengali-Bold-Endonyms.ttf, is Noto Sans
+Bengali Bold cut to the characters of tools/text-fonts/endonyms-bengali.txt
+that neither DejaVu face holds: Bengali's own name and the lines of its
+notice. Bengali's letters join, stack and change order, so unlike the CJK cut
+this one keeps its GSUB, GPOS and GDEF, and keeps every glyph at the place the
+full face gives it (retained glyph ids): the engine's HarfBuzz shapes a line
+with the cut to the glyphs it would shape with the full face. Its SHA-256 and
+character count are pinned too.
+
 The test fixture's face, NotoSansCJKsc-Bold-Fixture.otf, is that same face
 cut to the characters of the Simplified Chinese test fixture
 (src/data/languages/tests/fixture-packs/zh-Hans) that neither sans face
 holds. It is written under local/deps/text-fonts-tests, never beside the
 game and never inside local/deps/text-fonts. Its SHA-256 is pinned.
+
+The shaping check's face, NotoSansBengali-Bold.ttf, is Noto Sans Bengali
+Bold from that project's release, copied whole into the same tests folder.
+It is not a font the game ships, and the Bengali endonym face is cut from
+it. Its SHA-256 is pinned.
 
 Records for the shipped fonts and the fixture face are entries of
 local/deps/text-fonts.records.json, beside the fonts folder.
@@ -49,16 +68,20 @@ record differs, writing the file to a temporary name and renaming it into
 place, and it never deletes or rewrites any other file.
 
 --self-test checks the pins and the endonym list, and downloads nothing.
-tools/bootstrap_macos_deps.py and tools/bootstrap_windows_deps.py build
-the same FreeType for the release and the Windows targets.
+--fonts-only makes the fonts and the test faces and does not build
+FreeType or HarfBuzz. tools/bootstrap_macos_deps.py,
+tools/bootstrap_windows_deps.py and the iOS dependency bootstrap build
+the same FreeType and the same HarfBuzz for their targets.
 """
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
 import sys
+import tarfile
 import venv
 import zipfile
 
@@ -83,6 +106,44 @@ FREETYPE_OPTIONS = [
 ]
 # What a FreeType install prefix holds once complete.
 FREETYPE_INSTALLED = "lib/cmake/freetype/freetype-config.cmake"
+
+# HarfBuzz shapes Bengali and Devanagari. FreeType stays built without it
+# (FT_DISABLE_HARFBUZZ above), so the faces that are not shaped keep the
+# advances they have today. Core Text is off so a Mac does not shape
+# differently from the other platforms. tools/text-fonts/
+# harfbuzz_build_options.cmake, read after its project() call, lets the
+# release build link into a Debug program.
+HARFBUZZ_VERSION = "15.1.0"
+HARFBUZZ_SHA256 = "0fc7c565443a5f4be7da65ac5ee5bd737d9b158dc908708b7689a0a5796b0c8d"
+HARFBUZZ_URL = (
+    "https://github.com/harfbuzz/harfbuzz/releases/download/"
+    f"{HARFBUZZ_VERSION}/harfbuzz-{HARFBUZZ_VERSION}.tar.xz"
+)
+HARFBUZZ_OPTIONS = [
+    "-DBUILD_SHARED_LIBS=OFF",
+    "-DHB_HAVE_FREETYPE=ON",
+    "-DHB_HAVE_CORETEXT=OFF",
+    "-DHB_HAVE_GLIB=OFF",
+    "-DHB_HAVE_GOBJECT=OFF",
+    "-DHB_HAVE_ICU=OFF",
+    "-DHB_HAVE_GRAPHITE2=OFF",
+    "-DHB_HAVE_CAIRO=OFF",
+    "-DHB_HAVE_UNISCRIBE=OFF",
+    "-DHB_HAVE_GDI=OFF",
+    "-DHB_HAVE_DIRECTWRITE=OFF",
+    # Set before HarfBuzz reads it. Its CMake asks for the include directory
+    # before GNUInstallDirs defines it, and an empty value is recorded as
+    # /harfbuzz in the installed package.
+    "-DCMAKE_INSTALL_INCLUDEDIR=include",
+    "-DHB_BUILD_UTILS=OFF",
+    "-DHB_BUILD_SUBSET=OFF",
+    "-DHB_BUILD_RASTER=OFF",
+    "-DHB_BUILD_VECTOR=OFF",
+    "-DHB_BUILD_GPU=OFF",
+    f"-DCMAKE_PROJECT_INCLUDE={(ROOT / 'tools' / 'text-fonts' / 'harfbuzz_build_options.cmake').as_posix()}",
+]
+# What a HarfBuzz install prefix holds once complete.
+HARFBUZZ_INSTALLED = "lib/cmake/harfbuzz/harfbuzzConfig.cmake"
 
 # Barlow's release tag 1.422 on the project's own repository.
 BARLOW_RELEASE = "https://github.com/jpt/barlow/raw/1.422"
@@ -130,6 +191,12 @@ DOWNLOADS = {
     "barlow-licence": ("Barlow-1.422-OFL.txt",
                        f"{BARLOW_RELEASE}/OFL.txt",
                        "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f"),
+    # Noto Sans Bengali Bold, the shaping check's face and the source of the
+    # Bengali endonym cut. The whole face is not shipped beside the game.
+    "noto-bengali": ("NotoSansBengali-v3.011.zip",
+                     "https://github.com/notofonts/bengali/releases/download/"
+                     "NotoSansBengali-v3.011/NotoSansBengali-v3.011.zip",
+                     "2aca24bf71665e66c32e14862ee58857dd8b8b07b6321ec7c96f3121ad6683b1"),
 }
 # The interface faces: each file in the fonts folder and its download. The
 # names are the engine's interface_face_files (oa/platform/text_font.hpp),
@@ -146,7 +213,8 @@ INTERFACE_FONTS = (
 # interface_face_files (oa/platform/text_font.hpp). cmake/OaTextFonts.cmake's
 # OA_TEXT_FONT_FILES names the same files in the same order.
 FONT_FILES = ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "NotoSansCJKsc-Bold-Endonyms.otf",
-              "NotoEmoji.ttf") + tuple(name for name, _ in INTERFACE_FONTS)
+              "NotoEmoji.ttf", "NotoSansBengali-Bold-Endonyms.ttf") \
+    + tuple(name for name, _ in INTERFACE_FONTS)
 # The face of the CJK collection the cuts are taken from: Noto Sans CJK SC
 # Bold, whose character map gives the Simplified Chinese forms.
 CJK_FACE_INDEX = 2
@@ -157,12 +225,24 @@ ENDONYM_FONT = "NotoSansCJKsc-Bold-Endonyms.otf"
 # The SHA-256 and character count of the cut the pinned fontTools makes.
 ENDONYM_SUBSET_SHA256 = "98c6b1f26c100411670f568efab9cd347633ccaf76875725d0b0043a2b05e41d"
 ENDONYM_SUBSET_CHARACTERS = 41
+# The Bengali endonym face: Noto Sans Bengali Bold cut to
+# tools/text-fonts/endonyms-bengali.txt, shaping tables and glyph ids kept.
+BENGALI_ENDONYM_LIST = ROOT / "tools" / "text-fonts" / "endonyms-bengali.txt"
+BENGALI_ENDONYM_FONT = "NotoSansBengali-Bold-Endonyms.ttf"
+# The SHA-256 and character count of the cut the pinned fontTools makes.
+BENGALI_ENDONYM_SUBSET_SHA256 = "4da39be94e3b3e5bbd57f9bdcf73f2a096ba4857a5c3cbfade8f07fb0681638f"
+BENGALI_ENDONYM_SUBSET_CHARACTERS = 32
 # The fixture face, cut from the test pack and kept beside the fonts folder.
 FIXTURE_PACK = ROOT / "src" / "data" / "languages" / "tests" / "fixture-packs" / "zh-Hans"
 FIXTURE_FILES = ("language.yaml", "translate.tdf", "units.tdf", "interface.tdf",
                  "pictures.tdf", "warmup.txt")
 FIXTURE_FONT = "NotoSansCJKsc-Bold-Fixture.otf"
 TEST_FONTS = "text-fonts-tests"
+# The shaping check's face, copied from the Bengali release into the tests
+# folder. cmake/OaTextFonts.cmake's OA_TEXT_FONT_TEST_FILES names it too.
+BENGALI_FONT = "NotoSansBengali-Bold.ttf"
+BENGALI_MEMBER = "NotoSansBengali/hinted/ttf/NotoSansBengali-Bold.ttf"
+BENGALI_FACE_SHA256 = "923c6a4c2eb618a57ed83f4bca855b4f5287b87906a4d9df40a2ffa8ebd8c2e8"
 # The SHA-256 and character count of the cut the pinned fontTools makes.
 FIXTURE_SUBSET_SHA256 = "3fc02fe3ac4b4700ff400a87e78dc1e024e5fa58ac6e5d25fb9c84befc753e1f"
 FIXTURE_SUBSET_CHARACTERS = 1271
@@ -172,10 +252,12 @@ ENDONYM_RECORDS = "text-fonts.records.json"
 # an archive, that must hold the same text.
 LICENCES = {
     "licenses/FreeType-FTL.txt": ("freetype", f"freetype-{FREETYPE_VERSION}/docs/FTL.TXT"),
+    "licenses/HarfBuzz-MIT.txt": ("harfbuzz", f"harfbuzz-{HARFBUZZ_VERSION}/COPYING"),
     "licenses/DejaVu-LICENSE.txt": ("dejavu", "dejavu-fonts-ttf-2.37/LICENSE"),
     "licenses/NotoSansCJK-OFL.txt": ("noto-cjk-licence", None),
     "licenses/NotoEmoji-OFL.txt": ("noto-emoji-licence", None),
     "licenses/Barlow-OFL.txt": ("barlow-licence", None),
+    "licenses/NotoSansBengali-OFL.txt": ("noto-bengali", "OFL.txt"),
 }
 FONTTOOLS_REQUIREMENTS = ROOT / "tools" / "text-fonts" / "requirements.txt"
 SETTINGS_FILE = "build-settings.json"
@@ -199,11 +281,72 @@ def freetype_source(deps):
     return source
 
 
+def extract_tar(archive, source):
+    """Unpacks a gzip or xz tarball whose top-level directory is source, unless source is present."""
+    if source.exists():
+        return
+    mode = "r:xz" if archive.name.endswith(".tar.xz") else "r:gz"
+    with tarfile.open(archive, mode) as bundle:
+        # Python releases without extraction filters (before 3.11.4, 3.10.12
+        # and 3.9.17) unpack every member as the archive gives it; the
+        # archive's SHA-256 is pinned, so its members are the release's own.
+        if hasattr(tarfile, "data_filter"):
+            bundle.extractall(source.parent, filter="data")
+        else:
+            bundle.extractall(source.parent)
+
+
+def harfbuzz_source(deps):
+    """The verified, extracted HarfBuzz source tree under deps."""
+    deps.mkdir(parents=True, exist_ok=True)
+    archive = deps / f"harfbuzz-{HARFBUZZ_VERSION}.tar.xz"
+    bootstrap_sdl.fetch_archive(archive, HARFBUZZ_URL, HARFBUZZ_SHA256)
+    source = deps / f"harfbuzz-{HARFBUZZ_VERSION}"
+    extract_tar(archive, source)
+    return source
+
+
+def freetype_library(install):
+    """The static FreeType library in an install prefix."""
+    for relative in ("lib/libfreetype.a", "lib/libfreetype.lib", "lib/freetype.lib", "lib64/libfreetype.a"):
+        path = install / relative
+        if path.is_file():
+            return path
+    raise RuntimeError(f"FreeType's library is not in {install}")
+
+
+def harfbuzz_cmake_options(freetype_install):
+    """CMake options that build HarfBuzz against one FreeType install prefix.
+
+    FindFreetype is given the headers and the library directly, so a cross
+    compile whose search is confined to a system image still finds them.
+    An existing CMAKE_PREFIX_PATH is kept after that prefix.
+    """
+    include = freetype_install / "include" / "freetype2"
+    library = freetype_library(freetype_install)
+    prefix = str(freetype_install)
+    existing = os.environ.get("CMAKE_PREFIX_PATH", "")
+    if existing:
+        # CMake's -D list is semicolon-separated. The environment's list is
+        # colons, except on Windows where it is already semicolons.
+        extra = existing if os.name == "nt" else existing.replace(":", ";")
+        prefix = prefix + ";" + extra
+    return [
+        f"-DCMAKE_PREFIX_PATH={prefix}",
+        f"-DFREETYPE_INCLUDE_DIR_ft2build={include}",
+        f"-DFREETYPE_INCLUDE_DIR_freetype2={include}",
+        f"-DFREETYPE_LIBRARY={library}",
+        *HARFBUZZ_OPTIONS,
+    ]
+
+
 def check_licences(deps):
     """Fails unless every licence text of licenses/ is the one its download holds."""
     for notice, (key, member) in LICENCES.items():
         if key == "freetype":
             text = (freetype_source(deps).parent / member).read_bytes()
+        elif key == "harfbuzz":
+            text = (harfbuzz_source(deps).parent / member).read_bytes()
         elif member is None:
             text = fetch(deps, key).read_bytes()
         else:
@@ -245,6 +388,25 @@ def build_freetype(deps, jobs):
     return install
 
 
+def build_harfbuzz(deps, jobs, freetype_install):
+    """Builds HarfBuzz for this machine into deps/harfbuzz-install-<release> unless it is current."""
+    install = deps / f"harfbuzz-install-{HARFBUZZ_VERSION}"
+    options = harfbuzz_cmake_options(freetype_install)
+    wanted = {"version": HARFBUZZ_VERSION, "sha256": HARFBUZZ_SHA256, "options": options,
+              "freetype": str(freetype_install)}
+    if is_current(install, [HARFBUZZ_INSTALLED], wanted):
+        return install
+    build = deps / f"harfbuzz-build-{HARFBUZZ_VERSION}"
+    shutil.rmtree(build, ignore_errors=True)
+    shutil.rmtree(install, ignore_errors=True)
+    subprocess.run(["cmake", "-S", str(harfbuzz_source(deps)), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release",
+                    f"-DCMAKE_INSTALL_PREFIX={install}", *options], check=True)
+    subprocess.run(["cmake", "--build", str(build), "--config", "Release", "--parallel", str(jobs)], check=True)
+    subprocess.run(["cmake", "--install", str(build), "--config", "Release"], check=True)
+    record(install, wanted)
+    return install
+
+
 def fonttools_python(deps):
     """The Python of the virtual environment that holds the pinned fontTools, made on first use."""
     environment = deps / "fonttools-venv"
@@ -261,20 +423,34 @@ def fonttools_python(deps):
     return python
 
 
-def cut_face(collection, face, unicodes, out):
+def cut_face(collection, face, unicodes, out, shaped=False):
     """Writes one face of a collection to out, cut to unicodes.
 
-    Layout tables are dropped, since the engine shapes nothing, and the
-    hinting kept; the font's modification time is left as it was, so the
-    output depends only on its input. The vertical metrics are kept, so a
-    cut of Noto Sans CJK SC Bold has the same rows as the face.
+    Layout tables are dropped, since the engine shapes those characters one
+    by one, and the hinting kept; the font's modification time is left as it
+    was, so the output depends only on its input. The vertical metrics are
+    kept, so a cut of Noto Sans CJK SC Bold has the same rows as the face.
+
+    A shaped cut is for a script whose letters join and change order. It
+    keeps GSUB, GPOS and GDEF, with every glyph those tables can reach from
+    the characters, and keeps each glyph at the id the full face gives it
+    (glyph names are dropped), so that HarfBuzz shapes a line with the cut to
+    the glyph ids and positions it gives with the full face.
     """
     from fontTools import subset
     from fontTools.ttLib import TTFont
 
     font = TTFont(collection, fontNumber=face, recalcTimestamp=False, lazy=False)
     options = subset.Options()
-    options.layout_features = []
+    if shaped:
+        options.layout_features = ["*"]
+        options.layout_scripts = ["*"]
+        options.retain_gids = True
+        options.glyph_names = False
+        # The meta table is dropped either way; saying so keeps fontTools quiet.
+        options.drop_tables = [*options.drop_tables, "meta"]
+    else:
+        options.layout_features = []
     options.name_IDs = ["*"]
     options.name_languages = ["*"]
     options.notdef_outline = True
@@ -365,6 +541,23 @@ def cut_endonym_face(collection, dejavu_bold, dejavu, out):
     print(f"{pathlib.Path(out).name}: {len(kept)} characters", flush=True)
 
 
+def cut_bengali_endonym_face(bengali, dejavu_bold, dejavu, out):
+    """Writes the Bengali endonym face to out, cut from Noto Sans Bengali Bold.
+
+    Reads the Bengali endonym list, the two sans fonts' character maps and the
+    Bengali face's own. Runs where fontTools is installed
+    (--cut-bengali-endonym-face).
+    """
+    kept = endonym_characters(endonym_lines(BENGALI_ENDONYM_LIST),
+                              (best_cmap(dejavu_bold), best_cmap(dejavu)),
+                              best_cmap(bengali))
+    if len(kept) != BENGALI_ENDONYM_SUBSET_CHARACTERS:
+        raise RuntimeError(f"the Bengali endonym face keeps {len(kept)} characters, "
+                           f"not {BENGALI_ENDONYM_SUBSET_CHARACTERS}")
+    cut_face(bengali, 0, kept, out, shaped=True)
+    print(f"{pathlib.Path(out).name}: {len(kept)} characters", flush=True)
+
+
 def write_over(path, data):
     """Writes data to path by renaming a temporary file over it."""
     part = path.with_name(path.name + ".part")
@@ -377,6 +570,13 @@ def endonym_record():
     return {"collection": DOWNLOADS["noto-cjk"][2],
             "fonttools": FONTTOOLS_REQUIREMENTS.read_text(),
             "list": hashlib.sha256(ENDONYM_LIST.read_bytes()).hexdigest()}
+
+
+def bengali_endonym_record():
+    """The Bengali endonym face's settings: the face it is cut from, fontTools and the list."""
+    return {"face": BENGALI_FACE_SHA256,
+            "fonttools": FONTTOOLS_REQUIREMENTS.read_text(),
+            "list": hashlib.sha256(BENGALI_ENDONYM_LIST.read_bytes()).hexdigest()}
 
 
 def fixture_lines():
@@ -491,6 +691,37 @@ def make_endonym_font(deps, fonts):
     write_records(deps, records)
 
 
+def make_bengali_endonym_font(deps, fonts):
+    """Makes the Bengali endonym face when it is missing or its record differs.
+
+    The cut is made from the Bengali test face, which is made first and
+    checked against its SHA-256.
+    """
+    wanted = bengali_endonym_record()
+    records = read_records(deps)
+    path = fonts / BENGALI_ENDONYM_FONT
+    if path.is_file() and records.get(BENGALI_ENDONYM_FONT) == wanted:
+        return
+    source = make_bengali_test_font(deps)
+    part = fonts / f"{BENGALI_ENDONYM_FONT}.part"
+    print(f"Writing {BENGALI_ENDONYM_FONT} (cut to Bengali's own name and the notice)", flush=True)
+    command = [str(fonttools_python(deps)), str(pathlib.Path(__file__).resolve()),
+               "--cut-bengali-endonym-face", str(source), str(fonts / "DejaVuSans-Bold.ttf"),
+               str(fonts / "DejaVuSans.ttf"), str(part)]
+    subprocess.run(command, check=True)
+    data = part.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    print(f"  {BENGALI_ENDONYM_FONT}: SHA-256 {digest}, {len(data)} bytes", flush=True)
+    if digest != BENGALI_ENDONYM_SUBSET_SHA256:
+        part.unlink()
+        raise RuntimeError(f"the Bengali endonym face has SHA-256 {digest}, "
+                           f"not the pinned {BENGALI_ENDONYM_SUBSET_SHA256}")
+    part.replace(path)
+    records = read_records(deps)
+    records[BENGALI_ENDONYM_FONT] = wanted
+    write_records(deps, records)
+
+
 def make_fixture_font(deps):
     """Makes the fixture face when it is missing or its record differs.
 
@@ -522,6 +753,34 @@ def make_fixture_font(deps):
     write_records(deps, records)
 
 
+def make_bengali_test_font(deps):
+    """Copies the Bengali Bold face into the tests folder when it is missing or its record differs.
+
+    The face is a shaping check's fixture and the Bengali endonym face's
+    source. It is never written into the fonts folder the game ships.
+
+    Returns the path of the copy.
+    """
+    wanted = {"download": DOWNLOADS["noto-bengali"][2], "member": BENGALI_MEMBER}
+    records = read_records(deps)
+    tests = deps / TEST_FONTS
+    tests.mkdir(parents=True, exist_ok=True)
+    path = tests / BENGALI_FONT
+    if path.is_file() and records.get(BENGALI_FONT) == wanted:
+        if hashlib.sha256(path.read_bytes()).hexdigest() == BENGALI_FACE_SHA256:
+            return path
+    with zipfile.ZipFile(fetch(deps, "noto-bengali")) as archive:
+        data = archive.read(BENGALI_MEMBER)
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != BENGALI_FACE_SHA256:
+        raise RuntimeError(f"the Bengali test face has SHA-256 {digest}, not the pinned {BENGALI_FACE_SHA256}")
+    write_over(path, data)
+    records = read_records(deps)
+    records[BENGALI_FONT] = wanted
+    write_records(deps, records)
+    return path
+
+
 def make_fonts(deps):
     """Puts the game's fonts in deps/text-fonts, adding a font that is missing or out of date.
 
@@ -539,21 +798,57 @@ def make_fonts(deps):
     for name, key in INTERFACE_FONTS:
         make_copied_font(deps, fonts, name, key)
     make_endonym_font(deps, fonts)
+    make_bengali_endonym_font(deps, fonts)
     make_fixture_font(deps)
+    make_bengali_test_font(deps)
     return fonts
 
 
+def check_endonym_list(path, minimum, what, failures):
+    """Adds to failures what is wrong with an endonym list.
+
+    The list must be there, UTF-8, free of tabs and hold at least `minimum`
+    different non-ASCII characters, the count its cut keeps.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        failures.append(f"the {what} list is missing")
+        raw = b""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        failures.append(f"the {what} list is not UTF-8")
+        text = ""
+    if b"\t" in raw:
+        failures.append(f"the {what} list holds a tab")
+    non_ascii = set()
+    for line in text.splitlines():
+        if line.startswith("#") or line.strip() == "":
+            continue
+        for character in line:
+            if ord(character) >= 128:
+                non_ascii.add(ord(character))
+    if len(non_ascii) < minimum:
+        failures.append(f"the {what} list holds {len(non_ascii)} non-ASCII characters, "
+                        f"fewer than {minimum}")
+
+
 def self_test():
-    """Checks the pins and the endonym list; returns the exit status."""
+    """Checks the pins and the endonym lists; returns the exit status."""
     failures = []
     pins = [("FreeType", FREETYPE_SHA256, FREETYPE_URL)]
+    pins += [("HarfBuzz", HARFBUZZ_SHA256, HARFBUZZ_URL)]
     pins += [(key, sha256, url) for key, (_, url, sha256) in DOWNLOADS.items()]
     pins += [("the endonym cut", ENDONYM_SUBSET_SHA256, "https://")]
+    pins += [("the Bengali endonym cut", BENGALI_ENDONYM_SUBSET_SHA256, "https://")]
     pins += [("the fixture cut", FIXTURE_SUBSET_SHA256, "https://")]
+    pins += [("the Bengali test face", BENGALI_FACE_SHA256, DOWNLOADS["noto-bengali"][1])]
     for what, sha256, url in pins:
         if not bootstrap_sdl.SHA256_RE.fullmatch(sha256) or not url.startswith("https://"):
             failures.append(f"the pin of {what} is malformed")
     for count, what in ((ENDONYM_SUBSET_CHARACTERS, "endonym"),
+                        (BENGALI_ENDONYM_SUBSET_CHARACTERS, "Bengali endonym"),
                         (FIXTURE_SUBSET_CHARACTERS, "fixture")):
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
             failures.append(f"the {what} character count is not a positive integer")
@@ -563,32 +858,13 @@ def self_test():
     if len(set(FONT_FILES)) != len(FONT_FILES):
         failures.append("a font is named twice")
     for notice, (key, _) in LICENCES.items():
-        if key != "freetype" and key not in DOWNLOADS:
+        if key not in ("freetype", "harfbuzz") and key not in DOWNLOADS:
             failures.append(f"{notice} names no download")
         if not (ROOT / notice).is_file():
             failures.append(f"{notice} is missing")
-    try:
-        raw = ENDONYM_LIST.read_bytes()
-    except OSError:
-        failures.append("the endonym list is missing")
-        raw = b""
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        failures.append("the endonym list is not UTF-8")
-        text = ""
-    if b"\t" in raw:
-        failures.append("the endonym list holds a tab")
-    non_ascii = set()
-    for line in text.splitlines():
-        if line.startswith("#") or line.strip() == "":
-            continue
-        for character in line:
-            if ord(character) >= 128:
-                non_ascii.add(ord(character))
-    if len(non_ascii) < ENDONYM_SUBSET_CHARACTERS:
-        failures.append(f"the endonym list holds {len(non_ascii)} non-ASCII characters, "
-                        f"fewer than {ENDONYM_SUBSET_CHARACTERS}")
+    check_endonym_list(ENDONYM_LIST, ENDONYM_SUBSET_CHARACTERS, "endonym", failures)
+    check_endonym_list(BENGALI_ENDONYM_LIST, BENGALI_ENDONYM_SUBSET_CHARACTERS, "Bengali endonym",
+                       failures)
     for failure in failures:
         print(f"bootstrap_text_fonts self-test: {failure}")
     if failures:
@@ -604,11 +880,13 @@ def main(argv=None):
                         help="archive, source and build cache (default: local/deps)")
     parser.add_argument("--jobs", type=int, default=8)
     parser.add_argument("--fonts-only", action="store_true",
-                        help="make the fonts and build no FreeType (for builds that bring their own)")
+                        help="make the fonts and the test faces, and build no FreeType or HarfBuzz")
     parser.add_argument("--self-test", action="store_true",
-                        help="check the pins and the endonym list, and exit")
+                        help="check the pins and the endonym lists, and exit")
     parser.add_argument("--cut-endonym-face", nargs=4,
                         metavar=("COLLECTION", "DEJAVU_BOLD", "DEJAVU", "OUT"), help=argparse.SUPPRESS)
+    parser.add_argument("--cut-bengali-endonym-face", nargs=4,
+                        metavar=("BENGALI", "DEJAVU_BOLD", "DEJAVU", "OUT"), help=argparse.SUPPRESS)
     parser.add_argument("--cut-fixture-face", nargs=4,
                         metavar=("COLLECTION", "DEJAVU_BOLD", "DEJAVU", "OUT"), help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -616,6 +894,9 @@ def main(argv=None):
         return self_test()
     if args.cut_endonym_face:
         cut_endonym_face(*args.cut_endonym_face)
+        return 0
+    if args.cut_bengali_endonym_face:
+        cut_bengali_endonym_face(*args.cut_bengali_endonym_face)
         return 0
     if args.cut_fixture_face:
         cut_fixture_face(*args.cut_fixture_face)
@@ -626,6 +907,8 @@ def main(argv=None):
     if not args.fonts_only:
         install = build_freetype(deps, args.jobs)
         print(f"FreeType {FREETYPE_VERSION} ready in {install}")
+        harfbuzz = build_harfbuzz(deps, args.jobs, install)
+        print(f"HarfBuzz {HARFBUZZ_VERSION} ready in {harfbuzz}")
     fonts = make_fonts(deps)
     for name in FONT_FILES:
         print(f"  {name}: {(fonts / name).stat().st_size} bytes")

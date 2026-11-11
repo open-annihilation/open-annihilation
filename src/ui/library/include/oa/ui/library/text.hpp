@@ -9,6 +9,7 @@
 #pragma once
 
 #include "oa/base/sha256.hpp"
+#include "oa/data/replays/share.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/ui/library/library.hpp"
 
@@ -893,6 +894,423 @@ inline constexpr std::string_view mod_unloaded_note =
 inline constexpr std::string_view active_command_line_needs =
     "The command line chose this run's mod, which needs {names}.";
 
+// The Replays section.
+inline constexpr std::string_view tab_replays = "Replays";
+/// The Replays section's filters.
+inline constexpr std::string_view replay_filter_this_month = "This month";
+inline constexpr std::string_view replay_filter_older = "Older";
+inline constexpr std::string_view replay_filter_kept = "Kept";
+inline constexpr std::string_view replay_filter_imported = "Imported";
+/// The kind menu: every kind, and the engine's own three.
+inline constexpr std::string_view replay_kind_all = "All kinds";
+inline constexpr std::string_view replay_kind_multiplayer = "Multiplayer";
+inline constexpr std::string_view replay_kind_skirmish = "Skirmish";
+inline constexpr std::string_view replay_kind_campaign = "Campaign";
+/// The sort menu.
+inline constexpr std::string_view replay_sort_newest = "Newest first";
+inline constexpr std::string_view replay_sort_longest = "Longest first";
+inline constexpr std::string_view replay_sort_map = "By map";
+inline constexpr std::string_view replay_sort_players = "Most players first";
+inline constexpr std::string_view search_replays = "Search replays";
+/// The days the list is grouped by. `{weekday}`, `{day}`, `{month}` and
+/// `{year}` are the words and digits below.
+inline constexpr std::string_view replay_today = "Today";
+inline constexpr std::string_view replay_yesterday = "Yesterday";
+inline constexpr std::string_view replay_day = "{weekday} {day} {month}";
+inline constexpr std::string_view replay_day_year = "{weekday} {day} {month} {year}";
+inline constexpr std::string_view weekday_monday = "Mon";
+inline constexpr std::string_view weekday_tuesday = "Tue";
+inline constexpr std::string_view weekday_wednesday = "Wed";
+inline constexpr std::string_view weekday_thursday = "Thu";
+inline constexpr std::string_view weekday_friday = "Fri";
+inline constexpr std::string_view weekday_saturday = "Sat";
+inline constexpr std::string_view weekday_sunday = "Sun";
+inline constexpr std::string_view month_january = "Jan";
+inline constexpr std::string_view month_february = "Feb";
+inline constexpr std::string_view month_march = "Mar";
+inline constexpr std::string_view month_april = "Apr";
+inline constexpr std::string_view month_may = "May";
+inline constexpr std::string_view month_june = "Jun";
+inline constexpr std::string_view month_july = "Jul";
+inline constexpr std::string_view month_august = "Aug";
+inline constexpr std::string_view month_september = "Sep";
+inline constexpr std::string_view month_october = "Oct";
+inline constexpr std::string_view month_november = "Nov";
+inline constexpr std::string_view month_december = "Dec";
+/// Two or three players on a row: "Varn vs Kestrel".
+inline constexpr std::string_view replay_versus = "{left} vs {right}";
+/// More than three players on a row, as a map's players read.
+inline constexpr std::string_view replay_players_many = active_players_many;
+/// A kind and the planet its battle was on: "Outpost · Corvane".
+inline constexpr std::string_view replay_kind_planet = "{kind} · {planet}";
+/// The card's subtitle with the sector as well: "Outpost · Corvane, Low Reach".
+inline constexpr std::string_view replay_kind_place = "{kind} · {planet}, {sector}";
+/// A row's parts, joined in its reading and in the card's lines.
+inline constexpr std::string_view replay_joined = "{left} · {right}";
+/// The chip on a replay finished after the game stopped.
+inline constexpr std::string_view replay_after_crash = "After a crash";
+/// The grey chip, and the row's reading, while the index pass has not read it.
+inline constexpr std::string_view replay_reading_now = "Reading…";
+/// The recording machine's player won.
+inline constexpr std::string_view replay_won = "Won";
+/// The recording machine's player lost.
+inline constexpr std::string_view replay_lost = "Lost";
+/// One unit destroyed, on the card.
+inline constexpr std::string_view replay_kill_one = "1 kill";
+/// Units destroyed, on the card. `{kills}` is a whole number other than one.
+inline constexpr std::string_view replay_kills_many = "{kills} kills";
+/// One unit lost, on the card.
+inline constexpr std::string_view replay_loss_one = "1 loss";
+/// Units lost, on the card. `{losses}` is a whole number other than one.
+inline constexpr std::string_view replay_losses_many = "{losses} losses";
+/// Under the card's buttons, once a Watch was left part way. `{time}` is the
+/// time into the replay, as the length is written.
+inline constexpr std::string_view replay_watched_to = "Watched to {time}";
+/// The chip on a replay whose file does not read.
+inline constexpr std::string_view replay_damaged = "Damaged";
+/// A kept replay's star, as its row reads.
+inline constexpr std::string_view replay_kept_mark = "Kept";
+/// The details card's facts.
+inline constexpr std::string_view replay_fact_length = "Length";
+inline constexpr std::string_view replay_fact_recorded = "Recorded";
+inline constexpr std::string_view replay_fact_mod = "Mod";
+inline constexpr std::string_view replay_fact_expansions = "Expansions";
+inline constexpr std::string_view replay_fact_mutators = "Mutators";
+inline constexpr std::string_view replay_fact_file = "File";
+inline constexpr std::string_view replay_fact_kept_until = "Kept until";
+inline constexpr std::string_view replay_fact_kept = "Kept";
+/// Kept's value: the player keeps it.
+inline constexpr std::string_view replay_kept_always = "Until you delete it";
+/// Kept's value on a replay opened from outside.
+inline constexpr std::string_view replay_kept_imported = "Imported replays are kept";
+/// Kept's value on a replay downloaded from Core Prime.
+inline constexpr std::string_view replay_kept_downloaded = "Downloaded replays are kept";
+/// Kept's value on a replay the player exported.
+inline constexpr std::string_view replay_kept_exported = "Exported replays are kept";
+/// A fact with nothing to name: no mod, no expansion, no mutator.
+inline constexpr std::string_view replay_none = "None";
+/// Who recorded a replay, as the card names the program: "Open Annihilation
+/// 0.8.14". A `.oademo` holds the program's identifier; the card does not show it.
+inline constexpr std::string_view replay_program = "Open Annihilation {version}";
+/// A mod with its revision: "Ridge 2.8 (rev 1)".
+inline constexpr std::string_view replay_mod_revision = "{mod} (rev {revision})";
+/// The players' sides on the card.
+inline constexpr std::string_view replay_side_arm = "Arm";
+inline constexpr std::string_view replay_side_core = "Core";
+inline constexpr std::string_view replay_side_watcher = "Watcher";
+/// The card's buttons.
+inline constexpr std::string_view action_watch = "Watch";
+/// The card's button that continues a Watch. `{time}` is where it was left.
+inline constexpr std::string_view action_watch_from = "Watch from {time}";
+inline constexpr std::string_view action_keep = "Keep";
+inline constexpr std::string_view action_kept = "Kept";
+inline constexpr std::string_view action_turn_on_recording = "Turn on recording";
+/// The empty section's button, and the Imported filter's while it shows none.
+inline constexpr std::string_view action_open_replay_file = "Open a replay file…";
+/// Delete on the card. The word Delete is the Delete key, so this one is its own.
+inline constexpr std::string_view action_delete_replay = "Delete replay";
+/// The confirm beside Delete, for the one replay the card shows.
+inline constexpr std::string_view action_delete_it = "Delete it";
+/// The confirm beside Delete, when several replays are marked.
+inline constexpr std::string_view action_delete_them = "Delete them";
+/// The card while several replays are marked: Keep acts on all of them.
+inline constexpr std::string_view replays_marked = "{count} replays selected";
+/// The card on a damaged replay, above the reason.
+inline constexpr std::string_view replay_cannot_watch = "This replay cannot be watched.";
+/// The card when Delete could not move the one replay it asked about.
+inline constexpr std::string_view replay_trash_refused =
+    "This replay could not be moved to the trash.";
+/// The card when Delete could not move several marked replays. `{count}` is how many stayed.
+inline constexpr std::string_view replay_trash_refused_many =
+    "{count} replays could not be moved to the trash.";
+/// The empty section.
+inline constexpr std::string_view replays_none_yet = "No replays yet.";
+inline constexpr std::string_view replays_kept_days = "Games you play are kept here for 30 days.";
+inline constexpr std::string_view replays_kept_90_days =
+    "Games you play are kept here for 90 days.";
+inline constexpr std::string_view replays_kept_year = "Games you play are kept here for a year.";
+inline constexpr std::string_view replays_kept_forever =
+    "Games you play are kept here until you delete them.";
+/// The question the first time old replays would go.
+inline constexpr std::string_view replay_retention_title = "Old replays";
+inline constexpr std::string_view replay_retention_keep_all = "Keep them all";
+inline constexpr std::string_view replay_retention_let_go = "Let them go";
+inline constexpr std::string_view replay_retention_one =
+    "1 replay is older than you asked to keep. It goes to the system's trash.";
+inline constexpr std::string_view replay_retention_many =
+    "{count} replays are older than you asked to keep. They go to the system's trash.";
+inline constexpr std::string_view replay_retention_one_removed =
+    "1 replay is older than you asked to keep. It is deleted. This system has no trash.";
+inline constexpr std::string_view replay_retention_many_removed =
+    "{count} replays are older than you asked to keep. They are deleted. This system has no trash.";
+inline constexpr std::string_view replays_recording_off = "Recording is off.";
+inline constexpr std::string_view replays_none_this_month = "No replays from this month.";
+inline constexpr std::string_view replays_none_older = "No older replays.";
+inline constexpr std::string_view replays_none_kept = "No replays kept.";
+inline constexpr std::string_view replays_none_imported = "No replays imported.";
+inline constexpr std::string_view replays_none_kind = "No replays of this kind.";
+/// The section and the footer while the folder is read and its files are not
+/// yet counted: the section shows it in place of "No replays yet.".
+inline constexpr std::string_view replays_reading_folder = "Reading the replays…";
+/// The footer while the folder is read, and again while the index pass reads
+/// the replays that folder listed. `{read}` is how many are done, `{total}`
+/// how many there are.
+inline constexpr std::string_view replays_reading = "Reading {read} of {total} replays";
+/// The footer otherwise: how many the list shows, and their size.
+inline constexpr std::string_view replays_count_one = "1 replay · {size}";
+inline constexpr std::string_view replays_count_many = "{count} replays · {size}";
+/// The amber chip on a replay that needs a mod.
+inline constexpr std::string_view replay_needs_release = "Needs {name} {version}";
+/// The amber chip on a replay that needs a map pack.
+inline constexpr std::string_view replay_needs_map = "Needs map";
+/// The amber chip on a replay that needs a mutator.
+inline constexpr std::string_view replay_needs_mutator = "Needs mutator";
+/// The amber chip on a replay that needs an expansion. The same words name
+/// an expansion elsewhere. The chip has no full stop.
+inline constexpr std::string_view replay_needs_name = "Needs {name}";
+/// The card's sentence for an expansion. The chip keeps the words without the stop.
+inline constexpr std::string_view replay_needs_name_sentence = "Needs {name}.";
+/// The amber chip on a replay this build is too old for.
+inline constexpr std::string_view replay_needs_version = "Needs {version}";
+/// The card when the mod is not installed and the note names no version.
+inline constexpr std::string_view replay_recorded_with_name =
+    "This replay was recorded with {name}.";
+/// The card when the mod is not installed.
+inline constexpr std::string_view replay_recorded_with =
+    "This replay was recorded with {name} {version}.";
+/// The card when that recording names a revision.
+inline constexpr std::string_view replay_recorded_with_rev =
+    "This replay was recorded with {name} {version} (rev {revision}).";
+/// The card when another release is installed and the note names no version.
+inline constexpr std::string_view replay_recorded_have_name =
+    "This replay was recorded with {name}. You have {have}.";
+/// The card when another release of that mod is installed.
+inline constexpr std::string_view replay_recorded_have =
+    "This replay was recorded with {name} {version}. You have {have}.";
+/// The card when that recording names a revision and another release is installed.
+inline constexpr std::string_view replay_recorded_have_rev =
+    "This replay was recorded with {name} {version} (rev {revision}). You have {have}.";
+/// The card when a map from a pack is not installed.
+inline constexpr std::string_view replay_needs_the_map = "Needs the map {name}.";
+/// The pack that map comes from.
+inline constexpr std::string_view replay_from_pack = "From the map pack {pack}.";
+/// The card when another release of that map pack is installed.
+inline constexpr std::string_view replay_other_map_release =
+    "This replay was recorded with another release of the map pack {name}.";
+/// The card when a mutator is not installed.
+inline constexpr std::string_view replay_needs_the_mutator = "Needs the mutator {name}.";
+/// The card when this build is older than the replay needs.
+inline constexpr std::string_view replay_needs_program = "Needs Open Annihilation {version}.";
+/// The card while a package for this replay is being fetched.
+inline constexpr std::string_view replay_getting = "Getting {name}… {percent}%";
+/// Watch when one mod has to be fetched.
+inline constexpr std::string_view replay_get_release = "Get {name} {version} and watch";
+/// Watch when one map, mutator or expansion has to be fetched.
+inline constexpr std::string_view replay_get_it = "Get it and watch";
+/// Watch when more than one package has to be fetched.
+inline constexpr std::string_view replay_get_them = "Get them and watch";
+/// Watch when an expansion is installed and off.
+inline constexpr std::string_view replay_turn_on = "Turn on and watch";
+/// The same words as Settings. Listed here because the card's button says them.
+inline constexpr std::string_view replay_check_updates = "Check for updates";
+/// The card when the package is not in the catalogue that was read.
+/// `{registry}` is Core Prime, or the registry's own name.
+inline constexpr std::string_view replay_not_in_catalogue =
+    "{name} {version} is not in {registry}'s catalogue.";
+/// The same sentence when the note names no version.
+inline constexpr std::string_view replay_not_in_catalogue_name =
+    "{name} is not in {registry}'s catalogue.";
+/// The switch above the Replays list.
+inline constexpr std::string_view core_on_computer = "On this computer";
+inline constexpr std::string_view core_on_prime = "On Core Prime";
+/// Core Prime's filters. Latest is fact_latest.
+inline constexpr std::string_view core_longest = "Longest";
+inline constexpr std::string_view core_most_downloaded = "Popular";
+inline constexpr std::string_view core_by_planet = "By planet";
+/// The empty section, when Recordings has no replay.
+inline constexpr std::string_view core_browse = "Browse Core Prime's replays";
+/// Core Prime's list, while it is read and no row has come.
+inline constexpr std::string_view core_reading = "Reading Core Prime's replays…";
+/// The list when the answer could not be read.
+inline constexpr std::string_view core_list_unreadable = "Core Prime's list cannot be read.";
+/// The list when Core Prime says its replays are not available.
+inline constexpr std::string_view core_replays_unavailable =
+    "Core Prime's replays are not available just now.";
+/// The list when Core Prime could not be reached.
+inline constexpr std::string_view core_offline = "Core Prime cannot be reached.";
+/// The list when the filter matches nothing.
+inline constexpr std::string_view core_none = "Core Prime has no replays to show.";
+inline constexpr std::string_view core_none_planet = "No replays for this planet.";
+/// The footer.
+inline constexpr std::string_view core_count_one = "1 replay";
+inline constexpr std::string_view core_count_many = "{count} replays";
+/// DOWNLOAD while the file is coming.
+inline constexpr std::string_view core_getting_replay = "Getting the replay…";
+/// The card when the file's SHA-256 is not the one the list named.
+inline constexpr std::string_view core_file_differs = "The file does not match the replay.";
+/// DOWNLOAD once the file is in Recordings. The button is disabled.
+inline constexpr std::string_view core_downloaded = "Downloaded";
+/// The card when the list names no `.oademo` to fetch.
+inline constexpr std::string_view core_replay_no_file = "The replay names no file.";
+/// The card when the file could not be written.
+inline constexpr std::string_view core_replay_not_saved = "The replay could not be saved.";
+/// The card while a 429 asks the player to wait. `{seconds}` is the wait.
+inline constexpr std::string_view core_try_again = "Try again in {seconds} s.";
+/// The card when a check expired before it was passed.
+inline constexpr std::string_view core_check_expired =
+    "The check ran out. Try again for a new code.";
+/// The card while a check is waiting. `{address}` is the page, `{code}` the code.
+inline constexpr std::string_view core_enter_code = "Go to {address} and enter {code}.";
+/// The card when the registry could not be reached.
+inline constexpr std::string_view replay_offline = "You're offline.";
+/// The card's second offline sentence.
+inline constexpr std::string_view replay_offline_get =
+    "Get {name} {version} when you're back online.";
+/// The same sentence when the note names no version.
+inline constexpr std::string_view replay_offline_get_name = "Get {name} when you're back online.";
+/// EXPORT… on the card.
+inline constexpr std::string_view action_export = "Export…";
+/// The dialog's confirm, and its title when nothing is selected.
+inline constexpr std::string_view export_confirm = "Export";
+/// The dialog's title when one replay is chosen. `{name}` is its title.
+inline constexpr std::string_view export_title = "Export {name}";
+/// The dialog's title when several replays are chosen.
+inline constexpr std::string_view export_count = "Export {count} replays";
+/// The `.oademo` choice. The extension is part of the name.
+inline constexpr std::string_view export_oademo = "Open Annihilation replay (.oademo)";
+/// The mark beside that choice.
+inline constexpr std::string_view export_recommended = "Recommended";
+/// What a `.oademo` holds.
+inline constexpr std::string_view export_oademo_about =
+    "Everything needed to watch it: the recording, and the game, mod and map it needs";
+/// The `.tad` choice. The product name stays, and the extension is part of it.
+inline constexpr std::string_view export_tad = "TA Demo Recorder (.tad)";
+/// What a `.tad` is for.
+inline constexpr std::string_view export_tad_about = "For TA Demo Recorder and other replayers";
+/// The heading over the sectors box.
+inline constexpr std::string_view export_include = "What to include";
+/// The sectors box. On by default, and only for a `.tad`.
+inline constexpr std::string_view export_oa_sectors = "What only Open Annihilation reads";
+/// The heading over the warnings. Only for a `.tad`.
+inline constexpr std::string_view export_compatibility = "Compatibility";
+/// A named mutator.
+inline constexpr std::string_view export_mutator =
+    "It was played with the mutator {name}. Other replayers cannot apply it, so commanders may not "
+    "last as they did.";
+/// Mutators the recording does not name.
+inline constexpr std::string_view export_mutators =
+    "It was played with mutators. Other replayers cannot apply them, so commanders may not last as "
+    "they did.";
+/// A wide weapon record.
+inline constexpr std::string_view export_wide =
+    "Other replayers stop at the first of this mod's wide weapon records.";
+/// A name cut to 63 bytes.
+inline constexpr std::string_view export_names = "Names longer than 63 letters are cut.";
+/// A status datagram cut to 512 bytes.
+inline constexpr std::string_view export_status = "A player's status is cut to 512 bytes.";
+/// While the files are written, when there are several.
+inline constexpr std::string_view export_progress = "Exporting {done} of {total}";
+/// While one recording is compressed. The size follows, as `progress_text` writes it.
+inline constexpr std::string_view export_compressing = "Compressing the recording";
+/// While one file is copied into place. `{name}` is the file, extension included.
+/// The size follows, as `progress_text` writes it.
+inline constexpr std::string_view export_writing = "Writing {name}";
+/// A size that is not known yet.
+inline constexpr std::string_view export_measuring = "Measuring…";
+/// After they are written. `{folder}` is the folder.
+inline constexpr std::string_view export_saved = "Saved to {folder}";
+/// SHOW IN FOLDER, after the files are written.
+inline constexpr std::string_view export_show = "Show in folder";
+/// The dialog with nothing selected.
+inline constexpr std::string_view export_none =
+    "Nothing is selected. Choose a replay, then export it.";
+/// A file that could not be written, when the reason is not one named below.
+inline constexpr std::string_view export_failed = "The export could not be written.";
+/// The folder has no room left. `{folder}` is the folder the dialog shows.
+inline constexpr std::string_view export_no_room = "There is no room in {folder}.";
+/// The folder refused the write. `{folder}` is the folder the dialog shows.
+inline constexpr std::string_view export_cannot_write =
+    "Open Annihilation cannot write to {folder}.";
+/// Some files were written before one could not be. `{done}` and `{total}` are counts.
+inline constexpr std::string_view export_saved_some = "Saved {done} of {total}.";
+/// A replay that could not be read, so it is not offered as a write that failed.
+inline constexpr std::string_view export_unreadable =
+    "This replay cannot be read, so it cannot be exported.";
+/// The title of the system's folder dialog.
+inline constexpr std::string_view export_choose_folder = "Choose a folder";
+/// The chooser's next page of folders.
+inline constexpr std::string_view export_more_folders = "More folders";
+/// The chooser's previous page of folders.
+inline constexpr std::string_view export_previous_folders = "Previous folders";
+/// The next page of compatibility warnings.
+inline constexpr std::string_view export_more_warnings = "More warnings";
+/// The previous page of compatibility warnings.
+inline constexpr std::string_view export_previous_warnings = "Previous warnings";
+/// Words already in the catalogue, looked up here and not listed again.
+inline constexpr std::string_view export_choose = "Choose…";
+inline constexpr std::string_view export_downloads = "Downloads";
+inline constexpr std::string_view export_up = "Up";
+inline constexpr std::string_view export_use_folder = "Use this folder";
+
+/// SIGN IN beside the source switch, and in the question.
+inline constexpr std::string_view action_sign_in = "Sign in";
+/// SIGN OUT beside the source switch.
+inline constexpr std::string_view action_sign_out = "Sign out";
+/// The sign-in question's title.
+inline constexpr std::string_view sign_in_title = "Sign in to Core Prime";
+/// The handle field.
+inline constexpr std::string_view sign_in_handle = "Handle";
+/// The password field.
+inline constexpr std::string_view sign_in_password = "Password";
+/// The line under the fields, until a sentence replaces it.
+inline constexpr std::string_view sign_in_forgot = "Forgot it? Reset it at coreprime.net/forgot";
+/// The line under the source switch when this system cannot send a password over TLS.
+inline constexpr std::string_view sign_in_needs_secure =
+    "Signing in needs a secure connection, which this system does not have.";
+/// SHARE ON CORE PRIME… on the card.
+inline constexpr std::string_view action_share = "Share on Core Prime…";
+/// SHARE MY OWN RECORDING, once Core Prime already lists the battle.
+inline constexpr std::string_view action_share_own = "Share my own recording";
+/// OPEN ON CORE PRIME.
+inline constexpr std::string_view action_open_shared = "Open on Core Prime";
+/// SHARE in the question.
+inline constexpr std::string_view share_confirm = "Share";
+/// The share question's title.
+inline constexpr std::string_view share_title = "Share on Core Prime";
+/// The title field.
+inline constexpr std::string_view share_title_label = "Title";
+/// Who can see a share, offered first.
+inline constexpr std::string_view share_public = "Public";
+/// Who can see a share the player does not list.
+inline constexpr std::string_view share_unlisted = "Unlisted";
+/// My battles, Core Prime's filter for the signed-in player.
+inline constexpr std::string_view core_my_battles = "My battles";
+/// What the player sees when a share is accepted.
+inline constexpr std::string_view share_shared = oa::data::replays::shared_on_core_prime;
+/// What the player sees when that replay is already there.
+inline constexpr std::string_view share_already = oa::data::replays::already_on_core_prime;
+/// What a signed-out share is told.
+inline constexpr std::string_view share_sign_in_again = oa::data::replays::sign_in_to_share;
+/// What an account that cannot share is told.
+inline constexpr std::string_view share_account = oa::data::replays::account_cannot_share;
+/// What a player who was not in the battle is told.
+inline constexpr std::string_view share_not_in_battle =
+    oa::data::replays::only_a_player_can_replace;
+/// What a file past the limit is told.
+inline constexpr std::string_view share_too_large = oa::data::replays::replay_larger_than_the_limit;
+/// What an account that has shared enough for one day is told.
+inline constexpr std::string_view share_today = oa::data::replays::shared_for_today;
+/// What the player sees when uploads are off.
+inline constexpr std::string_view share_uploads_off = oa::data::replays::uploads_not_available;
+/// What the player sees when a login is accepted and names no session.
+inline constexpr std::string_view sign_in_no_session = oa::data::replays::session_not_started;
+/// What the player sees when a share's answer is empty or not the error object.
+inline constexpr std::string_view share_no_answer = oa::data::replays::share_not_answered;
+/// The sign-in question while the login is in flight.
+inline constexpr std::string_view sign_in_busy = "Signing in…";
+/// The share question while the upload is in flight.
+inline constexpr std::string_view share_busy = "Sharing…";
+
 } // namespace words
 
 /// One place of a pattern and its value.
@@ -1240,7 +1658,9 @@ void apply_map_fact(
 
 /// Returns a registry's avatar: the first letters of its first three words
 /// when its name has two or more, or the first two letters of its one word,
-/// in upper case.
+/// in upper case. While the interface is Turkish or Azerbaijani, a small i
+/// becomes İ and a small ı becomes I. Every other language capitalises a
+/// to z only.
 ///
 /// @param name the registry's name, in UTF-8
 /// @return at most three characters

@@ -7,6 +7,8 @@
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/window_surface.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/platform/screen_reader.hpp"
+#include "photo_state.hpp"
 #include "oa/app/game_directory.hpp"
 #include "graphics_report.hpp"
 #include "oa_layer.hpp"
@@ -34,6 +36,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -193,13 +196,22 @@ void Runtime::apply_output_mode() {
         scaled_frame_width_ = scaled.x;
         scaled_frame_height_ = scaled.y;
         const auto laid_out = match_layout_;
-        match_layout_ = make_window_match_layout(width, height, window_width, window_height, safe);
+        // The play layout at this size. Photo mode shows the battlefield
+        // alone, and keeps this play layout to put back on leaving, so a
+        // resize does not restore the size the window had on entering.
+        auto play_layout =
+            make_window_match_layout(width, height, window_width, window_height, safe);
         // The side column narrows to the game's tallest unit page; a phone
         // layout has none.
-        match_layout_ =
-            oa::ui::display_layout::fit_side_column(match_layout_, side_column_page_rows());
+        play_layout = oa::ui::display_layout::fit_side_column(play_layout, side_column_page_rows());
         // ui.resource-panel's clock line may need the chrome smaller.
-        match_layout_ = make_room_for_clock_line(match_layout_);
+        play_layout = make_room_for_clock_line(play_layout);
+        if (photo_mode()) {
+            photo_->layout = play_layout;
+            match_layout_ = oa::ui::display_layout::make_battlefield_layout(width, height);
+        } else {
+            match_layout_ = play_layout;
+        }
         // On a phone the HUD's pieces are placed for this canvas.
         refresh_placed_hud_regions();
         // On a screen of another size the pointer's place is known again
@@ -369,14 +381,26 @@ void Runtime::initialize_sdl() {
         watch_opened_files();
         // A window the runtime makes itself has no renderer host, and opens
         // at the window system's density.
+        oa::platform::screen_reader::Preference reader_mode =
+            oa::platform::screen_reader::Preference::automatic;
+        {
+            static const std::string reader_key{oa::platform::screen_reader::preference_key};
+            const auto reader = preference_values_.find(reader_key);
+            if (reader != preference_values_.end())
+                reader_mode = oa::platform::screen_reader::preference_of(reader->second);
+        }
         sdl_.window = SDL_CreateWindow(
             "Open Annihilation",
             kDefaultWindowWidth,
             kDefaultWindowHeight,
-            game_window_flags(options_.start_full_screen, false)
+            screen_reader_window_flags(
+                game_window_flags(options_.start_full_screen, false),
+                screen_reader_hides_window(reader_mode)
+            )
         );
         if (sdl_.window == nullptr)
             throw std::runtime_error(std::string("SDL_CreateWindow: ") + SDL_GetError());
+        attach_screen_reader_and_show(sdl_.window, reader_mode);
         sdl_.renderer = SDL_CreateRenderer(sdl_.window, nullptr);
         if (sdl_.renderer == nullptr)
             throw std::runtime_error(std::string("SDL_CreateRenderer: ") + SDL_GetError());
@@ -799,12 +823,16 @@ void Runtime::compose_match_layers(renderer::Surface& frame) {
     frame.width = static_cast<uint32_t>(match_layout_.width);
     frame.height = static_cast<uint32_t>(match_layout_.height);
     frame.rgb.assign(static_cast<std::size_t>(frame.width) * frame.height * 3U, 0);
-    if (match_hud_cpu_.rgb.empty() || match_world_cpu_.rgb.empty())
+    // Photo mode keeps the world and leaves the HUD layer empty.
+    const bool photo_bare =
+        photo_mode() && match_hud_cpu_.rgb.empty() && !match_world_cpu_.rgb.empty();
+    if ((match_hud_cpu_.rgb.empty() || match_world_cpu_.rgb.empty()) && !photo_bare)
         return;
-    PhoneHudAccess::prepare_frame(*this);
+    if (!photo_bare)
+        PhoneHudAccess::prepare_frame(*this);
     // In placed mode the HUD's pieces go over the full-bleed battlefield.
     const bool placed = oa::ui::display_layout::placed_mode(match_layout_);
-    if (!placed)
+    if (!placed && !photo_bare)
         for (const auto& strip : match_hud_strips())
             if (strip.w > 0 && strip.h > 0 && strip.source_w > 0 && strip.source_h > 0)
                 scale_blit(
@@ -829,9 +857,9 @@ void Runtime::compose_match_layers(renderer::Surface& frame) {
         static_cast<int>(match_world_cpu_.width),
         static_cast<int>(match_world_cpu_.height)
     );
-    if (placed)
+    if (placed && !photo_bare)
         PhoneHudAccess::blit_regions(*this, frame);
-    if (!match_dialog_side_.rgb.empty() && placed_panel_area())
+    if (!photo_bare && !match_dialog_side_.rgb.empty() && placed_panel_area())
         blit_rect(
             frame,
             match_dialog_side_,
@@ -846,15 +874,22 @@ void Runtime::compose_match_layers(renderer::Surface& frame) {
 
 void Runtime::compose_match_frame(renderer::Surface& frame) {
     compose_match_layers(frame);
-    if (match_hud_cpu_.rgb.empty() || match_world_cpu_.rgb.empty())
+    const bool photo_bare =
+        photo_mode() && match_hud_cpu_.rgb.empty() && !match_world_cpu_.rgb.empty();
+    if ((match_hud_cpu_.rgb.empty() || match_world_cpu_.rgb.empty()) && !photo_bare)
         return;
     const auto pixels = static_cast<std::size_t>(frame.width) * frame.height;
     apply_gamma_rgb(frame.rgb.data(), pixels, 3);
     // The touch controls go over the world and the HUD, under the settings
     // and the dialogs; the placed regions over the touch controls' sheets.
-    compose_touch_layer(frame);
-    compose_placed_hud_regions(frame);
+    // Photo mode draws the photo line over the battlefield and nothing else.
+    if (!photo_bare) {
+        compose_touch_layer(frame);
+        compose_placed_hud_regions(frame);
+    }
     oa_layer().compose_match(frame);
+    if (photo_bare)
+        return;
     if (!match_use_layers_ || oa::ui::frontend_dialogs::dialog_count() == 0 ||
         match_dialog_rgba_.size() != pixels * 4U)
         return;
@@ -904,9 +939,111 @@ bool Runtime::compose_match_dialog_layer() {
     return true;
 }
 
-void Runtime::present_match_layers() {
-    if (match_hud_cpu_.rgb.empty() || match_world_cpu_.rgb.empty())
+void Runtime::present_photo_world() {
+    if (sdl_.renderer == nullptr)
         return;
+    // A look is painted after the player's gamma, into a copy. The card's
+    // picture is not used: a turned frame kept on the card has not been
+    // filtered, and the processor buffer of that frame is only the key.
+    const bool looked = photo_look_active();
+    if (looked && !refresh_photo_look_cpu())
+        return;
+    // A held picture is the copy stamped into the processor buffer. The
+    // card's live picture would reframe it, so it is not used while held.
+    // Otherwise a turned frame the card keeps is drawn from the card, as
+    // play draws it. The processor buffer of that frame is only the overlay
+    // canvas, filled with the key, so uploading it leaves the window black.
+    SDL_Texture* const card_world =
+        looked || photo_picture_held() ? nullptr : compose_turned_overlay();
+    const renderer::Surface& world_source = looked ? photo_look_cpu_ : match_world_cpu_;
+    if (card_world == nullptr && world_source.rgb.empty())
+        return;
+    const auto frame_format = opaque_layer_format();
+    const auto upload_start = std::chrono::steady_clock::now();
+    int world_width = static_cast<int>(world_source.width);
+    int world_height = static_cast<int>(world_source.height);
+    if ((world_width <= 0 || world_height <= 0) && card_world != nullptr) {
+        world_width = card_world->w;
+        world_height = card_world->h;
+    }
+    if (world_width <= 0 || world_height <= 0)
+        return;
+    if (card_world == nullptr) {
+        match_world_tex_.ensure(
+            sdl_.renderer,
+            frame_format,
+            world_width,
+            world_height,
+            render_texture_limit(),
+            SDL_BLENDMODE_NONE
+        );
+        upload_rgb24_tiles(
+            match_world_tex_, world_source, looked || gamma_identity_ ? nullptr : &gamma_table_
+        );
+    }
+    const auto present_start = std::chrono::steady_clock::now();
+    phase_times_.upload += elapsed_since(upload_start);
+    if (!SDL_SetRenderDrawColor(sdl_.renderer, 0, 0, 0, 255) || !SDL_RenderClear(sdl_.renderer))
+        throw_present_error("SDL_RenderClear");
+    if (card_world != nullptr) {
+        if (!SDL_SetTextureScaleMode(card_world, scaled_frame_mode_))
+            std::ignore = SDL_SetTextureScaleMode(card_world, SDL_SCALEMODE_NEAREST);
+    } else if (!match_world_tex_.set_scale_mode(scaled_frame_mode_)) {
+        std::ignore = match_world_tex_.set_scale_mode(SDL_SCALEMODE_NEAREST);
+    }
+    const SDL_FRect world{
+        static_cast<float>(match_layout_.left),
+        static_cast<float>(match_layout_.top),
+        static_cast<float>(world_width),
+        static_cast<float>(world_height)
+    };
+    if (card_world == nullptr)
+        match_world_tex_.draw(sdl_.renderer, nullptr, &world);
+    else if (!SDL_RenderTexture(sdl_.renderer, card_world, nullptr, &world))
+        throw_present_error("SDL_RenderTexture");
+    finish_match_layers(frame_format, false, upload_start, present_start);
+    if (scaled_frame_mode_ != SDL_SCALEMODE_NEAREST)
+        std::ignore = match_world_tex_.set_scale_mode(SDL_SCALEMODE_NEAREST);
+}
+
+void Runtime::present_match_layers() {
+    // A photo asked for as photo mode opened is taken once this present has
+    // shown a photo-mode frame. The destructor runs on every return, and
+    // not while a present error is leaving.
+    struct PendingPhoto {
+        Runtime& runtime;
+        int exceptions{std::uncaught_exceptions()};
+
+        ~PendingPhoto() {
+            if (std::uncaught_exceptions() == exceptions)
+                runtime.deliver_pending_photo();
+        }
+    } pending_photo{*this};
+
+    if (match_world_cpu_.rgb.empty())
+        return;
+    if (match_hud_cpu_.rgb.empty()) {
+        if (!photo_mode())
+            return;
+        // A held picture is the copy, not a new Full frame and not the card.
+        if (photo_picture_held()) {
+            present_photo_world();
+            return;
+        }
+        // The accelerated tier's HUD texture is sized from the HUD layer.
+        // An empty layer has no size, so photo mode presents the world
+        // through the standard tier, or the Full tier when that draws it.
+        if (accelerated_presentation() && !live_renderer_active()) {
+            try {
+                if (full_presentation() && present_full_match_layers(false))
+                    return;
+            } catch (const AccelerationError& error) {
+                take_acceleration_error(error);
+            }
+        }
+        present_photo_world();
+        return;
+    }
     PhoneHudAccess::prepare_frame(*this);
     const bool dialogs = compose_match_dialog_layer();
     if (accelerated_presentation() && !live_renderer_active()) {
@@ -936,14 +1073,19 @@ void Runtime::present_match_layers() {
     );
     const auto upload_start = std::chrono::steady_clock::now();
     // A turned frame the card keeps is drawn from the card, with what was
-    // painted over it added there; any other battlefield is uploaded.
-    SDL_Texture* const card_world = compose_turned_overlay();
+    // painted over it added there; any other battlefield is uploaded. A look
+    // is uploaded from the filtered copy, which already carries the gamma.
+    const bool looked = photo_look_active();
+    if (looked && !refresh_photo_look_cpu())
+        return;
+    SDL_Texture* const card_world = looked ? nullptr : compose_turned_overlay();
+    const renderer::Surface& world_source = looked ? photo_look_cpu_ : match_world_cpu_;
     if (card_world == nullptr)
         match_world_tex_.ensure(
             sdl_.renderer,
             frame_format,
-            static_cast<int>(match_world_cpu_.width),
-            static_cast<int>(match_world_cpu_.height),
+            static_cast<int>(world_source.width),
+            static_cast<int>(world_source.height),
             render_texture_limit(),
             SDL_BLENDMODE_NONE
         );
@@ -952,7 +1094,7 @@ void Runtime::present_match_layers() {
     );
     if (card_world == nullptr)
         upload_rgb24_tiles(
-            match_world_tex_, match_world_cpu_, gamma_identity_ ? nullptr : &gamma_table_
+            match_world_tex_, world_source, looked || gamma_identity_ ? nullptr : &gamma_table_
         );
     const auto present_start = std::chrono::steady_clock::now();
     phase_times_.upload += elapsed_since(upload_start);
@@ -994,8 +1136,8 @@ void Runtime::present_match_layers() {
     const SDL_FRect world{
         static_cast<float>(match_layout_.left),
         static_cast<float>(match_layout_.top),
-        static_cast<float>(match_world_cpu_.width),
-        static_cast<float>(match_world_cpu_.height)
+        static_cast<float>(world_source.width),
+        static_cast<float>(world_source.height)
     };
     if (card_world == nullptr)
         match_world_tex_.draw(sdl_.renderer, nullptr, &world);
@@ -1068,6 +1210,10 @@ void Runtime::capture_render_target() {
     // A lost device has no picture to read.
     if (render_run_ && render_run_->device_lost)
         return;
+    // Above the picture, the strip, the screens and the match's menu, and
+    // under the badge. Hidden, this draws nothing and leaves the renderer.
+    if (oa_layer_)
+        oa_layer_->present_family_ring();
     // After the frame, before it is shown, on the front end and in a match.
     // With no client connected this draws nothing, so a frame that is not
     // driven is unchanged. The read below then includes the badge.
@@ -1107,8 +1253,12 @@ void Runtime::capture_render_target() {
 void Runtime::present_software_cursor(bool match_layers) {
     if (!cursors_loaded_ || cursor_image_ == nullptr || frame_without_cursor_)
         return;
-    // A middle-click pan draws its own direction at the pointer.
-    if (middle_pan_shows_direction())
+    // A finger or a gamepad frames a photo with no cursor. A mouse keeps it.
+    if (photo_hides_pointer())
+        return;
+    // A middle-click pan draws its own direction at the pointer. Photo mode
+    // draws no marks, so its pointer stays.
+    if (middle_pan_shows_direction() && !photo_mode())
         return;
     // With touch controls the cursor is hidden while no finger rests, or
     // lifted above the finger on the battlefield.
@@ -1363,6 +1513,35 @@ bool Runtime::frame_pixelart_works() {
 }
 
 void Runtime::render() {
+    // Drawing reads Game.viewpoint_player. A replay's watched player is
+    // presentation, so the recorded viewpoint is put back before this returns
+    // and before the next tick. Keyframes are taken with the step, earlier.
+    struct ShownViewpoint {
+        oa::Game* game = nullptr;
+        uint8_t recorded = 0;
+
+        explicit ShownViewpoint(Runtime& runtime) {
+            if ((runtime.current_extension_state() & extension_state::replay) == 0 ||
+                runtime.match_ == nullptr)
+                return;
+            const uint8_t shown = runtime.match_view_player();
+            oa::Game& live = runtime.match_->state().game;
+            if (shown >= OA_PLAYER_COUNT || shown == live.viewpoint_player)
+                return;
+            recorded = live.viewpoint_player;
+            live.viewpoint_player = shown;
+            game = &live;
+        }
+
+        ShownViewpoint(const ShownViewpoint&) = delete;
+        ShownViewpoint& operator=(const ShownViewpoint&) = delete;
+
+        ~ShownViewpoint() {
+            if (game != nullptr)
+                game->viewpoint_player = recorded;
+        }
+    } shown_viewpoint{*this};
+
     // The frame is drawn at the window's size, including a size that changed
     // with no resize. A headless check and a director lay the match out at a
     // size of their own; the window must not replace it.
@@ -1557,6 +1736,39 @@ void Runtime::present_front_end() {
 
 [[nodiscard]] oa::ui::gui_input::MenuObject Runtime::input_menu() const {
     return {resources_.layout.gadgets, selected_};
+}
+
+bool Runtime::capture_photo_picture() {
+    if (photo_ == nullptr)
+        return false;
+    const auto keep =
+        [this](uint32_t kept_width, uint32_t kept_height, const std::vector<uint8_t>& rgb) {
+            if (kept_width == 0 || kept_height == 0 ||
+                rgb.size() != static_cast<std::size_t>(kept_width) * kept_height * 3U)
+                return false;
+            photo_->held_width = kept_width;
+            photo_->held_height = kept_height;
+            photo_->held_rgb = rgb;
+            return true;
+        };
+    // The turned view's processor buffer is only the overlay canvas. Hold
+    // the battlefield the card drew; photo mode's line is drawn over that
+    // copy while the picture is held.
+    if (turned_overlay_painted()) {
+        renderer::Surface world;
+        if (!turned_card_picture(world))
+            return false;
+        return keep(world.width, world.height, world.rgb);
+    }
+    // Full classic: one read-back of the frame's battlefield. A failed read
+    // does not keep the overlay canvas.
+    if (full_frame_drawn() && full_presentation()) {
+        renderer::Surface world;
+        if (!read_presented_world(world))
+            return false;
+        return keep(world.width, world.height, world.rgb);
+    }
+    return keep(match_world_cpu_.width, match_world_cpu_.height, match_world_cpu_.rgb);
 }
 
 void write_ppm(const fs::path& path, const renderer::Surface& surface) {

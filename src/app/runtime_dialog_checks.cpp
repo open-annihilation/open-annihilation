@@ -27,6 +27,7 @@
 #include "oa/sim/messages.hpp"
 #include "oa/sim/speed.hpp"
 #include "match_fault.hpp"
+#include "oa_layer.hpp"
 #include "panel_first_draw.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -365,6 +366,8 @@ constexpr int kLargeWindowWidth = 1280;
 constexpr int kLargeWindowHeight = 960;
 // The name the save dialog's name field holds while the check presses it.
 constexpr const char* kCheckPressedName = "LSPRESS";
+// A save the check writes and then deletes by Return with the ring on DELETE.
+constexpr const char* kCheckDeleteName = "LSDELETE";
 constexpr const char* kLoadBitmap = "bitmaps/dloadgame2.pcx";
 constexpr const char* kSaveBitmap = "bitmaps/dsavegame2.pcx";
 constexpr const char* kCheckSaveName = "LSCHECK1";
@@ -810,8 +813,8 @@ void Runtime::check_frontend_keyboard() {
     // does (a gamepad's A and Menu send Return), through the event dispatch
     // a gamepad's keys take, and a held key's repeat presses nothing: NewCamp
     // leaves Single Player, or says over it why it cannot, and Single Player
-    // then comes back as it was. With no record focused Return rings the
-    // first and presses nothing.
+    // then comes back as it was. With no record focused and the focus ring
+    // hidden, as a screen opens, Return rings the first and presses nothing.
     namespace dialogs = oa::ui::frontend_dialogs;
     const auto entry_state = state_;
     const auto press = [&](SDL_Keycode code, bool repeat = false) {
@@ -837,7 +840,10 @@ void Runtime::check_frontend_keyboard() {
         load(Screen::single_player);
         require(on_single_player(), "Single Player did not come back after " + what);
     };
+    // Tab showed the ring, and while it shows Return presses the record it
+    // rings. Hide it, as Single Player opens with it hidden.
     frontend_focus_ = -1;
+    oa_layer().note_family_return();
     rebuild_surface();
     press(SDLK_RETURN);
     require(
@@ -2851,6 +2857,27 @@ void Runtime::check_load_save() {
         auto context = screen_context();
         if (!dialogs::dialog_click(&context, "OK") || dialogs::dialog_count() != 0)
             throw std::runtime_error("load/save check: OK did not close the no-saves message");
+        // With no save to list, Down and Up have no row to move to. The
+        // dialog stays as it is, as a click on the empty list leaves it.
+        rebuild_surface();
+        auto unstepped = frame_without_cursor();
+        for (const SDL_Keycode code : {SDLK_DOWN, SDLK_UP}) {
+            SDL_Event arrow{};
+            arrow.type = SDL_EVENT_KEY_DOWN;
+            arrow.key.key = code;
+            arrow.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
+            arrow.key.down = true;
+            dispatch_event(arrow, running);
+        }
+        auto stepped = frame_without_cursor();
+        const Rect dialog_frame{
+            0, 0, static_cast<int32_t>(unstepped.width), static_cast<int32_t>(unstepped.height)
+        };
+        if (const auto changed = differing_pixels(unstepped, stepped, dialog_frame); changed != 0)
+            throw std::runtime_error(
+                "load/save check: Down and Up changed the load dialog with no save to list (" +
+                std::to_string(changed) + " pixels)"
+            );
     } else if (save_files == 0) {
         throw std::runtime_error("load/save check: no message says there is no save to load");
     }
@@ -3127,6 +3154,141 @@ void Runtime::check_load_save() {
         present(reopened, "save");
         write_ppm(report_directory / "native-loadsave-save-preview.ppm", surface_);
         check_preview(saved_preview(0), reopened.palette, "the save dialog");
+        // Tab walks the save dialog while its name takes typing. Down steps
+        // GAMES and fills the name as a click on that row does, and a letter
+        // still lands in the name from another control.
+        {
+            const auto focused_name = [&]() -> std::string {
+                const int32_t focus = frontend_focus();
+                if (focus <= 0 ||
+                    static_cast<std::size_t>(focus) >= resources_.layout.gadgets.size())
+                    return {};
+                return resources_.layout.gadgets[static_cast<std::size_t>(focus)].common.name;
+            };
+            const auto typed_name = [&]() -> std::string {
+                for (std::size_t index = 1; index < resources_.layout.gadgets.size(); ++index) {
+                    if (resources_.layout.gadgets[index].common.name != "GAMENAME")
+                        continue;
+                    const auto text = load_game_control_text(index);
+                    return text ? *text : std::string{};
+                }
+                return {};
+            };
+            const auto press_chord = [&](SDL_Keycode code, SDL_Scancode scan, SDL_Keymod mods) {
+                SDL_Event key{};
+                key.type = SDL_EVENT_KEY_DOWN;
+                key.key.key = code;
+                key.key.scancode = scan;
+                key.key.down = true;
+                key.key.mod = mods;
+                dispatch_event(key, running);
+            };
+            const auto expect = [&](std::string_view name, std::string_view label) {
+                if (focused_name() != name)
+                    throw std::runtime_error(
+                        "load/save check: the save dialog's " + std::string(label) +
+                        " is not focused (it is on " + focused_name() + ")"
+                    );
+            };
+            expect("GAMES", "games list");
+            press_chord(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+            expect("GAMENAME", "name field");
+            press_chord(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_SHIFT);
+            expect("GAMES", "games list");
+            press_chord(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+            expect("GAMENAME", "name field");
+            press_chord(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+            expect("LOAD", "OK");
+            press_chord(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+            expect("DELETE", "Delete");
+            press_chord(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+            expect("CANCEL", "Cancel");
+            press_chord(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+            expect("GAMES", "games list");
+            const std::string before = typed_name();
+            press_chord(SDLK_DOWN, SDL_SCANCODE_DOWN, SDL_KMOD_NONE);
+            const std::string stepped = typed_name();
+            if (stepped.empty() || stepped == before)
+                throw std::runtime_error(
+                    "load/save check: Down did not step GAMES and fill the name (it stayed \"" +
+                    before + "\")"
+                );
+            const auto rows = load_game_rows();
+            if (!rows || !rows->selected)
+                throw std::runtime_error("load/save check: Down left GAMES with no row selected");
+            const auto stepped_row = games_row(static_cast<int32_t>(*rows->selected));
+            click(stepped_row.x + 8, stepped_row.y + stepped_row.height / 2);
+            if (typed_name() != stepped)
+                throw std::runtime_error(
+                    "load/save check: a click on the row Down selected did not keep the name"
+                );
+            expect("GAMES", "games list");
+            SDL_Event letter{};
+            letter.type = SDL_EVENT_TEXT_INPUT;
+            letter.text.text = "Q";
+            dispatch_event(letter, running);
+            if (typed_name() != stepped + "Q")
+                throw std::runtime_error(
+                    "load/save check: a typed letter did not land in the name (it is \"" +
+                    typed_name() + "\")"
+                );
+            std::cout << "load/save check: Tab walks GAMES, GAMENAME, OK, DELETE, CANCEL; Down "
+                         "fills the name\n";
+            // While the ring shows on CANCEL or DELETE, Return presses that
+            // button as a click does: CANCEL leaves without a save, and DELETE
+            // takes the selected save away and keeps the dialog open.
+            const auto ring_on = [&](std::string_view name) {
+                for (int step = 0; step < 6 && focused_name() != name; ++step)
+                    press_chord(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
+                expect(name, name);
+                if (oa_layer_ == nullptr || !oa_layer_->family_ring_shown())
+                    throw std::runtime_error(
+                        "load/save check: Tab left no ring on the save dialog's " +
+                        std::string(name)
+                    );
+            };
+            const auto listed_by_name = [&](std::string_view name) -> std::optional<std::size_t> {
+                const auto on_disk = listed_saves();
+                const std::string wanted_file =
+                    std::string(name) + '.' + std::string(oa::ui::frontend::kSaveExtension);
+                for (std::size_t listed_row = 0; listed_row < on_disk.list.entries.size();
+                     ++listed_row)
+                    if (std::string_view(on_disk.list.entries[listed_row].file.data()) ==
+                        wanted_file)
+                        return listed_row;
+                return std::nullopt;
+            };
+            ring_on("CANCEL");
+            const auto files_at_cancel = count_save_files();
+            press_chord(SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
+            if (screen_ != Screen::match || save_dialog_open() ||
+                count_save_files() != files_at_cancel)
+                throw std::runtime_error(
+                    "load/save check: Return with the ring on CANCEL saved or kept the dialog"
+                );
+            std::ignore = open_over_match("SAVEGAME", true);
+            type_name(kCheckDeleteName);
+            press_key(SDLK_RETURN);
+            const auto deleted_row = listed_by_name(kCheckDeleteName);
+            if (screen_ != Screen::match || save_dialog_open() || !deleted_row)
+                throw std::runtime_error("load/save check: the save to delete was not written");
+            std::ignore = open_over_match("SAVEGAME", true);
+            const auto delete_rect = games_row(static_cast<int32_t>(*deleted_row));
+            click(delete_rect.x + 8, delete_rect.y + delete_rect.height / 2);
+            if (typed_name() != kCheckDeleteName)
+                throw std::runtime_error("load/save check: the save to delete is not selected");
+            ring_on("DELETE");
+            const auto files_at_delete = count_save_files();
+            press_chord(SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
+            if (screen_ != Screen::load_game || !save_dialog_open() ||
+                count_save_files() >= files_at_delete || listed_by_name(kCheckDeleteName))
+                throw std::runtime_error(
+                    "load/save check: Return with the ring on DELETE did not delete the "
+                    "selected save and keep the dialog"
+                );
+            std::cout << "load/save check: Return with the ring on CANCEL leaves, and on "
+                         "DELETE deletes\n";
+        }
         click_record("CANCEL");
         if (screen_ != Screen::match || save_dialog_open())
             throw std::runtime_error("load/save check: CANCEL did not close the save dialog");
@@ -3165,6 +3327,40 @@ void Runtime::check_load_save() {
         throw std::runtime_error(
             "load/save check: Escape did not return the load dialog to the in-game menu"
         );
+    // While the ring shows on CANCEL, Return leaves the load dialog as CANCEL
+    // does, and loads nothing.
+    {
+        std::ignore = open_over_match("LOADGAME", false);
+        const auto load_focus_name = [&]() -> std::string {
+            const int32_t focus = frontend_focus();
+            if (focus <= 0 || static_cast<std::size_t>(focus) >= resources_.layout.gadgets.size())
+                return {};
+            return resources_.layout.gadgets[static_cast<std::size_t>(focus)].common.name;
+        };
+        const auto press_scan = [&](SDL_Keycode code, SDL_Scancode scan) {
+            SDL_Event key{};
+            key.type = SDL_EVENT_KEY_DOWN;
+            key.key.key = code;
+            key.key.scancode = scan;
+            key.key.down = true;
+            dispatch_event(key, running);
+        };
+        for (int step = 0; step < 4 && load_focus_name() != "CANCEL"; ++step)
+            press_scan(SDLK_TAB, SDL_SCANCODE_TAB);
+        if (load_focus_name() != "CANCEL" || oa_layer_ == nullptr ||
+            !oa_layer_->family_ring_shown())
+            throw std::runtime_error("load/save check: Tab did not ring the load dialog's CANCEL");
+        const std::string status_before = status_;
+        press_scan(SDLK_RETURN, SDL_SCANCODE_RETURN);
+        if (screen_ != Screen::match || !match_paused_ || !match_hud_ ||
+            match_hud_panel_ != oa::data::defs::gui_path(kInGameMenuLayout) ||
+            status_ != status_before)
+            throw std::runtime_error(
+                "load/save check: Return with the ring on CANCEL did not leave the load dialog "
+                "as CANCEL does"
+            );
+        std::cout << "load/save check: Return with the ring on the load dialog's CANCEL leaves\n";
+    }
     {
         const auto open_match_load = [&] { std::ignore = open_over_match("LOADGAME", false); };
         const auto on_menu = [&] {

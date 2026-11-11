@@ -5,6 +5,7 @@
 
 #include "stored_words.hpp"
 
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/sim/session.hpp"
 
 #include <algorithm>
@@ -19,6 +20,16 @@ namespace oa::ui::engine_settings {
 namespace mod_profile = oa::data::mod_profile;
 namespace pad_controls = oa::ui::pad_controls;
 
+static_assert(key::colour_vision == oa::present::colour_vision::kColourVisionKey);
+static_assert(key::shape_cues == oa::present::colour_vision::kShapeCuesKey);
+static_assert(
+    static_cast<uint8_t>(ColourVision::off) ==
+    static_cast<uint8_t>(oa::present::colour_vision::Mode::off)
+);
+static_assert(
+    static_cast<uint8_t>(ColourVision::achromatopsia) ==
+    static_cast<uint8_t>(oa::present::colour_vision::Mode::achromatopsia)
+);
 static_assert(default_unit_limit == oa::sim::session::kDefaultUnitLimit);
 static_assert(lowest_stored_unit_limit == oa::sim::session::kMinUnitLimit);
 static_assert(lowest_stored_unit_limit <= lowest_unit_limit);
@@ -198,8 +209,9 @@ std::string switch_text(bool on) {
     return on ? "1" : "0";
 }
 
-/// Tells whether a file-type switch is on. Only the word off turns it off;
-/// a missing key, "on", and any other text leave it on.
+/// Tells whether a switch kept as the words on and off is on: a file type's,
+/// or Record my games. Only the word off turns it off; a missing key, "on",
+/// and any other text leave it on.
 ///
 /// @param values the preferences
 /// @param key the switch's key
@@ -209,7 +221,7 @@ bool file_type_on(const oa::platform::preferences::Values& values, std::string_v
     return found == values.end() || found->second != "off";
 }
 
-/// The stored text of a file-type switch.
+/// The stored text of a switch kept as the words on and off.
 ///
 /// @param on the switch's state
 /// @return "on" or "off"
@@ -678,6 +690,15 @@ void follow_acceleration_with_unset_effects(
     follow(&EngineSettings::heat_distortion, key::heat_distortion_intensity, key::heat_distortion);
 }
 
+void read_replays_settings(
+    const oa::platform::preferences::Values& values, EngineSettings& settings
+) {
+    settings.replays_record = file_type_on(values, key::replays_record);
+    settings.replays_keep = ReplayKeep::thirty_days;
+    read_word(values, key::replays_keep, replay_keep_words, settings.replays_keep);
+    settings.replays_open_files = file_type_on(values, key::replays_open_files);
+}
+
 EngineSettings read_settings(
     const oa::platform::preferences::Values& values, const Inputs& inputs, bool switch_alt
 ) {
@@ -700,6 +721,19 @@ EngineSettings read_settings(
         settings.edge_scroll = *number > 0;
     if (const auto number = stored_number(values, key::move_overlays))
         settings.move_overlays = *number > 0;
+    read_word(values, key::colour_vision, colour_vision_words, settings.colour_vision);
+    if (const auto number = stored_number(values, key::shape_cues))
+        settings.shape_cues = *number > 0;
+    if (settings.colour_vision == ColourVision::achromatopsia)
+        settings.shape_cues = true;
+    read_word(values, key::screen_reader, screen_reader_words, settings.screen_reader);
+    read_word(values, key::speak_chat, speak_chat_words, settings.speak_chat);
+    if (const auto found = values.find(std::string{key::speak_lobby}); found != values.end())
+        settings.speak_lobby = found->second != "0";
+    if (const auto found = values.find(std::string{key::speak_ticker}); found != values.end())
+        settings.speak_ticker = found->second == "1";
+    if (const auto number = stored_number(values, key::always_show_focus))
+        settings.always_show_focus = *number > 0;
     read_word(values, key::order_wheel, order_wheel_words, settings.order_wheel);
     read_word(values, key::max_zoom_out, zoom_out_words, settings.max_zoom_out);
     read_word(values, key::max_zoom_in, zoom_in_words, settings.max_zoom_in);
@@ -868,6 +902,7 @@ EngineSettings read_settings(
     settings.file_type_oabrain = file_type_on(values, key::file_type_oabrain);
     settings.file_type_oakeys = file_type_on(values, key::file_type_oakeys);
     settings.file_type_oalaunch = file_type_on(values, key::file_type_oalaunch);
+    read_replays_settings(values, settings);
     settings.slow_keys_ms = access_number(values, key::access_slow_keys, 0, 0, 1000, false);
     settings.bounce_keys_ms = access_number(values, key::access_bounce_keys, 0, 0, 1000, false);
     settings.double_press_ms = access_number(values, key::access_double_press, 0, 200, 1000, true);
@@ -979,6 +1014,75 @@ void write_settings(
         switch_text(chosen.move_overlays),
         chosen.move_overlays != opened.move_overlays,
         chosen.move_overlays == defaults.move_overlays,
+        restored
+    );
+    store_word(
+        values,
+        key::colour_vision,
+        colour_vision_words,
+        opened.colour_vision,
+        chosen.colour_vision,
+        defaults.colour_vision,
+        restored
+    );
+    // Achromatopsia keeps shape cues on. Forcing the field on at read would
+    // look unchanged here and leave a stored 0, so a file that is not already
+    // 1 is written.
+    {
+        const bool shape_on =
+            chosen.shape_cues || chosen.colour_vision == ColourVision::achromatopsia;
+        const auto shape_now = values.find(std::string{key::shape_cues});
+        const bool shape_not_one =
+            shape_on && (shape_now == values.end() || shape_now->second != "1");
+        store(
+            values,
+            key::shape_cues,
+            switch_text(shape_on),
+            chosen.shape_cues != opened.shape_cues || shape_not_one,
+            !shape_on && chosen.shape_cues == defaults.shape_cues,
+            restored
+        );
+    }
+    store_word(
+        values,
+        key::screen_reader,
+        screen_reader_words,
+        opened.screen_reader,
+        chosen.screen_reader,
+        defaults.screen_reader,
+        restored
+    );
+    store_word(
+        values,
+        key::speak_chat,
+        speak_chat_words,
+        opened.speak_chat,
+        chosen.speak_chat,
+        defaults.speak_chat,
+        restored
+    );
+    store(
+        values,
+        key::speak_lobby,
+        switch_text(chosen.speak_lobby),
+        chosen.speak_lobby != opened.speak_lobby,
+        chosen.speak_lobby == defaults.speak_lobby,
+        restored
+    );
+    store(
+        values,
+        key::speak_ticker,
+        switch_text(chosen.speak_ticker),
+        chosen.speak_ticker != opened.speak_ticker,
+        chosen.speak_ticker == defaults.speak_ticker,
+        restored
+    );
+    store(
+        values,
+        key::always_show_focus,
+        switch_text(chosen.always_show_focus),
+        chosen.always_show_focus != opened.always_show_focus,
+        chosen.always_show_focus == defaults.always_show_focus,
         restored
     );
     store_word(
@@ -1613,6 +1717,17 @@ void write_settings(
     store_file_type(key::file_type_oabrain, &EngineSettings::file_type_oabrain);
     store_file_type(key::file_type_oakeys, &EngineSettings::file_type_oakeys);
     store_file_type(key::file_type_oalaunch, &EngineSettings::file_type_oalaunch);
+    store_file_type(key::replays_record, &EngineSettings::replays_record);
+    store_file_type(key::replays_open_files, &EngineSettings::replays_open_files);
+    store_word(
+        values,
+        key::replays_keep,
+        replay_keep_words,
+        opened.replays_keep,
+        chosen.replays_keep,
+        defaults.replays_keep,
+        restored
+    );
     // Restore defaults keeps the overrides: Restore profile values clears them.
     if (!profile_id.empty() && chosen.hack_overrides != opened.hack_overrides) {
         if (chosen.hack_overrides.empty())
@@ -1620,6 +1735,98 @@ void write_settings(
         else
             values[overrides_key(profile_id)] = mod_profile::overrides_text(chosen.hack_overrides);
     }
+}
+
+namespace {
+
+/// Reads one key as the file holds it.
+///
+/// @param values the preferences
+/// @param key the key
+/// @return present when the key is there
+AccessPreference preference_of(const Values& values, std::string_view key) {
+    AccessPreference preference;
+    const auto found = values.find(std::string{key});
+    if (found == values.end())
+        return preference;
+    preference.present = true;
+    preference.text = found->second;
+    return preference;
+}
+
+/// Puts one key back, or erases it when the snapshot had none.
+///
+/// @param[in,out] values the preferences
+/// @param key the key
+/// @param preference the snapshot
+void put_preference(Values& values, std::string_view key, const AccessPreference& preference) {
+    if (preference.present)
+        values[std::string{key}] = preference.text;
+    else
+        values.erase(std::string{key});
+}
+
+/// Writes a key, or erases it when the setting is at its default.
+///
+/// @param[in,out] values the preferences
+/// @param key the key
+/// @param text the stored word
+/// @param at_default the setting is at its default
+void keep_live(Values& values, std::string_view key, const std::string& text, bool at_default) {
+    if (at_default)
+        values.erase(std::string{key});
+    else
+        values[std::string{key}] = text;
+}
+
+} // namespace
+
+AccessSnapshot capture_access_preferences(const Values& values) {
+    AccessSnapshot snapshot;
+    snapshot.colour_vision = preference_of(values, key::colour_vision);
+    snapshot.shape_cues = preference_of(values, key::shape_cues);
+    snapshot.screen_reader = preference_of(values, key::screen_reader);
+    snapshot.speak_chat = preference_of(values, key::speak_chat);
+    snapshot.speak_lobby = preference_of(values, key::speak_lobby);
+    snapshot.speak_ticker = preference_of(values, key::speak_ticker);
+    snapshot.always_show_focus = preference_of(values, key::always_show_focus);
+    return snapshot;
+}
+
+void restore_access_preferences(Values& values, const AccessSnapshot& snapshot) {
+    put_preference(values, key::colour_vision, snapshot.colour_vision);
+    put_preference(values, key::shape_cues, snapshot.shape_cues);
+    put_preference(values, key::screen_reader, snapshot.screen_reader);
+    put_preference(values, key::speak_chat, snapshot.speak_chat);
+    put_preference(values, key::speak_lobby, snapshot.speak_lobby);
+    put_preference(values, key::speak_ticker, snapshot.speak_ticker);
+    put_preference(values, key::always_show_focus, snapshot.always_show_focus);
+}
+
+void store_access_preferences(Values& values, const EngineSettings& chosen) {
+    const bool colour_off = chosen.colour_vision == ColourVision::off;
+    keep_live(
+        values,
+        key::colour_vision,
+        std::string{word_of(colour_vision_words, chosen.colour_vision)},
+        colour_off
+    );
+    const bool shape_on = chosen.shape_cues || chosen.colour_vision == ColourVision::achromatopsia;
+    keep_live(values, key::shape_cues, switch_text(true), !shape_on);
+    const bool reader_auto = chosen.screen_reader == ScreenReaderMode::automatic;
+    keep_live(
+        values,
+        key::screen_reader,
+        std::string{word_of(screen_reader_words, chosen.screen_reader)},
+        reader_auto
+    );
+    const bool chat_all = chosen.speak_chat == SpeakChat::all;
+    keep_live(
+        values, key::speak_chat, std::string{word_of(speak_chat_words, chosen.speak_chat)}, chat_all
+    );
+    keep_live(values, key::speak_lobby, switch_text(false), chosen.speak_lobby);
+    keep_live(values, key::speak_ticker, switch_text(true), !chosen.speak_ticker);
+    keep_live(values, key::always_show_focus, switch_text(true), !chosen.always_show_focus);
 }
 
 std::string remembered_picked_folder(const oa::platform::preferences::Values& values) {

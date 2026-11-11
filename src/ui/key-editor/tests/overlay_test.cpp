@@ -194,6 +194,10 @@ void test_playing() {
         OA_CHECK((assign->keys == std::vector<std::string>{"Ctrl", "1…9"}));
     }
     OA_CHECK(find_line(groups, "Assign group 1") == nullptr);
+    const editor::OverlayLine* photo = find_line(groups, "Photo mode");
+    OA_CHECK(photo != nullptr);
+    if (photo != nullptr)
+        OA_CHECK(photo->chord == "F9");
     const editor::OverlayLine* select = find_line(groups, "Select group");
     OA_CHECK(select != nullptr);
     if (select != nullptr)
@@ -240,6 +244,31 @@ void test_watching() {
     const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
     OA_CHECK(find_line(groups, "Speed up") != nullptr);
     OA_CHECK(find_line(groups, "Attack") == nullptr);
+    const editor::OverlayLine* photo = find_line(groups, "Photo mode");
+    OA_CHECK(photo != nullptr);
+    if (photo != nullptr)
+        OA_CHECK(photo->chord == "F9");
+}
+
+/// Photo mode titles the list, lists Leave and Take photo, and still lists
+/// a match key. The key that opens photo mode is a playing key, so it is absent.
+void test_photo() {
+    const ResolvedFixture fixture;
+    const uint32_t active = context_bit("global") | context_bit("match") |
+                            context_bit("oa-screens") | context_bit("photo");
+    const editor::OverlayInputs inputs = inputs_for(fixture.resolve({}, nullptr), active, 0);
+    OA_CHECK(editor::overlay_title(inputs) == "Keys in photo mode");
+    const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
+    const editor::OverlayLine* leave = find_line(groups, "Leave");
+    OA_CHECK(leave != nullptr);
+    if (leave != nullptr)
+        OA_CHECK(leave->chord == "F9");
+    const editor::OverlayLine* capture = find_line(groups, "Take photo");
+    OA_CHECK(capture != nullptr);
+    if (capture != nullptr)
+        OA_CHECK(capture->chord == "Enter");
+    OA_CHECK(find_line(groups, "Photo mode") == nullptr);
+    OA_CHECK(find_line(groups, "Pause") != nullptr);
 }
 
 /// Placing lists Rotate under This mod, and the title says so.
@@ -450,6 +479,7 @@ int main() {
     test_playing();
     test_broken_run();
     test_watching();
+    test_photo();
     test_placing();
     test_this_mod();
     test_on_line();

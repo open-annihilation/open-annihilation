@@ -23,12 +23,31 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import native_offline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_native_mod_layout as layout  # noqa: E402
 
 SUMMARY = re.compile(r"digests ([0-9a-f]{16}) / ([0-9a-f]{16})")
 RECORDED = re.compile(r"multiplayer: recorded the game to (.+)$", re.MULTILINE)
+
+
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding='utf-8') if target.is_file() else 'open-annihilation-preferences 1\n'
+    if 'open-annihilation.update-check' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.update-check" "never"\n'
+    if 'open-annihilation.content-updates' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding='utf-8')
 
 
 def run(native, arguments, log):
@@ -64,6 +83,7 @@ def main():
         return layout.SKIP
     workdir = arguments.scratch_root / "mod-loopback"
     workdir.mkdir(parents=True, exist_ok=True)
+    _offline_preferences(workdir / "loopback.conf")
     common = ["--game-dir", str(arguments.mod_install), "--mod", str(profile)]
     status, output = run(
         arguments.native,
@@ -87,6 +107,7 @@ def main():
             print(f"mod loopback check: the recording {recording.strip()} is not in "
                   f"{recordings}", file=sys.stderr)
             return 1
+        _offline_preferences(workdir / f"replay-{index}.conf")
         status, replay = run(
             arguments.native,
             [*common, "--play-demo", recording.strip(), "--match-ticks", str(arguments.ticks),

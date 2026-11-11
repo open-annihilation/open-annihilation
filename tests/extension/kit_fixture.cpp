@@ -18,9 +18,9 @@
 // - Over a match's battlefield, while kit-fixture.show-chip holds 1, it draws
 //   a chip, a progress bar half full and a line of kit text, from the
 //   battlefield's top left, 8 pixels in at the overlay's scale, and prints
-//   once "kit fixture: chip at <x>,<y> <width>x<height> outline <rrggbb>": the
-//   chip's rectangle in the overlay's pixels and the outline the kit's theme
-//   gives it.
+//   once "kit fixture: chip at <x>,<y> <width>x<height> colour <rrggbb>": the
+//   chip's rectangle in the overlay's pixels and the colour an installed chip
+//   is drawn in, its face and its border.
 //
 // tests/extension/check_kit_fixture.py (extension-kit) drives it. It is a
 // test extension, so only a build configured with
@@ -57,8 +57,20 @@
 // Version 17 adds hear_remote_seat_chat, which this extension does not call.
 // Version 18 adds the kit's key pictures, which this extension does not use.
 // Version 19 is Kit 2's look in the kit's headers: this extension's kit
-// screen and overlay calls draw in it and need no change.
-constexpr uint32_t kExtensionApiVersionFollowed = 20;
+// screen and overlay calls draw in it and need no change. Version 20 adds
+// ExtensionControl's masked, text_length, scroll_up and scroll_down members,
+// and the calls answer_multiplayer_entry, defer_inactive_loop_release,
+// post_extension_note and take_extension_notes. None is a hook. Version 21
+// adds accessibility fields on controls. It is not a hook, and this
+// extension does not fill them.
+// Version 21 also adds the replay viewer's eight hooks, which this
+// extension does not fill. Version 21 also adds the rectangle where an
+// extension window's art takes the press. It is not a hook, and this
+// extension does not state one. Version 21 also adds
+// ScreenServices::main_menu_order_owns_key. This extension does not call it.
+// Version 21 also adds ScreenServices::bound_focus_action. This extension
+// does not call it.
+constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
@@ -426,10 +438,11 @@ void draw_match_overlay(void* context, app::Runtime&, const app::MatchOverlay& o
     overlay.draw_chip(overlay.painter, left, top, &chip);
     if (!state.chip_printed) {
         state.chip_printed = true;
-        // An installed chip's outline is the accent (draw_chip).
+        // An installed chip is a rounded capsule. Its face and its border are
+        // both ok_tint (chip_colours); it has no accent outline.
         say("chip at " + std::to_string(left) + ',' + std::to_string(top) + ' ' +
-            std::to_string(chip_width) + 'x' + std::to_string(chip_height) + " outline " +
-            hex_colour(kit::colour::accent));
+            std::to_string(chip_width) + 'x' + std::to_string(chip_height) + " colour " +
+            hex_colour(kit::colour::ok_tint));
     }
     top += chip_height + kOverlayGap * scale;
     overlay.draw_progress(

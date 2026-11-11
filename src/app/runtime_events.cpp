@@ -3,13 +3,20 @@
 
 // SDL event dispatch, menu audio and movie playback.
 #include "oa/app/runtime.hpp"
+#include "oa/app/menu_reading_order.hpp"
+#include "engine_settings_menu_host.hpp"
+#include "oa_layer.hpp"
 #include "gui_actions.hpp"
+#include "photo_state.hpp"
 #include "oa/app/hook_call.hpp"
+#include "oa/app/middle_pan.hpp"
 #include "oa/app/mcp_quit.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/media/intro_player.hpp"
 #include "oa/present/typed_text.hpp"
+#include "oa/ui/gui_input.hpp"
 #include "oa/ui/gui_input/gadget_panel.hpp"
+#include "oa/ui/gui_input/tab_order.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cctype>
@@ -22,6 +29,7 @@
 #include <tuple>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace oa::app {
 namespace {
@@ -122,8 +130,11 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         match_pointer_known_ = false;
     // Leaving the window ends a middle-click pan. The focus event itself
     // still reaches the window.
-    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST)
+    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+        if (photo_ != nullptr)
+            photo_->dragging = false;
         std::ignore = middle_pan_take(event);
+    }
     if (live_renderer_take_event(event))
         return;
     // The character a quick key types after its press answered a panel over
@@ -187,10 +198,12 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         return;
     if (event.type == SDL_EVENT_MOUSE_WHEEL && screen_ == Screen::match) {
         // ui.megamap takes the wheel, which acts only with the Mouse wheel
-        // zoom setting off (megamap_on). The open and close actions name the
-        // direction. The wheel is still taken when neither fired, so it does
-        // not zoom the battlefield.
-        if (megamap_on()) {
+        // zoom setting off (megamap_on). Photo mode does not open the
+        // megamap: the wheel zooms when that setting is on, and does
+        // nothing when it is off. The open and close actions name the
+        // direction. The wheel is still taken when neither fired, so it
+        // does not zoom the battlefield.
+        if (megamap_on() && !photo_mode()) {
             if (sdl_.renderer != nullptr && !convert_event_to_frame(sdl_.renderer, event))
                 return;
             // One notch is one press. The wheel event opens or closes once.
@@ -240,6 +253,60 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         }
         const float x = event.type == SDL_EVENT_MOUSE_MOTION ? event.motion.x : event.button.x;
         const float y = event.type == SDL_EVENT_MOUSE_MOTION ? event.motion.y : event.button.y;
+        // A move to another pixel hides the ring. A press on its own does not.
+        if (event.type == SDL_EVENT_MOUSE_MOTION && oa_layer_ != nullptr)
+            oa_layer_->note_family_pointer(x, y);
+        // Photo mode keeps the pointer off the match. A motion must not
+        // pick a hover, and a press must not select, order, drag a box,
+        // scroll by the minimap or press the panel. The wheel zoomed
+        // above and returned. The place stays unknown, so the edges do
+        // not scroll either. A drag on photo.pan grabs the view, and the
+        // middle-click pan still answers its own button when the picture
+        // is not held. The cursor follows the pointer, as over the panel.
+        if (photo_mode() && screen_ == Screen::match) {
+            pointer_x_ = x;
+            pointer_y_ = y;
+            match_pointer_known_ = false;
+            match_pointer_x_ = x;
+            match_pointer_y_ = y;
+            if (photo_ != nullptr && !photo_picture_held()) {
+                const uint8_t pan_button = photo_pan_button();
+                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && pan_button != 0 &&
+                    event.button.button == pan_button && photo_poster_takes_drag()) {
+                    photo_poster_drag_begin(x, y);
+                } else if (event.type == SDL_EVENT_MOUSE_MOTION && photo_->poster_marking) {
+                    photo_poster_drag_move(x, y);
+                } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && photo_->poster_marking) {
+                    photo_poster_drag_end();
+                } else if (
+                    event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && pan_button != 0 &&
+                    event.button.button == pan_button
+                ) {
+                    photo_->dragging = true;
+                    photo_->drag_moved = false;
+                    photo_->drag_x = x;
+                    photo_->drag_y = y;
+                } else if (event.type == SDL_EVENT_MOUSE_MOTION && photo_->dragging) {
+                    const float dx = x - photo_->drag_x;
+                    const float dy = y - photo_->drag_y;
+                    const float slop = middle_pan::kClickSlop;
+                    if (!photo_->drag_moved && dx * dx + dy * dy > slop * slop)
+                        photo_->drag_moved = true;
+                    if (photo_->drag_moved) {
+                        scroll_match_view_by(-static_cast<double>(dx), -static_cast<double>(dy));
+                        photo_->drag_x = x;
+                        photo_->drag_y = y;
+                    }
+                } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && photo_->dragging) {
+                    photo_->dragging = false;
+                    photo_->drag_moved = false;
+                }
+                std::ignore = middle_pan_take(event);
+            } else if (photo_ != nullptr) {
+                photo_->dragging = false;
+            }
+            return;
+        }
         // Where the pointer is on the match's screen is known once SDL
         // reports it there (the screen's edges scroll the camera only then);
         // the events the touch controls make for a finger leave it unknown,
@@ -509,6 +576,604 @@ void Runtime::click_selected_frontend_gadget() {
         close_map_modal();
 }
 
+/// Reaches the runtime's private menu focus. The stop itself stays on the runtime.
+struct MenuKeyboardAccess {
+
+    /// One control of the main menu's order, beside the place the order keeps.
+    struct MenuRich {
+        Runtime::MenuKeyboardKind kind = Runtime::MenuKeyboardKind::gadget;
+        std::string window;  ///< an extension window's name; empty for the rest
+        std::string name;    ///< the control's name
+        int32_t gadget = -1; ///< the screen's record, or -1
+    };
+
+    /// The main menu's order and the controls it was built from.
+    struct MainMenuOrder {
+        std::vector<MenuRich> rich;         ///< parallel to the candidates
+        std::vector<MenuReadingStop> order; ///< the stops, in reading order
+    };
+
+    /// Tells whether the stop is outside the screen's own controls.
+    ///
+    /// @param kind the stop
+    /// @return true for an extension's button, the icons, the pill or More maps…
+    static bool cross_family(Runtime::MenuKeyboardKind kind) {
+        return kind == Runtime::MenuKeyboardKind::extension ||
+               kind == Runtime::MenuKeyboardKind::library ||
+               kind == Runtime::MenuKeyboardKind::settings ||
+               kind == Runtime::MenuKeyboardKind::pill ||
+               kind == Runtime::MenuKeyboardKind::more_maps;
+    }
+
+    /// Tells whether a screen of the layer is showing.
+    ///
+    /// @param layer the layer
+    /// @param name the screen's name
+    /// @return true when its place has area
+    static bool layer_screen_shown(const OaLayer& layer, std::string_view name) {
+        const LayerScreen* screen = layer.find(name);
+        if (screen == nullptr)
+            return false;
+        const LayerView seen = layer.view();
+        const LayerPlacement placed = screen->placement(seen);
+        return placed.shown.width > 0 && placed.shown.height > 0;
+    }
+
+    /// Maps a rectangle in window pixels onto the canvas.
+    ///
+    /// An empty picture leaves the rectangle as it was given.
+    ///
+    /// @param seen what the layer's screens are placed on
+    /// @param shown the rectangle, in window pixels
+    /// @param[out] x its left column on the canvas
+    /// @param[out] y its top row on the canvas
+    /// @param[out] width its width on the canvas
+    /// @param[out] height its height on the canvas
+    static void window_to_canvas(
+        const LayerView& seen,
+        const oa::ui::display_layout::Rect& shown,
+        int32_t& x,
+        int32_t& y,
+        int32_t& width,
+        int32_t& height
+    ) {
+        if (seen.picture.width <= 0 || seen.picture.height <= 0 || seen.picture_size.x <= 0 ||
+            seen.picture_size.y <= 0) {
+            x = shown.x;
+            y = shown.y;
+            width = shown.width;
+            height = shown.height;
+            return;
+        }
+        const auto column = [&](int32_t window_x) {
+            return static_cast<int32_t>(
+                (static_cast<int64_t>(window_x) - seen.picture.x) * seen.picture_size.x /
+                seen.picture.width
+            );
+        };
+        const auto row = [&](int32_t window_y) {
+            return static_cast<int32_t>(
+                (static_cast<int64_t>(window_y) - seen.picture.y) * seen.picture_size.y /
+                seen.picture.height
+            );
+        };
+        const int32_t left = column(shown.x);
+        const int32_t top = row(shown.y);
+        const int32_t right = column(shown.x + shown.width);
+        const int32_t bottom = row(shown.y + shown.height);
+        x = left;
+        y = top;
+        width = right > left ? right - left : 0;
+        height = bottom > top ? bottom - top : 0;
+    }
+
+    /// Appends one candidate and the stop that names it.
+    ///
+    /// @param[in,out] candidates the controls
+    /// @param[in,out] rich the stops, parallel to `candidates`
+    /// @param candidate the control
+    /// @param item the stop
+    static void add_candidate(
+        std::vector<MenuCandidate>& candidates,
+        std::vector<MenuRich>& rich,
+        MenuCandidate candidate,
+        MenuRich item
+    ) {
+        candidates.push_back(std::move(candidate));
+        rich.push_back(std::move(item));
+    }
+
+    /// The main menu's reading order, from the panel, the extension windows and
+    /// the icons.
+    ///
+    /// @param runtime the runtime
+    /// @return the order; empty when the menu has nothing that joins it
+    static MainMenuOrder main_menu_order(Runtime& runtime) {
+        std::vector<MenuCandidate> candidates;
+        std::vector<MenuRich> rich;
+        std::vector<MenuPressRect> presses;
+        const auto& gadgets = runtime.resources_.layout.gadgets;
+        const oa::ui::display_layout::Point origin = runtime.panel_origin();
+        const std::string_view credits_name = view_rules::credits_gadget(runtime.mod_profile());
+        for (std::size_t index = 1; index < gadgets.size(); ++index) {
+            const auto& gadget = gadgets[index];
+            const bool credits = Runtime::tdf_names_equal(gadget.common.name, credits_name);
+            const bool focusable = oa::ui::gui_layout::keyboard_focusable(gadget);
+            // The credits gadget may take no keyboard focus of its own. It is
+            // still the stop after an extension's button, pressed as a click.
+            if (!focusable && !credits)
+                continue;
+            const std::optional<oa::ui::gui_input::Rect> geometry =
+                oa::ui::gui_input::gadget_geometry(gadgets, index);
+            if (!geometry)
+                continue;
+            if (const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+                gadget.common.active == 0 || (button != nullptr && button->grayed_out))
+                continue;
+            MenuCandidate candidate;
+            candidate.name = gadget.common.name;
+            candidate.x = geometry->left + origin.x;
+            candidate.y = geometry->top + origin.y;
+            candidate.width = geometry->right - geometry->left + 1;
+            candidate.height = geometry->bottom - geometry->top + 1;
+            candidate.button = gadget.common.type == oa::ui::gui_layout::GadgetType::button;
+            candidate.gadget = true;
+            candidate.follows_extension = credits;
+            MenuRich item;
+            item.kind = Runtime::MenuKeyboardKind::gadget;
+            item.name = candidate.name;
+            item.gadget = static_cast<int32_t>(index);
+            add_candidate(candidates, rich, std::move(candidate), std::move(item));
+        }
+        const auto sources = runtime.extension_window_sources_;
+        for (const auto& slot : sources) {
+            if (slot.source == nullptr)
+                continue;
+            std::vector<ExtensionWindow> listed;
+            slot.source(slot.context, runtime, listed);
+            for (const ExtensionWindow& window : listed) {
+                if (window.press_width > 0 && window.press_height > 0) {
+                    presses.push_back(
+                        MenuPressRect{
+                            window.press_x, window.press_y, window.press_width, window.press_height
+                        }
+                    );
+                }
+                for (const ExtensionControl& control : window.controls) {
+                    if (control.name.empty())
+                        continue;
+                    MenuCandidate candidate;
+                    candidate.name = control.name;
+                    candidate.x = control.x;
+                    candidate.y = control.y;
+                    candidate.width = control.width;
+                    candidate.height = control.height;
+                    candidate.visible = control.visible;
+                    candidate.enabled = control.enabled;
+                    candidate.hidden = control.hidden;
+                    candidate.button = control.kind == ExtensionControlKind::button;
+                    candidate.shortcut = control.shortcut;
+                    MenuRich item;
+                    item.kind = Runtime::MenuKeyboardKind::extension;
+                    item.window = window.name;
+                    item.name = control.name;
+                    add_candidate(candidates, rich, std::move(candidate), std::move(item));
+                }
+            }
+        }
+        if (Runtime::EngineSettingsMenuHost::button_shown(runtime)) {
+            const auto library_at = Runtime::EngineSettingsMenuHost::button_rect(runtime);
+            const auto settings_at = Runtime::EngineSettingsMenuHost::settings_button_rect(runtime);
+            const auto append = [&](Runtime::MenuKeyboardKind kind,
+                                    std::string name,
+                                    int32_t x,
+                                    int32_t y,
+                                    int32_t width,
+                                    int32_t height) {
+                MenuCandidate candidate;
+                candidate.name = name;
+                candidate.x = x;
+                candidate.y = y;
+                candidate.width = width;
+                candidate.height = height;
+                candidate.button = true;
+                candidate.appended = true;
+                MenuRich item;
+                item.kind = kind;
+                item.name = std::move(name);
+                add_candidate(candidates, rich, std::move(candidate), std::move(item));
+            };
+            append(
+                Runtime::MenuKeyboardKind::library,
+                "library",
+                library_at.x,
+                library_at.y,
+                library_at.width,
+                library_at.height
+            );
+            append(
+                Runtime::MenuKeyboardKind::settings,
+                "settings",
+                settings_at.x,
+                settings_at.y,
+                settings_at.width,
+                settings_at.height
+            );
+        }
+        if (runtime.oa_layer_ != nullptr) {
+            LayerScreen* screen = runtime.oa_layer_->find(oa::ui::kit::update_pill_word);
+            if (screen != nullptr) {
+                const LayerView seen = runtime.oa_layer_->view();
+                const LayerPlacement placed = screen->placement(seen);
+                if (placed.shown.width > 0 && placed.shown.height > 0) {
+                    int32_t x = 0;
+                    int32_t y = 0;
+                    int32_t width = 0;
+                    int32_t height = 0;
+                    window_to_canvas(seen, placed.shown, x, y, width, height);
+                    MenuCandidate candidate;
+                    candidate.name = "pill";
+                    candidate.x = x;
+                    candidate.y = y;
+                    candidate.width = width;
+                    candidate.height = height;
+                    candidate.button = true;
+                    candidate.appended = true;
+                    MenuRich item;
+                    item.kind = Runtime::MenuKeyboardKind::pill;
+                    item.name = std::string(oa::ui::kit::update_pill_word);
+                    add_candidate(candidates, rich, std::move(candidate), std::move(item));
+                }
+            }
+        }
+        MainMenuOrder built;
+        built.order = main_menu_reading_order(candidates, presses);
+        built.rich = std::move(rich);
+        return built;
+    }
+
+    /// The stop the order is on now.
+    ///
+    /// A landed stop that is still in the order wins. Otherwise a screen record
+    /// that is in the order wins, so Return without the ring, which gives the
+    /// panel a record, is where the next Tab starts. With neither, it is the
+    /// first stop: the one the menu reports as focused and does not draw.
+    ///
+    /// @param runtime the runtime
+    /// @param built the order
+    /// @return the stop; 0 when the order is empty or the focus is its first stop
+    static std::size_t menu_index(const Runtime& runtime, const MainMenuOrder& built) {
+        const auto landed = [&](std::size_t stop) {
+            if (stop >= built.order.size() || runtime.menu_keyboard_screen_ != runtime.screen_)
+                return false;
+            const MenuRich& item = built.rich[built.order[stop].index];
+            switch (runtime.menu_keyboard_) {
+            case Runtime::MenuKeyboardKind::extension:
+                return item.kind == Runtime::MenuKeyboardKind::extension &&
+                       item.window == runtime.menu_keyboard_window_ &&
+                       item.name == runtime.menu_keyboard_control_;
+            case Runtime::MenuKeyboardKind::library:
+                return item.kind == Runtime::MenuKeyboardKind::library;
+            case Runtime::MenuKeyboardKind::settings:
+                return item.kind == Runtime::MenuKeyboardKind::settings;
+            case Runtime::MenuKeyboardKind::pill:
+                return item.kind == Runtime::MenuKeyboardKind::pill;
+            default:
+                return false;
+            }
+        };
+        if (cross_family(runtime.menu_keyboard_)) {
+            for (std::size_t index = 0; index < built.order.size(); ++index) {
+                if (landed(index))
+                    return index;
+            }
+        }
+        if (runtime.frontend_focus_ > 0) {
+            for (std::size_t index = 0; index < built.order.size(); ++index) {
+                const MenuRich& item = built.rich[built.order[index].index];
+                if (item.kind == Runtime::MenuKeyboardKind::gadget &&
+                    item.gadget == runtime.frontend_focus_)
+                    return index;
+            }
+        }
+        return 0;
+    }
+
+    /// Tells the layer which of its screens the order has landed on.
+    ///
+    /// @param runtime the runtime
+    /// @param kind the stop
+    static void note_stop(Runtime& runtime, Runtime::MenuKeyboardKind kind) {
+        if (runtime.oa_layer_ == nullptr)
+            return;
+        if (kind == Runtime::MenuKeyboardKind::pill)
+            runtime.oa_layer_->note_menu_keyboard_stop(oa::ui::kit::update_pill_word);
+        else if (kind == Runtime::MenuKeyboardKind::more_maps)
+            runtime.oa_layer_->note_menu_keyboard_stop("more-maps");
+        else
+            runtime.oa_layer_->note_menu_keyboard_stop("");
+    }
+
+    /// Lands the order on one stop. The caller rebuilds, so the tree follows.
+    ///
+    /// @param runtime the runtime
+    /// @param item the stop
+    static void land_on(Runtime& runtime, const MenuRich& item) {
+        runtime.menu_keyboard_ = item.kind;
+        runtime.menu_keyboard_screen_ = runtime.screen_;
+        runtime.menu_keyboard_window_ = item.window;
+        runtime.menu_keyboard_control_ = item.name;
+        runtime.menu_keyboard_gadget_ = item.gadget;
+        runtime.frontend_focus_ = item.kind == Runtime::MenuKeyboardKind::gadget ? item.gadget : -1;
+        note_stop(runtime, item.kind);
+    }
+
+    /// Moves the main menu's order by one stop and wraps.
+    ///
+    /// The first stop is the one the menu already reports. The first Tab leaves
+    /// it for the next.
+    ///
+    /// @param runtime the runtime
+    /// @param forward true for Tab, false for Shift+Tab
+    static void move_main_menu_reading(Runtime& runtime, bool forward) {
+        const MainMenuOrder built = main_menu_order(runtime);
+        if (built.order.empty())
+            return;
+        const std::size_t at = menu_index(runtime, built);
+        const std::size_t count = built.order.size();
+        const std::size_t landed = forward ? (at + 1U) % count : (at == 0U ? count - 1U : at - 1U);
+        land_on(runtime, built.rich[built.order[landed].index]);
+    }
+
+    /// Moves the main menu's order by place, as an arrow does, and leaves the
+    /// ring as it is.
+    ///
+    /// @param runtime the runtime
+    /// @param way the arrow
+    /// @return false when the menu has no stop
+    static bool move_main_menu_by_place(Runtime& runtime, MenuReadingWay way) {
+        const MainMenuOrder built = main_menu_order(runtime);
+        if (built.order.empty())
+            return false;
+        const std::size_t at = menu_index(runtime, built);
+        const std::size_t landed = menu_reading_step(built.order, at, way);
+        land_on(runtime, built.rich[built.order[landed].index]);
+        return true;
+    }
+
+    /// The arrow as a move by place.
+    ///
+    /// @param direction the arrow
+    /// @return the move
+    static MenuReadingWay reading_way(oa::ui::gui_input::FocusDirection direction) {
+        switch (direction) {
+        case oa::ui::gui_input::FocusDirection::previous:
+            return MenuReadingWay::left;
+        case oa::ui::gui_input::FocusDirection::next:
+            return MenuReadingWay::right;
+        case oa::ui::gui_input::FocusDirection::up:
+            return MenuReadingWay::up;
+        case oa::ui::gui_input::FocusDirection::down:
+            return MenuReadingWay::down;
+        }
+        return MenuReadingWay::right;
+    }
+
+    /// Presses an extension's button through the pointer path a click uses.
+    ///
+    /// The point is the control's centre, on the canvas. The press does not go
+    /// through the frame's pointer, so it does not hide the ring. A window may
+    /// leave a press on its art to the screen's own control under it, as a
+    /// click there reaches that control: the screen's control is then pressed.
+    ///
+    /// @param runtime the runtime
+    /// @param place the control
+    static void press_extension_at(Runtime& runtime, const MenuReadingStop& place) {
+        const float x = static_cast<float>(place.x) + static_cast<float>(place.width) / 2.0F;
+        const float y = static_cast<float>(place.y) + static_cast<float>(place.height) / 2.0F;
+        const auto send = [&](ScreenInputKind kind) {
+            ScreenInput input{};
+            input.kind = kind;
+            input.button = uint8_t{1};
+            input.clicks = uint8_t{1};
+            input.x = x;
+            input.y = y;
+            return runtime.screen_input_taken(input);
+        };
+        std::ignore = send(ScreenInputKind::pointer_move);
+        const bool down = send(ScreenInputKind::pointer_down);
+        const bool up = send(ScreenInputKind::pointer_up);
+        if (down || up)
+            return;
+        const oa::ui::display_layout::Point origin = runtime.panel_origin();
+        const oa::ui::gui_input::MenuObject menu{runtime.resources_.layout.gadgets, -1};
+        const auto under = oa::ui::gui_input::hit_test(
+            menu, static_cast<int32_t>(x) - origin.x, static_cast<int32_t>(y) - origin.y
+        );
+        if (under && *under > 0 && runtime.frontend_gadget_pressable(*under))
+            runtime.press_frontend_button(*under);
+    }
+
+    /// Presses the main menu's cross-family stop.
+    ///
+    /// While the ring is hidden, accept leaves the stop and gives the panel its
+    /// focus, and presses nothing. While the ring is shown, accept hides the
+    /// ring and presses the stop. The update pill opens the centre from here,
+    /// through the same call a press on the pill uses.
+    ///
+    /// @param runtime the runtime
+    /// @param accept true for accept, false for the press action
+    /// @return true when the stop answered the key
+    static bool press_main_menu_stop(Runtime& runtime, bool accept) {
+        if (runtime.screen_ != Screen::main_menu || !cross_family(runtime.menu_keyboard_) ||
+            runtime.menu_keyboard_screen_ != runtime.screen_)
+            return false;
+        const bool ring = runtime.oa_layer_ != nullptr && runtime.oa_layer_->family_ring_shown();
+        if (!ring) {
+            if (!accept)
+                return false;
+            runtime.clear_menu_keyboard();
+            runtime.move_frontend_focus(oa::ui::gui_input::FocusDirection::next);
+            runtime.rebuild_surface();
+            return true;
+        }
+        if (accept && runtime.oa_layer_ != nullptr)
+            runtime.oa_layer_->note_family_return();
+        const MainMenuOrder built = main_menu_order(runtime);
+        if (built.order.empty())
+            return true;
+        const std::size_t at = menu_index(runtime, built);
+        if (at >= built.order.size())
+            return true;
+        const MenuRich& item = built.rich[built.order[at].index];
+        if (item.kind != runtime.menu_keyboard_)
+            return true;
+        switch (item.kind) {
+        case Runtime::MenuKeyboardKind::extension:
+            press_extension_at(runtime, built.order[at]);
+            return true;
+        case Runtime::MenuKeyboardKind::library:
+            runtime.open_library(std::nullopt);
+            return true;
+        case Runtime::MenuKeyboardKind::settings:
+            runtime.open_engine_settings_from_menu();
+            return true;
+        case Runtime::MenuKeyboardKind::pill:
+            runtime.open_update_pill_from_order();
+            return true;
+        default:
+            return true;
+        }
+    }
+
+    /// One stop of map selection's order.
+    struct PickerStop {
+        bool more_maps = false; ///< More maps…, rather than a record of the panel
+        int32_t gadget = -1;    ///< the record; -1 for More maps…
+    };
+
+    /// Map selection's order, with More maps… after the list while that button shows.
+    ///
+    /// @param runtime the runtime
+    /// @return the stops
+    static std::vector<PickerStop> map_picker_stops(const Runtime& runtime) {
+        const auto& gadgets = runtime.resources_.layout.gadgets;
+        const std::vector<int32_t> order = oa::ui::gui_input::tab_order(gadgets);
+        std::vector<std::string> names;
+        names.reserve(order.size());
+        for (const int32_t index : order) {
+            if (index > 0 && static_cast<std::size_t>(index) < gadgets.size())
+                names.push_back(gadgets[static_cast<std::size_t>(index)].common.name);
+            else
+                names.emplace_back();
+        }
+        const bool showing =
+            runtime.oa_layer_ != nullptr && layer_screen_shown(*runtime.oa_layer_, "more-maps");
+        const std::vector<std::string> reading = map_picker_reading_order(names, showing);
+        std::vector<PickerStop> stops;
+        stops.reserve(reading.size());
+        std::size_t cursor = 0;
+        for (const std::string& name : reading) {
+            if (name == "more-maps") {
+                stops.push_back(PickerStop{true, -1});
+                continue;
+            }
+            while (cursor < names.size() && names[cursor] != name)
+                ++cursor;
+            PickerStop stop;
+            if (cursor < order.size())
+                stop.gadget = order[cursor++];
+            stops.push_back(stop);
+        }
+        return stops;
+    }
+
+    /// The map list's record.
+    ///
+    /// @param runtime the runtime
+    /// @return the record, or -1 when the panel has no map list
+    static int32_t map_list_gadget(const Runtime& runtime) {
+        const auto& gadgets = runtime.resources_.layout.gadgets;
+        for (std::size_t index = 1; index < gadgets.size(); ++index) {
+            if (Runtime::tdf_names_equal(gadgets[index].common.name, "MAPNAMES"))
+                return static_cast<int32_t>(index);
+        }
+        return -1;
+    }
+
+    /// Moves map selection's order by one stop and wraps.
+    ///
+    /// More maps… is the stop after the map list while that button shows.
+    ///
+    /// @param runtime the runtime
+    /// @param forward true for Tab, false for Shift+Tab
+    static void move_map_picker_reading(Runtime& runtime, bool forward) {
+        const std::vector<PickerStop> stops = map_picker_stops(runtime);
+        if (stops.empty())
+            return;
+        std::size_t at = 0;
+        bool found = false;
+        if (runtime.menu_keyboard_ == Runtime::MenuKeyboardKind::more_maps &&
+            runtime.menu_keyboard_screen_ == runtime.screen_) {
+            for (std::size_t index = 0; index < stops.size(); ++index) {
+                if (!stops[index].more_maps)
+                    continue;
+                at = index;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            const int32_t focus = runtime.frontend_focus();
+            for (std::size_t index = 0; index < stops.size(); ++index) {
+                if (stops[index].more_maps || stops[index].gadget != focus)
+                    continue;
+                at = index;
+                found = true;
+                break;
+            }
+        }
+        const std::size_t count = stops.size();
+        const std::size_t landed =
+            !found ? (forward ? 0U : count - 1U)
+                   : (forward ? (at + 1U) % count : (at == 0U ? count - 1U : at - 1U));
+        runtime.menu_keyboard_screen_ = runtime.screen_;
+        runtime.menu_keyboard_window_.clear();
+        if (stops[landed].more_maps) {
+            runtime.frontend_focus_ = -1;
+            runtime.menu_keyboard_ = Runtime::MenuKeyboardKind::more_maps;
+            runtime.menu_keyboard_control_ = "more-maps";
+            runtime.menu_keyboard_gadget_ = -1;
+            note_stop(runtime, Runtime::MenuKeyboardKind::more_maps);
+            return;
+        }
+        runtime.menu_keyboard_ = Runtime::MenuKeyboardKind::gadget;
+        runtime.menu_keyboard_control_.clear();
+        runtime.menu_keyboard_gadget_ = stops[landed].gadget;
+        runtime.frontend_focus_ = stops[landed].gadget;
+        note_stop(runtime, Runtime::MenuKeyboardKind::gadget);
+    }
+};
+
+void Runtime::clear_menu_keyboard() {
+    menu_keyboard_ = MenuKeyboardKind::reported;
+    menu_keyboard_screen_ = screen_;
+    menu_keyboard_window_.clear();
+    menu_keyboard_control_.clear();
+    menu_keyboard_gadget_ = -1;
+    if (oa_layer_ != nullptr)
+        oa_layer_->note_menu_keyboard_stop("");
+}
+
+void Runtime::choose_focused_map() {
+    if (oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
+    selected_ = frontend_focus();
+    activate();
+    close_map_modal();
+    selected_ = -1;
+}
+
 bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
     namespace gui = oa::ui::gui_input;
     namespace bindings = oa::ui::key_bindings;
@@ -531,6 +1196,21 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
         if (cancel != nullptr && press_briefing_default(true))
             return true;
     }
+    // Page Up and Page Down turn a briefing's pages, and move the campaign
+    // end's mission list, whichever control is focused. The chords are the
+    // screen actions, so a player's layout can move them.
+    const bool screen_page_down = fired_action("ui.screen-page-down") != nullptr;
+    const bool screen_page_up = fired_action("ui.screen-page-up") != nullptr;
+    if (frontend_has_keyboard() && (screen_page_up || screen_page_down)) {
+        if (screen_ == Screen::briefing) {
+            page_briefing_text(screen_page_down);
+            return true;
+        }
+        if (screen_ == Screen::campaign_end) {
+            page_end_mission_list(screen_page_down);
+            return true;
+        }
+    }
     // Up and Down move the selection of a new campaign's focused list.
     if ((screen_ == Screen::new_campaign || screen_ == Screen::any_mission) &&
         (fired_action("ui.menu-list-up") != nullptr ||
@@ -546,16 +1226,107 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
         step_map_list(fired_action("ui.menu-list-down") != nullptr))
         return true;
     if (frontend_has_keyboard()) {
+        const bool tab_next = fired_action("ui.menu-focus-next") != nullptr;
+        const bool tab_previous = fired_action("ui.menu-focus-previous") != nullptr;
+        if (tab_next || tab_previous) {
+            // Tab and Shift+Tab show the ring. The main menu walks across the
+            // panel, an extension's buttons and the icons. Map selection puts
+            // More maps… after the list. Every other screen follows its own order.
+            if (oa_layer_ != nullptr)
+                oa_layer_->note_family_tab();
+            if (screen_ == Screen::main_menu)
+                MenuKeyboardAccess::move_main_menu_reading(*this, tab_next);
+            else if (screen_ == Screen::map_selection)
+                MenuKeyboardAccess::move_map_picker_reading(*this, tab_next);
+            else
+                move_frontend_tab(tab_next);
+            rebuild_surface();
+            return true;
+        }
+        int32_t menu_key = 0;
+        if (fired_action("ui.menu-focus-left") != nullptr)
+            menu_key = gui::key_code::left;
+        else if (fired_action("ui.menu-focus-right") != nullptr)
+            menu_key = gui::key_code::right;
+        else if (
+            fired_action("ui.menu-focus-up") != nullptr ||
+            fired_action("ui.menu-list-up") != nullptr
+        )
+            menu_key = gui::key_code::up;
+        else if (
+            fired_action("ui.menu-focus-down") != nullptr ||
+            fired_action("ui.menu-list-down") != nullptr
+        )
+            menu_key = gui::key_code::down;
+        else if (fired_action("ui.screen-page-up") != nullptr)
+            menu_key = gui::key_code::page_up;
+        else if (fired_action("ui.screen-page-down") != nullptr)
+            menu_key = gui::key_code::page_down;
+        else if (fired_action("ui.screen-home") != nullptr)
+            menu_key = gui::key_code::home;
+        else if (fired_action("ui.screen-end") != nullptr)
+            menu_key = gui::key_code::end;
         const auto focus = frontend_focus();
-        const bool from_button =
-            focus < 0 || resources_.layout.gadgets[static_cast<std::size_t>(focus)].common.type ==
-                             oa::ui::gui_layout::GadgetType::button;
+        const auto& gadgets = resources_.layout.gadgets;
+        const oa::ui::gui_layout::Gadget* focused = nullptr;
+        if (focus > 0 && static_cast<std::size_t>(focus) < gadgets.size())
+            focused = &gadgets[static_cast<std::size_t>(focus)];
+        const bool ring = oa_layer_ != nullptr && oa_layer_->family_ring_shown();
+        gui::FocusKeyQuery query;
+        query.gadget = focused;
+        query.key = menu_key;
+        query.ring_shown = ring;
+        const gui::FocusKeyEffect effect =
+            menu_key != 0 ? gui::focus_key_action(query) : gui::FocusKeyEffect::unhandled;
+        switch (effect) {
+        case gui::FocusKeyEffect::scroll_back:
+            nudge_focused_scroll(0);
+            return true;
+        case gui::FocusKeyEffect::scroll_forward:
+            nudge_focused_scroll(1);
+            return true;
+        case gui::FocusKeyEffect::scroll_page_back:
+            nudge_focused_scroll(2);
+            return true;
+        case gui::FocusKeyEffect::scroll_page_forward:
+            nudge_focused_scroll(3);
+            return true;
+        case gui::FocusKeyEffect::scroll_home:
+            nudge_focused_scroll(4);
+            return true;
+        case gui::FocusKeyEffect::scroll_end:
+            nudge_focused_scroll(5);
+            return true;
+        case gui::FocusKeyEffect::list_previous:
+        case gui::FocusKeyEffect::list_next:
+            if (focused != nullptr && tdf_names_equal(focused->common.name, "GAMES")) {
+                std::ignore = step_load_game_list(effect == gui::FocusKeyEffect::list_next);
+            } else if (focused != nullptr) {
+                std::ignore = step_frontend_list_row(
+                    focused->common.name, effect == gui::FocusKeyEffect::list_next
+                );
+                rebuild_surface();
+            }
+            return true;
+        case gui::FocusKeyEffect::colour_forward:
+        case gui::FocusKeyEffect::colour_back:
+            if (focus > 0) {
+                const auto kept = frontend_focus_;
+                press_frontend_button(
+                    static_cast<std::size_t>(focus),
+                    effect == gui::FocusKeyEffect::colour_forward ? 1 : 2
+                );
+                if (screen_ == Screen::skirmish && frontend_focus_ != kept)
+                    set_frontend_focus(kept);
+            }
+            return true;
+        default:
+            break;
+        }
+        const bool from_button = focus < 0 || focused == nullptr ||
+                                 focused->common.type == oa::ui::gui_layout::GadgetType::button;
         std::optional<gui::FocusDirection> direction;
-        if (fired_action("ui.menu-focus-next") != nullptr)
-            direction = gui::FocusDirection::next;
-        else if (fired_action("ui.menu-focus-previous") != nullptr)
-            direction = gui::FocusDirection::previous;
-        else if (from_button && fired_action("ui.menu-focus-left") != nullptr)
+        if (from_button && fired_action("ui.menu-focus-left") != nullptr)
             direction = gui::FocusDirection::previous;
         else if (from_button && fired_action("ui.menu-focus-right") != nullptr)
             direction = gui::FocusDirection::next;
@@ -570,13 +1341,47 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
         )
             direction = gui::FocusDirection::down;
         if (direction) {
+            // An arrow moves the focus and leaves the ring as it is. On the
+            // main menu, once the ring is showing, it moves across the same
+            // stops Tab does. From More maps… it returns to the map list.
+            if (screen_ == Screen::main_menu && ring &&
+                MenuKeyboardAccess::move_main_menu_by_place(
+                    *this, MenuKeyboardAccess::reading_way(*direction)
+                )) {
+                rebuild_surface();
+                return true;
+            }
+            if (screen_ == Screen::map_selection && menu_keyboard_ == MenuKeyboardKind::more_maps &&
+                menu_keyboard_screen_ == screen_) {
+                const int32_t list = MenuKeyboardAccess::map_list_gadget(*this);
+                clear_menu_keyboard();
+                if (ring && list > 0)
+                    frontend_focus_ = list;
+                else
+                    move_frontend_focus(*direction);
+                rebuild_surface();
+                return true;
+            }
+            if (menu_keyboard_screen_ == screen_ &&
+                MenuKeyboardAccess::cross_family(menu_keyboard_))
+                clear_menu_keyboard();
             move_frontend_focus(*direction);
             rebuild_surface();
             return true;
         }
         // Return and Space press the focused button; a gamepad's A and Menu
-        // send Return.
+        // send Return. Return on a control that is not a button presses the
+        // screen's carriage-return default once the ring is showing. On the
+        // map list, once the ring is showing, Return chooses the map as a
+        // double-click does.
         if ((accept_down || press_down) && press_frontend_focus_action(accept_down))
+            return true;
+        if (accept_down && ring && screen_ == Screen::map_selection && focused != nullptr &&
+            tdf_names_equal(focused->common.name, "MAPNAMES")) {
+            choose_focused_map();
+            return true;
+        }
+        if (accept_down && ring && press_panel_enter_default())
             return true;
     }
     if (cancel != nullptr) {
@@ -702,14 +1507,50 @@ bool Runtime::press_frontend_gui_action(const SDL_KeyboardEvent& key) {
 }
 
 bool Runtime::press_frontend_focus_action(bool accept) {
+    if (MenuKeyboardAccess::press_main_menu_stop(*this, accept))
+        return true;
+    // More maps… opens from the bound Accept and Press, through the same call
+    // a press on the button uses. While the ring is hidden the panel takes
+    // its focus, as Return does today, and the browser stays closed.
+    if (screen_ == Screen::map_selection && menu_keyboard_ == MenuKeyboardKind::more_maps &&
+        menu_keyboard_screen_ == screen_) {
+        const bool shown = oa_layer_ != nullptr && oa_layer_->family_ring_shown();
+        if (!shown) {
+            if (!accept)
+                return false;
+            clear_menu_keyboard();
+            move_frontend_focus(oa::ui::gui_input::FocusDirection::next);
+            rebuild_surface();
+            return true;
+        }
+        if (accept && oa_layer_ != nullptr)
+            oa_layer_->note_family_return();
+        open_more_maps_from_order();
+        return true;
+    }
     const auto focus = frontend_focus();
+    const bool ring = oa_layer_ != nullptr && oa_layer_->family_ring_shown();
     if (focus < 0) {
-        // A panel with no record focused, as the main menu opens, takes its
-        // first from Return, ringed, for the next press to press.
         if (!accept)
             return false;
-        move_frontend_focus(oa::ui::gui_input::FocusDirection::next);
-        rebuild_surface();
+        // While the ring is hidden, Return does what it does today: the
+        // panel takes its first focus and nothing is pressed.
+        if (!ring) {
+            move_frontend_focus(oa::ui::gui_input::FocusDirection::next);
+            rebuild_surface();
+            return true;
+        }
+        const int32_t first = announced_frontend_focus();
+        if (first < 0)
+            return false;
+        const auto index = static_cast<std::size_t>(first);
+        const auto& gadget = resources_.layout.gadgets[index];
+        const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+        if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
+            return false;
+        // Hide before the press, so a screen the press opens keeps its own rule.
+        oa_layer_->note_family_return();
+        press_frontend_button(index);
         return true;
     }
     const auto index = static_cast<std::size_t>(focus);
@@ -717,16 +1558,19 @@ bool Runtime::press_frontend_focus_action(bool accept) {
     const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
     if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
         return false;
+    // Return hides the ring. Space presses and leaves it shown, as the kit does.
+    if (accept && oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
     press_frontend_button(index);
     return true;
 }
 
-void Runtime::press_frontend_button(std::size_t index) {
+void Runtime::press_frontend_button(std::size_t index, int32_t button) {
     // The screens' handlers read the selected gadget or the one under the
     // pointer; a screen that stays up then has the gadget under the pointer
     // hovered again, with its help.
     const auto pointer_hover = hovered_;
-    event_button_ = 1;
+    event_button_ = button;
     selected_ = static_cast<int32_t>(index);
     hovered_ = index;
     click_selected_frontend_gadget();
@@ -735,6 +1579,26 @@ void Runtime::press_frontend_button(std::size_t index) {
         hovered_ = pointer_hover;
         refresh_help_text();
     }
+}
+
+bool Runtime::press_panel_enter_default() {
+    const auto& gadgets = resources_.layout.gadgets;
+    if (gadgets.empty())
+        return false;
+    const auto* panel = std::get_if<oa::ui::gui_layout::PanelFields>(&gadgets.front().fields);
+    if (panel == nullptr || panel->carriage_return_default.empty())
+        return false;
+    for (std::size_t index = 1; index < gadgets.size(); ++index) {
+        if (!tdf_names_equal(gadgets[index].common.name, panel->carriage_return_default))
+            continue;
+        if (gadgets[index].common.active == 0)
+            return false;
+        if (oa_layer_ != nullptr)
+            oa_layer_->note_family_return();
+        press_frontend_button(index);
+        return true;
+    }
+    return false;
 }
 
 bool Runtime::frontend_gadget_pressable(std::size_t index) const {

@@ -23,6 +23,7 @@
 #include "oa/data/content_bundles.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/game_installs.hpp"
+#include "oa/platform/preferences.hpp"
 #include "oa/platform/machine.hpp"
 #include "oa/platform/text_font.hpp"
 #include "oa/ui/folder_chooser.hpp"
@@ -54,6 +55,31 @@ namespace chooser = oa::ui::folder_chooser;
 namespace view = oa::ui::game_files;
 namespace installs = oa::platform::game_installs;
 namespace text_font = oa::platform::text_font;
+namespace preferences = oa::platform::preferences;
+
+/// True when open-annihilation.access.always-show-focus is a whole number
+/// above zero. The same reading as OaLayer::always_show_focus.
+///
+/// @param file the preferences file
+/// @return true when the ring shows as a folder opens
+[[nodiscard]] bool read_always_show_focus(const fs::path& file) {
+    try {
+        const auto values = preferences::load(file);
+        const auto found = values.find("open-annihilation.access.always-show-focus");
+        if (found == values.end())
+            return false;
+        bool above_zero = false;
+        for (const char digit : found->second) {
+            if (digit < '0' || digit > '9')
+                return false;
+            if (digit != '0')
+                above_zero = true;
+        }
+        return above_zero;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
 
 /// How long the loop waits for an event while a held direction or a stick needs its timer,
 /// or while the renderer's start-up frames are counted, in milliseconds.
@@ -332,6 +358,9 @@ class ChooserScreen {
         else
             use_game_files_language_fonts(*fonts_);
         text_family_ = game_files_text_family(options_.preferences_file);
+        show_focus_ = read_always_show_focus(
+            options_.preferences_file.value_or(oa::platform::preferences::default_file())
+        );
         int count = 0;
         if (SDL_JoystickID* ids = SDL_GetGamepads(&count); ids != nullptr) {
             for (int index = 0; index < count; ++index)
@@ -955,7 +984,6 @@ class ChooserScreen {
         show_filtered();
         ui_.scroll_points = 0;
         ui_.pressed = -1;
-        ui_.focus_shown = false;
         lay_out_now();
         ui_.focus = 0;
         for (std::size_t index = 0; index < layout_.focus_order.size(); ++index) {
@@ -966,6 +994,9 @@ class ChooserScreen {
                 break;
             }
         }
+        // The selected row is focused. The ring waits for a key, unless the
+        // preference asks for it. The same reading as OaLayer::always_show_focus.
+        ui_.focus_shown = show_focus_;
         stale_ = true;
         dirty_ = true;
     }
@@ -1231,18 +1262,19 @@ class ChooserScreen {
     std::unique_ptr<text_font::FontStack> fonts_{}; ///< the bundled fonts, when open
     chooser::Model model_{};                        ///< what the chooser shows
     chooser::UiState ui_{};                         ///< what the chooser keeps between frames
-    chooser::Layout layout_{};                      ///< the layout last made
-    view::Viewport viewport_{};                     ///< the window's canvas
-    paint::Canvas canvas_{};                        ///< the frame last painted
-    bool dirty_{true};                              ///< the frame must be painted again
-    bool stale_{true};                      ///< the layout must be made again before input reads it
-    bool painted_{};                        ///< this pass painted a frame
-    bool done_{};                           ///< the chooser has ended
-    bool kept_{};                           ///< it ended with a folder chosen
-    std::optional<GameDirectory> chosen_{}; ///< the folder chosen
-    WindowPress press_{};                   ///< the press under way
-    std::vector<OpenPad> pads_{};           ///< the gamepads opened
-    Direction held_{Direction::none};       ///< the direction held down
+    bool show_focus_{};         ///< the ring shows on the selected row when a folder opens
+    chooser::Layout layout_{};  ///< the layout last made
+    view::Viewport viewport_{}; ///< the window's canvas
+    paint::Canvas canvas_{};    ///< the frame last painted
+    bool dirty_{true};          ///< the frame must be painted again
+    bool stale_{true};          ///< the layout must be made again before input reads it
+    bool painted_{};            ///< this pass painted a frame
+    bool done_{};               ///< the chooser has ended
+    bool kept_{};               ///< it ended with a folder chosen
+    std::optional<GameDirectory> chosen_{};      ///< the folder chosen
+    WindowPress press_{};                        ///< the press under way
+    std::vector<OpenPad> pads_{};                ///< the gamepads opened
+    Direction held_{Direction::none};            ///< the direction held down
     HoldSource hold_source_{HoldSource::dpad};   ///< what holds it
     oa::ui::pad_controls::MenuRepeat repeat_{};  ///< its repeats
     Direction stick_direction_{Direction::none}; ///< the left stick's direction

@@ -8,8 +8,10 @@
 // as it switches on (runtime_tier_watch.cpp). Off applies at once; Basic
 // and Full apply at once too, except that a match played with other
 // machines or a replay, known from its loading screen, keeps the tier it
-// began with until it ends. Once the ladder has moved, the tier switches
-// on at the rung it reached. The renderer records follow the run: the first accelerated
+// began with until it ends. A replay decides its tier as that screen
+// begins, so one that is the first scene begins in the tier the player
+// chose. Once the ladder has moved, the tier switches on at the rung it
+// reached. The renderer records follow the run: the first accelerated
 // frame moves the sentinel, Full's first match frame stands under its own
 // trial (runtime_full.cpp), switching off closes the stage of a path's
 // first frames, and what a match strikes or records is written when it
@@ -77,6 +79,15 @@ void Runtime::update_render_tier() {
 void Runtime::begin_render_tier_match(policy::MatchKind kind) {
     if (!render_run_ || render_run_->host == nullptr)
         return;
+    // A replay can be the first scene: --play-demo, or a pending replay
+    // after a content switch's soft restart, both before any frame has
+    // applied the tier. Decide it now, and run the function test where only
+    // that is missing, so the gate, the loading screen and Full's pages take
+    // the tier the player chose. A replay opened after other frames is
+    // already decided, and this leaves that tier as it is. A shared game is
+    // not decided here. It keeps the tier its loading screen finds.
+    if (kind == policy::MatchKind::replay)
+        update_render_tier();
     policy::begin_match(
         render_run_->host->tier_inputs().match, kind, accelerated_.on, full_presentation()
     );

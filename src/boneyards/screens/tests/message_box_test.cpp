@@ -129,11 +129,26 @@ void test_behaviour(Desktop* desktop) {
     CHECK(declined && !accepted && box->base.owned == 1);
     desktop_destroy_owned(desktop);
 
-    // A box takes the keyboard from a focused field, answers Y, N, Enter and
-    // Escape, and gives the focus back to that field when it closes.
+    // The box keeps the keyboard. The first arrow lands on No, and a later
+    // arrow moves between the answers. Y, N and Escape still answer the box.
     desktop_set_focus(desktop, owner);
     box = message_box_create("Exit?", message_box_buttons::yes_no, &accepted, &declined, nullptr);
+    Window* no_answer = window_find_named(&box->base, message_box_name::no, class_name::button);
+    Window* yes_answer = window_find_named(&box->base, message_box_name::yes, class_name::button);
     CHECK(desktop->focus == &box->base);
+    Message right = key_message(key::right);
+    CHECK(desktop_route(desktop, &right));
+    CHECK(desktop->focus == no_answer);
+    Message left = key_message(key::left);
+    CHECK(desktop_route(desktop, &left));
+    CHECK(desktop->focus == yes_answer);
+    Message right_again = key_message(key::right);
+    CHECK(desktop_route(desktop, &right_again));
+    CHECK(desktop->focus == no_answer);
+    Message tab_key = key_message(key::tab);
+    CHECK(desktop_route(desktop, &tab_key));
+    CHECK(desktop->focus == yes_answer || desktop->focus == no_answer);
+    CHECK(desktop->focus != owner);
     Message lower_n = key_message('n');
     CHECK(desktop_route(desktop, &lower_n));
     CHECK(declined && !accepted && box->base.owned == 1 && desktop->focus == owner);
@@ -147,6 +162,16 @@ void test_behaviour(Desktop* desktop) {
     Message enter_yes = key_message(key::enter);
     CHECK(desktop_route(desktop, &enter_yes));
     CHECK(accepted && !declined && box->base.owned == 1);
+    desktop_destroy_owned(desktop);
+    box = message_box_create("Exit?", message_box_buttons::yes_no, &accepted, &declined, nullptr);
+    Message right_no = key_message(key::right);
+    CHECK(desktop_route(desktop, &right_no));
+    CHECK(
+        desktop->focus == window_find_named(&box->base, message_box_name::no, class_name::button)
+    );
+    Message enter_no = key_message(key::enter);
+    CHECK(desktop_route(desktop, &enter_no));
+    CHECK(declined && !accepted && box->base.owned == 1);
     desktop_destroy_owned(desktop);
     box = message_box_create("Exit?", message_box_buttons::yes_no, &accepted, &declined, nullptr);
     Message escape_no = key_message(key::escape);

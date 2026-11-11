@@ -113,12 +113,44 @@ reach(const DisplayList& list, Point finger, int32_t reach, DisabledControl disa
 struct Interaction {
     ControlId hovered{no_control}; ///< the control under the pointer
     ControlId pressed{no_control}; ///< the control a held press is on
-    ControlId focused{no_control}; ///< the control the keys act on
-    bool focus_shown{};            ///< a key has shown the focus
+    ControlId focused{
+        no_control
+    }; ///< the control the keys act on, whether or not the ring is drawn
+    /// The keys act on the focused control. A screen opens with this false
+    /// (focus_opened) unless it asks for the ring, and the focused control is
+    /// set either way. A pointer move does not clear it. Enter does, except on
+    /// a text field, and the hidden-ring key table then applies again, as at
+    /// open. The ring itself is drawn only while focus_ring_visible.
+    bool focus_shown{};
+    /// The pointer has hidden the ring. The focused control still takes the
+    /// keys. Only the drawing reads this.
+    bool pointer_hid_ring{};
     /// How far a finger's held press was moved to reach the control it took.
     /// Its later moves and its release are moved by the same amount.
     Point finger_shift{};
 };
+
+/// Tells whether the focus ring is drawn.
+///
+/// The keys read focus_shown. The drawing reads this: a pointer move hides
+/// the ring without taking the keys off the focused control.
+///
+/// @param interaction the focus
+/// @return true when the ring is drawn
+[[nodiscard]] inline bool focus_ring_visible(const Interaction& interaction) noexcept {
+    return interaction.focus_shown && !interaction.pointer_hid_ring;
+}
+
+/// A key shows the ring again on the control that already has the focus.
+///
+/// An opening focus (focus_shown false) is left alone, so the hidden-ring
+/// key table still applies. A text field's ring was not hidden.
+///
+/// @param[in,out] interaction the focus
+inline void show_ring_for_key(Interaction& interaction) noexcept {
+    if (interaction.focus_shown && interaction.focused != no_control)
+        interaction.pointer_hid_ring = false;
+}
 
 /// What a pointer event asks the screen to do.
 enum class PointerResult : uint8_t {
@@ -134,14 +166,18 @@ struct PointerOutcome {
     Point at{};                    ///< the point the event used, after a finger's shift
 };
 
-/// Moves the hover to the control under the pointer.
+/// Moves the hover to the control under the pointer, and hides the focus ring.
 ///
 /// While a press is held, the point is moved by the finger's shift first.
+/// A move hides the ring, except on a text field, which keeps its ring, its
+/// caret and its typing. The focused control stays, and the next key still
+/// acts on it. An opening focus is not hidden this way, so its key table
+/// still holds. Only the drawing reads the hide.
 ///
-/// @param[in,out] interaction the pointer's place; its hover changes
+/// @param[in,out] interaction the pointer's place; its hover changes and the ring hides
 /// @param list the display list
 /// @param point the pointer, in points
-/// @return redraw when the hover moves, otherwise none
+/// @return redraw when the hover moves or the ring's visibility changes, otherwise none
 [[nodiscard]] PointerOutcome
 pointer_move(Interaction& interaction, const DisplayList& list, Point point);
 
@@ -183,9 +219,9 @@ finger_down(Interaction& interaction, const DisplayList& list, Point finger, int
 pointer_up(Interaction& interaction, const DisplayList& list, Point point);
 
 /// Shows an interaction on the parts that draw its controls: a part is
-/// focused when it draws the focused control and a key has shown the focus,
-/// and pressed when it draws the held control. A part that draws no control
-/// is neither.
+/// focused when it draws the focused control and the ring is drawn
+/// (focus_ring_visible), and pressed when it draws the held control. A part
+/// that draws no control is neither.
 ///
 /// @param[in,out] list the display list; its items' focused and pressed states change
 /// @param interaction the focus and the held control
@@ -193,8 +229,13 @@ void mark_states(DisplayList& list, const Interaction& interaction) noexcept;
 
 /// Returns the next control in the declared order.
 ///
-/// The order wraps around. From a control that is not in it, going forward
-/// gives the first and going back the last. An empty order gives no control.
+/// The order wraps around. From a control that is not in it, and not a part
+/// of a composite that is, going forward gives the first and going back the
+/// last. An empty order gives no control.
+///
+/// A composite is one stop. The control returned is the part it lands on
+/// (composite_landing), never the composite's own id. A part of that
+/// composite is the same stop, so Tab and Shift+Tab leave the group.
 ///
 /// @param list the display list
 /// @param from the control to move on from
@@ -220,6 +261,13 @@ next_in_tab_order(const DisplayList& list, ControlId from, bool forward) noexcep
 /// across it, then the earlier in the declared order. With none in line, the
 /// smallest gap plus twice the gap across, a gap across of 0 when the spans
 /// meet, then the same ties. With no candidate the focus stays.
+///
+/// A composite is one candidate. Its rectangle is the union of its parts,
+/// and the control returned is the part it lands on. Its parts are not
+/// candidates of their own. The focus on one of those parts skips the
+/// composite, so an arrow across the axis can leave the group; an arrow
+/// along the axis moves between the parts (move_along) and does not use
+/// this search.
 ///
 /// @param list the display list
 /// @param from the control the focus is on
@@ -249,6 +297,61 @@ focus_toward(const DisplayList& list, ControlId from, Direction direction) noexc
     const DisplayList& list, ControlId from, Direction direction, std::span<const ScrollArea> areas
 ) noexcept;
 
+/// How an arrow moved inside a composite.
+enum class AxisStep : uint8_t {
+    outside, ///< the control is not one of a composite's parts
+    stayed,  ///< it is a part, and the arrow does not leave it
+    moved,   ///< the arrow moved to another part
+};
+
+/// Where an arrow along a composite's axis landed.
+struct AxisMove {
+    AxisStep step{AxisStep::outside}; ///< outside, stayed or moved
+    ControlId part{no_control};       ///< the part, when the arrow stayed or moved
+};
+
+/// Returns the part a composite stop lands on.
+///
+/// A control that is not a composite's id is returned as it is. A composite
+/// lands on its remembered part when that part takes the focus, else on its
+/// chosen part, else on the first part that takes the focus, else on its
+/// first part. An empty composite lands on no control. The remembered part
+/// is set to the part landed on.
+///
+/// @param list the display list
+/// @param id a stop, a part or any control
+/// @return the part, or `id` when it is not a composite
+[[nodiscard]] ControlId composite_landing(const DisplayList& list, ControlId id) noexcept;
+
+/// Moves between a composite's parts along one arrow, without wrapping.
+///
+/// A column takes Up and Down, a row takes Left and Right, and a grid takes
+/// all four, one cell at a time. A part that does not take the focus is
+/// skipped along a row or a column. On a grid the neighbouring cell is taken
+/// only when it takes the focus; otherwise the focus stays. At an end the
+/// focus stays. A control that is not a part, and an arrow across the axis,
+/// are outside. A move remembers the part.
+///
+/// @param list the display list
+/// @param from the focused control
+/// @param direction the arrow
+/// @return outside, stayed or moved, and the part
+[[nodiscard]] AxisMove
+move_along(const DisplayList& list, ControlId from, Direction direction) noexcept;
+
+/// Returns the first or last part of the composite the focus is inside.
+///
+/// The first or last part that takes the focus. With none that do, the
+/// focus stays on `from` when `from` is a part, so Home and End do not
+/// fall through to a scroll. A control that is not inside a composite gives
+/// no control. An end that is found is remembered.
+///
+/// @param list the display list
+/// @param from the focused control
+/// @param last true for the last part, false for the first
+/// @return that part, or no_control when the focus is not inside a composite
+[[nodiscard]] ControlId composite_end(const DisplayList& list, ControlId from, bool last) noexcept;
+
 /// What a key asks the screen to do.
 enum class /* one key */ KeyResult : uint8_t {
     none,       ///< the key does nothing
@@ -266,21 +369,51 @@ struct KeyOutcome {
     Key key{};                     ///< the key
 };
 
+/// Places the focus a screen opens with.
+///
+/// The first stop of the declared order is focused, a composite on the part
+/// it lands on, and the ring is drawn only when `show` is true. An empty
+/// order leaves the focus unset.
+/// A focus already set is left where it is, so a later layout does not
+/// move it. `show` is the preference that asks every screen to open with
+/// the ring; the kit does not read that preference.
+///
+/// @param[in,out] interaction the focus
+/// @param list the display list, for its declared order
+/// @param show true to draw the ring on the first control
+void focus_opened(Interaction& interaction, const DisplayList& list, bool show) noexcept;
+
 /// Applies one key to a kit screen.
 ///
-/// Tab and Shift+Tab move in the declared order. Up and Down move by where
-/// controls sit. Left and Right go to a focused control that takes steps,
-/// and otherwise move by where controls sit. With no focus shown, Up and
-/// Shift+Tab show it on the last control of the order, and Tab, Down, Left,
-/// Right and Space on the first. Space goes to the focused control. Enter
-/// goes to it when it is a button, a link, a list row or a tab, and
-/// otherwise the screen accepts. Escape cancels. Page Up and Page Down
-/// scroll. Home and End go to a focused text field, which moves its caret,
-/// and otherwise scroll. Backspace and Delete go to a focused text field and
-/// otherwise do nothing. Yes, No and Info do nothing: a screen that answers
-/// to Info does so before it calls key.
+/// A screen opens with the first control of its declared order focused and
+/// the ring hidden (focus_opened), unless it asks for the ring.
 ///
-/// @param[in,out] interaction the focus; a move shows it and sets the control
+/// While the ring is hidden, Tab moves to the control after the focused one
+/// and shows the ring there. From none, or from a control that is not in
+/// the order, that is the first. A part of a composite is in the order, on
+/// that composite's one stop. Shift+Tab moves to the control before it
+/// and shows the ring; from the first, or from none, that is the last. Up
+/// shows the ring on the last control. Down, Left, Right and Space show it
+/// on the first. Enter does not show the ring: the screen accepts. Escape
+/// cancels. The other keys do what they do with nothing focused.
+///
+/// While the ring shows, Tab and Shift+Tab move in the declared order. A
+/// composite is one stop of that order: the arrows along its axis move
+/// between its parts and do not wrap, Home and End go to its ends, and Tab
+/// and Shift+Tab leave it. Up and Down otherwise move by where controls
+/// sit. Left and Right go to a focused control that takes steps, and
+/// otherwise move by where controls sit. Space goes to the focused control,
+/// and so does Return when the focused control is a part. Enter goes to it
+/// when it is a button,
+/// a link, a list row or a tab, and otherwise the screen accepts, and then
+/// the ring is hidden, except on a text field, which keeps its ring, its
+/// caret and its typing. The focused control stays. Escape cancels. Page Up
+/// and Page Down scroll. Home and End go to a focused text field, which
+/// moves its caret, and otherwise scroll. Backspace and Delete go to a
+/// focused text field and otherwise do nothing. Yes, No and Info do
+/// nothing: a screen that answers to Info does so before it calls key.
+///
+/// @param[in,out] interaction the focus; a move shows the ring and sets the control
 /// @param list the display list
 /// @param key the key
 /// @return what the screen does
@@ -336,6 +469,30 @@ struct WheelCarry {
     WheelCarry& carry, float notches, int32_t step, int32_t offset, int32_t limit
 ) noexcept;
 
+/// What a kit control is to a screen reader, beside ControlKind.
+///
+/// `unset` means the reader has not chosen one. `switch_control` is the role
+/// written "switch".
+enum class AccessRole : uint8_t {
+    unset,          ///< not chosen
+    none,           ///< decoration
+    button,         ///< a push button
+    check_box,      ///< a box that is on or off
+    switch_control, ///< a switch
+    radio_group,    ///< a strip or a row of buttons
+    radio,          ///< one part of a strip or a row
+    tab_list,       ///< a row of tabs
+    tab,            ///< one tab
+    list,           ///< a list of rows
+    list_item,      ///< one row, or one item of an open menu
+    text_field,     ///< a field that takes typed text
+    search,         ///< a search field
+    slider,         ///< a slider or a scroll bar
+    link,           ///< a link
+    label,          ///< words that take no pointer
+    group,          ///< a group of controls
+};
+
 /// One named control, or one part of it, as automation reads it.
 struct AutomationEntry {
     std::string name;   ///< its name
@@ -343,7 +500,7 @@ struct AutomationEntry {
     Rect rect{};        ///< where it lies, in points
     bool shown{};       ///< some of its press area is in view
     bool enabled{};     ///< a press can reach it
-    bool focused{};     ///< the focus is shown on it
+    bool focused{};     ///< it holds the keyboard focus, whether or not the ring is drawn
     bool checked{};     ///< a switch that is on, or a chosen row
     std::string text;   ///< its caption or its value
     bool focusable{};   ///< the arrows and Tab can stop on it; a part never
@@ -351,12 +508,35 @@ struct AutomationEntry {
     /// a switch's half, a strip's level, a row of buttons' button or an open
     /// drop-down's item (automation_parts).
     bool part{};
+    AccessRole role{AccessRole::unset}; ///< what a screen reader calls it
+    std::string label;                  ///< the caption; empty when the control has none
+    /// More words about it, such as why a locked row cannot change. Empty
+    /// when there are none.
+    std::string description;
+    std::string value_text; ///< its value as words
+    bool has_value{};       ///< `value` is set
+    int32_t value{};        ///< a slider's stop
+    bool has_range{};       ///< `least`, `most` and `step` are set
+    int32_t least{};        ///< the least value
+    int32_t most{};         ///< the greatest value
+    int32_t step{};         ///< how far one step moves the value
+    int32_t place{};        ///< its place in a set, from 1; 0 when it has none
+    int32_t set_size{};     ///< how many share the set; 0 when it has none
+    bool chosen{};          ///< it is the chosen part
+    bool pressed{};         ///< a switch is on
+    /// A section header is open. Copied from the control. False otherwise.
+    bool expanded{};
+    /// How a change is announced: 0 off, 1 polite, 2 assertive.
+    uint8_t live{};
 };
 
 /// Returns the named controls, in list order.
 ///
 /// A control with no name is left out. One is shown when any of its press
-/// area is in view.
+/// area is in view. A composite with a name is listed after the controls,
+/// as a list, with the role of its CompositeRole (a tab list or a list).
+/// Each of its parts carries its place in the group, from 1, and how many
+/// parts the group has.
 ///
 /// @param list the display list
 /// @param interaction the focus, for which control is focused
@@ -375,7 +555,9 @@ automation_entries(const DisplayList& list, const Interaction& interaction);
 ///   <name>.off and <name>.on, each half the switch, the On half's the
 ///   wider by the odd column; checked on the half the switch shows;
 /// - a strip of levels (Role::levels): each level where level_at finds it,
-///   checked on the chosen level and enabled only where it is offered;
+///   or, on a strip wrapped onto rows (LevelsLook::columns), at its row and
+///   column, checked on the chosen level and enabled only where it is
+///   offered;
 /// - a row of buttons (ControlKind::buttons): each button the list draws for it;
 /// - a drop-down whose menu is open (Role::choice, ChoiceLook::open): each
 ///   item the menu (Role::choice_menu) shows, at the rectangle the menu draws
@@ -384,6 +566,9 @@ automation_entries(const DisplayList& list, const Interaction& interaction);
 ///   parts word for it, else its place from 1. A row that is not choosable
 ///   is listed and is not enabled. A control of the list that bears such an
 ///   item's name is that item, and is listed once, as the part.
+///
+/// A composite with a name is listed after those entries, as
+/// automation_entries lists it, and each part carries its place in the group.
 ///
 /// A part is named <name>.<word>, its word the control's parts word for it,
 /// else its place from 1; a switch's are off and on. A part's kind is its

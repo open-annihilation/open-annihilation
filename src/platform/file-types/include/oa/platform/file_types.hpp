@@ -12,7 +12,9 @@
 // nothing at run time. Each registration writes only what differs from what is there. On
 // Windows the installer also associates launch files for every user of the computer; a
 // withdrawal of launch files hides that association from the user who runs it, under
-// HKEY_CURRENT_USER, and never writes the computer's own key.
+// HKEY_CURRENT_USER, and never writes the computer's own key. A replay (.oademo) is a ninth
+// type, registered on its own so that System's eight stay as they are. A .tad file is
+// offered beside it and is never the game's own default.
 #pragma once
 
 #include <stdint.h>
@@ -94,6 +96,34 @@ inline constexpr std::string_view launch_program_id = "OpenAnnihilation.Launch";
 /// What a launch file's text begins with, after an optional UTF-8 byte order mark; the MIME
 /// package's magic, so that a launch with another name is known by its content.
 inline constexpr std::string_view launch_magic = "oalaunch:";
+/// A replay's file name extension, without its dot; matched without case. A .oademo file.
+inline constexpr std::string_view replay_extension = "oademo";
+/// The MIME type of a .oademo replay, a kind of zip. The bundle conforms to public.data, so
+/// a browser does not unpack it.
+inline constexpr std::string_view replay_mime_type = "application/x-oademo";
+/// What the system calls a .oademo replay in its file managers.
+inline constexpr std::string_view replay_type_name = "Open Annihilation replay";
+/// The Windows program identifier a .oademo file's extension names. A .tad file offers the
+/// same identifier under OpenWithProgids and never as its default.
+inline constexpr std::string_view replay_program_id = "OpenAnnihilation.Replay";
+/// The name of the desktop entry that opens replays on Linux, without its extension. Also
+/// the name of the MIME package that names a replay and a .tad file.
+inline constexpr std::string_view replay_desktop_id = "net.coreprime.open-annihilation.replay";
+/// The macOS and iOS exported type identifier of a .oademo replay.
+inline constexpr std::string_view replay_content_type_id = "net.coreprime.open-annihilation.oademo";
+/// The content type a replay switch that is off hands back to, as the six packages do.
+inline constexpr std::string_view replay_hands_back_to = "public.zip-archive";
+/// A TA Demo recording's extension, without its dot. Offered, never the game's own default.
+inline constexpr std::string_view tad_extension = "tad";
+/// The MIME type offered for a .tad file. Not a kind of zip.
+inline constexpr std::string_view tad_mime_type = "application/x-ta-demo";
+/// What the system calls a .tad file when the game offers to open it.
+inline constexpr std::string_view tad_type_name = "TA Demo recording";
+/// The name of the desktop entry that offers to open .tad files on Linux, without its
+/// extension.
+inline constexpr std::string_view tad_desktop_id = "net.coreprime.open-annihilation.tad";
+/// The macOS and iOS imported type identifier of a .tad file.
+inline constexpr std::string_view tad_content_type_id = "net.coreprime.open-annihilation.tad";
 /// The name of the desktop entry, MIME package and program icon on Linux, without their
 /// extensions; also the macOS and iOS bundle identifier.
 inline constexpr std::string_view desktop_id = "net.coreprime.open-annihilation";
@@ -115,6 +145,8 @@ enum class Opening : uint8_t {
     install,
     /// takes it as the launch, which opens its battle room: -c FILE
     launch,
+    /// watches it: the path alone, so opening one lands in the Library
+    watch,
 };
 
 /// One of the eight file types the game opens.
@@ -152,6 +184,22 @@ inline constexpr std::array<FileType, 8> file_types{{
      "text/plain",
      Opening::launch},
 }};
+
+/// The ninth file type: a replay. Not one of file_types, and not a member of TypeSet.
+/// System's eight switches register those; the Replays switch registers this one, and offers
+/// .tad beside it.
+inline constexpr FileType replay_file_type{
+    replay_extension,
+    replay_mime_type,
+    replay_type_name,
+    replay_program_id,
+    "application/zip",
+    Opening::watch,
+};
+
+/// How far below other handlers the .tad desktop entry sits. A handler that states no
+/// preference sits at zero, so a negative value is offered after every one of those.
+inline constexpr int tad_initial_preference = -1;
 
 /// One file type as macOS names it, and the content type a switch that is off hands back to.
 /// The identifiers are the ones the bundle exports. The bundle declares each package and the
@@ -362,6 +410,36 @@ struct Registration {
 /// @return what was done
 [[nodiscard]] Registration withdraw_file_types(TypeSet types, const Places& places = {});
 
+/// Registers `executable` as the opener of a .oademo replay, and offers it for a .tad file,
+/// for the user who runs it. The eight types are not written and not removed. On Linux the
+/// replay's own MIME package and two desktop entries are written (replay_mime_package,
+/// replay_desktop_entry, tad_desktop_entry), and the replay's mimetype icon when `icon_png`
+/// is not empty. On Windows the six values of .oademo are written, and under .tad only the
+/// OpenWithProgids value OpenAnnihilation.Replay: no (Default) and no Content Type. The same
+/// skips as register_file_types apply. macOS and iOS register through the bundle: there
+/// supported is false. Never throws.
+///
+/// @param executable the program, absolute, as running_executable gives it
+/// @param icon_png the icon, a PNG file's bytes; empty writes no icon
+/// @param places where it writes; the defaults are the user's own
+/// @return what was done
+[[nodiscard]] Registration register_replay_files(
+    const std::filesystem::path& executable,
+    std::span<const uint8_t> icon_png,
+    const Places& places = {}
+);
+
+/// Withdraws the replay registration alone: the .oademo program identifier, the values under
+/// .oademo that still name this game, and the OpenWithProgids value under .tad. A .tad
+/// (Default) or Content Type is never written and never removed. The eight types stay. On
+/// Linux the replay MIME package, the two desktop entries and the replay's mimetype icon are
+/// removed; the program's icon and the eight types' files stay. macOS and iOS withdraw
+/// nothing at run time. Never throws.
+///
+/// @param places where it writes; the defaults are the user's own
+/// @return what was done
+[[nodiscard]] Registration withdraw_replay_files(const Places& places = {});
+
 #ifndef _WIN32
 /// Registers `executable` as the opener of the file types in `types` in an XDG data folder:
 /// the MIME package (mime_package), the desktop entry of the seven the game installs or adds
@@ -402,6 +480,26 @@ struct Registration {
 /// @param places where it writes, and whether and how long it runs the tools
 /// @return what was done
 [[nodiscard]] Registration withdraw_xdg(TypeSet types, const Places& places);
+
+/// Registers a .oademo replay and offers .tad in an XDG data folder, in files of their own:
+/// the MIME package replay_mime_package, the desktop entries replay_desktop_entry and
+/// tad_desktop_entry, and the replay's mimetype icon. The eight types' package, entries and
+/// icons are not touched. Built on every system but Windows. Never throws.
+///
+/// @param executable the program, absolute
+/// @param icon_png the icon, a PNG file's bytes; empty writes no icon
+/// @param places where it writes, and whether and how long it runs the tools
+/// @return what was done
+[[nodiscard]] Registration register_replay_xdg(
+    const std::filesystem::path& executable, std::span<const uint8_t> icon_png, const Places& places
+);
+
+/// Removes the replay MIME package, the two replay desktop entries and the replay's
+/// mimetype icon. The eight types' files stay. Built on every system but Windows. Never throws.
+///
+/// @param places where it writes, and whether and how long it runs the tools
+/// @return what was done
+[[nodiscard]] Registration withdraw_replay_xdg(const Places& places);
 #else
 /// Registers `executable` as the opener of the file types in `types` in the registry under
 /// HKEY_CURRENT_USER\<places.classes_key>: each extension's program identifier and MIME type,
@@ -437,6 +535,25 @@ register_windows(const std::filesystem::path& executable, const Places& places, 
 /// @param places where it writes, and whether it tells the shell
 /// @return what was done
 [[nodiscard]] Registration withdraw_windows(TypeSet types, const Places& places);
+
+/// Registers a .oademo replay under HKEY_CURRENT_USER\<places.classes_key>: the six values
+/// the eight types use, with the open command of Opening::watch. Under .tad it writes only
+/// the OpenWithProgids value replay_program_id. No (Default) and no Content Type of .tad.
+/// The eight types are not touched. Uses only calls Windows XP has. Never throws.
+///
+/// @param executable the program, absolute
+/// @param places where it writes, and whether it tells the shell
+/// @return what was done
+[[nodiscard]] Registration
+register_replay_windows(const std::filesystem::path& executable, const Places& places);
+
+/// Withdraws the replay registration: .oademo as withdraw_windows withdraws one type, and
+/// the OpenWithProgids value under .tad. A .tad (Default) or Content Type is left as it is.
+/// The eight types are not touched. Uses only calls Windows XP has. Never throws.
+///
+/// @param places where it writes, and whether it tells the shell
+/// @return what was done
+[[nodiscard]] Registration withdraw_replay_windows(const Places& places);
 #endif
 
 /// Returns the desktop entry that opens the seven file types the game installs or adds that
@@ -467,6 +584,28 @@ desktop_entry(const std::filesystem::path& executable, TypeSet types = {});
 /// @return the package's XML text, UTF-8
 [[nodiscard]] std::string mime_package(TypeSet types = {});
 
+/// Returns the desktop entry that opens a .oademo replay with `executable`, the file a bare
+/// argument. Its MimeType is the replay's alone.
+///
+/// @param executable the program, absolute; its UTF-8 spelling is written
+/// @return the entry's text, UTF-8; empty when the path cannot be written in an entry
+[[nodiscard]] std::string replay_desktop_entry(const std::filesystem::path& executable);
+
+/// Returns the desktop entry that offers to open a .tad file with `executable`, the file a
+/// bare argument, preferred below every handler that states no preference
+/// (tad_initial_preference). It does not own the type.
+///
+/// @param executable the program, absolute; its UTF-8 spelling is written
+/// @return the entry's text, UTF-8; empty when the path cannot be written in an entry
+[[nodiscard]] std::string tad_desktop_entry(const std::filesystem::path& executable);
+
+/// Returns the shared-mime-info package that names a .oademo replay, a kind of zip, and a
+/// .tad file, which is not a kind of zip. A package of its own, so a registration of the
+/// eight never rewrites it.
+///
+/// @return the package's XML text, UTF-8
+[[nodiscard]] std::string replay_mime_package();
+
 /// Returns a path as one argument of a desktop entry's Exec line: in double quotes, with ",
 /// `, $ and \ preceded by a backslash, every backslash then doubled by the entry's own escape
 /// rule, and each % written %%.
@@ -477,7 +616,8 @@ desktop_entry(const std::filesystem::path& executable, TypeSet types = {});
 [[nodiscard]] std::string desktop_exec_argument(std::string_view path_utf8);
 
 /// Returns the Windows command that opens a file with `executable`: "<executable>" --open
-/// "%1" for the seven the game installs or adds, "<executable>" -c "%1" for a launch file.
+/// "%1" for the seven the game installs or adds, "<executable>" -c "%1" for a launch file,
+/// "<executable>" "%1" for a replay.
 ///
 /// @param executable the program, absolute
 /// @param opening what the game does with the file
@@ -571,5 +711,34 @@ reported_openers(const HandlerCalls& calls, std::string_view bundle_id, TypeSet 
 [[nodiscard]] Registration apply_opener_changes(
     const HandlerCalls& calls, const Handler& application, std::span<const OpenerChange> changes
 );
+
+/// What the system reports for a .oademo replay. A .tad file has no default-opener switch.
+struct ReplayOpenerReport {
+    /// On when this copy's bundle identifier is the default opener of .oademo. A question
+    /// that failed, or that names no opener, keeps the value `fallback` held.
+    bool open{};
+    std::string error{}; ///< the question that failed, for the log; empty when none did
+};
+
+/// Reports whether this copy opens a .oademo replay by default, asking `calls`. A null
+/// default_handler, or an empty handler, leaves `fallback` as it was and records no error.
+/// Never throws.
+///
+/// @param calls the questions; a test's, or system_handler_calls
+/// @param bundle_id this copy's bundle identifier
+/// @param fallback what a failed question leaves the switch showing
+/// @return whether this copy opens .oademo, and a question that failed
+[[nodiscard]] ReplayOpenerReport
+reported_replay_opener(const HandlerCalls& calls, std::string_view bundle_id, bool fallback);
+
+/// Asks `calls` to make this copy the default opener of .oademo, or to hand .oademo back to
+/// the opener of a zip archive (replay_hands_back_to). Never throws.
+///
+/// @param calls the questions; a test's, or system_handler_calls
+/// @param application this copy, as running_application gives it
+/// @param open true: this copy; false: the opener of a zip archive
+/// @return what was asked; supported is false when `calls` cannot set an opener
+[[nodiscard]] Registration
+apply_replay_opener(const HandlerCalls& calls, const Handler& application, bool open);
 
 } // namespace oa::platform::file_types

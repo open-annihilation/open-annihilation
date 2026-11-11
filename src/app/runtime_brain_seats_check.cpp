@@ -10,7 +10,7 @@
 // put back to Open before the kept frame, because a previous size may have
 // saved it as a computer, then cycled until it is a computer. It reads the
 // built-in player and the Difficulty button's word, and cycling Difficulty
-// changes it. Tab from Player1 focuses the notch with the GUI's focus none,
+// changes it. Tab from Energy1 focuses the notch with the GUI's focus none,
 // Tab moves on and Shift+Tab returns. Return opens the brain menu on
 // Steady Commander at Firm; its next level steps the seat to Bold and back,
 // its Options... opens the picker, whose USE THIS keeps the brain with its
@@ -845,17 +845,17 @@ void Runtime::check_brain_seat_buttons() {
         }
         require(restored, "Difficulty did not return to " + opening_word + on);
 
-        const int32_t player_focus = gadget_index("Player1");
-        require(player_focus > 0, "Player1 is not on the screen" + on);
-        set_frontend_focus(player_focus);
+        const int32_t energy_focus = gadget_index("Energy1");
+        require(energy_focus > 0, "Energy1 is not on the screen" + on);
+        set_frontend_focus(energy_focus);
         frames(1);
         press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
         frames(1);
         require(
-            seat_focused("oa.brain-seat.1"), "Tab from Player1 did not focus oa.brain-seat.1" + on
+            seat_focused("oa.brain-seat.1"), "Tab from Energy1 did not focus oa.brain-seat.1" + on
         );
         require(frontend_focus() < 0, "the GUI kept a focus ring on the notch" + on);
-        std::cout << "brain seat check: Tab from Player1 focuses oa.brain-seat.1 and the GUI's "
+        std::cout << "brain seat check: Tab from Energy1 focuses oa.brain-seat.1 and the GUI's "
                      "focus is none"
                   << on << "\n";
         press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);

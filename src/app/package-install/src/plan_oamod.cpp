@@ -243,6 +243,7 @@ InstalledPackage read_installed_mod(const fs::path& folder) {
         } else {
             installed.supported_games = {"totala"};
         }
+        installed.origin = read_origin(folder);
         return installed;
     } catch (const std::exception&) {
         return installed;

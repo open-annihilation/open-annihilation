@@ -6,10 +6,14 @@ explains them and shows how to follow them.
 
 ## Running the tests
 
-Build the pinned SDL, FreeType and fonts once
-(`python3 tools/bootstrap_sdl.py`, `python3 tools/bootstrap_text_fonts.py`
-and `python3 tools/bootstrap_page_fonts.py --deps local/deps`,
-see [CONTRIBUTING.md](../../CONTRIBUTING.md#build-and-test)), then:
+Build the pinned SDL, FreeType, fonts and AccessKit once
+(`python3 tools/bootstrap_sdl.py`, `python3 tools/bootstrap_text_fonts.py`,
+`python3 tools/bootstrap_page_fonts.py --deps local/deps` and
+`python3 tools/bootstrap_accesskit.py`,
+see [CONTRIBUTING.md](../../CONTRIBUTING.md#build-and-test)). A Linux arm64
+or armhf machine then builds its library from source. What that build
+needs is in [platform.md](platform.md). `-DOA_ACCESSKIT_DIR=` names a
+prepared tree other than `local/deps`. Then:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
@@ -92,6 +96,68 @@ At 640x480 it opens that row's details page, where the tabs are not shown.
 Not now leaves the page. UPDATE, fifty times, leaves the Library on top with
 its tabs on the next frames, including once the update is no longer offered.
 Its preferences, data and player folder stay in the build tree.
+
+`native-library-replays` (`--check-library-replays`) walks the Library's
+Replays section over made-up replays written from one recorded game, which
+`native-library-replays-source`, a headless loopback game with
+`--record-game`, records into its working folder first. Replays is second
+with no replay and with some; the section says it reads while the folder is
+read, and never "No replays yet."; each filter, the kind menu, the search
+(a damaged file by the name its row shows) and the sort give their rows;
+Keep is in `kept.json` at once and is read back with the index whole,
+deleted, truncated or full of noise, a damaged index being set aside; a
+ten-player replay's card scrolls to Kept until; a campaign replay is titled
+by its mission name, trailing spaces trimmed; WATCH plays 300 ticks and
+leaving comes back to the same row and scroll, and Watch from starts at the
+tick that Watch left, printed from the match; a replay watched to its end
+offers Watch; on a build that can start a
+process, the pass's own unread rows say Reading… and closing the Library leaves no
+index process, and a watcher's card shows no result for that player and,
+scrolled, the timeline strip; a Ctrl key the automation endpoint holds marks a second row;
+a recording whose map is not
+installed is refused in the card, and one whose unit table differs, refused
+only after its match began loading, leaves the game on the main menu with
+the Library on the same row, at the same scroll, with the refusal in its
+card; Turn on recording writes the setting; and Export writes one replay as
+a `.oademo` and three as `.tad` files into `Exported replays`. Exporting a
+replay older than the keep span marks it, and the next consideration leaves
+it while one of the same age goes. A cut `exported.json` is set aside, and
+while that file is there an export writes nothing and old replays stay.
+Deleting a replay while `exported.json` is damaged writes no new file, and
+the next start leaves the exported replays. The check removes what it wrote as it
+ends, and `library-replays-clean` clears its folders before each run.
+
+`native-replays-content` (`--check-replays-content`,
+`tools/check_native_replays_content.py`) records one loopback game, then
+serves Ridge, an older map pack, a newer one and a mutator on 127.0.0.1.
+The older pack is only in the catalogue's releases list. One press fetches
+that pack and the mutator and the replay plays; the mutator is no longer
+selected afterwards. A release neither list holds reads as not in Core
+Prime's catalogue. A refused release names its registry. With the registry stopped, the same replay reads "You're
+offline." `replays-content-clean` clears the working folder before each run.
+The check never calls a live registry.
+
+`native-replays-core-prime` (`--check-replays-core-prime`,
+`tools/check_native_replays_core_prime.py`) records one loopback game, then
+serves a made-up replay feed and its download keys on 127.0.0.1. The list
+fills and scrolling asks for the next page. Those pages stay after the
+cache's minute, and the scroll stays with them. Choosing one planet still
+offers the others. Download asks for a key of kind `oademo` and writes
+`Recordings/Core Prime/<name>.oademo`, and the row is then on this computer.
+A 503 is not asked again inside ten seconds. A 429 waits for its
+`Retry-After` and then saves the file. A 428 shows its code on the card.
+Watch plays the saved file. A release that changed is read again and then
+saved. A file whose digest differs is refused and not kept. With the server
+stopped the list reads "Core Prime cannot be reached." `replays-core-prime-clean`
+clears the working folder before each run. The check never calls a live host.
+
+`native-replays-import` (`--check-replay-import`,
+`tools/check_native_replay_import.py`) copies a made-up `.oademo` and a
+made-up `.tad` into `Recordings/Imported` and selects each, copies nothing
+when either is opened again, leaves sector 6 out of the `.tad`, and refuses
+a damaged file and a version this game does not play, each with its
+sentence. The check clears `Recordings` as it starts and again as it ends,
+and the script gives it a user folder of its own.
 
 `native-library-install` (`--check-library-install`) posts made-up packages
 through the installer while the Library shows over a fixture feed. After
@@ -557,6 +623,11 @@ names, these run the game headless:
   whose type is in the Commander category, stays on both machines;
   `native-side-commanders-give` gives a commander outside that category, which
   goes too;
+  `native-net-loopback-photo` (`--net-loopback-check 300 --net-loopback-photo`)
+  is that check with the host's player in photo mode from tick 100: the
+  photo camera pans and zooms, stopping, slowing, stepping and the moment
+  between ticks are refused, the picture is held for 30 ticks and photo
+  mode ends at tick 200. At tick 300 both worlds agree.
   `native-net-loopback-watcher` has the joiner watch, and
   `native-net-loopback-computer` and `native-net-loopback-computer-watcher`
   have the host seat a computer player that builds, is given a squad and
@@ -582,6 +653,45 @@ names, these run the game headless:
   checks the multiplayer screens;
 - `native-recording-hook` (`--check-recording-hook`) checks that the game
   declines bytes that are no recording and refuses a truncated one;
+- `native-replays-record` (`tools/check_native_replays_record.py`) runs the
+  headless loopback five ways, each in a scratch user folder: `--record-game`
+  with the setting on writes one `.oademo` that `--play-demo` plays to its end
+  with no record or tick error and whose `meta.json` names both players; the
+  setting on and off, with the same `--seed`, give the same `--trace-digest`
+  and the same setup blocks, none presenting a recorder; a game killed part
+  way leaves its recording in `Recordings/.replays/partial`, which the next
+  start finishes with `recorded.after_crash` true, and which plays clean; a
+  profile with the recorder hack writes a `.tad` with no sector 6 and no
+  `.oademo`; a headless game without `--record-game` writes no
+  `Recordings` folder; and a replay of a game with a mod names the mod by a
+  SHA-256 (the folder's, computed by the check, for a mod folder). `netgame-recording-partials` and `demo-playback`
+  check the same rules without the game;
+- `native-replays-skirmish` (`tools/check_native_replays_skirmish.py`) runs
+  two built-in computer players on Ashap Plateau for 9000 ticks with and
+  without `--record-game` and compares the `--trace-digest` streams, plays
+  the `.oademo` to that tick and checks each player's units, kills and
+  losses, then records a plain headless skirmish (`--match-ticks 3000
+  --seed 7 --give-orders`) and plays it back clean. It also records a fight
+  (`--give-orders --combat 60 --seed 9 --match-ticks 9000`) and checks each
+  side's kills, metal and energy and the feature cells against the replay,
+  records a game saved mid-way and the game loaded from that save (the same
+  traces either way; the loaded replay starts from the map's features),
+  plays a `ridge-tough` skirmish under the strict unit table, and runs
+  `--check-away-pause --record-game`;
+- `native-replays-campaign` (`tools/check_native_replays_campaign.py`) records
+  Arm Campaign mission 0 for 2400 ticks with `--give-orders --seed 7`, and
+  mission 8 for 700 ticks. Each writes the same `--trace-digest` with and
+  without `--record-game`. Mission 0's own trace is the `--past-outcome` run
+  to the victory tick that 2400-tick run prints, the same with recording on
+  and off. A further recording to that tick, through the end screen, is
+  mission 0, `game.ended` `finished`, with `game.length_ticks` that tick.
+  Each recording's players (units, kills, losses, metal and energy) and
+  feature cells match the replay, and `--play-demo --match-ticks 1` creates
+  as many units as the live `campaign tick 0` line. A `.tad` from
+  `--record-game` and from `--net-record`, the `.tad` unpacked from the
+  `.oademo`, and that `.tad` packed back, each play strict to the live end.
+  `--check-away-pause --campaign "Arm Campaign" --mission 0 --record-game`
+  pauses the mission when the window loses focus;
 - `native-host-not-found` (`tools/check_native_host_not_found.py`) checks
   a joiner whose host is never listed: "Host not found.  Exiting...", and
   the game leaves 4 s later;
@@ -592,6 +702,49 @@ names, these run the game headless:
   `--game-password` is refused with the game list's notice, the right one
   joins the game `--game-name` names, and the joiners' preferences keep
   their address and name.
+- `native-room-keys` (`tools/check_native_room_keys.py`) hosts a TCP/IP room
+  and joins it from a second game, both on the dummy drivers. By the keyboard
+  alone the joiner gets ready, picks a side and a colour, and the host
+  starts. It then plays once more with Next button on F7: F7 walks the battle
+  room, from Select Map to Mutators and on to Metal, and the game list, and
+  Tab does not. Last, the host alone sets a repeat delay of 300 ms and a
+  rate of ten a second, and Right held a second steps the Metal slider once
+  and then at that rate. Each run writes its own preferences and user
+  folder, so the next run starts clean.
+- `native-keyboard-walk` (`tools/check_native_keyboard_walk.py`) presses Tab
+  through the main menu, Single player, New campaign, the Load game message
+  and list, the Options hub and its Sound, Music, Speeds and Visuals pages,
+  Skirmish, map selection, the map browser, the mutator picker, Settings
+  and its Controls page, the key editor, the Library, the welcome, the keys
+  overlay, a hosted TCP/IP room on loopback, the in-game menu, the sound
+  page Return on Options opens, and the in-game Options hub the O key
+  opens. It fails when a press leaves no focus, a stop has no label, the
+  focus leaves the top dialog, the order is not a rotation of the one the
+  menus document, or the ring shows before any key. The Library is the
+  exception: it opens on its search with the ring showing, and the walk
+  checks that before Tab. Each launch writes its own preferences, user
+  folder and data folder, with both update checks off, so the next run
+  starts clean and no catalogue another run kept reaches a screen.
+- `native-boneyards-keyboard-walk`
+  (`src/boneyards/extension/tests/check_native_boneyards_keyboard_walk.py`)
+  walks the login console, the main frame (its buttons, the zoom slider
+  and the map arrows), the war map's planets, chat, the player pane, Recon,
+  the side prompt, News, Ladders, Help's list and one help page, Battle,
+  the host form, Profile, the Locator, QuickPlay and matchmaking, and
+  presses F6 between the frame, a console and the map. It fails when a
+  press leaves no focus, a stop has no label, the order is not a rotation
+  of the one the consoles document, the ring shows before any key (except
+  on a help page already open on a link), or a stop's window is not one of
+  the windows its station owns. The label and the window it checks are the
+  focused control's, not those of a caption with the same name. The replays
+  are `alpha_chat.replay`, `side_prompt.replay`, `alpha_contents.replay`,
+  `alpha_features_beta.replay`, `quickplay.replay` and `matchmaking.replay`.
+  The last two are reply fragments, joined to the beta dossier in a scratch
+  file the check removes. Each launch writes its own preferences, user
+  folder and data folder. The update check is never and the catalogue is
+  read only when the Library opens, which the walk never does: `-y` stops
+  only when both checks are never. Nothing is dialled, and the ladders
+  search is not run.
 
 `open-annihilation --play-demo FILE.tad` replays a recorded game through
 the path a watching machine receives a match on; with `--headless-check`
@@ -634,6 +787,41 @@ click reaches its button, and the window's clock reads the fixed clock's
 step times the frame. The fixture is a test extension, so only a build
 configured with `-DOA_RECORD_EXTENSION_HOOKS=ON` combines it and runs this
 check.
+
+A script that starts the game imports `tools/native_offline.py`. The import
+writes the preferences file when it is absent, makes a private `--data-dir`,
+and adds both flags to that launch. The update check is `never`. The catalogue
+check is `never`, or `library` when the launch enters the Boneyards with `-y`
+or `--enter-boneyards`: `library` reads the catalogue only when the Library
+opens. The mod entry check stores the update check as `when-asked` and content
+updates as `library`. `never` on the update check asks to turn the online
+features on, and `when-asked` does not look for a release. The welcome setup
+(`--check-first-run`, `--check-setup-window`) starts with no preferences file.
+A check that serves its own release feed (`--check-engine-feed`,
+`--check-update-offer`, `--check-update-download`, and the update pill in
+`check_native_boneyards_menu_keys.py`) keeps the update check able to run and
+points `--update-feed` at a loopback publisher. The download check leaves the
+catalogue at `never`.
+
+`check-native-online` (`tools/check_native_online.py`) fails when one of those
+scripts starts the game without importing `native_offline`, when a preferences
+file sets either online check to `automatically` without a loopback feed, and
+when a registered test starts the game on the shared data folder or without
+the offline lines. A direct `oa-game` test receives both flags from
+`cmake/OaOfflineGameTests.cmake`, which also writes a seed beside the
+preferences file. A fixture that removes the file copies that seed back, and
+the check reads the seed, so a game that rewrites its preferences afterwards
+does not change the result. The two language-notice start files gain the same
+lines, because their fixture copies the start file over the live one. The check
+fails a fixture that removes a preferences file and puts no seed back, and a
+start file that lacks the lines. A script counts as importing `native_offline`
+only when the import is a statement at the top of the file, not a comment.
+The check reads the registered tests from a listing that its fixture,
+`check-native-online-listing`, has the build's ctest write first
+(`tools/write_test_listing.cmake`), so it also runs where its Python cannot
+start that ctest, as Windows Python under Wine cannot start a Linux ctest. A
+cross build's tests may start the game through a runner such as Wine, which
+the listing names first; the check reads the game in either place.
 
 The MCP server in [tools/mcp](../../tools/mcp/README.md) has two checks:
 `mcp-server-selftest` drives its tools against a stand-in endpoint and
@@ -1022,8 +1210,10 @@ nothing.
 A campaign mission or a skirmish against computer players pauses while the
 window is away, as Settings › Controls › When the window loses focus says,
 and with Keep playing keeps the main loop running every frame there.
-`native-away-pause` runs `--check-away-pause` on a skirmish, in a window of
-the dummy video driver, sending the window's focus, minimise and restore
+`native-away-pause` runs `--check-away-pause` on a skirmish, and
+`native-replays-campaign` runs it on Arm Campaign mission 0 while that
+mission is recorded. Each runs in a window of the dummy video driver, sending
+the window's focus, minimise and restore
 events and the app lifecycle's background and foreground events, on a frame
 clock of its own: Pause single player sets the pause bit and shows the
 paused title while the window is away, holds the skirmish for the moment
@@ -1127,7 +1317,13 @@ outline colour it prints, where it prints it, from the battlefield's
 corner; with the chip's setting stored Off the fixture draws none. Its
 output names each window size. `native-registered-kit` checks the same
 hosts with a page, a screen, a notice and a prompt registered from inside
-the engine, with their size class and scale.
+the engine, with their size class and scale. `native-focus-ring` checks
+the family's focus ring on the original menus: hidden when a screen opens,
+shown by Tab, hidden by a pointer move, and shown from the open when
+Always show focus is on. It also checks that Load game's message opens
+without the ring unless that setting is on, that Skirmish's mutators
+button takes the ring, that the in-game menu's OK takes it after Tab, and
+that `ui.screen` names the control under the strip once the ring is drawn.
 
 ### OA's own screens
 
@@ -1181,8 +1377,380 @@ overlays' keys, each place measured from the nearest edge or centre of the
 battlefield on the 8-point grid, a drag and the arrows with and without
 Shift, and the overlays' own places at 640x480, 1280x720 and 1920x1080,
 none past the battlefield nor over the 128-point side column.
+`native-photo-mode` (`--check-photo mode`) plays the skirmish's fight twice
+in a window on the dummy drivers, drawing a frame each tick. One pass enters
+photo mode, moves the photo camera a few pixels within play's limits, turns
+the selection boxes and the health bars on and off, and leaves. The other
+never enters. At the last tick the two worlds read back the same. After
+leaving, the layout, the camera, the zoom, the follow and an armed order
+are what they were on entering. Follow is started with T, as a player
+does. It does not carry in. A pan while following, and T with follow off,
+leave follow as it was, after the camera step has run. In photo mode the
+layout is the battlefield alone, the HUD layer is empty, and a frame with
+the selection boxes on differs from one with them off. With Attack armed
+the cursor over the battlefield is the order's in play, the arrow in photo
+mode, and the order's again after leaving. Orders are read
+before Stop. Stop, a click on open ground, a click on an enemy with Attack
+armed, a click on the commander with nothing selected, a right click and a
+dragged box change neither the selection nor any unit's orders, whether or
+not an order is armed. Home centres on the selected unit, or on the
+commander when none is selected, and selects nothing. Enter takes a photo
+into the check's user folder and leaves the chat line closed, the kills
+board stays unpinned and the keys overlay stays
+closed. Escape leaves and keeps the armed order. A resize lays the
+battlefield out alone and leaving puts back the play layout of the new
+size. The game menu leaves photo mode. Settings (Primary+,) leaves photo
+mode and opens that same menu. In a shared match the line carries
+the clock, the latest under-attack line and the chat count, and with German
+on it carries a translated word. The same steps run for a shared match and
+for a watcher. The preferences file is put back to the bytes the check
+started with.
+`native-photo-time` (`--check-photo time`) plays the same fight twice.
+One pass freezes at tick 30, draws that frame forty times, steps five
+ticks, draws each eighth between two ticks, runs slowly for 15 ticks and
+leaves at tick 70. The other never enters. Both reach tick 120 and read
+back the same, one frame a tick outside photo mode. While frozen, two
+draws of one frame match. The pause and the speed stay as they were. In
+a shared match and for a watcher those commands are refused, the clock
+goes on, and a held picture stays byte for byte the same for 30 ticks
+and is live again after leaving. The preferences file is unchanged.
+`native-photo-camera` (`--check-photo camera`) plays the same fight twice
+in a window on the dummy drivers. One pass enters photo mode, zooms to the
+whole map and to eight times, draws each at the battlefield's size, pans to
+the view's limits and follows a unit, and leaves. The other never enters.
+At the last tick the two worlds read back the same. Units stay models
+unless a budget forced through rendered_units_budget_override refuses them,
+and then they are dots. For the visit, Zoomed out units is Dots and After
+zoom is 1/2, and both are put back. The hover is cleared on entering and
+on leaving. A pan moves the photo camera and the Game block's camera stays
+where it was on entering. At eight times the followed unit, after the
+frame's placement, is inside the battlefield's middle half. Play's zoom
+settings are unchanged, and so is the preferences file.
+`native-photo-camera-full` is that check with Full taken as capable
+on SDL's software renderer: every zoom it offers is drawn by Full, and a
+zoom Full cannot draw is not offered, with the reason.
+`native-live-renderer`'s photo-mode turn reads the unlocked turns from the
+setting, holds a pan toward each edge at the whole map and at eight times,
+and draws the frame at Full's floor after Classic view. In play, the Right
+key held for 20 seconds in the turned view, at Full's widest zoom, keeps
+the camera within the view's limits. A further pan stays there, and so do
+a drag and a wheel step onward past that limit. The frame is still drawn,
+and Full stays on. A zoom in from a corner of a view wider than the map,
+in play and in photo mode, pulls the centre back within the closer view,
+and the card still draws the frame. A wheel zoom in from that corner,
+pointed near the corner, stays within the closer view too. In the classic
+view under Full, with the centre a zoom left past the closer limits, the
+pan role's drag moves by the drag. Turning that classic view draws the
+turned frame with the place pulled within the closer limits, and turning
+back leaves the classic place and its remembered centre. A picture held in
+the turned view, with the skirmish read as a shared match, refuses a turn,
+a tilt, the wheel and the zoom keys, keeps its zoom when the view goes
+classic under Full, and gives its camera back when it is let go.
+`native-photo-capture` (`--check-photo capture`) takes a photo of that fight
+in photo mode, on the dummy drivers, and reads the PNG back. The check sets
+the player's gamma to the saved value 20. The picture is the window's
+battlefield with that gamma once, pinned by its SHA-256: the frame the
+window presented, outside the photo line, and the processor's battlefield
+mapped through the gamma table. A second photo in the same second is named
+with ` 2`. The file is under `Screenshots/default`. The check sets the
+played profile id to ridge for one photo, which is written under
+`Screenshots/ridge`. The preferences file is unchanged, and a pass that
+takes no photo reads back as the pass that does. Leaving and entering again
+shows `Photo mode  Esc leaves`, then Frozen and the clock, and no photo's
+sentence until the next photo. Then, in a shared match, it holds the
+picture, lets the match run 30 ticks and takes a photo: the photo is the
+held copy with that gamma once and the frame the window presented, outside
+the photo line, and a photo taken after letting go differs from it. The
+Basic and Full checks below end with the same held photo. The check
+removes the photos it wrote.
+`native-photo-capture-basic` (`--hardware-acceleration=basic --force-capable`)
+saves the battlefield the screen shows, the area pass below zoom 1 included,
+at 640x480 and 1280x720 and at zooms 0.5, 1 and 2. The photo matches the
+frame the window presented, outside the photo line, and the processor's
+battlefield mapped through the gamma table.
+`native-photo-capture-full` (`--hardware-acceleration=full --force-capable`)
+reads the battlefield the Full tier drew, at the window's pixel size, before
+the photo line, and requires that Full drew the frame. The photo matches the
+frame the window presented, outside the photo line. Its pixels are not pinned.
+`native-photo-capture-live` (`--check-photo live --hardware-acceleration=full`)
+photographs the turned view on the system video driver, with the player's
+gamma once, and skips with status 77 when no device can draw it. Then it
+holds the turned view in a shared match, drawn as played frames are, and
+the photo taken 30 ticks later is the held copy, not the live picture. The
+check removes the photos it wrote.
+Each of the four capture checks then takes the pointer through photo mode,
+in Off, Basic, Full and the turned view: with Attack armed, played frames
+show the arrow at the pointer, every pixel of it in its own colours, over
+the panel and over the battlefield, and photos taken with the pointer at
+those two places are the same, at the window's size, at 2× and as a
+poster. The photo equals the frame the window presented outside the chrome
+and the arrow. A line `photo pointer <mode>:` names the photos compared.
+`native-photo-depth-live` (`--check-photo depth-live --hardware-acceleration=full`)
+photographs one frozen turned frame four times on the system video driver:
+with depth of field, with haze, and twice with both off. Each cue changes
+the picture, the two with both off match, and the frame's black, ground the
+player has never seen, stays black under both cues. Then it takes a 2× and
+a Smooth edges 2× photo with depth of field: the smooth one is the 2× one
+box-reduced, and each record names the blur its picture has. The check
+skips with status 77 when no device can draw the turned view or the card
+keeps no depth. The check removes the photos it wrote.
+`native-photo-sizes` (`--check-photo sizes`) freezes that fight and saves
+Screen and a photo twice the battlefield. Screen keeps the picture the
+window already drew. The 2× photo is drawn again by the processor, at the
+player's gamma. Smooth edges is locked, because Off and Basic draw whole
+pixels, and the panel says so. With memory forced short, 4× is locked for
+not enough memory, and a picture held for the clipboard then locks 2×,
+which was open. With the memory back, the 4× photo is four times the
+battlefield. With grain on (60, size 3), Screen and 2× are taken again:
+each is the look on its picture without grain, the 2× one at grain size 6,
+and their records keep `grain_size` 3 and `grain_pixels` 3 and 6.
+Box-reduced by 2, the 2× photo equals the Screen photo. After the pins,
+with the whole map drawn, the camera goes past the left and top edges, then
+the right and bottom ones, as far as the view goes: there too the 2× photo,
+and the 2× photo with haze 60, box-reduce to their Screen photos, and the
+camera, the sight rules and the look are put back. Box-reduced by 2, the
+grain the 2× photo carries (with grain less without)
+equals the grain the Screen photo carries in every colour channel no grain
+pushed to 0 or 255, at least nine in ten; grain left at size 3 on the 2×
+photo must fail that comparison. With only haze on, the 2× photo
+box-reduces to the Screen photo in every pixel. The draw's own pixels
+cancel, so the criterion holds in any render mode. The world's read-back matches a pass
+that took no photo. A fight writes the engine's own preference rows; the
+photos add none, and the file is put back. The SHA-256 digests of Screen,
+2× and 4× are pinned.
+`native-photo-sizes-full`
+(`--hardware-acceleration=full --force-capable`, SDL's software renderer)
+sets Enhanced anti-aliasing to 4× and draws a 2× photo with Full, at the
+anti-aliasing factor the window is using, which must be above 1, and that
+picture differs from the same size drawn on the processor. Smooth edges 2×
+matches that 2× photo box-reduced and differs from Screen. The grain
+comparison of `native-photo-sizes` holds on Full's photos too. The 2× photo
+taken while photo mode keeps a replay seek's framed view is the same
+picture, and that view is still kept for the window. With the texture
+limit forced to the 2× photo's world target, 2× stays offered and is drawn
+whole, and 4× is offered in tiles. With the limit forced to a side no
+bordered tile fits, 4× is not offered and the reason names the picture that
+fits at the window's factor. A held picture locks both rows
+with Held picture. The window's frames after the photo match the frames
+before it, apart from the file name's clock. `native-photo-tiles-full`
+(`--check-photo tiles --hardware-acceleration=full --force-capable`, SDL's
+software renderer) freezes one frame of a skirmish on Steel Jungle with
+weapon lights, heat, a burning wreck, water and an aircraft. A 2× photo
+drawn in tiles, with the check-only tile edge at a quarter of the photo's
+long side, may differ from the same photo drawn whole in at most 0.01% of
+the photo's pixels, rounded up and at least one. The card rasterises a tile
+from another origin than the whole photo, which leaves a few pixels a few
+levels off at model edges and on the water, and the maintainer ruled that
+need not be bit-exact (a follow-up may tighten the bound). The check fails
+when more pixels differ, and it fails on a seam: more than 16 of the
+differing pixels on the columns and rows next to a tile boundary, and more
+than half of all that differ. A line along a tile edge shows as that, and
+a model edge or a ripple that crosses one touches a few pixels. Each
+comparison that finds a difference prints the count with its bound, the
+pixels on a tile edge and the largest channel gap, and the check names
+every comparison outside the bound when it ends. The same holds with a tile
+edge two pixels longer, whose tiles start off the game's draw rows, and with
+the view half past the map's corner, where the window's limits hold it. The
+same frame is compared again at size 3 (an edge of 399 photo pixels, and a
+quarter of that photo's long side), at Enhanced anti-aliasing 2×, and at a
+window zoom of 0.45, whose size-2 photo is below zoom 1 and is drawn through
+the moved target. The window is then 1920×1080, and the 2× photo is compared
+in tiles there too, framed and past the corner, before the window returns to
+the size it opened at. Enhanced 2× is also compared past the corner.
+Below zoom 1 has two bounds. On SDL's software renderer, which this test
+runs on, that case is held to 0.5% of the photo's pixels with the same seam
+rule, and the check prints that it uses that bound. A player's Full always
+draws on a graphics card, and only checks use the software renderer, which
+places a tile's pixels differently from the whole photo's there: about 0.26%
+of them in this frame, where a card differs by about 0.002%. Every other case
+keeps 0.01% on both renderers. `native-photo-tiles-full-gpu` is the same
+check without `--force-capable`, on the system's own video driver, and it
+holds every case, below zoom 1 too, to 0.01%. It skips with status 77 where
+no graphics card draws Full, under the dummy video driver and SDL's software
+renderer included. Where the shell sets the dummy driver, as `oa-ctest` does
+on the build host, run it with
+`env -u SDL_VIDEO_DRIVER -u SDL_RENDER_DRIVER ctest`. What
+stays exact is the window: after a photo in tiles it draws as it did before,
+and Full's anti-aliasing factor is unchanged, and the preferences file is put
+back. `native-photo-sizes-full` runs its grain comparison a second time with
+the 2× photo drawn in tiles at a quarter of its long side. The tiled photo
+is held to the whole photo's look within the same bound and seam rule, the
+channels of pixels that differ are not read, and every other channel is held
+to the grain criterion exactly. `native-photo-sizes-live`
+(`--check-photo sizes --hardware-acceleration=full`, the system's video
+driver) sets Enhanced anti-aliasing to 4×. Every offered size keeps the
+window frame's sampling. A size past that limit is offered in tiles, up to
+16384 pixels a side, and a size that cannot be tiled is locked with the
+reason that names the limit. Smooth edges 2× matches the turned view's own
+2× photo box-reduced where that step is offered, at Enhanced anti-aliasing
+2× when 4× does not offer it, where every size offered is drawn too, and
+the window's frames stay at 4×. The grain comparison runs again with the
+2× photo drawn in tiles at a quarter of its long side, held to the whole
+photo's look within the same bound and seam rule. It skips with status 77
+when no device can draw the view, including under the dummy video driver.
+`native-photo-tiles-live` (`--check-photo tiles-live
+--hardware-acceleration=full`, the system's video driver) freezes one
+turned frame of that fight. A 4096 photo drawn whole matches the same photo
+in four tiles of 2048, with no differing pixel on a tile edge, depth of
+field off and on. Those two photos are drawn again with a forced shorter
+viewport, and the card must draw every tile with its projection offset,
+through a viewport within that limit. Without depth of field that pass
+still has no differing pixel on a tile edge. With depth of field it holds
+the tile tolerance. The frame is compared again past the map's corner, at
+Enhanced anti-aliasing 2× and 4×, each also with a forced shorter viewport
+held to the seam rule, at a tile edge of 500, and at 1920×1080.
+At 1920×1080 and Enhanced 2×, every size above Screen that is offered is
+drawn, at least one of them in tiles.
+On a 640×480 battlefield at Enhanced 4×, 2×, 3× and 4× are offered. It
+skips with status 77 when no device can draw the view. None
+of these photos is a preference.
+`native-photo-poster` (`--check-photo poster`) freezes that fight and saves
+a poster two views wide at the game's own scale, its join through the fight,
+half a view past the map's edge. It equals, pixel for pixel, two photos of
+that frozen tick placed side by side, and seen ground lies on both sides of
+the join. Ground the player has not seen is black. A poster two views tall
+equals two photos one above the other, and a poster with haze, taken with
+the window elsewhere, equals the plain poster with the haze painted from the
+poster's own corner. A poster two views wide records grain and the tilt
+band at the panel's sizes at zoom 1 and at twice them at zoom 0.5,
+`grain_size` with `grain_pixels` and the band's width and radius the same
+way. The turned view's reason names the
+chord bound to Classic view. The battle's sight, messages and pause are unchanged,
+and the preferences file is unchanged. `native-photo-poster-full`
+(`--check-photo poster --hardware-acceleration=full --force-capable`, SDL's
+software renderer) draws that poster in tiles and holds it to the same two
+photos within the tile bound of `native-photo-tiles-full`. The picture is
+not pinned. The check removes the photos it wrote. In both, a drag inside
+the view marks the area it covers, a click keeps the mark, a short drag
+marks 64 pixels a side, and Left at the map's left edge leaves the mark as
+it is.
+`native-photo-keys` (`--check-photo keys`) plays the skirmish's fight in a
+window on the dummy drivers, with Off acceleration. F9 and Enter in one
+input batch write nothing until a photo-mode frame is presented. That photo
+is the size of the window and matches a photo of the next frozen frame.
+Primary+/ opens the keys panel titled "Keys in photo mode", with a Take
+photo line and without the window keys Accept, Press, Page up and Page down.
+It lists Pan up, Mark area, Speed up and Back, and not Open chat, Status strip,
+Screenshot or Unit info, which photo mode takes and does nothing with.
+A photo with that panel open matches one with it closed, and leaving closes
+a panel that was closed on entering. F9 enters and the clock is frozen.
+Space lets it run and − starts Slow 9, then + runs at the match's speed and
++ again stays there, and Space freezes. `.` steps one tick, Shift+, then
+Shift+. move the shutter from 8 to 7 and back to 8, + starts slow motion
+and Space freezes it, Enter writes a PNG, Primary+C offers that photo
+through the clipboard hook, and Page Up zooms. Alt+Left is refused and the
+line says Needs Full acceleration. M chooses Poster and Area and starts a
+mark at least 64 pixels on a side, without moving the camera. Right grows
+that mark's width. A click that does not drag keeps the mark. S, a left click and C with the modifier
+that is not Primary (Ctrl+C on a Mac, the Windows or Super key and C
+elsewhere, since there Ctrl+C is Primary+C) change neither a unit nor the
+view, and copy nothing. F9 and Escape each leave. Ctrl+F9 writes a PCX
+screenshot outside photo mode and, on the default layout, a PNG photo inside
+it. A scratch Keys layout moves Take photo to K: K writes a photo and Enter
+does not. The preferences file is unchanged.
+`native-photo-looks` (`--check-photo looks`) plays the capture check's fight
+twice on the dummy drivers. One pass enters photo mode. With no look it
+saves the pinned Off photo. Each colour grade then saves a photo of that
+frozen frame, pinned by its SHA-256, equal to that grade on the battlefield
+the window presented outside the photo line. One photo's record names the
+grade. A square crop with a frame, a vignette and grain saves the look on
+the crop, and the window shows that photo inside the crop. With the caption
+bar on and the panel hidden, the presented bar equals the photo's bar,
+letters included, on the whole battlefield and on a 3:2 crop, whose bar
+lies above the window's bottom. A tilt-shift photo and a haze photo are
+pinned the same way, and each record names that cue. At haze 100 every
+pixel the fog's black pass draws keeps its colour, and every other pixel is
+the haze with no fog; that photo is pinned too, and on a square crop it is
+the photo the window shows. The preferences
+file is unchanged, and a pass that never enters reads back as the pass that
+does.
+`native-photo-looks-full` (`--check-photo looks --hardware-acceleration=full --force-capable`)
+filters the Full preview and the photo. The photo is that grade on the
+picture Full would have saved of the same frame. Its pixels are not pinned.
+`present-photo-looks` runs each grade, the vignette, the grain and each
+frame on a fixed 64×36 picture, on one, two and eight threads and on the
+caller. The bytes are pinned and do not depend on the number of threads.
+None and an amount of 0 leave the picture unchanged, and the same seed
+writes the same grain.
+`present-photo-depth` pins a tilt-shift of that picture, and the ground
+heights a flat plain, a ramp and a plateau project to. One, two and eight
+threads, and the caller, write the same bytes. Haze leaves the pixels on the
+screen rows a fog marks, and hazes the rest as with no fog.
+`native-photo-panel` (`--check-photo panel`, with `--snapshot`) plays the
+same fight at 640×480, 1280×720 and 1920×1080. Take photo writes a photo
+with no panel in it, equal to the battlefield of that frame. H hides the
+panel and shows it again. G cycles the guides, which are in no photo, and
+a 1:1 crop writes a square photo. Tab walks every control and the first Tab
+shows the focus ring. A drag on the battlefield pans and never selects.
+With the panel hidden the arrow shows where the drag ended, and the photo
+is the frame outside it.
+Leaving before a frame, after Take photo in that same visit, says Photo not
+taken and writes nothing. The preferences file is unchanged.
+`native-photo-pad-touch` (`--check-photo pad-touch`) on a phone-sized window
+opens photo mode from the game layer's L2, takes a photo, freezes, hides the
+panel and leaves with the face buttons, pans and zooms with the sticks, and
+presses a focused section header with A after the D-pad, then opens it from
+the phone MENU. There every pressable control of the panel is at least 44
+points tall; a drag of many small moves on the zoom slider moves the rows
+the whole way and does not zoom; it taps a section header, the time strip,
+Show selection and Take photo at their centre and a few points outside
+their edge. It pans with a drag and zooms with a pinch. While Area is
+chosen, L1 starts a mark and the next frame draws its rectangle, the left
+stick grows it without panning, and a push across that drifts a little
+down grows only its width; a tap keeps the mark, a one-finger drag marks
+and two fingers pan. It takes no photo for a
+cancelled finger on Take photo and one for a tap, leaves the preferences
+file unchanged, and leaves with a tap on Leave.
+While the controller frames the shot no pointer shows, where the mouse
+left it on the battlefield: the frame is the photo off the chrome. Moving
+the mouse shows the arrow there, and the next press of a pad button hides
+it again. A request to close the window asks over photo mode, and B
+answers No. The phone's photo mode shows no pointer.
+`native-photo-close` (`--check-photo close`) opens photo mode on a frozen
+fight, framed off the player's camera, and sends a request to close the
+window. The question shows over photo mode: Yes and No are in the
+automation tree, and the frame changes where they are. A photo taken while
+it asks is the photo taken before, and a second request asks no second
+question. No, clicked, and Escape go back to photo mode with the same
+layout, camera, zoom, tick, freeze and panel. Yes, clicked, leaves the match
+and ends the run.
+`native-photo-replay` (`--check-photo replay`, with `--play-demo` naming
+fixture recording 720, `720 - Show Down - NJ_THUG, Screamer.tad`) seeks to
+a tick, opens photo mode from the playback bar, steps three ticks forward
+and two back, and takes a photo. The photo's record holds that recording's
+file name, its SHA-256 and the tick, and no folder. Slow then plays the
+replay at half speed, Space pauses it and runs it at the speed photo mode
+opened at, and J, L and `,` jump back ten seconds, forward ten seconds and
+back one tick, each keeping the framed view. Leaving keeps the pause and
+the speed the replay is watched at. After leaving, the replay plays on to
+its pinned end on the replay's own clock, with no frame drawn: a drawn
+frame ends the match at the game's outcome, before the recording's last
+tick. The preferences file is unchanged.
+`native-photo-replay-full` is that check with `--hardware-acceleration=full`
+and `--force-capable`. The photo is drawn by Full. Without the fixture
+recording it reports skipped, as `native-photo-replay` does.
+`OA_REPLAY_FIXTURES` names the folder that holds the fixture recordings:
+set it in the environment or pass `-DOA_REPLAY_FIXTURES=PATH` to CMake, with
+an absolute path. Without that recording there the check reports skipped.
+`ui-photo-panel-layout` lays the panel out at those three sizes in each size
+class and both looks, including Large at 640×480, for a skirmish, a replay
+and a shared match: every control lies inside the panel and the panel inside
+the window, Tab follows the sections, and a locked control carries its
+reason. Laid out for touch on two phones and a tablet, every pressable
+control and every stop of a strip is a finger's row tall and wide (Size's
+four stops take two rows at a phone's largest rows), and the rows show a
+row at every scroll offset, with Camera open and with Photo open under the
+longest size reason. `ui-photo-panel-draw` and `ui-photo-panel-draw-data` pin the panel
+in those three states at those three sizes in both looks
+(`src/ui/photo-panel/tests/frames.txt`). `--frames` writes
+`photo-panel-<scene>.png`.
+`native-photo-capture-full` also sends F9 and Enter in one batch and requires
+the photo to be the size of the window and to match the next frozen frame.
 `native-keys-overlay` (`--check-keys-overlay`) checks the keys overlay in
-a skirmish, then the overlays' places: Move overlays off by default with
+a skirmish, then the overlays' places. It scrolls Accessibility until Move
+overlays and Overlay places are on screen: colour, speech and the focus
+ring stand above them, and a narrow window puts the practice pad under the
+rows. Move overlays is off by default with
 Arrange… waiting for it; on the main menu at 1280x720 and 640x480, Move
 overlays on and Arrange… opening the picture of the match, a handle on each
 overlay's sample inside the battlefield, the keys overlay, the latch chips
@@ -1226,7 +1794,10 @@ has one. `native-key-editor` (`--check-key-editor`) checks the editor over
 Settings and in a paused skirmish, and the question that asks before
 unsaved edits are closed, with Save, Discard and Keep editing; with
 `--snapshot` it also writes `key-editor-draft.ppm` and
-`key-editor-close-question.ppm` at 1280x720. `native-key-capture`
+`key-editor-close-question.ppm` at 1280x720. `native-replay-viewer`
+(`--check-replay-viewer`) records a short skirmish, watches it and presses
+the playback bar, and with `--snapshot` writes the bar at 640x480, 1280x720
+and 1920x1080. `native-key-capture`
 (`--check-key-capture`) captures a chord, swaps a clash only once the
 question's confirm button is pressed, times Choose what happens… for P on
 Load, which Patrol uses, and each move of the pointer over the question
@@ -1603,6 +2174,28 @@ network game started with the same list, play the commander health of
 the applied mutator alone, and strict playback of the game's recording
 rebuilds the recorded unit definitions. A list that applied in full is
 not run again.
+`native-replay-index` (`tools/check_native_replay_index.py`) records a
+loopback game and indexes it twice with `--replay-index`: the two files are
+the same bytes, and the length is the last tick `--play-demo` reaches. A
+copy of the recording cut at half its packets is indexed too, and ends
+`cut` on a tick before the end of the whole game. `app-replay-index` reads
+the notes of a made-up recording of every kind of record, also inside a
+`.oademo`, and builds the index of a made-up timeline: its totals, damage,
+markers, result and end. `formats-oademo` writes and reads a
+`timeline.json`.
+`native-replay-keyframes` (`tools/check_native_replay_keyframes.py`) records a
+loopback game and plays it with `--replay-keyframe-check` at its start, its
+middle and near its end: each keyframe restored and played for the same 3,000
+ticks reaches the same digest and the same state, and the replay still ends
+on the digest, tick and frame count of the plain replay. A check asked for
+past the end says where the replay ends. `demo-playback` takes keyframes of a
+made-up replay: a keyframe restored gives the same digest tick for tick,
+whichever keyframe is restored and in whichever order; a section left out of a
+keyframe is reported as a keyframe fault at the tick of the next keyframe; and
+a session that holds an order or a unit of its own is refused. `match-keyframe`
+writes and reads the bytes of a keyframe's sections, and of a match with
+nothing in it, and refuses a match that holds orders or a unit it steers.
+`core-world-cpp` lists the tables of a world a keyframe copies.
 `native-fast-commanders` (`tools/check_native_fast_commanders.py`) gives
 ARMCOM, through `ridge-racing-commander`, the movement seven stacked
 commander mutators leave it: 42 pixels a tick, a turn of 28800 a tick, and

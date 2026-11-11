@@ -18,7 +18,9 @@
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
+#include "oa/ui/gui_input/gadget_panel.hpp"
 #include "oa/ui/gui_input/scroll_bar.hpp"
+#include "oa/ui/gui_input/tab_order.hpp"
 #include "oa/ui/gui_input.hpp"
 #include "oa/ui/gui_layout/gui_gadget.hpp"
 #include "oa/data/defs/asset_files.hpp"
@@ -90,13 +92,9 @@ constexpr uint16_t kMachineMemoryMb = 256; // stand-in for the physical memory p
 constexpr uint32_t kSdlKeyReturn = 0x0d;
 constexpr uint32_t kSdlKeyEscape = 0x1b;
 constexpr uint32_t kSdlKeyBackspace = 0x08;
-constexpr uint32_t kSdlKeyTab = 0x09;
-constexpr uint32_t kSdlKeyRight = 0x4000004F;
-constexpr uint32_t kSdlKeyLeft = 0x40000050;
-constexpr uint32_t kSdlKeyDown = 0x40000051;
-constexpr uint32_t kSdlKeyUp = 0x40000052;
-/// Either Shift key, as the platform reports it on a key.
-constexpr uint16_t kSdlModifierShift = 0x0003;
+constexpr uint32_t kSdlKeyF6 = 0x4000003F;
+/// The bit a platform key uses when it names a place rather than a character.
+constexpr uint32_t kPositionKeyBit = 1u << 30;
 constexpr uint8_t kSdlRightButton = 3;
 constexpr uint8_t kMenuTickFlag = 1;
 // The frontend signal a state starts with.
@@ -3836,6 +3834,386 @@ bool battle_room_keys() noexcept {
     return state.screen == kScreenBattleroom && state.base.loaded && &front() == &state.base;
 }
 
+/// Tells whether a control's name is a prefix plus one slot digit.
+///
+/// @param control the control
+/// @param prefix the name before the digit, such as READY
+/// @param slot the slot, 0..9
+/// @return true when the name is that control of that slot
+bool named_slot(const Control& control, std::string_view prefix, int32_t slot) noexcept {
+    if (slot < 0 || slot > 9)
+        return false;
+    const std::string_view name = control_name(control);
+    if (name.size() != prefix.size() + 1 || !name.starts_with(prefix))
+        return false;
+    return name.back() == static_cast<char>('0' + slot);
+}
+
+/// Tells whether a control is the local player's colour square.
+///
+/// @param lobby the battle room
+/// @param control the control
+/// @return true for that player's LOGO
+bool local_colour_square(const Lobby& lobby, const Control& control) noexcept {
+    if (lobby.game == nullptr)
+        return false;
+    return named_slot(control, "LOGO", static_cast<int32_t>(lobby.game->local_player_index));
+}
+
+/// Tells whether Tab may stop on a control as it is now.
+///
+/// A grayed, inactive, display-only or cold control is left out, as is a
+/// label, an image, a panel, a vertical scroll bar and a control with no
+/// area. The gadget file's own gray is not what decides: the battle room
+/// grays a host's controls on a client's machine after the file is loaded.
+///
+/// @param control the control
+/// @return true when Tab stops on it
+bool tab_stop(const Control& control) noexcept {
+    if (control.active == 0 || control.grayed || control.display_only)
+        return false;
+    if ((control.attributes & ui::gui_layout::attribute::no_focus) != 0)
+        return false;
+    if (control.width <= 0 || control.height <= 0)
+        return false;
+    switch (control.type) {
+    case ControlType::label:
+    case ControlType::image:
+    case ControlType::panel:
+        return false;
+    case ControlType::hot_surface:
+        if (!control.hot)
+            return false;
+        break;
+    case ControlType::slider:
+        if (control.height > control.width)
+            return false;
+        break;
+    default:
+        break;
+    }
+    return true;
+}
+
+/// Adds a named control to a stop list when it can take Tab now.
+///
+/// @param[in,out] stops the stops, as control indexes
+/// @param capacity how many stops the list holds
+/// @param[in,out] count how many stops are written
+/// @param panel the panel
+/// @param name the control's name
+void add_tab_stop(
+    int32_t* stops, int32_t capacity, int32_t& count, const Panel& panel, const char* name
+) noexcept {
+    if (count >= capacity)
+        return;
+    const int32_t index = panel_find(panel, name);
+    if (index == kNoControl || !tab_stop(panel.controls[static_cast<std::size_t>(index)]))
+        return;
+    stops[count++] = index;
+}
+
+/// The battle room's Tab stops, in the order Next button walks them.
+///
+/// The player's own row, then the options down the column as it stands
+/// (commander, fixed location, mapping, line of sight, cheating, watching,
+/// game open, restrictions), Select Map, the sliders, the chat log, the
+/// chat line, Start and Previous Menu. Mutators is the layer's button just
+/// after Select Map, not a stop of this panel. A stop that is grayed or
+/// inactive is left out. Another player's row is not a stop.
+///
+/// @param panel the battle room's panel
+/// @param lobby the battle room
+/// @param[out] stops receives the control indexes
+/// @param capacity how many stops `stops` holds
+/// @return how many stops were written
+int32_t
+battle_room_tab_stops(const Panel& panel, Lobby& lobby, int32_t* stops, int32_t capacity) noexcept {
+    int32_t count = 0;
+    if (lobby.game != nullptr) {
+        const int slot = static_cast<int>(lobby.game->local_player_index);
+        char formatted[32];
+        for (const char* prefix : {"READY", "SIDE", "LOGO", "TEAMICONS"}) {
+            std::snprintf(formatted, sizeof(formatted), "%s%d", prefix, slot);
+            add_tab_stop(stops, capacity, count, panel, formatted);
+        }
+    }
+    for (const char* name : {
+             "COMMANDER",
+             "FIXEDLOC",
+             "MAPPING",
+             "LOSTYPE",
+             "CHEATING",
+             "WATCHING",
+             "GAMEOPEN",
+             "RESTRICTIONS",
+             "MAP",
+             "METAL",
+             "ENERGY",
+             "MAXUNITS",
+             "OUTPUT",
+             "MESSAGE",
+             "START",
+             "PREVMENU",
+         })
+        add_tab_stop(stops, capacity, count, panel, name);
+    return count;
+}
+
+/// The battle room's places: its Tab stops, then the lists, remote rows and
+/// chat line the arrows walk before Tab, without repeating a control.
+///
+/// @param panel the battle room's panel
+/// @param lobby the battle room
+/// @param[out] places receives the control indexes
+/// @param capacity how many places `places` holds
+/// @return how many places were written
+int32_t
+battle_room_places(const Panel& panel, Lobby& lobby, int32_t* places, int32_t capacity) noexcept {
+    int32_t count = battle_room_tab_stops(panel, lobby, places, capacity);
+    const FocusOrder older = battle_room_focus_order(panel, lobby);
+    for (int32_t at = 0; at < older.count; ++at) {
+        const int32_t index = older.index[static_cast<std::size_t>(at)];
+        bool seen = false;
+        for (int32_t place = 0; place < count; ++place)
+            seen = seen || places[place] == index;
+        if (!seen && count < capacity)
+            places[count++] = index;
+    }
+    return count;
+}
+
+/// Tab's stops on a screen that is not the battle room.
+///
+/// The order is the built-in screens' order of the front file. A control
+/// the file would stop on is dropped when it is grayed, inactive or cold now.
+///
+/// @param res the front screen
+/// @return the control indexes
+std::vector<int32_t> connection_tab_stops(const Resources& res) {
+    const std::vector<int32_t> gadget_order = oa::ui::gui_input::tab_order(res.source.gadgets);
+    std::vector<int32_t> stops;
+    const Panel& panel = res.panel;
+    for (const int32_t gadget_index : gadget_order) {
+        int32_t found = kNoControl;
+        for (int32_t control_index = 1; control_index < panel.count; ++control_index) {
+            if (panel.controls[static_cast<std::size_t>(control_index)].source == gadget_index) {
+                found = control_index;
+                break;
+            }
+        }
+        if (found == kNoControl)
+            continue;
+        if (!tab_stop(panel.controls[static_cast<std::size_t>(found)]))
+            continue;
+        stops.push_back(found);
+    }
+    return stops;
+}
+
+/// Moves the focus one place along a stop list, wrapping.
+///
+/// A focus that is not in the list lands on the first stop going forward
+/// and the last going back.
+///
+/// @param[in,out] panel the panel; its focus moves
+/// @param stops the control indexes
+/// @param count how many stops are set
+/// @param forward true toward the end of the list
+void move_along(Panel& panel, const int32_t* stops, int32_t count, bool forward) noexcept {
+    if (count <= 0 || stops == nullptr)
+        return;
+    int32_t place = -1;
+    for (int32_t at = 0; at < count; ++at) {
+        if (stops[at] == panel.focus) {
+            place = at;
+            break;
+        }
+    }
+    int32_t next = forward ? stops[0] : stops[count - 1];
+    if (place >= 0) {
+        const int32_t step = forward ? place + 1 : place + count - 1;
+        next = stops[step % count];
+    }
+    if (panel.focus == next)
+        return;
+    panel.focus = next;
+    panel.dirty = true;
+}
+
+/// Moves the focus among the other players' rows, in slot order, wrapping.
+///
+/// From anywhere else, forward lands on the first row and backward on the
+/// last. With no such row, the focus stays.
+///
+/// @param[in,out] panel the battle room's panel
+/// @param lobby the battle room
+/// @param forward true toward the higher slot
+void move_remote_row(Panel& panel, Lobby& lobby, bool forward) noexcept {
+    std::array<int32_t, kSlotCount> at_slot{};
+    at_slot.fill(kNoControl);
+    for (int32_t control_index = 1; control_index < panel.count; ++control_index) {
+        const auto& control = panel.controls[static_cast<std::size_t>(control_index)];
+        if (!focusable_player_row(lobby, control))
+            continue;
+        const int32_t slot = player_row_slot(control_name(control));
+        if (slot >= 0 && at_slot[static_cast<std::size_t>(slot)] == kNoControl)
+            at_slot[static_cast<std::size_t>(slot)] = control_index;
+    }
+    std::array<int32_t, kSlotCount> rows{};
+    int32_t count = 0;
+    for (int32_t slot = 0; slot < kSlotCount; ++slot) {
+        if (at_slot[static_cast<std::size_t>(slot)] != kNoControl)
+            rows[static_cast<std::size_t>(count++)] = at_slot[static_cast<std::size_t>(slot)];
+    }
+    if (count == 0)
+        return;
+    int32_t place = -1;
+    for (int32_t at = 0; at < count; ++at) {
+        if (rows[static_cast<std::size_t>(at)] == panel.focus) {
+            place = at;
+            break;
+        }
+    }
+    int32_t next = forward ? rows[0] : rows[static_cast<std::size_t>(count - 1)];
+    if (place >= 0) {
+        const int32_t step = forward ? place + 1 : place + count - 1;
+        next = rows[static_cast<std::size_t>(step % count)];
+    }
+    if (panel.focus == next)
+        return;
+    panel.focus = next;
+    panel.dirty = true;
+}
+
+/// The move a bound focus, list or screen action asks for.
+using Travel = oa::app::MenuMove;
+
+/// The shared key rule's code for a move.
+///
+/// @param travel the move
+/// @return the code, or 0 when the rule does not know the move
+int32_t travel_key_code(Travel travel) noexcept {
+    switch (travel) {
+    case Travel::next:
+    case Travel::previous:
+        return oa::ui::gui_input::key_code::tab;
+    case Travel::left:
+        return oa::ui::gui_input::key_code::left;
+    case Travel::right:
+        return oa::ui::gui_input::key_code::right;
+    case Travel::up:
+        return oa::ui::gui_input::key_code::up;
+    case Travel::down:
+        return oa::ui::gui_input::key_code::down;
+    case Travel::home:
+        return oa::ui::gui_input::key_code::home;
+    case Travel::end:
+        return oa::ui::gui_input::key_code::end;
+    case Travel::page_up:
+        return oa::ui::gui_input::key_code::page_up;
+    case Travel::page_down:
+        return oa::ui::gui_input::key_code::page_down;
+    case Travel::accept:
+    case Travel::press:
+    case Travel::none:
+        return 0;
+    }
+    return 0;
+}
+
+/// Tells whether a key types a character into a text field.
+///
+/// Ctrl, Alt and the system key do not. A place key, Tab among them, does
+/// not. Shift still types, so a command moved onto a letter stays with the
+/// field.
+///
+/// @param key the platform key
+/// @param modifiers the modifier keys held
+/// @return true when the key types
+bool key_types_character(uint32_t key, uint16_t modifiers) noexcept {
+    const uint16_t command =
+        app::kInputModifierCtrl | app::kInputModifierAlt | app::kInputModifierSystem;
+    if ((modifiers & command) != 0)
+        return false;
+    if ((key & kPositionKeyBit) != 0)
+        return false;
+    return key >= 0x20 && key <= 0x10FFFF;
+}
+
+/// Steps a focused horizontal slider the way its arrows, pages and ends do.
+///
+/// The knob moves only when the bar takes input, and its handler runs only
+/// when the knob moved, which is the press a pointer makes on that arrow.
+///
+/// @param ctx the screen context
+/// @param[in,out] res the front screen
+/// @param travel the move the key's action asked for
+/// @return true when the key was a slider key on a horizontal slider
+bool apply_slider_key(ScreenContext* ctx, Resources& res, Travel travel) {
+    auto& panel = res.panel;
+    if (panel.focus <= 0 || panel.focus >= panel.count)
+        return false;
+    auto& control = panel.controls[static_cast<std::size_t>(panel.focus)];
+    if (control.type != ControlType::slider)
+        return false;
+    const int32_t code = travel_key_code(travel);
+    if (code == 0)
+        return false;
+    const oa::ui::gui_layout::Gadget* gadget = nullptr;
+    if (control.source >= 0 && static_cast<std::size_t>(control.source) < res.source.gadgets.size())
+        gadget = &res.source.gadgets[static_cast<std::size_t>(control.source)];
+    oa::ui::gui_input::FocusKeyQuery query;
+    query.gadget = gadget;
+    query.key = code;
+    query.ring_shown = true;
+    const auto effect = oa::ui::gui_input::focus_key_action(query);
+    using oa::ui::gui_input::FocusKeyEffect;
+    auto& bar = slider_bar(control);
+    const bool scroll =
+        effect == FocusKeyEffect::scroll_back || effect == FocusKeyEffect::scroll_forward ||
+        effect == FocusKeyEffect::scroll_page_back ||
+        effect == FocusKeyEffect::scroll_page_forward || effect == FocusKeyEffect::scroll_home ||
+        effect == FocusKeyEffect::scroll_end;
+    if (!scroll)
+        return false;
+    if (!oa::ui::gui_input::scroll_takes_input(bar))
+        return true;
+    const int16_t before = bar.knob;
+    const int32_t limit = bar.range > 0 ? static_cast<int32_t>(bar.range) - 1 : 0;
+    switch (effect) {
+    case FocusKeyEffect::scroll_back:
+        oa::ui::gui_input::scroll_step(bar, false);
+        break;
+    case FocusKeyEffect::scroll_forward:
+        oa::ui::gui_input::scroll_step(bar, true);
+        break;
+    case FocusKeyEffect::scroll_page_back:
+    case FocusKeyEffect::scroll_page_forward: {
+        const int32_t span = oa::ui::gui_input::scroll_page_span(bar.range);
+        int32_t knob = static_cast<int32_t>(bar.knob);
+        knob += effect == FocusKeyEffect::scroll_page_forward ? span : -span;
+        if (knob < 0)
+            knob = 0;
+        if (knob > limit)
+            knob = limit;
+        bar.knob = static_cast<int16_t>(knob);
+        break;
+    }
+    case FocusKeyEffect::scroll_home:
+        bar.knob = 0;
+        break;
+    case FocusKeyEffect::scroll_end:
+        bar.knob = static_cast<int16_t>(limit);
+        break;
+    default:
+        return false;
+    }
+    if (bar.knob != before)
+        notify_slider(ctx, res, panel.focus);
+    return true;
+}
+
 /// The card trigger Return and the pad's A use while a remote row is focused.
 /// The presence card screen binds its own; null opens no card.
 PresenceCardTrigger* row_key_trigger = nullptr;
@@ -3906,12 +4284,39 @@ int screen_event(ScreenContext* ctx, void*) {
         if (input->text != nullptr)
             multiplayer_type(ctx, input->text);
         return 1;
-    case ScreenInputKind::key_down:
+    case ScreenInputKind::key_down: {
+        // The layer shows the ring after Next button, Previous button and F6,
+        // and hides it after Return. This key sees the ring the service
+        // reports, which is the ring the family is drawing. A letter typed
+        // into a focused field is the field's, even when a layout binds it
+        // to a focus command, so the screen asks only for the ring then, and
+        // the layer neither shows nor keeps the ring for it.
+        const bool character = key_types_character(input->key, input->modifiers);
+        const bool typing =
+            character && focus_valid &&
+            panel.controls[static_cast<std::size_t>(panel.focus)].type == ControlType::text_box;
+        char action[96]{};
+        int ring_shown = 0;
+        if (state.services != nullptr && state.services->bound_focus_action != nullptr)
+            state.services->bound_focus_action(
+                state.host,
+                input,
+                typing ? nullptr : action,
+                typing ? 0 : sizeof action,
+                &ring_shown
+            );
+        const Travel travel = oa::app::menu_move_of(action);
+        const bool travel_left = travel == Travel::left;
+        const bool travel_right = travel == Travel::right;
+        const bool travel_up = travel == Travel::up;
+        const bool travel_down = travel == Travel::down;
+        const bool arrow = travel_left || travel_right || travel_up || travel_down;
+        const auto finish_key = []() { return 1; };
         state.answered_key = 0;
         if (!state.message.empty()) {
             if (input->key == kSdlKeyReturn || input->key == kSdlKeyEscape)
                 state.message.clear();
-            return 1;
+            return finish_key();
         }
         // The yes-or-no questions take their buttons' quick keys, in either
         // case: Y and N in English. A key with Ctrl, Alt or the system key
@@ -3920,7 +4325,7 @@ int screen_event(ScreenContext* ctx, void*) {
             if (const auto name = quick_key_button(panel, *input); !name.empty()) {
                 state.answered_key = std::tolower(static_cast<int>(input->key));
                 (void)multiplayer_click(ctx, name.c_str());
-                return 1;
+                return finish_key();
             }
         }
         if (input->key == kSdlKeyBackspace && panel.focus > 0 && panel.focus < panel.count) {
@@ -3936,7 +4341,7 @@ int screen_event(ScreenContext* ctx, void*) {
                     text.pop_back();
                 set_control_text(control, text);
             }
-            return 1;
+            return finish_key();
         }
         if (input->key == kSdlKeyReturn && focus_valid) {
             // A focused remote row takes Return and the pad's A as the
@@ -3950,49 +4355,100 @@ int screen_event(ScreenContext* ctx, void*) {
                     const int32_t slot = player_row_slot(control_name(focused));
                     PresenceBadgeSpot spots[kSlotCount]{};
                     const auto count = multiplayer_presence_badges(spots, kSlotCount);
-                    for (int32_t index = 0; index < count; ++index) {
-                        if (spots[static_cast<std::size_t>(index)].slot == slot) {
+                    for (int32_t badge = 0; badge < count; ++badge) {
+                        if (spots[static_cast<std::size_t>(badge)].slot == slot) {
                             row_key_trigger->key_info(slot);
                             break;
                         }
                     }
                 }
-                return 1;
+                return finish_key();
             }
             if (panel_press(panel, panel.focus))
                 dispatch(ctx);
-            return 1;
+            return finish_key();
         }
+        // A letter types into the address, the game name and the chat line
+        // even when a layout binds that letter to a focus command. Tab and
+        // the place keys are not letters, so they still move.
+        if (typing)
+            return finish_key();
+        // A letter that moves the focus types nothing, not even into the
+        // field it lands on: the character its press sends goes nowhere.
+        if (character && travel != Travel::none && input->key < 0x80)
+            state.answered_key = std::tolower(static_cast<int>(input->key));
         // Up and Down move a focused list's selection a row and run its
         // handler for a new selection, as 3.1c does; they never click it.
-        if ((input->key == kSdlKeyUp || input->key == kSdlKeyDown) && focus_valid) {
+        // They do this whether or not the ring is showing.
+        if ((travel_up || travel_down) && focus_valid) {
             const auto& focused = panel.controls[static_cast<std::size_t>(panel.focus)];
             if (focused.type == ControlType::list_box && focused.list_item_height != 0) {
-                panel_step_list(panel, panel.focus, input->key == kSdlKeyDown);
+                panel_step_list(panel, panel.focus, travel_down);
                 list_changed(res, panel.focus);
-                return 1;
+                return finish_key();
             }
         }
-        // In the battle room, Tab and the pad's D-pad (the arrow keys) walk
-        // the focus order: the lists, then each remote player's row, then
-        // the chat line. Left and Right stay in the chat line. Up and Down
-        // stay in a list, where they move its selection.
-        if (battle_room_keys() &&
-            (input->key == kSdlKeyTab || input->key == kSdlKeyUp || input->key == kSdlKeyDown ||
-             input->key == kSdlKeyLeft || input->key == kSdlKeyRight)) {
+        // Next button and Previous button walk the screen's order, including
+        // the first one, which is what shows the ring. On the battle room
+        // that order is the player's own row, the options, the map, the
+        // sliders, the chat and Start. On the other screens it is the
+        // built-in order. With the game's own layout those buttons are Tab
+        // and Shift+Tab.
+        if (travel == Travel::next || travel == Travel::previous) {
+            const bool forward = travel == Travel::next;
+            if (battle_room_keys()) {
+                std::array<int32_t, kPanelControls> stops{};
+                const int32_t count =
+                    battle_room_tab_stops(panel, state.lobby, stops.data(), kPanelControls);
+                move_along(panel, stops.data(), count, forward);
+            } else {
+                const std::vector<int32_t> stops = connection_tab_stops(res);
+                move_along(panel, stops.data(), static_cast<int32_t>(stops.size()), forward);
+            }
+            return finish_key();
+        }
+        if (input->key == kSdlKeyF6)
+            return finish_key();
+        // Before the ring shows, the battle room's arrows keep the walk they
+        // had: the lists, then each remote player's row, then the chat line.
+        // Left and Right stay in the chat line.
+        if (battle_room_keys() && ring_shown == 0 && arrow) {
             const bool along_chat =
-                (input->key == kSdlKeyLeft || input->key == kSdlKeyRight) && focus_valid &&
+                (travel_left || travel_right) && focus_valid &&
                 takes_any_character(panel.controls[static_cast<std::size_t>(panel.focus)]);
             if (!along_chat) {
-                const bool backward =
-                    input->key == kSdlKeyUp || input->key == kSdlKeyLeft ||
-                    (input->key == kSdlKeyTab && (input->modifiers & kSdlModifierShift) != 0);
+                const bool backward = travel_up || travel_left;
                 move_battle_room_focus(panel, !backward);
             }
-            return 1;
+            return finish_key();
         }
-        if ((input->key == kSdlKeyUp || input->key == kSdlKeyDown) && focus_valid)
-            return 1;
+        // With the ring showing, Left and Right each move the player's colour
+        // to the next one, the same as a click, and step a slider. The other
+        // arrows read the other players' rows. Any other key, Escape among
+        // them, does what it does with no ring.
+        if (battle_room_keys() && ring_shown != 0) {
+            const bool across = travel_left || travel_right;
+            if (across && focus_valid &&
+                takes_any_character(panel.controls[static_cast<std::size_t>(panel.focus)]))
+                return finish_key();
+            if (across && focus_valid &&
+                local_colour_square(
+                    state.lobby, panel.controls[static_cast<std::size_t>(panel.focus)]
+                )) {
+                if (panel_press(panel, panel.focus, 1))
+                    dispatch(ctx);
+                return finish_key();
+            }
+            if (apply_slider_key(ctx, res, travel))
+                return finish_key();
+            if (arrow) {
+                const bool forward = travel_down || travel_right;
+                move_remote_row(panel, state.lobby, forward);
+                return finish_key();
+            }
+        }
+        if ((travel_up || travel_down) && focus_valid)
+            return finish_key();
         if (input->key == kSdlKeyEscape) {
             for (const char* name : {"PREVMENU", "PREV", "CANCEL", "Cancel", "CHOICE2", "OK"})
                 if (panel_find(panel, name) != kNoControl) {
@@ -4000,7 +4456,8 @@ int screen_event(ScreenContext* ctx, void*) {
                     break;
                 }
         }
-        return 1;
+        return finish_key();
+    }
     default:
         return 1;
     }
@@ -4092,15 +4549,19 @@ void add(app::ScreenRegistry* registry, app::ScreenId id, const char* name, app:
 
 /// The place of one control in the battle room's focus order.
 ///
+/// The place is its index in the Tab order, then the lists, remote rows and
+/// chat line the arrows walk before Tab. A control in neither has no place.
+///
 /// @param panel the battle room's panel
 /// @param lobby the battle room
 /// @param index the control
 /// @return its place, or -1 when the order leaves it out
 int32_t battle_room_focus_place(const Panel& panel, Lobby& lobby, int32_t index) noexcept {
-    const FocusOrder order = battle_room_focus_order(panel, lobby);
-    for (int32_t at = 0; at < order.count; ++at)
-        if (order.index[static_cast<std::size_t>(at)] == index)
-            return at;
+    std::array<int32_t, kPanelControls> places{};
+    const int32_t count = battle_room_places(panel, lobby, places.data(), kPanelControls);
+    for (int32_t place = 0; place < count; ++place)
+        if (places[static_cast<std::size_t>(place)] == index)
+            return place;
     return -1;
 }
 
@@ -4703,6 +5164,17 @@ const ui::gui_layout::Layout& multiplayer_screen_layout() noexcept {
 
 const ui::gui_layout::Layout& multiplayer_drawn_layout() noexcept {
     return ui().base.screen.layout;
+}
+
+std::span<const uint8_t> multiplayer_screen_palette() noexcept {
+    return screen_palette(ui().base.screen);
+}
+
+std::optional<uint8_t> multiplayer_control_stage(std::string_view name) noexcept {
+    const Control* control = panel_control(ui().base.panel, name);
+    if (control == nullptr)
+        return std::nullopt;
+    return control->stage;
 }
 
 Panel* multiplayer_modal() noexcept {

@@ -214,6 +214,20 @@ void fill(Extension* table) {
         count("release_runtime");
         count_order("release_runtime", calls("release_runtime") == 0);
     };
+    table->replay_frame = [](void*, Runtime&, uint32_t, const ReplayFrameHost&) {
+        count("replay_frame");
+    };
+    table->replay_hold = [](void*, Runtime&, uint32_t) { count("replay_hold"); };
+    table->replay_play = [](void*, Runtime&) { count("replay_play"); };
+    table->replay_pause = [](void*, Runtime&) { count("replay_pause"); };
+    table->replay_set_speed = [](void*, Runtime&, int32_t) { count("replay_set_speed"); };
+    table->replay_step_speed = [](void*, Runtime&, int32_t) { count("replay_step_speed"); };
+    table->replay_seek = [](void*, Runtime&, uint32_t) { count("replay_seek"); };
+    // A null hook fills nothing and lets the next extension answer.
+    table->replay_state = [](void*, Runtime&, ReplayPlaybackView*) {
+        count("replay_state");
+        return false;
+    };
 }
 
 } // namespace

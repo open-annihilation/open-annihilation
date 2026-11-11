@@ -28,7 +28,6 @@
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_state/app_modes.hpp"
-#include "oa/ui/kit/input.hpp"
 #include "oa/platform/text_font.hpp"
 #include "oa/ui/pad_controls.hpp"
 
@@ -882,7 +881,7 @@ class FirstRunScreen final : public LayerScreen {
             return;
         const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
         scene_ = first_run::lay_out(session_, frame_, fonts);
-        first_run::ensure_focus(session_, scene_.list);
+        first_run::ensure_focus(session_, scene_.list, runtime_.oa_layer().always_show_focus());
         laid_step_ = session_.model.step;
         laid_ = true;
         ++revision_;

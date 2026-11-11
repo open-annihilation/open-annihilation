@@ -67,7 +67,175 @@ namespace {
     return {point.x + shift.x, point.y + shift.y};
 }
 
+/// Returns the composite whose id is a tab stop.
+///
+/// @param list the display list
+/// @param id the stop
+/// @return that composite, or null when id is not one
+[[nodiscard]] const Composite* composite_by_id(const DisplayList& list, ControlId id) noexcept {
+    for (const Composite& composite : list.composites)
+        if (composite.id == id)
+            return &composite;
+    return nullptr;
+}
+
+/// Returns the composite that lists a control as a part.
+///
+/// @param list the display list
+/// @param id the control
+/// @return that composite, or null when the control is not a part
+[[nodiscard]] const Composite* composite_of_part(const DisplayList& list, ControlId id) noexcept {
+    for (const Composite& composite : list.composites)
+        for (const ControlId part : composite.parts)
+            if (part == id)
+                return &composite;
+    return nullptr;
+}
+
+/// Returns a part's place in a composite, from 0.
+///
+/// @param composite the group
+/// @param id the control
+/// @return its place, or -1 when it is not a part
+[[nodiscard]] int32_t index_in(const Composite& composite, ControlId id) noexcept {
+    const auto count = static_cast<int32_t>(composite.parts.size());
+    for (int32_t index = 0; index < count; ++index)
+        if (composite.parts[static_cast<std::size_t>(index)] == id)
+            return index;
+    return -1;
+}
+
+/// Tells whether a part takes the focus: it exists, and it is focusable and enabled.
+///
+/// @param list the display list
+/// @param id the part
+/// @return true when the arrows may stop on it
+[[nodiscard]] bool part_live(const DisplayList& list, ControlId id) noexcept {
+    const Control* control = control_of(list, id);
+    return control != nullptr && control->focusable && control->enabled;
+}
+
+/// Returns the part a composite lands on, without remembering it.
+///
+/// The remembered part when it takes the focus, else the chosen part, else
+/// the first that takes the focus, else the first part. An empty composite
+/// lands on no control.
+///
+/// @param list the display list
+/// @param composite the group
+/// @return the part, or no_control when it has none
+[[nodiscard]] ControlId landing_part(const DisplayList& list, const Composite& composite) noexcept {
+    if (part_live(list, composite.current) && index_in(composite, composite.current) >= 0)
+        return composite.current;
+    ControlId checked = no_control;
+    ControlId first_live = no_control;
+    for (const ControlId part : composite.parts) {
+        if (!part_live(list, part))
+            continue;
+        if (first_live == no_control)
+            first_live = part;
+        const Control* control = control_of(list, part);
+        if (checked == no_control && control != nullptr && control->checked)
+            checked = part;
+    }
+    if (checked != no_control)
+        return checked;
+    if (first_live != no_control)
+        return first_live;
+    if (composite.parts.empty())
+        return no_control;
+    return composite.parts.front();
+}
+
+/// Remembers a part as the one its composite lands on.
+///
+/// @param list the display list
+/// @param id the control; a control that is not a part changes nothing
+void remember_part(const DisplayList& list, ControlId id) noexcept {
+    if (const Composite* composite = composite_of_part(list, id))
+        composite->current = id;
+}
+
+/// Where a control sits in the declared order. A part sits on its composite's stop.
+struct OrderPlace {
+    bool found{false};    ///< the control is a stop, or a part of one
+    std::size_t index{0}; ///< that stop's place, from 0
+};
+
+/// Returns where a control sits in the declared order.
+///
+/// @param list the display list
+/// @param from the control
+/// @return found when it is a stop or a part of a composite that is a stop
+[[nodiscard]] OrderPlace order_place(const DisplayList& list, ControlId from) noexcept {
+    const auto& order = list.tab_order;
+    const auto direct = std::find(order.begin(), order.end(), from);
+    if (direct != order.end())
+        return {true, static_cast<std::size_t>(direct - order.begin())};
+    if (const Composite* group = composite_of_part(list, from)) {
+        const auto stop = std::find(order.begin(), order.end(), group->id);
+        if (stop != order.end())
+            return {true, static_cast<std::size_t>(stop - order.begin())};
+    }
+    return {};
+}
+
+/// Returns the rectangle that holds every part that is a control.
+///
+/// @param list the display list
+/// @param composite the group
+/// @param[out] united the rectangle, when any part is a control
+/// @return true when a part is a control
+[[nodiscard]] bool
+united_rect(const DisplayList& list, const Composite& composite, Rect& united) noexcept {
+    bool any = false;
+    int32_t left = 0;
+    int32_t top = 0;
+    int32_t right = 0;
+    int32_t bottom = 0;
+    for (const ControlId part : composite.parts) {
+        const Control* control = control_of(list, part);
+        if (control == nullptr)
+            continue;
+        const int32_t part_right = control->rect.x + control->rect.width;
+        const int32_t part_bottom = control->rect.y + control->rect.height;
+        if (!any) {
+            left = control->rect.x;
+            top = control->rect.y;
+            right = part_right;
+            bottom = part_bottom;
+            any = true;
+            continue;
+        }
+        left = std::min(left, control->rect.x);
+        top = std::min(top, control->rect.y);
+        right = std::max(right, part_right);
+        bottom = std::max(bottom, part_bottom);
+    }
+    if (!any)
+        return false;
+    united = {left, top, right - left, bottom - top};
+    return true;
+}
+
+/// Tells whether a scroll area shows any part of a composite.
+///
+/// @param list the display list
+/// @param composite the group
+/// @return true when a part's press area has room
+[[nodiscard]] bool any_in_view(const DisplayList& list, const Composite& composite) noexcept {
+    for (const ControlId part : composite.parts) {
+        const Control* control = control_of(list, part);
+        if (control != nullptr && in_view(*control))
+            return true;
+    }
+    return false;
+}
+
 /// Tells whether the focus may stop on a control.
+///
+/// A part of a composite whose id is in the declared order may, as well as
+/// a control that is in the order itself.
 ///
 /// @param list the display list
 /// @param id the control
@@ -79,6 +247,10 @@ namespace {
     for (const ControlId ordered : list.tab_order)
         if (ordered == id)
             return true;
+    if (const Composite* group = composite_of_part(list, id))
+        for (const ControlId ordered : list.tab_order)
+            if (ordered == group->id)
+                return true;
     return false;
 }
 
@@ -346,6 +518,28 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
     }
     if (count == 0)
         return levels;
+    // A wrapped strip's rows are the bands draw_levels paints. One row keeps
+    // the column walk, so a strip of three is unchanged.
+    const bool wrapped = look.columns > 0 && static_cast<std::size_t>(look.columns) < count;
+    if (wrapped) {
+        const int32_t columns = look.columns;
+        const int32_t rows = (static_cast<int32_t>(count) + columns - 1) / columns;
+        const int32_t gap = std::max(look.row_gap, int32_t{0});
+        const int32_t span = area.height - gap * (rows - 1);
+        const int32_t band_h = rows > 0 ? span / std::max(rows, int32_t{1}) : area.height;
+        const int32_t chip_w = std::max(look.level_width, int32_t{1});
+        for (std::size_t level = 0; level < count; ++level) {
+            const int32_t row = static_cast<int32_t>(level) / columns;
+            const int32_t column = static_cast<int32_t>(level) % columns;
+            levels[level].rect = {
+                area.x + 1 + column * chip_w,
+                area.y + row * (band_h + gap),
+                chip_w,
+                std::max(band_h, int32_t{1}),
+            };
+        }
+        return levels;
+    }
     // Each column belongs to the level a press there chooses.
     bool started = false;
     std::size_t current = 0;
@@ -413,6 +607,7 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
             part.word = part_word(control, buttons.size());
             part.rect = item.rect;
             part.text = item.text;
+            part.checked = item.state.selected;
             buttons.push_back(std::move(part));
         }
         return buttons;
@@ -441,11 +636,178 @@ strip_levels(const Control& control, const Rect& area, const LevelsLook& look) {
     entry.rect = control.rect;
     entry.shown = in_view(control);
     entry.enabled = control.enabled;
-    entry.focused = interaction.focus_shown && interaction.focused == control.id;
+    entry.focused = interaction.focused != no_control && interaction.focused == control.id;
     entry.checked = control.checked;
     entry.text = control.text;
     entry.focusable = control.focusable;
+    entry.expanded = control.expanded;
+    entry.live = control.live;
+    entry.description = control.description;
     return entry;
+}
+
+/// Fills a slider's value from the look that draws it.
+///
+/// @param list the display list
+/// @param control the slider
+/// @param[in,out] entry its entry
+void fill_slider(const DisplayList& list, const Control& control, AutomationEntry& entry) {
+    for (const Item& item : list.items) {
+        const auto* look = std::get_if<SliderLook>(&item.look);
+        if (look == nullptr || item.role != Role::slider)
+            continue;
+        // A locked row draws its slider with no control, so the look is found
+        // by where it lies: on the control's line, inside the control's
+        // columns. A screen may widen a row's control past the drawn slider
+        // (Settings' reach across the row), so the two rectangles need not be
+        // equal. An unlocked slider is the item of its control.
+        const bool own = item.control == control.id;
+        const bool locked_row =
+            item.control == no_control && item.state.locked && item.rect.y == control.rect.y &&
+            item.rect.height == control.rect.height && item.rect.x >= control.rect.x &&
+            item.rect.x + item.rect.width <= control.rect.x + control.rect.width;
+        if (!own && !locked_row)
+            continue;
+        entry.has_value = true;
+        entry.has_range = true;
+        entry.value = look->stop;
+        entry.least = 0;
+        entry.most = look->stops > 0 ? look->stops - 1 : 0;
+        entry.step = 1;
+        // The words the slider shows, such as "120 fps". The stop stays in value.
+        entry.value_text = control.text;
+        return;
+    }
+}
+
+/// Fills the role, the label and the value a named control did not set itself.
+///
+/// @param list the display list, for a slider's look
+/// @param control the control
+/// @param[in,out] entry the entry entry_of returned
+void describe_entry(const DisplayList& list, const Control& control, AutomationEntry& entry) {
+    // A button, a link, a tab, a list row and an area say their text. A
+    // switch, a strip, a drop-down, a slider, a field and a list are named
+    // by the caption set on them, and the text is the value.
+    const bool caption = control.kind == ControlKind::button || control.kind == ControlKind::link ||
+                         control.kind == ControlKind::tab ||
+                         control.kind == ControlKind::list_item ||
+                         control.kind == ControlKind::area;
+    if (!control.label.empty())
+        entry.label = control.label;
+    else if (caption)
+        entry.label = control.text;
+    entry.place = control.place;
+    entry.set_size = control.set_size;
+    if (control.search && control.kind == ControlKind::text_field) {
+        entry.role = AccessRole::search;
+        return;
+    }
+    switch (control.kind) {
+    case ControlKind::button:
+        entry.role = AccessRole::button;
+        break;
+    case ControlKind::choice:
+        entry.role = AccessRole::button;
+        entry.value_text = control.text;
+        break;
+    case ControlKind::toggle:
+        entry.role = AccessRole::switch_control;
+        entry.pressed = control.checked;
+        entry.value_text = control.text;
+        break;
+    case ControlKind::levels:
+        entry.role = AccessRole::radio_group;
+        entry.value_text = control.text;
+        break;
+    case ControlKind::buttons:
+        entry.role = AccessRole::radio_group;
+        break;
+    case ControlKind::tab:
+        entry.role = AccessRole::tab;
+        entry.chosen = control.checked;
+        break;
+    case ControlKind::list:
+        entry.role = AccessRole::list;
+        break;
+    case ControlKind::list_item:
+        entry.role = AccessRole::list_item;
+        entry.chosen = control.checked;
+        break;
+    case ControlKind::text_field:
+        entry.role = AccessRole::text_field;
+        break;
+    case ControlKind::slider:
+    case ControlKind::scroll_bar:
+        entry.role = AccessRole::slider;
+        if (control.kind == ControlKind::slider)
+            fill_slider(list, control, entry);
+        break;
+    case ControlKind::link:
+        entry.role = AccessRole::link;
+        break;
+    case ControlKind::area:
+        // An area that takes no press and no focus is words, such as a
+        // library card's line. One a player can press is a button.
+        entry.role = control.enabled || control.focusable ? AccessRole::button : AccessRole::label;
+        break;
+    }
+    // A part of a composite reports its place in that group, as "2 of 9".
+    if (const Composite* group = composite_of_part(list, control.id)) {
+        const int32_t at = index_in(*group, control.id);
+        if (at >= 0) {
+            entry.place = at + 1;
+            entry.set_size = static_cast<int32_t>(group->parts.size());
+        }
+    }
+}
+
+/// Fills the roles of a control's parts, and the group's place and value.
+///
+/// A switch's halves are check boxes. A strip's and a row's parts are radios.
+/// An open menu's items are list items, and the menu's control stays a button.
+///
+/// @param[in,out] entry the control
+/// @param[in,out] parts its parts, already built
+void finish_group(AutomationEntry& entry, std::vector<AutomationEntry>& parts) {
+    if (parts.empty())
+        return;
+    const auto count = static_cast<int32_t>(parts.size());
+    if (entry.kind == ControlKind::toggle) {
+        entry.role = AccessRole::switch_control;
+        entry.pressed = entry.checked;
+        for (AutomationEntry& part : parts) {
+            part.role = AccessRole::check_box;
+            part.chosen = part.checked;
+            part.label = part.text;
+        }
+        return;
+    }
+    if (entry.kind == ControlKind::levels || entry.kind == ControlKind::buttons) {
+        entry.role = AccessRole::radio_group;
+        entry.set_size = count;
+        int32_t place = 1;
+        for (AutomationEntry& part : parts) {
+            part.role = AccessRole::radio;
+            part.chosen = part.checked;
+            part.place = place;
+            part.set_size = count;
+            part.label = part.text;
+            if (part.checked) {
+                entry.place = place;
+                entry.value_text = part.text;
+            }
+            ++place;
+        }
+        return;
+    }
+    if (entry.kind == ControlKind::choice) {
+        for (AutomationEntry& part : parts) {
+            part.role = AccessRole::list_item;
+            part.chosen = part.checked;
+            part.label = part.text;
+        }
+    }
 }
 
 /// Returns the nearest enabled control a finger on none reaches.
@@ -481,6 +843,116 @@ nearest_control(const DisplayList& list, Point finger, Within within) noexcept {
 }
 
 } // namespace
+
+ControlId composite_landing(const DisplayList& list, ControlId id) noexcept {
+    const Composite* composite = composite_by_id(list, id);
+    if (composite == nullptr)
+        return id;
+    const ControlId landed = landing_part(list, *composite);
+    if (landed != no_control)
+        composite->current = landed;
+    return landed;
+}
+
+AxisMove move_along(const DisplayList& list, ControlId from, Direction direction) noexcept {
+    const Composite* group = composite_by_id(list, from);
+    if (group == nullptr)
+        group = composite_of_part(list, from);
+    if (group == nullptr)
+        return {AxisStep::outside, no_control};
+
+    const bool vertical = direction == Direction::up || direction == Direction::down;
+    if (group->axis == CompositeAxis::column && !vertical)
+        return {AxisStep::outside, no_control};
+    if (group->axis == CompositeAxis::row && vertical)
+        return {AxisStep::outside, no_control};
+
+    const int32_t count = static_cast<int32_t>(group->parts.size());
+    ControlId here = from;
+    int32_t index = index_in(*group, from);
+    if (index < 0) {
+        here = landing_part(list, *group);
+        index = index_in(*group, here);
+    }
+    if (index < 0)
+        return {AxisStep::outside, no_control};
+
+    if (group->axis != CompositeAxis::grid) {
+        const int32_t step =
+            (direction == Direction::down || direction == Direction::right) ? 1 : -1;
+        for (int32_t at = index + step; at >= 0 && at < count; at += step) {
+            const ControlId part = group->parts[static_cast<std::size_t>(at)];
+            if (!part_live(list, part))
+                continue;
+            group->current = part;
+            return {AxisStep::moved, part};
+        }
+        return {AxisStep::stayed, here};
+    }
+
+    const int32_t columns = group->columns < 1 ? int32_t{1} : group->columns;
+    const int32_t column = index % columns;
+    const int32_t row = index / columns;
+    int32_t next = -1;
+    if (direction == Direction::left) {
+        if (column == 0)
+            return {AxisStep::stayed, here};
+        next = index - 1;
+    } else if (direction == Direction::right) {
+        if (column + 1 >= columns || index + 1 >= count)
+            return {AxisStep::stayed, here};
+        next = index + 1;
+    } else if (direction == Direction::up) {
+        if (row == 0)
+            return {AxisStep::stayed, here};
+        next = index - columns;
+    } else {
+        next = index + columns;
+        if (next >= count)
+            return {AxisStep::stayed, here};
+    }
+    if (next < 0 || next >= count || !part_live(list, group->parts[static_cast<std::size_t>(next)]))
+        return {AxisStep::stayed, here};
+    const ControlId part = group->parts[static_cast<std::size_t>(next)];
+    group->current = part;
+    return {AxisStep::moved, part};
+}
+
+ControlId composite_end(const DisplayList& list, ControlId from, bool last) noexcept {
+    const Composite* group = composite_by_id(list, from);
+    if (group == nullptr)
+        group = composite_of_part(list, from);
+    if (group == nullptr)
+        return no_control;
+    const int32_t count = static_cast<int32_t>(group->parts.size());
+    ControlId found = no_control;
+    if (!last) {
+        for (int32_t index = 0; index < count; ++index) {
+            const ControlId part = group->parts[static_cast<std::size_t>(index)];
+            if (!part_live(list, part))
+                continue;
+            found = part;
+            break;
+        }
+    } else {
+        for (int32_t index = count - 1; index >= 0; --index) {
+            const ControlId part = group->parts[static_cast<std::size_t>(index)];
+            if (!part_live(list, part))
+                continue;
+            found = part;
+            break;
+        }
+    }
+    if (found == no_control) {
+        if (index_in(*group, from) >= 0)
+            return from;
+        if (count == 0)
+            return no_control;
+        return last ? group->parts.back() : group->parts.front();
+    }
+    group->current = found;
+    return found;
+}
 
 Reached reach(const DisplayList& list, Point finger, int32_t reach_px) noexcept {
     const ControlId under = hit(list, finger);
@@ -522,7 +994,7 @@ void mark_states(DisplayList& list, const Interaction& interaction) noexcept {
             item.state.pressed = false;
             continue;
         }
-        item.state.focused = interaction.focus_shown && item.control == interaction.focused;
+        item.state.focused = focus_ring_visible(interaction) && item.control == interaction.focused;
         item.state.pressed =
             interaction.pressed != no_control && item.control == interaction.pressed;
     }
@@ -532,7 +1004,23 @@ PointerOutcome pointer_move(Interaction& interaction, const DisplayList& list, P
     if (interaction.pressed != no_control)
         point = shifted(point, interaction.finger_shift);
     const ControlId hovered = hit(list, point);
-    if (hovered == interaction.hovered)
+    // A move hides the ring, except on a text field: the field keeps its
+    // ring, its caret and its typing. The focused control stays either way,
+    // so the next key still acts on the control a click or a key placed.
+    // An opening focus is left for the hidden-ring key table.
+    const Control* focused = control_of(list, interaction.focused);
+    const bool field = focused != nullptr && focused->kind == ControlKind::text_field;
+    bool hid = false;
+    if (field) {
+        if (interaction.pointer_hid_ring) {
+            interaction.pointer_hid_ring = false;
+            hid = true;
+        }
+    } else if (interaction.focus_shown && !interaction.pointer_hid_ring) {
+        interaction.pointer_hid_ring = true;
+        hid = true;
+    }
+    if (hovered == interaction.hovered && !hid)
         return {PointerResult::none, hovered, point};
     interaction.hovered = hovered;
     return {PointerResult::redraw, hovered, point};
@@ -545,8 +1033,10 @@ PointerOutcome pointer_down(Interaction& interaction, const DisplayList& list, P
     interaction.pressed = control;
     if (control == no_control)
         return {PointerResult::none, no_control, point};
-    if (interaction.focus_shown && takes_focus(list, control))
+    if (interaction.focus_shown && takes_focus(list, control)) {
         interaction.focused = control;
+        remember_part(list, control);
+    }
     return {PointerResult::redraw, control, point};
 }
 
@@ -568,6 +1058,9 @@ PointerOutcome pointer_up(Interaction& interaction, const DisplayList& list, Poi
     interaction.hovered = hovered;
     const ControlId held = interaction.pressed;
     interaction.pressed = no_control;
+    // A completed press shows the ring again. A later move hides it.
+    if (held != no_control)
+        interaction.pointer_hid_ring = false;
     if (held == no_control)
         return {PointerResult::none, no_control, point};
     if (hovered != held)
@@ -579,13 +1072,17 @@ ControlId next_in_tab_order(const DisplayList& list, ControlId from, bool forwar
     const std::vector<ControlId>& order = list.tab_order;
     if (order.empty())
         return no_control;
-    const auto found = std::find(order.begin(), order.end(), from);
-    if (found == order.end())
-        return forward ? order.front() : order.back();
-    const auto count = static_cast<std::ptrdiff_t>(order.size());
-    const std::ptrdiff_t at = found - order.begin();
-    const std::ptrdiff_t step = forward ? 1 : count - 1;
-    return order[static_cast<std::size_t>((at + step) % count)];
+    const OrderPlace place = order_place(list, from);
+    std::size_t index = 0;
+    if (!place.found)
+        index = forward ? 0 : order.size() - 1;
+    else {
+        const auto count = static_cast<std::ptrdiff_t>(order.size());
+        const std::ptrdiff_t at = static_cast<std::ptrdiff_t>(place.index);
+        const std::ptrdiff_t step = forward ? 1 : count - 1;
+        index = static_cast<std::size_t>((at + step) % count);
+    }
+    return composite_landing(list, order[index]);
 }
 
 namespace {
@@ -608,7 +1105,10 @@ template <typename Place>
     // so a playtest can tune it here.
     constexpr int32_t kAcrossWeight = 2;
 
-    const Control* origin = control_of(list, from);
+    ControlId origin_id = from;
+    if (const Composite* grouped = composite_by_id(list, from))
+        origin_id = landing_part(list, *grouped);
+    const Control* origin = control_of(list, origin_id);
     if (origin == nullptr)
         return no_control;
     const Rect from_rect = place(*origin);
@@ -625,20 +1125,39 @@ template <typename Place>
         ControlId best = no_control;
         for (std::size_t index = 0; index < list.tab_order.size(); ++index) {
             const ControlId id = list.tab_order[index];
-            if (id == from)
-                continue;
-            const Control* control = control_of(list, id);
-            if (control == nullptr || !control->focusable || !control->enabled)
-                continue;
-            if (same_group) {
-                if (control->group != origin->group)
+            ControlId candidate = id;
+            Rect to_rect{};
+            int32_t scroll_group = -1;
+            bool visible = false;
+            if (const Composite* grouped = composite_by_id(list, id)) {
+                if (id == from || composite_of_part(list, from) == grouped)
                     continue;
-            } else if (
-                (in_area && control->group == origin->group) || (!whole && !in_view(*control))
-            ) {
+                candidate = landing_part(list, *grouped);
+                const Control* landed = control_of(list, candidate);
+                if (landed == nullptr || !landed->focusable || !landed->enabled ||
+                    candidate == from)
+                    continue;
+                if (!united_rect(list, *grouped, to_rect))
+                    continue;
+                scroll_group = landed->group;
+                visible = any_in_view(list, *grouped);
+            } else {
+                if (id == from)
+                    continue;
+                const Control* control = control_of(list, id);
+                if (control == nullptr || !control->focusable || !control->enabled)
+                    continue;
+                candidate = id;
+                to_rect = place(*control);
+                scroll_group = control->group;
+                visible = in_view(*control);
+            }
+            if (same_group) {
+                if (scroll_group != origin->group)
+                    continue;
+            } else if ((in_area && scroll_group == origin->group) || (!whole && !visible)) {
                 continue;
             }
-            const Rect to_rect = place(*control);
             if (!beyond(from_rect, to_rect, direction))
                 continue;
 
@@ -669,7 +1188,7 @@ template <typename Place>
             best_rank = rank;
             best_centres = centres;
             best_tab = index;
-            best = id;
+            best = candidate;
         }
         return best;
     };
@@ -730,14 +1249,46 @@ namespace {
 show_end(Interaction& interaction, const DisplayList& list, bool last, Key pressed) {
     if (list.tab_order.empty())
         return outcome_of(KeyResult::none, no_control, pressed);
-    interaction.focused = last ? list.tab_order.back() : list.tab_order.front();
+    interaction.focused =
+        composite_landing(list, last ? list.tab_order.back() : list.tab_order.front());
     interaction.focus_shown = true;
+    interaction.pointer_hid_ring = false;
+    return outcome_of(KeyResult::redraw, interaction.focused, pressed);
+}
+
+/// Shows the ring on the control Tab or Shift+Tab reaches while the ring is hidden.
+///
+/// From a control in the order, Tab moves on and Shift+Tab moves back, and
+/// the ring is shown there. From none, or from a control that is not in the
+/// order, Tab shows the first and Shift+Tab the last, as they do today.
+///
+/// @param[in,out] interaction the focus
+/// @param list the display list
+/// @param forward true for Tab, false for Shift+Tab
+/// @param pressed the key
+/// @return redraw, or none when the order is empty
+[[nodiscard]] KeyOutcome
+show_hidden_tab(Interaction& interaction, const DisplayList& list, bool forward, Key pressed) {
+    if (list.tab_order.empty())
+        return outcome_of(KeyResult::none, no_control, pressed);
+    // A part of a composite is in the order, on that one stop. From a control
+    // that is not, Tab shows the first stop and Shift+Tab the last.
+    if (!order_place(list, interaction.focused).found)
+        return show_end(interaction, list, !forward, pressed);
+    interaction.focused = next_in_tab_order(list, interaction.focused, forward);
+    interaction.focus_shown = true;
+    interaction.pointer_hid_ring = false;
     return outcome_of(KeyResult::redraw, interaction.focused, pressed);
 }
 
 } // namespace
 
 KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
+    // A key shows the ring again where a click or a key left the focus. Escape
+    // and the screen's own Yes, No and Info leave a pointer-hidden ring hidden.
+    // An opening focus is unchanged, so the hidden-ring table still applies.
+    if (pressed != Key::escape && pressed != Key::yes && pressed != Key::no && pressed != Key::info)
+        show_ring_for_key(interaction);
     const bool shown = interaction.focus_shown && interaction.focused != no_control;
     const Control* focused = shown ? control_of(list, interaction.focused) : nullptr;
 
@@ -758,6 +1309,18 @@ KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
     case Key::end:
         if (on_field)
             return outcome_of(KeyResult::to_control, interaction.focused, pressed);
+        if (shown) {
+            const ControlId end_part =
+                composite_end(list, interaction.focused, pressed == Key::end);
+            if (end_part != no_control) {
+                if (end_part == interaction.focused)
+                    return outcome_of(KeyResult::none, interaction.focused, pressed);
+                interaction.focused = end_part;
+                interaction.focus_shown = true;
+                interaction.pointer_hid_ring = false;
+                return outcome_of(KeyResult::redraw, end_part, pressed);
+            }
+        }
         return outcome_of(KeyResult::scroll, shown ? interaction.focused : no_control, pressed);
     case Key::page_up:
     case Key::page_down:
@@ -765,15 +1328,30 @@ KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
     case Key::enter:
         if (focused != nullptr &&
             (focused->kind == ControlKind::button || focused->kind == ControlKind::link ||
-             focused->kind == ControlKind::list_item || focused->kind == ControlKind::tab))
+             focused->kind == ControlKind::list_item || focused->kind == ControlKind::tab ||
+             composite_of_part(list, focused->id) != nullptr)) {
+            // The press stands, and the ring goes, so the next keys are the
+            // screen's until a key shows the ring again.
+            interaction.focus_shown = false;
             return outcome_of(KeyResult::to_control, interaction.focused, pressed);
+        }
+        // A text field keeps its ring, its caret and its typing, as it does
+        // through a pointer move: the screen accepts and the field still edits.
+        if (shown && (focused == nullptr || focused->kind != ControlKind::text_field))
+            interaction.focus_shown = false;
         return outcome_of(KeyResult::accept, no_control, pressed);
     case Key::up:
-    case Key::back_tab:
         if (!shown)
             return show_end(interaction, list, true, pressed);
         break;
+    case Key::back_tab:
+        if (!shown)
+            return show_hidden_tab(interaction, list, false, pressed);
+        break;
     case Key::tab:
+        if (!shown)
+            return show_hidden_tab(interaction, list, true, pressed);
+        break;
     case Key::down:
     case Key::left:
     case Key::right:
@@ -795,6 +1373,7 @@ KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
             return outcome_of(KeyResult::none, interaction.focused, pressed);
         interaction.focused = next;
         interaction.focus_shown = true;
+        interaction.pointer_hid_ring = false;
         return outcome_of(KeyResult::redraw, next, pressed);
     }
 
@@ -808,12 +1387,35 @@ KeyOutcome key(Interaction& interaction, const DisplayList& list, Key pressed) {
     else if (pressed != Key::up)
         return outcome_of(KeyResult::none, no_control, pressed);
 
+    const AxisMove along = move_along(list, interaction.focused, direction);
+    if (along.step == AxisStep::stayed)
+        return outcome_of(KeyResult::none, interaction.focused, pressed);
+    if (along.step == AxisStep::moved) {
+        interaction.focused = along.part;
+        interaction.focus_shown = true;
+        interaction.pointer_hid_ring = false;
+        return outcome_of(KeyResult::redraw, along.part, pressed);
+    }
+
     const ControlId next = focus_toward(list, interaction.focused, direction);
     if (next == no_control)
         return outcome_of(KeyResult::none, interaction.focused, pressed);
     interaction.focused = next;
     interaction.focus_shown = true;
+    interaction.pointer_hid_ring = false;
+    remember_part(list, next);
     return outcome_of(KeyResult::redraw, next, pressed);
+}
+
+void focus_opened(Interaction& interaction, const DisplayList& list, bool show) noexcept {
+    if (interaction.focused != no_control)
+        return;
+    if (list.tab_order.empty())
+        return;
+    interaction.focused = composite_landing(list, list.tab_order.front());
+    interaction.focus_shown = show;
+    if (show)
+        interaction.pointer_hid_ring = false;
 }
 
 namespace {
@@ -968,12 +1570,67 @@ int32_t wheel_offset(
     return next;
 }
 
+namespace {
+
+/// Appends one entry for each named composite.
+///
+/// The group is a list, with the role its CompositeRole names. Its place is
+/// the remembered part's, and it is focused while the focus is on a part.
+///
+/// @param list the display list
+/// @param interaction the focus
+/// @param[in,out] entries the entries so far
+void append_composites(
+    const DisplayList& list, const Interaction& interaction, std::vector<AutomationEntry>& entries
+) {
+    for (const Composite& composite : list.composites) {
+        if (composite.name.empty())
+            continue;
+        AutomationEntry entry;
+        entry.name = composite.name;
+        entry.kind = ControlKind::list;
+        entry.role =
+            composite.role == CompositeRole::tab_list ? AccessRole::tab_list : AccessRole::list;
+        entry.focusable = true;
+        entry.set_size = static_cast<int32_t>(composite.parts.size());
+        Rect united{};
+        if (united_rect(list, composite, united))
+            entry.rect = united;
+        entry.shown = any_in_view(list, composite);
+        bool enabled = false;
+        for (const ControlId part : composite.parts) {
+            const Control* control = control_of(list, part);
+            if (control != nullptr && control->enabled)
+                enabled = true;
+            if (part == interaction.focused)
+                entry.focused = true;
+        }
+        if (interaction.focused == composite.id)
+            entry.focused = true;
+        entry.enabled = enabled;
+        const ControlId landed = landing_part(list, composite);
+        const int32_t at = index_in(composite, landed);
+        if (at >= 0)
+            entry.place = at + 1;
+        const Control* chosen = control_of(list, landed);
+        if (chosen != nullptr && chosen->checked)
+            entry.chosen = true;
+        entries.push_back(std::move(entry));
+    }
+}
+
+} // namespace
+
 std::vector<AutomationEntry>
 automation_entries(const DisplayList& list, const Interaction& interaction) {
     std::vector<AutomationEntry> entries;
     for (const Control& control : list.controls)
-        if (!control.name.empty())
-            entries.push_back(entry_of(control, interaction));
+        if (!control.name.empty()) {
+            AutomationEntry entry = entry_of(control, interaction);
+            describe_entry(list, control, entry);
+            entries.push_back(std::move(entry));
+        }
+    append_composites(list, interaction, entries);
     return entries;
 }
 
@@ -987,6 +1644,7 @@ automation_parts(const DisplayList& list, const Interaction& interaction) {
         if (control.name.empty())
             continue;
         AutomationEntry entry = entry_of(control, interaction);
+        describe_entry(list, control, entry);
         const Rect area = press_area(control);
         if (has_room(area))
             entry.rect = area;
@@ -1011,6 +1669,7 @@ automation_parts(const DisplayList& list, const Interaction& interaction) {
             part_names.push_back(added.name);
             parts.push_back(std::move(added));
         }
+        finish_group(entry, parts);
         listed.emplace_back(std::move(entry), std::move(parts));
     }
     std::vector<AutomationEntry> entries;
@@ -1021,6 +1680,7 @@ automation_parts(const DisplayList& list, const Interaction& interaction) {
         for (AutomationEntry& part : parts)
             entries.push_back(std::move(part));
     }
+    append_composites(list, interaction, entries);
     return entries;
 }
 
@@ -1049,6 +1709,21 @@ std::string name_problem(const DisplayList& list) {
                 return "The name \"" + control_name + "\" is used more than once.";
         }
         seen.push_back(control_name);
+    }
+    for (const Composite& composite : list.composites) {
+        const std::string& group_name = composite.name;
+        if (group_name.empty())
+            continue;
+        if (group_name.size() > 100)
+            return "The name of control " + std::to_string(composite.id) + " is " +
+                   std::to_string(group_name.size()) + " bytes, and a name is at most 100.";
+        if (!name_words(group_name))
+            return "The name \"" + group_name +
+                   "\" is not words of a-z, 0-9 and hyphens joined by dots.";
+        for (const std::string_view earlier : seen)
+            if (earlier == group_name)
+                return "The name \"" + group_name + "\" is used more than once.";
+        seen.push_back(group_name);
     }
     return {};
 }

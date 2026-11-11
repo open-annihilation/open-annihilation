@@ -30,6 +30,7 @@
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/mod_questions.hpp"
+#include "oa/ui/library/replays.hpp"
 #include "oa/ui/library/screen.hpp"
 #include "oa/ui/library/text.hpp"
 #include "oa/ui/library/use_question.hpp"
@@ -198,6 +199,24 @@ std::vector<std::string> meeting_controls(const kit::DisplayList& list) {
             const kit::Control& second = list.controls[b];
             if (list_and_row(first, second))
                 continue;
+            // The Export dialog, the sign-in and share questions and the use
+            // question are drawn over the Library, and their shade covers the
+            // window. A control of the dialog meets what is behind it, and the
+            // shade meets everything. Two controls of the same question still
+            // count when they meet.
+            const auto shade = [](const kit::Control& control) {
+                return control.name == "library.export.block" ||
+                       control.name == "library.use.block" ||
+                       control.name == "library.sign-in.block" ||
+                       control.name == "library.share.block";
+            };
+            const auto dialog_control = [](const kit::Control& control) {
+                return starts(control.name, "library.export.") ||
+                       starts(control.name, "library.sign-in.") ||
+                       starts(control.name, "library.share.");
+            };
+            if (shade(first) || shade(second) || dialog_control(first) != dialog_control(second))
+                continue;
             if (fixture::has_room(
                     kit::intersect(fixture::press_area(first), fixture::press_area(second))
                 ))
@@ -210,7 +229,7 @@ std::vector<std::string> meeting_controls(const kit::DisplayList& list) {
 /// Returns the place a control's name gives it in the declared order: the
 /// tabs, the search, the filters, UPDATE ALL over the list and the list,
 /// the details' actions and a map's From link, the Registries tab's rows,
-/// then the footer's buttons.
+/// then the footer's buttons, Refresh and the close mark.
 ///
 /// @param name the name
 /// @return the place, or -1 for a name of none
@@ -220,9 +239,16 @@ int declared_place(std::string_view name) {
     if (name == "library.search")
         return 1;
     if (name == "library.filter" || starts(name, "library.filter.") ||
-        starts(name, "library.tag.") || name == "library.tags")
+        starts(name, "library.tag.") || name == "library.tags" ||
+        starts(name, "library.replays.filter."))
         return 2;
-    if (name == "library.action.update-all" || name == "library.list")
+    if (name == "library.action.update-all" || name == "library.list" ||
+        name == "library.replays.kind" || name == "library.replays.sort" ||
+        name == "library.replays.planet" || starts(name, "library.replays.source."))
+        return 3;
+    // Sign in and Sign out sit on the source row, above the kind and sort
+    // menus, so they share that place rather than the card's actions.
+    if (name == "library.action.sign-in" || name == "library.action.sign-out")
         return 3;
     if (name == "library.action" || starts(name, "library.action.") ||
         name == "library.active.unload" || name == "library.active.search" ||
@@ -232,20 +258,42 @@ int declared_place(std::string_view name) {
         return 4;
     if (starts(name, "library.registry."))
         return 5;
-    if (name == "library.refresh")
-        return 0;
     if (name == "library.add-registry" || name == "library.details" || name == "library.close" ||
         name == "library.back")
         return 6;
-    if (name == "library.close-x")
+    if (name == "library.refresh")
         return 7;
+    if (name == "library.close-x")
+        return 8;
+    // A question replaces Tab's order, so its controls are one place and
+    // run top to bottom within it. It never shares an order with the close mark.
+    if (starts(name, "library.export.") || starts(name, "library.sign-in.") ||
+        starts(name, "library.share."))
+        return 8;
     return -1;
 }
 
-/// Lists how Tab's order differs from the declared one: every control
-/// that takes the focus in it, by place, and within a place top to bottom
-/// and left to right; and how the arrows, searched from the first stop,
-/// fail to reach every one of them.
+/// Returns the control a stop is judged by: itself, or a group's first part.
+/// The first part stays put when the focus moves, so a lower pill does not
+/// change the order.
+///
+/// @param list the display list
+/// @param id the stop
+/// @return the control; null when the stop has none
+const kit::Control* order_control(const kit::DisplayList& list, kit::ControlId id) {
+    if (const kit::Control* control = kit::control_of(list, id))
+        return control;
+    for (const kit::Composite& composite : list.composites)
+        if (composite.id == id && !composite.parts.empty())
+            return kit::control_of(list, composite.parts.front());
+    return nullptr;
+}
+
+/// Lists how Tab's order differs from the declared one. Every control that
+/// takes the focus is one stop or a part of exactly one group whose id is a
+/// stop. The stops run by place, and within a place top to bottom and left
+/// to right, a group judged by its first part. The arrows, from the first
+/// stop's landing and along each group, reach every one of them.
 ///
 /// @param list the display list
 /// @return a line for each difference
@@ -255,12 +303,38 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
     for (const kit::Control& control : list.controls)
         if (control.enabled && control.focusable)
             takes_focus.insert(control.id);
-    const std::set<kit::ControlId> ordered(list.tab_order.begin(), list.tab_order.end());
-    if (ordered != takes_focus || ordered.size() != list.tab_order.size())
+    std::set<kit::ControlId> group_ids;
+    std::set<kit::ControlId> parts;
+    for (const kit::Composite& composite : list.composites) {
+        if (!group_ids.insert(composite.id).second)
+            problems.push_back(composite.name + " repeats a stop");
+        for (const kit::ControlId part : composite.parts) {
+            if (!parts.insert(part).second)
+                problems.push_back("a part is in two groups");
+            if (takes_focus.count(part) == 0)
+                problems.push_back("a group holds a control that does not take the focus");
+        }
+    }
+    std::set<kit::ControlId> covered = parts;
+    std::set<kit::ControlId> seen_stops;
+    for (const kit::ControlId id : list.tab_order) {
+        if (!seen_stops.insert(id).second)
+            problems.push_back("a stop is listed twice");
+        if (group_ids.count(id) != 0) {
+            if (kit::control_of(list, id) != nullptr)
+                problems.push_back("a group is also a control");
+            continue;
+        }
+        if (!covered.insert(id).second)
+            problems.push_back("a part is also its own stop");
+        if (takes_focus.count(id) == 0)
+            problems.push_back("Tab stops on a control that does not take the focus");
+    }
+    if (covered != takes_focus)
         problems.emplace_back("Tab's order is not every control that takes the focus, once");
     const kit::Control* previous = nullptr;
     for (const kit::ControlId id : list.tab_order) {
-        const kit::Control* control = kit::control_of(list, id);
+        const kit::Control* control = order_control(list, id);
         if (control == nullptr) {
             problems.emplace_back("Tab stops on a control the list lacks");
             continue;
@@ -282,8 +356,9 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
     }
     if (list.tab_order.empty())
         return problems;
-    std::set<kit::ControlId> reached{list.tab_order.front()};
-    std::deque<kit::ControlId> waiting{list.tab_order.front()};
+    const kit::ControlId start = kit::composite_landing(list, list.tab_order.front());
+    std::set<kit::ControlId> reached{start};
+    std::deque<kit::ControlId> waiting{start};
     while (!waiting.empty()) {
         const kit::ControlId from = waiting.front();
         waiting.pop_front();
@@ -295,6 +370,9 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
             const kit::ControlId next = kit::focus_toward(list, from, direction);
             if (next != kit::no_control && reached.insert(next).second)
                 waiting.push_back(next);
+            const kit::AxisMove along = kit::move_along(list, from, direction);
+            if (along.step == kit::AxisStep::moved && reached.insert(along.part).second)
+                waiting.push_back(along.part);
         }
     }
     for (const kit::ControlId id : takes_focus)
@@ -309,29 +387,44 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
 /// @return true when it is
 bool designed_name(const std::string& name) {
     static const std::regex pattern(
-        "library\\.(tab\\.(active|mods|maps|mutators|brains|keys|languages|updates|registries|"
+        "library\\.(tab\\.(active|replays|mods|maps|mutators|brains|keys|languages|updates|"
+        "registries|"
         "scroll-left|scroll-right)|"
         "search|filter|"
-        "filter\\.(all|new|installed|updates|tag-[a-z0-9-]+)|tag\\.[a-z0-9-]+|tags|tags\\.[a-z0-9-]"
+        "filter\\.(all|new|installed|updates|this-month|older|kept|imported|tag-[a-z0-9-]+)|"
+        "tag\\.[a-z0-9-]+|tags|tags\\.[a-z0-9-]"
         "+|detail\\.tag\\.[a-z0-9-]+|"
         "list|row\\.[a-z0-9-]+(\\.[a-z0-9-]+)?(\\.(get|update))?|action|"
         "action\\.(get|update|update-all|cancel|retry|roll-back|play-now|switch-off|"
-        "check-with-mod|use-by-default|use|edit-keys|uninstall|open-folder|homepage)|"
-        "details|back|refresh|close-x|close|status|queue|note|from|rules|keys\\.picture|"
+        "check-with-mod|use-by-default|use|edit-keys|uninstall|open-folder|homepage|watch|keep|"
+        "turn-on-recording|open-replay-file|download|browse-core-prime|export|delete|"
+        "delete-confirm|sign-in|sign-out|share|open-shared)|"
+        "replays\\.(kind|sort|status|planet)(\\.[a-z0-9-]+)?|"
+        "replays\\.source\\.(computer|core-prime)|"
+        "replays\\.sign-in\\.secure|"
+        "sign-in\\.(handle|password|note|submit|cancel|block)|"
+        "share\\.(title|public|unlisted|submit|cancel|note|block)|"
+        "replays\\.filter\\.(latest|longest|downloads|planet)|"
+        "details|back|refresh|close-x|close|status|queue|note(-[0-9]+)?|from|rules|keys\\.picture|"
+        "fact\\.[a-z0-9-]+|"
         "use\\.(keep|aside|block|moves|saved|helpers|for\\.(game|mod)|helper\\.[a-z0-9.-]+)|"
         "active\\.(mod|language|base|expansions|lock|keys\\.change|keys|unload|change|search|"
         "map\\.[1-9][0-9]*|from\\.[1-9][0-9]*|"
         "expansion\\.[a-z0-9-]+(\\.(get|cancel|retry))?)|"
         "add-registry|registries\\.(note|notice)|"
-        "registry\\.[a-z0-9-]+(\\.(remove|add-mirror|key|refresh|address|refreshed))?)"
+        "registry\\.[a-z0-9-]+(\\.(remove|add-mirror|key|refresh|address|refreshed))?|"
+        "export\\.(format\\.(oademo|tad)|oa-sectors(\\.(off|on))?|where|choose|export|cancel|"
+        "show-folder|close|note|block|up|use|more|previous|warnings\\.(more|previous)|"
+        "folder\\.[a-z0-9-]+|warning\\.[0-9]+))"
         "|prompt\\.(use|cancel)"
     );
     return std::regex_match(name, pattern);
 }
 
 /// The labels: lines a journey reads, which take nothing.
-constexpr std::array<std::string_view, 12> label_names{
+constexpr std::array<std::string_view, 13> label_names{
     "library.status",
+    "library.replays.status",
     "library.queue",
     "library.note",
     "library.from",
@@ -369,6 +462,15 @@ std::vector<std::string> name_problems(const kit::DisplayList& list) {
         if (label->kind != kit::ControlKind::area || label->enabled || label->focusable)
             problems.push_back(std::string(name) + " takes a press, a key or Tab");
     }
+    // A replay's facts are labels too: each reads as one line and takes nothing.
+    for (const kit::Control& control : list.controls)
+        if (starts(control.name, "library.fact.") &&
+            (control.kind != kit::ControlKind::area || control.enabled || control.focusable))
+            problems.push_back(control.name + " takes a press, a key or Tab");
+    for (const kit::Control& control : list.controls)
+        if (starts(control.name, "library.export.warning.") &&
+            (control.kind != kit::ControlKind::area || control.enabled || control.focusable))
+            problems.push_back(control.name + " takes a press, a key or Tab");
     for (const kit::Control& control : list.controls)
         if (control.name != "library.active.unload" && control.name != "library.active.search" &&
             control.name != "library.active.change" &&
@@ -754,14 +856,28 @@ void check_frame(const fixture::NamedFrame& named) {
         OA_CHECK(fixture::named(active_list, absent) == nullptr);
     for (const kit::ControlId id : active_list.tab_order) {
         const kit::Control* stop = kit::control_of(active_list, id);
+        if (stop == nullptr) {
+            const kit::Composite* group = nullptr;
+            for (const kit::Composite& composite : active_list.composites)
+                if (composite.id == id)
+                    group = &composite;
+            OA_CHECK(group != nullptr);
+            if (group == nullptr)
+                continue;
+            for (const kit::ControlId part : group->parts) {
+                const kit::Control* control = kit::control_of(active_list, part);
+                OA_CHECK(
+                    control != nullptr && (starts(control->name, "library.tab.") ||
+                                           starts(control->name, "library.active.expansion."))
+                );
+            }
+            continue;
+        }
         OA_CHECK(
-            stop != nullptr &&
-            (starts(stop->name, "library.tab.") || stop->name == "library.close" ||
-             stop->name == "library.close-x" || stop->name == "library.refresh" ||
-             stop->name == "library.active.unload" || stop->name == "library.active.search" ||
-             stop->name == "library.active.change" || stop->name == "library.active.keys.change" ||
-             starts(stop->name, "library.active.expansion.") ||
-             starts(stop->name, "library.active.from."))
+            stop->name == "library.close" || stop->name == "library.close-x" ||
+            stop->name == "library.refresh" || stop->name == "library.active.unload" ||
+            stop->name == "library.active.search" || stop->name == "library.active.change" ||
+            stop->name == "library.active.keys.change" || starts(stop->name, "library.active.from.")
         );
     }
     const kit::Control* mod_line = fixture::named(active_list, "library.active.mod");
@@ -990,10 +1106,11 @@ void larger_classes_show_more() {
     OA_CHECK(fixture::named(regular, "library.filter.all") != nullptr);
     OA_CHECK(fixture::named(compact, "library.filter.all") != nullptr);
     OA_CHECK(fixture::named(compact, "library.filter") == nullptr);
-    // The tabs keep their full names. Active is the first stop; the close
-    // mark is last, after the footer.
-    const kit::Control* first_stop = kit::control_of(compact, compact.tab_order.front());
-    OA_CHECK(first_stop != nullptr && first_stop->name == "library.tab.active");
+    // The tabs keep their full names. The tabs are the first stop, entered
+    // at Active, and the close mark is last, after the footer.
+    OA_CHECK(!compact.tab_order.empty());
+    const kit::Control* first_part = order_control(compact, compact.tab_order.front());
+    OA_CHECK(first_part != nullptr && first_part->name == "library.tab.active");
     const kit::Control* last_stop = kit::control_of(compact, compact.tab_order.back());
     OA_CHECK(last_stop != nullptr && last_stop->name == "library.close-x");
     const kit::Control* languages = fixture::named(compact, "library.tab.languages");
@@ -1243,6 +1360,9 @@ void tab_commands_change_tabs() {
     OA_CHECK(library.tab == lib::Tab::mods);
     list = laid_out(library, state, regular);
     static_cast<void>(lib::library_command(library, state, list, lib::ScreenCommand::previous_tab));
+    OA_CHECK(library.tab == lib::Tab::replays);
+    list = laid_out(library, state, regular);
+    static_cast<void>(lib::library_command(library, state, list, lib::ScreenCommand::previous_tab));
     OA_CHECK(library.tab == lib::Tab::active);
     list = laid_out(library, state, regular);
     static_cast<void>(lib::library_command(library, state, list, lib::ScreenCommand::previous_tab));
@@ -1250,6 +1370,9 @@ void tab_commands_change_tabs() {
     list = laid_out(library, state, regular);
     static_cast<void>(lib::library_command(library, state, list, lib::ScreenCommand::next_tab));
     OA_CHECK(library.tab == lib::Tab::active);
+    list = laid_out(library, state, regular);
+    static_cast<void>(lib::library_command(library, state, list, lib::ScreenCommand::next_tab));
+    OA_CHECK(library.tab == lib::Tab::replays);
     list = laid_out(library, state, regular);
     static_cast<void>(lib::library_command(library, state, list, lib::ScreenCommand::next_tab));
     OA_CHECK(library.tab == lib::Tab::mods);
@@ -1346,6 +1469,95 @@ void list_keys_move_the_selection() {
     );
 }
 
+/// The Library opens as the game does: the tab's search is focused and the
+/// ring is shown before the layout, and focus_opened leaves that focus.
+/// Tab and Shift+Tab move on from the search. Typing at open searches.
+void the_screen_opens_on_its_search() {
+    const kit::Frame regular = fixture::frames()[1].frame;
+    lib::Library library = with_ridge();
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState state;
+    lib::focus_tab_search(library, state);
+    const kit::DisplayList list = laid_out(library, state, regular);
+    const kit::Control* search = fixture::named(list, "library.search");
+    OA_CHECK(search != nullptr);
+    if (search == nullptr)
+        return;
+    OA_CHECK(state.interaction.focused == search->id && state.interaction.focus_shown);
+    const kit::ControlId kept = state.interaction.focused;
+    kit::focus_opened(state.interaction, list, false);
+    OA_CHECK(state.interaction.focused == kept && state.interaction.focus_shown);
+    bool drawn = false;
+    for (const kit::Item& item : list.items)
+        if (const auto* look = std::get_if<kit::SearchLook>(&item.look))
+            if (look->focused)
+                drawn = true;
+    OA_CHECK(drawn);
+
+    const auto at = std::find(list.tab_order.begin(), list.tab_order.end(), search->id);
+    OA_CHECK(at != list.tab_order.end());
+    if (at == list.tab_order.end() || list.tab_order.empty())
+        return;
+    const kit::ControlId next = kit::next_in_tab_order(list, search->id, true);
+    const kit::ControlId previous = kit::next_in_tab_order(list, search->id, false);
+    std::ignore = lib::library_key(library, state, list, kit::Key::tab);
+    OA_CHECK(state.interaction.focused == next && state.interaction.focus_shown);
+
+    lib::Library backing = with_ridge();
+    lib::set_tab(backing, lib::Tab::mods);
+    lib::ScreenState back;
+    lib::focus_tab_search(backing, back);
+    const kit::DisplayList back_list = laid_out(backing, back, regular);
+    kit::focus_opened(back.interaction, back_list, false);
+    std::ignore = lib::library_key(backing, back, back_list, kit::Key::back_tab);
+    OA_CHECK(back.interaction.focused == previous && back.interaction.focus_shown);
+
+    lib::Library typed_library = with_ridge();
+    lib::set_tab(typed_library, lib::Tab::mods);
+    lib::ScreenState typed;
+    lib::focus_tab_search(typed_library, typed);
+    const kit::DisplayList typed_list = laid_out(typed_library, typed, regular);
+    kit::focus_opened(typed.interaction, typed_list, false);
+    OA_CHECK(lib::library_text(typed_library, typed, typed_list, "ridge").redraw);
+    OA_CHECK(typed_library.query == "ridge");
+    OA_CHECK(typed.search.text == "ridge");
+}
+
+lib::ScreenResult click(
+    lib::Library& library,
+    lib::ScreenState& state,
+    const kit::DisplayList& list,
+    std::string_view name,
+    int32_t finger_reach = 0
+);
+
+/// A click in the search, a pointer move and then typing leave the text in
+/// the field, and the field is still drawn focused.
+void a_pointer_move_keeps_the_search() {
+    const kit::Frame regular = fixture::frames()[1].frame;
+    lib::Library library = with_ridge();
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState state;
+    kit::DisplayList list = laid_out(library, state, regular);
+    std::ignore = click(library, state, list, "library.search");
+    const kit::Control* search = fixture::named(list, "library.search");
+    OA_CHECK(search != nullptr);
+    if (search == nullptr)
+        return;
+    const kit::Point away{search->rect.x + search->rect.width + 24, search->rect.y + 4};
+    std::ignore = lib::library_pointer(library, state, list, lib::PointerKind::move, 0, away, 0);
+    OA_CHECK(lib::library_text(library, state, list, "ridge").redraw);
+    OA_CHECK(library.query == "ridge");
+    OA_CHECK(state.search.text == "ridge");
+    list = laid_out(library, state, regular);
+    bool drawn = false;
+    for (const kit::Item& item : list.items)
+        if (const auto* look = std::get_if<kit::SearchLook>(&item.look))
+            if (look->focused && look->field.text == "ridge")
+                drawn = true;
+    OA_CHECK(drawn);
+}
+
 /// Tab and Shift+Tab follow the declared order.
 void tab_follows_the_declared_order() {
     lib::Library library = with_ridge();
@@ -1358,36 +1570,52 @@ void tab_follows_the_declared_order() {
         visited.push_back(state.interaction.focused);
         list = laid_out(library, state, large);
     }
-    OA_CHECK(visited == list.tab_order);
+    // A state that has not been given the search walks from the first stop,
+    // so the first Tab lands on the second and a full cycle ends on the
+    // first. A group is entered at the part the keys return to.
+    std::vector<kit::ControlId> opened_walk;
+    if (!list.tab_order.empty()) {
+        for (std::size_t index = 1; index < list.tab_order.size(); ++index)
+            opened_walk.push_back(kit::composite_landing(list, list.tab_order[index]));
+        opened_walk.push_back(kit::composite_landing(list, list.tab_order.front()));
+    }
+    OA_CHECK(visited == opened_walk);
+    OA_CHECK(state.interaction.focus_shown);
+    OA_CHECK(state.interaction.focused == kit::composite_landing(list, list.tab_order.front()));
     static_cast<void>(lib::library_key(library, state, list, kit::Key::back_tab));
-    OA_CHECK(state.interaction.focused == list.tab_order[list.tab_order.size() - 2]);
+    OA_CHECK(state.interaction.focused == list.tab_order.back());
 
     // The orders, by name: Compact's list page and its details page, and
-    // Regular's ends.
+    // Regular's ends. A group is named once.
     const auto names_of = [](const kit::DisplayList& laid) {
         std::vector<std::string> names;
-        for (const kit::ControlId id : laid.tab_order)
-            names.push_back(kit::control_of(laid, id)->name);
+        for (const kit::ControlId id : laid.tab_order) {
+            if (const kit::Control* control = kit::control_of(laid, id))
+                names.push_back(control->name);
+            else
+                for (const kit::Composite& composite : laid.composites)
+                    if (composite.id == id)
+                        names.push_back(composite.name);
+        }
         return names;
     };
     const kit::Frame compact = fixture::frames()[0].frame;
     const std::vector<std::string> compact_order{
-        "library.tab.active",       "library.tab.mods",       "library.tab.maps",
-        "library.tab.mutators",     "library.tab.brains",     "library.tab.keys",
-        "library.tab.languages",    "library.tab.updates",    "library.tab.registries",
-        "library.search",           "library.filter.all",     "library.filter.new",
-        "library.filter.installed", "library.filter.updates", "library.tag.balance",
-        "library.tag.classic",      "library.tag.conversion", "library.tag.economy",
-        "library.tag.effects",      "library.tag.expansion",  "library.tag.experimental",
-        "library.tag.rules",        "library.tag.units",      "library.list",
-        "library.details",          "library.close",          "library.close-x",
+        "library.tabs",
+        "library.search",
+        "library.filters",
+        "library.tags",
+        "library.list",
+        "library.details",
+        "library.close",
+        "library.close-x",
     };
     OA_CHECK(names_of(laid_out(library, {}, compact)) == compact_order);
     lib::open_details(library);
     lib::ScreenState page;
     page.details_page = true;
     const std::vector<std::string> page_order{
-        "library.detail.tag.balance",
+        "library.detail-tags",
         "library.action.update",
         "library.action.play-now",
         "library.action.roll-back",
@@ -1401,7 +1629,7 @@ void tab_follows_the_declared_order() {
         names_of(laid_out(library, {}, fixture::frames()[1].frame));
     const std::vector<std::string> regular_end{
         "library.list",
-        "library.detail.tag.balance",
+        "library.detail-tags",
         "library.action.update",
         "library.action.play-now",
         "library.action.roll-back",
@@ -1411,12 +1639,11 @@ void tab_follows_the_declared_order() {
         "library.close",
         "library.close-x",
     };
-    OA_CHECK(regular.size() > regular_end.size() + 5);
+    OA_CHECK(regular.size() == regular_end.size() + 4);
     OA_CHECK(std::equal(regular_end.rbegin(), regular_end.rend(), regular.rbegin()));
     OA_CHECK(
-        regular.size() > 12 && regular[0] == "library.tab.active" &&
-        regular[9] == "library.search" && regular[10] == "library.filter.all" &&
-        regular[11] == "library.filter.new"
+        regular.size() > 4 && regular[0] == "library.tabs" && regular[1] == "library.search" &&
+        regular[2] == "library.filters" && regular[3] == "library.tags"
     );
 }
 
@@ -1433,7 +1660,7 @@ lib::ScreenResult click(
     lib::ScreenState& state,
     const kit::DisplayList& list,
     std::string_view name,
-    int32_t finger_reach = 0
+    int32_t finger_reach
 ) {
     const kit::Control* control = fixture::named(list, name);
     OA_CHECK(control != nullptr);
@@ -1444,6 +1671,50 @@ lib::ScreenResult click(
         lib::library_pointer(library, state, list, lib::PointerKind::down, 1, at, finger_reach)
     );
     return lib::library_pointer(library, state, list, lib::PointerKind::up, 1, at, finger_reach);
+}
+
+/// At Compact, with no mod played, a click on the base-game row opens its
+/// details on Back. A pointer move hides the ring, and Return still presses
+/// Back.
+void a_move_after_a_click_presses_back() {
+    lib::Inputs inputs = fixture::fixture_inputs();
+    for (lib::Installed& package : inputs.installed)
+        package.playing = false;
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState state;
+    lib::focus_tab_search(library, state);
+    const kit::Frame compact = fixture::frames()[0].frame;
+    kit::DisplayList list = laid_out(library, state, compact);
+    std::ignore = click(library, state, list, "library.row.base-game");
+    if (!library.details_open || !state.details_page)
+        std::fprintf(stderr, "the base-game row did not open its details\n");
+    OA_CHECK(library.details_open && state.details_page);
+    OA_CHECK(state.interaction.focus_shown);
+    list = laid_out(library, state, compact);
+    const kit::Control* focused = kit::control_of(list, state.interaction.focused);
+    if (focused == nullptr || focused->name != "library.back") {
+        std::fprintf(
+            stderr,
+            "the details focused \"%s\"\n",
+            focused != nullptr ? focused->name.c_str() : "nothing"
+        );
+    }
+    OA_CHECK(focused != nullptr && focused->name == "library.back");
+    const kit::ControlId back = state.interaction.focused;
+    std::ignore =
+        lib::library_pointer(library, state, list, lib::PointerKind::move, 0, kit::Point{4, 4}, 0);
+    OA_CHECK(state.interaction.focus_shown && state.interaction.pointer_hid_ring);
+    OA_CHECK(state.interaction.focused == back);
+    std::ignore = lib::library_key(library, state, list, kit::Key::enter);
+    if (library.details_open || state.details_page)
+        std::fprintf(stderr, "return after the move did not press Back\n");
+    OA_CHECK(!library.details_open && !state.details_page);
+    // The page Back returns to lists the focused control, so a screen reader
+    // hears where the keys now act.
+    list = laid_out(library, state, compact);
+    OA_CHECK(kit::control_of(list, state.interaction.focused) != nullptr);
 }
 
 /// A click, a double click or a tap on a row selects it and gets nothing; at
@@ -1962,7 +2233,16 @@ void filters_and_tags() {
         OA_CHECK(!ring);
         wide_state.interaction = {};
     }
+    // Replays in the section list moves the tags down a row: the focus,
+    // moved onto the tag as Tab moves it, brings it into view first.
+    const auto bring_balance = [&] {
+        if (const kit::Control* tag = fixture::named(wide_list, "library.tag.balance"))
+            wide_state.interaction.focused = tag->id;
+        wide_list = laid_out(wide, wide_state, all[1].frame);
+        wide_state.interaction.focused = kit::no_control;
+    };
     wide_list = laid_out(wide, wide_state, all[1].frame);
+    bring_balance();
     static_cast<void>(click(wide, wide_state, wide_list, "library.tag.balance"));
     OA_CHECK(wide.tag == "balance");
     wide_list = laid_out(wide, wide_state, all[1].frame);
@@ -1977,6 +2257,7 @@ void filters_and_tags() {
     static_cast<void>(click(wide, wide_state, wide_list, "library.detail.tag.balance"));
     OA_CHECK(wide.tag == "balance");
     wide_list = laid_out(wide, wide_state, all[1].frame);
+    bring_balance();
     static_cast<void>(click(wide, wide_state, wide_list, "library.tag.balance"));
     OA_CHECK(wide.tag.empty());
     wide_list = laid_out(wide, wide_state, all[1].frame);
@@ -3088,8 +3369,11 @@ void base_badge_is_nearest_and_tabs_are_bracketed() {
     const kit::DisplayList active = laid_out(library, {}, compact);
     OA_CHECK(text_item(active, "3.1") == nullptr);
     const renderer::RgbaPicture* tile = nullptr;
+    // The section list's Replays entry draws its film as a picture of its own.
+    const kit::Control* replays_tab = fixture::named(active, "library.tab.replays");
     for (const kit::Item& item : active.items) {
-        if (item.role != kit::Role::picture)
+        if (item.role != kit::Role::picture ||
+            (replays_tab != nullptr && item.control == replays_tab->id))
             continue;
         const auto* drawn = std::get_if<kit::PictureLook>(&item.look);
         if (drawn == nullptr || drawn->picture.pixels.data() == quarters.data())
@@ -6495,9 +6779,11 @@ std::vector<const kit::Control*> filter_pane_controls(const kit::DisplayList& li
 
 /// Large's filter pane holds every tag in a view that scrolls, with no TAGS
 /// drop-down: the world tags under WORLD without their prefix, apart from
-/// TAGS; the wheel scrolls it; Tab stops once in it and goes on to the list,
-/// Shift+Tab back; the arrows walk every entry and the view follows; a
-/// newly chosen entry is brought into view.
+/// TAGS; the wheel scrolls it. The filters are one stop and the tags another.
+/// Down walks the focused stop and stays at its end; Home and End are that
+/// stop's ends. Tab leaves the filters for the tags, and the tags for the
+/// list; Shift+Tab comes back to the tag that had the focus. A newly chosen
+/// entry is brought into view.
 void filter_pane_scrolls_and_tab_leaves_it() {
     const kit::Frame large = fixture::frames()[2].frame;
     lib::Library library = with_many_maps();
@@ -6536,15 +6822,35 @@ void filter_pane_scrolls_and_tab_leaves_it() {
         bar = bar || (item.role == kit::Role::scroll_bar && ice != nullptr &&
                       kit::contains(ice->clip, {item.rect.x, item.rect.y}));
     OA_CHECK(bar);
-    // Tab stops on every filter and tag, each once.
-    int32_t stops = 0;
+    // The filters and the tags are two stops. Neither entry is a stop of its own.
+    // The ids outlive the list the later layouts replace.
+    std::vector<kit::ControlId> filter_ids;
+    std::vector<kit::ControlId> tag_ids;
+    for (const kit::Control* entry : entries) {
+        if (entry->name.starts_with("library.filter."))
+            filter_ids.push_back(entry->id);
+        else
+            tag_ids.push_back(entry->id);
+    }
+    OA_CHECK(filter_ids.size() == 4);
+    OA_CHECK(tag_ids.size() == 26);
+    int32_t filter_parts = 0;
+    int32_t tag_parts = 0;
+    for (const kit::Composite& composite : list.composites) {
+        if (composite.name == "library.filters") {
+            filter_parts = static_cast<int32_t>(composite.parts.size());
+            OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), composite.id) == 1);
+        }
+        if (composite.name == "library.tags") {
+            tag_parts = static_cast<int32_t>(composite.parts.size());
+            OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), composite.id) == 1);
+        }
+    }
+    OA_CHECK(filter_parts == 4 && tag_parts == 26);
     for (const kit::Control* entry : entries)
-        stops += static_cast<int32_t>(
-            std::count(list.tab_order.begin(), list.tab_order.end(), entry->id)
-        );
-    OA_CHECK(stops == static_cast<int32_t>(entries.size()));
+        OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), entry->id) == 0);
     const kit::Control* all = fixture::named(list, "library.filter.all");
-    OA_CHECK(all != nullptr && std::count(list.tab_order.begin(), list.tab_order.end(), all->id));
+    OA_CHECK(all != nullptr);
     OA_EXPECT_NONE(order_problems(list), "large maps, many tags");
     OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), "large maps, many tags");
 
@@ -6558,37 +6864,58 @@ void filter_pane_scrolls_and_tab_leaves_it() {
         OA_CHECK(moved != nullptr && moved->rect.y < before);
     }
 
-    // The arrows walk every entry, those out of view too, and the view follows.
+    // Down walks the filters and stays on the last. The tags are the next stop.
     state = {};
     list = laid_out(library, state, large);
     all = fixture::named(list, "library.filter.all");
-    OA_CHECK(all != nullptr);
-    if (all == nullptr)
+    OA_CHECK(all != nullptr && !filter_ids.empty() && !tag_ids.empty());
+    if (all == nullptr || filter_ids.empty() || tag_ids.empty())
         return;
     // The walks below replace `list`, so a pointer into this one would dangle.
     const auto all_id = all->id;
+    const kit::ControlId first_tag = tag_ids.front();
     state.interaction.focus_shown = true;
     state.interaction.focused = all_id;
-    for (std::size_t step = 1; step < entries.size(); ++step) {
+    for (std::size_t step = 1; step < filter_ids.size(); ++step) {
+        OA_CHECK(lib::library_key(library, state, list, kit::Key::down).redraw);
+        list = laid_out(library, state, large);
+    }
+    const kit::Control* last_filter = kit::control_of(list, state.interaction.focused);
+    OA_CHECK(last_filter != nullptr && last_filter->name == "library.filter.updates");
+    const kit::ControlId updates_id = last_filter != nullptr ? last_filter->id : kit::no_control;
+    OA_CHECK(!lib::library_key(library, state, list, kit::Key::down).redraw);
+    OA_CHECK(state.interaction.focused == updates_id);
+    // Home and End stay inside the filters.
+    static_cast<void>(lib::library_key(library, state, list, kit::Key::home));
+    OA_CHECK(state.interaction.focused == all_id);
+    list = laid_out(library, state, large);
+    static_cast<void>(lib::library_key(library, state, list, kit::Key::end));
+    OA_CHECK(state.interaction.focused == updates_id);
+    // Tab leaves the filters for the first tag, and Down walks the tags.
+    list = laid_out(library, state, large);
+    OA_CHECK(lib::library_key(library, state, list, kit::Key::tab).redraw);
+    OA_CHECK(state.interaction.focused == first_tag);
+    for (std::size_t step = 1; step < tag_ids.size(); ++step) {
         OA_CHECK(lib::library_key(library, state, list, kit::Key::down).redraw);
         list = laid_out(library, state, large);
     }
     const kit::Control* last = kit::control_of(list, state.interaction.focused);
     OA_CHECK(last != nullptr && last->name == "library.tag.world-water");
     if (last != nullptr) {
-        // Shown whole in the view, and Tab stops on it once.
+        // Shown whole in the view. It is a part of the tags, not its own stop.
         OA_CHECK(last->rect.y >= last->clip.y);
         OA_CHECK(last->rect.y + last->rect.height <= last->clip.y + last->clip.height);
-        OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), last->id) == 1);
+        OA_CHECK(std::count(list.tab_order.begin(), list.tab_order.end(), last->id) == 0);
     }
-    // Home goes back to All, End to the last world.
+    // Home goes back to the first tag, End to the last world.
+    const kit::ControlId last_world = state.interaction.focused;
     static_cast<void>(lib::library_key(library, state, list, kit::Key::home));
-    OA_CHECK(state.interaction.focused == all_id);
+    OA_CHECK(state.interaction.focused == first_tag);
     list = laid_out(library, state, large);
     static_cast<void>(lib::library_key(library, state, list, kit::Key::end));
     list = laid_out(library, state, large);
-    const kit::ControlId last_world = state.interaction.focused;
-    // Tab leaves the pane for the list; Shift+Tab comes back to the entry.
+    OA_CHECK(state.interaction.focused == last_world);
+    // Tab leaves the tags for the list; Shift+Tab comes back to the world.
     OA_CHECK(lib::library_key(library, state, list, kit::Key::tab).redraw);
     const kit::Control* list_pane = fixture::named(list, "library.list");
     OA_CHECK(list_pane != nullptr && state.interaction.focused == list_pane->id);
@@ -6672,8 +6999,9 @@ void a_chosen_entry_scrolls_out_of_the_section_list() {
         );
     };
 
-    // Shift+Tab from the search reaches the last tab's entry, scrolled out
-    // of view, and brings it into view.
+    // Shift+Tab from the search returns to the open tab. Down through the
+    // tabs reaches Registries, which was scrolled out of view, and brings
+    // it into view.
     OA_CHECK(lib::library_wheel(library, state, list, in_view, -40.0F).redraw);
     const int32_t deepest = state.filters_scroll;
     OA_CHECK(deepest > 0);
@@ -6681,6 +7009,13 @@ void a_chosen_entry_scrolls_out_of_the_section_list() {
     OA_CHECK(state.filters_scroll == deepest);
     OA_CHECK(lib::library_key(library, state, list, kit::Key::back_tab).redraw);
     settle();
+    const kit::Control* maps_tab = fixture::named(list, "library.tab.maps");
+    OA_CHECK(maps_tab != nullptr && state.interaction.focused == maps_tab->id);
+    // Active, Replays, Mods, Maps, then six more to Registries.
+    for (int32_t step = 0; step < 6; ++step) {
+        OA_CHECK(lib::library_key(library, state, list, kit::Key::down).redraw);
+        settle();
+    }
     const kit::Control* registries = fixture::named(list, "library.tab.registries");
     OA_CHECK(registries != nullptr && state.interaction.focused == registries->id);
     OA_CHECK(registries != nullptr && shown_whole(*registries));
@@ -6886,6 +7221,1940 @@ void opening_a_tab_focuses_its_search() {
     OA_CHECK(opened.interaction.focus_shown && opened.interaction.focused != kit::no_control);
 }
 
+/// The Replays section at every size: second in the section list with its
+/// count, its four filters, the kind and sort menus, a row a list item read
+/// as its whole line, and the card's WATCH, EXPORT, KEEP, DELETE and OPEN
+/// FOLDER, or at Compact the replay's own page. WATCH and KEEP ask for the
+/// selected and the marked replays, Ctrl marks one more, the kind menu chooses
+/// a kind, the arrows move the selection, and the empty section offers TURN ON
+/// RECORDING while the setting is off.
+void replays_section_lays_out() {
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::Frame& frame = named.frame;
+        const bool compact = frame.size_class == kit::SizeClass::compact;
+        const kit::Point window = lib::window_size(frame);
+        lib::Library library = fixture::replay_library();
+        lib::ScreenState state;
+        kit::DisplayList list = laid_out(library, state, frame);
+        const std::string on = named.name + " replays";
+        OA_EXPECT_NONE(fixture::outside_window(list, window), on);
+        OA_EXPECT_NONE(meeting_controls(list), on);
+        OA_EXPECT_NONE(order_problems(list), on);
+        OA_EXPECT_NONE(name_problems(list), on);
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), on);
+        const kit::Control* tab = fixture::named(list, "library.tab.replays");
+        OA_CHECK(tab != nullptr && tab->checked && tab->text == "Replays (6)");
+        const kit::Composite* tabs = nullptr;
+        for (const kit::Composite& composite : list.composites)
+            if (composite.name == "library.tabs")
+                tabs = &composite;
+        OA_CHECK(
+            tabs != nullptr && list.tab_order.size() > 1 && list.tab_order[0] == tabs->id &&
+            tabs->parts.size() > 1 && tabs->parts[0] == id_of(list, "library.tab.active") &&
+            tabs->parts[1] == id_of(list, "library.tab.replays")
+        );
+        const kit::Control* month = fixture::named(list, "library.filter.this-month");
+        OA_CHECK(month != nullptr && month->checked && month->text == "This month (6)");
+        for (const std::string_view filter : {"older", "kept", "imported"})
+            OA_CHECK(fixture::named(list, "library.filter." + std::string(filter)) != nullptr);
+        OA_CHECK(fixture::named(list, "library.filter.all") == nullptr);
+        OA_CHECK(fixture::named(list, "library.replays.kind") != nullptr);
+        OA_CHECK(fixture::named(list, "library.replays.sort") != nullptr);
+        const kit::Control* first = fixture::named(list, "library.row.replay.1");
+        OA_CHECK(first != nullptr && first->kind == kit::ControlKind::list_item && first->checked);
+        OA_CHECK(
+            first != nullptr &&
+            first->text == lib::replay_reading(library, library.inputs.replays.rows.front())
+        );
+        const kit::Control* status = fixture::named(list, "library.replays.status");
+        OA_CHECK(status != nullptr && status->text == "6 replays · 4.8 MB");
+
+        // WATCH, EXPORT, KEEP, DELETE and OPEN FOLDER: on the card, or on Compact's page.
+        if (compact) {
+            OA_CHECK(fixture::named(list, "library.action.watch") == nullptr);
+            OA_CHECK(fixture::named(list, "library.details") != nullptr);
+            static_cast<void>(click(library, state, list, "library.row.replay.2"));
+            OA_CHECK(state.replay_page);
+            OA_CHECK(
+                library.replays.selected == std::optional<std::string>("default/coast.oademo")
+            );
+            list = laid_out(library, state, frame);
+            OA_EXPECT_NONE(fixture::outside_window(list, window), on + " page");
+            OA_EXPECT_NONE(meeting_controls(list), on + " page");
+            OA_EXPECT_NONE(order_problems(list), on + " page");
+            OA_EXPECT_NONE(name_problems(list), on + " page");
+            OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), on + " page");
+            OA_CHECK(fixture::named(list, "library.back") != nullptr);
+        } else {
+            static_cast<void>(click(library, state, list, "library.row.replay.2"));
+            list = laid_out(library, state, frame);
+        }
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        OA_CHECK(watch != nullptr && watch->enabled && watch->text == "Watch");
+        OA_CHECK(fixture::named(list, "library.action.keep") != nullptr);
+        OA_CHECK(fixture::named(list, "library.action.delete") != nullptr);
+        OA_CHECK(fixture::named(list, "library.action.open-folder") != nullptr);
+        const kit::Control* export_replay = fixture::named(list, "library.action.export");
+        OA_CHECK(
+            export_replay != nullptr && export_replay->enabled && export_replay->text == "Export…"
+        );
+        // Delete armed and not: every button of the card stays inside the dialog.
+        library.replays.delete_armed = true;
+        list = laid_out(library, state, frame);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), on + " delete");
+        OA_EXPECT_NONE(meeting_controls(list), on + " delete");
+        OA_CHECK(fixture::named(list, "library.action.export") != nullptr);
+        OA_CHECK(fixture::named(list, "library.action.delete") != nullptr);
+        OA_CHECK(fixture::named(list, "library.action.delete-confirm") != nullptr);
+        OA_CHECK(fixture::named(list, "library.action.open-folder") != nullptr);
+        library.replays.delete_armed = false;
+        list = laid_out(library, state, frame);
+        lib::ScreenResult result = click(library, state, list, "library.action.watch");
+        OA_CHECK(
+            result.action == lib::Action::watch_replay && result.replay == "default/coast.oademo"
+        );
+        result = click(library, state, list, "library.action.open-folder");
+        OA_CHECK(
+            result.action == lib::Action::open_replay_folder &&
+            result.replay == "default/coast.oademo"
+        );
+        if (compact) {
+            static_cast<void>(click(library, state, list, "library.back"));
+            OA_CHECK(!state.replay_page);
+            list = laid_out(library, state, frame);
+        }
+
+        // Ctrl marks a second row; KEEP asks for both.
+        state.row_pick = lib::ReplayPick::toggle;
+        static_cast<void>(click(library, state, list, "library.row.replay.1"));
+        OA_CHECK(library.replays.marked.size() == 2);
+        OA_CHECK(state.row_pick == lib::ReplayPick::only);
+        if (compact) {
+            lib::ScreenResult page = click(library, state, list, "library.details");
+            OA_CHECK(page.redraw && state.replay_page);
+        }
+        list = laid_out(library, state, frame);
+        result = click(library, state, list, "library.action.keep");
+        OA_CHECK(result.action == lib::Action::keep_replays && result.keep);
+        OA_CHECK(result.replays == library.replays.marked);
+        if (compact) {
+            static_cast<void>(click(library, state, list, "library.back"));
+            list = laid_out(library, state, frame);
+        }
+
+        // The kind menu chooses Skirmish; All kinds shows every kind again.
+        static_cast<void>(click(library, state, list, "library.replays.kind"));
+        list = laid_out(library, state, frame);
+        OA_CHECK(state.menu == lib::MenuKind::replay_kind);
+        OA_EXPECT_NONE(name_problems(list), on + " kind menu");
+        static_cast<void>(click(library, state, list, "library.replays.kind.skirmish"));
+        OA_CHECK(library.replays.kind == "skirmish" && library.replays.visible.size() == 1);
+        list = laid_out(library, state, frame);
+        static_cast<void>(click(library, state, list, "library.replays.kind"));
+        list = laid_out(library, state, frame);
+        static_cast<void>(click(library, state, list, "library.replays.kind.all"));
+        OA_CHECK(library.replays.kind.empty() && library.replays.visible.size() == 6);
+        list = laid_out(library, state, frame);
+        // The sort menu, and the filters in the section list.
+        static_cast<void>(click(library, state, list, "library.replays.sort"));
+        list = laid_out(library, state, frame);
+        static_cast<void>(click(library, state, list, "library.replays.sort.longest"));
+        OA_CHECK(library.replays.sort == lib::ReplaySort::longest);
+        list = laid_out(library, state, frame);
+        static_cast<void>(click(library, state, list, "library.filter.older"));
+        OA_CHECK(library.replays.filter == lib::ReplayFilter::older);
+        list = laid_out(library, state, frame);
+        OA_EXPECT_NONE(name_problems(list), on + " older");
+        static_cast<void>(click(library, state, list, "library.filter.this-month"));
+        lib::set_replay_sort(library, lib::ReplaySort::newest);
+        list = laid_out(library, state, frame);
+
+        // The arrows on the list move the selection.
+        lib::select_replay(library, "default/show-down.oademo");
+        lib::ScreenState keys = focused_on(laid_out(library, state, frame), "library.list");
+        list = laid_out(library, keys, frame);
+        static_cast<void>(lib::library_key(library, keys, list, kit::Key::down));
+        OA_CHECK(library.replays.selected == std::optional<std::string>("default/coast.oademo"));
+
+        // A damaged replay's card says why it cannot be watched.
+        if (!compact) {
+            lib::select_replay(library, "default/broken.oademo");
+            list = laid_out(library, {}, frame);
+            const kit::Control* note = fixture::named(list, "library.note");
+            OA_CHECK(note != nullptr && note->text.starts_with("This replay cannot be watched."));
+            const kit::Control* off = fixture::named(list, "library.action.watch");
+            OA_CHECK(off != nullptr && !off->enabled);
+        }
+
+        // The empty section, and TURN ON RECORDING while recording is off.
+        lib::Library none = fixture::replay_library(false, false);
+        lib::ScreenState empty_state;
+        kit::DisplayList empty = laid_out(none, empty_state, frame);
+        OA_EXPECT_NONE(fixture::outside_window(empty, window), on + " empty");
+        OA_EXPECT_NONE(meeting_controls(empty), on + " empty");
+        OA_EXPECT_NONE(order_problems(empty), on + " empty");
+        OA_EXPECT_NONE(name_problems(empty), on + " empty");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(empty, fonts()), on + " empty");
+        const kit::Control* words = fixture::named(empty, "library.status");
+        OA_CHECK(words != nullptr && words->text == "No replays yet. · Recording is off.");
+        result = click(none, empty_state, empty, "library.action.turn-on-recording");
+        OA_CHECK(result.action == lib::Action::turn_on_recording);
+        OA_CHECK(fixture::named(empty, "library.row.replay.1") == nullptr);
+        const lib::Library kept_here = fixture::replay_library(true, false);
+        const kit::DisplayList on_list = laid_out(kept_here, {}, frame);
+        OA_CHECK(fixture::named(on_list, "library.action.turn-on-recording") == nullptr);
+    }
+}
+
+/// Returns the fixture's replays with a ten-player replay added and selected:
+/// a mod with a long name, two expansions and three mutators, so that its card
+/// holds more than its pane does.
+///
+/// @param mod the mod's name
+/// @return the Library
+lib::Library ten_player_library(const std::string& mod = "Ridge") {
+    lib::Library library = fixture::replay_library();
+    lib::Inputs inputs = library.inputs;
+    lib::ReplayRow ten = fixture::replay_row(
+        "default/comet.oademo",
+        "Comet Catcher",
+        "multiplayer",
+        0,
+        23 * 60 + 40,
+        {"Varn",
+         "Tamsin",
+         "Ilse",
+         "Juniper",
+         "Okafor",
+         "Sato",
+         "Lindqvist",
+         "Halvard",
+         "Mirelle",
+         "Brannock"}
+    );
+    ten.replay.mod_id = "ridge";
+    ten.replay.mod_name = mod;
+    ten.replay.mod_version = "2.8";
+    ten.replay.mod_revision = 1;
+    ten.replay.expansions = {"core-contingency", "battle-tactics"};
+    ten.replay.mutators = {"Sturdy Commanders", "Double Metal", "Fast Build"};
+    inputs.replays.rows.push_back(std::move(ten));
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::select_replay(library, "default/comet.oademo");
+    return library;
+}
+
+/// Tells whether a control lies wholly inside its clip.
+///
+/// @param control the control
+/// @return true when it does
+bool in_view(const kit::Control& control) {
+    const kit::Rect& rect = control.rect;
+    const kit::Rect& clip = control.clip;
+    return clip.width > 0 && rect.x >= clip.x && rect.y >= clip.y &&
+           rect.x + rect.width <= clip.x + clip.width &&
+           rect.y + rect.height <= clip.y + clip.height;
+}
+
+/// Each Core Prime filter shows its own total once that list has been read,
+/// and no number before. By planet shows the chosen planet's total.
+void core_prime_filters_count_their_own_lists() {
+    lib::Library library = fixture::replay_library();
+    lib::Inputs inputs = library.inputs;
+    inputs.replays.core_latest_total = 60;
+    inputs.replays.core_downloads_total = 12;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::set_replay_source(library, lib::ReplaySource::core_prime);
+    const auto latest_count = lib::core_filter_count(library, lib::CorePrimeFilter::latest);
+    const auto popular_count = lib::core_filter_count(library, lib::CorePrimeFilter::downloads);
+    OA_CHECK(latest_count.has_value() && *latest_count == 60);
+    OA_CHECK(!lib::core_filter_count(library, lib::CorePrimeFilter::longest).has_value());
+    OA_CHECK(popular_count.has_value() && *popular_count == 12);
+    OA_CHECK(!lib::core_filter_count(library, lib::CorePrimeFilter::planet).has_value());
+
+    const kit::DisplayList list = laid_out(library, {}, fixture::frames()[2].frame);
+    const kit::NavLook* nav = section_nav(list);
+    OA_CHECK(nav != nullptr);
+    if (nav != nullptr) {
+        bool latest = false;
+        bool longest = false;
+        bool popular = false;
+        bool planet = false;
+        for (const kit::NavEntry& entry : nav->entries) {
+            if (entry.caption == "Latest") {
+                latest = true;
+                OA_CHECK(entry.count == "60");
+            } else if (entry.caption == "Longest") {
+                longest = true;
+                OA_CHECK(entry.count.empty());
+            } else if (entry.caption == "Popular") {
+                popular = true;
+                OA_CHECK(entry.count == "12");
+            } else if (entry.caption == "By planet") {
+                planet = true;
+                OA_CHECK(entry.count.empty());
+            }
+        }
+        OA_CHECK(latest && longest && popular && planet);
+    }
+
+    lib::set_core_planet(library, "Cinder");
+    OA_CHECK(!lib::core_filter_count(library, lib::CorePrimeFilter::planet).has_value());
+    inputs = library.inputs;
+    inputs.replays.core_planet_total = 20;
+    inputs.replays.core_latest_total = 60;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::set_replay_source(library, lib::ReplaySource::core_prime);
+    lib::set_core_planet(library, "Cinder");
+    const auto planet_count = lib::core_filter_count(library, lib::CorePrimeFilter::planet);
+    const auto still_latest = lib::core_filter_count(library, lib::CorePrimeFilter::latest);
+    OA_CHECK(planet_count.has_value() && *planet_count == 20);
+    OA_CHECK(still_latest.has_value() && *still_latest == 60);
+    const kit::DisplayList narrowed = laid_out(library, {}, fixture::frames()[2].frame);
+    const kit::NavLook* narrowed_nav = section_nav(narrowed);
+    OA_CHECK(narrowed_nav != nullptr);
+    if (narrowed_nav != nullptr) {
+        bool planet = false;
+        for (const kit::NavEntry& entry : narrowed_nav->entries) {
+            if (entry.caption != "By planet")
+                continue;
+            planet = true;
+            OA_CHECK(entry.count == "20");
+        }
+        OA_CHECK(planet);
+    }
+}
+
+/// The sign-in question's handle and password, and the share question's
+/// title, are fields the host starts the system's text input over while one
+/// has the focus, as it does for the search: without it no typed character
+/// reaches them.
+void account_questions_take_typed_text() {
+    lib::Library library = fixture::replay_library();
+    lib::set_tab(library, lib::Tab::replays);
+    lib::open_sign_in(library);
+    OA_CHECK(library.sign_in.open);
+    lib::ScreenState state;
+    const kit::Frame frame = fixture::frames()[2].frame;
+    kit::DisplayList list = laid_out(library, state, frame);
+    for (const std::string_view name : {"library.sign-in.handle", "library.sign-in.password"}) {
+        const kit::Control* field = fixture::named(list, name);
+        OA_CHECK(field != nullptr);
+        if (field == nullptr)
+            continue;
+        state.interaction.focused = field->id;
+        state.interaction.focus_shown = true;
+        const std::optional<kit::Rect> taken = lib::focused_field(state, list);
+        OA_CHECK(taken.has_value() && taken->x == field->rect.x && taken->y == field->rect.y);
+    }
+    const kit::Control* submit = fixture::named(list, "library.sign-in.submit");
+    OA_CHECK(submit != nullptr);
+    if (submit != nullptr) {
+        state.interaction.focused = submit->id;
+        OA_CHECK(!lib::focused_field(state, list).has_value());
+    }
+
+    lib::open_share_question(library, "default/show-down.oademo", "Show Down");
+    OA_CHECK(library.share_question.open && !library.sign_in.open);
+    state = {};
+    list = laid_out(library, state, frame);
+    const kit::Control* title = fixture::named(list, "library.share.title");
+    OA_CHECK(title != nullptr);
+    if (title != nullptr) {
+        state.interaction.focused = title->id;
+        state.interaction.focus_shown = true;
+        OA_CHECK(lib::focused_field(state, list).has_value());
+    }
+}
+
+/// While one Core Prime replay's key waits, another replay whose Download
+/// waits its turn says so and takes no second press.
+void core_prime_queued_download_says_so() {
+    lib::Library library = fixture::replay_library();
+    lib::Inputs inputs = library.inputs;
+    for (const char* id : {"r_0000000000000000000000", "r_0000000000000000000001"})
+        inputs.replays.core_rows.push_back(
+            fixture::replay_row(id, "North Reach", "outpost", 0, 12 * 60, {"Pilot", "Kestrel"})
+        );
+    inputs.replays.core_downloading = true;
+    inputs.replays.core_download_id = "r_0000000000000000000000";
+    inputs.replays.core_download_waiting = true;
+    inputs.replays.core_queued = {"r_0000000000000000000001"};
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::set_replay_source(library, lib::ReplaySource::core_prime);
+    lib::select_replay(library, "r_0000000000000000000000");
+    std::vector<lib::ReplayButton> buttons = lib::replay_buttons(library);
+    OA_CHECK(
+        !buttons.empty() && buttons.front().action == lib::Action::download_replay &&
+        buttons.front().enabled && buttons.front().text == "Cancel"
+    );
+    lib::select_replay(library, "r_0000000000000000000001");
+    buttons = lib::replay_buttons(library);
+    OA_CHECK(
+        !buttons.empty() && buttons.front().action == lib::Action::download_replay &&
+        !buttons.front().enabled && buttons.front().text == "Getting the replay…"
+    );
+}
+
+/// A Core Prime card draws the feed's kills and no losses.
+void core_prime_card_names_kills_only() {
+    lib::Library library = fixture::replay_library();
+    lib::Inputs inputs = library.inputs;
+    lib::ReplayRow row = fixture::replay_row(
+        "r_0000000000000000000000", "North Reach", "outpost", 0, 12 * 60, {"Pilot", "Kestrel"}
+    );
+    row.standings.resize(2);
+    row.standings[0].result = lib::RecordedResult::won;
+    row.standings[0].known = true;
+    row.standings[0].kills_only = true;
+    row.standings[0].kills = 41;
+    row.standings[0].losses = 3;
+    row.standings[1].known = true;
+    row.standings[1].kills_only = true;
+    row.standings[1].kills = 12;
+    row.standings[1].losses = 9;
+    inputs.replays.core_rows.push_back(row);
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    lib::set_replay_source(library, lib::ReplaySource::core_prime);
+    lib::select_replay(library, "r_0000000000000000000000");
+    const kit::DisplayList list = laid_out(library, {}, fixture::frames()[2].frame);
+    bool kills = false;
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::text)
+            continue;
+        if (item.text.find("41 kills") != std::string::npos)
+            kills = true;
+        OA_CHECK(item.text.find("loss") == std::string::npos);
+    }
+    OA_CHECK(kills);
+}
+
+/// A replay's card shows every fact: its parts scroll as the catalogue's
+/// details do, with the buttons fixed at its foot, so that a ten-player replay
+/// brings its last fact, Kept until, into view; a long value wraps to another
+/// line and is never cut; at Compact the page does the same. A player's dot has
+/// a light edge, and a damaged replay is titled by its file's name.
+void replays_card_shows_every_fact() {
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::Frame& frame = named.frame;
+        const bool compact = frame.size_class == kit::SizeClass::compact;
+        const kit::Point window = lib::window_size(frame);
+        const std::string on = named.name + " ten-player card";
+        const std::string long_mod =
+            "Ridge Of Many Names And A Very Long Title Indeed For Wrapping Over Lines";
+        const bool narrow = named.name == "regular";
+        lib::Library library = ten_player_library(long_mod);
+        lib::ScreenState state;
+        state.replay_page = compact;
+        kit::DisplayList list = laid_out(library, state, frame);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), on);
+        OA_EXPECT_NONE(meeting_controls(list), on);
+        OA_EXPECT_NONE(name_problems(list), on);
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), on);
+        // The buttons stay at the foot, outside the card's scrolling parts.
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        OA_CHECK(watch != nullptr && watch->group != 1);
+        // A long value takes more than one line, and nothing ends in an ellipsis.
+        const kit::Control* mod = fixture::named(list, "library.fact.mod");
+        OA_CHECK(mod != nullptr);
+        if (narrow && mod != nullptr)
+            OA_CHECK(mod->rect.height >= 2 * kit::compact_metrics.small_line);
+        for (const kit::Item& item : list.items)
+            if (item.role == kit::Role::text && item.clip.width > 0 &&
+                fixture::named(list, "library.status") != nullptr &&
+                item.clip.x == fixture::named(list, "library.status")->clip.x)
+                OA_CHECK(!item.text.ends_with("\xE2\x80\xA6") && !item.text.ends_with("..."));
+        // Scrolled to its end, the card brings Kept until into view.
+        state.details_scroll = 1 << 20;
+        list = laid_out(library, state, frame);
+        const kit::Control* last = fixture::named(list, "library.fact.kept-until");
+        OA_CHECK(last != nullptr && in_view(*last));
+        OA_CHECK(state.details_scroll > 0);
+        bool scroll_bar = false;
+        for (const kit::Item& item : list.items)
+            scroll_bar = scroll_bar || item.role == kit::Role::scroll_bar;
+        OA_CHECK(scroll_bar);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), on + " foot");
+        OA_EXPECT_NONE(meeting_controls(list), on + " foot");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), on + " foot");
+        OA_CHECK(fixture::named(list, "library.action.watch") != nullptr);
+        // Every fact is a label that reads as one line.
+        for (const std::string_view key :
+             {"length", "recorded", "mod", "expansions", "mutators", "file", "kept-until"})
+            OA_CHECK(fixture::named(list, "library.fact." + std::string(key)) != nullptr);
+        const kit::Control* recorded = fixture::named(list, "library.fact.recorded");
+        OA_CHECK(
+            recorded != nullptr &&
+            recorded->text.find("Open Annihilation 0.9.1") != std::string::npos
+        );
+    }
+}
+
+/// A replay that names its mod only by a missing mod's name, as a `.tad`'s
+/// note does, shows that name as its Mod. A name with no space in it that is
+/// wider than three of the fact's lines, as a 64-byte one is in the modern
+/// look, wraps over every line it takes and is never cut.
+void replays_card_long_mod_name_whole() {
+    const std::string name(512, 'R');
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const std::string on = named.name + " long mod name";
+        lib::Library library = fixture::replay_library();
+        lib::Inputs inputs = library.inputs;
+        lib::ReplayRow row = fixture::replay_row(
+            "default/needs-long.oademo", "Long Reach", "skirmish", 0, 12 * 60, {"Varn", "Kestrel"}
+        );
+        oa::data::replays::ContentGap gap;
+        gap.kind = oa::data::replays::GapKind::mod_missing;
+        gap.id = name;
+        gap.name = name;
+        gap.version = "2.8";
+        gap.fetchable = true;
+        row.gaps.push_back(std::move(gap));
+        inputs.replays.rows.push_back(std::move(row));
+        lib::refresh(library, std::move(inputs));
+        lib::set_tab(library, lib::Tab::replays);
+        lib::select_replay(library, "default/needs-long.oademo");
+        lib::ScreenState state;
+        state.replay_page = named.frame.size_class == kit::SizeClass::compact;
+        const kit::DisplayList list = laid_out(library, state, named.frame);
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), on);
+        const kit::Control* mod = fixture::named(list, "library.fact.mod");
+        OA_CHECK(mod != nullptr);
+        if (mod == nullptr)
+            continue;
+        const kit::Rect& fact = mod->rect;
+        std::string drawn;
+        int32_t lines = 0;
+        for (const kit::Item& item : list.items) {
+            const kit::Rect& line = item.rect;
+            if (item.role != kit::Role::text || item.colour != kit::colour::text ||
+                line.x < fact.x || line.y < fact.y || line.x + line.width > fact.x + fact.width ||
+                line.y + line.height > fact.y + fact.height)
+                continue;
+            drawn += item.text;
+            ++lines;
+        }
+        OA_CHECK(lines > 3);
+        if (drawn != name)
+            std::fprintf(stderr, "%s: the Mod reads \"%s\"\n", on.c_str(), drawn.c_str());
+        OA_CHECK(drawn == name);
+    }
+}
+
+/// A row names two players each with a dot in front of the name, in a ring of
+/// light that shows a dark colour on the dark row; a damaged replay's card is
+/// titled by its file's name and says its two sentences apart; an imported
+/// replay's card offers no Keep; and the section says it reads while it does.
+void replays_rows_and_cards_say_what_they_hold() {
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::Frame& frame = named.frame;
+        const bool compact = frame.size_class == kit::SizeClass::compact;
+        const std::string on = named.name + " replay words";
+        lib::Library library = fixture::replay_library();
+        lib::ScreenState state;
+        kit::DisplayList list = laid_out(library, state, frame);
+        const kit::Control* row = fixture::named(list, "library.row.replay.1");
+        OA_CHECK(row != nullptr);
+        if (row != nullptr) {
+            // Inside the row: two dots' squares (each a disc and a ring), each
+            // before its own name.
+            std::vector<kit::Rect> dots;
+            kit::Rect varn{};
+            kit::Rect kestrel{};
+            for (const kit::Item& item : list.items) {
+                const bool inside =
+                    item.rect.x >= row->rect.x && item.rect.y >= row->rect.y &&
+                    item.rect.x + item.rect.width <= row->rect.x + row->rect.width &&
+                    item.rect.y + item.rect.height <= row->rect.y + row->rect.height;
+                if (!inside)
+                    continue;
+                if (item.role == kit::Role::text && item.text == "Varn")
+                    varn = item.rect;
+                else if (item.role == kit::Role::text && item.text == "Kestrel")
+                    kestrel = item.rect;
+                else if (
+                    item.role == kit::Role::picture && item.rect.width == item.rect.height &&
+                    item.rect.width < row->rect.height / 2
+                )
+                    dots.push_back(item.rect);
+            }
+            OA_CHECK(dots.size() == 4 && varn.width > 0 && kestrel.width > 0);
+            if (dots.size() == 4 && varn.width > 0 && kestrel.width > 0) {
+                // The disc, then its ring over it, the same square.
+                OA_CHECK(dots[0].x == dots[1].x && dots[2].x == dots[3].x);
+                OA_CHECK(dots[0].x + dots[0].width <= varn.x);
+                OA_CHECK(
+                    dots[2].x >= varn.x + varn.width && dots[2].x + dots[2].width <= kestrel.x
+                );
+            }
+        }
+        // A damaged replay: its file's name titles the card, in two sentences.
+        lib::select_replay(library, "default/broken.oademo");
+        state.replay_page = compact;
+        list = laid_out(library, state, frame);
+        const kit::Control* note = fixture::named(list, "library.note");
+        OA_CHECK(
+            note != nullptr &&
+            note->text == "This replay cannot be watched. This file is not a replay."
+        );
+        bool titled = false;
+        bool pathed = false;
+        for (const kit::Item& item : list.items) {
+            titled = titled || (item.role == kit::Role::text && item.text == "broken.oademo");
+            pathed = pathed || item.text == "default/broken.oademo";
+        }
+        OA_CHECK(titled && !pathed);
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        OA_CHECK(watch != nullptr && !watch->enabled);
+        // An imported replay is kept already: no Keep.
+        lib::select_replay(library, "Imported/anteer.tad");
+        list = laid_out(library, state, frame);
+        OA_CHECK(fixture::named(list, "library.action.keep") == nullptr);
+        OA_CHECK(fixture::named(list, "library.action.watch") != nullptr);
+        OA_CHECK(fixture::named(list, "library.action.open-folder") != nullptr);
+        // The section that reads says so, in the section and in the footer.
+        lib::Library reading = fixture::replay_library(true, false);
+        reading.inputs.replays.reading = true;
+        lib::refresh(reading, reading.inputs);
+        const kit::DisplayList waiting = laid_out(reading, {}, frame);
+        const kit::Control* body = fixture::named(waiting, "library.status");
+        const kit::Control* foot = fixture::named(waiting, "library.replays.status");
+        OA_CHECK(body != nullptr && body->text == "Reading the replays…");
+        OA_CHECK(foot != nullptr && foot->text == "Reading the replays…");
+    }
+}
+
+/// The face Export is drawn with.
+///
+/// @param list the display list
+/// @param name the button's name
+/// @return the face; plain when the button is not drawn
+kit::ButtonStyle export_button_style(const kit::DisplayList& list, std::string_view name) {
+    const kit::Control* button = fixture::named(list, name);
+    if (button == nullptr)
+        return kit::ButtonStyle::plain;
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::button || item.control != button->id)
+            continue;
+        if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
+            return look->style;
+    }
+    return kit::ButtonStyle::plain;
+}
+
+/// Lays Export out at every size class and the picture sizes, in each state
+/// the dialog has: a `.oademo`, a `.tad` with all four warnings, the chooser,
+/// a file still being measured, exporting, done, a problem and nothing
+/// selected. Nothing of it leaves the window, two of its controls do not
+/// share a press, and no warning, description or format caption is cut.
+void export_dialog_lays_out() {
+    const auto picture = [](const std::string& name, int32_t width, int32_t height) {
+        kit::Viewport viewport;
+        viewport.width = width;
+        viewport.height = height;
+        viewport.scale_percent = 100;
+        return fixture::NamedFrame{name, kit::frame_of(viewport)};
+    };
+    std::vector<fixture::NamedFrame> frames = fixture::frames();
+    frames.push_back(picture("960x540", 960, 540));
+    frames.push_back(picture("1280x720", 1280, 720));
+    const auto ready_file = [] {
+        lib::ExportFile file;
+        file.path = "default/show-down.oademo";
+        file.title = "Show Down";
+        file.oademo_bytes = 492U * 1024U;
+        file.tad_bytes = 600U * 1024U;
+        file.tad_without_bytes = 500U * 1024U;
+        file.ready = true;
+        return file;
+    };
+    for (const fixture::NamedFrame& named : frames) {
+        const kit::Point window = lib::window_size(named.frame);
+        const auto check = [&](const lib::Library& library, std::string_view state) {
+            const kit::DisplayList list = laid_out(library, {}, named.frame);
+            const std::string where = named.name + " export " + std::string(state);
+            OA_EXPECT_NONE(fixture::outside_window(list, window), where);
+            OA_EXPECT_NONE(meeting_controls(list), where);
+            OA_EXPECT_NONE(order_problems(list), where);
+            OA_EXPECT_NONE(name_problems(list), where);
+            OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), where);
+            return list;
+        };
+        lib::Library library = fixture::replay_library();
+        lib::ExportOffer offer;
+        offer.folder = "/home/player/Downloads";
+        offer.folder_label = "Downloads";
+        offer.folder_is_downloads = true;
+        offer.files.push_back(ready_file());
+        lib::open_export(library, offer);
+        kit::DisplayList list = check(library, "oademo");
+        const kit::Control* oademo = fixture::named(list, "library.export.format.oademo");
+        const kit::Control* tad = fixture::named(list, "library.export.format.tad");
+        OA_CHECK(oademo != nullptr && oademo->text.find("(.oademo)") != std::string::npos);
+        OA_CHECK(tad != nullptr && tad->text.find("(.tad)") != std::string::npos);
+        const kit::Control* confirm = fixture::named(list, "library.export.export");
+        OA_CHECK(confirm != nullptr && confirm->enabled);
+        OA_CHECK(export_button_style(list, "library.export.export") == kit::ButtonStyle::accent);
+
+        lib::ExportFile warned = ready_file();
+        warned.names_cut = true;
+        warned.status_cut = true;
+        warned.wide_records = true;
+        warned.mutators = true;
+        warned.mutator_ids.push_back("ridge");
+        offer.files.clear();
+        offer.files.push_back(std::move(warned));
+        lib::open_export(library, offer);
+        lib::set_export_format(library, lib::ExportFormat::tad);
+        list = check(library, "tad");
+        int warnings = 0;
+        for (const kit::Control& control : list.controls)
+            if (starts(control.name, "library.export.warning."))
+                ++warnings;
+        if (named.name == "640x480") {
+            OA_CHECK(warnings >= 1);
+            if (warnings < 4) {
+                OA_CHECK(fixture::named(list, "library.export.warnings.more") != nullptr);
+                OA_CHECK(fixture::named(list, "library.export.more") == nullptr);
+            }
+        } else {
+            OA_CHECK(warnings == 4);
+        }
+        OA_CHECK(fixture::named(list, "library.export.warning.0") != nullptr);
+
+        if (named.name == "640x480") {
+            lib::ExportFile crowded = ready_file();
+            crowded.title = "Show Down, a very long map name that goes on past sixty-three letters";
+            crowded.names_cut = true;
+            crowded.status_cut = true;
+            crowded.wide_records = true;
+            crowded.mutators = true;
+            crowded.mutator_ids.push_back("ridge");
+            offer.files.clear();
+            offer.files.push_back(std::move(crowded));
+            lib::open_export(library, offer);
+            lib::set_export_format(library, lib::ExportFormat::tad);
+            list = check(library, "tad-crowded");
+            const kit::Control* foot_cancel = fixture::named(list, "library.export.cancel");
+            const kit::Control* foot_export = fixture::named(list, "library.export.export");
+            OA_CHECK(foot_cancel != nullptr && foot_export != nullptr);
+            const int32_t foot = std::min(foot_cancel->rect.y, foot_export->rect.y);
+            int crowded_warnings = 0;
+            for (const kit::Control& control : list.controls) {
+                if (!starts(control.name, "library.export."))
+                    continue;
+                if (control.name == "library.export.block" ||
+                    control.name == "library.export.cancel" ||
+                    control.name == "library.export.export")
+                    continue;
+                const kit::Rect area = fixture::press_area(control);
+                if (!fixture::has_room(area))
+                    continue;
+                OA_CHECK(area.y + area.height < foot);
+                if (starts(control.name, "library.export.warning."))
+                    ++crowded_warnings;
+            }
+            OA_CHECK(crowded_warnings >= 1);
+            if (crowded_warnings < 4) {
+                OA_CHECK(fixture::named(list, "library.export.warnings.more") != nullptr);
+                OA_CHECK(fixture::named(list, "library.export.more") == nullptr);
+            }
+            OA_CHECK(fixture::named(list, "library.export.choose") != nullptr);
+            OA_CHECK(fixture::named(list, "library.export.where") != nullptr);
+        }
+
+        lib::ExportFolder desktop;
+        desktop.name = "Desktop";
+        lib::ExportFolder documents;
+        documents.name = "Documents";
+        lib::ExportFolder downloads;
+        downloads.name = "Downloads";
+        downloads.path = "/home/player/Downloads";
+        lib::open_export_browse(
+            library,
+            "/home/player",
+            {std::move(desktop), std::move(documents), std::move(downloads)}
+        );
+        static_cast<void>(check(library, "chooser"));
+        OA_CHECK(
+            fixture::named(laid_out(library, {}, named.frame), "library.export.folder.downloads") !=
+            nullptr
+        );
+        lib::close_export_browse(library);
+
+        offer.files.clear();
+        lib::ExportFile measuring = ready_file();
+        measuring.ready = false;
+        offer.files.push_back(std::move(measuring));
+        lib::open_export(library, offer);
+        list = check(library, "measuring");
+        const kit::Control* measuring_choice = fixture::named(list, "library.export.format.oademo");
+        OA_CHECK(
+            measuring_choice != nullptr &&
+            measuring_choice->text.find("Measuring") != std::string::npos
+        );
+        const kit::Control* measuring_export = fixture::named(list, "library.export.export");
+        OA_CHECK(measuring_export != nullptr && !measuring_export->enabled);
+        OA_CHECK(export_button_style(list, "library.export.export") == kit::ButtonStyle::plain);
+
+        offer.files.clear();
+        offer.files.push_back(ready_file());
+        lib::open_export(library, offer);
+        lib::set_export_progress(library, 0, 1);
+        lib::set_export_byte_progress(library, 310U * 1024U, 500U * 1024U, true);
+        static_cast<void>(check(library, "exporting"));
+
+        lib::finish_export(library);
+        static_cast<void>(check(library, "done"));
+        OA_CHECK(
+            fixture::named(laid_out(library, {}, named.frame), "library.export.show-folder") !=
+            nullptr
+        );
+
+        lib::open_export(library, offer);
+        lib::fail_export(library, "There is no room in Downloads.");
+        list = check(library, "problem");
+        const kit::Control* note = fixture::named(list, "library.export.note");
+        OA_CHECK(note != nullptr && note->text.find("no room") != std::string::npos);
+        const kit::Control* choose = fixture::named(list, "library.export.choose");
+        const kit::Control* problem_export = fixture::named(list, "library.export.export");
+        OA_CHECK(choose != nullptr && choose->enabled);
+        OA_CHECK(problem_export != nullptr && !problem_export->enabled);
+        OA_CHECK(export_button_style(list, "library.export.export") == kit::ButtonStyle::plain);
+
+        offer.files.clear();
+        lib::open_export(library, offer);
+        list = check(library, "empty");
+        const kit::Control* empty_export = fixture::named(list, "library.export.export");
+        OA_CHECK(empty_export != nullptr && !empty_export->enabled);
+        OA_CHECK(export_button_style(list, "library.export.export") == kit::ButtonStyle::plain);
+        lib::close_export(library);
+    }
+}
+
+/// A mutator id of 64 bytes, one word, legal for a package key.
+constexpr std::string_view kLongMutatorId =
+    "aaaa-bbbb-cccc-dddd-eeee-ffff-gggg-hhhh-iiii-jjjj-kkkk-llll-mmmm";
+static_assert(kLongMutatorId.size() == 64);
+
+/// The export form's words in one language. The view a lookup returns points
+/// at this map, or at the English pattern, both of which outlive the layout.
+struct ExportTongue {
+    std::map<std::string, std::string> words{};
+
+    /// Returns the translation of an English pattern, or the pattern itself.
+    ///
+    /// @param context the tongue
+    /// @param english the pattern
+    /// @return the text to show
+    static std::string_view lookup(void* context, std::string_view english) {
+        const auto* tongue = static_cast<const ExportTongue*>(context);
+        const auto found = tongue->words.find(std::string(english));
+        if (found == tongue->words.end())
+            return english;
+        return found->second;
+    }
+};
+
+/// Fills the tongue with the export sentences that change the form's height.
+///
+/// @param language en, de, fr, es or it
+/// @return the tongue; English leaves every sentence as written
+ExportTongue export_tongue(std::string_view language) {
+    ExportTongue tongue;
+    const auto put = [&](std::string_view english,
+                         const char* de,
+                         const char* fr,
+                         const char* es,
+                         const char* it) {
+        const char* translation = nullptr;
+        if (language == "de")
+            translation = de;
+        else if (language == "fr")
+            translation = fr;
+        else if (language == "es")
+            translation = es;
+        else if (language == "it")
+            translation = it;
+        if (translation != nullptr)
+            tongue.words.emplace(std::string(english), translation);
+    };
+    put(lib::words::export_title,
+        "{name} exportieren",
+        "Exporter {name}",
+        "Exportar {name}",
+        "Esporta {name}");
+    put(lib::words::export_oademo,
+        "Open Annihilation-Replay (.oademo)",
+        "Replay Open Annihilation (.oademo)",
+        "Repetición de Open Annihilation (.oademo)",
+        "Replay di Open Annihilation (.oademo)");
+    put(lib::words::export_recommended, "Empfohlen", "Recommandé", "Recomendado", "Consigliato");
+    put(lib::words::export_oademo_about,
+        "Alles, was du brauchst, um es anzusehen: die Aufnahme und das Spiel, die Mod und die "
+        "Karte, die es braucht",
+        "Tout ce qu'il faut pour le regarder : l'enregistrement, et le jeu, le mod et la carte "
+        "dont il a besoin",
+        "Todo lo que necesitas para verla: la grabación, y el juego, el mod y el mapa que "
+        "necesita",
+        "Tutto quello che ti serve per guardarlo: la registrazione, e il gioco, la mod e la "
+        "mappa che gli servono");
+    put(lib::words::export_tad_about,
+        "Für TA Demo Recorder und andere Abspieler",
+        "Pour TA Demo Recorder et les autres lecteurs",
+        "Para TA Demo Recorder y otros reproductores",
+        "Per TA Demo Recorder e gli altri lettori");
+    put(lib::words::export_include,
+        "Was enthalten sein soll",
+        "Ce qu'il faut inclure",
+        "Qué incluir",
+        "Cosa includere");
+    put(lib::words::export_oa_sectors,
+        "Was nur Open Annihilation liest",
+        "Ce que seul Open Annihilation lit",
+        "Lo que solo Open Annihilation lee",
+        "Quello che legge solo Open Annihilation");
+    put(lib::words::export_compatibility,
+        "Kompatibilität",
+        "Compatibilité",
+        "Compatibilidad",
+        "Compatibilità");
+    put(lib::words::export_mutator,
+        "Es wurde mit dem Mutator {name} gespielt. Andere Abspieler können ihn nicht anwenden, "
+        "also halten die Kommandanten vielleicht nicht so lange durch wie damals.",
+        "Elle a été jouée avec le mutateur {name}. Les autres lecteurs ne peuvent pas "
+        "l'appliquer, alors les commandants peuvent ne pas tenir comme ils l'ont fait.",
+        "Se jugó con el mutador {name}. Otros reproductores no pueden aplicarlo, así que los "
+        "comandantes pueden no durar como lo hicieron.",
+        "È stata giocata con il mutatore {name}. Gli altri lettori non possono applicarlo, "
+        "quindi i comandanti possono non durare come allora.");
+    put(lib::words::export_mutators,
+        "Es wurde mit Mutatoren gespielt. Andere Abspieler können sie nicht anwenden, also "
+        "halten die Kommandanten vielleicht nicht so lange durch wie damals.",
+        "Elle a été jouée avec des mutateurs. Les autres lecteurs ne peuvent pas les appliquer, "
+        "alors les commandants peuvent ne pas tenir comme ils l'ont fait.",
+        "Se jugó con mutadores. Otros reproductores no pueden aplicarlos, así que los "
+        "comandantes pueden no durar como lo hicieron.",
+        "È stata giocata con dei mutatori. Gli altri lettori non possono applicarli, quindi i "
+        "comandanti possono non durare come allora.");
+    put(lib::words::export_wide,
+        "Andere Abspieler bleiben beim ersten der breiten Waffen-Einträge dieser Mod stehen.",
+        "Les autres lecteurs s'arrêtent au premier des longs enregistrements d'arme de ce mod.",
+        "Otros reproductores se detienen en el primero de los registros de arma anchos de este "
+        "mod.",
+        "Gli altri lettori si fermano al primo dei record di arma larghi di questa mod.");
+    put(lib::words::export_names,
+        "Namen, die länger als 63 Buchstaben sind, werden abgeschnitten.",
+        "Les noms de plus de 63 lettres sont coupés.",
+        "Los nombres de más de 63 letras se cortan.",
+        "I nomi più lunghi di 63 lettere vengono tagliati.");
+    put(lib::words::export_status,
+        "Der Status eines Spielers wird auf 512 Bytes gekürzt.",
+        "L'état d'un joueur est coupé à 512 octets.",
+        "El estado de un jugador se corta a 512 bytes.",
+        "Lo stato di un giocatore viene tagliato a 512 byte.");
+    put(lib::words::export_more_warnings,
+        "Weitere Warnungen",
+        "Plus d'avertissements",
+        "Más avisos",
+        "Altri avvisi");
+    put(lib::words::export_previous_warnings,
+        "Vorherige Warnungen",
+        "Avertissements précédents",
+        "Avisos anteriores",
+        "Avvisi precedenti");
+    put(lib::words::use_where, "Wo", "Où", "Dónde", "Dove");
+    put(lib::words::export_choose, "Wählen…", "Choisir…", "Elegir…", "Scegli…");
+    put(lib::words::export_confirm, "Exportieren", "Exporter", "Exportar", "Esporta");
+    put(lib::words::action_cancel, "Abbrechen", "Annuler", "Cancelar", "Annulla");
+    return tongue;
+}
+
+/// The warning controls on one page, in the order they are drawn.
+///
+/// @param list the display list
+/// @return each warning's name
+std::vector<std::string> export_warning_names(const kit::DisplayList& list) {
+    std::vector<std::string> names;
+    for (const kit::Control& control : list.controls)
+        if (starts(control.name, "library.export.warning."))
+            names.push_back(control.name);
+    return names;
+}
+
+/// The warning number at the end of a control's name.
+///
+/// @param name the control's name
+/// @return the number, or -1 when the name has none
+int export_warning_place(std::string_view name) {
+    constexpr std::string_view prefix = "library.export.warning.";
+    int place = 0;
+    bool digits = false;
+    for (std::size_t at = prefix.size(); at < name.size(); ++at) {
+        const char digit = name[at];
+        if (digit < '0' || digit > '9')
+            break;
+        digits = true;
+        place = place * 10 + (digit - '0');
+    }
+    return digits ? place : -1;
+}
+
+/// Lays one `.tad` page out and checks it stays inside the window.
+///
+/// @param library the model
+/// @param frame the frame
+/// @param where the case
+/// @return the display list
+kit::DisplayList
+laid_export_page(const lib::Library& library, const kit::Frame& frame, const std::string& where) {
+    const kit::DisplayList list = laid_out(library, {}, frame);
+    const kit::Point window = lib::window_size(frame);
+    OA_EXPECT_NONE(fixture::outside_window(list, window), where);
+    OA_EXPECT_NONE(meeting_controls(list), where);
+    OA_EXPECT_NONE(order_problems(list), where);
+    OA_EXPECT_NONE(name_problems(list), where);
+    OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), where);
+    const kit::Control* foot_cancel = fixture::named(list, "library.export.cancel");
+    const kit::Control* foot_export = fixture::named(list, "library.export.export");
+    OA_CHECK(foot_cancel != nullptr && foot_export != nullptr);
+    if (foot_cancel != nullptr && foot_export != nullptr) {
+        const int32_t foot = std::min(foot_cancel->rect.y, foot_export->rect.y);
+        for (const kit::Control& control : list.controls) {
+            if (!starts(control.name, "library.export.") ||
+                control.name == "library.export.block" || control.name == "library.export.cancel" ||
+                control.name == "library.export.export")
+                continue;
+            const kit::Rect area = fixture::press_area(control);
+            if (!fixture::has_room(area))
+                continue;
+            OA_CHECK(area.y + area.height < foot);
+        }
+    }
+    OA_CHECK(fixture::named(list, "library.export.more") == nullptr);
+    return list;
+}
+
+/// Walks the warning pages. Each warning is on one page, the pages are whole
+/// sets, and More and Previous visit them in order.
+///
+/// @param[in,out] library the model, with the dialog open on a `.tad`
+/// @param frame the frame
+/// @param where the case
+void expect_export_warning_pages(
+    lib::Library& library, const kit::Frame& frame, std::string_view where
+) {
+    std::vector<std::vector<std::string>> pages;
+    bool ended = false;
+    for (int guard = 0; guard < 8; ++guard) {
+        const std::string page_where = std::string(where) + " page " + std::to_string(guard);
+        const kit::DisplayList list = laid_export_page(library, frame, page_where);
+        const std::vector<std::string> names = export_warning_names(list);
+        OA_CHECK(!names.empty());
+        if (guard == 0) {
+            const kit::Control* first = fixture::named(list, "library.export.warning.0");
+            OA_CHECK(first != nullptr && first->text.find(kLongMutatorId) != std::string::npos);
+        }
+        for (std::size_t at = 1; at < names.size(); ++at)
+            OA_CHECK(export_warning_place(names[at]) == export_warning_place(names[at - 1]) + 1);
+        pages.push_back(names);
+        if (fixture::named(list, "library.export.warnings.more") == nullptr) {
+            ended = true;
+            break;
+        }
+        const std::size_t before = library.export_dialog.warning_first;
+        lib::scroll_export_warnings(library.export_dialog, 1);
+        OA_CHECK(library.export_dialog.warning_first != before);
+    }
+    OA_CHECK(ended);
+    std::vector<int> seen;
+    for (const std::vector<std::string>& page : pages) {
+        OA_CHECK(!page.empty());
+        const int front = export_warning_place(page.front());
+        if (!seen.empty())
+            OA_CHECK(front == seen.back() + 1);
+        for (const std::string& name : page)
+            seen.push_back(export_warning_place(name));
+    }
+    OA_CHECK(seen.size() == 4);
+    for (int place = 0; place < 4; ++place)
+        OA_CHECK(seen[static_cast<std::size_t>(place)] == place);
+
+    for (std::size_t back = pages.size(); back-- > 1;) {
+        lib::scroll_export_warnings(library.export_dialog, -1);
+        const std::string page_where = std::string(where) + " back " + std::to_string(back);
+        const kit::DisplayList list = laid_export_page(library, frame, page_where);
+        OA_CHECK(export_warning_names(list) == pages[back - 1]);
+    }
+}
+
+/// Opens a `.tad` of one replay with all four warnings and the long mutator id.
+///
+/// @param[in,out] library the model
+void open_long_mutator_export(lib::Library& library) {
+    lib::ExportFile file;
+    file.path = "default/show-down.oademo";
+    file.title = "Show Down, a very long map name that goes on past sixty-three letters";
+    file.oademo_bytes = 492U * 1024U;
+    file.tad_bytes = 600U * 1024U;
+    file.tad_without_bytes = 500U * 1024U;
+    file.ready = true;
+    file.names_cut = true;
+    file.status_cut = true;
+    file.wide_records = true;
+    file.mutators = true;
+    file.mutator_ids.emplace_back(kLongMutatorId);
+    lib::ExportOffer offer;
+    offer.folder = "/home/player/Downloads";
+    offer.folder_label = "Downloads";
+    offer.folder_is_downloads = true;
+    offer.files.push_back(std::move(file));
+    lib::open_export(library, std::move(offer));
+    lib::set_export_format(library, lib::ExportFormat::tad);
+}
+
+/// At 640×480, in each built-in language, a 64-byte mutator id still shows a
+/// warning, and the pager moves by whole sets. The synthetic face is narrower
+/// than the game's, so a second case pads the mutator sentence until the page
+/// has to cut it.
+void export_long_mutator_pages() {
+    const std::vector<fixture::NamedFrame> frames = fixture::frames();
+    const fixture::NamedFrame* compact = nullptr;
+    for (const fixture::NamedFrame& named : frames)
+        if (named.name == "640x480")
+            compact = &named;
+    OA_CHECK(compact != nullptr);
+    if (compact == nullptr)
+        return;
+    for (const char* language : {"en", "de", "fr", "es", "it"}) {
+        ExportTongue tongue = export_tongue(language);
+        lib::Library library = fixture::replay_library();
+        library.text.context = &tongue;
+        library.text.shown = &ExportTongue::lookup;
+        open_long_mutator_export(library);
+        expect_export_warning_pages(library, compact->frame, std::string(language) + " long id");
+        lib::close_export(library);
+    }
+
+    // The mutator sentence, then enough words that it is taller than the page.
+    struct TallTongue {
+        std::string mutator{};
+
+        static std::string_view lookup(void* context, std::string_view english) {
+            const auto* tongue = static_cast<const TallTongue*>(context);
+            if (english == lib::words::export_mutator)
+                return tongue->mutator;
+            return english;
+        }
+    };
+
+    TallTongue tall;
+    tall.mutator = std::string(lib::words::export_mutator);
+    for (int repeat = 0; repeat < 400; ++repeat)
+        tall.mutator += " word";
+    lib::Library library = fixture::replay_library();
+    library.text.context = &tall;
+    library.text.shown = &TallTongue::lookup;
+    open_long_mutator_export(library);
+
+    // The cut warning ends with the kit's ellipsis, as its other cuts do, and
+    // its label still reads the whole sentence.
+    const kit::DisplayList cut_page = laid_export_page(library, compact->frame, "tall warning cut");
+    const kit::Control* cut_warning = fixture::named(cut_page, "library.export.warning.0");
+    OA_CHECK(cut_warning != nullptr);
+    if (cut_warning != nullptr) {
+        OA_CHECK(cut_warning->text.ends_with(" word"));
+        const kit::Rect box = cut_warning->rect;
+        const kit::Item* last_line = nullptr;
+        std::size_t lines = 0;
+        for (const kit::Item& item : cut_page.items) {
+            if (item.role != kit::Role::text || item.rect.x != box.x || item.rect.y < box.y ||
+                item.rect.y + item.rect.height > box.y + box.height)
+                continue;
+            ++lines;
+            last_line = &item;
+        }
+        OA_CHECK(lines >= 1 && last_line != nullptr);
+        if (last_line != nullptr)
+            OA_CHECK(last_line->text.ends_with("...") || last_line->text.ends_with("\xE2\x80\xA6"));
+    }
+
+    expect_export_warning_pages(library, compact->frame, "tall warning");
+    lib::close_export(library);
+}
+
+/// The card's button captions in one language. The note stays English.
+void fill_card_tongue(ExportTongue& tongue, std::string_view language) {
+    const auto put = [&](std::string_view english, const char* de) {
+        if (language == "de")
+            tongue.words.emplace(std::string(english), de);
+    };
+    put(lib::words::action_watch, "Ansehen");
+    put(lib::words::action_export, "Exportieren");
+    put(lib::words::action_keep, "Behalten");
+    put(lib::words::action_delete_replay, "Replay löschen");
+    put(lib::words::action_open_folder, "Ordner öffnen");
+    put(lib::words::action_open_shared, "Auf Core Prime öffnen");
+    put(lib::words::action_share_own, "Meine eigene Aufnahme teilen");
+    put(lib::words::replay_won, "Gewonnen");
+    put(lib::words::replay_lost, "Verloren");
+    put(lib::words::replay_kills_many, "{kills} Abschüsse");
+    put(lib::words::replay_losses_many, "{losses} Verluste");
+    put(lib::words::replay_fact_length, "Länge");
+    put(lib::words::replay_fact_recorded, "Aufgenommen");
+}
+
+/// The sign-in and share questions' words in one language. Unlisted words stay English.
+void fill_account_tongue(ExportTongue& tongue, std::string_view language) {
+    const auto put = [&](std::string_view english,
+                         const char* de,
+                         const char* fr,
+                         const char* es,
+                         const char* it) {
+        const char* translation = nullptr;
+        if (language == "de")
+            translation = de;
+        else if (language == "fr")
+            translation = fr;
+        else if (language == "es")
+            translation = es;
+        else if (language == "it")
+            translation = it;
+        if (translation != nullptr)
+            tongue.words.emplace(std::string(english), translation);
+    };
+    put(lib::words::action_cancel, "Abbrechen", "Annuler", "Cancelar", "Annulla");
+    put(lib::words::action_sign_in, "Anmelden", "Connexion", "Entrar", "Entra");
+    put(lib::words::sign_in_title,
+        "Bei Core Prime anmelden",
+        "Connexion à Core Prime",
+        "Entrar en Core Prime",
+        "Entra in Core Prime");
+    put(lib::words::sign_in_handle, "Name", "Pseudo", "Usuario", "Nome");
+    put(lib::words::sign_in_password, "Passwort", "Mot de passe", "Contraseña", "Password");
+    put(lib::words::sign_in_forgot,
+        "Vergessen? Setz es auf coreprime.net/forgot zurück",
+        "Oublié ? Réinitialise-le sur coreprime.net/forgot",
+        "¿Lo olvidaste? Restablécelo en coreprime.net/forgot",
+        "Dimenticata? Reimpostala su coreprime.net/forgot");
+    put(lib::words::sign_in_busy, "Anmeldung…", "Connexion…", "Entrando…", "Accesso…");
+    put(lib::words::share_title,
+        "Auf Core Prime teilen",
+        "Partager sur Core Prime",
+        "Compartir en Core Prime",
+        "Condividi su Core Prime");
+    put(lib::words::share_title_label, "Titel", "Titre", "Título", "Titolo");
+    put(lib::words::share_public, "Öffentlich", "Public", "Público", "Pubblico");
+    put(lib::words::share_unlisted,
+        "Nicht gelistet",
+        "Non répertorié",
+        "No listado",
+        "Non in elenco");
+    put(lib::words::share_confirm, "Teilen", "Partager", "Compartir", "Condividi");
+    put(lib::words::share_busy, "Wird geteilt…", "Partage…", "Compartiendo…", "Condivisione…");
+}
+
+/// A card that shows nothing of Core Prime keeps the layout it had before
+/// sharing: full buttons, and Length and Recorded after the players, even
+/// when eight players with their result lines fill the pane and the card
+/// scrolls to its facts. Compact shows the card on a page of its own.
+void a_crowded_card_without_core_prime_keeps_its_layout() {
+    const auto picture = [](const std::string& name, int32_t width, int32_t height) {
+        kit::Viewport viewport;
+        viewport.width = width;
+        viewport.height = height;
+        viewport.scale_percent = 100;
+        return fixture::NamedFrame{name, kit::frame_of(viewport)};
+    };
+    std::vector<fixture::NamedFrame> frames = fixture::frames();
+    frames.push_back(picture("960x540", 960, 540));
+    frames.push_back(picture("1280x720", 1280, 720));
+    const std::array<const char*, 8> names{
+        "Varn", "Bex", "Morrow", "Sato", "Kestrel", "Halvard", "Tamsin", "Quill"
+    };
+    for (const fixture::NamedFrame& named : frames) {
+        if (named.frame.size_class == kit::SizeClass::compact)
+            continue;
+        lib::Library library = fixture::replay_library();
+        lib::Inputs inputs = library.inputs;
+        for (lib::ReplayRow& row : inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            row.replay.players.clear();
+            row.standings.clear();
+            for (std::size_t place = 0; place < names.size(); ++place) {
+                oa::data::replays::Player player;
+                player.number = static_cast<int32_t>(place + 1);
+                player.name = names[place];
+                player.colour = static_cast<int32_t>(place);
+                player.side = place % 2 == 0 ? "arm" : "core";
+                player.kind = "human";
+                row.replay.players.push_back(std::move(player));
+                lib::PlayerStanding standing;
+                standing.known = true;
+                standing.result = place == 0 ? lib::RecordedResult::won : lib::RecordedResult::lost;
+                standing.kills = 12;
+                standing.losses = 3;
+                row.standings.push_back(standing);
+            }
+            row.length_ticks = 42965;
+            row.recorded = lib::RecordedResult::won;
+        }
+        lib::refresh(library, std::move(inputs));
+        lib::set_tab(library, lib::Tab::replays);
+        lib::select_replay(library, "default/coast.oademo");
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+
+        // The same frame's one-player card, which fits: its buttons are full.
+        lib::Library roomy = fixture::replay_library();
+        lib::select_replay(roomy, "default/campaign.oademo");
+        const kit::DisplayList roomy_list = laid_out(roomy, {}, named.frame);
+
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        const kit::Control* roomy_watch = fixture::named(roomy_list, "library.action.watch");
+        const kit::Control* length = fixture::named(list, "library.fact.length");
+        const kit::Item* last_player = nullptr;
+        for (const kit::Item& item : list.items) {
+            if (item.text == names.back())
+                last_player = &item;
+        }
+        OA_CHECK(watch != nullptr && roomy_watch != nullptr);
+        OA_CHECK(length != nullptr && last_player != nullptr);
+        std::vector<std::string> problems;
+        if (watch != nullptr && roomy_watch != nullptr &&
+            watch->rect.height != roomy_watch->rect.height)
+            problems.push_back(
+                "Watch is " + std::to_string(watch->rect.height) + " high, not " +
+                std::to_string(roomy_watch->rect.height)
+            );
+        if (length != nullptr && last_player != nullptr && length->rect.y <= last_player->rect.y)
+            problems.push_back(
+                "Length at " + std::to_string(length->rect.y) + " is above the last player at " +
+                std::to_string(last_player->rect.y)
+            );
+        OA_EXPECT_NONE(problems, named.name + " eight players, nothing of Core Prime");
+    }
+}
+
+/// A card that shows nothing of Core Prime draws its facts as it did before
+/// sharing: a fact's line that meets the pane's edge is drawn, and the pane
+/// cuts it, so every fact's label is in the display list at every height. A
+/// signed-in card, which offers Share, leaves such a line out instead. The
+/// card of a Regular frame and Compact's page are swept.
+void a_card_without_core_prime_draws_the_lines_it_cuts() {
+    const std::array<const char*, 8> names{
+        "Varn", "Bex", "Morrow", "Sato", "Kestrel", "Halvard", "Tamsin", "Quill"
+    };
+    const auto crowded = [&](bool signed_in) {
+        lib::Library library = fixture::replay_library();
+        lib::Inputs inputs = library.inputs;
+        inputs.replays.core_sign_in_secure = signed_in;
+        inputs.replays.core_sign_in_offered = signed_in;
+        inputs.replays.core_signed_in = signed_in;
+        inputs.replays.core_handle = signed_in ? "nj" : "";
+        for (lib::ReplayRow& row : inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            row.replay.players.clear();
+            row.standings.clear();
+            for (std::size_t place = 0; place < names.size(); ++place) {
+                oa::data::replays::Player player;
+                player.number = static_cast<int32_t>(place + 1);
+                player.name = names[place];
+                player.colour = static_cast<int32_t>(place);
+                player.side = place % 2 == 0 ? "arm" : "core";
+                player.kind = "human";
+                row.replay.players.push_back(std::move(player));
+            }
+        }
+        lib::refresh(library, std::move(inputs));
+        lib::set_tab(library, lib::Tab::replays);
+        lib::select_replay(library, "default/coast.oademo");
+        return library;
+    };
+    const auto meets_edge = [](const kit::Item& item) {
+        const kit::Rect& line = item.rect;
+        const kit::Rect& clip = item.clip;
+        const bool outside = line.x + line.width <= clip.x || clip.x + clip.width <= line.x ||
+                             line.y + line.height <= clip.y || clip.y + clip.height <= line.y;
+        const bool inside = line.x >= clip.x && line.y >= clip.y &&
+                            line.x + line.width <= clip.x + clip.width &&
+                            line.y + line.height <= clip.y + clip.height;
+        return !outside && !inside;
+    };
+    for (const bool signed_in : {false, true}) {
+        const lib::Library library = crowded(signed_in);
+        const lib::ReplayRow* row = lib::selected_replay(library);
+        OA_CHECK(row != nullptr);
+        if (row == nullptr)
+            continue;
+        const std::vector<lib::ReplayFact> facts = lib::replay_facts(library, *row);
+        OA_CHECK(facts.size() >= 3);
+        bool offers_share = false;
+        for (const lib::ReplayButton& button : lib::replay_buttons(library))
+            offers_share = offers_share || button.action == lib::Action::share_replay;
+        OA_CHECK(offers_share == signed_in);
+        int32_t cut_drawn = 0;
+        std::vector<std::string> problems;
+        for (const bool compact : {false, true}) {
+            lib::ScreenState state;
+            state.replay_page = compact;
+            for (int32_t height = 480; height >= 330; height -= 2) {
+                const kit::Frame frame{
+                    {0, 0, compact ? 640 : 720, height},
+                    compact ? kit::SizeClass::compact : kit::SizeClass::regular,
+                    100
+                };
+                const kit::DisplayList list = laid_out(library, state, frame);
+                const std::string where = std::string(compact ? "compact" : "regular") + " " +
+                                          std::to_string(height) +
+                                          (signed_in ? " signed in" : " signed out");
+                for (const lib::ReplayFact& fact : facts) {
+                    const kit::Item* label = nullptr;
+                    for (const kit::Item& item : list.items) {
+                        if (item.role == kit::Role::text && item.text == fact.label)
+                            label = &item;
+                    }
+                    if (signed_in) {
+                        if (label != nullptr && meets_edge(*label))
+                            problems.push_back(where + ": " + fact.label + " is drawn cut");
+                        continue;
+                    }
+                    if (label == nullptr) {
+                        problems.push_back(where + ": " + fact.label + " is not drawn");
+                        continue;
+                    }
+                    if (meets_edge(*label))
+                        ++cut_drawn;
+                }
+            }
+        }
+        OA_EXPECT_NONE(problems, signed_in ? "signed in" : "signed out");
+        // The sweep reaches heights where the pane's edge cuts a fact's line.
+        if (!signed_in)
+            OA_CHECK(cut_drawn > 0);
+    }
+}
+
+/// Both questions at every frame and language: nothing leaves the window, a
+/// press lands on one control, and the words fit. While one is in flight the
+/// question says so and Cancel still stops it. Sign in sits with the source
+/// switch. A listed two-player battle keeps Length and Recorded whole, above
+/// the first button, at 960×540, 1280×720 and 1920×1080, in English and
+/// German. The header's day and length line is not those facts. 640×480
+/// scrolls to them.
+void account_questions_lay_out() {
+    const auto picture = [](const std::string& name, int32_t width, int32_t height) {
+        kit::Viewport viewport;
+        viewport.width = width;
+        viewport.height = height;
+        viewport.scale_percent = 100;
+        return fixture::NamedFrame{name, kit::frame_of(viewport)};
+    };
+    std::vector<fixture::NamedFrame> frames = fixture::frames();
+    frames.push_back(picture("1280x720", 1280, 720));
+    const auto check =
+        [](const lib::Library& library, const kit::Frame& frame, const std::string& where) {
+            const kit::DisplayList list = laid_out(library, {}, frame);
+            const kit::Point window = lib::window_size(frame);
+            OA_EXPECT_NONE(fixture::outside_window(list, window), where);
+            OA_EXPECT_NONE(meeting_controls(list), where);
+            OA_EXPECT_NONE(order_problems(list), where);
+            OA_EXPECT_NONE(name_problems(list), where);
+            OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), where);
+            return list;
+        };
+    for (const char* language : {"en", "de", "fr", "es", "it"}) {
+        ExportTongue tongue;
+        fill_account_tongue(tongue, language);
+        const bool english = std::string_view(language) == "en";
+        const std::string signing = english
+                                        ? std::string(lib::words::sign_in_busy)
+                                        : tongue.words.at(std::string(lib::words::sign_in_busy));
+        const std::string sharing = english ? std::string(lib::words::share_busy)
+                                            : tongue.words.at(std::string(lib::words::share_busy));
+        for (const fixture::NamedFrame& named : frames) {
+            const std::string where = std::string(language) + " " + named.name;
+            lib::Library library = fixture::replay_library();
+            library.text.context = &tongue;
+            library.text.shown = &ExportTongue::lookup;
+            lib::set_tab(library, lib::Tab::replays);
+            lib::open_sign_in(library);
+            library.sign_in.handle = "nj";
+            library.sign_in.password = "secret";
+            kit::DisplayList list = check(library, named.frame, where + " sign-in");
+            const kit::Control* handle = fixture::named(list, "library.sign-in.handle");
+            const kit::Control* password = fixture::named(list, "library.sign-in.password");
+            const kit::Control* submit = fixture::named(list, "library.sign-in.submit");
+            const kit::Control* cancel = fixture::named(list, "library.sign-in.cancel");
+            const kit::Control* note = fixture::named(list, "library.sign-in.note");
+            OA_CHECK(handle != nullptr && password != nullptr);
+            OA_CHECK(submit != nullptr && submit->enabled);
+            OA_CHECK(cancel != nullptr && cancel->enabled);
+            OA_CHECK(
+                note != nullptr && note->text.find("coreprime.net/forgot") != std::string::npos
+            );
+            library.sign_in.busy = true;
+            list = check(library, named.frame, where + " signing in");
+            note = fixture::named(list, "library.sign-in.note");
+            submit = fixture::named(list, "library.sign-in.submit");
+            cancel = fixture::named(list, "library.sign-in.cancel");
+            OA_CHECK(note != nullptr && note->text == signing);
+            OA_CHECK(submit != nullptr && !submit->enabled);
+            OA_CHECK(cancel != nullptr && cancel->enabled);
+            lib::ScreenState state;
+            const lib::ScreenResult stopped = click(library, state, list, "library.sign-in.cancel");
+            OA_CHECK(stopped.action == lib::Action::cancel_sign_in);
+            OA_CHECK(library.sign_in.open);
+
+            lib::open_share_question(library, "default/show-down.oademo", "Show Down");
+            OA_CHECK(library.share_question.open && !library.sign_in.open);
+            list = check(library, named.frame, where + " share");
+            const kit::Control* title = fixture::named(list, "library.share.title");
+            const kit::Control* listed = fixture::named(list, "library.share.public");
+            const kit::Control* unlisted = fixture::named(list, "library.share.unlisted");
+            submit = fixture::named(list, "library.share.submit");
+            cancel = fixture::named(list, "library.share.cancel");
+            OA_CHECK(title != nullptr && listed != nullptr && unlisted != nullptr);
+            OA_CHECK(submit != nullptr && submit->enabled);
+            OA_CHECK(cancel != nullptr && cancel->enabled);
+            library.share_question.busy = true;
+            list = check(library, named.frame, where + " sharing");
+            note = fixture::named(list, "library.share.note");
+            submit = fixture::named(list, "library.share.submit");
+            cancel = fixture::named(list, "library.share.cancel");
+            OA_CHECK(note != nullptr && note->text == sharing);
+            OA_CHECK(submit != nullptr && !submit->enabled);
+            OA_CHECK(cancel != nullptr && cancel->enabled);
+            const lib::ScreenResult share_stopped =
+                click(library, state, list, "library.share.cancel");
+            OA_CHECK(share_stopped.action == lib::Action::cancel_share);
+            OA_CHECK(library.share_question.open);
+            lib::close_share_question(library);
+        }
+    }
+
+    const auto with_account = [](bool secure, bool signed_in) {
+        lib::Library library = fixture::replay_library();
+        lib::Inputs inputs = library.inputs;
+        inputs.replays.core_sign_in_secure = secure;
+        inputs.replays.core_sign_in_offered = secure;
+        inputs.replays.core_signed_in = signed_in;
+        inputs.replays.core_handle = signed_in ? "nj" : "";
+        inputs.replays.core_battle = true;
+        inputs.replays.core_listing = lib::CoreListing::listed;
+        inputs.replays.core_listing_path = "default/show-down.oademo";
+        inputs.replays.core_listing_id = "r1";
+        inputs.replays.core_share_path = "default/show-down.oademo";
+        inputs.replays.core_share_note = "Already on Core Prime";
+        for (lib::ReplayRow& row : inputs.replays.rows) {
+            if (row.replay.path != "default/show-down.oademo")
+                continue;
+            row.length_ticks = 42965;
+            row.standings.resize(row.replay.players.size());
+            if (row.standings.size() >= 2) {
+                row.standings[0].result = lib::RecordedResult::won;
+                row.standings[0].known = true;
+                row.standings[0].kills = 41;
+                row.standings[0].losses = 12;
+                row.standings[1].result = lib::RecordedResult::lost;
+                row.standings[1].known = true;
+                row.standings[1].kills = 12;
+                row.standings[1].losses = 41;
+            }
+            row.recorded = lib::RecordedResult::won;
+        }
+        lib::refresh(library, std::move(inputs));
+        lib::set_tab(library, lib::Tab::replays);
+        lib::select_replay(library, "default/show-down.oademo");
+        return library;
+    };
+    for (const fixture::NamedFrame& named : frames) {
+        const bool compact = named.frame.size_class == kit::SizeClass::compact;
+        for (const lib::ReplaySource source :
+             {lib::ReplaySource::computer, lib::ReplaySource::core_prime}) {
+            lib::Library library = with_account(false, false);
+            lib::set_replay_source(library, source);
+            const kit::DisplayList list = check(library, named.frame, named.name + " needs tls");
+            const kit::Control* secure = fixture::named(list, "library.replays.sign-in.secure");
+            OA_CHECK(secure != nullptr && secure->text == lib::words::sign_in_needs_secure);
+            OA_CHECK(fixture::named(list, "library.action.sign-in") == nullptr);
+            OA_CHECK(fixture::named(list, "library.action.sign-out") == nullptr);
+            const kit::Control* card_note = fixture::named(list, "library.note");
+            if (card_note != nullptr)
+                OA_CHECK(card_note->text.find("secure connection") == std::string::npos);
+        }
+        lib::Library offered = with_account(true, false);
+        kit::DisplayList list = check(offered, named.frame, named.name + " sign in offered");
+        const kit::Control* sign_in = fixture::named(list, "library.action.sign-in");
+        const kit::Control* computer = fixture::named(list, "library.replays.source.computer");
+        OA_CHECK(sign_in != nullptr && sign_in->focusable && computer != nullptr);
+        if (sign_in != nullptr && computer != nullptr) {
+            OA_CHECK(sign_in->rect.y >= computer->rect.y);
+            OA_CHECK(sign_in->rect.y <= computer->rect.y + 2 * computer->rect.height);
+            OA_CHECK(
+                std::find(list.tab_order.begin(), list.tab_order.end(), sign_in->id) !=
+                list.tab_order.end()
+            );
+        }
+        OA_CHECK(fixture::named(list, "library.replays.sign-in.secure") == nullptr);
+
+        lib::Library signed_in = with_account(true, true);
+        lib::ScreenState state;
+        state.replay_page = compact;
+        list = laid_out(signed_in, state, named.frame);
+        const kit::Point window = lib::window_size(named.frame);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " listed card");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " listed card");
+        const kit::Control* sign_out = fixture::named(list, "library.action.sign-out");
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        OA_CHECK(fixture::named(list, "library.action.sign-in") == nullptr);
+        if (!compact) {
+            computer = fixture::named(list, "library.replays.source.computer");
+            OA_CHECK(sign_out != nullptr && computer != nullptr);
+            if (sign_out != nullptr && computer != nullptr)
+                OA_CHECK(sign_out->rect.y <= computer->rect.y + 2 * computer->rect.height);
+            if (sign_out != nullptr && watch != nullptr)
+                OA_CHECK(sign_out->rect.y + sign_out->rect.height <= watch->rect.y);
+        }
+        const kit::Control* note = fixture::named(list, "library.note");
+        OA_CHECK(
+            note != nullptr &&
+            note->text.find("On Core Prime\nAlready on Core Prime") != std::string::npos
+        );
+        for (const kit::Item& item : list.items) {
+            if (item.role != kit::Role::text)
+                continue;
+            OA_CHECK(item.text.find("On Core Prime Already") == std::string::npos);
+        }
+        // 1280×720 is the crowded card: Length and Recorded stay whole, above
+        // the buttons. 640×480 is Compact's replay page, which scrolls; Length
+        // is on screen, and Recorded comes into view at the foot.
+        if (named.name == "1280x720" || named.name == "640x480") {
+            const kit::Control* length = fixture::named(list, "library.fact.length");
+            OA_CHECK(length != nullptr && in_view(*length));
+        }
+        if (named.name == "1280x720") {
+            const kit::Control* recorded = fixture::named(list, "library.fact.recorded");
+            OA_CHECK(recorded != nullptr && in_view(*recorded));
+        }
+        if (named.name == "640x480") {
+            lib::ScreenState scrolled = state;
+            scrolled.details_scroll = 1 << 20;
+            const kit::DisplayList foot = laid_out(signed_in, scrolled, named.frame);
+            OA_EXPECT_NONE(fixture::outside_window(foot, window), named.name + " scrolled facts");
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(foot, fonts()), named.name + " scrolled facts"
+            );
+            const kit::Control* recorded = fixture::named(foot, "library.fact.recorded");
+            OA_CHECK(recorded != nullptr && in_view(*recorded));
+        }
+    }
+
+    // The header line is not a substitute: both facts stay whole and above
+    // Watch, with two players and their result lines, in English and German.
+    // The game lays the Library out in the 4:3 frame its window holds, in
+    // the window's class: a 960×540 window is a Regular 720×540 frame, and
+    // 1280×720 a Large 960×720 one.
+    const fixture::NamedFrame card_frames[] = {
+        picture("960x540", 960, 540),
+        picture("1280x720", 1280, 720),
+        picture("1920x1080", 1920, 1080),
+        {"regular 720x540", {{0, 0, 720, 540}, kit::SizeClass::regular, 100}},
+        {"large 960x720", {{0, 0, 960, 720}, kit::SizeClass::large, 100}},
+    };
+    for (const char* language : {"en", "de"}) {
+        ExportTongue tongue;
+        fill_card_tongue(tongue, language);
+        for (const fixture::NamedFrame& named : card_frames) {
+            for (const bool caution : {true, false}) {
+                lib::Library signed_in = with_account(true, true);
+                // A listed battle's caution sits on the card. Length and Recorded
+                // stay whole above Watch with that caution, and without it, as
+                // the launch check's own battle shows only On Core Prime.
+                for (lib::ReplayRow& row : signed_in.inputs.replays.rows) {
+                    if (row.replay.path != "default/show-down.oademo" || !caution)
+                        continue;
+                    oa::data::replays::ContentGap gap;
+                    gap.kind = oa::data::replays::GapKind::mod_missing;
+                    gap.name = "Ridge";
+                    gap.version = "0.4.0";
+                    gap.revision = 1;
+                    row.gaps.push_back(std::move(gap));
+                }
+                if (!caution) {
+                    lib::Inputs inputs = signed_in.inputs;
+                    inputs.replays.core_share_path.clear();
+                    inputs.replays.core_share_note.clear();
+                    lib::refresh(signed_in, std::move(inputs));
+                    lib::select_replay(signed_in, "default/show-down.oademo");
+                }
+                signed_in.text.context = &tongue;
+                signed_in.text.shown = &ExportTongue::lookup;
+                const std::string where = std::string(language) + " " + named.name +
+                                          " two players" + (caution ? " with a caution" : "");
+                const kit::DisplayList list = check(signed_in, named.frame, where);
+                const kit::Control* length = fixture::named(list, "library.fact.length");
+                const kit::Control* recorded = fixture::named(list, "library.fact.recorded");
+                const kit::Control* watch = fixture::named(list, "library.action.watch");
+                OA_CHECK(length != nullptr && in_view(*length) && length->rect.height >= 12);
+                OA_CHECK(recorded != nullptr && in_view(*recorded) && recorded->rect.height >= 12);
+                OA_CHECK(watch != nullptr);
+                if (length != nullptr && watch != nullptr)
+                    OA_CHECK(length->rect.y + length->rect.height <= watch->rect.y);
+                if (recorded != nullptr && watch != nullptr)
+                    OA_CHECK(recorded->rect.y + recorded->rect.height <= watch->rect.y);
+                std::vector<std::string> problems;
+                if (length == nullptr || !in_view(*length))
+                    problems.push_back("Length is not whole in view");
+                if (recorded == nullptr || !in_view(*recorded))
+                    problems.push_back("Recorded is not whole in view");
+                OA_EXPECT_NONE(problems, where);
+            }
+        }
+        lib::Library signed_out = with_account(true, false);
+        signed_out.text.context = &tongue;
+        signed_out.text.shown = &ExportTongue::lookup;
+        const kit::DisplayList out =
+            check(signed_out, card_frames[1].frame, std::string(language) + " signed out listed");
+        OA_CHECK(fixture::named(out, "library.action.open-shared") != nullptr);
+        OA_CHECK(fixture::named(out, "library.action.share") == nullptr);
+    }
+
+    // A card so short that Length and Recorded sit under the title: they take
+    // the place of its day-and-length line, and at some of those heights both
+    // stay whole above Watch.
+    ExportTongue german;
+    fill_card_tongue(german, "de");
+    int32_t under_title = 0;
+    int32_t whole = 0;
+    for (int32_t height = 486; height >= 330; height -= 4) {
+        lib::Library signed_in = with_account(true, true);
+        signed_in.text.context = &german;
+        signed_in.text.shown = &ExportTongue::lookup;
+        const kit::Frame frame{{0, 0, 720, height}, kit::SizeClass::regular, 100};
+        const kit::DisplayList list = laid_out(signed_in, {}, frame);
+        const kit::Control* length = fixture::named(list, "library.fact.length");
+        const kit::Control* recorded = fixture::named(list, "library.fact.recorded");
+        const kit::Control* watch = fixture::named(list, "library.action.watch");
+        const kit::Control* note = fixture::named(list, "library.note");
+        if (length == nullptr || recorded == nullptr || watch == nullptr || note == nullptr ||
+            length->rect.y > note->rect.y)
+            continue;
+        ++under_title;
+        const lib::ReplayRow* row = lib::find_replay(signed_in, "default/show-down.oademo");
+        OA_CHECK(row != nullptr);
+        if (row == nullptr)
+            continue;
+        const std::string when = lib::replay_when_line(signed_in, *row);
+        std::vector<std::string> problems;
+        for (const kit::Item& item : list.items) {
+            if (item.text == when)
+                problems.push_back("the day-and-length line \"" + when + "\" is still drawn");
+        }
+        OA_EXPECT_NONE(problems, "de 720x" + std::to_string(height) + " facts under the title");
+        if (in_view(*length) && in_view(*recorded) &&
+            recorded->rect.y + recorded->rect.height <= watch->rect.y)
+            ++whole;
+    }
+    OA_CHECK(under_title > 0);
+    OA_CHECK(whole > 0);
+}
+
+/// The Replays switch is one stop, a row whose Left and Right move between
+/// its two sides and stay at either end, and Tab lands on the chosen side.
+/// Core Prime's four filters are one stop, as this computer's are.
+void replay_switch_and_core_filters_are_stops() {
+    for (const lib::ReplaySource source :
+         {lib::ReplaySource::computer, lib::ReplaySource::core_prime}) {
+        lib::Library library = fixture::replay_library();
+        lib::set_tab(library, lib::Tab::replays);
+        lib::set_replay_source(library, source);
+        const kit::DisplayList list = laid_out(library, {}, fixture::frames()[2].frame);
+        const kit::Composite* switch_stop = nullptr;
+        const kit::Composite* filters = nullptr;
+        for (const kit::Composite& composite : list.composites) {
+            if (composite.name == "library.replays.source")
+                switch_stop = &composite;
+            if (composite.name == "library.filters")
+                filters = &composite;
+        }
+        OA_CHECK(
+            switch_stop != nullptr && switch_stop->parts.size() == 2 &&
+            switch_stop->axis == kit::CompositeAxis::row &&
+            switch_stop->role == kit::CompositeRole::tab_list
+        );
+        OA_CHECK(filters != nullptr && filters->parts.size() == 4);
+        const kit::Control* computer = fixture::named(list, "library.replays.source.computer");
+        const kit::Control* core = fixture::named(list, "library.replays.source.core-prime");
+        OA_CHECK(computer != nullptr && core != nullptr);
+        if (switch_stop == nullptr || filters == nullptr || computer == nullptr || core == nullptr)
+            continue;
+        const auto stops = [&list](kit::ControlId id) {
+            return std::count(list.tab_order.begin(), list.tab_order.end(), id);
+        };
+        OA_CHECK(stops(switch_stop->id) == 1);
+        OA_CHECK(stops(computer->id) == 0 && stops(core->id) == 0);
+        OA_CHECK(stops(filters->id) == 1);
+        for (const kit::ControlId part : filters->parts) {
+            OA_CHECK(stops(part) == 0);
+            const kit::Control* filter = kit::control_of(list, part);
+            OA_CHECK(
+                filter != nullptr && (source == lib::ReplaySource::core_prime
+                                          ? starts(filter->name, "library.replays.filter.")
+                                          : starts(filter->name, "library.filter."))
+            );
+        }
+        const kit::ControlId chosen =
+            source == lib::ReplaySource::computer ? computer->id : core->id;
+        OA_CHECK(kit::composite_landing(list, switch_stop->id) == chosen);
+        lib::ScreenState state;
+        state.interaction.focused = computer->id;
+        state.interaction.focus_shown = true;
+        OA_CHECK(!lib::library_key(library, state, list, kit::Key::left).redraw);
+        OA_CHECK(state.interaction.focused == computer->id);
+        OA_CHECK(lib::library_key(library, state, list, kit::Key::right).redraw);
+        OA_CHECK(state.interaction.focused == core->id);
+        OA_CHECK(!lib::library_key(library, state, list, kit::Key::right).redraw);
+        OA_CHECK(state.interaction.focused == core->id);
+        OA_CHECK(library.replays.source == source);
+        OA_EXPECT_NONE(
+            order_problems(list),
+            source == lib::ReplaySource::core_prime ? "Core Prime's replays"
+                                                    : "this computer's replays"
+        );
+    }
+}
+
+/// The tabs, the filters, the tags, the expansion pills and a package's tags
+/// are each one stop. The arrows move inside them and stay at the ends.
+/// A row's GET and UPDATE icons take no key.
+void composites_group_the_stops() {
+    const std::vector<fixture::NamedFrame> frames = fixture::frames();
+    lib::Library active_library = with_ridge();
+    lib::set_tab(active_library, lib::Tab::active);
+    const kit::DisplayList active = laid_out(active_library, {}, frames[1].frame);
+    std::vector<std::string> names;
+    for (const kit::ControlId id : active.tab_order) {
+        if (const kit::Control* control = kit::control_of(active, id))
+            names.push_back(control->name);
+        else
+            for (const kit::Composite& composite : active.composites)
+                if (composite.id == id)
+                    names.push_back(composite.name);
+    }
+    OA_CHECK(names.size() >= 8);
+    if (names.size() >= 8) {
+        OA_CHECK(names[0] == "library.tabs");
+        OA_CHECK(names[1] == "library.active.change");
+        OA_CHECK(names[2] == "library.expansions");
+        OA_CHECK(names[3] == "library.active.unload");
+        OA_CHECK(names[4] == "library.active.keys.change");
+        OA_CHECK(names[5] == "library.active.search");
+    }
+    std::size_t search_at = names.size();
+    std::size_t close_at = names.size();
+    for (std::size_t index = 0; index < names.size(); ++index) {
+        if (names[index] == "library.active.search")
+            search_at = index;
+        if (names[index] == "library.close")
+            close_at = index;
+    }
+    OA_CHECK(search_at < close_at);
+    for (std::size_t index = search_at + 1; index < close_at; ++index)
+        OA_CHECK(starts(names[index], "library.active.from."));
+    OA_CHECK(!names.empty() && names.back() == "library.close-x");
+    if (names.size() >= 2)
+        OA_CHECK(names[names.size() - 2] == "library.close");
+
+    const kit::Control* active_tab = fixture::named(active, "library.tab.active");
+    const kit::Control* replays_tab = fixture::named(active, "library.tab.replays");
+    OA_CHECK(active_tab != nullptr && replays_tab != nullptr);
+    if (active_tab != nullptr && replays_tab != nullptr) {
+        lib::ScreenState state;
+        state.interaction.focused = active_tab->id;
+        state.interaction.focus_shown = true;
+        OA_CHECK(!lib::library_key(active_library, state, active, kit::Key::up).redraw);
+        OA_CHECK(state.interaction.focused == active_tab->id);
+        OA_CHECK(lib::library_key(active_library, state, active, kit::Key::down).redraw);
+        OA_CHECK(state.interaction.focused == replays_tab->id);
+        OA_CHECK(lib::library_key(active_library, state, active, kit::Key::up).redraw);
+        OA_CHECK(state.interaction.focused == active_tab->id);
+    }
+
+    const kit::Composite* expansions = nullptr;
+    for (const kit::Composite& composite : active.composites)
+        if (composite.name == "library.expansions")
+            expansions = &composite;
+    OA_CHECK(
+        expansions != nullptr && expansions->parts.size() >= 2 &&
+        expansions->axis == kit::CompositeAxis::row
+    );
+    if (expansions != nullptr && expansions->parts.size() >= 2) {
+        lib::ScreenState state;
+        state.interaction.focused = expansions->parts[0];
+        state.interaction.focus_shown = true;
+        OA_CHECK(!lib::library_key(active_library, state, active, kit::Key::left).redraw);
+        OA_CHECK(state.interaction.focused == expansions->parts[0]);
+        OA_CHECK(lib::library_key(active_library, state, active, kit::Key::right).redraw);
+        OA_CHECK(state.interaction.focused == expansions->parts[1]);
+        OA_CHECK(lib::library_key(active_library, state, active, kit::Key::left).redraw);
+        OA_CHECK(state.interaction.focused == expansions->parts[0]);
+    }
+
+    lib::Library mods = with_ridge();
+    const kit::DisplayList list = laid_out(mods, {}, frames[1].frame);
+    for (const kit::Control& control : list.controls) {
+        if (!starts(control.name, "library.row."))
+            continue;
+        if (!control.name.ends_with(".get") && !control.name.ends_with(".update"))
+            continue;
+        OA_CHECK(!control.focusable);
+        OA_CHECK(
+            std::find(list.tab_order.begin(), list.tab_order.end(), control.id) ==
+            list.tab_order.end()
+        );
+    }
+    const kit::Composite* detail_tags = nullptr;
+    for (const kit::Composite& composite : list.composites)
+        if (composite.name == "library.detail-tags")
+            detail_tags = &composite;
+    OA_CHECK(detail_tags != nullptr && detail_tags->axis == kit::CompositeAxis::row);
+    if (detail_tags != nullptr && !detail_tags->parts.empty()) {
+        lib::ScreenState state;
+        state.interaction.focused = detail_tags->parts[0];
+        state.interaction.focus_shown = true;
+        if (detail_tags->parts.size() >= 2) {
+            OA_CHECK(lib::library_key(mods, state, list, kit::Key::right).redraw);
+            OA_CHECK(state.interaction.focused == detail_tags->parts[1]);
+            OA_CHECK(lib::library_key(mods, state, list, kit::Key::left).redraw);
+            OA_CHECK(state.interaction.focused == detail_tags->parts[0]);
+        }
+        OA_CHECK(!lib::library_key(mods, state, list, kit::Key::left).redraw);
+        OA_CHECK(state.interaction.focused == detail_tags->parts[0]);
+    }
+
+    const kit::Control* all = fixture::named(list, "library.filter.all");
+    const kit::Control* next_filter = fixture::named(list, "library.filter.new");
+    OA_CHECK(all != nullptr && next_filter != nullptr);
+    if (all != nullptr && next_filter != nullptr) {
+        lib::ScreenState state;
+        state.interaction.focused = all->id;
+        state.interaction.focus_shown = true;
+        OA_CHECK(!lib::library_key(mods, state, list, kit::Key::up).redraw);
+        OA_CHECK(state.interaction.focused == all->id);
+        OA_CHECK(lib::library_key(mods, state, list, kit::Key::down).redraw);
+        OA_CHECK(state.interaction.focused == next_filter->id);
+        OA_CHECK(lib::library_key(mods, state, list, kit::Key::up).redraw);
+        OA_CHECK(state.interaction.focused == all->id);
+    }
+}
+
 int main() {
     every_frame_holds_its_invariants();
     mutators_tab_holds_its_invariants();
@@ -6911,7 +9180,12 @@ int main() {
     tab_commands_change_tabs();
     controller_buttons();
     list_keys_move_the_selection();
+    the_screen_opens_on_its_search();
+    a_pointer_move_keeps_the_search();
+    a_move_after_a_click_presses_back();
     tab_follows_the_declared_order();
+    composites_group_the_stops();
+    replay_switch_and_core_filters_are_stops();
     pressing_rows_selects_and_never_gets();
     the_title_bar_holds_a_close_mark();
     row_icons_are_get_and_update();
@@ -6942,5 +9216,18 @@ int main() {
     a_chosen_entry_scrolls_out_of_the_section_list();
     world_tags_show_their_name();
     opening_a_tab_focuses_its_search();
+    replays_section_lays_out();
+    export_dialog_lays_out();
+    export_long_mutator_pages();
+    replays_card_shows_every_fact();
+    replays_card_long_mod_name_whole();
+    replays_rows_and_cards_say_what_they_hold();
+    core_prime_filters_count_their_own_lists();
+    core_prime_card_names_kills_only();
+    core_prime_queued_download_says_so();
+    account_questions_lay_out();
+    account_questions_take_typed_text();
+    a_crowded_card_without_core_prime_keeps_its_layout();
+    a_card_without_core_prime_draws_the_lines_it_cuts();
     return oa::test::check_exit_status();
 }

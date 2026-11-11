@@ -1053,6 +1053,16 @@ void test_battle_launch(GameData* data, const oa::Palette* palette) {
     boneyards_status_widget_tick(widget);
     widget->config.host.launch_permitted = nullptr;
 
+    // The galactic map names the planet the reply names, and its sector.
+    {
+        screens::GalaxyView& galaxy = widget->navigation->galaxy;
+        galaxy.planet_count = 2;
+        galaxy.planets[0].id = 12;
+        std::snprintf(galaxy.planets[0].name, sizeof galaxy.planets[0].name, "%s", "Acid Pools");
+        galaxy.planets[1].id = 709;
+        std::snprintf(galaxy.planets[1].name, sizeof galaxy.planets[1].name, "%s", "Rosewood");
+        std::snprintf(galaxy.sector_name, sizeof galaxy.sector_name, "%s", "Cygnus Reach");
+    }
     // The battle console is open when the reply arrives.
     {
         ScopedServices scope(widget);
@@ -1063,6 +1073,34 @@ void test_battle_launch(GameData* data, const oa::Palette* palette) {
     {
         ScopedServices scope(widget);
         g_events.launch(g_events.user, &accepted);
+    }
+    {
+        const char* planet = nullptr;
+        const char* sector = nullptr;
+        check(
+            boneyards_status_widget_battle_place(widget, &planet, &sector) &&
+                std::strcmp(planet, "Rosewood") == 0 && std::strcmp(sector, "Cygnus Reach") == 0,
+            "the launch keeps the planet's name and its sector's"
+        );
+        std::snprintf(
+            widget->navigation->galaxy.sector_name,
+            sizeof widget->navigation->galaxy.sector_name,
+            "%s",
+            "Elsewhere"
+        );
+        widget->navigation->galaxy.planets[1].id = 3;
+        check(
+            boneyards_status_widget_battle_place(widget, &planet, &sector) &&
+                std::strcmp(planet, "Rosewood") == 0 && std::strcmp(sector, "Cygnus Reach") == 0,
+            "a later map leaves the battle's planet and sector"
+        );
+        check(
+            !boneyards_status_widget_battle_place(nullptr, &planet, &sector),
+            "without the widget there is no place"
+        );
+        // The map is as it was before the check, for the rest of this one.
+        widget->navigation->galaxy.planet_count = 0;
+        widget->navigation->galaxy.sector_name[0] = '\0';
     }
     check(
         g_launch.launches == 1 && g_launch.launch_user == "Ghost_Commander" &&

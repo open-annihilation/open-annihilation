@@ -11,6 +11,7 @@
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/package_install/origin.hpp"
+#include "oa/app/package_install/replay_release.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/data/content_bundles.hpp"
@@ -851,6 +852,38 @@ std::vector<std::string> Runtime::pack_map_omission_lines() const {
     if (pack_map_state_ == nullptr)
         return {};
     return pack_map_state_->omission_lines;
+}
+
+void Runtime::use_replay_map_pack(const std::filesystem::path& folder) {
+    MapPacks& packs = map_packs();
+    if (folder == packs.replay_folder())
+        return;
+    std::vector<std::string> names;
+    const auto collect = [&](const std::filesystem::path& path) {
+        if (path.empty())
+            return;
+        const std::optional<pack::Manifest> manifest =
+            package_install::installed_pack_manifest(path);
+        if (!manifest)
+            return;
+        for (const pack::MapEntry& map : manifest->maps) {
+            const std::string listed = pack::pack_map_name(map.stem, manifest->id);
+            if (!listed.empty())
+                names.push_back(listed);
+        }
+    };
+    collect(packs.replay_folder());
+    collect(folder);
+    if (pack_map_state_ != nullptr) {
+        PackMapState& state = *pack_map_state_;
+        for (const std::string& name : names) {
+            state.blocks.erase(name);
+            state.refusals.erase(name);
+            if (state.mounted_name == name)
+                release_pack_map();
+        }
+    }
+    packs.set_replay_folder(folder);
 }
 
 void Runtime::refresh_listed_pack_maps() {

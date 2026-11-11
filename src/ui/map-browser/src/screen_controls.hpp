@@ -33,6 +33,12 @@ inline constexpr kit::ControlId cancel = 40;
 inline constexpr kit::ControlId primary = 41;
 /// The header's close mark.
 inline constexpr kit::ControlId close = 42;
+/// The source pills, one stop: All, Game, Mod and Downloads. Not a control
+/// of its own. 100 sits clear of the strips
+/// and of the cards. Named apart from the filters parameter these helpers take.
+inline constexpr kit::ControlId filters_bar = 100;
+/// The map cards, one stop. Not a control of its own.
+inline constexpr kit::ControlId cards = 101;
 /// The first card, the first shown; the card shown at place p is first_card + p.
 inline constexpr kit::ControlId first_card = 1000;
 

@@ -229,8 +229,8 @@ refuses a property it does not name.
 
 | Tool | Acts | What it does |
 |---|---|---|
-| `ui.screen` | | The screen (`main_menu`, `skirmish`, `match` and the like), the dialogs over it, the focused control and the pointer. |
-| `ui.tree` | | Every control as a tree: name, kind, rectangle, text, enabled and checked state, and a list's rows. Text, list rows and a row's key are UTF-8: bytes that are not already UTF-8 are read as the game's code page (Windows-1252). A masked field's text is empty; `length` is how many characters it holds. Covers the game's own screens, Open Annihilation's screens, an extension's windows, and a message box. Names are the ones in [automation.md](automation.md#oas-own-screens). |
+| `ui.screen` | | The screen (`main_menu`, `skirmish`, `match` and the like), the dialogs over it, the focused control (the first one that is focused and not hidden, or, when none is shown, the first hidden control whose ring is drawn), `focus_shown` (whether that control's ring is drawn) and the pointer. |
+| `ui.tree` | | Every control as a tree: name, kind, rectangle, text, enabled and checked state, and a list's rows. Text, list rows and a row's key are UTF-8: bytes that are not already UTF-8 are read as the game's code page (Windows-1252). A masked field's text is empty; `length` is how many characters it holds. Each control also has `role` and `label`, and the states `hidden`, `expanded`, `pressed`, `modal` and, except on a list, `selected`. A slider has `value`, `min`, `max` and `step`. A control in a set has `position` and `set_size`. An extension's windows, a package's windows and a screen's own controls under a modal stay listed, with `hidden` true and `enabled` false. A screen button that an extension's button covers, or that lies wholly inside the rectangle where an extension window's art takes the press, is listed with `hidden` true. It stays enabled. Open Annihilation's own screens under a modal one are not listed, as before. Covers the game's own screens, Open Annihilation's screens, an extension's windows, and a message box. Names are the ones in [automation.md](automation.md#oas-own-screens). |
 | `ui.click` | yes | Clicks a control by its name, at the centre of where it is drawn. `window` picks that control when the name is repeated. |
 | `ui.select` | yes | Chooses a list row by its words or its index. `window` names the list when that name is repeated. A row off the page is scrolled into view. |
 | `ui.type` | yes | Types into the control that has the keyboard. `submit` presses Enter after the text. |
@@ -533,13 +533,24 @@ changes. The notification is `notifications/resources/updated`.
 `events` is `"all"`, one kind, or a list of kinds. `all` is given on its
 own and names every kind. The kinds are `screen`, `player`, `ready`,
 `chat`, `loaded`, `match`, `pause`, `speed`, `alliance`, `transfer`,
-`game_over`, `unit_created`, `unit_destroyed`, `unit_idle`,
+`game_over`, `focus`, `unit_created`, `unit_destroyed`, `unit_idle`,
 `unit_damaged`, `order_done`, `build_done`, `enemy_seen`,
 `radar_contact`, `said`, `page`, `ticker`, `alert`, `session` and
-`console`. An unknown kind is refused. `ui.wait`'s `event` argument stays
-the match-watch kinds (`screen` through `radar_contact`). `said`, `page`,
-`ticker`, `alert`, `session` and `console` are `events.subscribe` and
-`events.read` only.
+`console`. An unknown kind is refused. `focus` carries `name` (null when
+no control takes the keys, and when only a hidden control is focused),
+`label` and `role`. A hidden control is passed over. It is sent once when
+the focused control changes, not when the focus stays, and not the first
+time the feed sees the game. When the screen changes, the `screen` event
+is sent before the `focus` event. A kit screen names its first control
+from the moment it opens, whether or not the ring is drawn; `ui.screen`'s
+`focus_shown` says which. `ui.wait`'s `event` argument takes the match-watch
+kinds: `screen`, `player`, `ready`, `chat`, `loaded`, `match`, `pause`,
+`speed`, `alliance`, `transfer`, `game_over`, `order_done`, `build_done`,
+`enemy_seen` and `radar_contact`. It refuses the `unit_*` kinds with "no
+such event". It takes `focus` but never returns on it, and waits until
+its timeout: follow the focus with `events.subscribe`. `said`,
+`page`, `ticker`, `alert`, `session` and `console` are `events.subscribe`
+and `events.read` only.
 
 Each note has `seq` and `tick`, and `event` for the kind. `tick` is the
 match's tick, taken where the hook ran. `seq` numbers the notes still

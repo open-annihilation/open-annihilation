@@ -39,4 +39,5 @@ if(BUILD_TESTING)
   endforeach()
 endif()
 
+add_subdirectory(colour-vision)
 add_subdirectory(model)

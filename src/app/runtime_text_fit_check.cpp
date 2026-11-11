@@ -26,6 +26,26 @@
 // The Brains tab's details are painted too: one brain not installed and one
 // installed, at every size and at 960x540, Compact on its details page.
 // "Load with the built-in player?" is painted with two 64-byte names.
+// The Replays section is painted with replays listed (a ten-player replay's
+// card at its top and its foot, Compact's page, both menus open, a damaged
+// replay, an imported one, the section while it reads and the empty section),
+// and the words its layout shortens are read: each filter, menu item, button
+// and fact label must be drawn whole, and nothing of the card ends in an
+// ellipsis (replay_texts_cut). Core Prime's list is painted too: the switch,
+// its four filters, the planet field, the loading, offline, unreadable,
+// unavailable and empty states, and Download and Watch. With --snapshot,
+// those Core Prime screens at 640x480 are written in French, Spanish and
+// Italian. The Export dialog is painted for a .oademo
+// and for a .tad with all four warnings and a title that wraps at 640x480.
+// A cut warning, description or format caption fails the check, and so do
+// two of the dialog's controls that meet. With --snapshot, that .tad state
+// is written at 640x480 in English, German, French, Spanish and Italian,
+// and at 1280x720 in German, French, Spanish and Italian.
+// At 640x480 a .tad whose mutator id is 64 bytes is painted too, in every
+// language the check opens. At least one warning shows, and More warnings
+// and Previous warnings reach each of the four once. A warning alone on its
+// page may be cut there, its last line ending with the ellipsis. That state
+// is not a snapshot: the pictures stay the shorter id.
 // The brain picker is painted on its fixture feed: the list, the inline
 // details at Regular and Large, and Compact's details page.
 // The key editor's list is painted at every size, and Compact's details page,
@@ -71,6 +91,8 @@
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/replays.hpp"
+#include "oa/ui/library/text.hpp"
 #include "oa/ui/library/use_question.hpp"
 #include "oa/ui/library/prerequisites.hpp"
 #include "oa/ui/brain_picker/screen.hpp"
@@ -80,6 +102,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -118,6 +142,17 @@ namespace key_library = oa::data::key_library;
 /// Languages the check opens every screen in, in order, unless --check-language
 /// names others.
 constexpr std::string_view kLanguages[] = {"en", "de", "fr", "es", "it", "zh-Hans"};
+
+/// Returns the path of one step's snapshot: <stem>-<step>.ppm beside --snapshot.
+///
+/// @param snapshot the --snapshot path
+/// @param step the step's name
+/// @return the step's snapshot path
+fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
+    fs::path file = snapshot.parent_path() / snapshot.stem();
+    file += '-' + std::string(step) + ".ppm";
+    return file;
+}
 
 /// Joins the languages for the report: "en, de and zh-Hans".
 ///
@@ -208,6 +243,8 @@ std::string_view tab_word(library::Tab tab) noexcept {
     switch (tab) {
     case library::Tab::active:
         return "active";
+    case library::Tab::replays:
+        return "replays";
     case library::Tab::mods:
         return "mods";
     case library::Tab::maps:
@@ -462,12 +499,37 @@ void Runtime::check_text_fit() {
         // The first frame settles the size class. The second is the one read.
         // The kit records a text only while it is drawn, and the layer would
         // show a screen whose revision covers what it draws from the drawing
-        // it kept, so every screen is drawn again.
+        // it kept, so every screen is drawn again. A later render rebuilds
+        // the Library from the folder, so a picture is this frame.
         kit::begin_text_fit_frame();
         oa_layer().forget_kept_drawings();
+        const bool needs_picture = (language == "en" || language == "de") &&
+                                   screen.find("needs-") != std::string_view::npos;
+        const bool core_picture = (language == "fr" || language == "es" || language == "it") &&
+                                  width == 640 && height == 480 &&
+                                  screen.find("library/replays/core-") != std::string_view::npos;
+        const bool shoot = !options_.snapshot.empty() && (needs_picture || core_picture);
+        renderer::Surface presented;
+        if (shoot) {
+            oa_layer().read_whole_window(true);
+            capture_frame_ = &presented;
+        }
         going = true;
         run_frame(going);
+        if (shoot) {
+            capture_frame_ = nullptr;
+            oa_layer().read_whole_window(false);
+        }
         require(going, std::string(screen) + ": a frame ended the run");
+        if (shoot) {
+            const std::string_view prefix = "library/replays/";
+            std::string_view step_name = screen;
+            if (step_name.starts_with(prefix))
+                step_name.remove_prefix(prefix.size());
+            const std::string step = std::string(step_name) + "-" + language + "-" +
+                                     std::to_string(width) + "x" + std::to_string(height);
+            write_ppm(step_snapshot(options_.snapshot, step), presented);
+        }
     };
 
     /// Every screen painted, by name, for the check's last lines.
@@ -772,6 +834,571 @@ void Runtime::check_text_fit() {
         }
     };
 
+    /// The Replays section with replays listed: the rows, a ten-player replay's
+    /// card scrolled to its foot, Compact's page, both menus open, a damaged
+    /// replay, an imported one (which offers no Keep), the section while it
+    /// reads and the empty section. Nothing is drawn cut: the Library's own
+    /// shortening hides a cut word from the kit, so the layout's words are read
+    /// (replay_texts_cut) and each filter, menu item, button and fact's label
+    /// must be whole.
+    const auto show_replays = [&] {
+        LibraryHost& host = library_host();
+        // The worker's read of the folder ends before the rows go in: what it
+        // took would replace them. A catalogue or a picture must not either.
+        host.replays_held = true;
+        for (int frame = 0; frame < 200 && host.replays_reading(); ++frame) {
+            bool going = true;
+            run_frame(going);
+            require(going, "library/replays: a frame ended the run");
+        }
+        constexpr int32_t today = 20763;
+        const auto made = [&](std::string path,
+                              std::string map,
+                              std::string kind,
+                              int32_t days_ago,
+                              std::vector<std::string> players) {
+            library::ReplayRow row;
+            row.replay.path = std::move(path);
+            row.replay.map = std::move(map);
+            row.replay.kind = std::move(kind);
+            row.replay.size = 3U * 1024U * 1024U;
+            row.replay.length_ms = 4'329'000U;
+            row.replay.recorded_by = "open-annihilation 0.8.14";
+            for (std::size_t place = 0; place < players.size(); ++place) {
+                oa::data::replays::Player player;
+                player.name = std::move(players[place]);
+                player.colour = static_cast<int32_t>(place % 10);
+                player.side = place % 2 == 0 ? "arm" : "core";
+                player.kind = "human";
+                row.replay.players.push_back(std::move(player));
+            }
+            row.day = today - days_ago;
+            row.minute = 13 * 60 + 24;
+            return row;
+        };
+        const auto fill = [&](bool with_rows, bool reading, bool recording_on) {
+            library::Inputs inputs = host.model.inputs;
+            inputs.replays = {};
+            inputs.replays.today = today;
+            inputs.replays.kinds = {{"outpost", "Outpost"}};
+            inputs.replays.recording_on = recording_on;
+            inputs.replays.reading = reading;
+            if (with_rows) {
+                library::ReplayRow ten = made(
+                    "default/2026-11-04 1432 Comet Catcher.oademo",
+                    "Comet Catcher",
+                    "multiplayer",
+                    0,
+                    {"Varn",
+                     "Tamsin",
+                     "Ilse",
+                     "Juniper",
+                     "Okafor",
+                     "Sato",
+                     "Lindqvist",
+                     "Halvard",
+                     "Mirelle",
+                     "Brannock"}
+                );
+                ten.replay.mod_id = "ridge";
+                ten.replay.mod_name = "Ridge";
+                ten.replay.mod_version = "2.8";
+                ten.replay.mod_revision = 1;
+                ten.replay.expansions = {"core-contingency", "battle-tactics"};
+                ten.replay.mutators = {"Sturdy Commanders", "Double Metal", "Fast Build"};
+                inputs.replays.rows.push_back(std::move(ten));
+                library::ReplayRow battle = made(
+                    "default/show-down.oademo", "Show Down", "outpost", 1, {"Varn", "Kestrel"}
+                );
+                battle.replay.planet = "Corvane";
+                battle.replay.sector = "Low Reach";
+                battle.replay.after_crash = true;
+                inputs.replays.rows.push_back(std::move(battle));
+                library::ReplayRow kept = made(
+                    "ridge/twin.oademo", "Twin Rivers", "skirmish", 2, {"Varn", "Bex", "Morrow"}
+                );
+                kept.replay.kept = true;
+                inputs.replays.rows.push_back(std::move(kept));
+                library::ReplayRow broken =
+                    made("default/zz-cut.tad", {}, {}, 3, std::vector<std::string>{});
+                broken.replay.damage = "This recording cannot be read.";
+                broken.replay.length_ms = 0;
+                inputs.replays.rows.push_back(std::move(broken));
+                library::ReplayRow imported = made(
+                    "Imported/anteer.tad", "Anteer Strait", "multiplayer", 5, {"Kestrel", "Halvard"}
+                );
+                imported.replay.file = oa::data::replays::FileKind::tad;
+                imported.replay.recorded_by = "taf-2026.1.18";
+                inputs.replays.rows.push_back(std::move(imported));
+                inputs.replays.rows.push_back(
+                    made("default/campaign.oademo", "Rougpelt", "campaign", 40, {"Commander"})
+                );
+                // A replay that needs something: the chip stays on the row, and
+                // the card's button stays, at every size. The long name is the
+                // longest a catalogue allows.
+                const auto needed = [&](std::string path, std::string map) {
+                    return made(
+                        std::move(path), std::move(map), "skirmish", 1, {"Varn", "Kestrel"}
+                    );
+                };
+                const auto gap = [](oa::data::replays::GapKind kind,
+                                    std::string name,
+                                    std::string version,
+                                    bool fetch,
+                                    bool turn) {
+                    oa::data::replays::ContentGap made_gap;
+                    made_gap.kind = kind;
+                    made_gap.id = name;
+                    made_gap.name = std::move(name);
+                    made_gap.version = std::move(version);
+                    made_gap.fetchable = fetch;
+                    made_gap.turn_on = turn;
+                    return made_gap;
+                };
+                library::ReplayRow ridge = needed("default/needs-ridge.oademo", "Ridge Reach");
+                ridge.gaps.push_back(
+                    gap(oa::data::replays::GapKind::mod_missing, "Ridge", "2.8", true, false)
+                );
+                inputs.replays.rows.push_back(std::move(ridge));
+                library::ReplayRow long_name = needed("default/needs-long.oademo", "Long Reach");
+                long_name.gaps.push_back(
+                    gap(oa::data::replays::GapKind::mod_missing,
+                        std::string(64, 'R'),
+                        "2.8",
+                        true,
+                        false)
+                );
+                inputs.replays.rows.push_back(std::move(long_name));
+                library::ReplayRow several =
+                    needed("default/needs-several.oademo", "Several Reach");
+                several.gaps.push_back(
+                    gap(oa::data::replays::GapKind::map, "Ridge Reach", "1.0", true, false)
+                );
+                several.gaps.push_back(
+                    gap(oa::data::replays::GapKind::mutator, "Ridge Wind", "1", true, false)
+                );
+                inputs.replays.rows.push_back(std::move(several));
+                library::ReplayRow engine = needed("default/needs-engine.oademo", "Engine Reach");
+                engine.gaps.push_back(
+                    gap(oa::data::replays::GapKind::engine, "99.0.0", "99.0.0", false, false)
+                );
+                inputs.replays.rows.push_back(std::move(engine));
+                library::ReplayRow offline =
+                    needed("default/needs-offline.oademo", "Offline Reach");
+                oa::data::replays::ContentGap offline_gap =
+                    gap(oa::data::replays::GapKind::map, "Ridge Reach", "1.0", false, false);
+                offline_gap.block = oa::data::replays::GapBlock::offline;
+                offline.gaps.push_back(std::move(offline_gap));
+                inputs.replays.rows.push_back(std::move(offline));
+                library::ReplayRow unlisted =
+                    needed("default/needs-unlisted.oademo", "Unlisted Reach");
+                oa::data::replays::ContentGap unlisted_gap =
+                    gap(oa::data::replays::GapKind::mod_missing, "Ridge", "9.1", false, false);
+                unlisted_gap.block = oa::data::replays::GapBlock::unlisted;
+                unlisted.gaps.push_back(std::move(unlisted_gap));
+                inputs.replays.rows.push_back(std::move(unlisted));
+                library::ReplayRow turn = needed("default/needs-turn.oademo", "Contingency Reach");
+                turn.gaps.push_back(gap(
+                    oa::data::replays::GapKind::expansion_off, "Core Contingency", "", false, true
+                ));
+                inputs.replays.rows.push_back(std::move(turn));
+            }
+            library::refresh(host.model, std::move(inputs));
+            if (host.model.replays.source != library::ReplaySource::computer)
+                library::set_replay_source(host.model, library::ReplaySource::computer);
+            library::set_tab(host.model, library::Tab::replays);
+            library::set_replay_filter(host.model, library::ReplayFilter::this_month);
+            host.state.menu = library::MenuKind::none;
+            host.state.replay_page = false;
+            host.state.details_page = false;
+            host.state.list_scroll = 0;
+            host.state.details_scroll = 0;
+            hold_library();
+        };
+        const auto look = [&](std::string_view name, bool card, bool lone_warning_cut = false) {
+            const std::string screen = "library/replays/" + std::string(name);
+            ++host.model_revision;
+            paint_held(screen);
+            const LayerScreen* shown = oa_layer().find(library_screen_name);
+            require(shown != nullptr, screen + ": the Library is not open");
+            if (name.find("needs-") != std::string_view::npos)
+                require(
+                    library::selected_replay(host.model) != nullptr,
+                    screen + ": the replay is not shown"
+                );
+            const auto listed = shown->display_list();
+            const std::vector<std::string> cut = replay_texts_cut(
+                listed, host.model, card, host.state.menu, width, lone_warning_cut
+            );
+            require(cut.empty(), screen + ": " + (cut.empty() ? std::string() : cut.front()));
+            if (name.rfind("export", 0) == 0) {
+                const auto area_of = [](const kit::Control& control) {
+                    kit::Rect area = control.rect;
+                    if (control.clip.width > 0 && control.clip.height > 0) {
+                        const int32_t left = std::max(area.x, control.clip.x);
+                        const int32_t top = std::max(area.y, control.clip.y);
+                        const int32_t right =
+                            std::min(area.x + area.width, control.clip.x + control.clip.width);
+                        const int32_t bottom =
+                            std::min(area.y + area.height, control.clip.y + control.clip.height);
+                        area = {left, top, std::max(right - left, 0), std::max(bottom - top, 0)};
+                    }
+                    return area;
+                };
+                const auto overlap = [](const kit::Rect& a, const kit::Rect& b) {
+                    return a.width > 0 && a.height > 0 && b.width > 0 && b.height > 0 &&
+                           a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height &&
+                           b.y < a.y + a.height;
+                };
+                const kit::Control* foot_cancel = nullptr;
+                const kit::Control* foot_export = nullptr;
+                for (const kit::Control& control : listed.controls) {
+                    if (control.name == "library.export.cancel")
+                        foot_cancel = &control;
+                    if (control.name == "library.export.export")
+                        foot_export = &control;
+                }
+                const int32_t foot = foot_cancel != nullptr && foot_export != nullptr
+                                         ? std::min(foot_cancel->rect.y, foot_export->rect.y)
+                                         : 0;
+                for (std::size_t a = 0; a < listed.controls.size(); ++a) {
+                    const kit::Control& first = listed.controls[a];
+                    if (first.name.rfind("library.export.", 0) != 0 ||
+                        first.name == "library.export.block")
+                        continue;
+                    const kit::Rect first_area = area_of(first);
+                    if (foot > 0 && first.name != "library.export.cancel" &&
+                        first.name != "library.export.export" && first_area.height > 0 &&
+                        first_area.y + first_area.height >= foot)
+                        require(false, screen + ": " + first.name + " meets the buttons");
+                    for (std::size_t b = a + 1; b < listed.controls.size(); ++b) {
+                        const kit::Control& second = listed.controls[b];
+                        if (second.name.rfind("library.export.", 0) != 0 ||
+                            second.name == "library.export.block")
+                            continue;
+                        if (overlap(first_area, area_of(second)))
+                            require(false, screen + ": " + first.name + " meets " + second.name);
+                    }
+                }
+            }
+        };
+        const auto offer_export = [&](bool tad_format) {
+            library::ExportOffer offer;
+            offer.folder = "Downloads";
+            offer.folder_is_downloads = true;
+            library::ExportFile file;
+            file.path = "Imported/anteer.tad";
+            file.title =
+                tad_format ? "Show Down, a very long map name that goes on past sixty-three letters"
+                           : "Anteer Strait";
+            file.oademo_bytes = 12000;
+            file.tad_bytes = 8000;
+            file.tad_without_bytes = 7000;
+            file.ready = true;
+            if (tad_format) {
+                file.names_cut = true;
+                file.status_cut = true;
+                file.wide_records = true;
+                file.mutators = true;
+                file.mutator_ids.push_back("ridge");
+            }
+            offer.files.push_back(std::move(file));
+            library::open_export(host.model, std::move(offer));
+            if (tad_format)
+                library::set_export_format(host.model, library::ExportFormat::tad);
+            ++host.model_revision;
+        };
+        const auto snap_export = [&](const std::string& step) {
+            if (options_.snapshot.empty())
+                return;
+            const bool language_picture =
+                language == "de" || language == "fr" || language == "es" || language == "it";
+            const bool size_picture =
+                (width == 640 && height == 480) || (width == 1280 && height == 720);
+            const bool english_tad = language == "en" && width == 640 && height == 480 &&
+                                     step.rfind("export-tad-", 0) == 0;
+            if ((!language_picture || !size_picture) && !english_tad)
+                return;
+            oa_layer().read_whole_window(true);
+            renderer::Surface presented;
+            capture_frame_ = &presented;
+            render();
+            capture_frame_ = nullptr;
+            oa_layer().read_whole_window(false);
+            fs::path file = options_.snapshot.parent_path() / options_.snapshot.stem();
+            file += "-" + step + ".ppm";
+            write_ppm(file, presented);
+        };
+        // The Replays tab is up first. Its filters are what the cut check
+        // reads, and the dialog is drawn over that section.
+        fill(true, false, true);
+        offer_export(true);
+        look("export-tad", false);
+        snap_export(
+            "export-tad-" + language + "-" + std::to_string(width) + "x" + std::to_string(height)
+        );
+        library::close_export(host.model);
+        // A 64-byte mutator id, one word. At Compact the Spanish sentence can
+        // be too tall for one warning plus the pager; a line of it must still
+        // show, and the pager must reach each warning once.
+        if (width == 640 && height == 480) {
+            constexpr std::string_view long_id =
+                "aaaa-bbbb-cccc-dddd-eeee-ffff-gggg-hhhh-iiii-jjjj-kkkk-llll-mmmm";
+            static_assert(long_id.size() == 64);
+            const auto warning_places = [](const kit::DisplayList& listed) {
+                std::vector<int> places;
+                constexpr std::string_view prefix = "library.export.warning.";
+                for (const kit::Control& control : listed.controls) {
+                    if (control.name.compare(0, prefix.size(), prefix) != 0)
+                        continue;
+                    int place = 0;
+                    bool digits = false;
+                    for (std::size_t at = prefix.size(); at < control.name.size(); ++at) {
+                        const char digit = control.name[at];
+                        if (digit < '0' || digit > '9')
+                            break;
+                        digits = true;
+                        place = place * 10 + (digit - '0');
+                    }
+                    if (digits)
+                        places.push_back(place);
+                }
+                return places;
+            };
+            library::ExportOffer long_offer;
+            long_offer.folder = "Downloads";
+            long_offer.folder_is_downloads = true;
+            library::ExportFile long_file;
+            long_file.path = "Imported/anteer.tad";
+            long_file.title =
+                "Show Down, a very long map name that goes on past sixty-three letters";
+            long_file.oademo_bytes = 12000;
+            long_file.tad_bytes = 8000;
+            long_file.tad_without_bytes = 7000;
+            long_file.ready = true;
+            long_file.names_cut = true;
+            long_file.status_cut = true;
+            long_file.wide_records = true;
+            long_file.mutators = true;
+            long_file.mutator_ids.emplace_back(long_id);
+            long_offer.files.push_back(std::move(long_file));
+            library::open_export(host.model, std::move(long_offer));
+            library::set_export_format(host.model, library::ExportFormat::tad);
+            ++host.model_revision;
+            std::vector<std::vector<int>> pages;
+            bool ended = false;
+            bool saw_id = false;
+            for (int page_guard = 0; page_guard < 8; ++page_guard) {
+                look("export-tad-long", false, true);
+                const LayerScreen* long_screen = oa_layer().find(library_screen_name);
+                require(long_screen != nullptr, "export-tad-long: the Library is not open");
+                const kit::DisplayList listed = long_screen->display_list();
+                if (page_guard == 0) {
+                    for (const kit::Control& control : listed.controls) {
+                        if (control.name == "library.export.warning.0" &&
+                            control.text.find(long_id) != std::string::npos)
+                            saw_id = true;
+                    }
+                }
+                const std::vector<int> page = warning_places(listed);
+                require(!page.empty(), "export-tad-long: no warning is shown");
+                for (std::size_t at = 1; at < page.size(); ++at) {
+                    require(
+                        page[at] == page[at - 1] + 1, "export-tad-long: a page skips a warning"
+                    );
+                }
+                pages.push_back(page);
+                bool has_more = false;
+                for (const kit::Control& control : listed.controls)
+                    has_more = has_more || control.name == "library.export.warnings.more";
+                if (!has_more) {
+                    ended = true;
+                    break;
+                }
+                const std::size_t first_before = host.model.export_dialog.warning_first;
+                library::scroll_export_warnings(host.model.export_dialog, 1);
+                require(
+                    host.model.export_dialog.warning_first != first_before,
+                    "export-tad-long: More warnings did not move"
+                );
+            }
+            require(ended, "export-tad-long: the warnings do not end");
+            require(saw_id, "export-tad-long: the warning does not name the mutator");
+            std::vector<int> seen;
+            for (const std::vector<int>& page : pages) {
+                require(!page.empty(), "export-tad-long: a page shows no warning");
+                if (!seen.empty()) {
+                    require(
+                        page.front() == seen.back() + 1,
+                        "export-tad-long: a warning is repeated or skipped"
+                    );
+                }
+                seen.insert(seen.end(), page.begin(), page.end());
+            }
+            require(seen.size() == 4, "export-tad-long: the four warnings are not all reached");
+            for (int index = 0; index < 4; ++index) {
+                require(
+                    seen[static_cast<std::size_t>(index)] == index,
+                    "export-tad-long: the warnings are not in order"
+                );
+            }
+            for (std::size_t back = pages.size(); back-- > 1;) {
+                library::scroll_export_warnings(host.model.export_dialog, -1);
+                look("export-tad-long", false, true);
+                const LayerScreen* long_screen = oa_layer().find(library_screen_name);
+                require(long_screen != nullptr, "export-tad-long: the Library is not open");
+                require(
+                    warning_places(long_screen->display_list()) == pages[back - 1],
+                    "export-tad-long: Previous warnings missed its page"
+                );
+            }
+            library::close_export(host.model);
+        }
+        offer_export(false);
+        look("export-oademo", false);
+        library::close_export(host.model);
+        ++host.model_revision;
+        const bool compact = width <= 640;
+        fill(true, false, true);
+        look("list", !compact);
+        // The ten-player card, from its top to its foot; Compact's page too.
+        library::select_replay(host.model, "default/2026-11-04 1432 Comet Catcher.oademo");
+        host.state.replay_page = compact;
+        for (const int32_t scroll : {0, 1 << 20}) {
+            host.state.details_scroll = scroll;
+            look(scroll == 0 ? "card" : "card-foot", true);
+        }
+        // Delete armed: the confirm sits with the other buttons, in every language.
+        host.model.replays.delete_armed = true;
+        host.state.details_scroll = 0;
+        look("card-delete", true);
+        host.model.replays.delete_armed = false;
+        host.state.replay_page = false;
+        host.state.details_scroll = 0;
+        // Both menus, the sort on the longest German word.
+        host.state.menu = library::MenuKind::replay_kind;
+        look("kind-menu", !compact);
+        library::set_replay_sort(host.model, library::ReplaySort::players);
+        host.state.menu = library::MenuKind::replay_sort;
+        look("sort-menu", !compact);
+        host.state.menu = library::MenuKind::none;
+        look("sorted-by-players", !compact);
+        library::set_replay_sort(host.model, library::ReplaySort::newest);
+        // A damaged replay, and an imported one, which offers no Keep.
+        for (const std::string_view path : {"default/zz-cut.tad", "Imported/anteer.tad"}) {
+            library::select_replay(host.model, path);
+            host.state.replay_page = compact;
+            look(path.substr(path.rfind('/') + 1), true);
+            host.state.replay_page = false;
+        }
+        // A row that needs something, and its card: get one release, get
+        // several, check for updates, offline, unlisted, turn an expansion
+        // on, and a name of 64 bytes. The list is scrolled to that row.
+        const auto show_need = [&](std::string_view path, std::string_view name) {
+            library::select_replay(host.model, path);
+            if (const std::optional<std::size_t> place = library::replay_place(host.model, path))
+                host.state.reveal_row = static_cast<int32_t>(*place);
+            host.state.replay_page = false;
+            host.state.details_scroll = 0;
+            look(std::string(name) + "-row", !compact);
+            host.state.replay_page = compact;
+            look(std::string(name) + "-card", true);
+            host.state.replay_page = false;
+        };
+        show_need("default/needs-ridge.oademo", "needs-ridge");
+        show_need("default/needs-long.oademo", "needs-long");
+        show_need("default/needs-several.oademo", "needs-several");
+        show_need("default/needs-engine.oademo", "needs-engine");
+        show_need("default/needs-offline.oademo", "needs-offline");
+        show_need("default/needs-unlisted.oademo", "needs-unlisted");
+        show_need("default/needs-turn.oademo", "needs-turn");
+        // While the packages come, the card says so and offers Cancel.
+        library::select_replay(host.model, "default/needs-ridge.oademo");
+        host.model.inputs.replays.fetching = true;
+        host.model.inputs.replays.fetch_path = "default/needs-ridge.oademo";
+        host.model.inputs.replays.fetch_sentence = library::filled(
+            host.model.text,
+            library::words::replay_getting,
+            {{"name", "Ridge Reach"}, {"percent", "34"}}
+        );
+        host.state.replay_page = compact;
+        look("needs-progress-card", true);
+        host.state.replay_page = false;
+        host.model.inputs.replays.fetching = false;
+        host.model.inputs.replays.fetch_path.clear();
+        host.model.inputs.replays.fetch_sentence.clear();
+        // The section while its folder is read, and empty with recording off.
+        fill(false, true, true);
+        look("reading", false);
+        fill(false, false, false);
+        look("empty", false);
+        // Core Prime: the switch, the four filters, the planet field, each
+        // empty state, and Download and Watch. A cut word fails the check.
+        const auto show_core = [&](std::string_view name,
+                                   bool with_row,
+                                   bool saved,
+                                   bool loading,
+                                   bool offline,
+                                   bool unreadable,
+                                   bool unavailable,
+                                   bool card) {
+            library::Inputs inputs = host.model.inputs;
+            inputs.replays = {};
+            inputs.replays.today = today;
+            inputs.replays.planets = {"Ashmere", "Cinder"};
+            inputs.replays.core_total = with_row ? 1 : 0;
+            if (with_row) {
+                library::ReplayRow row;
+                row.replay.path = "r_0000000000000000000001";
+                row.replay.map = "North Reach";
+                row.replay.kind = "outpost";
+                row.replay.planet = "Ashmere";
+                row.replay.sector = "North Span";
+                row.replay.size = 9U * 1024U;
+                row.replay.length_ms = 60000;
+                row.day = today;
+                row.minute = 14 * 60 + 32;
+                row.saved_here = saved;
+                inputs.replays.core_rows.push_back(std::move(row));
+            }
+            library::refresh(host.model, std::move(inputs));
+            library::set_replay_source(host.model, library::ReplaySource::core_prime);
+            library::set_core_filter(host.model, library::CorePrimeFilter::latest);
+            library::set_tab(host.model, library::Tab::replays);
+            host.model.inputs.replays.core_loading = loading;
+            host.model.inputs.replays.core_offline = offline;
+            host.model.inputs.replays.core_unreadable = unreadable;
+            host.model.inputs.replays.core_unavailable = unavailable;
+            library::update_replays(host.model);
+            if (with_row)
+                library::select_replay(host.model, "r_0000000000000000000001");
+            host.state.menu = library::MenuKind::none;
+            host.state.replay_page = card && compact;
+            host.state.list_scroll = 0;
+            host.state.details_scroll = 0;
+            hold_library();
+            look(name, card);
+            host.state.replay_page = false;
+        };
+        show_core("core-list", true, false, false, false, false, false, !compact);
+        if (compact)
+            show_core("core-card", true, false, false, false, false, false, true);
+        show_core("core-downloaded", true, true, false, false, false, false, true);
+        library::set_core_filter(host.model, library::CorePrimeFilter::planet);
+        library::set_core_planet(host.model, "Ashmere");
+        host.state.menu = library::MenuKind::replay_planet;
+        host.state.replay_page = false;
+        look("core-planet", !compact);
+        host.state.menu = library::MenuKind::none;
+        show_core("core-loading", false, false, true, false, false, false, false);
+        show_core("core-offline", false, false, false, true, false, false, false);
+        show_core("core-unreadable", false, false, false, false, true, false, false);
+        show_core("core-unavailable", false, false, false, false, false, true, false);
+        show_core("core-empty", false, false, false, false, false, false, false);
+        fill(true, false, true);
+        library::set_replay_sort(host.model, library::ReplaySort::newest);
+    };
+
     /// One short installed layout on the Keys tab, and USE's question open
     /// over it. The question is drawn on the Library, not as its own screen.
     /// A feed that rebuilt the Library gets the layout again.
@@ -873,6 +1500,7 @@ void Runtime::check_text_fit() {
         if (dialog.open_list != settings::no_control)
             std::ignore = settings::dialog_key(dialog, kit::Key::escape);
         dialog.focused = control;
+        dialog.focus_shown = true;
         std::ignore = settings::dialog_key(dialog, kit::Key::space);
         if (dialog.open_list != settings::no_control) {
             paint(screen);
@@ -1251,6 +1879,7 @@ void Runtime::check_text_fit() {
 
             const library::Tab tabs[] = {
                 library::Tab::active,
+                library::Tab::replays,
                 library::Tab::mods,
                 library::Tab::maps,
                 library::Tab::mutators,
@@ -1304,6 +1933,7 @@ void Runtime::check_text_fit() {
             inject_brains();
             show_brain("ridge-raider");
             show_brain("steady-commander");
+            show_replays();
             show_key_question();
             if (size_at == 0) {
                 const int32_t saved_width = width;
@@ -1319,6 +1949,7 @@ void Runtime::check_text_fit() {
                 show_mutator("steady");
                 show_brain("ridge-raider");
                 show_brain("steady-commander");
+                show_replays();
                 show_key_question();
                 width = saved_width;
                 height = saved_height;

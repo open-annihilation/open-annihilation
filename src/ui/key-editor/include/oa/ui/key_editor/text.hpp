@@ -132,10 +132,12 @@ inline constexpr std::string_view area_menus = "Menus";
 inline constexpr std::string_view area_developer = "Developer";
 inline constexpr std::string_view area_megamap = "Megamap";
 inline constexpr std::string_view area_whiteboard = "Whiteboard";
+inline constexpr std::string_view area_photo = "Photo mode";
 
 /// Where an action works, after its area.
 inline constexpr std::string_view while_playing = "while playing";
 inline constexpr std::string_view while_watching = "while watching";
+inline constexpr std::string_view in_photo_mode = "in photo mode";
 /// Context titles, as the registry names them.
 inline constexpr std::string_view context_everywhere = "Everywhere";
 inline constexpr std::string_view context_oa = "Open Annihilation";
@@ -150,6 +152,7 @@ inline constexpr std::string_view context_megamap = "Megamap";
 inline constexpr std::string_view context_whiteboard = "Whiteboard";
 inline constexpr std::string_view context_placing = "Placing";
 inline constexpr std::string_view context_box = "Selection box";
+inline constexpr std::string_view context_photo = "Photo mode";
 
 /// A quiet aside.
 inline constexpr std::string_view aside_held = "held";
@@ -299,6 +302,7 @@ inline constexpr std::string_view legend_data = "The mod's data";
 /// Card contexts. These start with a capital, unlike "while playing".
 inline constexpr std::string_view card_while_playing = "While playing";
 inline constexpr std::string_view card_while_watching = "While watching";
+inline constexpr std::string_view card_in_photo_mode = "In photo mode";
 inline constexpr std::string_view card_placing = "Placing a building";
 inline constexpr std::string_view card_chat_line = "In the chat line";
 inline constexpr std::string_view card_close_line = "Close the line";
@@ -647,6 +651,8 @@ inline constexpr std::string_view here_and_there = "Here and {name} both use it 
 
 /// The keys overlay's title while a match is being played.
 inline constexpr std::string_view keys_while_playing = "Keys while playing";
+/// The keys overlay's title while photo mode is open.
+inline constexpr std::string_view keys_in_photo_mode = "Keys in photo mode";
 /// The keys overlay's title while a match is being watched.
 inline constexpr std::string_view keys_while_watching = "Keys while watching";
 /// The keys overlay's title while a building is being placed.

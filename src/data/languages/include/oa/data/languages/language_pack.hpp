@@ -140,7 +140,7 @@ struct PackManifest {
 ///
 /// oalang, tag and word are required, and oalang must be
 /// pack_format_version; name, english-name, version, locales, fallbacks,
-/// text (needs: game-fonts or modern-fonts), unicode, homepage, tags,
+/// text (needs: game-fonts, modern-fonts or shaping), unicode, homepage, tags,
 /// supportedGames, requiredExpansions, requires (engine, and base when it
 /// is ta-3.1c), fonts, warmup and packaging are optional. homepage, tags
 /// and requires.engine follow the shared package-key rules. An omitted

@@ -9,7 +9,7 @@ add_library(oa-tool-commands STATIC commands.cpp arguments.cpp files.cpp archive
   brain_net.cpp onnx.cpp
   mutator.cpp mutator_diff.cpp
   mutator_report.cpp catalogue.cpp engine_feed.cpp passphrase.cpp registry.cpp expansion.cpp
-  interface_words.cpp)
+  replay.cpp interface_words.cpp)
 add_library(oa::tool::commands ALIAS oa-tool-commands)
 target_include_directories(oa-tool-commands PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # The interface-word lists are headers in the modules that look the texts up.
@@ -19,6 +19,7 @@ target_include_directories(oa-tool-commands PRIVATE
   ${PROJECT_SOURCE_DIR}/src/app/package-install/include
   ${PROJECT_SOURCE_DIR}/src/app/update/include
   ${PROJECT_SOURCE_DIR}/src/data/input-actions/include
+  ${PROJECT_SOURCE_DIR}/src/data/replays/include
   ${PROJECT_SOURCE_DIR}/src/netgame/match/include
   ${PROJECT_SOURCE_DIR}/src/ui/engine-settings/include
   ${PROJECT_SOURCE_DIR}/src/ui/first-run/include
@@ -28,11 +29,13 @@ target_include_directories(oa-tool-commands PRIVATE
   ${PROJECT_SOURCE_DIR}/src/ui/game-files/include
   ${PROJECT_SOURCE_DIR}/src/ui/key-bindings/include
   ${PROJECT_SOURCE_DIR}/src/ui/key-editor/include
+  ${PROJECT_SOURCE_DIR}/src/ui/photo-panel/include
   ${PROJECT_SOURCE_DIR}/src/ui/library/include
   ${PROJECT_SOURCE_DIR}/src/ui/map-browser/include
   ${PROJECT_SOURCE_DIR}/src/ui/mutator-picker/include
   ${PROJECT_SOURCE_DIR}/src/ui/brain-picker/include
-  ${PROJECT_SOURCE_DIR}/src/ui/touch-hud/include)
+  ${PROJECT_SOURCE_DIR}/src/ui/touch-hud/include
+  ${PROJECT_SOURCE_DIR}/src/ui/replay-viewer/include)
 target_include_directories(oa-tool-commands SYSTEM PRIVATE
   ${PROJECT_SOURCE_DIR}/third_party/monocypher)
 target_compile_features(oa-tool-commands PUBLIC cxx_std_20)
@@ -45,7 +48,9 @@ target_link_libraries(oa-tool-commands
     oa-data-key-library oa-ui-key-bindings oa-ui-kit
     oa-data-neural
     oa-formats-soft-mutator oa-formats-json oa-formats-ota oa-formats-tnt
-    oa-formats-zip oa-base-sha256 oa-base-text oa-platform-shims oa-base-signing oa-data-catalogue
+    oa-formats-zip oa-formats-oademo oa-formats-tad oa-base-sha256 oa-base-text oa-platform-shims
+    oa-core-types oa-data-brain-library oa-present oa-session-demo
+    oa-base-signing oa-data-catalogue
     oa-data-engine-feed oa-data-registry oa-platform-random oa-app-content oa-netgame-http
     oa-formats-url
   PUBLIC oa-formats-hpi oa-formats-png oa-ui-decoded)
@@ -208,6 +213,14 @@ if(BUILD_TESTING)
     oa-formats-zip oa-base-sha256 oa-test-support oa-options)
   add_test(NAME tools-oa-tool-expansion COMMAND oa-tool-expansion-test)
   set_tests_properties(tools-oa-tool-expansion PROPERTIES TIMEOUT 30)
+
+  # replay: pack a recording, read it back, and unpack the plain stream.
+  add_executable(oa-tool-replay-test tests/replay_test.cpp)
+  target_link_libraries(oa-tool-replay-test PRIVATE oa-tool-commands oa-formats-oademo
+    oa-formats-tad oa-formats-zip oa-netgame oa-core-types oa-test-support
+    oa-options)
+  add_test(NAME tools-oa-tool-replay COMMAND oa-tool-replay-test)
+  set_tests_properties(tools-oa-tool-replay PROPERTIES TIMEOUT 60)
   if(WIN32)
     add_custom_command(TARGET oa-tool-registry-test POST_BUILD
       COMMAND ${CMAKE_COMMAND} "-DDLLS=$<TARGET_RUNTIME_DLLS:oa-tool-registry-test>"

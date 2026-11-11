@@ -34,11 +34,33 @@ void collect_controls(
 /// @param[out] controls replaced by the controls
 void collect_controls(const Endpoint& endpoint, std::vector<AutomationControl>& controls);
 
+/// Marks the focused control after the controls have been listed.
+///
+/// The automation core does not know the runtime. The app sets this once,
+/// and collect_controls calls it with the host's context. A null function,
+/// which is what is set until then, marks nothing.
+using FamilyFocusStamp = void (*)(void* context, std::vector<AutomationControl>& controls);
+
+/// Sets the function collect_controls calls once the controls are listed.
+///
+/// @param stamp the function; null marks nothing
+void set_family_focus_stamp(FamilyFocusStamp stamp) noexcept;
+
 /// Returns the name the protocol gives a kind of control.
 ///
 /// @param kind the kind
 /// @return button, check box, list, text field, slider, label, area or image
 [[nodiscard]] std::string_view control_kind_name(AutomationControlKind kind) noexcept;
+
+/// Writes the fields a screen reader reads, after the control's existing fields.
+///
+/// `role` and `label` are always written. A list keeps its integer `selected`
+/// and does not gain the boolean of the same name. A masked field's label is
+/// never the text it holds.
+///
+/// @param[in,out] json the control's object, open
+/// @param control the control
+void write_control_access(JsonWriter& json, const AutomationControl& control);
 
 /// Returns the dialogs the controls belong to, by their GUI file's name, in
 /// the controls' order, each once.

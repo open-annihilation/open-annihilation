@@ -542,6 +542,17 @@ void test_program_directory() {
     );
 }
 
+/// The program's file is the executable this test was started from.
+void test_program_executable() {
+    const std::string file = oa::platform::program_executable();
+    check(!file.empty(), "the program's file is known");
+    std::error_code error;
+    check(
+        std::filesystem::is_regular_file(std::filesystem::path(file), error) && !error,
+        "the program's file is a file"
+    );
+}
+
 void test_error_log() {
     using namespace oa::platform;
     const auto scratch = oa::test::make_scratch_directory("oa-platform-error-log");
@@ -702,6 +713,7 @@ int main() {
     test_proc_memory_fields();
     test_app_loop();
     test_program_directory();
+    test_program_executable();
     test_error_log();
     test_evicted_files();
     if (failures != 0) {

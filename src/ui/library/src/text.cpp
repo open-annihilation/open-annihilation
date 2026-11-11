@@ -5,6 +5,7 @@
 // written from the patterns in text.hpp.
 #include "oa/ui/library/text.hpp"
 
+#include "oa/data/languages/turkish_case.hpp"
 #include "oa/data/mutators/verdicts.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/ui/kit/text.hpp"
@@ -342,6 +343,8 @@ std::string_view tab_text(Tab tab, bool compact, const TextHooks& text) {
     switch (tab) {
     case Tab::active:
         return shown(text, words::tab_active);
+    case Tab::replays:
+        return shown(text, words::tab_replays);
     case Tab::mods:
         return shown(text, words::tab_mods);
     case Tab::maps:
@@ -456,6 +459,54 @@ std::string_view action_text(Action action, const TextHooks& text) {
         return shown(text, words::action_use);
     case Action::edit_keys:
         return shown(text, words::action_edit_keys);
+    case Action::watch_replay:
+        return shown(text, words::action_watch);
+    case Action::watch_from:
+        return shown(text, words::action_watch_from);
+    case Action::keep_replays:
+        return shown(text, words::action_keep);
+    case Action::open_replay_folder:
+        return shown(text, words::action_open_folder);
+    case Action::turn_on_recording:
+        return shown(text, words::action_turn_on_recording);
+    case Action::open_replay_file:
+        return shown(text, words::action_open_replay_file);
+    case Action::delete_replays:
+        return shown(text, words::action_delete_replay);
+    case Action::confirm_delete_replays:
+        return shown(text, words::action_delete_it);
+    case Action::export_replays:
+        return shown(text, words::action_export);
+    case Action::choose_export_folder:
+        return shown(text, words::export_choose);
+    case Action::run_export:
+        return shown(text, words::export_confirm);
+    case Action::show_export_folder:
+        return shown(text, words::export_show);
+    case Action::export_browse_up:
+        return shown(text, words::export_up);
+    case Action::export_browse_open:
+        return {};
+    case Action::export_browse_use:
+        return shown(text, words::export_use_folder);
+    case Action::download_replay:
+        return shown(text, words::fact_download);
+    case Action::browse_core_prime:
+        return shown(text, words::core_browse);
+    case Action::sign_in:
+    case Action::submit_sign_in:
+        return shown(text, words::action_sign_in);
+    case Action::sign_out:
+        return shown(text, words::action_sign_out);
+    case Action::share_replay:
+        return shown(text, words::action_share);
+    case Action::submit_share:
+        return shown(text, words::share_confirm);
+    case Action::open_shared_replay:
+        return shown(text, words::action_open_shared);
+    case Action::cancel_sign_in:
+    case Action::cancel_share:
+        return shown(text, words::action_cancel);
     }
     return {};
 }
@@ -572,8 +623,19 @@ std::string registry_initials(std::string_view name) {
             words_found.push_back(name.substr(start, end - start));
         start = end;
     }
-    const auto upper = [](std::string_view character) {
-        std::string text(character);
+    const bool turkish = oa::data::languages::interface_uses_turkish_case();
+    const auto upper = [turkish](std::string_view glyph) {
+        if (turkish) {
+            namespace cases = oa::data::languages;
+            const cases::Utf8Character decoded = cases::leading_character(glyph);
+            if (decoded.bytes == glyph.size() && cases::small_turkish_letter(decoded.character)) {
+                std::string raised;
+                cases::append_character(raised, cases::turkish_capital(decoded.character));
+                return raised;
+            }
+            return std::string(glyph);
+        }
+        std::string text(glyph);
         if (text.size() == 1 && text[0] >= 'a' && text[0] <= 'z')
             text[0] = static_cast<char>(text[0] - 'a' + 'A');
         return text;

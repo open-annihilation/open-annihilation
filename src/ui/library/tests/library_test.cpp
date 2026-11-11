@@ -10,14 +10,18 @@
 // with the sample numbers, the status lines, the bylines, the playing note,
 // the queue lines and every text.
 #include "oa/data/languages.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/registry.hpp"
 #include "oa/data/mutators/verdicts.hpp"
 #include "oa/test/check.hpp"
+#include "oa/ui/library/export.hpp"
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/mod_questions.hpp"
+#include "oa/ui/library/replays.hpp"
 #include "oa/ui/library/text.hpp"
 #include "oa/ui/library/uninstall.hpp"
 #include "oa/ui/library/use_question.hpp"
+#include "screen_fixture.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -34,6 +38,7 @@
 namespace {
 
 namespace lib = oa::ui::library;
+namespace languages = oa::data::languages;
 using lib::Action;
 using lib::Kind;
 using lib::Mark;
@@ -1864,6 +1869,12 @@ void test_registry_texts() {
     OA_CHECK_TEXT(lib::registry_initials("简体中文"), "简体");
     OA_CHECK_TEXT(lib::registry_initials(""), "");
 
+    // iletişim and ıssız while a language other than Turkish is showing:
+    // ASCII i becomes I, and ı is left as it is.
+    OA_CHECK_TEXT(lib::registry_initials("iletişim"), "IL");
+    OA_CHECK_TEXT(lib::registry_initials("ıssız"), "ıS");
+    OA_CHECK_TEXT(lib::registry_initials("iletişim ıssız"), "Iı");
+
     OA_CHECK_TEXT(lib::registry_age_text(10), "just now");
     OA_CHECK_TEXT(lib::registry_age_text(4 * 60), "4 min ago");
     OA_CHECK_TEXT(lib::registry_age_text(3 * 3600 + 5), "3 h ago");
@@ -1985,6 +1996,52 @@ std::string_view translated_base_game(void*, std::string_view english) {
     if (english == lib::words::active_as_made)
         return "Sans mod";
     return english;
+}
+
+/// Shows the interface in one language until the end of the scope, then puts
+/// the language that was showing back.
+struct ShownLanguage {
+    const languages::Language* earlier = nullptr;
+    languages::Language shown{};
+
+    /// @param tag the language's tag
+    explicit ShownLanguage(std::string_view tag) : earlier(&languages::interface_language()) {
+        shown.tag = tag;
+        languages::set_interface_language(nullptr, shown);
+    }
+
+    ~ShownLanguage() { languages::set_interface_language(nullptr, *earlier); }
+
+    ShownLanguage(const ShownLanguage&) = delete;
+    ShownLanguage& operator=(const ShownLanguage&) = delete;
+};
+
+/// Initials of iletişim and ıssız while Turkish or Azerbaijani is showing.
+/// A name with no i or ı, such as Core Prime, stays as it is.
+void test_turkish_registry_initials() {
+    struct Expectation {
+        std::string_view tag{};
+        std::string_view contact{}; ///< iletişim, whose title case is İletişim
+        std::string_view place{};   ///< ıssız, whose title case is Issız
+        std::string_view both{};    ///< the two words
+        std::string_view ridge{};   ///< ridge, whose i is capitalised
+    };
+
+    for (const Expectation& each : {
+             Expectation{"tr", "İL", "IS", "İI", "Rİ"},
+             Expectation{"az", "İL", "IS", "İI", "Rİ"},
+             Expectation{"tr-TR", "İL", "IS", "İI", "Rİ"},
+             Expectation{"en", "IL", "ıS", "Iı", "RI"},
+             Expectation{"de", "IL", "ıS", "Iı", "RI"},
+         }) {
+        const ShownLanguage shown(each.tag);
+        OA_CHECK_TEXT(lib::registry_initials("iletişim"), each.contact);
+        OA_CHECK_TEXT(lib::registry_initials("ıssız"), each.place);
+        OA_CHECK_TEXT(lib::registry_initials("iletişim ıssız"), each.both);
+        OA_CHECK_TEXT(lib::registry_initials("ridge"), each.ridge);
+        OA_CHECK_TEXT(lib::registry_initials("Core Prime"), "CP");
+        OA_CHECK_TEXT(lib::registry_initials("简体中文"), "简体");
+    }
 }
 
 void test_base_game() {
@@ -4285,13 +4342,14 @@ void test_command_line_lock() {
 }
 
 void test_mutators() {
-    // Mutators sits between Maps and Brains, Brains between Mutators and
-    // Keys, and Keys between Brains and Languages. Updates still opens on
-    // Updates; Mutators, Brains and Keys open on All. Each of those tabs
-    // keeps its full word.
-    OA_CHECK(lib::tab_total == 9);
+    // Replays sits second, under Active. Mutators sits between Maps and
+    // Brains, Brains between Mutators and Keys, and Keys between Brains and
+    // Languages. Updates still opens on Updates; Mutators, Brains and Keys
+    // open on All. Each of those tabs keeps its full word.
+    OA_CHECK(lib::tab_total == 10);
     const lib::Tab order[] = {
         lib::Tab::active,
+        lib::Tab::replays,
         lib::Tab::mods,
         lib::Tab::maps,
         lib::Tab::mutators,
@@ -6250,7 +6308,613 @@ void test_brain_details() {
 
 } // namespace
 
+/// Returns the paths of the replays the Replays section shows, in order.
+///
+/// @param library the Library
+/// @return the paths
+std::vector<std::string> replay_paths(const lib::Library& library) {
+    std::vector<std::string> paths;
+    for (const std::size_t index : library.replays.visible)
+        paths.push_back(library.inputs.replays.rows[index].replay.path);
+    return paths;
+}
+
+/// Returns a replay of the fixture by its path.
+///
+/// @param library the Library
+/// @param path the replay's path
+/// @return its row; the first row when none has the path
+const lib::ReplayRow& replay_at(const lib::Library& library, std::string_view path) {
+    const lib::ReplayRow* row = lib::find_replay(library, path);
+    OA_CHECK(row != nullptr);
+    return row != nullptr ? *row : library.inputs.replays.rows.front();
+}
+
+void test_replays() {
+    using paths = std::vector<std::string>;
+    lib::Library library = screen_fixture::replay_library();
+    // Replays sits second and counts this month's replays.
+    OA_CHECK(lib::tab_count(library, lib::Tab::replays) == 6);
+    OA_CHECK_TEXT(lib::tab_text(lib::Tab::replays, false), "Replays");
+    OA_CHECK(library.visible.empty() && !library.selected);
+    // Newest first, grouped by day, the first replay selected and marked.
+    OA_CHECK(
+        replay_paths(library) == paths({
+                                     "default/show-down.oademo",
+                                     "default/coast.oademo",
+                                     "default/broken.oademo",
+                                     "ridge/twin.oademo",
+                                     "default/caldera.oademo",
+                                     "Imported/anteer.tad",
+                                 })
+    );
+    OA_CHECK(library.replays.selected == std::optional<std::string>("default/show-down.oademo"));
+    OA_CHECK(library.replays.marked == paths{"default/show-down.oademo"});
+    const std::vector<lib::ReplayDay> days = lib::replay_days(library);
+    OA_CHECK(days.size() == 3);
+    if (days.size() == 3) {
+        OA_CHECK_TEXT(days[0].heading, "Today");
+        OA_CHECK(days[0].first == 0 && days[0].count == 3);
+        OA_CHECK_TEXT(days[1].heading, "Yesterday");
+        OA_CHECK(days[1].first == 3 && days[1].count == 2);
+        OA_CHECK_TEXT(days[2].heading, "Tue 3 Nov");
+    }
+    OA_CHECK_TEXT(
+        lib::replay_day_heading(library, screen_fixture::replays_today - 400), "Thu 2 Oct 2025"
+    );
+
+    // The filters' counts do not move with the kind or the search.
+    OA_CHECK(lib::replay_filter_count(library, lib::ReplayFilter::this_month) == 6);
+    OA_CHECK(lib::replay_filter_count(library, lib::ReplayFilter::older) == 1);
+    OA_CHECK(lib::replay_filter_count(library, lib::ReplayFilter::kept) == 1);
+    OA_CHECK(lib::replay_filter_count(library, lib::ReplayFilter::imported) == 1);
+    lib::set_replay_filter(library, lib::ReplayFilter::older);
+    OA_CHECK(replay_paths(library) == paths{"default/campaign.oademo"});
+    lib::set_replay_filter(library, lib::ReplayFilter::kept);
+    OA_CHECK(replay_paths(library) == paths{"ridge/twin.oademo"});
+    lib::set_replay_filter(library, lib::ReplayFilter::imported);
+    OA_CHECK(replay_paths(library) == paths{"Imported/anteer.tad"});
+    lib::set_replay_filter(library, lib::ReplayFilter::this_month);
+
+    // The kind menu: every kind, the engine's three, then a registered kind by its title.
+    const std::vector<lib::ReplayKindItem> kinds = lib::replay_kind_items(library);
+    OA_CHECK(kinds.size() == 5);
+    if (kinds.size() == 5) {
+        OA_CHECK(kinds[0].id.empty());
+        OA_CHECK_TEXT(kinds[0].title, "All kinds");
+        OA_CHECK(kinds[1].id == "multiplayer" && kinds[2].id == "skirmish");
+        OA_CHECK(kinds[3].id == "campaign");
+        OA_CHECK_TEXT(kinds[3].title, "Campaign");
+        OA_CHECK(kinds[4].id == "outpost");
+        OA_CHECK_TEXT(kinds[4].title, "Outpost");
+    }
+    lib::set_replay_kind(library, "skirmish");
+    OA_CHECK(replay_paths(library) == paths{"ridge/twin.oademo"});
+    lib::set_replay_kind(library, "outpost");
+    OA_CHECK(replay_paths(library) == paths{"default/show-down.oademo"});
+    lib::set_replay_kind(library, "campaign");
+    OA_CHECK(replay_paths(library).empty() && !library.replays.selected);
+    OA_CHECK_TEXT(lib::replay_empty(library).title, "No replays of this kind.");
+    lib::set_replay_filter(library, lib::ReplayFilter::older);
+    OA_CHECK(replay_paths(library) == paths{"default/campaign.oademo"});
+    lib::set_replay_filter(library, lib::ReplayFilter::this_month);
+    lib::set_replay_kind(library, {});
+    OA_CHECK(replay_paths(library).size() == 6);
+
+    // The search: map, player, mod and planet.
+    lib::set_query(library, "corvane");
+    OA_CHECK(replay_paths(library) == paths{"default/show-down.oademo"});
+    lib::set_query(library, "RIDGE");
+    OA_CHECK(replay_paths(library) == paths{"ridge/twin.oademo"});
+    lib::set_query(library, "sato coast");
+    OA_CHECK(replay_paths(library) == paths{"default/coast.oademo"});
+    // A file with no map is found by the name its row shows.
+    lib::set_query(library, "broken");
+    OA_CHECK(replay_paths(library) == paths{"default/broken.oademo"});
+    lib::set_query(library, "zzz");
+    OA_CHECK(replay_paths(library).empty());
+    OA_CHECK_TEXT(lib::replay_empty(library).title, "Nothing matches \"zzz\".");
+    lib::set_query(library, {});
+
+    // The sorts.
+    lib::set_replay_sort(library, lib::ReplaySort::longest);
+    OA_CHECK(replay_paths(library).front() == "default/coast.oademo");
+    OA_CHECK(lib::replay_days(library).size() == 1 && lib::replay_days(library)[0].heading.empty());
+    lib::set_replay_sort(library, lib::ReplaySort::map);
+    OA_CHECK(replay_paths(library).front() == "Imported/anteer.tad");
+    OA_CHECK(replay_paths(library)[1] == "default/broken.oademo");
+    lib::set_replay_sort(library, lib::ReplaySort::players);
+    OA_CHECK(replay_paths(library).front() == "default/coast.oademo");
+    lib::set_replay_sort(library, lib::ReplaySort::newest);
+
+    // Marks: Ctrl adds and takes away, Shift runs from the anchor.
+    lib::select_replay(library, "default/show-down.oademo");
+    lib::select_replay(library, "ridge/twin.oademo", lib::ReplayPick::toggle);
+    OA_CHECK(library.replays.marked == paths({"default/show-down.oademo", "ridge/twin.oademo"}));
+    OA_CHECK(!lib::marked_kept(library));
+    std::vector<lib::ReplayButton> buttons = lib::replay_buttons(library);
+    OA_CHECK(buttons.size() == 5);
+    if (buttons.size() == 5) {
+        OA_CHECK(buttons[0].action == lib::Action::watch_replay && buttons[0].enabled);
+        OA_CHECK_TEXT(buttons[0].text, "Watch");
+        OA_CHECK(buttons[1].action == lib::Action::export_replays && buttons[1].enabled);
+        OA_CHECK_TEXT(buttons[1].text, "Export…");
+        OA_CHECK(buttons[2].action == lib::Action::keep_replays);
+        OA_CHECK_TEXT(buttons[2].text, "Keep");
+        OA_CHECK(buttons[3].action == lib::Action::delete_replays && buttons[3].danger);
+        OA_CHECK_TEXT(buttons[3].text, "Delete replay");
+        OA_CHECK(buttons[4].action == lib::Action::open_replay_folder);
+        OA_CHECK_TEXT(buttons[4].text, "Open folder");
+    }
+    lib::select_replay(library, "default/show-down.oademo", lib::ReplayPick::toggle);
+    OA_CHECK(library.replays.marked == paths{"ridge/twin.oademo"});
+    OA_CHECK(lib::marked_kept(library));
+    buttons = lib::replay_buttons(library);
+    OA_CHECK(buttons.size() == 5 && buttons[2].text == "Kept");
+    // The last mark stays: a replay is always marked while one is selected.
+    lib::select_replay(library, "ridge/twin.oademo", lib::ReplayPick::toggle);
+    OA_CHECK(library.replays.marked == paths{"ridge/twin.oademo"});
+    lib::select_replay(library, "default/coast.oademo");
+    lib::select_replay(library, "default/caldera.oademo", lib::ReplayPick::extend);
+    OA_CHECK(
+        library.replays.marked == paths({
+                                      "default/coast.oademo",
+                                      "default/broken.oademo",
+                                      "ridge/twin.oademo",
+                                      "default/caldera.oademo",
+                                  })
+    );
+    OA_CHECK(library.replays.selected == std::optional<std::string>("default/caldera.oademo"));
+    lib::move_replay_selection(library, -1);
+    OA_CHECK(library.replays.selected == std::optional<std::string>("ridge/twin.oademo"));
+    OA_CHECK(library.replays.marked == paths{"ridge/twin.oademo"});
+    // A filter that hides marked replays drops their marks.
+    lib::select_replay(library, "default/coast.oademo");
+    lib::select_replay(library, "ridge/twin.oademo", lib::ReplayPick::toggle);
+    lib::set_replay_filter(library, lib::ReplayFilter::kept);
+    OA_CHECK(library.replays.marked == paths{"ridge/twin.oademo"});
+    lib::set_replay_filter(library, lib::ReplayFilter::this_month);
+
+    // A damaged replay is listed and cannot be watched or exported; nor can
+    // any be watched during a game.
+    lib::select_replay(library, "default/broken.oademo");
+    buttons = lib::replay_buttons(library);
+    OA_CHECK(
+        buttons.size() == 5 && !buttons[0].enabled && !buttons[1].enabled && buttons[2].enabled
+    );
+    OA_CHECK_TEXT(
+        lib::replay_reading(library, replay_at(library, "default/broken.oademo")),
+        "broken.oademo · 10:00 · 600 KB · Damaged"
+    );
+
+    // Watch from names where a Watch was left. A Watch that plays another
+    // installed release, or turns an expansion on, restarts and starts there
+    // too. Check for updates does not.
+    {
+        lib::Library part_way = library;
+        const auto offers_watch_from = [&part_way] {
+            for (const lib::ReplayButton& button : lib::replay_buttons(part_way)) {
+                if (button.action == Action::watch_from)
+                    return true;
+            }
+            return false;
+        };
+        for (lib::ReplayRow& row : part_way.inputs.replays.rows) {
+            if (row.replay.path == "default/coast.oademo")
+                row.replay.watched_tick = 600;
+        }
+        lib::select_replay(part_way, "default/coast.oademo");
+        OA_CHECK(offers_watch_from());
+        for (lib::ReplayRow& row : part_way.inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            oa::data::replays::ContentGap other;
+            other.kind = oa::data::replays::GapKind::mod_missing;
+            other.id = "ridge";
+            other.version = "2.8";
+            other.play_installed = true;
+            row.gaps.push_back(other);
+        }
+        OA_CHECK(offers_watch_from());
+        const std::vector<lib::ReplayButton> plain = lib::replay_buttons(part_way);
+        OA_CHECK(!plain.empty() && plain[0].action == Action::watch_replay && plain[0].enabled);
+        if (!plain.empty())
+            OA_CHECK_TEXT(plain[0].text, "Watch");
+        for (lib::ReplayRow& row : part_way.inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            row.gaps.clear();
+            oa::data::replays::ContentGap expansion;
+            expansion.kind = oa::data::replays::GapKind::expansion_off;
+            expansion.id = "music";
+            expansion.turn_on = true;
+            row.gaps.push_back(expansion);
+        }
+        OA_CHECK(offers_watch_from());
+        const std::vector<lib::ReplayButton> turned = lib::replay_buttons(part_way);
+        // An older mod and an older map pack: the button names neither.
+        {
+            lib::Library both = part_way;
+            for (lib::ReplayRow& row : both.inputs.replays.rows) {
+                if (row.replay.path != "default/coast.oademo")
+                    continue;
+                row.gaps.clear();
+                oa::data::replays::ContentGap mod;
+                mod.kind = oa::data::replays::GapKind::mod_other;
+                mod.id = "ridge";
+                mod.name = "Ridge";
+                mod.version = "2.8";
+                mod.have_version = "2.9";
+                mod.other_release = true;
+                row.gaps.push_back(mod);
+                oa::data::replays::ContentGap pack;
+                pack.kind = oa::data::replays::GapKind::map;
+                pack.id = "ridge-reach";
+                pack.pack_name = "Ridge Reach";
+                pack.version = "1.0";
+                pack.sha256 = std::string(64, 'b');
+                pack.other_release = true;
+                row.gaps.push_back(pack);
+            }
+            const std::vector<lib::ReplayButton> two = lib::replay_buttons(both);
+            OA_CHECK(!two.empty() && two[0].action == Action::watch_replay);
+            if (!two.empty())
+                OA_CHECK_TEXT(two[0].text, "Get them and watch");
+        }
+        OA_CHECK(!turned.empty() && turned[0].enabled);
+        if (!turned.empty())
+            OA_CHECK_TEXT(turned[0].text, "Turn on and watch");
+        for (lib::ReplayRow& row : part_way.inputs.replays.rows) {
+            if (row.replay.path != "default/coast.oademo")
+                continue;
+            row.gaps.clear();
+            oa::data::replays::ContentGap newer;
+            newer.kind = oa::data::replays::GapKind::engine;
+            row.gaps.push_back(newer);
+        }
+        OA_CHECK(!offers_watch_from());
+    }
+
+    // Each row's words, and its reading.
+    const lib::ReplayRow& battle = replay_at(library, "default/show-down.oademo");
+    OA_CHECK_TEXT(lib::replay_kind_line(library, battle), "Outpost · Corvane");
+    OA_CHECK_TEXT(lib::replay_card_kind(library, battle), "Outpost · Corvane, Low Reach");
+    OA_CHECK_TEXT(lib::replay_players_text(library, battle), "Varn vs Kestrel");
+    OA_CHECK_TEXT(
+        lib::replay_reading(library, battle),
+        "Show Down · Outpost · Corvane · Varn vs Kestrel · 23:52 · 21:14 · 600 KB"
+    );
+    OA_CHECK_TEXT(
+        lib::replay_players_text(library, replay_at(library, "default/coast.oademo")), "4 players"
+    );
+    OA_CHECK(
+        lib::replay_reading(library, replay_at(library, "ridge/twin.oademo")).ends_with(" · Kept")
+    );
+    OA_CHECK(
+        lib::replay_reading(library, replay_at(library, "default/caldera.oademo"))
+            .ends_with(" · After a crash")
+    );
+    OA_CHECK_TEXT(lib::replay_length_text(4'329'000), "1:12:09");
+    OA_CHECK_TEXT(lib::replay_length_text(0), "\u2013");
+    OA_CHECK_TEXT(lib::replay_time_text(9 * 60 + 5), "09:05");
+
+    // The card's facts.
+    const std::vector<lib::ReplayFact> kept_facts =
+        lib::replay_facts(library, replay_at(library, "ridge/twin.oademo"));
+    OA_CHECK(kept_facts.size() == 7);
+    if (kept_facts.size() == 7) {
+        OA_CHECK_TEXT(kept_facts[0].label, "Length");
+        OA_CHECK_TEXT(kept_facts[0].value, "18:40");
+        OA_CHECK_TEXT(kept_facts[1].label, "Recorded");
+        OA_CHECK_TEXT(kept_facts[1].value, "Yesterday 16:30 · Open Annihilation 0.9.1");
+        OA_CHECK_TEXT(kept_facts[2].label, "Mod");
+        OA_CHECK_TEXT(kept_facts[2].value, "Ridge 2.8 (rev 1)");
+        OA_CHECK_TEXT(kept_facts[3].value, "None");
+        OA_CHECK_TEXT(kept_facts[4].label, "Mutators");
+        OA_CHECK_TEXT(kept_facts[5].label, "File");
+        OA_CHECK_TEXT(kept_facts[5].value, "600 KB · twin.oademo");
+        OA_CHECK_TEXT(kept_facts[6].label, "Kept");
+        OA_CHECK_TEXT(kept_facts[6].value, "Until you delete it");
+    }
+    const std::vector<lib::ReplayFact> coast_facts =
+        lib::replay_facts(library, replay_at(library, "default/coast.oademo"));
+    OA_CHECK(!coast_facts.empty() && coast_facts.back().label == "Kept until");
+    OA_CHECK(!coast_facts.empty() && coast_facts.back().value == "Sun 6 Dec");
+    const std::vector<lib::ReplayFact> imported_facts =
+        lib::replay_facts(library, replay_at(library, "Imported/anteer.tad"));
+    OA_CHECK(!imported_facts.empty() && imported_facts.back().value == "Imported replays are kept");
+    {
+        lib::ReplayRow downloaded = replay_at(library, "default/coast.oademo");
+        downloaded.replay.path = "Core Prime/coast.oademo";
+        const std::vector<lib::ReplayFact> facts = lib::replay_facts(library, downloaded);
+        OA_CHECK(!facts.empty() && facts.back().value == "Downloaded replays are kept");
+        downloaded.replay.path = "default/coast.oademo";
+        downloaded.replay.how.clear();
+        downloaded.replay.exported = true;
+        const std::vector<lib::ReplayFact> exported = lib::replay_facts(library, downloaded);
+        OA_CHECK(!exported.empty() && exported.back().value == "Exported replays are kept");
+    }
+    // Delete asks beside the button. Choosing another replay takes the confirm away.
+    lib::select_replay(library, "default/coast.oademo");
+    library.replays.delete_armed = true;
+    buttons = lib::replay_buttons(library);
+    OA_CHECK(buttons.size() == 6 && buttons[4].action == lib::Action::confirm_delete_replays);
+    OA_CHECK(buttons[4].danger && buttons[4].text == "Delete it");
+    lib::select_replay(library, "ridge/twin.oademo", lib::ReplayPick::toggle);
+    library.replays.delete_armed = true;
+    OA_CHECK(lib::replay_buttons(library)[4].text == "Delete them");
+    library.replays.delete_failure =
+        "This replay could not be moved to the trash. the folder is read-only";
+    OA_CHECK(
+        lib::replay_note(library, replay_at(library, "ridge/twin.oademo"))
+            .find("could not be moved to the trash") != std::string::npos
+    );
+    lib::select_replay(library, "default/show-down.oademo");
+    OA_CHECK(!library.replays.delete_armed);
+    OA_CHECK(library.replays.delete_failure.empty());
+    lib::Library forever = library;
+    forever.inputs.replays.keep_forever = true;
+    const std::vector<lib::ReplayFact> forever_facts =
+        lib::replay_facts(forever, replay_at(forever, "default/coast.oademo"));
+    OA_CHECK(!forever_facts.empty() && forever_facts.back().label == "Kept");
+    OA_CHECK(!forever_facts.empty() && forever_facts.back().value == "Until you delete it");
+    // A `.tad`'s recorder stays as it was recorded; a `.oademo`'s program is
+    // named as the player knows it.
+    {
+        lib::ReplayRow tad = replay_at(library, "Imported/anteer.tad");
+        tad.replay.recorded_by = "open-annihilation 0.9.1";
+        OA_CHECK(lib::replay_facts(library, tad)[1].value.ends_with("· open-annihilation 0.9.1"));
+        tad.replay.recorded_by = "taf-2026.1.18";
+        OA_CHECK(lib::replay_facts(library, tad)[1].value.ends_with("· taf-2026.1.18"));
+        lib::ReplayRow program = replay_at(library, "default/coast.oademo");
+        program.replay.recorded_by = "open-annihilation 0.8.14-b2";
+        OA_CHECK(
+            lib::replay_facts(library, program)[1].value.ends_with("· Open Annihilation 0.8.14-b2")
+        );
+        program.replay.recorded_by = {};
+        OA_CHECK(!lib::replay_facts(library, program)[1].value.ends_with("· "));
+    }
+    // A `.tad` names its mod in its note, by the name the player saw, or by
+    // its folder when that mod is installed. The card names that mod.
+    {
+        lib::ReplayRow tad = replay_at(library, "Imported/anteer.tad");
+        tad.replay.mod_id.clear();
+        tad.replay.mod_name.clear();
+        OA_CHECK_TEXT(lib::replay_facts(library, tad)[2].value, "None");
+        oa::data::replays::ContentNeed noted;
+        noted.kind = "oamod";
+        noted.name = "TA: Twilight";
+        tad.replay.needs.push_back(noted);
+        OA_CHECK_TEXT(lib::replay_facts(library, tad)[2].value, "TA: Twilight");
+        tad.replay.needs.clear();
+        oa::data::replays::ContentGap folder;
+        folder.kind = oa::data::replays::GapKind::mod_missing;
+        folder.id = "ta-twilight";
+        folder.name = "TA: Twilight";
+        folder.play_installed = true;
+        tad.gaps.push_back(folder);
+        OA_CHECK_TEXT(lib::replay_facts(library, tad)[2].value, "TA: Twilight");
+    }
+    // Facts have keys for automation, and labels that begin with a capital.
+    OA_CHECK(
+        !kept_facts.empty() && kept_facts.front().key == "length" &&
+        kept_facts.back().key == "kept" && coast_facts.back().key == "kept-until"
+    );
+    const std::vector<lib::ReplayFact> broken_facts =
+        lib::replay_facts(library, replay_at(library, "default/broken.oademo"));
+    OA_CHECK(broken_facts.size() == 3);
+
+    // A file with no map is titled by the name its row shows: its file name,
+    // never its path; its card has no length to write when none is known.
+    const lib::ReplayRow& broken_row = replay_at(library, "default/broken.oademo");
+    OA_CHECK_TEXT(lib::replay_title(broken_row), "broken.oademo");
+    OA_CHECK_TEXT(lib::replay_title(replay_at(library, "default/coast.oademo")), "Coast To Coast");
+    OA_CHECK_TEXT(lib::replay_when_line(library, broken_row), "Today 10:00");
+    OA_CHECK_TEXT(
+        lib::replay_when_line(library, replay_at(library, "default/coast.oademo")),
+        "Today 19:02 · 41:07"
+    );
+    {
+        lib::ReplayRow unknown = replay_at(library, "default/coast.oademo");
+        unknown.replay.length_ms = 0;
+        OA_CHECK_TEXT(lib::replay_when_line(library, unknown), "Today 19:02");
+    }
+    // The damaged card's note is two sentences, not one joined by a dot.
+    OA_CHECK_TEXT(
+        lib::replay_note(library, broken_row),
+        "This replay cannot be watched. This file is not a replay."
+    );
+    OA_CHECK(lib::replay_note(library, replay_at(library, "default/coast.oademo")).empty());
+
+    // A refusal shows on the replay it is about.
+    lib::refuse_replay(
+        library, "default/coast.oademo", "demo map 'Coast To Coast' is not installed"
+    );
+    OA_CHECK(library.replays.refused_path == "default/coast.oademo");
+    OA_CHECK_TEXT(
+        lib::replay_note(library, replay_at(library, "default/coast.oademo")),
+        "demo map 'Coast To Coast' is not installed"
+    );
+    OA_CHECK(lib::replay_note(library, replay_at(library, "default/caldera.oademo")).empty());
+
+    // An imported replay is kept already: its card offers no Keep.
+    lib::select_replay(library, "Imported/anteer.tad");
+    OA_CHECK(lib::marked_all_imported(library));
+    buttons = lib::replay_buttons(library);
+    OA_CHECK(buttons.size() == 4);
+    if (buttons.size() == 4) {
+        OA_CHECK(buttons[0].action == lib::Action::watch_replay);
+        OA_CHECK(buttons[1].action == lib::Action::export_replays);
+        OA_CHECK(buttons[2].action == lib::Action::delete_replays && buttons[2].danger);
+        OA_CHECK(buttons[3].action == lib::Action::open_replay_folder);
+    }
+    lib::select_replay(library, "default/coast.oademo", lib::ReplayPick::toggle);
+    OA_CHECK(!lib::marked_all_imported(library) && lib::replay_buttons(library).size() == 5);
+    lib::select_replay(library, "default/show-down.oademo");
+
+    // A row's second line: each of two or three players has a dot of their
+    // colour before the name, joined as the language joins them; past three
+    // the dots stand together and "N players" follows.
+    {
+        const std::vector<lib::ReplayLinePiece> versus =
+            lib::replay_line_pieces(library, replay_at(library, "default/show-down.oademo"));
+        OA_CHECK(versus.size() == 6);
+        if (versus.size() == 6) {
+            OA_CHECK(versus[0].dot == std::optional<int32_t>(0) && versus[0].text.empty());
+            OA_CHECK(!versus[1].dot && versus[1].text == "Varn");
+            OA_CHECK(!versus[2].dot && versus[2].text == " vs ");
+            OA_CHECK(versus[3].dot == std::optional<int32_t>(1));
+            OA_CHECK(!versus[4].dot && versus[4].text == "Kestrel");
+            OA_CHECK(!versus[5].dot && versus[5].text == " · 23:52");
+        }
+        const std::vector<lib::ReplayLinePiece> four =
+            lib::replay_line_pieces(library, replay_at(library, "default/coast.oademo"));
+        OA_CHECK(four.size() == 5);
+        if (four.size() == 5) {
+            for (std::size_t place = 0; place < 4; ++place)
+                OA_CHECK(four[place].dot == std::optional<int32_t>(static_cast<int32_t>(place)));
+            OA_CHECK(!four[4].dot && four[4].text == "4 players · 41:07");
+        }
+        const std::vector<lib::ReplayLinePiece> broken_line =
+            lib::replay_line_pieces(library, broken_row);
+        OA_CHECK(broken_line.empty());
+        const std::vector<lib::ReplayLinePiece> alone =
+            lib::replay_line_pieces(library, replay_at(library, "default/campaign.oademo"));
+        OA_CHECK(alone.size() == 3 && alone[0].dot && alone[1].text == "Commander");
+    }
+
+    // The status line, while the folder is read and after.
+    OA_CHECK_TEXT(lib::replay_status(library), "6 replays · 4.8 MB");
+    library.inputs.replays.reading = true;
+    library.inputs.replays.read = 2;
+    library.inputs.replays.total = 7;
+    OA_CHECK_TEXT(lib::replay_status(library), "Reading 2 of 7 replays");
+    // Until the files are counted, the footer says only that it reads.
+    library.inputs.replays.read = 0;
+    library.inputs.replays.total = 0;
+    OA_CHECK_TEXT(lib::replay_status(library), "Reading the replays…");
+    library.inputs.replays.reading = false;
+
+    // While the folder is read and no row has come, the section says so; it never
+    // says "No replays yet.", and offers no Turn on recording, until a read ends.
+    {
+        lib::Library reading = screen_fixture::replay_library(false, false);
+        reading.inputs.replays.reading = true;
+        const lib::ReplayEmpty waiting = lib::replay_empty(reading);
+        OA_CHECK_TEXT(waiting.title, "Reading the replays…");
+        OA_CHECK(waiting.reading && waiting.line.empty() && !waiting.turn_on);
+        OA_CHECK_TEXT(lib::replay_status(reading), "Reading the replays…");
+        reading.inputs.replays.total = 5;
+        reading.inputs.replays.read = 1;
+        OA_CHECK_TEXT(lib::replay_status(reading), "Reading 1 of 5 replays");
+        reading.inputs.replays.reading = false;
+        OA_CHECK_TEXT(lib::replay_empty(reading).title, "No replays yet.");
+        OA_CHECK(lib::replay_empty(reading).turn_on && !lib::replay_empty(reading).reading);
+    }
+
+    // The empty section: games are kept, or recording is off.
+    const lib::Library none = screen_fixture::replay_library(true, false);
+    const lib::ReplayEmpty kept_here = lib::replay_empty(none);
+    OA_CHECK_TEXT(kept_here.title, "No replays yet.");
+    OA_CHECK_TEXT(kept_here.line, "Games you play are kept here for 30 days.");
+    OA_CHECK(!kept_here.turn_on);
+    lib::Library span = none;
+    span.inputs.replays.keep_days = 90;
+    OA_CHECK_TEXT(lib::replay_empty(span).line, "Games you play are kept here for 90 days.");
+    span.inputs.replays.keep_days = 365;
+    OA_CHECK_TEXT(lib::replay_empty(span).line, "Games you play are kept here for a year.");
+    span.inputs.replays.keep_forever = true;
+    OA_CHECK_TEXT(
+        lib::replay_empty(span).line, "Games you play are kept here until you delete them."
+    );
+    OA_CHECK(lib::replay_buttons(none).empty() && lib::replay_status(none).empty());
+    const lib::ReplayEmpty off = lib::replay_empty(screen_fixture::replay_library(false, false));
+    OA_CHECK_TEXT(off.line, "Recording is off.");
+    OA_CHECK(off.turn_on);
+    // A refresh keeps the section's own state.
+    lib::set_replay_filter(library, lib::ReplayFilter::older);
+    lib::refresh(library, library.inputs);
+    OA_CHECK(library.replays.filter == lib::ReplayFilter::older);
+    OA_CHECK(replay_paths(library) == paths{"default/campaign.oademo"});
+}
+
+/// The Export dialog's model: Export takes a press only when every replay is
+/// ready and readable, a folder is chosen and nothing is being written; the
+/// sectors switch changes the `.tad` size; a file that is not ready has no
+/// size; and the folder page and the warning page stop at either end.
+void test_export_dialog() {
+    lib::Library library;
+    lib::ExportOffer offer;
+    offer.folder = "/replays";
+    offer.folder_label = "replays";
+    lib::ExportFile file;
+    file.path = "default/show-down.oademo";
+    file.title = "Show Down";
+    file.oademo_bytes = 100;
+    file.tad_bytes = 80;
+    file.tad_without_bytes = 70;
+    file.ready = true;
+    offer.files.push_back(file);
+    lib::open_export(library, offer);
+    OA_CHECK(lib::export_can_run(library.export_dialog));
+    OA_CHECK(lib::export_oademo_bytes(library.export_dialog) == 100);
+    OA_CHECK(lib::export_tad_bytes(library.export_dialog) == 80);
+    lib::set_export_oa_sectors(library, false);
+    OA_CHECK(lib::export_tad_bytes(library.export_dialog) == 70);
+    lib::set_export_oa_sectors(library, true);
+
+    library.export_dialog.files[0].ready = false;
+    OA_CHECK(!lib::export_can_run(library.export_dialog));
+    OA_CHECK(lib::export_oademo_bytes(library.export_dialog) == 0);
+    OA_CHECK(lib::export_tad_bytes(library.export_dialog) == 0);
+    library.export_dialog.files[0].ready = true;
+    library.export_dialog.files[0].unreadable = true;
+    OA_CHECK(!lib::export_can_run(library.export_dialog));
+    library.export_dialog.files[0].unreadable = false;
+
+    library.export_dialog.folder.clear();
+    OA_CHECK(!lib::export_can_run(library.export_dialog));
+    library.export_dialog.folder = "/replays";
+    lib::set_export_progress(library, 0, 1);
+    OA_CHECK(library.export_dialog.exporting && !lib::export_can_run(library.export_dialog));
+    lib::finish_export(library);
+    OA_CHECK(library.export_dialog.done && !lib::export_can_run(library.export_dialog));
+    lib::open_export(library, offer);
+    lib::fail_export(library, "The export could not be written.");
+    OA_CHECK(!lib::export_can_run(library.export_dialog));
+    lib::set_export_folder(library, "/elsewhere", "elsewhere", false);
+    OA_CHECK(library.export_dialog.problem.empty());
+    OA_CHECK(lib::export_can_run(library.export_dialog));
+    lib::open_export_browse(library, "/replays", {});
+    OA_CHECK(library.export_dialog.browsing && !lib::export_can_run(library.export_dialog));
+    lib::close_export_browse(library);
+    library.export_dialog.files.clear();
+    OA_CHECK(!lib::export_can_run(library.export_dialog));
+    lib::close_export(library);
+    OA_CHECK(!lib::export_can_run(library.export_dialog));
+
+    lib::ExportDialog dialog;
+    for (int place = 0; place < 5; ++place) {
+        lib::ExportFolder folder;
+        folder.name = "folder-" + std::to_string(place);
+        dialog.entries.push_back(std::move(folder));
+    }
+    lib::scroll_export_browse(dialog, -3);
+    OA_CHECK(dialog.browse_first == 0);
+    lib::scroll_export_browse(dialog, 100);
+    OA_CHECK(dialog.browse_first == 4);
+    lib::scroll_export_browse(dialog, -100);
+    OA_CHECK(dialog.browse_first == 0);
+    lib::scroll_export_warnings(dialog, -2);
+    OA_CHECK(dialog.warning_first == 0);
+    lib::scroll_export_warnings(dialog, 1000);
+    OA_CHECK(dialog.warning_first == 64);
+    lib::scroll_export_warnings(dialog, -1000);
+    OA_CHECK(dialog.warning_first == 0);
+}
+
 int main() {
+    test_replays();
     test_state_matrix();
     test_queue_states();
     test_blocked_reasons();
@@ -6289,6 +6953,7 @@ int main() {
     test_change_texts();
     test_texts();
     test_registry_texts();
+    test_turkish_registry_initials();
     test_package_needs();
     test_mutators();
     test_brains();
@@ -6297,5 +6962,6 @@ int main() {
     test_checked_words();
     test_mutator_details();
     test_lookup();
+    test_export_dialog();
     return oa::test::check_exit_status();
 }

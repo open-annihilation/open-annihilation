@@ -187,6 +187,42 @@ enum class NavigationGroup : uint8_t {
     campaign
 };
 
+/// The part of the photo check --check-photo runs.
+enum class PhotoGroup : uint8_t {
+    /// entering, leaving and hiding the interface
+    mode,
+    /// freeze, step, the eighths between ticks, slow play and a held picture
+    time,
+    /// the zoom, the pan, the follow and the turn
+    camera,
+    /// a photo of the window's battlefield, in the render mode in use
+    capture,
+    /// a photo of the turned view
+    live,
+    /// each photo command on its key, then Take photo moved to K
+    keys,
+    /// the panel: its controls, the guides, a crop and a photo with no panel
+    panel,
+    /// Screen, smooth edges and photos larger than the window
+    sizes,
+    /// a controller and a phone: enter, frame, take, freeze, hide and leave
+    pad_touch,
+    /// a colour grade, a vignette, grain and a frame on the capture check's fight
+    looks,
+    /// a photo of a replay: stepping, the framed view, and the recording in the file
+    replay,
+    /// a Full photo drawn in tiles, matching one drawn whole
+    tiles,
+    /// a turned-view photo drawn in tiles, matching one drawn whole
+    tiles_live,
+    /// a turned photo with depth of field, one with haze, and that frame with both off
+    depth_live,
+    /// a poster of the view, a marked area or the whole map, at the game's own scale
+    poster,
+    /// a request to close the window, asked over photo mode and answered both ways
+    close,
+};
+
 /// A renderer failure --render-fault forces in --check-renderer-ladder.
 enum class RenderFaultPoint : uint8_t {
     /// every render driver but software refuses at start-up
@@ -269,6 +305,11 @@ inline constexpr bool self_checks_built = true;
 #endif
 
 struct Options {
+    /// The engine's build, its version and the commit it was built from
+    /// (OA_ENGINE_BUILD, cmake/OaEngineBuild.cmake); main() sets it. A
+    /// replay the Library's background read could not play is read again
+    /// under another build. Empty where nothing set it.
+    std::string engine_build{};
     // Empty until main() resolves it when --game-dir is not passed.
     fs::path game_dir;
     // True when the command line named --game-dir, set before
@@ -762,6 +803,15 @@ struct Options {
     // that the match's sounds reach the director's sound hooks. Implies
     // --headless-check and --skip-intro.
     bool check_director_view = false;
+    /// --check-photo [mode|time|camera|capture|live]: photo mode in a window
+    /// over the skirmish's fight. `mode` enters and leaves, `time` stops,
+    /// steps, slows and holds the picture, `camera` zooms, pans, follows and
+    /// turns, `capture` saves a photo and `live` saves the turned view. A
+    /// fixed-clock, unattended run that skips the intro. It opens a window,
+    /// as the key table does.
+    bool check_photo = false;
+    /// The part of --check-photo that runs.
+    PhotoGroup photo_group = PhotoGroup::mode;
     // Renders a small director script over the headless skirmish's first
     // ticks, with encoding off, twice (all of it, then its second chunk
     // alone), and checks the files it writes, that neither the sound of a
@@ -823,6 +873,11 @@ struct Options {
     // then the list's edits, the save, a paused skirmish and Developer Mode.
     // A scratch folder holds the player's own layout.
     bool check_key_editor = false;
+    // Records a short skirmish and watches it: the playback bar at 640x480,
+    // 1280x720 and 1920x1080, every control and key, an export into a scratch
+    // folder, and the straight playback's digest. A scratch folder holds the
+    // recording.
+    bool check_replay_viewer = false;
     // Captures a chord over a paused skirmish, settles a clash, and opens a
     // draft clash on the Clashes filter. A scratch folder holds the layout.
     bool check_key_capture = false;
@@ -937,6 +992,32 @@ struct Options {
     // rules-changing update, and for 50 rounds answers UPDATE and requires
     // the Library still on top with its tabs. NOT NOW leaves the details page.
     bool check_library_update_question = false;
+    // Made-up replays, written from the recording the working folder holds
+    // (library-replays-source.oademo), walked through the Library's Replays
+    // section: its place with none and with some, Watch and Leave, Keep over
+    // a restart, the filters, the kind menu, the search and the sort, and
+    // Turn on recording. With --snapshot, the section at three sizes.
+    bool check_library_replays = false;
+    // Opens a made-up .oademo and a made-up .tad into Recordings/Imported,
+    // selects each in the Library, opens each again without copying, and
+    // refuses a damaged file and a version this game does not play. The
+    // imported .tad holds no sector 6. Prints `replay import:` lines.
+    bool check_replay_import = false;
+    // A replay that needs a map pack and a mutator, against the loopback
+    // registry replays-content.facts names: both fetched with one press, then
+    // a release that is not listed, and the same replay while that registry
+    // is stopped. prepare writes the packages. With --snapshot, the card at
+    // 1280x720.
+    bool check_replays_content = false;
+    // Core Prime's replay list, from the loopback feed --core-prime-api names
+    // (core-prime.facts in the working folder): the list and its next page,
+    // a planet filter, a download, Watch, a release that changed, a file
+    // whose digest differs, and the same list with that server stopped.
+    // With --snapshot, the section's states at 1280x720.
+    bool check_replays_core_prime = false;
+    /// Replaces `https://api.coreprime.net` for Core Prime's replay list, and
+    /// sends that list's download keys to `<url>/api/v1`. Empty uses Core Prime.
+    std::string core_prime_api{};
     // The soft restarts the process has made before this run: 0 for the
     // first; each switch of the mod from the settings adds one.
     uint32_t restarts = 0;
@@ -962,13 +1043,21 @@ struct Options {
     // generated from; empty for none. Implies --headless-check and
     // --skip-intro.
     fs::path generate_script;
+    // --replay-index RECORDING: the recording whose index --output names;
+    // empty for none. Implies --headless-check and --skip-intro.
+    fs::path replay_index;
+    // --replay-map-pack PATH: the kept map pack --replay-index mounts before
+    // it reads the recording. Empty mounts nothing. Refused without
+    // --replay-index.
+    fs::path replay_map_pack;
     // --render-script FILE: the director script (.oascript) or bundle
     // (.oamovie) to render; empty for none. Implies --headless-check and
     // --skip-intro.
     fs::path render_script;
     // --output PATH: where --generate-script writes (a .oascript or
-    // .oamovie) or --render-script renders (a directory); empty for the
-    // default beside the input.
+    // .oamovie), --render-script renders (a directory) or --replay-index
+    // writes the index (a .json); empty for the default beside the input
+    // (--replay-index has none).
     fs::path director_output;
     // --chunks A-B (or A): the chunks --render-script draws and encodes,
     // counted from 0, both included; unset for all.

@@ -210,12 +210,162 @@ bool hotspot_left_down(Window* self, const Message* /*msg*/) {
     return true;
 }
 
+/// Scrolls a planet into the viewer and gives it the keyboard.
+///
+/// A planet that is not wholly in the viewer is brought to its middle, as
+/// far as the map's edges allow, so the planet and its ring are not under
+/// the frame. The hotspot may be destroyed and built again while the map
+/// scrolls, so the window that had the key is not used after the scroll.
+///
+/// @param frame the main frame
+/// @param index planet index
+void focus_planet(MainFrame* frame, int32_t index) {
+    if (frame == nullptr || frame->map_panel == nullptr || frame->owner == nullptr ||
+        frame->owner->navigation == nullptr)
+        return;
+    GalaxyView* galaxy = galaxy_of(frame);
+    if (index < 0 || index >= static_cast<int32_t>(galaxy->planet_count))
+        return;
+    const GalaxyPlanet& planet = galaxy->planets[index];
+    const bool whole = planet.left >= galaxy->scroll_x && planet.top >= galaxy->scroll_y &&
+                       planet.right < galaxy->scroll_x + galaxy->view_width &&
+                       planet.bottom < galaxy->scroll_y + galaxy->view_height;
+    if (!whole) {
+        const int32_t target_x = planet.x - galaxy->view_width / 2;
+        const int32_t target_y = planet.y - galaxy->view_height / 2;
+        screens::galaxy_scroll(
+            galaxy, target_x - galaxy->scroll_x, target_y - galaxy->scroll_y, true
+        );
+    }
+    galaxy_panel_sync_hotspots(frame);
+    Window* landed = frame->map_panel->hotspots[index];
+    if (landed != nullptr)
+        services_desktop_focus(landed);
+}
+
+/// The planet an arrow reaches from this one, or kNoPlanet when none lies that way.
+///
+/// @param frame the main frame
+/// @param from the planet the keyboard is on
+/// @param direction key::left, key::right, key::up or key::down
+/// @return the planet's index, or kNoPlanet
+int32_t neighbor_planet(MainFrame* frame, int32_t from, int32_t direction) {
+    if (frame == nullptr)
+        return screens::kNoPlanet;
+    const GalaxyView* galaxy = galaxy_of(frame);
+    const int32_t count = static_cast<int32_t>(galaxy->planet_count);
+    if (count <= 0 || count > static_cast<int32_t>(screens::kMaxGalaxyPlanets))
+        return screens::kNoPlanet;
+    int32_t xs[screens::kMaxGalaxyPlanets];
+    int32_t ys[screens::kMaxGalaxyPlanets];
+    for (int32_t i = 0; i < count; ++i) {
+        xs[i] = galaxy->planets[i].x;
+        ys[i] = galaxy->planets[i].y;
+    }
+    uint8_t linked[screens::kMaxGalaxyPlanets * screens::kMaxGalaxyPlanets]{};
+    for (std::size_t link = 0; link < galaxy->connector_count; ++link) {
+        const int32_t a = galaxy->connectors[link].a;
+        const int32_t b = galaxy->connectors[link].b;
+        if (a < 0 || b < 0 || a >= count || b >= count)
+            continue;
+        linked[a * count + b] = 1;
+        linked[b * count + a] = 1;
+    }
+    return nearest_planet(xs, ys, linked, count, from, direction);
+}
+
+/// Gives the keyboard to the capitol of the player's side.
+///
+/// A side with no capitol leaves the keyboard where it is.
+///
+/// @param frame the main frame
+void focus_capitol(MainFrame* frame) {
+    if (frame == nullptr || frame->owner == nullptr || frame->owner->navigation == nullptr)
+        return;
+    screens::BoneyardsScreens* nav = frame->owner->navigation;
+    const int32_t capitol = screens::galaxy_player_capitol(&nav->galaxy, nav->allegiance);
+    if (capitol == screens::kNoPlanet)
+        return;
+    focus_planet(frame, capitol);
+}
+
+/// The magnification step a key asks for.
+///
+/// Minus steps out. Plus, and equals while Shift is held, step in.
+///
+/// @param key the key code
+/// @return 1 to step in, -1 to step out, or 0 when the key does not
+int32_t magnification_step(int32_t key) {
+    if (key == '-')
+        return -1;
+    if (key == '+' || (key == '=' && input_key_down(key::shift)))
+        return 1;
+    return 0;
+}
+
+/// Steps the magnification slider, which moves the map's zoom.
+///
+/// @param frame the main frame
+/// @param delta 1 to step in, -1 to step out
+void step_magnification(MainFrame* frame, int32_t delta) {
+    if (frame == nullptr || frame->mag_slider == nullptr)
+        return;
+    Slider* slider = frame->mag_slider;
+    slider_set_value(slider, slider_index(slider) + delta);
+}
+
+/// Moves between planets, chooses one, or changes the magnification.
+///
+/// Arrows move to the nearest planet only while the keyboard ring is
+/// showing. Until then they do what every other control does. Return and
+/// Space choose the planet as a press does. Home goes to the player's
+/// capitol. + and − step the magnification slider.
+///
+/// @param self the planet hotspot
+/// @param msg key_down message; null is not handled
+/// @return true when the key was used
+bool hotspot_key_down(Window* self, const Message* msg) {
+    if (self == nullptr || msg == nullptr)
+        return false;
+    MainFrame* frame = as_hotspot(self)->frame;
+    const int32_t index = as_hotspot(self)->planet;
+    if (frame == nullptr)
+        return window_default_key_down(self, msg);
+    const bool arrow = msg->key == key::left || msg->key == key::right || msg->key == key::up ||
+                       msg->key == key::down;
+    if (arrow) {
+        const Desktop* desktop = services().desktop;
+        if (desktop == nullptr || desktop->keyboard_ring == 0)
+            return window_default_key_down(self, msg);
+        const int32_t next = neighbor_planet(frame, index, msg->key);
+        if (next >= 0)
+            focus_planet(frame, next);
+        return true;
+    }
+    if (msg->key == key::home) {
+        focus_capitol(frame);
+        return true;
+    }
+    const int32_t zoom = magnification_step(msg->key);
+    if (zoom != 0) {
+        step_magnification(frame, zoom);
+        // The slider rebuilds the hotspots, so the key's window may be gone.
+        focus_planet(frame, index);
+        return true;
+    }
+    if ((msg->key == key::enter || msg->key == ' ') &&
+        self->states.current != button_state::disabled)
+        return hotspot_left_down(self, msg);
+    return window_default_key_down(self, msg);
+}
+
 const WindowOps* hotspot_ops() {
     static const WindowOps ops = [] {
         WindowOps o = k_hotspot_button_ops;
         o.mouse_enter = hotspot_enter;
         o.mouse_leave = hotspot_leave;
         o.left_down = hotspot_left_down;
+        o.key_down = hotspot_key_down;
         o.state_text = hotspot_state_text;
         return o;
     }();
@@ -590,6 +740,132 @@ void galaxy_panel_sync_hotspots(MainFrame* frame) {
             describe_hotspot(as_hotspot(hotspot), *galaxy);
         }
     }
+}
+
+const char* planet_owner_word(char owner) {
+    switch (owner) {
+    case 'A':
+    case 'a':
+        return "Arm";
+    case 'C':
+    case 'c':
+        return "Core";
+    case 'I':
+    case 'i':
+        return "contested";
+    default:
+        return "unknown";
+    }
+}
+
+namespace {
+
+/// Reads a run of decimal digits into `number`.
+///
+/// @param[in,out] cursor the text; moved past the digits
+/// @param[out] number the value
+/// @return false when the cursor is not on a digit
+bool take_number(const char*& cursor, int* number) {
+    if (cursor == nullptr || *cursor < '0' || *cursor > '9')
+        return false;
+    int parsed = 0;
+    while (*cursor >= '0' && *cursor <= '9') {
+        parsed = parsed * 10 + (*cursor - '0');
+        ++cursor;
+    }
+    if (number != nullptr)
+        *number = parsed;
+    return true;
+}
+
+} // namespace
+
+bool planet_parse_facts(const char* text, int* id, char* owner, int* battles, int* forming) {
+    if (text == nullptr)
+        return false;
+    const char* cursor = text;
+    if (std::strncmp(cursor, "id=", 3) != 0)
+        return false;
+    cursor += 3;
+    int parsed_id = 0;
+    if (!take_number(cursor, &parsed_id))
+        return false;
+    if (std::strncmp(cursor, " owner=", 7) != 0 || cursor[7] == '\0')
+        return false;
+    cursor += 7;
+    const char side = *cursor;
+    ++cursor;
+    if (std::strncmp(cursor, " battles=", 9) != 0)
+        return false;
+    cursor += 9;
+    int parsed_battles = 0;
+    if (!take_number(cursor, &parsed_battles))
+        return false;
+    if (std::strncmp(cursor, " forming=", 9) != 0)
+        return false;
+    cursor += 9;
+    int parsed_forming = 0;
+    if (!take_number(cursor, &parsed_forming))
+        return false;
+    if (*cursor != '\0')
+        return false;
+    if (id != nullptr)
+        *id = parsed_id;
+    if (owner != nullptr)
+        *owner = side;
+    if (battles != nullptr)
+        *battles = parsed_battles;
+    if (forming != nullptr)
+        *forming = parsed_forming;
+    return true;
+}
+
+bool planet_access_words(
+    char* label,
+    std::size_t label_capacity,
+    char* value,
+    std::size_t value_capacity,
+    const char* facts,
+    const char* name,
+    bool chosen,
+    const PlanetValuePatterns& patterns,
+    const char* owner_word
+) {
+    if (label != nullptr && label_capacity > 0)
+        label[0] = '\0';
+    if (value != nullptr && value_capacity > 0)
+        value[0] = '\0';
+    int battles = 0;
+    int forming = 0;
+    if (!planet_parse_facts(facts, nullptr, nullptr, &battles, &forming))
+        return false;
+    if (label != nullptr && label_capacity > 0 && name != nullptr) {
+        std::size_t at = 0;
+        while (at + 1 < label_capacity && name[at] != '\0') {
+            label[at] = name[at];
+            ++at;
+        }
+        label[at] = '\0';
+    }
+    if (value == nullptr || value_capacity == 0)
+        return true;
+    const bool one = battles == 1;
+    const char* pattern = nullptr;
+    if (chosen)
+        pattern = one ? patterns.battle_chosen : patterns.battles_chosen;
+    else
+        pattern = one ? patterns.battle : patterns.battles;
+    if (pattern == nullptr)
+        pattern = "";
+    std::snprintf(
+        value,
+        value_capacity,
+        pattern,
+        owner_word != nullptr ? owner_word : "",
+        static_cast<int>(battles),
+        static_cast<int>(forming)
+    );
+    return true;
 }
 
 } // namespace oa::boneyards::console

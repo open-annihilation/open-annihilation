@@ -931,8 +931,23 @@ void Runtime::check_mod_install() {
         require(state.prompt == nullptr && revision_in(folder) == 1, "CANCEL changed the folder");
         install::post_package_file(mod_package(packages, "1.0", 2));
         until_prompt("the second revision again");
+        QuestionScreen* replaced = state.prompt;
         key(SDLK_RETURN);
         until_prompt("the update's outcome");
+        require(state.prompt == replaced, "the update replaced the question's screen");
+        require(
+            state.prompt != nullptr && !state.prompt->question().focus_shown,
+            "the replaced question drew its ring before a key"
+        );
+        if (state.prompt != nullptr) {
+            const oa::ui::kit::DisplayList shown = state.prompt->display_list();
+            bool ring = false;
+            for (const oa::ui::kit::Item& item : shown.items)
+                if (item.role == oa::ui::kit::Role::focus_ring)
+                    ring = true;
+            require(!ring, "the replaced question drew a focus ring");
+        }
+        std::cout << "mod install check: a replaced question keeps its ring hidden\n";
         require(titled("MOD UPDATED"), "the update was not told");
         require(
             revision_in(folder) == 2 && revision_in(kept) == 1,

@@ -3,6 +3,7 @@
 
 #include "oa/ui/hud/resource_bar.hpp"
 #include "oa/base/game_math.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 
 #include "oa/ui/hud/game_fields.hpp"
 
@@ -25,6 +26,14 @@ using oa::formats::tdf::Block;
 
 // Energy readouts past this magnitude switch to thousands.
 constexpr float kReadoutThousandsBeyond = 99999.0F;
+
+// Off keeps the UI slot. A mode uses the indices matched for that mode.
+uint8_t figure_colour(const Game& game, bool produced) noexcept {
+    namespace vision = oa::present::colour_vision;
+    if (vision::active_mode() == vision::Mode::off)
+        return readout_color(game, produced ? kReadoutProducedColor : kReadoutConsumedColor);
+    return produced ? vision::resource_produced_index() : vision::resource_consumed_index();
+}
 
 // SIDEDATA x2/y2 are inclusive.
 Rect tdf_rect(const Block* side, const char* name) {
@@ -172,13 +181,13 @@ RateText format_energy_rate(const Game& game, float amount, bool produced) noexc
     RateText rate{};
     const auto whole = truncate_low32(amount);
     if (produced) {
-        rate.color = readout_color(game, kReadoutProducedColor);
+        rate.color = figure_colour(game, true);
         if (amount > kReadoutThousandsBeyond)
             std::snprintf(rate.text, sizeof rate.text, "%dK", whole / 1000);
         else
             std::snprintf(rate.text, sizeof rate.text, "%d", whole);
     } else {
-        rate.color = readout_color(game, kReadoutConsumedColor);
+        rate.color = figure_colour(game, false);
         if (amount >= -kReadoutThousandsBeyond) {
             const auto magnitude =
                 whole < 0 ? 0U - static_cast<uint32_t>(whole) : static_cast<uint32_t>(whole);
@@ -192,7 +201,7 @@ RateText format_energy_rate(const Game& game, float amount, bool produced) noexc
 
 RateText format_metal_rate(const Game& game, float amount, bool produced) noexcept {
     RateText rate{};
-    rate.color = readout_color(game, produced ? kReadoutProducedColor : kReadoutConsumedColor);
+    rate.color = figure_colour(game, produced);
     const auto value = static_cast<double>(amount);
     std::snprintf(rate.text, sizeof rate.text, "%.1f", produced ? value : std::fabs(value));
     return rate;
@@ -200,7 +209,7 @@ RateText format_metal_rate(const Game& game, float amount, bool produced) noexce
 
 RateText format_unit_rate(const Game& game, float amount, bool metal, bool produced) noexcept {
     RateText rate{};
-    rate.color = readout_color(game, produced ? kReadoutProducedColor : kReadoutConsumedColor);
+    rate.color = figure_colour(game, produced);
     const auto value = amount > 0.0F ? static_cast<double>(amount) : 0.0;
     const char* format = metal ? (produced ? "+%.1f" : "-%.1f") : (produced ? "+%.0f" : "-%.0f");
     std::snprintf(rate.text, sizeof rate.text, format, value);

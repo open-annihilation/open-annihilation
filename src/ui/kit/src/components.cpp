@@ -8,6 +8,8 @@
 #include "oa/ui/kit/components.hpp"
 
 #include "oa/ui/kit/chrome.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/ui/kit/state_colours.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
@@ -1794,39 +1796,64 @@ void draw_radio(const Canvas& canvas, const Rect& area, const RadioLook& look) {
 void draw_levels(const Canvas& canvas, const Rect& area, const LevelsLook& look) {
     if (!drawable(canvas))
         return;
-    const int32_t radius = control_radius_for(area.height);
-    draw_rounded_ground(
-        canvas,
-        area,
-        radius,
-        colour::well,
-        look.hovered ? colour::control_hover : colour::control_border
-    );
-    for (std::size_t index = 0; index < look.captions.size(); ++index) {
-        const Rect segment{
-            area.x + 1 + static_cast<int32_t>(index) * look.level_width,
-            area.y + 1,
-            look.level_width,
-            area.height - 2,
-        };
-        const bool selected = index == look.chosen;
-        if (selected)
-            fill_corner_rect(
-                canvas,
-                segment,
-                std::max(radius - 1, int32_t{0}),
-                look.locked ? colour::control_hover : colour::accent
-            );
-        paint_text(
+    // One row is the strip the time modes use. A wrapped strip draws the
+    // same row once per line of captions, so a single row's pixels stay.
+    const auto paint_band = [&](const Rect& band, std::size_t first, std::size_t last) {
+        const int32_t radius = control_radius_for(band.height);
+        draw_rounded_ground(
             canvas,
-            FontRole::small,
-            look.captions[index],
-            segment,
-            Align::centre,
-            selected ? colour::on_accent : colour::button_text
+            band,
+            radius,
+            colour::well,
+            look.hovered ? colour::control_hover : colour::control_border
         );
-        if (index >= look.offered)
-            blend_rect(canvas, segment, colour::panel, locked_fade);
+        for (std::size_t index = first; index < last; ++index) {
+            const int32_t place = static_cast<int32_t>(index - first);
+            const Rect segment{
+                band.x + 1 + place * look.level_width,
+                band.y + 1,
+                look.level_width,
+                band.height - 2,
+            };
+            const bool selected = index == look.chosen;
+            if (selected)
+                fill_corner_rect(
+                    canvas,
+                    segment,
+                    std::max(radius - 1, int32_t{0}),
+                    look.locked ? colour::control_hover : colour::accent
+                );
+            paint_text(
+                canvas,
+                FontRole::small,
+                look.captions[index],
+                segment,
+                Align::centre,
+                selected ? colour::on_accent : colour::button_text
+            );
+            if (index >= look.offered)
+                blend_rect(canvas, segment, colour::panel, locked_fade);
+        }
+    };
+    const std::size_t count = look.captions.size();
+    const bool wrapped =
+        look.columns > 0 && static_cast<std::size_t>(look.columns) < count && count > 0;
+    if (!wrapped) {
+        paint_band(area, 0, count);
+        return;
+    }
+    const int32_t columns = look.columns;
+    const int32_t rows = (static_cast<int32_t>(count) + columns - 1) / columns;
+    const int32_t gap = std::max(look.row_gap, int32_t{0});
+    const int32_t span = area.height - gap * (rows - 1);
+    const int32_t band_h = rows > 0 ? span / std::max(rows, int32_t{1}) : area.height;
+    for (int32_t band = 0; band < rows; ++band) {
+        const std::size_t first = static_cast<std::size_t>(band * columns);
+        const std::size_t last = std::min(first + static_cast<std::size_t>(columns), count);
+        const Rect row_band{
+            area.x, area.y + band * (band_h + gap), area.width, std::max(band_h, int32_t{1})
+        };
+        paint_band(row_band, first, last);
     }
 }
 
@@ -2208,7 +2235,7 @@ void draw_lock(const Canvas& canvas, const Rect& area, const LockLook& look) {
         canvas,
         kPadlock,
         {left, area.y + (area.height - compact_metrics.padlock_height) / 2},
-        colour::lock
+        state_ink(StateTone::caution)
     );
     const Rect text_area{
         left + compact_metrics.padlock_width + compact_metrics.padlock_gap,
@@ -2216,7 +2243,9 @@ void draw_lock(const Canvas& canvas, const Rect& area, const LockLook& look) {
         width,
         area.height
     };
-    paint_text(canvas, FontRole::small, look.text, text_area, Align::left, colour::lock);
+    paint_text(
+        canvas, FontRole::small, look.text, text_area, Align::left, state_ink(StateTone::caution)
+    );
 }
 
 void draw_scroll_bar(const Canvas& canvas, const Rect& well, const Rect& thumb, bool hot) {
@@ -2282,7 +2311,16 @@ void draw_oa_button_face(const Canvas& canvas, int32_t side, OaButtonState state
 void draw_attention_dot(const Canvas& canvas, int32_t side) {
     const Rect dot = oa_button_dot(side);
     draw_mark(canvas, kDot, {dot.x, dot.y}, colour::control_border);
-    draw_mark(canvas, kDotFace, {dot.x + kDotRing, dot.y + kDotRing}, colour::lock);
+    const Colour face = state_ink(StateTone::caution);
+    draw_mark(canvas, kDotFace, {dot.x + kDotRing, dot.y + kDotRing}, face);
+    // The face is already the caution colour, so the warning glyph takes the
+    // contrasting ink. It is drawn only while shape cues are in effect.
+    if (oa::present::colour_vision::shape_cues_active()) {
+        const int weight = 299 * static_cast<int>(face.r) + 587 * static_cast<int>(face.g) +
+                           114 * static_cast<int>(face.b);
+        const Colour glyph = weight > 140000 ? Colour{0, 0, 0} : Colour{255, 255, 255};
+        draw_state_mark(canvas, StateTone::caution, {dot.x - 1, dot.y - 1}, glyph);
+    }
 }
 
 /// One spinner place's centre, in 256ths of the badge from its top left.

@@ -78,7 +78,15 @@ the locks a running game puts on them (`settings_locks`).
 | | Reset window positions: Reset puts every window the player moved back in the middle, at once (`Dialog::window_reset_asked`); the row then says so (`Dialog::window_places_reset`). Cancel does not move them again | | | none. The host forgets every `open-annihilation.window.*` key |
 | | Escape opens the game menu | Off, On | On on macOS, Off elsewhere and with `--preferences-file` | `open-annihilation.escape-opens-menu` |
 | | Look, the section's last row, as it is chosen, the open dialog among them: the letters of Open Annihilation's own screens and overlays (Settings, the Library, the key editor, the pickers, the notices and prompts, the overlays in a match). Modern draws them in Barlow, tracked titles and headings in Barlow Condensed, at the kit's type scale, with DejaVu Sans, the endonym face and Noto Emoji drawing what Barlow lacks; Classic in the game's own two fonts. The 3.1c game's own screens keep the game's fonts either way. Cancel puts back the look the dialog opened with | Modern, Classic | Modern with the player's own file, one written before the setting existed among them; Classic with `--preferences-file` | `open-annihilation.ui.look` (`modern` or `classic`; absent or any other text is the default) |
-| Accessibility, listed in every dialog of the engine's settings, after Controls and before Touch, with its practice pad ([The practice pad](#the-practice-pad)) | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and Choose…, which opens the key editor on Latchable. Edit keys… on the key layout card still opens on All | the count, as "2 of 7", and Choose… | | none. The count is the host's (`Dialog::latched_count`) |
+| Accessibility, listed in every dialog of the engine's settings, after Controls and before Touch, with its practice pad ([The practice pad](#the-practice-pad)) | Colour vision, a drop-down, as it is chosen: the player colours, the minimap, the bars, the war map and the status colours for that eye, on this machine only. A mode other than Off turns Shape cues on; Off leaves them as they are | Off, Protanopia, Deuteranopia, Tritanopia, Achromatopsia | Off | `open-annihilation.access.colour-vision` (`off`, `protanopia`, `deuteranopia`, `tritanopia` or `achromatopsia`) |
+| | Shape cues, as it is chosen: a shape with each player colour, side symbols, notched bars and a mark on every status. Locked on, "Achromatopsia keeps shape cues on", while Colour vision shows Achromatopsia (`Lock::keeps_shapes`) | Off, On | Off | `open-annihilation.access.shape-cues`; Achromatopsia writes `1` |
+| | Preview: the ten player colours, then OK, caution, danger and information, in the mode Colour vision shows, from the colour-vision module (`preview_player_srgb`, `semantic_colours`). Chips and words, no control and no Tab stop | | | none |
+| | Screen reader, a strip, as it is chosen: whether the game works with a screen reader. A second line, "Nothing on this system can speak.", shows while the build has no bridge and the system no voice (`Dialog::speech_unavailable`, set by the host) | Automatic, On, Off | Automatic | `open-annihilation.access.screen-reader` (`auto`, `on` or `off`) |
+| | Speak chat, a strip: chat lines and whispers, pages only, or neither | Off, Pages only, All | All | `open-annihilation.access.speak-chat` (`off`, `pages` or `all`) |
+| | Speak lobby changes: the battle room's joins, leaves and changes. The Boneyards consoles have no switch of their own | Off, On | On | `open-annihilation.access.speak-lobby` (`0` is off) |
+| | Speak the ticker | Off, On | Off | `open-annihilation.access.speak-ticker` (`1` is on) |
+| | Always show focus: the ring on the first item when a screen opens | Off, On | Off | `open-annihilation.access.always-show-focus` |
+| | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and Choose…, which opens the key editor on Latchable. Edit keys… on the key layout card still opens on All | the count, as "2 of 7", and Choose… | | none. The count is the host's (`Dialog::latched_count`) |
 | | Sticky modifiers: a tapped Shift, Ctrl or Alt holds for the next key or click; a second tap locks it | Off, On | Off | `open-annihilation.access.sticky-modifiers` |
 | | Hold to confirm: self-destruct, surrender and quitting need a long press, and a ring fills while it is held | Off, On | Off | `open-annihilation.access.hold-to-confirm` |
 | | Long press: how long a hold is, for Hold to confirm and for keys bound to a hold | 200 to 1000 ms, steps of 50 | 500 ms | `open-annihilation.access.long-press-ms` |
@@ -119,6 +127,9 @@ the locks a running game puts on them (`settings_locks`).
 | | Check for updates | Automatically, Only when I ask, Never | Automatically | `open-annihilation.update-check` (`automatically`, `when-asked` or `never`); takes effect at OK, and Cancel and Restore defaults apply. Check now makes no request while the choice is Never |
 | | Install updates: how a ready release is installed | Ask each time, When I quit | Ask each time | `open-annihilation.update-install` (`ask` or `when-i-quit`; any other text reads as `ask`); takes effect at OK, and Cancel and Restore defaults apply |
 | | Previous version · {version}, while a version is kept: Roll back… asks the roll back's question (`updates::roll_back_question`) | | | none. Locked during a game |
+| Replays, listed in every dialog of the engine's settings, after Game Content and before Engine Limits | Record my games: every game the player plays is kept as a replay (campaign missions, skirmish, multiplayer and Boneyards battles). A change made during a game applies from the next game. The dialog reads the Replays keys again from the preferences each time it opens (`read_replays_settings`), so a change another screen wrote shows | Off, On | On | `open-annihilation.replays.record` (`on` or `off`; only `off` turns it off); takes effect at OK, and Cancel and Restore defaults apply |
+| | Keep replays for, a drop-down: how long the replays the game recorded are kept. A replay the player marked Keep stays until the player deletes it. The setting holds the choice; what removes older replays reads it | 30 days, 90 days, A year, Forever | 30 days | `open-annihilation.replays.keep` (`30-days`, `90-days`, `1-year` or `forever`; absent or any other text is `30-days`); takes effect at OK, and Cancel and Restore defaults apply |
+| | Open replay files with Open Annihilation, on Windows, Linux and macOS, where `file_types_switchable` is true. It is not one of System's eight. On Windows and Linux OK registers or withdraws `.oademo` and the offer of `.tad`. On macOS it chooses whether this copy is the default opener of `.oademo` only | Off, On | On | `open-annihilation.replays.open-files` (`on` or `off`; only `off` turns it off); takes effect at OK, and Cancel and Restore defaults apply |
 | System, listed in every dialog of the engine's settings, after Game Content and before Developer | Your files: the player's own folder and buttons that open its Saves, Screenshots and Mods folders | changes no setting | | `open-annihilation.user-folder`, read at start (`src/app/include/oa/app/user_folder.hpp`) |
 | | File Type Registration, then one switch for each of the eight types, the launch file's last, on Windows, Linux and macOS | Off, On | On | `open-annihilation.file-types.oamod`, `.oamap`, `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oakeys`, `.oalaunch` (`on` or `off`; only `off` turns one off). On Windows and Linux OK registers a type turned on and withdraws one turned off, at once; on macOS it changes the default opener of a switch that moved. Each switch acts on its own type alone (`engine_settings/file_types.hpp`) |
 | | File types, the text row on iOS in place of the switches | changes no setting | | none |
@@ -467,7 +478,7 @@ whose stored text changed and the host calls the page's `applied` once the
 preferences are saved. Cancel drops the changes. Restore defaults puts the
 open registered page's rows back to their defaults. A mod's options dialog
 lists none of them. With no registered page the section list is the engine's
-own, Developer pinned at the foot.
+own, Developer last.
 
 The host hands both drawing functions an RGBA picture. Settings passes the
 settings icon, the plates over two gears. Notices, prompts and the other
@@ -507,7 +518,7 @@ selected, laid out on Kit 2 ([Sizes](#sizes)):
   touch controls, Controller once a gamepad has sent input), how the game
   looks (Graphics, User Interface, Language & Text), what it holds and
   fetches (Game files where the host lists it, Downloads, Updates, Game
-  Content), and the machine and the engine (Engine Limits, System,
+  Content, Replays), and the machine and the engine (Engine Limits, System,
   Developer); each entry a line icon (`src/section_icons.cpp`) and its
   name, the open one on the selected ground with the lime marker, Updates
   with the update's progress at its right while the host gives one
@@ -564,22 +575,22 @@ focus, and a press on it leaves the focus where it is. While a press is held
 the wheel and the scroll keys do nothing, so only a drag of the scroll bar
 scrolls then. No scroll changes a setting or moves the focus.
 
-Controls are numbered: the sections' entries 0 to 13, each its place among
+Controls are numbered: the sections' entries 0 to 14, each its place among
 the sections with Touch, Controller, Game files, Downloads, System, Game
-Content, Updates and Accessibility whether or not the first three are
-listed (Touch 5, Controller 6, Developer 7, Game files 8, Downloads 9,
-System 10, Game Content 11, Updates 12, Accessibility 13, so a dialog
-without Touch has no control 5, one without Controller no control 6, and
-one without Game files no control 8). Touch, Controller and Developer keep
-their numbers in every dialog (a mod's options' 0 to 4). Restore defaults
-is 14, Cancel 15, OK 16, the scroll bar 17, and the open section's rows
-from 18, with no upper end. The list draws its entries by their place in
-the list it shows, and the focus walks that list. Downloads, Updates, Game
-Content, System and Accessibility are always in that list. The list
-stands in four groups, a hairline between each: Controls, Accessibility,
-Touch and Controller; Graphics, User Interface and Language & Text; Game
-files, Downloads, Updates and Game Content; Engine Limits, System and
-Developer (`geometry::nav_group`, `nav_layout`). Each entry draws its icon
+Content, Updates, Accessibility and Replays whether or not the first three
+are listed (Touch 5, Controller 6, Developer 7, Game files 8, Downloads 9,
+System 10, Game Content 11, Updates 12, Accessibility 13, Replays 14, so a
+dialog without Touch has no control 5, one without Controller no control 6,
+and one without Game files no control 8). Touch, Controller and Developer
+keep their numbers in every dialog (a mod's options' 0 to 4). Restore
+defaults is 15, Cancel 16, OK 17, the scroll bar 18, and the open section's
+rows from 19, with no upper end. The list draws its entries by their place
+in the list it shows, and the focus walks that list. Downloads, Updates,
+Game Content, Replays, System and Accessibility are always in that list. The
+list stands in four groups, a hairline between each: Controls,
+Accessibility, Touch and Controller; Graphics, User Interface and Language &
+Text; Game files, Downloads, Updates, Game Content and Replays; Engine
+Limits, System and Developer (`geometry::nav_group`, `nav_layout`). Each entry draws its icon
 (`section_icons.cpp`) left of its name, lit while the entry is open or
 under the pointer; where a section's name in the language needs the
 icons' room, the list draws its names without icons, from the icons'
@@ -1020,7 +1031,18 @@ kit's `add_rows` with the prefix `settings`, each row's control in the
 section's scroll group; Developer's list and its footer are generic items
 and the kit's components. Tab follows the declared order
 the list holds (`DisplayList::tab_order`), which `dialog_list` builds as it
-adds the controls.
+adds the controls. The section list is one stop of that order, a column
+named `settings.sections` with the tab-list role, at the head. Its entries
+are parts of that stop, not stops of their own. After it come the open
+section's controls, the footer (Restore defaults, Cancel, OK) and the close
+mark. The dialog opens with the open section's entry focused and the ring
+hidden. Tab shows the ring on that section's first control, the same control
+the first Tab reached before the list was one stop. Shift+Tab shows the close
+mark. While the ring is hidden, the other keys do what they did with nothing
+focused: Up shows the close mark, and Down, Left, Right and Space show the
+section's first control. While the ring shows, Return presses the focused
+control and hides the ring. A pointer move hides the ring and leaves the
+focused control. Return accepts while the ring is not drawn.
 
 The dialog's input reads this list through the kit, built in the fonts the
 dialog is drawn in (`Dialog::drawn_fonts`, which the host sets to the fonts
@@ -1523,7 +1545,7 @@ lock, and lists that scroll or open over their field;
 the Graphics section's twenty-two rows, New unit shadows last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's and New unit shadows' switches and their two hints each, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
-the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's fifteen rows, the captions at both ends of each range, Choose… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
+the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's twenty-three rows, a colour-vision mode turning Shape cues on, Achromatopsia locking it, the preview's fourteen chips, the captions at both ends of each range, Choose… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×
 with every pixel painted whole; on sections of the test's own taller than the

@@ -20,9 +20,11 @@
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/oakeys.hpp"
 #include "oa_layer.hpp"
+#include "photo_state.hpp"
 
 #include "oa/formats/zip/stream.hpp"
 
+#include "oa/data/defs/layout.hpp"
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -184,7 +186,32 @@ int8_t notch_sign(float value) {
     return 0;
 }
 
-/// The keyboard map SDL is using: what events carry, and what keys print.
+/// The glyph Shift produces, when it is a symbol rather than a letter.
+///
+/// A key event keeps the unshifted code and records Shift separately, so the
+/// shortcut card's `?` is this glyph of the `/` key. A capital is the same
+/// chord as its letter and is left unset.
+///
+/// @param scancode the position
+/// @param printed the character the key prints with no modifier
+/// @return the glyph, or 0
+char32_t shifted_glyph(SDL_Scancode scancode, char32_t printed) {
+    const SDL_Keycode shifted_code = SDL_GetKeyFromScancode(scancode, SDL_KMOD_SHIFT, false);
+    if (shifted_code <= 0)
+        return 0;
+    const auto shifted_bits = static_cast<uint32_t>(shifted_code);
+    if ((shifted_bits & keys::position_key_code_bit) != 0 || shifted_bits > 0x10FFFF)
+        return 0;
+    const auto shifted = static_cast<char32_t>(shifted_bits);
+    if ((shifted >= U'A' && shifted <= U'Z') || (shifted >= U'a' && shifted <= U'z'))
+        return 0;
+    if (shifted == printed)
+        return 0;
+    return shifted;
+}
+
+/// The keyboard map SDL is using: what events carry, what keys print, and
+/// the symbol Shift produces.
 ///
 /// @return the map
 keys::KeyboardMap keyboard_from_sdl() {
@@ -201,7 +228,12 @@ keys::KeyboardMap keyboard_from_sdl() {
             if ((printed_bits & keys::position_key_code_bit) == 0)
                 printed = static_cast<char32_t>(printed_bits);
         }
-        map.set(static_cast<uint16_t>(index), static_cast<uint32_t>(event_code), printed);
+        map.set(
+            static_cast<uint16_t>(index),
+            static_cast<uint32_t>(event_code),
+            printed,
+            shifted_glyph(scancode, printed)
+        );
     }
     return map;
 }
@@ -914,6 +946,169 @@ bool binding_key(
     return false;
 }
 
+/// Offers one menu action whose chord this key matches, when the live
+/// contexts do not already search the menus.
+///
+/// An exact chord wins over one the event holds extra modifiers for, so
+/// Shift+Tab is Previous and not Next with Shift held. Among those, the
+/// higher rank wins. An action already in `events` is left as it is.
+/// `exact_only` drops a match that has extra Shift, Alt or Meta, so Alt+Tab
+/// is not a walk. `skip_typing` leaves a key that types a character alone.
+///
+/// @param[in,out] events the actions this key started
+/// @param resolved the bindings
+/// @param keyboard the keyboard the chords match on
+/// @param platform which key Primary means
+/// @param input the key
+/// @param yield the action ids that may be offered
+/// @param skip_typing leave a key that types a character with the caller
+/// @param exact_only offer only a chord the modifiers match exactly
+/// @param characters offer a chord that names a letter, not only a named key
+void offer_menu_actions(
+    std::vector<keys::ActionEvent>& events,
+    const keys::Resolved& resolved,
+    const keys::KeyboardMap& keyboard,
+    keys::Platform platform,
+    const keys::InputEvent& input,
+    std::span<const std::string_view> yield,
+    bool skip_typing,
+    bool exact_only,
+    bool characters
+) {
+    if (!input.down || input.kind != keys::InputKind::key)
+        return;
+    // A key that types a character stays with the name. Ctrl, Alt and Meta
+    // do not type one. Tab is not a character; Shift+Tab is still Tab.
+    const bool types = (input.modifiers & (keys::ctrl | keys::alt | keys::meta)) == 0 &&
+                       (input.key_code & keys::position_key_code_bit) == 0 &&
+                       input.key_code >= 0x20 && input.key_code <= 0x10FFFF;
+    if (skip_typing && types)
+        return;
+    const uint32_t menus = context_bit("menus");
+    if (menus == 0)
+        return;
+    const keys::Bound* chosen = nullptr;
+    const keys::Chord* chosen_chord = nullptr;
+    int chosen_rank = -1;
+    bool chosen_exact = false;
+    for (const keys::Bound& bound : resolved.actions) {
+        bool moves = false;
+        for (const std::string_view id : yield) {
+            if (bound.id == id) {
+                moves = true;
+                break;
+            }
+        }
+        if (!moves || (bound.contexts & menus) == 0)
+            continue;
+        for (const keys::BoundChord& binding : bound.chords) {
+            const keys::Chord& chord = binding.chord;
+            if (chord.gesture != keys::Gesture::press)
+                continue;
+            if (!characters && chord.kind == keys::TriggerKind::character)
+                continue;
+            const keys::Match quality = keys::match(chord, input, keyboard, platform);
+            if (quality == keys::Match::none)
+                continue;
+            if (exact_only && quality != keys::Match::exact)
+                continue;
+            const bool exact = quality == keys::Match::exact;
+            const int ranked = keys::rank(chord);
+            const bool better = chosen == nullptr || (exact && !chosen_exact) ||
+                                (exact == chosen_exact && ranked > chosen_rank);
+            if (!better)
+                continue;
+            chosen = &bound;
+            chosen_chord = &chord;
+            chosen_rank = ranked;
+            chosen_exact = exact;
+        }
+    }
+    if (chosen == nullptr || chosen_chord == nullptr)
+        return;
+    for (const keys::ActionEvent& existing : events) {
+        if (existing.action == chosen->id)
+            return;
+    }
+    uint8_t menus_index = 0;
+    const std::span<const actions::Context> table = actions::contexts();
+    for (std::size_t index = 0; index < table.size(); ++index) {
+        if (table[index].name == "menus") {
+            menus_index = static_cast<uint8_t>(index);
+            break;
+        }
+    }
+    keys::ActionEvent out;
+    out.action = chosen->id;
+    out.phase = input.repeat ? keys::Phase::repeated : keys::Phase::pressed;
+    out.chord = *chosen_chord;
+    out.context = menus_index;
+    events.push_back(out);
+}
+
+/// While the save dialog's name takes typing, the dispatcher searches only
+/// the chat group. A menu chord that types no character is offered here, so
+/// Tab and the list keys still move, on whatever chord the player bound.
+///
+/// Letters stay with the name, Shift included. Return, Escape, Backspace,
+/// Left, Right, Home and End are not among the actions offered, so they
+/// keep editing the name.
+///
+/// @param[in,out] events the actions this key started
+/// @param resolved the bindings
+/// @param keyboard the keyboard the chords match on
+/// @param platform which key Primary means
+/// @param input the key
+void offer_save_menu_moves(
+    std::vector<keys::ActionEvent>& events,
+    const keys::Resolved& resolved,
+    const keys::KeyboardMap& keyboard,
+    keys::Platform platform,
+    const keys::InputEvent& input
+) {
+    static constexpr std::array<std::string_view, 6> yield{
+        "ui.menu-focus-next",
+        "ui.menu-focus-previous",
+        "ui.menu-list-up",
+        "ui.menu-list-down",
+        "ui.menu-focus-up",
+        "ui.menu-focus-down",
+    };
+    offer_menu_actions(events, resolved, keyboard, platform, input, yield, true, false, false);
+}
+
+/// While a match panel or the order buttons hold the keyboard, the menus'
+/// context is not searched. The move, accept and cancel actions are offered
+/// on the chords the player bound, exactly, so a rebound key reaches the
+/// panel and Alt+Tab does not.
+///
+/// @param[in,out] events the actions this key started
+/// @param resolved the bindings
+/// @param keyboard the keyboard the chords match on
+/// @param platform which key Primary means
+/// @param input the key
+void offer_match_panel_moves(
+    std::vector<keys::ActionEvent>& events,
+    const keys::Resolved& resolved,
+    const keys::KeyboardMap& keyboard,
+    keys::Platform platform,
+    const keys::InputEvent& input
+) {
+    static constexpr std::array<std::string_view, 10> yield{
+        "ui.menu-focus-next",
+        "ui.menu-focus-previous",
+        "ui.menu-focus-up",
+        "ui.menu-focus-down",
+        "ui.menu-focus-left",
+        "ui.menu-focus-right",
+        "ui.menu-list-up",
+        "ui.menu-list-down",
+        "ui.menu-accept",
+        "ui.menu-cancel",
+    };
+    offer_menu_actions(events, resolved, keyboard, platform, input, yield, false, true, true);
+}
+
 /// The English name of a modifier bit, or empty.
 ///
 /// @param bit one modifier bit
@@ -1454,6 +1649,51 @@ std::string Runtime::bound_chord_text(std::string_view action_id) {
     );
 }
 
+std::string Runtime::bound_chords_text(std::string_view action_id) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr)
+        return {};
+    std::vector<keys::Chord> owned;
+    std::vector<const keys::Chord*> chords;
+    if (key_bindings_state_->ready) {
+        for (const keys::Bound& bound : key_bindings_state_->dispatcher.bindings().actions) {
+            if (bound.id != action_id)
+                continue;
+            for (const auto& held : bound.chords)
+                chords.push_back(&held.chord);
+            break;
+        }
+    }
+    if (chords.empty()) {
+        const actions::Action* action = actions::find(action_id);
+        if (action == nullptr)
+            return {};
+        for (const std::string_view text : action->defaults) {
+            keys::ChordError error;
+            const std::optional<keys::Chord> parsed = keys::parse_chord(text, error);
+            if (!parsed)
+                continue;
+            owned.push_back(*parsed);
+        }
+        for (const keys::Chord& parsed : owned)
+            chords.push_back(&parsed);
+    }
+    std::string joined;
+    const auto& keyboard = key_bindings_state_->dispatcher.keyboard();
+    const auto platform = screen_platform(key_bindings_state_->platform, oa_layer().screen_fonts());
+    for (const keys::Chord* chord : chords) {
+        if (chord == nullptr)
+            continue;
+        const std::string text = keys::display_text(*chord, keyboard, platform);
+        if (text.empty())
+            continue;
+        if (!joined.empty())
+            joined += ", ";
+        joined += text;
+    }
+    return joined;
+}
+
 void Runtime::fill_mod_option_keys(
     oa::ui::engine_settings::ModOptions& current, oa::ui::engine_settings::ModOptions& defaults
 ) {
@@ -1730,11 +1970,20 @@ keys::Contexts Runtime::input_contexts() {
     // menus are not searched under it.
     const bool on_match = screen_ == Screen::match;
     const bool modal_layer = oa_layer().modal_shown(on_match);
+    const bool replaying =
+        match_ != nullptr && (current_extension_state() & extension_state::replay) != 0;
     if (modal_layer) {
         contexts.active |= context_bit("oa-screens");
+    } else if (on_match && match_ != nullptr && photo_mode()) {
+        // Photo mode answers the camera, the speed and the pause, and the
+        // photo screen. No order, selection, group or build reaches the match.
+        contexts.active |= context_bit("match");
+        contexts.active |= context_bit("oa-screens");
+        contexts.active |= context_bit("photo");
     } else if (on_match && match_ != nullptr) {
         contexts.active |= context_bit("match");
-        const bool watcher = (current_extension_state() & extension_state::local_watcher) != 0;
+        const bool watcher =
+            replaying || (current_extension_state() & extension_state::local_watcher) != 0;
         contexts.active |= watcher ? context_bit("watch") : context_bit("play");
         // The surrender question takes the keys ahead of a chat line or a
         // marker's text, which keep what was typed for after it.
@@ -1769,8 +2018,11 @@ keys::Contexts Runtime::input_contexts() {
         contexts.conditions |= condition_bit("multiplayer");
     else if (match_ != nullptr)
         contexts.conditions |= condition_bit("single-player");
-    if (match_ != nullptr && (current_extension_state() & extension_state::local_watcher) == 0)
+    if (match_ != nullptr && !replaying &&
+        (current_extension_state() & extension_state::local_watcher) == 0)
         contexts.conditions |= condition_bit("seat");
+    if (replaying)
+        contexts.conditions |= condition_bit("replaying");
     if (has_local_selection())
         contexts.conditions |= condition_bit("selection");
     if (match_ != nullptr) {
@@ -2141,7 +2393,8 @@ std::optional<std::size_t> Runtime::order_wheel_mouse_aim() const {
 bool Runtime::order_wheel_press_eligible(float x, float y) {
     if (screen_ != Screen::match || match_ == nullptr || match_finished_ || match_paused_)
         return false;
-    if ((current_extension_state() & extension_state::local_watcher) != 0)
+    if ((current_extension_state() & (extension_state::local_watcher | extension_state::replay)) !=
+        0)
         return false;
     if (match_command_ == MatchCommand::build || pending_build_type_ != 0)
         return false;
@@ -2540,6 +2793,32 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
     // The dispatcher has seen this button. The order wheel may hold it back.
     if (take_order_wheel_button(event))
         return true;
+    // The save dialog's name is text entry, so the feed above searched only
+    // the chat group. Offer the menu moves whose chords type no character.
+    // A match panel is the same: the menus' context is not searched while
+    // the match has the keyboard, so the bound moves are offered here.
+    const bool prefs_panel = match_paused_ && !match_panels_keyboard_ &&
+                             match_hud_panel_ == oa::data::defs::gui_path("PREFS.GUI");
+    const bool match_panel_keys =
+        !contexts.text_entry && screen_ == Screen::match && match_ != nullptr && !match_finished_ &&
+        !photo_mode() &&
+        (hud_buttons_focused_ || (match_paused_ && match_panels_keyboard_) || prefs_panel);
+    if (save_dialog_open() && state.ready)
+        offer_save_menu_moves(
+            state.events,
+            state.dispatcher.bindings(),
+            state.dispatcher.keyboard(),
+            state.platform,
+            *input
+        );
+    else if (match_panel_keys && state.ready)
+        offer_match_panel_moves(
+            state.events,
+            state.dispatcher.bindings(),
+            state.dispatcher.keyboard(),
+            state.platform,
+            *input
+        );
     return false;
 }
 
@@ -2558,6 +2837,10 @@ void Runtime::advance_input_actions(bool& running) {
         state.events = fed.events;
         note_pointer_key_events(fed.events);
         trace_fed_actions(state.events);
+        // A held focus key repeats here, at the player's delay and rate, and
+        // the package screens take each repeat as a press. An empty advance
+        // leaves the previous frame's events in place and repeats nothing.
+        deliver_menu_repeats();
     }
     step_pointer_keys();
     for (const keys::InputEvent& admitted : fed.admitted) {
@@ -2614,10 +2897,73 @@ Runtime::GroupViewMove Runtime::group_key_view_move(int squad) {
     return second ? GroupViewMove::always : GroupViewMove::never;
 }
 
+uint8_t Runtime::photo_pan_button() const {
+    if (key_bindings_state_ == nullptr)
+        return 0;
+    const keys::Bound* found = nullptr;
+    for (const keys::Bound& bound : key_bindings_state_->dispatcher.bindings().actions) {
+        if (bound.id == "photo.pan") {
+            found = &bound;
+            break;
+        }
+    }
+    if (found == nullptr)
+        return 0;
+    const uint8_t held = pointer_modifier_bits();
+    uint8_t button = 0;
+    int best = -1;
+    for (const keys::BoundChord& item : found->chords) {
+        const keys::Chord& chord = item.chord;
+        if (chord.kind != keys::TriggerKind::mouse || chord.button == 0)
+            continue;
+        if (chord.gesture != keys::Gesture::press)
+            continue;
+        uint8_t need = chord.modifiers;
+        if ((need & keys::primary) != 0) {
+            need = static_cast<uint8_t>(need & static_cast<uint8_t>(~keys::primary));
+#ifdef __APPLE__
+            need = static_cast<uint8_t>(need | keys::meta);
+#else
+            need = static_cast<uint8_t>(need | keys::ctrl);
+#endif
+        }
+        if ((need & static_cast<uint8_t>(~held)) != 0)
+            continue;
+        int rank = 0;
+        for (const uint8_t bit :
+             {uint8_t{keys::primary},
+              uint8_t{keys::ctrl},
+              uint8_t{keys::alt},
+              uint8_t{keys::shift},
+              uint8_t{keys::meta}}) {
+            if ((chord.modifiers & bit) != 0)
+                ++rank;
+        }
+        if (rank < best)
+            continue;
+        best = rank;
+        // A chord numbers MouseRight as 2 and MouseMiddle as 3. SDL numbers
+        // those buttons 3 and 2.
+        if (chord.button == 2)
+            button = static_cast<uint8_t>(SDL_BUTTON_RIGHT);
+        else if (chord.button == 3)
+            button = static_cast<uint8_t>(SDL_BUTTON_MIDDLE);
+        else
+            button = chord.button;
+    }
+    return button;
+}
+
 std::span<const keys::ActionEvent> Runtime::match_action_events() const {
     if (key_bindings_state_ == nullptr)
         return {};
     return key_bindings_state_->events;
+}
+
+void Runtime::swap_action_events(std::vector<keys::ActionEvent>& replacement) {
+    if (key_bindings_state_ == nullptr)
+        return;
+    key_bindings_state_->events.swap(replacement);
 }
 
 const keys::ActionEvent* Runtime::fired_action(std::string_view id) const {
@@ -2706,7 +3052,7 @@ void Runtime::tag_layout_ids(
     }
 }
 
-bool Runtime::action_key_held(std::string_view action) {
+bool Runtime::action_key_held(std::string_view action, bool skip_arrows) {
     // No key is down in a headless run that draws no picture unless the
     // run's own check holds one, and resolving the bindings only then keeps
     // the table beside the loaded units.
@@ -2717,7 +3063,7 @@ bool Runtime::action_key_held(std::string_view action) {
         return false;
     keys::HeldKeys keys_held;
     keys_held.down = key_is_down;
-    return key_bindings_state_->dispatcher.chord_key_held(action, keys_held);
+    return key_bindings_state_->dispatcher.chord_key_held(action, keys_held, skip_arrows);
 }
 
 bool Runtime::action_held(std::string_view action) const {
@@ -3802,6 +4148,24 @@ void Runtime::fill_keys_overlay(oa::ui::key_editor::OverlayInputs& inputs) {
     const KeyBindingsState& state = *key_bindings_state_;
     inputs.resolved = state.dispatcher.bindings();
     inputs.contexts = input_contexts();
+    // Photo mode lists the keys that answer there: the photo and global
+    // keys, the camera's pan, Escape, and the match commands photo mode
+    // runs. The rest of the match's keys are taken and do nothing, and Open
+    // chat, Status strip and Screenshot would sit on Enter, Space and
+    // Ctrl+F9 beside their photo commands. The window keys of oa-screens
+    // stay out too: the photo screen does not take them, and Accept would
+    // sit on Enter. Dispatch keeps oa-screens, so Page Up still reaches
+    // photo zoom.
+    if (photo_mode()) {
+        inputs.contexts.active &= ~context_bit("oa-screens");
+        const uint32_t kept = context_bit("photo") | context_bit("global");
+        std::erase_if(inputs.resolved.actions, [kept](const keys::Bound& bound) {
+            if ((bound.contexts & kept) != 0)
+                return false;
+            const std::string_view id = bound.id;
+            return !photo_match_command(id) && id != "game.back" && !id.starts_with("camera.pan-");
+        });
+    }
     inputs.keyboard = state.dispatcher.keyboard();
     inputs.platform = screen_platform(state.platform, oa_layer().screen_fonts());
     inputs.layout_name = keys_overlay_layout_name_;
@@ -3824,9 +4188,12 @@ std::string Runtime::active_key_chord(std::string_view id) {
         return {};
     const KeyBindingsState& state = *key_bindings_state_;
     const keys::Bound* found = bound_by_id(state.dispatcher.bindings(), id);
-    if (found == nullptr || found->entry == nullptr ||
-        found->entry->kind == actions::Kind::pointer ||
-        found->entry->kind == actions::Kind::wheel || !action_live(*found, input_contexts()))
+    // A menu's gui.* action is made from the GUI file and has no catalogue
+    // entry. Its chord still answers while that file is on screen.
+    if (found == nullptr || !action_live(*found, input_contexts()))
+        return {};
+    if (found->entry != nullptr && (found->entry->kind == actions::Kind::pointer ||
+                                    found->entry->kind == actions::Kind::wheel))
         return {};
     const keys::Chord* chord = first_key_chord(*found);
     if (chord == nullptr)

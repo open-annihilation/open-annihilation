@@ -55,6 +55,10 @@ inline constexpr kit::ControlId list_bar = 19;
 inline constexpr kit::ControlId details_bar = 20;
 /// The clash mode, on a mutator that brings units or weapons.
 inline constexpr kit::ControlId clash = 21;
+/// The filter pills, one Tab stop. Its parts are the three pills.
+inline constexpr kit::ControlId filters_group = 22;
+/// The tag pills, one Tab stop. Tags, the overflow menu, stays its own stop.
+inline constexpr kit::ControlId tags_group = 23;
 
 /// The first row. The row at place p is first_row + p.
 inline constexpr kit::ControlId first_row = 1000;

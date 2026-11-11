@@ -168,6 +168,7 @@ RegistryView view_of(const RegistryRecord& record) {
     view.refreshing = record.refreshing;
     view.last_error = record.last_error;
     view.fingerprints = data::registry::key_fingerprints(record.registry.descriptor);
+    view.releases = record.releases;
     return view;
 }
 

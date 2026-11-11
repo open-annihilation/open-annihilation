@@ -570,7 +570,11 @@ bool tab_to(Session& session, std::string_view name) {
 void keys(const kit::Frame& frame) {
     const bool compact = frame.size_class == kit::SizeClass::compact;
     Session session = open_at(frame, opened({}), "tab");
-    session.key(kit::Key::tab);
+    // Down with the ring hidden shows it on the list, the first stop, and
+    // does not move the row. The next Down moves the row.
+    const std::string opened_row = session.model.selected;
+    session.key(kit::Key::down);
+    OA_CHECK(session.model.selected == opened_row);
     OA_CHECK(focus_name(session) == picker::name_list);
 
     const std::string first = session.model.selected;
@@ -646,7 +650,8 @@ void keys(const kit::Frame& frame) {
 
     if (compact) {
         Session page = open_at(frame, opened({}), "escape page");
-        page.key(kit::Key::tab);
+        // Return before the ring shows still opens the list, as it did when
+        // nothing was focused.
         page.key(kit::Key::enter);
         OA_CHECK(page.state.details_page);
         const picker::ScreenResult left_page = page.key(kit::Key::escape);
@@ -661,7 +666,7 @@ void keys(const kit::Frame& frame) {
     OA_CHECK(cancelled.action == picker::PickerAction::cancel);
 
     Session ends = open_at(frame, opened({}), "list ends");
-    ends.key(kit::Key::tab);
+    ends.key(kit::Key::down);
     OA_CHECK(focus_name(ends) == picker::name_list);
     ends.where = "home";
     ends.key(kit::Key::home);
@@ -682,13 +687,121 @@ void keys(const kit::Frame& frame) {
     OA_CHECK(focus_name(ends) == picker::name_list);
 
     Session backward = open_at(frame, opened({}), "back tab");
-    backward.key(kit::Key::tab);
+    // The first Tab leaves the list for the next stop. Shift+Tab returns.
     backward.key(kit::Key::tab);
     const std::string second = focus_name(backward);
     backward.key(kit::Key::back_tab);
     OA_CHECK(focus_name(backward) == picker::name_list);
     backward.key(kit::Key::tab);
     OA_CHECK(focus_name(backward) == second);
+}
+
+/// The picker opens on the list with the ring hidden. The first Tab is the
+/// second stop, Shift+Tab is the last, Return with the ring hidden does what
+/// Enter on the list does, and Return on Cancel presses it and hides the ring.
+///
+/// @param frame the frame
+void the_screen_opens_on_its_first_stop(const kit::Frame& frame) {
+    const bool compact = frame.size_class == kit::SizeClass::compact;
+    Session fresh = open_at(frame, opened({}), "open focus");
+    OA_CHECK(!fresh.list.tab_order.empty());
+    if (fresh.list.tab_order.empty())
+        return;
+    const kit::ControlId first = fresh.list.tab_order.front();
+    const kit::ControlId second = fresh.list.tab_order.size() > 1 ? fresh.list.tab_order[1] : first;
+    const kit::ControlId last = fresh.list.tab_order.back();
+    kit::focus_opened(fresh.state.interaction, fresh.list, false);
+    OA_CHECK(fresh.state.interaction.focused == first);
+    OA_CHECK(!fresh.state.interaction.focus_shown);
+    OA_CHECK(focus_name(fresh).empty());
+    fresh.key(kit::Key::tab);
+    OA_CHECK(fresh.state.interaction.focused == second);
+    OA_CHECK(fresh.state.interaction.focus_shown);
+
+    Session back = open_at(frame, opened({}), "open back tab");
+    kit::focus_opened(back.state.interaction, back.list, false);
+    back.key(kit::Key::back_tab);
+    OA_CHECK(back.state.interaction.focused == last);
+    OA_CHECK(back.state.interaction.focus_shown);
+
+    Session plain = open_at(frame, opened({}), "open return");
+    const std::string selected = plain.model.selected;
+    kit::focus_opened(plain.state.interaction, plain.list, false);
+    const picker::ScreenResult hidden = plain.key(kit::Key::enter);
+    OA_CHECK(hidden.action == picker::PickerAction::none);
+    OA_CHECK(plain.model.selected == selected);
+    if (compact)
+        OA_CHECK(plain.state.details_page);
+    else
+        OA_CHECK(plain.state.interaction.focus_shown);
+
+    Session shown = open_at(frame, opened({}), "open shown return");
+    const kit::Control* cancel = find_named(shown.list, picker::name_cancel);
+    OA_CHECK(cancel != nullptr && cancel->enabled);
+    if (cancel == nullptr)
+        return;
+    shown.state.interaction.focused = cancel->id;
+    shown.state.interaction.focus_shown = true;
+    const picker::ScreenResult closed = shown.key(kit::Key::enter);
+    OA_CHECK(closed.action == picker::PickerAction::cancel);
+    OA_CHECK(!shown.state.interaction.focus_shown);
+}
+
+/// At Compact, Return with no ring opens the details page with the page's
+/// first control focused and the ring still hidden. A click on Details also
+/// leaves a control the page lists focused. A screen reader hears the new
+/// page, and a player who never pressed Tab sees no ring.
+///
+/// @param frame the frame
+void the_details_page_keeps_a_listed_focus(const kit::Frame& frame) {
+    if (frame.size_class != kit::SizeClass::compact)
+        return;
+    Session keyed = open_at(frame, opened({}), "details by return");
+    kit::focus_opened(keyed.state.interaction, keyed.list, false);
+    OA_CHECK(!keyed.state.interaction.focus_shown);
+    keyed.key(kit::Key::enter);
+    OA_CHECK(keyed.state.details_page);
+    OA_CHECK(kit::control_of(keyed.list, keyed.state.interaction.focused) != nullptr);
+    OA_CHECK(!keyed.state.interaction.focus_shown);
+
+    Session clicked = open_at(frame, opened({}), "details by click");
+    kit::focus_opened(clicked.state.interaction, clicked.list, false);
+    const bool shown_before = clicked.state.interaction.focus_shown;
+    const kit::Control* details = find_named(clicked.list, picker::name_details);
+    OA_CHECK(details != nullptr);
+    if (details == nullptr)
+        return;
+    clicked.click(centre_of(press_area(*details)), 0);
+    OA_CHECK(clicked.state.details_page);
+    OA_CHECK(kit::control_of(clicked.list, clicked.state.interaction.focused) != nullptr);
+    OA_CHECK(clicked.state.interaction.focus_shown == shown_before);
+}
+
+/// The list is one stop. Rows are not focusable, and the screen has no
+/// filter controls to group.
+///
+/// @param frame the frame
+void the_list_is_one_stop(const kit::Frame& frame) {
+    Session session = open_at(frame, opened({}), "list stop");
+    std::size_t lists = 0;
+    std::size_t row_stops = 0;
+    for (const kit::ControlId id : session.list.tab_order) {
+        const kit::Control* control = kit::control_of(session.list, id);
+        if (control == nullptr)
+            continue;
+        if (control->name == picker::name_list)
+            ++lists;
+        if (control->name.rfind(picker::name_row_prefix, 0) == 0)
+            ++row_stops;
+    }
+    OA_CHECK(lists == 1);
+    OA_CHECK(row_stops == 0);
+    OA_CHECK(session.list.composites.empty());
+    for (const kit::Control& control : session.list.controls) {
+        if (control.name.rfind(picker::name_row_prefix, 0) == 0)
+            OA_CHECK(!control.focusable);
+        OA_CHECK(control.name.rfind("brains.filter", 0) != 0);
+    }
 }
 
 /// The controller's back and use, and the footer buttons.
@@ -705,7 +818,6 @@ void commands(const kit::Frame& frame) {
 
     if (frame.size_class == kit::SizeClass::compact) {
         Session page = open_at(frame, opened({}), "command page");
-        page.key(kit::Key::tab);
         page.key(kit::Key::enter);
         OA_CHECK(page.state.details_page);
         const picker::ScreenResult left_page = page.command(picker::ScreenCommand::back);
@@ -764,7 +876,7 @@ void wheel_and_stick(const kit::Frame& frame) {
         OA_CHECK(listed.state.list_scroll > 0);
     }
     listed.where = "stick list";
-    listed.key(kit::Key::tab);
+    listed.key(kit::Key::down);
     OA_CHECK(focus_name(listed) == picker::name_list);
     const int32_t before = listed.state.list_scroll;
     listed.stick(-1.0F);
@@ -809,6 +921,9 @@ int main() {
         click_controls(frame);
         finger(frame);
         keys(frame);
+        the_screen_opens_on_its_first_stop(frame);
+        the_details_page_keeps_a_listed_focus(frame);
+        the_list_is_one_stop(frame);
         commands(frame);
         wheel_and_stick(frame);
     }

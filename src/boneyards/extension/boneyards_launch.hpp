@@ -21,6 +21,7 @@
 #include "oa/ui/screen_registry.hpp"
 
 #include <cstdint>
+#include <string_view>
 
 namespace oa::boneyards {
 struct OverlayLaunch;
@@ -68,6 +69,10 @@ struct BoneyardsLaunch {
     // them from the Boneyards console's status widget. The planet is the one
     // the launch reply named, not the planet the Main Frame has selected.
     bool (*battle_ids)(uint32_t* area_id, const char** game_id){};
+    // Reads the planet's name and the sector's name of the launched battle,
+    // as the galactic map named them when the launch reply came; null reads
+    // them from the Boneyards console's status widget.
+    bool (*battle_place)(const char** planet, const char** sector){};
     // The Boneyards box "Exit to the system?", which a launch removes; null
     // removes nothing.
     ExitPrompt* exit_prompt{};
@@ -213,6 +218,36 @@ void boneyards_report_hooks(void* context, oa::boneyards::reporter::Hooks& hooks
 ///
 /// @return true from a launch reply until the Boneyards takes the player back
 [[nodiscard]] bool boneyards_launched_game() noexcept;
+
+/// Says what the Boneyards knows of the battle whose replay is being made
+/// (oa::app::netgame::extension_api::Hooks::recorded_game).
+///
+/// A game the Boneyards launched has the kind `boneyards`, and its object
+/// under `game` holds the battle's game id (`game_id`), the planet's name
+/// (`planet`) and the sector's name (`sector`); a member whose text is empty
+/// is left out. A launch that is not active, and a battle with no game id,
+/// are not one the Boneyards launched.
+///
+/// @param context unused
+/// @param[out] game the kind and members, set only when this returns true
+/// @return true when the Boneyards launched the game
+[[nodiscard]] bool boneyards_recorded_game(
+    void* context, oa::app::netgame::extension_api::RecordedGame* game
+) noexcept;
+
+/// The kind a Boneyards battle's replay names in its description (game.kind),
+/// and its object under `game` (game.boneyards).
+inline constexpr std::string_view kBoneyardsReplayKind = "boneyards";
+
+/// The title the Library's Replays section shows that kind by, in its kind
+/// menu and on its rows: the English, which languages/boneyards.tdf translates.
+inline constexpr std::string_view kBoneyardsReplayTitle = "Boneyards";
+
+/// Registers the Boneyards' kind of replay with the Library's Replays section
+/// (oa::data::replays::register_kind), so its kind menu offers the Boneyards'
+/// battles and their rows show the title with the battle's planet. Called as
+/// the extension's table is filled.
+void register_boneyards_replay_kind();
 
 /// Returns the label the match's return names after a Boneyards launch (Extension::return_label).
 ///

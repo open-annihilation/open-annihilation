@@ -423,6 +423,120 @@ inline lib::EntryId ridge_id() {
     return {std::string(core), lib::Kind::mod, "ridge"};
 }
 
+/// The day the replay fixture is read on: 2026-11-06, as day_number counts it.
+inline constexpr int32_t replays_today = 20763;
+
+/// Returns one made-up replay of the fixture.
+///
+/// @param path its path below Recordings
+/// @param map its map's name
+/// @param kind its game.kind
+/// @param days_ago how many days before replays_today it was recorded
+/// @param minute the local time it was recorded, in minutes into its day
+/// @param players its players' names, each a colour of its place
+/// @return the row
+inline lib::ReplayRow replay_row(
+    std::string path,
+    std::string map,
+    std::string kind,
+    int32_t days_ago,
+    int32_t minute,
+    std::vector<std::string> players
+) {
+    lib::ReplayRow row;
+    row.replay.path = std::move(path);
+    row.replay.map = std::move(map);
+    row.replay.kind = std::move(kind);
+    row.replay.size = 600U * 1024U;
+    row.replay.length_ms = 1'432'960U;
+    row.replay.recorded_by = "open-annihilation 0.9.1";
+    for (std::size_t place = 0; place < players.size(); ++place) {
+        oa::data::replays::Player player;
+        player.name = std::move(players[place]);
+        player.colour = static_cast<int32_t>(place);
+        player.side = place % 2 == 0 ? "arm" : "core";
+        player.kind = "human";
+        row.replay.players.push_back(std::move(player));
+    }
+    row.day = replays_today - days_ago;
+    row.minute = minute;
+    return row;
+}
+
+/// Returns the Replays section's fixture: a battle of an extension's kind
+/// on a planet, a four-player game, a kept skirmish with a mod, one
+/// finished after a crash, an older campaign mission, an imported `.tad`
+/// and a damaged file, with the kind Outpost registered.
+///
+/// @return the inputs' replays
+inline lib::ReplayInputs replay_inputs() {
+    lib::ReplayInputs replays;
+    replays.today = replays_today;
+    replays.kinds = {{"outpost", "Outpost"}};
+    lib::ReplayRow battle = replay_row(
+        "default/show-down.oademo", "Show Down", "outpost", 0, 21 * 60 + 14, {"Varn", "Kestrel"}
+    );
+    battle.replay.planet = "Corvane";
+    battle.replay.sector = "Low Reach";
+    replays.rows.push_back(std::move(battle));
+    lib::ReplayRow coast = replay_row(
+        "default/coast.oademo",
+        "Coast To Coast",
+        "multiplayer",
+        0,
+        19 * 60 + 2,
+        {"Varn", "Bex", "Morrow", "Sato"}
+    );
+    coast.replay.length_ms = 2'467'000U;
+    coast.replay.size = 1900U * 1024U;
+    replays.rows.push_back(std::move(coast));
+    lib::ReplayRow broken = replay_row("default/broken.oademo", {}, {}, 0, 10 * 60, {});
+    broken.replay.damage = "This file is not a replay.";
+    broken.replay.length_ms = 0;
+    replays.rows.push_back(std::move(broken));
+    lib::ReplayRow twin = replay_row(
+        "ridge/twin.oademo", "Twin Rivers", "skirmish", 1, 16 * 60 + 30, {"Varn", "Computer"}
+    );
+    twin.replay.kept = true;
+    twin.replay.length_ms = 1'120'000U;
+    twin.replay.mod_id = "ridge";
+    twin.replay.mod_name = "Ridge";
+    twin.replay.mod_version = "2.8";
+    twin.replay.mod_revision = 1;
+    replays.rows.push_back(std::move(twin));
+    lib::ReplayRow caldera = replay_row(
+        "default/caldera.oademo", "Caldera's Rim", "multiplayer", 1, 12 * 60, {"Varn", "Tamsin"}
+    );
+    caldera.replay.after_crash = true;
+    replays.rows.push_back(std::move(caldera));
+    replays.rows.push_back(
+        replay_row("default/campaign.oademo", "Rougpelt", "campaign", 40, 9 * 60, {"Commander"})
+    );
+    lib::ReplayRow imported = replay_row(
+        "Imported/anteer.tad", "Anteer Strait", "multiplayer", 3, 20 * 60, {"Kestrel", "Halvard"}
+    );
+    imported.replay.file = oa::data::replays::FileKind::tad;
+    replays.rows.push_back(std::move(imported));
+    return replays;
+}
+
+/// Returns the fixture's Library on its Replays section, the newest replay selected.
+///
+/// @param recording_on the player's setting records games
+/// @param with_rows the fixture's replays are listed; false lists none
+/// @return the Library
+inline lib::Library replay_library(bool recording_on = true, bool with_rows = true) {
+    lib::Inputs inputs = fixture_inputs();
+    inputs.replays = replay_inputs();
+    inputs.replays.recording_on = recording_on;
+    if (!with_rows)
+        inputs.replays.rows.clear();
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::replays);
+    return library;
+}
+
 /// A frame the tests lay the Library out in, and its name.
 struct NamedFrame {
     std::string name{}; ///< such as "compact" or "1920x1080"

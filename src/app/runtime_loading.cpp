@@ -12,6 +12,7 @@
 #include "oa/data/defs/palette.hpp"
 #include "oa/ui/frontend_renderer/gadget_draw.hpp"
 #include "oa/present/blit.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/palette_tables.hpp"
 #include "oa/present/pcx.hpp"
 #include "oa/present/raster.hpp"
@@ -58,7 +59,9 @@ oa::PaletteBytes load_active_palette(const oa::AssetStore& assets) {
 }
 
 void Runtime::ensure_ui_colors() {
-    if (ui_colors_ready_)
+    namespace vision = oa::present::colour_vision;
+    const vision::Mode mode = vision::active_mode();
+    if (ui_colors_ready_ && ui_colors_mode_ == static_cast<uint8_t>(mode))
         return;
     try {
         loading_palette_ = load_active_palette(assets_);
@@ -67,11 +70,39 @@ void Runtime::ensure_ui_colors() {
         if (gui.size() != gui_palette.size())
             throw std::runtime_error("palette has invalid size");
         std::copy(gui.begin(), gui.end(), gui_palette.begin());
-        ui_colors_ = oa::remap_palette(gui_palette, loading_palette_);
+        // A failed rebuild leaves the previous table. The remap is built
+        // again, then the mode writes its slots, so one mode does not stack
+        // on another.
+        oa::PaletteMap colours = oa::remap_palette(gui_palette, loading_palette_);
+        vision::paint_mark_slots(colours, loading_palette_, mode);
+        // Produced and consumed figures keep their own indices. They are not
+        // written into the slots, the game or a save.
+        vision::match_resource_figures(loading_palette_);
+        ui_colors_ = colours;
+        ui_colors_mode_ = static_cast<uint8_t>(mode);
         ui_colors_ready_ = true;
+        if (match_ != nullptr) {
+            auto& game = match_->state().game;
+            std::copy_n(ui_colors_.begin(), sizeof game.ui_colors, game.ui_colors);
+        }
     } catch (const std::exception& error) {
         std::cerr << "ui palettes unavailable: " << error.what() << '\n';
     }
+}
+
+void Runtime::refresh_mark_colours() {
+    namespace vision = oa::present::colour_vision;
+    const vision::Mode mode = vision::active_mode();
+    if (!ui_colors_ready_) {
+        // Off still builds the table the first time something draws it.
+        if (mode == vision::Mode::off)
+            return;
+        ensure_ui_colors();
+        return;
+    }
+    if (ui_colors_mode_ == static_cast<uint8_t>(mode))
+        return;
+    ensure_ui_colors();
 }
 
 void Runtime::ensure_loading_screen() {
@@ -241,12 +272,19 @@ void Runtime::draw_loading_screen() {
 }
 
 void Runtime::teardown_match() {
+    // Photos accepted during the match finish writing before the match goes.
+    // Leaving photo mode does not join them: the player can leave while a
+    // photo is still queued.
+    finish_photo_writes();
     // Orders a stepped clock still holds go with the match. The bag is
     // keyed by this runtime, so a later match at the same address starts clear.
     drop_held_play_orders();
     // Director mode holds the match's sound hooks and camera paths; it
     // gives them back before the match goes.
     leave_director_mode();
+    // Photo mode holds the player's layout and camera. It gives them back
+    // before the match goes, as director mode does.
+    leave_photo_mode();
     call_hook_or_report<&Extension::match_event>(
         extension_, hook_error_report(), *this, MatchEvent::torn_down
     );
@@ -332,6 +370,7 @@ void Runtime::leave_match() {
         );
     match_paused_ = false;
     match_panels_keyboard_ = false;
+    leave_hud_button_focus();
     match_finished_ = false;
     // A stage belongs to the match it set up.
     stage_.reset();

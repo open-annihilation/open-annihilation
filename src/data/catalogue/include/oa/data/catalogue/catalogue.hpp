@@ -180,7 +180,7 @@ struct Package {
     std::string word;               ///< the manifest's word for the language, 1 to 32 bytes
     std::vector<std::string> locales;   ///< locale tags this language matches, at most 16
     std::vector<std::string> fallbacks; ///< locale tags it falls back to, at most 8
-    std::string needs;                  ///< `game-fonts` or `modern-fonts`; empty when absent
+    std::string needs; ///< `game-fonts`, `modern-fonts` or `shaping`; empty when absent
     /// Base games the package runs with, as `supportedGames` names them.
     /// Empty when the entry omits the key. An empty list is refused.
     std::vector<std::string> supported_games;
@@ -228,6 +228,16 @@ struct Package {
     std::string preview;
 };
 
+/// The catalogue's pointer at the list of older releases.
+///
+/// `file`'s last segment is `<sha256>.json`, and `sha256` is that digest.
+/// `size` is the list file's size in bytes.
+struct ReleasesRef {
+    std::string file;              ///< a reference whose last segment is `<sha256>.json`
+    base::sha256::Digest sha256{}; ///< the list file's SHA-256
+    uint64_t size{};               ///< the list file's size in bytes, 1 to max_catalogue_bytes
+};
+
 /// One catalogue that was read. `problems` holds why entries were skipped.
 struct Catalogue {
     std::string registry;                    ///< the registry id the catalogue names
@@ -240,6 +250,9 @@ struct Catalogue {
     std::vector<registry::RegistryKey> keys; ///< the registry's current keys; empty when absent
     std::vector<formats::url::Url> mirrors;  ///< other copies of this catalogue, at most 8
     std::string icon; ///< a picture reference ending `.png`; empty when the catalogue names none
+    /// The releases list beside this catalogue. Absent when the catalogue names none.
+    /// A catalogue without it is read as before: only its own packages can be matched.
+    std::optional<ReleasesRef> releases;
     std::vector<Package> packages;     ///< the entries that passed their rules
     std::vector<std::string> problems; ///< why entries were skipped, at most max_problems
 };
@@ -252,7 +265,10 @@ struct Catalogue {
 /// package that breaks a rule is left out, and the reason is kept in
 /// `problems` when fewer than max_problems reasons are kept already; the
 /// other packages stay. Two packages with one key, ignoring case, are both
-/// left out.
+/// left out. `releases`, when present, is an object naming the releases
+/// list by `file`, `sha256` and `size`. A missing `releases` leaves that
+/// member unset. A `releases` that is present and does not follow those
+/// rules refuses the catalogue.
 ///
 /// @param bytes the catalogue's bytes
 /// @param[out] out the catalogue; left unchanged when the bytes are refused

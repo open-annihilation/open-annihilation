@@ -18,6 +18,7 @@
 #include "oa/boneyards_test/installs.hpp"
 #include "oa/boneyards/rover_calls.hpp"
 #include "oa/boneyards/rover_session.hpp"
+#include "oa/boneyards/toolkit.hpp"
 #include "oa/rover/platform.h"
 
 using namespace oa::boneyards;
@@ -115,6 +116,75 @@ bool read_asset(void* user, const char* path, std::vector<uint8_t>* out) {
 
 using Calls = std::vector<std::string>;
 
+void expect_named(const screens::GalaxyView& view, int32_t index, int32_t id, const char* name) {
+    CHECK(index == screens::galaxy_find_planet(&view, id));
+    if (index < 0 || index >= static_cast<int32_t>(view.planet_count))
+        return;
+    CHECK(std::strcmp(view.planets[index].name, name) == 0);
+}
+
+// Arrows on the loaded war map, and each side's capitol. The link between
+// DP Alpha and Core Prime II is dropped only in the copy the direction
+// function reads.
+void test_keyboard(screens::GalaxyView& view) {
+    CHECK(nearest_planet(nullptr, nullptr, nullptr, 1, 0, key::right) == -1);
+    CHECK(screens::galaxy_player_capitol(nullptr, 'C') == screens::kNoPlanet);
+    constexpr int32_t count = 25;
+    CHECK(view.planet_count == static_cast<std::size_t>(count));
+    CHECK(view.connector_count == kConnectorCount);
+    if (view.planet_count != static_cast<std::size_t>(count))
+        return;
+    int32_t xs[count];
+    int32_t ys[count];
+    uint8_t linked[count * count]{};
+    for (int32_t i = 0; i < count; ++i) {
+        xs[i] = view.planets[i].x;
+        ys[i] = view.planets[i].y;
+    }
+    for (std::size_t link = 0; link < view.connector_count; ++link) {
+        const int32_t a = view.connectors[link].a;
+        const int32_t b = view.connectors[link].b;
+        if (a < 0 || b < 0 || a >= count || b >= count)
+            continue;
+        linked[a * count + b] = 1;
+        linked[b * count + a] = 1;
+    }
+    CHECK(linked[0 * count + 1] == 1);
+    const int32_t alpha = 0;
+    expect_named(
+        view, nearest_planet(xs, ys, linked, count, alpha, key::right), 1797, "Core Prime II"
+    );
+    expect_named(view, nearest_planet(xs, ys, linked, count, alpha, key::down), 1808, "Lusch II");
+    CHECK(nearest_planet(xs, ys, linked, count, alpha, key::left) == -1);
+    CHECK(nearest_planet(xs, ys, linked, count, alpha, key::up) == -1);
+    CHECK(nearest_planet(xs, ys, linked, count, alpha, key::enter) == -1);
+    const int32_t lusch = screens::galaxy_find_planet(&view, 1808);
+    CHECK(lusch >= 0);
+    if (lusch >= 0) {
+        expect_named(view, nearest_planet(xs, ys, linked, count, lusch, key::down), 1801, "Slag");
+        expect_named(view, nearest_planet(xs, ys, linked, count, lusch, key::right), 1807, "Koth");
+        expect_named(view, nearest_planet(xs, ys, linked, count, lusch, key::up), 1796, "DP Alpha");
+        CHECK(nearest_planet(xs, ys, linked, count, lusch, key::left) == -1);
+    }
+    linked[0 * count + 1] = 0;
+    linked[1 * count + 0] = 0;
+    expect_named(view, nearest_planet(xs, ys, linked, count, alpha, key::right), 1807, "Koth");
+
+    const int32_t core = screens::galaxy_player_capitol(&view, 'C');
+    expect_named(view, core, 1797, "Core Prime II");
+    CHECK(screens::galaxy_player_capitol(&view, 'c') == core);
+    const int32_t arm = screens::galaxy_player_capitol(&view, 'A');
+    expect_named(view, arm, 1819, "New Empyrrean");
+    CHECK(screens::galaxy_player_capitol(&view, 'a') == arm);
+    CHECK(screens::galaxy_player_capitol(&view, 'U') == screens::kNoPlanet);
+    if (core >= 0) {
+        const char saved = view.planets[core].side;
+        view.planets[core].side = 'A';
+        CHECK(screens::galaxy_player_capitol(&view, 'C') == core);
+        view.planets[core].side = saved;
+    }
+}
+
 void test_load(GalaxyGraphics& graphics, Recorder& r, const char* path) {
     auto view = std::make_unique<screens::GalaxyView>();
     screens::galaxy_init(view.get());
@@ -173,6 +243,7 @@ void test_load(GalaxyGraphics& graphics, Recorder& r, const char* path) {
     const screens::GalaxyPlanet& planet = view->planets[1801 - kFirstPlanet];
     CHECK(planet.id == 1801 && planet.population == 17 && planet.in_progress == 2);
     CHECK(planet.core_wins == 6 && planet.arm_wins == 5);
+    test_keyboard(*view);
 }
 
 void test_failures(GalaxyGraphics& graphics, Recorder& r, const char* path) {

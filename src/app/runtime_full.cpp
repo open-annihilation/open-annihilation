@@ -967,6 +967,12 @@ void Runtime::FullPresentation::destroy_world_target() noexcept {
     world_target_bytes = 0;
 }
 
+void Runtime::drop_full_team_frames() {
+    if (full_ == nullptr)
+        return;
+    full_->models.drop_frames();
+}
+
 void Runtime::free_full_match_state() noexcept {
     if (!full_)
         return;
@@ -1882,6 +1888,34 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 scene.camera_x = static_cast<int32_t>(full.frame_camera_x);
                 scene.camera_y = static_cast<int32_t>(full.frame_camera_y);
                 scene.target = target;
+                // The card multiplies every vertex by the target's factor.
+                // The window, and a target made at factor one, leave it at one.
+                if (target != card::TargetHandle{} && target == full.world_target)
+                    scene.target_factor = full.world_target_factor;
+                else if (target != card::TargetHandle{} && target == full.moved_target)
+                    scene.target_factor = full.moved_target_factor;
+                else
+                    scene.target_factor = 1;
+                scene.truncate_geometry = full.executor.capabilities().geometry_truncates;
+                // A tile's model vertices, its water and its strip and hole
+                // cuts are made where the one-piece photo makes them, then
+                // the draw origin is subtracted. Where the renderer truncates
+                // a vertex times the factor toward zero, the submitted pixel
+                // is then moved so that truncation falls a whole number of
+                // the target's pixels from the whole photo. Zero leaves the
+                // frame and a whole photo on the path they already take.
+                // The moved target, below zoom 1, is measured with this same
+                // shift: its vertices are the whole photo's.
+                const int32_t tile_column =
+                    photo_tile_map_offset_ ? (*photo_tile_map_offset_)[0] : 0;
+                const int32_t tile_row = photo_tile_map_offset_ ? (*photo_tile_map_offset_)[1] : 0;
+                if (photo_tile_anchor_x_ != 0 || photo_tile_row_ != 0 || tile_column != 0 ||
+                    tile_row != 0) {
+                    scene.strip_anchor_x = static_cast<float>(photo_tile_anchor_x_);
+                    scene.strip_anchor_y = static_cast<float>(photo_tile_row_);
+                    scene.tile_map_x = tile_column;
+                    scene.tile_map_y = tile_row;
+                }
                 sprite_inputs.view = scene;
                 renderer_water_classic::Inputs water;
                 water.map = &*selected_tnt_;
@@ -2484,7 +2518,8 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     image.scale_x,
                     image.scale_y,
                     false,
-                    static_cast<float>(image.row_offset)
+                    static_cast<float>(image.row_offset) +
+                        static_cast<float>(photo_tile_row_) * image.scale_y
                 );
             };
             // Light only adds to the world, which the card adds it to as it
@@ -2612,6 +2647,19 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 sdl_.renderer, full.overlay_texture, nullptr, &world, one_to_one_scale_mode()
             );
         }
+        // A look reads the battlefield back, including what was painted over
+        // it, and draws the filtered picture in its place. The Open
+        // Annihilation layer and the panel are drawn after this, and a
+        // capture reads the card before this runs. No look skips the pass.
+        if (photo_look_active() && !accelerated_.reading_back)
+            present_photo_look_full(
+                battlefield.x,
+                battlefield.y,
+                static_cast<int>(bf_w),
+                static_cast<int>(bf_h),
+                moved,
+                full.final_target
+            );
         finish_match_layers(frame_format, dialogs, upload_start, present_start);
         return true;
     } catch (const FullFrameRefusedError& error) {

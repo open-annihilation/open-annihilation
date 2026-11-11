@@ -177,7 +177,11 @@ void Runtime::load_explosion_gaf(std::string_view name) {
     auto& loaded = match_explosion_gafs_[key];
     const auto path = "anims/" + std::string(name) + ".GAF";
     try {
-        auto file = assets_.read(path).bytes;
+        auto data = assets_.read_if_present(path);
+        // A file the store does not hold stays silent.
+        if (!data)
+            return;
+        auto file = std::move(data->bytes);
         // Every frame is decoded once to check it; none is kept.
         auto parsed = oa::formats::gaf::parse(file, oa::formats::gaf::PixelData::checked);
         if (!parsed.ok()) {
@@ -195,9 +199,7 @@ void Runtime::load_explosion_gaf(std::string_view name) {
                 frame_by_frame_sequences_[&sequence] = &loaded;
         }
     } catch (const std::exception& error) {
-        const std::string_view what = error.what();
-        if (what.find("asset not found") == std::string_view::npos)
-            std::cerr << "match HUD GAF '" << path << "' unavailable: " << error.what() << '\n';
+        std::cerr << "match HUD GAF '" << path << "' unavailable: " << error.what() << '\n';
     }
 }
 
@@ -305,7 +307,13 @@ void Runtime::append_gaf_file(oa::formats::gaf::Archive& destination, std::strin
     if (missing_gaf_paths_.count(key) != 0)
         return;
     try {
-        auto parsed = oa::formats::gaf::parse(assets_.read(std::string(path)).bytes);
+        const auto data = assets_.read_if_present(path);
+        // A file the store does not hold stays silent.
+        if (!data) {
+            missing_gaf_paths_.insert(key);
+            return;
+        }
+        auto parsed = oa::formats::gaf::parse(data->bytes);
         if (!parsed.ok()) {
             missing_gaf_paths_.insert(key);
             if (reported_gaf_paths_.insert(key).second) {
@@ -320,11 +328,9 @@ void Runtime::append_gaf_file(oa::formats::gaf::Archive& destination, std::strin
         caption_gaf_pictures(path, destination, first_sequence);
     } catch (const std::exception& error) {
         missing_gaf_paths_.insert(key);
-        const std::string_view what = error.what();
-        // A file the store does not hold stays silent. Any other failure is
-        // logged once in the run, then tried again in the next match.
-        if (what.find("asset not found") == std::string_view::npos &&
-            reported_gaf_paths_.insert(key).second)
+        // Any other failure is logged once in the run, then tried again in
+        // the next match.
+        if (reported_gaf_paths_.insert(key).second)
             std::cerr << "match HUD GAF '" << path << "' unavailable: " << error.what() << '\n';
     }
 }
@@ -493,9 +499,10 @@ uint8_t Runtime::pick_match_cursor() {
 }
 
 std::optional<uint8_t> Runtime::shown_match_cursor() {
-    // Over a HUD button, and while the order wheel a mouse button opened is
-    // up, the cursor is the arrow: a click gives the battlefield no order.
-    if (hovered_ || !match_ || order_wheel_mouse_open())
+    // Over a HUD button, while the order wheel a mouse button opened is up,
+    // and in photo mode, the cursor is the arrow: a click gives the
+    // battlefield no order. Photo mode's pointer reads nothing of the match.
+    if (hovered_ || !match_ || order_wheel_mouse_open() || photo_mode())
         return static_cast<uint8_t>(input::OrderCursor::normal);
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;
@@ -581,8 +588,9 @@ void Runtime::tick_and_draw_cursor() {
         if (const auto cursor = shown_match_cursor())
             select_game_cursor(*cursor);
     oa::ui::gui_input::follow_hover_cursor(gui_context_, pointer_over_top_panel());
-    // A middle-click pan draws its own direction at the pointer.
-    if (middle_pan_shows_direction())
+    // A middle-click pan draws its own direction at the pointer. Photo mode
+    // draws no marks, so its pointer stays.
+    if (middle_pan_shows_direction() && !photo_mode())
         return;
     if (match_use_layers_ && screen_ == Screen::match)
         return;
@@ -595,7 +603,7 @@ void Runtime::tick_and_draw_cursor() {
         return;
     if (hold_menu_button_cursor())
         return;
-    if (surface_.rgb.empty() || cursor_image_ == nullptr)
+    if (surface_.rgb.empty() || cursor_image_ == nullptr || photo_hides_pointer())
         return;
     // With touch controls the cursor is hidden while no finger rests, or
     // lifted above the finger on the battlefield.

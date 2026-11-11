@@ -837,6 +837,7 @@ bool connect_host(Lobby& lobby, ConnectState&) noexcept {
     // The host's lobby block is ready first: the session is created with its
     // full name and user bytes, so the first search already shows them.
     lobby_reset(lobby, game);
+    lobby.joined_session[0] = '\0';
     lobby_player_count(game) = 1;
     lobby_seat_local(lobby, 0, true, lobby_nickname(game));
     auto& info = local_info(lobby);
@@ -886,6 +887,16 @@ bool connect_join(Lobby& lobby, ConnectState& state, bool watch) noexcept {
     }
     const auto watcher = local_info(lobby).options & option::watcher;
     lobby_reset(lobby, game);
+    // The listed session's name, without its padding. TADR's replayer puts
+    // its name here, which is how the unit check tells that replayer from
+    // every other host. The game name this player hosts under is left as
+    // it was.
+    auto& session_name = lobby.joined_session;
+    std::memcpy(session_name, state.chosen.name, kSessionGameNameBytes);
+    session_name[kSessionGameNameBytes] = '\0';
+    auto session_length = std::strlen(session_name);
+    while (session_length > 0 && session_name[session_length - 1] == ' ')
+        session_name[--session_length] = '\0';
     game.session_flags |= kNetFlagLive;
     local_player(lobby).player_id = id;
     lobby_seat_local(lobby, 0, false, lobby_nickname(game));

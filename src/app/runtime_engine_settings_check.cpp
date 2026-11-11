@@ -12,6 +12,7 @@
 #include "pad_state.hpp"
 
 #include "oa/app/runtime.hpp"
+#include "oa/app/user_folder.hpp"
 #include "oa/data/key_library/library.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
@@ -37,7 +38,9 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 namespace oa::app {
 
@@ -307,6 +310,7 @@ void Runtime::check_engine_settings() {
     check_engine_settings_dialog();
     check_engine_settings_window_sizes();
     check_engine_settings_controls();
+    check_engine_settings_replays();
     oa_layer().check_clear_screens();
     check_engine_settings_in_match();
     check_unsaved_unit_limit_ends_with_its_match();
@@ -1445,6 +1449,427 @@ void Runtime::check_engine_settings_controls() {
     );
     std::cout << "engine settings check: Show keys on buttons is Off by default, and On writes "
                  "open-annihilation.keys.show-on-buttons 1\n";
+}
+
+void Runtime::check_engine_settings_replays() {
+    namespace fs = std::filesystem;
+    // The keys are the recorder's: the game that records reads the first by
+    // its own name, and the retention rule will read the second.
+    static_assert(settings::key::replays_record == replays_record_preference);
+    static_assert(settings::key::replays_keep == replays_keep_preference);
+
+    require(sdl_.window != nullptr, "Replays needs the window");
+    if (engine_settings_dialog() != nullptr)
+        std::ignore = take_engine_settings_action(settings::DialogAction::cancelled);
+
+    int opened_width = 0;
+    int opened_height = 0;
+    SDL_GetWindowSize(sdl_.window, &opened_width, &opened_height);
+    const auto saved_values = preference_values_;
+    const settings::EngineSettings saved_settings = engine_settings();
+
+    struct Restore {
+        Runtime& runtime;
+        int width{};
+        int height{};
+        oa::platform::preferences::Values values;
+        settings::EngineSettings settings;
+
+        ~Restore() {
+            runtime.preference_values_ = values;
+            runtime.preferences_dirty_ = true;
+            try {
+                runtime.flush_preferences();
+                runtime.apply_engine_settings(settings);
+            } catch (const std::exception& failure) {
+                std::cerr << "engine settings check: Replays could not restore: " << failure.what()
+                          << '\n';
+            }
+            if (runtime.sdl_.window != nullptr) {
+                std::ignore = SDL_SetWindowSize(runtime.sdl_.window, width, height);
+                std::ignore = SDL_SyncWindow(runtime.sdl_.window);
+                runtime.apply_output_mode();
+            }
+        }
+    } restore{*this, opened_width, opened_height, saved_values, saved_settings};
+
+    // The check starts from the defaults: no key of the section stored.
+    for (const std::string_view key : {settings::key::replays_record, settings::key::replays_keep})
+        preference_values_.erase(std::string(key));
+    preferences_dirty_ = true;
+    flush_preferences();
+    apply_engine_settings(settings::default_settings(EngineSettingsState::inputs(*this)));
+
+    bool running = true;
+    const auto frames = [&](int32_t count) {
+        for (int32_t frame = 0; frame < count; ++frame) {
+            run_frame(running);
+            require(running, "a frame ended the run");
+        }
+    };
+    const auto named = [this](std::string_view name) -> std::optional<AutomationControl> {
+        std::vector<AutomationControl> controls;
+        oa_layer().automation_controls(controls);
+        for (const AutomationControl& control : controls)
+            if (control.name == name && control.visible && control.window_width > 0 &&
+                control.window_height > 0)
+                return control;
+        return std::nullopt;
+    };
+    const auto require_named = [&](std::string_view name, std::string_view why) {
+        const std::optional<AutomationControl> control = named(name);
+        require(control.has_value(), why);
+        return *control;
+    };
+    const auto pointer_at =
+        [&](oa::ui::display_layout::Point pixel, SDL_EventType type, uint8_t button) {
+            SDL_Event event = window_pointer_event(sdl_.window, sdl_.renderer, type, pixel, button);
+            dispatch_event(event, running);
+            require(running, "a pointer event ended the run");
+        };
+    const auto centre_of = [](const AutomationControl& control) {
+        return oa::ui::display_layout::Point{
+            control.window_x + control.window_width / 2,
+            control.window_y + control.window_height / 2
+        };
+    };
+    const auto click_named = [&](std::string_view name) {
+        const AutomationControl control = require_named(name, std::string(name) + " is not shown");
+        const oa::ui::display_layout::Point pixel = centre_of(control);
+        pointer_at(pixel, SDL_EVENT_MOUSE_MOTION, 0);
+        pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
+        pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
+        frames(1);
+    };
+    // The wheel over the section list, until the entry shows: at Compact the
+    // list is taller than its room.
+    const auto show_entry = [&](std::string_view name) {
+        if (named(name))
+            return;
+        // The pointer rests on the list's first entry, which stays under it
+        // as the list scrolls.
+        const oa::ui::display_layout::Point pixel =
+            centre_of(require_named("oa.settings.nav.controls", "the section list is not shown"));
+        pointer_at(pixel, SDL_EVENT_MOUSE_MOTION, 0);
+        const SDL_Event motion =
+            window_pointer_event(sdl_.window, sdl_.renderer, SDL_EVENT_MOUSE_MOTION, pixel, 0);
+        for (int32_t notch = 0; notch < 12 && !named(name); ++notch) {
+            SDL_Event wheel{};
+            wheel.type = SDL_EVENT_MOUSE_WHEEL;
+            wheel.wheel.windowID = motion.motion.windowID;
+            wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+            wheel.wheel.y = -1.0F;
+            wheel.wheel.mouse_x = motion.motion.x;
+            wheel.wheel.mouse_y = motion.motion.y;
+            dispatch_event(wheel, running);
+            require(running, "the wheel over the section list ended the run");
+            frames(1);
+        }
+        require(named(name).has_value(), std::string(name) + " is not reachable");
+    };
+    const auto close_settings = [&] {
+        if (engine_settings_dialog() != nullptr)
+            std::ignore = take_engine_settings_action(settings::DialogAction::cancelled);
+        frames(1);
+        require(engine_settings_dialog() == nullptr, "Settings stayed open");
+    };
+    // Opens Settings with the shortcut and Replays through its entry.
+    const auto open_replays = [&] {
+        if (screen_ != Screen::main_menu)
+            load(Screen::main_menu);
+        frames(2);
+        if (LayerScreen* welcome = oa_layer().find("first-run")) {
+            oa_layer().close(welcome);
+            frames(1);
+        }
+        PadAccess::send_key(*this, SDLK_COMMA, kShortcutModifier);
+        frames(2);
+        require(
+            engine_settings_dialog() != nullptr && oa_layer().find("settings") != nullptr,
+            "Settings did not open"
+        );
+        show_entry("oa.settings.nav.replays");
+        click_named("oa.settings.nav.replays");
+        require(engine_settings_dialog()->page == settings::Page::replays, "Replays did not show");
+    };
+    const auto snapshot = [&](std::string_view size) {
+        if (options_.snapshot.empty())
+            return;
+        const std::string step = std::string("settings-replays-") + std::string(size);
+        oa_layer().read_whole_window(true);
+        renderer::Surface presented;
+        capture_frame_ = &presented;
+        render();
+        capture_frame_ = nullptr;
+        oa_layer().read_whole_window(false);
+        const fs::path path = step_snapshot(options_.snapshot, step);
+        write_ppm(path, presented);
+        std::cout << "engine settings check: " << oa::platform::path_to_utf8(path) << '\n';
+    };
+    // What a key holds in the preferences the game holds, and in the file.
+    const auto held = [&](std::string_view key) -> std::optional<std::string> {
+        const auto found = preference_values_.find(std::string(key));
+        if (found == preference_values_.end())
+            return std::nullopt;
+        return found->second;
+    };
+    const auto filed = [&](std::string_view key) -> std::optional<std::string> {
+        const auto values = oa::platform::preferences::load(preference_path_);
+        const auto found = values.find(std::string(key));
+        if (found == values.end())
+            return std::nullopt;
+        return found->second;
+    };
+    const auto keep_text = [&] {
+        return require_named("oa.settings.keep-replays", "Keep replays for is not shown").text;
+    };
+    const auto press_ok = [&](std::string_view what) {
+        click_named("oa.settings.ok");
+        require(engine_settings_dialog() == nullptr, std::string(what) + ": OK did not close");
+    };
+    const auto choose_keep = [&](std::string_view word) {
+        click_named("oa.settings.keep-replays");
+        click_named("oa.settings.keep-replays." + std::string(word));
+    };
+    // Writes a key as the rest of the game does (the Library's Turn on
+    // recording writes the first one): straight into the held preferences
+    // and the file, with Settings closed.
+    const auto write_behind = [&](std::string_view key, std::string_view value) {
+        require(engine_settings_dialog() == nullptr, "Settings was open behind a written key");
+        preference_values_[std::string(key)] = std::string(value);
+        preferences_dirty_ = true;
+        flush_preferences();
+    };
+
+    // Each window size lists the section, with the rows at their defaults.
+    const std::array<std::pair<int, int>, 3> windows{{{640, 480}, {1280, 720}, {1920, 1080}}};
+    for (const auto& [width, height] : windows) {
+        const std::string size = std::to_string(width) + 'x' + std::to_string(height);
+        require(
+            SDL_SetWindowSize(sdl_.window, width, height) && SDL_SyncWindow(sdl_.window),
+            size + " was not taken"
+        );
+        apply_output_mode();
+        open_replays();
+        require(
+            require_named("oa.settings.record-games.on", "Record my games is not shown").checked &&
+                !require_named("oa.settings.record-games.off", "Record my games is not shown")
+                     .checked,
+            size + " does not show Record my games On"
+        );
+        require(keep_text() == "30 days", size + " does not show Keep replays for 30 days");
+        require(
+            !held(settings::key::replays_record) && !held(settings::key::replays_keep),
+            "showing Replays wrote a key"
+        );
+        std::cout << "engine settings check: " << size
+                  << " lists Replays: Record my games On, Keep replays for 30 days\n";
+        snapshot(size);
+        close_settings();
+    }
+
+    require(
+        SDL_SetWindowSize(sdl_.window, 1280, 720) && SDL_SyncWindow(sdl_.window),
+        "1280x720 was not taken"
+    );
+    apply_output_mode();
+
+    // Record my games Off, and OK writes `off`, which the recorder reads.
+    open_replays();
+    click_named("oa.settings.record-games.off");
+    require(
+        require_named("oa.settings.record-games.off", "Off is not shown").checked &&
+            !engine_settings_dialog()->chosen.replays_record,
+        "Record my games did not turn Off"
+    );
+    require(!held(settings::key::replays_record), "a change before OK was written");
+    press_ok("Record my games Off");
+    require(
+        held(settings::key::replays_record) == "off" &&
+            filed(settings::key::replays_record) == "off" &&
+            !replays_record_setting(preference_values_) && !engine_settings().replays_record,
+        "Record my games Off did not write open-annihilation.replays.record off"
+    );
+    std::cout << "engine settings check: Record my games Off writes "
+                 "open-annihilation.replays.record off\n";
+
+    // The Library's Turn on recording writes `on` into the preferences with
+    // Settings closed. Settings then shows On, and a player who turns it Off
+    // and presses OK gets `off`: the choice is judged against what the
+    // dialog opened with, which is what the preferences hold.
+    write_behind(settings::key::replays_record, "on");
+    require(
+        replays_record_setting(preference_values_) && engine_settings().replays_record,
+        "Settings did not follow Record my games written behind it"
+    );
+    open_replays();
+    require(
+        require_named("oa.settings.record-games.on", "On is not shown").checked &&
+            !require_named("oa.settings.record-games.off", "Off is not shown").checked &&
+            engine_settings_dialog()->chosen.replays_record,
+        "Replays did not open on Record my games On after `on` was written behind it"
+    );
+    std::cout << "engine settings check: Record my games written on behind Settings shows On\n";
+    click_named("oa.settings.record-games.off");
+    press_ok("Record my games Off after it was written on");
+    require(
+        held(settings::key::replays_record) == "off" &&
+            filed(settings::key::replays_record) == "off" &&
+            !replays_record_setting(preference_values_) && !engine_settings().replays_record,
+        "Record my games Off after `on` was written behind Settings did not write off"
+    );
+    std::cout << "engine settings check: Record my games Off after that writes "
+                 "open-annihilation.replays.record off\n";
+
+    // And On again, as the Library's Turn on recording leaves it.
+    open_replays();
+    require(
+        require_named("oa.settings.record-games.off", "Off is not shown").checked,
+        "Replays did not open on Record my games Off"
+    );
+    click_named("oa.settings.record-games.on");
+    press_ok("Record my games On");
+    require(
+        held(settings::key::replays_record) == "on" &&
+            filed(settings::key::replays_record) == "on" &&
+            replays_record_setting(preference_values_) && engine_settings().replays_record,
+        "Record my games On did not write open-annihilation.replays.record on"
+    );
+    std::cout << "engine settings check: Record my games On writes "
+                 "open-annihilation.replays.record on\n";
+
+    // Keep replays for: the drop-down's four items, 90 days, then 30 days.
+    open_replays();
+    click_named("oa.settings.keep-replays");
+    for (const std::string_view item : {"30-days", "90-days", "1-year", "forever"})
+        require(
+            named("oa.settings.keep-replays." + std::string(item)).has_value(),
+            "Keep replays for does not offer " + std::string(item)
+        );
+    click_named("oa.settings.keep-replays.90-days");
+    require(
+        keep_text() == "90 days" &&
+            engine_settings_dialog()->chosen.replays_keep == settings::ReplayKeep::ninety_days,
+        "Keep replays for did not take 90 days"
+    );
+    press_ok("Keep replays for 90 days");
+    require(
+        held(settings::key::replays_keep) == "90-days" &&
+            filed(settings::key::replays_keep) == "90-days" &&
+            engine_settings().replays_keep == settings::ReplayKeep::ninety_days,
+        "Keep replays for 90 days did not write open-annihilation.replays.keep 90-days"
+    );
+    std::cout << "engine settings check: Keep replays for 90 days writes "
+                 "open-annihilation.replays.keep 90-days\n";
+    open_replays();
+    require(keep_text() == "90 days", "Replays did not open on Keep replays for 90 days");
+    choose_keep("30-days");
+    press_ok("Keep replays for 30 days");
+    require(
+        held(settings::key::replays_keep) == "30-days" &&
+            filed(settings::key::replays_keep) == "30-days" &&
+            engine_settings().replays_keep == settings::ReplayKeep::thirty_days,
+        "Keep replays for 30 days did not write open-annihilation.replays.keep 30-days"
+    );
+    std::cout << "engine settings check: Keep replays for 30 days writes "
+                 "open-annihilation.replays.keep 30-days\n";
+
+    // The same for the length: a key written behind Settings (the question
+    // that offers Keep them all will write forever) is what Settings opens
+    // on.
+    write_behind(settings::key::replays_keep, "forever");
+    require(
+        engine_settings().replays_keep == settings::ReplayKeep::forever,
+        "Settings did not follow Keep replays for written behind it"
+    );
+    open_replays();
+    require(
+        keep_text() == "Forever" &&
+            engine_settings_dialog()->chosen.replays_keep == settings::ReplayKeep::forever,
+        "Replays did not open on Keep replays for Forever after `forever` was written behind it"
+    );
+    std::cout << "engine settings check: Keep replays for written forever behind Settings shows "
+                 "Forever\n";
+    choose_keep("30-days");
+    press_ok("Keep replays for 30 days after it was written forever");
+    require(
+        held(settings::key::replays_keep) == "30-days" &&
+            filed(settings::key::replays_keep) == "30-days" &&
+            engine_settings().replays_keep == settings::ReplayKeep::thirty_days,
+        "Keep replays for 30 days after `forever` was written behind Settings did not write "
+        "30-days"
+    );
+    std::cout << "engine settings check: Keep replays for 30 days after that writes "
+                 "open-annihilation.replays.keep 30-days\n";
+
+    // A year and Forever store their words, whatever else is kept.
+    struct KeepChoice {
+        std::string_view item;    ///< the item's automation word
+        std::string_view caption; ///< the drop-down's text for it
+    };
+
+    constexpr std::array<KeepChoice, 2> kLongerKeeps{
+        {{"1-year", "A year"}, {"forever", "Forever"}}
+    };
+    for (const KeepChoice& longer : kLongerKeeps) {
+        open_replays();
+        choose_keep(longer.item);
+        require(
+            keep_text() == longer.caption,
+            "Keep replays for did not show " + std::string(longer.caption)
+        );
+        press_ok(longer.caption);
+        require(
+            held(settings::key::replays_keep) == longer.item &&
+                filed(settings::key::replays_keep) == longer.item,
+            "Keep replays for " + std::string(longer.caption) + " did not write " +
+                std::string(longer.item)
+        );
+    }
+    std::cout << "engine settings check: Keep replays for A year and Forever write 1-year and "
+                 "forever\n";
+
+    // Cancel puts back the choices the dialog opened with, and writes nothing.
+    open_replays();
+    click_named("oa.settings.record-games.off");
+    choose_keep("90-days");
+    require(
+        !engine_settings_dialog()->chosen.replays_record &&
+            engine_settings_dialog()->chosen.replays_keep == settings::ReplayKeep::ninety_days,
+        "the changes before Cancel were not chosen"
+    );
+    click_named("oa.settings.cancel");
+    require(engine_settings_dialog() == nullptr, "Cancel did not close Settings");
+    require(
+        held(settings::key::replays_record) == "on" &&
+            held(settings::key::replays_keep) == "forever" && engine_settings().replays_record &&
+            engine_settings().replays_keep == settings::ReplayKeep::forever,
+        "Cancel did not put back Record my games and Keep replays for"
+    );
+    std::cout << "engine settings check: Cancel leaves Record my games On and Keep replays for "
+                 "Forever\n";
+
+    // Restore defaults puts On and 30 days back, and OK stores neither key.
+    open_replays();
+    click_named("oa.settings.record-games.off");
+    click_named("oa.settings.restore-defaults");
+    require(
+        engine_settings_dialog()->chosen.replays_record &&
+            engine_settings_dialog()->chosen.replays_keep == settings::ReplayKeep::thirty_days &&
+            require_named("oa.settings.record-games.on", "On is not shown").checked &&
+            keep_text() == "30 days",
+        "Restore defaults did not put Record my games On and Keep replays for 30 days back"
+    );
+    press_ok("Restore defaults");
+    require(
+        !held(settings::key::replays_record) && !held(settings::key::replays_keep) &&
+            !filed(settings::key::replays_record) && !filed(settings::key::replays_keep) &&
+            replays_record_setting(preference_values_) && engine_settings().replays_record &&
+            engine_settings().replays_keep == settings::ReplayKeep::thirty_days,
+        "Restore defaults did not leave both keys unwritten at their defaults"
+    );
+    std::cout << "engine settings check: Restore defaults puts Record my games On and Keep "
+                 "replays for 30 days back\n";
 }
 
 } // namespace oa::app

@@ -46,7 +46,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::update_channel) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::always_show_focus) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -141,23 +141,16 @@ constexpr std::array<Setting, 8> kUserInterfaceRows{
     Setting::escape_opens_menu,
     Setting::look,
 };
-/// Accessibility's rows: the helpers, each applying as it is changed.
-constexpr std::array<Setting, 15> kAccessibilityRows{
-    Setting::latching,
-    Setting::sticky_modifiers,
-    Setting::hold_to_confirm,
-    Setting::long_press,
-    Setting::slow_keys,
-    Setting::bounce_keys,
-    Setting::order_wheel,
-    Setting::pointer_keys,
-    Setting::double_press,
-    Setting::repeat_delay,
-    Setting::repeat_rate,
-    Setting::drag_threshold,
-    Setting::edge_scroll,
-    Setting::move_overlays,
-    Setting::arrange_overlays,
+/// Accessibility's rows: colour, speech and the focus ring, then the helpers.
+constexpr std::array<Setting, 23> kAccessibilityRows{
+    Setting::colour_vision,    Setting::shape_cues,        Setting::colour_preview,
+    Setting::screen_reader,    Setting::speak_chat,        Setting::speak_lobby,
+    Setting::speak_ticker,     Setting::always_show_focus, Setting::latching,
+    Setting::sticky_modifiers, Setting::hold_to_confirm,   Setting::long_press,
+    Setting::slow_keys,        Setting::bounce_keys,       Setting::order_wheel,
+    Setting::pointer_keys,     Setting::double_press,      Setting::repeat_delay,
+    Setting::repeat_rate,      Setting::drag_threshold,    Setting::edge_scroll,
+    Setting::move_overlays,    Setting::arrange_overlays,
 };
 /// Language's rows: the language first, and the text size right
 /// under the switch it needs.
@@ -267,6 +260,23 @@ constexpr std::array<Setting, 3> kModChatRows{
     Setting::chat_backdrop,
     Setting::panel_background,
 };
+/// Replays where the system can choose an opener: recording, how long a
+/// replay is kept, and whether this copy opens replay files.
+constexpr std::array<Setting, 3> kReplaysSwitchRows{
+    Setting::record_games,
+    Setting::keep_replays,
+    Setting::open_replay_files,
+};
+/// Replays where the app takes the types and cannot choose an opener: the
+/// two rows, and no switch.
+constexpr std::array<Setting, 2> kReplaysPlainRows{
+    Setting::record_games,
+    Setting::keep_replays,
+};
+/// Replays' rows for this system.
+constexpr std::span<const Setting> kReplaysRows = file_types_switchable
+                                                      ? std::span<const Setting>{kReplaysSwitchRows}
+                                                      : std::span<const Setting>{kReplaysPlainRows};
 /// Downloads builds its rows from the host's offer, not from settings.
 constexpr std::array<Setting, 0> kDownloadsRows{};
 /// Updates builds its rows from the host's offer, not from settings.
@@ -301,34 +311,37 @@ constexpr std::span<const Setting> kSystemRows = file_types_switchable
 
 /// What each section shows, in Page's order.
 constexpr std::array<std::span<const Setting>, page_count> kPageRows{
-    kControlsRows,      kEngineLimitsRows,  kLanguageRows,   kGraphicsRows,
-    kUserInterfaceRows, kTouchRows,         kControllerRows, kDeveloperRows,
-    kGameFilesRows,     kDownloadsRows,     kSystemRows,     {},
-    kUpdatesRows,       kAccessibilityRows, kModKeysRows,    kModPatrolRows,
-    kModGuardRows,      kModToolsRows,      kModChatRows,    {},
+    kControlsRows,   kEngineLimitsRows,  kLanguageRows,
+    kGraphicsRows,   kUserInterfaceRows, kTouchRows,
+    kControllerRows, kDeveloperRows,     kGameFilesRows,
+    kDownloadsRows,  kSystemRows,        {},
+    kUpdatesRows,    kAccessibilityRows, kReplaysRows,
+    kModKeysRows,    kModPatrolRows,     kModGuardRows,
+    kModToolsRows,   kModChatRows,       {},
 };
 /// Each section's name, as its list entry shows it, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageNames{
-    "Controls",   "Engine Limits", "Language & Text", "Graphics",      "User Interface",
-    "Touch",      "Controller",    "Developer",       "Game files",    "Downloads",
-    "System",     "Game Content",  "Updates",         "Accessibility", "Keys",
-    "Patrolling", "Guarding",      "Build tools",     "Snap & chat",   "",
+    "Controls", "Engine Limits", "Language & Text", "Graphics",      "User Interface",
+    "Touch",    "Controller",    "Developer",       "Game files",    "Downloads",
+    "System",   "Game Content",  "Updates",         "Accessibility", "Replays",
+    "Keys",     "Patrolling",    "Guarding",        "Build tools",   "Snap & chat",
+    "",
 };
 /// Each section's heading, in capitals, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageHeadings{
-    "CONTROLS",          "ENGINE LIMITS", "LANGUAGE & TEXT", "GRAPHICS",
-    "USER INTERFACE",    "TOUCH",         "CONTROLLER",      "DEVELOPER",
-    "GAME FILES",        "DOWNLOADS",     "SYSTEM",          "GAME CONTENT",
-    "UPDATES",           "ACCESSIBILITY", "MOD KEYS",        "PATROLLING BUILDERS",
-    "GUARDING BUILDERS", "BUILD TOOLS",   "SNAP & CHAT",     "",
+    "CONTROLS", "ENGINE LIMITS",       "LANGUAGE & TEXT",   "GRAPHICS",      "USER INTERFACE",
+    "TOUCH",    "CONTROLLER",          "DEVELOPER",         "GAME FILES",    "DOWNLOADS",
+    "SYSTEM",   "GAME CONTENT",        "UPDATES",           "ACCESSIBILITY", "REPLAYS",
+    "MOD KEYS", "PATROLLING BUILDERS", "GUARDING BUILDERS", "BUILD TOOLS",   "SNAP & CHAT",
+    "",
 };
 /// Each section's automation word, in kebab case, in Page's order.
 /// Engine Limits' word is engine-limits; its enumerator stays common_tweaks.
 constexpr std::array<std::string_view, page_count> kPageWords{
-    "controls",   "engine-limits", "language",  "graphics",      "user-interface",
-    "touch",      "controller",    "developer", "game-files",    "downloads",
-    "system",     "game-content",  "updates",   "accessibility", "mod-keys",
-    "mod-patrol", "mod-guard",     "mod-tools", "mod-chat",      "registered",
+    "controls",   "engine-limits", "language",   "graphics",  "user-interface", "touch",
+    "controller", "developer",     "game-files", "downloads", "system",         "game-content",
+    "updates",    "accessibility", "replays",    "mod-keys",  "mod-patrol",     "mod-guard",
+    "mod-tools",  "mod-chat",      "registered",
 };
 static_assert(
     static_cast<std::size_t>(Page::registered) + 1 == page_count,
@@ -375,6 +388,38 @@ constexpr std::array<OrderWheel, 3> kOrderWheelChoices{
     OrderWheel::off, OrderWheel::hold_right, OrderWheel::hold_middle
 };
 constexpr std::array<std::string_view, 3> kOrderWheelCaptions{"Off", "Hold right", "Hold middle"};
+/// Colour vision's captions, in the drop-down's order.
+constexpr std::array<ColourVision, 5> kColourVisionChoices{
+    ColourVision::off,
+    ColourVision::protanopia,
+    ColourVision::deuteranopia,
+    ColourVision::tritanopia,
+    ColourVision::achromatopsia,
+};
+constexpr std::array<std::string_view, 5> kColourVisionCaptions{
+    "Off", "Protanopia", "Deuteranopia", "Tritanopia", "Achromatopsia"
+};
+static_assert(
+    kColourVisionCaptions.size() == kColourVisionChoices.size(),
+    "every colour-vision mode has its caption"
+);
+/// Screen reader's captions. Automatic is the first, and the default.
+constexpr std::array<ScreenReaderMode, 3> kScreenReaderChoices{
+    ScreenReaderMode::automatic, ScreenReaderMode::on, ScreenReaderMode::off
+};
+constexpr std::array<std::string_view, 3> kScreenReaderCaptions{"Automatic", "On", "Off"};
+static_assert(
+    kScreenReaderCaptions.size() == kScreenReaderChoices.size(),
+    "every way of Screen reader has its caption"
+);
+/// Speak chat's captions. All is the last, and the default.
+constexpr std::array<SpeakChat, 3> kSpeakChatChoices{
+    SpeakChat::off, SpeakChat::pages, SpeakChat::all
+};
+constexpr std::array<std::string_view, 3> kSpeakChatCaptions{"Off", "Pages only", "All"};
+static_assert(
+    kSpeakChatCaptions.size() == kSpeakChatChoices.size(), "every way of Speak chat has its caption"
+);
 static_assert(
     kOrderWheelCaptions.size() == kOrderWheelChoices.size(),
     "every way of opening the order wheel has its caption"
@@ -421,6 +466,14 @@ constexpr std::array<std::string_view, 2> kUpdateChannelCaptions{"Stable", "Test
 static_assert(
     kUpdateChannelCaptions.size() == update_channel_choices.size(),
     "every channel of Update channel has its caption"
+);
+/// Keep replays for's captions, in replay_keep_choices' order.
+constexpr std::array<std::string_view, 4> kReplayKeepCaptions{
+    "30 days", "90 days", "A year", "Forever"
+};
+static_assert(
+    kReplayKeepCaptions.size() == replay_keep_choices.size(),
+    "every length of Keep replays for has its caption"
 );
 /// Window frame's captions, in window_frame_choices' order.
 constexpr std::array<std::string_view, 2> kWindowFrameCaptions{"Hidden in play", "Always shown"};
@@ -768,6 +821,53 @@ struct DropDown {
         if (item < 0 || static_cast<std::size_t>(item) >= Count)
             return {};
         return word_form(Word(Choices[static_cast<std::size_t>(item)]), false);
+    }
+
+    /// Returns its stepper.
+    static constexpr Stepper stepper() noexcept {
+        return {&count, &get, &set, &caption, nullptr, &id};
+    }
+};
+
+/// Colour vision's drop-down. A mode other than Off turns Shape cues on.
+/// Off leaves Shape cues as they are. Copying the field does not.
+struct ColourVisionChoice {
+    /// Returns its items.
+    static int32_t count(const SettingsModel&) {
+        return static_cast<int32_t>(kColourVisionChoices.size());
+    }
+
+    /// Returns the item it shows.
+    static int32_t get(const SettingsModel& model) {
+        return choice_place(kColourVisionChoices, model.settings->colour_vision);
+    }
+
+    /// Sets the mode. Any mode but Off turns Shape cues on.
+    static void set(SettingsModel& model, int32_t item) {
+        const ColourVision mode =
+            kColourVisionChoices[static_cast<std::size_t>(on_stops(item, count(model)))];
+        model.settings->colour_vision = mode;
+        if (mode != ColourVision::off)
+            model.settings->shape_cues = true;
+    }
+
+    /// Returns an item's text, as the dialog shows it.
+    static std::string caption(const SettingsModel&, int32_t item) {
+        if (item < 0 || static_cast<std::size_t>(item) >= kColourVisionCaptions.size())
+            return {};
+        return std::string(shown_text(kColourVisionCaptions[static_cast<std::size_t>(item)]));
+    }
+
+    /// Returns an item's id: the word the preferences keep it as.
+    static std::string id(const SettingsModel&, int32_t item) {
+        if (item < 0 || static_cast<std::size_t>(item) >= kColourVisionChoices.size())
+            return {};
+        return word_form(
+            table_word<colour_vision_words, ColourVision>(
+                kColourVisionChoices[static_cast<std::size_t>(item)]
+            ),
+            false
+        );
     }
 
     /// Returns its stepper.
@@ -2042,6 +2142,69 @@ constexpr Spec wide(Spec spec, int32_t width) noexcept {
     return spec;
 }
 
+/// Screen reader's hint lines: the status line only when nothing can speak.
+std::size_t screen_reader_hint_lines(const SettingsModel& model) {
+    if (model.dialog != nullptr && model.dialog->speech_unavailable)
+        return 2;
+    return 1;
+}
+
+/// The status line is a notice. The ordinary hint is not.
+bool screen_reader_notice(const SettingsModel& model, std::size_t line) {
+    return line == 1 && model.dialog != nullptr && model.dialog->speech_unavailable;
+}
+
+/// The preview row shows chips, not a written value.
+std::string colour_preview_value(const SettingsModel&) {
+    return {};
+}
+
+/// The preview row: a label and one hint, and no control.
+constexpr Spec colour_preview_row() noexcept {
+    Spec spec = kit::text("colour-preview", "Preview", &colour_preview_value);
+    spec.hint[0] = "The ten player colours, then OK, caution, danger and information.";
+    return spec;
+}
+
+/// Screen reader's strip. The second hint shows only when nothing can speak.
+constexpr Spec screen_reader_row() noexcept {
+    Spec spec = kit::levels(
+        "screen-reader",
+        "Screen reader",
+        LevelStrip<
+            ScreenReaderMode,
+            3,
+            kScreenReaderChoices,
+            &EngineSettings::screen_reader,
+            kScreenReaderCaptions,
+            &table_word<screen_reader_words, ScreenReaderMode>>::stepper(),
+        screen_reader_level_width,
+        {"Automatic works with a screen reader while the system says one is running. On also "
+         "works with one the system does not report. Off never does.",
+         "Nothing on this system can speak."}
+    );
+    spec.hint_lines = &screen_reader_hint_lines;
+    spec.hint_notice = &screen_reader_notice;
+    return spec;
+}
+
+/// Speak chat's strip. Its segments stay inside Accessibility's column.
+constexpr Spec speak_chat_row() noexcept {
+    return kit::levels(
+        "speak-chat",
+        "Speak chat",
+        LevelStrip<
+            SpeakChat,
+            3,
+            kSpeakChatChoices,
+            &EngineSettings::speak_chat,
+            kSpeakChatCaptions,
+            &table_word<speak_chat_words, SpeakChat>>::stepper(),
+        speak_chat_level_width,
+        {"Chat lines and whispers, pages only, or neither.", {}}
+    );
+}
+
 /// Makes a slider's row.
 constexpr Spec
 slider(std::string_view id, std::string_view label, Stepper stepper, Hint hint) noexcept {
@@ -3128,6 +3291,59 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                          LevelStrip<UpdateChannel, 2, update_channel_choices, &E::update_channel, kUpdateChannelCaptions, &table_word<update_channel_words, UpdateChannel>>::stepper(),
                          update_channel_level_width,
                          {"Testing builds come first and may be unfinished.", {}})},
+    {.setting = S::record_games,
+     .spec = engine_switch<&E::replays_record>(
+         "record-games",
+         "Record my games",
+         {"Campaign missions, skirmish, multiplayer and Boneyards battles. Applies from the next "
+          "game.",
+          {}})},
+    {.setting = S::keep_replays,
+     .spec = wide(kit::choice("keep-replays", "Keep replays for",
+                              DropDown<ReplayKeep, 4, replay_keep_choices, &E::replays_keep, kReplayKeepCaptions, &table_word<replay_keep_words, ReplayKeep>>::stepper(),
+                              {"Replays you keep in the Library stay until you delete them."}),
+                  choice_width)},
+    {.setting = S::open_replay_files,
+     .spec = engine_switch<&E::replays_open_files>(
+         "open-replay-files",
+         "Open replay files with Open Annihilation",
+         {"A .oademo or a .tad file opens in this copy.", {}})},
+    {.setting = S::colour_vision,
+     .spec = wide(kit::choice(
+                      "colour-vision",
+                      "Colour vision",
+                      ColourVisionChoice::stepper(),
+                      {"Changes team colours, the minimap, bars, the war map and status colours on "
+                       "this machine only."}),
+                  wide_choice_width),
+     .copy = &copy_field<&E::colour_vision>},
+    {.setting = S::shape_cues,
+     .spec = engine_switch<&E::shape_cues>(
+         "shape-cues",
+         "Shape cues",
+         {"Player markers, side symbols, notched bars and a mark on every status.", {}}),
+     .lock = &Locks::shape_cues,
+     .copy = &copy_field<&E::shape_cues>},
+    {.setting = S::colour_preview, .spec = colour_preview_row()},
+    {.setting = S::screen_reader, .spec = screen_reader_row()},
+    {.setting = S::speak_chat, .spec = speak_chat_row()},
+    {.setting = S::speak_lobby,
+     .spec = engine_switch<&E::speak_lobby>(
+         "speak-lobby",
+         "Speak lobby changes",
+         {"A player joining or leaving the battle room, and a change of ready, side, colour, team, "
+          "map or option.",
+          {}})},
+    {.setting = S::speak_ticker,
+     .spec = engine_switch<&E::speak_ticker>(
+         "speak-ticker",
+         "Speak the ticker",
+         {"The ticker repeats, so it stays quiet until this is on.", {}})},
+    {.setting = S::always_show_focus,
+     .spec = engine_switch<&E::always_show_focus>(
+         "always-show-focus",
+         "Always show focus",
+         {"The focus ring is drawn on the first item when a screen opens.", {}})},
 }};
 // clang-format on
 
@@ -3263,6 +3479,17 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "invert-mouse-zoom",
     "look",
     "update-channel",
+    "record-games",
+    "keep-replays",
+    "open-replay-files",
+    "colour-vision",
+    "shape-cues",
+    "colour-preview",
+    "screen-reader",
+    "speak-chat",
+    "speak-lobby",
+    "speak-ticker",
+    "always-show-focus",
 };
 
 /// Tells whether every row stands at its setting's place and is named by

@@ -60,6 +60,7 @@
 #include "oa/platform/file_types.hpp"
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/preferences.hpp"
+#include "oa/platform/screen_reader.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
@@ -512,16 +513,34 @@ struct HostDisplay {
                 place_y = restored.y;
             }
         }
+        oa::platform::screen_reader::Preference reader_mode =
+            oa::platform::screen_reader::Preference::automatic;
+        try {
+            const auto stored =
+                oa::platform::preferences::load(preference_file(options.preferences_file));
+            static const std::string reader_key{oa::platform::screen_reader::preference_key};
+            const auto reader = stored.find(reader_key);
+            if (reader != stored.end())
+                reader_mode = oa::platform::screen_reader::preference_of(reader->second);
+        } catch (const std::exception&) {
+            // An unreadable file reads as automatic, as an absent key does.
+        }
+        const bool hide_until_attached = screen_reader_hides_window(reader_mode);
         window = create_game_window(
             "Open Annihilation",
             width,
             height,
-            game_window_flags(create_full, native_density),
+            screen_reader_window_flags(
+                game_window_flags(create_full, native_density), hide_until_attached
+            ),
             place_x,
             place_y
         );
         if (window == nullptr)
             throw std::runtime_error(std::string("SDL_CreateWindow: ") + SDL_GetError());
+        // A window made hidden for the screen reader takes its adapter now and
+        // shows at once, before the movies and the loading.
+        attach_screen_reader_and_show(window, reader_mode);
         // Full screen shows the size through a display mode of it, or draws
         // the match at it and scales it to the screen (run_full_screen_method);
         // the runtime follows the size applied. A remembered window keeps its
@@ -581,6 +600,9 @@ struct HostDisplay {
         release_pointer(window);
         renderer_host.finish_records();
         renderer_host.close();
+        // Drop the screen-reader adapter before the window goes, so a
+        // subclassed window is not destroyed underneath it.
+        oa::platform::screen_reader::detach();
         if (window != nullptr)
             SDL_DestroyWindow(window);
         window = nullptr;
@@ -2430,6 +2452,40 @@ oa::platform::file_types::TypeSet enabled_file_types() {
     return enabled;
 }
 
+/// Whether Open replay files is not the word off. A missing file, a missing
+/// key, or a failure to read the preferences leaves it on.
+///
+/// @return true when this copy should open replay files
+bool replay_files_open() {
+    try {
+        const fs::path preferences = preference_file(std::nullopt);
+        std::error_code error;
+        if (!fs::exists(preferences, error) || error)
+            return true;
+        const oa::platform::preferences::Values values =
+            oa::platform::preferences::load(preferences);
+        const auto found =
+            values.find(std::string{oa::ui::engine_settings::key::replays_open_files});
+        return found == values.end() || found->second != "off";
+    } catch (const std::exception&) {
+        return true;
+    }
+}
+
+/// Registers or withdraws replay files for the user who runs the game. The
+/// eight types are not touched. macOS chooses the opener from Settings, not
+/// at a start.
+void apply_replay_files() {
+    namespace file_types = oa::platform::file_types;
+    const auto executable = file_types::running_executable();
+    if (!executable)
+        return;
+    if (replay_files_open())
+        log_file_types(file_types::register_replay_files(*executable, window_icon_png(), {}));
+    else
+        log_file_types(file_types::withdraw_replay_files());
+}
+
 /// Registers the types in `enabled` and, where that took, withdraws the rest.
 ///
 /// @param enabled the types the player left on
@@ -2460,6 +2516,7 @@ void register_file_types_for_player(const Options& options) {
         driver && (*driver == "dummy" || *driver == "offscreen"))
         return;
     apply_file_type_set(enabled_file_types());
+    apply_replay_files();
 }
 
 /// Hands the files a start carries to the copy of the game already running,
@@ -2624,6 +2681,7 @@ int main(int argc, char** argv) {
         // named (cat host.oalaunch | open-annihilation).
         allow_piped_launch();
         Options parsed = parse_options(argc, argv, extension);
+        parsed.engine_build = OA_ENGINE_BUILD;
         // The restart after an update may name the player's own preferences
         // file; that start is the player's own, from the guard below on.
         forget_own_preferences_file(parsed);

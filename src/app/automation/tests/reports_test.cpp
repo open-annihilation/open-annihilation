@@ -641,7 +641,7 @@ void check_kinds() {
     uint32_t every = 0;
     for (const auto& kind : automation::event_kind_names())
         every |= kind.kind;
-    OA_CHECK(every == event_kind::all && automation::event_kind_names().size() == 11);
+    OA_CHECK(every == event_kind::all && automation::event_kind_names().size() == 12);
 }
 
 } // namespace

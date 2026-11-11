@@ -100,8 +100,9 @@ struct NavMetrics {
 };
 
 /// The section list's sizes at Compact, Regular and Large, in the order of
-/// kit::SizeClass. Compact's list of eleven sections fits its room; Regular's
-/// and Large's fit every section the engine lists.
+/// kit::SizeClass. Compact's room holds eleven sections, so its list of the
+/// engine's twelve scrolls; Regular's and Large's hold fourteen, one fewer
+/// than the fullest dialog lists.
 inline constexpr std::array<NavMetrics, 3> nav_metrics{{
     {19, 0, 3, 6, 7, 9, 19, 0},
     {25, 1, 3, 6, 12, 14, 33, 0},
@@ -172,6 +173,14 @@ inline constexpr int32_t touch_latches_level_width = 64;
 /// border: room for Hold middle, its widest caption, with three clear
 /// columns each side.
 inline constexpr int32_t order_wheel_level_width = 76;
+/// Screen reader's level strip's segment width, inside the strip's 1-pixel
+/// border: room for Automatisch, its widest caption, with three clear
+/// columns each side.
+inline constexpr int32_t screen_reader_level_width = 88;
+/// Speak chat's level strip's segment width, inside the strip's 1-pixel
+/// border. Three segments stay inside Accessibility's column beside the
+/// practice pad, and Pages only still fits a segment.
+inline constexpr int32_t speak_chat_level_width = 90;
 /// Control size's level strip's segment width, inside the strip's 1-pixel
 /// border: room for Standard, its widest caption, with three clear columns
 /// each side.
@@ -1557,7 +1566,7 @@ scroll_thumb(int32_t scroll, int32_t limit, int32_t content_height) noexcept;
 enum class NavGroup : uint8_t {
     play,    ///< Controls, Accessibility, Touch and Controller
     look,    ///< Graphics, User Interface and Language & Text
-    content, ///< Game files, Downloads, Updates and Game Content
+    content, ///< Game files, Downloads, Updates, Game Content and Replays
     system,  ///< Engine Limits, System and Developer
 };
 

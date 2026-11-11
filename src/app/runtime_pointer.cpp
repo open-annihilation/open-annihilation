@@ -400,11 +400,17 @@ oa::sim::selection::Hooks Runtime::selection_hooks() {
     };
     hooks.center_camera = [](void* context, const FixedVec3& position, bool) {
         auto& self = *static_cast<Runtime*>(context);
+        const auto whole_pixel = [](oa_fixed coord) {
+            return static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(coord) >> 16));
+        };
+        int32_t row = whole_pixel(position.z);
+        // Photo mode centres the place the unit is drawn. Play keeps the ground
+        // point, as 3.1c does.
+        if (self.photo_mode())
+            row -= whole_pixel(position.y) / 2;
         self.set_camera_position(
-            static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(position.x) >> 16)) -
-                self.visible_map_width() / 2,
-            static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(position.z) >> 16)) -
-                self.visible_map_height() / 2,
+            whole_pixel(position.x) - self.visible_map_width() / 2,
+            row - self.visible_map_height() / 2,
             0
         );
         self.render_match_surface();
@@ -454,6 +460,10 @@ void Runtime::rebuild_on_screen_units() {
         world.game.hot_unit_count = count;
     } else
         oa::sim::selection::collect_visible_units(world, on_screen_lists(), selection_hooks());
+    // Photo mode leaves the Game block on the player's camera, so this
+    // collect lists that view. The notices keep testing the view it kept.
+    if (photo_mode())
+        refresh_photo_kept_view();
 }
 
 void Runtime::refresh_on_screen_view() {

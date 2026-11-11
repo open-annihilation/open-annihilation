@@ -1,14 +1,25 @@
 # Controls
 
-The keys a match answers, beyond the buttons on the order panel. Every
-key named here can be moved in the [key editor](keys.md#the-key-editor).
-The chapter is [Keys](keys.md).
+The keys a match answers, beyond the buttons on the order panel, and the
+keyboard on the original menus. Every key named here can be moved in the
+[key editor](keys.md#the-key-editor). The chapter is
+[Keys](keys.md).
+
+## Photo mode
+
+[Photo mode](photo-mode.md) shows the battlefield alone, from the place you
+were looking, and puts that place back when you leave. F9 opens it. F9 and
+Escape each leave it. Every photo command can be moved, and the key editor
+lists them under Photo mode. The game menu leaves it first, then opens.
+Primary+/ (Ctrl+/, or Cmd+/ on a Mac) opens the keys panel while photo mode
+is open, titled "Keys in photo mode". EDIT KEYS… leaves photo mode first.
+Leaving puts the panel back as it was on entering.
 
 ## Keys in a match
 
 Ctrl+/ (Cmd+/ on a Mac) opens a translucent panel beside the side column
-listing the keys that work right now: "Keys while playing", "Keys while
-watching", or "Keys while placing a building". The keys are grouped as the
+listing the keys that work right now: "Keys in photo mode", "Keys while
+playing", "Keys while watching", or "Keys while placing a building". The keys are grouped as the
 key editor groups them, with the keys a mod's helpers add under "This mod".
 A run of numbered keys is shown as a range, such as Ctrl+1…9. The panel
 names the layout in use and how many of your own changes it carries, and
@@ -178,6 +189,24 @@ Resume or another press of F2 closes the menu and resumes the simulation,
 including a pause set with Pause or Cmd+P. In a shared match, closing the
 menu leaves the synchronized pause unchanged; use Pause or Cmd+P to toggle
 it.
+
+Tab and Shift+Tab move through the game menu and the options it opens, and
+show the focus ring. The first item is already focused, with no ring, and
+the first Tab moves on to the next. Once the ring shows, the arrow keys
+move it, and Left and Right step a slider. Return presses the focused
+control and hides the ring. Until you press Tab, Return still presses the
+menu's own default, and the arrow keys do what they did before. Escape
+resumes.
+
+**Focus the panel's buttons** (`ui.hud-focus`) is unbound. During a match
+F6 is Go to bookmark 2, and there is no free chord, so bind this in the
+editor if you want it. While it is on, Tab and Shift+Tab move a ring over
+the order buttons and the build page. The arrows move that ring once it is
+showing. Return presses the focused button and hides the ring. Escape, or
+the action again, returns to the battlefield. Until the ring shows, every
+other key does what it does today. The build cells stay unbound.
+[Accessibility](accessibility.md#the-keyboard) is the same account for
+every screen.
 
 **Back** (`game.back`) is Escape and Ctrl+Escape, and it moves in the
 editor. Escape still closes the chat line and Open Annihilation's own
@@ -403,3 +432,82 @@ release it pans while you hold it and stops when you let go.
 
 It does not start while the allied whiteboard is in use, in the menus, or
 on the panels. Settings > Controls, **Middle-click pans**, turns it off.
+
+## The original menus
+
+These are the menus the game has always had: the main menu, Single player,
+a new campaign, Any mission, Load game, the skirmish setup, map selection,
+Options and its Sound, Visuals, Speeds and Music pages, the briefing, and
+the campaign's end. Nothing new is drawn. The lit outline a control already
+had stays that outline, and it still moves with the focus.
+
+A screen opens on the control it has always opened on, and no focus ring is
+drawn. Tab moves to the next control in the order below, and Shift+Tab to
+the previous one, and the ring appears on the control they land on. The
+first Tab leaves the control the screen opened on. The Sound, Visuals,
+Interface and Music pages open with no control of their own focused: there
+the first Tab puts the ring on the first control. The main menu reports
+Single player as focused and draws nothing new; the first Tab leaves it for
+the next control and the ring appears there. Tab and Shift+Tab wrap at the
+ends of the order.
+
+Until you press Tab, Enter, Space, the arrows and a button's underlined
+letter do what they have always done. Once the ring is showing, the arrows
+still move by place, to the next and previous control or to the nearest one
+above or below, and the ring follows them. Enter presses the focused button
+and hides the ring. Space presses it and leaves the ring showing. On a
+control that is not a button, Enter, once the ring is showing, presses the
+button that screen uses for Enter. Escape leaves a screen as it always has.
+On the main menu Escape does nothing.
+[Accessibility](accessibility.md#the-focus-ring) says how the ring works
+on these screens and the others.
+
+On the main menu, Tab walks Single player, Multiplayer, Intro and Exit, then
+the Library and Settings. While the update pill shows, it comes after
+Settings. While the menu's strip is drawn, its buttons stand in for those
+four and Enter sits between the columns, with Credits after Enter: Single
+player, Multiplayer, Enter, Credits, Intro and Exit, then the Library,
+Settings and the pill. In button mode the plate's Enter comes after Exit,
+and the menu's own Credits comes after that Enter, ringed where that
+control is drawn. The letter under Enter still enters.
+Tab and Shift+Tab reach that order before an extension's window. Once the
+ring is showing, the arrows move by place and include those stops, and so
+do Enter and Space: they press the stop the ring is on. With the ring
+hidden, the strip keeps the keys it has always taken.
+
+On the other screens Tab reads the screen:
+
+- **Single player.** Down the column: New Campaign, Skirmish, Options, Load
+  Game, Previous Menu. Any Mission, when it can take the keyboard, is a
+  column of its own to the right and comes after that column.
+- **A new campaign, and Any mission.** The side, then the campaign or
+  mission list, then the difficulty, Mutators, the brain seat, Start and
+  Previous Menu.
+- **Load game.** The list of saved games, the name, Load, Delete, Cancel.
+  Enter on the list, the name or Load loads the game, or saves it under
+  the name, as it always has. With the ring on Delete or Cancel, Enter
+  presses that button.
+- **Skirmish.** The rules down their column, then each player row as one
+  group (name, side, colour, team, metal, energy, and a computer's brain),
+  then Select Map, Mutators, Start and Previous Menu.
+- **Map selection.** The map list, then More maps… while that button shows,
+  then Load, then Previous Menu. Enter on the map list, once the ring is
+  showing, chooses the map as a double-click does. With the ring hidden,
+  Enter on the list does nothing.
+- **Options, Sound, Visuals, Speeds and Music.** The section buttons, then
+  that page's settings. On Music the track buttons are one row.
+- **Briefing.** Start, then Back, then No Narration. Page Up and Page Down
+  turn the pages, whichever control is focused.
+- **The campaign's end.** Start, then Back, then the rest of that column.
+  Page Up and Page Down move through the mission list, whichever control is
+  focused.
+
+A slider changes from the keyboard the same way a drag changes it. Left and
+Right move it one step. Page Up and Page Down move it a larger step, a
+tenth of its travel and at least one step. Home and End take it to its
+ends. On a colour, once the ring is showing, Right cycles it forward and
+Left cycles it back, as a click does. On a list, Up and Down move the
+selection. That includes the list of saved games, a new campaign's lists
+and the map list. While you type a saved game's name, Left, Right, Home
+and End stay with the name, as they always have, and every letter goes to
+the name wherever the ring is.

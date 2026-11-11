@@ -44,6 +44,9 @@
 #include "screen_size.hpp"
 #include "oa/platform/file_types.hpp"
 #include "oa/platform/machine.hpp"
+#include "oa/platform/screen_reader.hpp"
+#include "oa/platform/screen_reader/announce.hpp"
+#include "oa/platform/screen_reader/speech.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/app/window_icon.hpp"
@@ -92,6 +95,31 @@
 namespace oa::app {
 
 namespace settings = oa::ui::engine_settings;
+namespace bridge = oa::platform::screen_reader;
+
+static_assert(settings::key::screen_reader == bridge::preference_key);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::automatic) ==
+    static_cast<uint8_t>(bridge::Preference::automatic)
+);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::on) ==
+    static_cast<uint8_t>(bridge::Preference::on)
+);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::off) ==
+    static_cast<uint8_t>(bridge::Preference::off)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::off) == static_cast<uint8_t>(bridge::SpeakChat::off)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::pages) ==
+    static_cast<uint8_t>(bridge::SpeakChat::pages)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::all) == static_cast<uint8_t>(bridge::SpeakChat::all)
+);
 
 static_assert(
     settings::default_skirmish_players == init::default_skirmish_player_count,
@@ -838,6 +866,9 @@ void Runtime::EngineSettingsState::take_live_settings(Runtime& runtime) {
     auto& current = runtime.engine_settings_state().current;
     current.switch_alt = live_switch_alt(runtime);
     current.frame_stats = runtime.frame_stats_shown_;
+    // Other parts of the game write these two keys into the preferences
+    // (the Library's Turn on recording), so the dialog shows what they hold.
+    settings::read_replays_settings(runtime.preference_values_, current);
 }
 
 std::optional<std::string> Runtime::EngineSettingsState::flush(Runtime& runtime) {
@@ -1725,6 +1756,8 @@ std::optional<std::string> Runtime::save_engine_settings(
 
 std::optional<oa::platform::file_types::OpenerReport> show_system_openers(settings::Dialog& dialog);
 
+void show_replay_opener(settings::Dialog& dialog);
+
 std::string kept_opener_hint_for(
     oa::platform::file_types::TypeSet asked, oa::platform::file_types::TypeSet open
 );
@@ -1878,6 +1911,30 @@ window_placement::WindowSize placement_window_size(settings::WindowSize size) no
     return window_placement::WindowSize::automatic;
 }
 
+/// Tells the screen reader the preference the file now holds. A change
+/// forgets the last spoken focus. The bridge attaches on the next frame.
+///
+/// @param values the preferences
+void note_screen_reader_preference(const oa::platform::preferences::Values& values) {
+    const auto found = values.find(std::string{bridge::preference_key});
+    const std::string_view stored =
+        found == values.end() ? std::string_view{} : std::string_view{found->second};
+    bridge::set_preference(bridge::preference_of(stored));
+}
+
+/// The two keys colour vision reads, as the preferences hold them now.
+///
+/// @param values the preferences
+/// @return the mode's text and the shape cues' text, each empty when absent
+std::pair<std::string, std::string>
+colour_vision_keys(const oa::platform::preferences::Values& values) {
+    const auto text_of = [&values](std::string_view key) {
+        const auto found = values.find(std::string{key});
+        return found == values.end() ? std::string{} : found->second;
+    };
+    return {text_of(settings::key::colour_vision), text_of(settings::key::shape_cues)};
+}
+
 } // namespace
 
 void Runtime::fill_settings_key_layout(settings::Dialog& dialog) {
@@ -2020,6 +2077,11 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         game_files,
         pad_used()
     );
+    // Nothing can speak when this build leaves the bridge out and the
+    // system has no voice. The status line is that fact, and only then.
+    dialog.speech_unavailable = !oa::platform::screen_reader::compiled_in() &&
+                                !oa::platform::screen_reader::voice_available();
+    dialog.access_at_open = settings::capture_access_preferences(preference_values_);
     // Screen size offers Desktop and the display's own sizes. In a window it
     // opens at the window's own size, shown as Custom where the display
     // offers no such size; in full screen, and without a window, at the
@@ -2118,6 +2180,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
             state.file_type_kept_hint = kept_opener_hint_for(*state.file_type_asked, report->open);
         dialog.file_type_kept_hint = state.file_type_kept_hint;
     }
+    show_replay_opener(dialog);
     // Weapon types and sides: the profile's limits, and, in a match, how
     // many of each the match loaded. No profile is the base game.
     settings::ModLimitsShown mod_shown;
@@ -2187,6 +2250,52 @@ show_system_openers(settings::Dialog& dialog) {
     settings::set_file_type_switches(dialog.opened, report.open);
     settings::set_file_type_switches(dialog.chosen, report.open);
     return report;
+}
+
+/// Sets Open replay files from whether this copy opens .oademo, where a
+/// switch is the default opener. A question that fails leaves the switch as
+/// the preferences had it. .tad has no default-opener switch.
+///
+/// @param dialog the dialog just opened
+void show_replay_opener(settings::Dialog& dialog) {
+    namespace file_types = oa::platform::file_types;
+    if (!file_types::default_opener_is_a_setting() || !dialog.file_type_switches)
+        return;
+    const file_types::Handler application = file_types::running_application();
+    if (application.bundle_id.empty())
+        return;
+    const file_types::ReplayOpenerReport report = file_types::reported_replay_opener(
+        file_types::system_handler_calls(), application.bundle_id, dialog.chosen.replays_open_files
+    );
+    if (!report.error.empty()) {
+        std::cerr << "open-annihilation: file types: " << report.error << '\n';
+        return;
+    }
+    dialog.opened.replays_open_files = report.open;
+    dialog.chosen.replays_open_files = report.open;
+}
+
+/// Registers or withdraws replay files, or on macOS asks whether this copy
+/// opens .oademo. The eight types are not touched.
+///
+/// @param open this copy should open replay files
+void apply_replay_file_choice(bool open) {
+    namespace file_types = oa::platform::file_types;
+    if (file_types::default_opener_is_a_setting()) {
+        log_file_type_change(
+            file_types::apply_replay_opener(
+                file_types::system_handler_calls(), file_types::running_application(), open
+            )
+        );
+        return;
+    }
+    const auto executable = file_types::running_executable();
+    if (!executable)
+        return;
+    if (open)
+        log_file_type_change(file_types::register_replay_files(*executable, window_icon_png(), {}));
+    else
+        log_file_type_change(file_types::withdraw_replay_files());
 }
 
 /// On macOS, a check, a snapshot and any other run that is not someone
@@ -2386,6 +2495,15 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
                 paint_updates(*dialog, update_snapshot(), release_version(dialog->version));
             apply_update_download(*dialog);
             oa_layer().lay_out_for_size();
+            // Colour vision and the screen reader follow the row at once.
+            // The keys are what those readers look at between frames. Only
+            // a change of the colour keys repaints the team pictures, so
+            // another row, a slider dragged in a match among them, does not.
+            const auto colours_before = colour_vision_keys(preference_values_);
+            settings::store_access_preferences(preference_values_, dialog->chosen);
+            if (colour_vision_keys(preference_values_) != colours_before)
+                apply_colour_vision();
+            note_screen_reader_preference(preference_values_);
         }
         return false;
     case settings::DialogAction::accepted: {
@@ -2418,6 +2536,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         const settings::ContentCheck chosen_check = chosen.content_check;
         const bool file_types_changed =
             !settings::moved_file_type_switches(dialog->opened, chosen).empty();
+        const bool replay_files_changed =
+            chosen.replays_open_files != dialog->opened.replays_open_files;
         const std::vector<settings::InstallIdChoice> switches_opened = dialog->install_id_opened;
         const std::vector<settings::InstallIdChoice> switches_chosen = dialog->install_id_chosen;
         // The switches are stored before the settings, so one save writes both.
@@ -2425,6 +2545,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         apply_engine_settings(chosen);
         // The registration follows the settings OK kept, at once. Cancel
         // never reaches here, and a switch moved before OK does not either.
+        if (replay_files_changed && openers_follow_ok(options_))
+            apply_replay_file_choice(chosen.replays_open_files);
         if (file_types_changed && openers_follow_ok(options_) &&
             apply_chosen_file_types(dialog->opened, chosen)) {
             const oa::platform::file_types::TypeSet asked = settings::file_type_set(chosen);
@@ -2453,7 +2575,13 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // do not offer, where it was.
         if (chosen.skirmish_players != dialog->opened.skirmish_players)
             init::set_skirmish_player_count(skirmish_settings_, chosen.skirmish_players, *this);
+        // A row changed while the dialog was open wrote the access keys for
+        // the live colours and the reader. OK writes against the file as it
+        // was when the dialog opened, then those readers follow what was kept.
+        settings::restore_access_preferences(preference_values_, dialog->access_at_open);
         const auto failure = save_engine_settings(dialog->opened, chosen, dialog->restored);
+        apply_colour_vision();
+        note_screen_reader_preference(preference_values_);
         tell_install_switches(content_downloads(), switches_opened, switches_chosen);
         if (check_changed)
             content_service().set_check_for_updates(check_mode(chosen_check));
@@ -2499,6 +2627,11 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // the choice had already been stored.
         apply_key_layout_preference(*dialog);
         apply_engine_settings(dialog->opened);
+        // Cancel puts the access keys back as the file held them, and the
+        // colours and the reader follow that.
+        settings::restore_access_preferences(preference_values_, dialog->access_at_open);
+        apply_colour_vision();
+        note_screen_reader_preference(preference_values_);
         // The battlefield's zoom and the next game's unit limit go back to
         // what they were, a loaded game's limit included.
         if (zoom_changed)

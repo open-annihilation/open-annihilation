@@ -73,18 +73,47 @@ void take_reported_cameras(
 ) noexcept;
 
 /// The palette index a player's colour is drawn in on the minimap, the
-/// megamap, whiteboard marks and camera rectangles, by the colour's number
-/// (PlayerSetupInfo.color).
+/// megamap, the far view and camera rectangles, by the colour's number
+/// (PlayerSetupInfo.color), while colour vision is off. A mode uses its own
+/// indices, still read through player_dot_color. A whiteboard record keeps
+/// this table (`stock_dot_color`) and a mode maps it only where it draws.
 inline constexpr std::array<uint8_t, OA_PLAYER_COUNT> kPlayerDotColors{
     227, 212, 80, 235, 108, 219, 208, 93, 130, 67
 };
 
-/// Returns a player's dot colour.
+/// Returns the palette index a colour number is drawn in on this machine.
+///
+/// No mode uses kPlayerDotColors. A mode uses that colour's dot, the anchor
+/// colour_vision::player_dot names. A number past the last colour is the first.
+///
+/// @param colour the colour number, 0 to 9
+/// @return the palette index
+[[nodiscard]] uint8_t colour_dot_index(uint8_t colour) noexcept;
+
+/// Returns a player's dot colour for this machine's drawing.
 ///
 /// @param world players and their setup records
 /// @param slot the player's slot
 /// @return the palette index; the first colour for an unknown slot
 [[nodiscard]] uint8_t player_dot_color(const World& world, uint8_t slot) noexcept;
+
+/// The game's own dot index for a player colour, whatever mode is on.
+///
+/// A recording and a byte sent to another machine use this index.
+///
+/// @param world players and their setup records
+/// @param slot the player's slot
+/// @return the palette index; the first colour for an unknown slot
+[[nodiscard]] uint8_t stock_dot_color(const World& world, uint8_t slot) noexcept;
+
+/// The index a stored dot is drawn in on this machine.
+///
+/// Off leaves the index unchanged. A mode maps a stored game dot onto that
+/// colour's anchor and leaves every other index as it is.
+///
+/// @param stored the index a record holds
+/// @return the index to draw
+[[nodiscard]] uint8_t drawn_dot_color(uint8_t stored) noexcept;
 
 /// One camera rectangle on the minimap, in screen pixels.
 struct CameraRectangle {

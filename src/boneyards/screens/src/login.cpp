@@ -25,7 +25,7 @@ void login_init(
     d->ui_user = ui_user;
     d->message_box = message_box;
     d->member_value = 1;
-    d->guest_value = 2;
+    d->guest_value = kGuestsOffered ? 2 : 0;
     d->password_field_value = 1;
 }
 
@@ -67,6 +67,7 @@ void login_on_control(LoginDialog* d, LoginControl control) {
         login_set_status(d, "");
         break;
     case LoginControl::guest_radio:
+        // Checks call this while the radio is drawn disabled. A player cannot.
         d->password[0] = '\0';
         d->password_field_value = 0;
         d->guest_value = 1;
@@ -75,7 +76,7 @@ void login_on_control(LoginDialog* d, LoginControl control) {
     case LoginControl::member_radio:
         d->password_field_value = 1;
         d->member_value = 1;
-        d->guest_value = 2;
+        d->guest_value = kGuestsOffered ? 2 : 0;
         break;
     case LoginControl::register_button:
         // The attached console shows the web page, and the in-game route beside

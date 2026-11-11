@@ -10,8 +10,10 @@
 #include "oa/boneyards/screens/widgets.hpp"
 #include "oa/boneyards/service.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace oa::boneyards::screens {
 
@@ -362,6 +364,16 @@ bool galaxy_load(
 /// @return the planet's index, or kNoPlanet when unknown
 int32_t galaxy_find_planet(const GalaxyView* view, int32_t id);
 
+/// Returns the capitol founded by the player's side.
+///
+/// The founding side is the one the planet was given, which a later allegiance
+/// does not replace. A side that is not Arm or Core has no capitol.
+///
+/// @param view the war map
+/// @param allegiance the player's side, 'A', 'C' or 'U', in either case
+/// @return the planet's index, or kNoPlanet when that side has no capitol
+int32_t galaxy_player_capitol(const GalaxyView* view, char allegiance);
+
 /// Recomputes a planet's visibility and view pixels, creating, moving or dropping its hotspot.
 ///
 /// @param view galaxy view
@@ -667,5 +679,122 @@ void recon_begin(
 /// @param random_user context handed to `random`
 /// @param static_frames frames of the static; 0 or less holds it still
 void recon_step(ReconState* state, RandomSource random, void* random_user, int32_t static_frames);
+
+/// Chat role colours of the small hat font, and the dim tint of a muzzled name, with no
+/// colour-vision mode. A mode matches its own colours to the palette in use.
+namespace chat_tint {
+/// Status lines.
+inline constexpr int32_t system = 0xe9;
+/// News lines.
+inline constexpr int32_t newsbot = 0xc7;
+/// Arm names.
+inline constexpr int32_t arm = 0xe2;
+/// Core names.
+inline constexpr int32_t core = 0xd4;
+/// A muzzled name.
+inline constexpr int32_t muzzle = 0x5a;
+} // namespace chat_tint
+
+/// Body index of each side's logo in ArmCoreLogos. The greys around the body stay.
+namespace side_icon_body {
+/// Arm logo body.
+inline constexpr int32_t arm = 229;
+/// Core logo body.
+inline constexpr int32_t core = 214;
+} // namespace side_icon_body
+
+/// Records the palette the module is drawing with.
+///
+/// A null pointer or fewer than 256 colours clears it. With none recorded, a colour-vision mode
+/// keeps today's indices.
+///
+/// @param entries palette entries, 4 bytes each; null clears the recorded palette
+/// @param bytes byte length of `entries`
+void boneyards_use_palette(const uint8_t* entries, std::size_t bytes);
+
+/// The palette recorded for the module.
+///
+/// @return 256 entries of 4 bytes, or an empty span when none is recorded
+[[nodiscard]] std::span<const uint8_t> boneyards_palette();
+
+/// Font for a muzzled name while a colour-vision mode is on.
+///
+/// A negative handle keeps the dim hat font. Off ignores the handle and uses the dim tint.
+///
+/// @param font tinted hat font, or a negative handle
+void boneyards_muzzle_font(int32_t font);
+
+/// Palette index a war-map link draws for a stored side colour.
+///
+/// Off, a short palette, or a colour other than the three side colours leaves `stored` unchanged.
+/// Protanopia and deuteranopia share one set of side colours.
+///
+/// @param stored palette index stored on the connector
+/// @param palette palette in use, 4 bytes a colour
+/// @return the index to draw
+[[nodiscard]] int32_t galaxy_link_index(int32_t stored, std::span<const uint8_t> palette);
+
+/// Chat role colours matched to the palette in use.
+struct GalaxyChatColours {
+    int32_t system{};  ///< status lines
+    int32_t newsbot{}; ///< news lines
+    int32_t arm{};     ///< Arm names
+    int32_t core{};    ///< Core names
+};
+
+/// Chat role colours for the active colour-vision mode.
+///
+/// Off, or a short palette, is the hat font's own tints.
+///
+/// @param palette palette in use, 4 bytes a colour
+/// @return the four tints
+[[nodiscard]] GalaxyChatColours galaxy_chat_colours(std::span<const uint8_t> palette);
+
+/// Palette index of a muzzled name for the active colour-vision mode.
+///
+/// Off, or a short palette, is the dim tint.
+///
+/// @param palette palette in use, 4 bytes a colour
+/// @return the index
+[[nodiscard]] int32_t muzzle_name_index(std::span<const uint8_t> palette);
+
+/// Body colours of the planet summary's two side icons.
+struct SideIconColours {
+    int32_t arm{};  ///< Arm logo body
+    int32_t core{}; ///< Core logo body
+};
+
+/// Body colours of the side icons for the active colour-vision mode.
+///
+/// Off, or a short palette, is the logo's own body index. The greys stay.
+///
+/// @param palette palette in use, 4 bytes a colour
+/// @return the two body indices
+[[nodiscard]] SideIconColours side_icon_colours(std::span<const uint8_t> palette);
+
+/// Index table for one side's planet aura.
+///
+/// Off, or a short palette, is the identity, and so is every index outside that side's shades.
+/// The transparency index stays. In protanopia, deuteranopia and tritanopia each shade moves to
+/// the shade of the mode's colour nearest in lightness, and the shade nearest that colour becomes
+/// it. In achromatopsia the Arm shades stay as they are, and each Core shade moves to the entry of
+/// Core's colour nearest its lightness plus 12. The lower index wins a tie, and achromatopsia
+/// forces no shade onto the colour itself.
+///
+/// @param arm true for the Arm aura, false for the Core aura
+/// @param palette palette in use, 4 bytes a colour
+/// @return source index to drawn index
+[[nodiscard]] std::array<uint8_t, 256> galaxy_aura_map(bool arm, std::span<const uint8_t> palette);
+
+/// Index table for a latency picture.
+///
+/// Off, or a short palette, is the identity. Each grade keeps its shading. Its middle shade
+/// becomes the mode's good, middle or bad health colour, and every other shade of the grade,
+/// the cross among the bad ones, moves by the same lightness. The lower index wins a tie. The
+/// grey outline and the transparency index stay.
+///
+/// @param palette palette in use, 4 bytes a colour
+/// @return source index to drawn index
+[[nodiscard]] std::array<uint8_t, 256> lobby_latency_map(std::span<const uint8_t> palette);
 
 } // namespace oa::boneyards::screens

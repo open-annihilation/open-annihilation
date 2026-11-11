@@ -472,11 +472,24 @@ void battle_console_on_notify(Window* self, const Notify* notify) {
     }
     if (source != &console->list->list.base)
         return;
+    // A click has already named its row. Once Tab, Shift+Tab or F6 has shown
+    // the keyboard ring, an arrow names the row the list's index now shows,
+    // and a mode only toggles when it was the click: toggling under an arrow
+    // would drop the battles under it. With no ring, the arrow does what a
+    // key did before and reopens the row the click named.
+    const Desktop* desktop = services().desktop;
+    const bool ring_shown = desktop != nullptr && desktop->keyboard_ring != 0;
+    Window* chosen = list_box_item(&console->list->list, list_box_selected(&console->list->list));
+    const bool clicked = chosen != nullptr && console->list->selected_item == chosen;
+    if (ring_shown && chosen != nullptr)
+        console->list->selected_item = chosen;
     play_sound(console->owner, k_green_button);
     const Window* item = console->list->selected_item;
     if (item == nullptr)
         return;
     if (item->ops == &k_category_row_ops) {
+        if (ring_shown && !clicked)
+            return;
         const std::size_t category = reinterpret_cast<const CategoryIconRow*>(item)->category;
         if (category < list->category_count) {
             list->rows_dirty = true;
@@ -574,6 +587,9 @@ void battle_console_build(Window* self) {
     intel->bottom_align = 1;
     intel->capacity = l::intel_capacity;
     intel->log_mode = 1;
+    // Both lists are stops. A focus must not move either one past HOST.
+    window_keep_place(&console->list->list.base);
+    window_keep_place(&intel->base);
     if (matchmaking)
         console->match_control =
             match_control_panel_create(owner, &owner->navigation->matchmaking, self);

@@ -12,6 +12,7 @@
 #include "oa/app/runtime.hpp"
 
 #include "oa_layer.hpp"
+#include "photo_state.hpp"
 
 #include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/kit/components.hpp"
@@ -202,12 +203,16 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
         return LayerAnswer::redraw;
     }
 
-    /// Closes on Escape. Tab and Shift+Tab walk EDIT KEYS…, the close mark
-    /// and, while the groups scroll, the list, showing the focus. While the
-    /// focus shows, Enter and Space press the focused button, Page Up, Page
-    /// Down, Home and End scroll the groups, Up and Down on the list scroll
-    /// it a step (Up at its top moves on to the buttons), and the arrows
-    /// otherwise move the focus. Every other key goes on to the match.
+    /// Closes on Escape. The panel opens on EDIT KEYS… with the ring hidden,
+    /// so the first Tab shows the ring on the next stop. Tab and Shift+Tab
+    /// walk EDIT KEYS…, the close mark and, while the groups scroll, the
+    /// list. While the ring is hidden every other key goes on to the match,
+    /// so a key meant for the units is not swallowed. While the ring shows,
+    /// Enter presses the focused button and hides the ring, Space presses it
+    /// and leaves the ring, Page Up, Page Down, Home and End scroll the
+    /// groups, Up and Down on the list scroll it a step (Up at its top moves
+    /// on to the buttons), and the arrows otherwise move the focus. Every
+    /// other key goes on to the match.
     ///
     /// @param pressed the key
     /// @return close for Escape or a button that closes it, redraw or none
@@ -215,6 +220,8 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
         if (pressed == kit::Key::escape)
             return LayerAnswer::close;
+        if (pressed != kit::Key::yes && pressed != kit::Key::no && pressed != kit::Key::info)
+            kit::show_ring_for_key(interaction_);
         const kit::DisplayList& list = laid_out_.list;
         if (pressed == kit::Key::tab || pressed == kit::Key::back_tab) {
             static_cast<void>(kit::key(interaction_, list, pressed));
@@ -226,6 +233,9 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
         const bool on_list = interaction_.focused == editor::id_overlay_list;
         switch (pressed) {
         case kit::Key::enter:
+            // The press stands, and the ring goes.
+            interaction_.focus_shown = false;
+            return press(interaction_.focused);
         case kit::Key::space:
             return press(interaction_.focused);
         case kit::Key::page_up:
@@ -312,7 +322,7 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
                 button->held = interaction_.pressed == item.control;
             }
         }
-        if (interaction_.focus_shown) {
+        if (kit::focus_ring_visible(interaction_)) {
             for (const kit::Control& control : laid_out_.list.controls) {
                 if (control.id != interaction_.focused)
                     continue;
@@ -367,8 +377,23 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
     LayerAnswer press(kit::ControlId id) {
         if (id == editor::id_overlay_close)
             return LayerAnswer::close;
-        if (id == editor::id_overlay_edit && runtime_.open_key_editor({}))
-            return LayerAnswer::close;
+        if (id == editor::id_overlay_edit) {
+            // Leave photo mode before the editor, as Settings does. The
+            // overlay stays up until this press closes it: restoring the
+            // overlay from entering would close this screen under the press.
+            const bool in_photo = runtime_.photo_mode();
+            const bool overlay_on_enter =
+                in_photo && runtime_.photo_ != nullptr && runtime_.photo_->keys_overlay;
+            if (in_photo)
+                runtime_.leave_photo_mode(false, false);
+            if (runtime_.open_key_editor({}))
+                return LayerAnswer::close;
+            // The editor did not open. A panel that was closed on entering
+            // closes, which is the overlay photo mode puts back.
+            if (in_photo && !overlay_on_enter)
+                return LayerAnswer::close;
+            return LayerAnswer::none;
+        }
         return LayerAnswer::none;
     }
 
@@ -441,6 +466,9 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
         if (interaction_.focused != kit::no_control &&
             std::find(order.begin(), order.end(), interaction_.focused) == order.end())
             interaction_.focused = editor::id_overlay_edit;
+        // The panel opens on EDIT KEYS…. A later layout does not move a
+        // focus the player has already set.
+        kit::focus_opened(interaction_, laid_out_.list, runtime_.oa_layer().always_show_focus());
         ++revision_;
         return changed || forced;
     }

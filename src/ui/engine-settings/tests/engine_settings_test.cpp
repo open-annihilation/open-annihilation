@@ -2449,6 +2449,133 @@ void the_focus_lost_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Replays: Record my games on and Keep replays for 30 days everywhere by
+/// default, also for a file an earlier build wrote without the keys; only the
+/// word "off" turns recording off, and each of the four words reads its
+/// length, any other text reading 30 days; writing a changed choice writes
+/// that key alone, as the words the recorder reads, a choice put back is
+/// written as such, and Restore defaults then OK erases a key at its default.
+void the_replays_settings_default_read_and_round_trip() {
+    CHECK(settings::key::replays_record == "open-annihilation.replays.record");
+    CHECK(settings::key::replays_keep == "open-annihilation.replays.keep");
+    CHECK(settings::key::replays_open_files == "open-annihilation.replays.open-files");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.replays_record);
+        CHECK(defaults.replays_open_files);
+        CHECK(defaults.replays_keep == settings::ReplayKeep::thirty_days);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto recording = [](const char* text) {
+        return read_one(settings::key::replays_record, text).replays_record;
+    };
+    CHECK(!recording("off"));
+    for (const char* text : {"on", "", "Off", "0", "1", "no", "false"})
+        CHECK(recording(text));
+    const auto kept = [](const char* text) {
+        return read_one(settings::key::replays_keep, text).replays_keep;
+    };
+    CHECK(kept("30-days") == settings::ReplayKeep::thirty_days);
+    CHECK(kept("90-days") == settings::ReplayKeep::ninety_days);
+    CHECK(kept("1-year") == settings::ReplayKeep::one_year);
+    CHECK(kept("forever") == settings::ReplayKeep::forever);
+    for (const char* text : {"", "30", "90 days", "Forever", "year", "0"})
+        CHECK(kept(text) == settings::ReplayKeep::thirty_days);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto chosen = defaults;
+    chosen.replays_record = false;
+    Values values;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::replays_record}) == "off");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    // On chosen again after Off is written as such.
+    settings::write_settings(values, chosen, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::replays_record}) == "on");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+
+    values.clear();
+    chosen = defaults;
+    for (const auto& [length, word] :
+         {std::pair{settings::ReplayKeep::ninety_days, "90-days"},
+          std::pair{settings::ReplayKeep::one_year, "1-year"},
+          std::pair{settings::ReplayKeep::forever, "forever"}}) {
+        values.clear();
+        chosen.replays_keep = length;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(values.at(std::string{settings::key::replays_keep}) == word);
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    }
+    // 30 days chosen again after 90 days is written as such.
+    chosen.replays_keep = settings::ReplayKeep::ninety_days;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    settings::write_settings(values, chosen, defaults, defaults, false);
+    CHECK(values.at(std::string{settings::key::replays_keep}) == "30-days");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == defaults);
+    // Open replay files is on unless the word is off, and writes that key alone.
+    values.clear();
+    chosen = defaults;
+    chosen.replays_open_files = false;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::replays_open_files}) == "off");
+    CHECK(!settings::read_settings(values, players_own_on_linux, false).replays_open_files);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+    // Restore defaults, then OK, erases Record my games and Keep replays for.
+    chosen = defaults;
+    chosen.replays_record = false;
+    chosen.replays_keep = settings::ReplayKeep::ninety_days;
+    values.clear();
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.size() == 2);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
+/// Settings opens on what the preferences hold for Replays: a key another
+/// part of the game wrote (the Library's Turn on recording writes `on`)
+/// reads again into settings read earlier, as read_settings reads it, with
+/// nothing else in them changed, and a key gone reads its default.
+void the_replays_settings_follow_the_preferences_when_read_again() {
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto shown = defaults;
+    shown.replays_record = false;
+    shown.replays_keep = settings::ReplayKeep::forever;
+    shown.unit_limit = 400;
+
+    Values values;
+    settings::read_replays_settings(values, shown);
+    CHECK(shown.replays_record);
+    CHECK(shown.replays_keep == settings::ReplayKeep::thirty_days);
+    CHECK(shown.unit_limit == 400);
+
+    values[std::string{settings::key::replays_record}] = "off";
+    values[std::string{settings::key::replays_keep}] = "90-days";
+    settings::read_replays_settings(values, shown);
+    CHECK(!shown.replays_record);
+    CHECK(shown.replays_keep == settings::ReplayKeep::ninety_days);
+
+    values[std::string{settings::key::replays_record}] = "on";
+    values[std::string{settings::key::replays_keep}] = "forever";
+    settings::read_replays_settings(values, shown);
+    CHECK(shown.replays_record);
+    CHECK(shown.replays_keep == settings::ReplayKeep::forever);
+    CHECK(shown.unit_limit == 400);
+
+    // The same two fields, and the same reading, as a whole read.
+    auto whole = settings::read_settings(values, players_own_on_linux, false);
+    CHECK(whole.replays_record == shown.replays_record);
+    CHECK(whole.replays_keep == shown.replays_keep);
+    values[std::string{settings::key::replays_keep}] = "a week";
+    settings::read_replays_settings(values, shown);
+    CHECK(shown.replays_keep == settings::ReplayKeep::thirty_days);
+    whole = settings::read_settings(values, players_own_on_linux, false);
+    CHECK(whole.replays_keep == shown.replays_keep);
+}
+
 /// Update channel: Stable everywhere by default, also for a file an earlier
 /// build wrote without the key; "stable" and "testing" read their channels;
 /// any other text reads Stable; writing Testing writes that key alone, Stable
@@ -3411,6 +3538,150 @@ void menu_scaling_and_native_density_default_read_and_round_trip() {
     CHECK(settings::settings_locks(state).native_density == Lock::always_on);
 }
 
+void the_access_rows_read_and_round_trip() {
+    const auto defaults = settings::default_settings({});
+    CHECK(defaults.colour_vision == settings::ColourVision::off);
+    CHECK(!defaults.shape_cues);
+    CHECK(defaults.screen_reader == settings::ScreenReaderMode::automatic);
+    CHECK(defaults.speak_chat == settings::SpeakChat::all);
+    CHECK(defaults.speak_lobby);
+    CHECK(!defaults.speak_ticker);
+    CHECK(!defaults.always_show_focus);
+    CHECK(settings::read_settings({}, {}, false) == defaults);
+
+    CHECK(
+        read_one(settings::key::colour_vision, "protanopia").colour_vision ==
+        settings::ColourVision::protanopia
+    );
+    CHECK(
+        read_one(settings::key::colour_vision, "nope").colour_vision == settings::ColourVision::off
+    );
+    CHECK(read_one(settings::key::shape_cues, "1").shape_cues);
+    CHECK(!read_one(settings::key::shape_cues, "0").shape_cues);
+    CHECK(!read_one(settings::key::shape_cues, "on").shape_cues);
+    CHECK(read_one(settings::key::colour_vision, "achromatopsia").shape_cues);
+    CHECK(
+        read_one(settings::key::colour_vision, "achromatopsia").colour_vision ==
+        settings::ColourVision::achromatopsia
+    );
+
+    CHECK(
+        read_one(settings::key::screen_reader, "on").screen_reader == settings::ScreenReaderMode::on
+    );
+    CHECK(
+        read_one(settings::key::screen_reader, "off").screen_reader ==
+        settings::ScreenReaderMode::off
+    );
+    CHECK(
+        read_one(settings::key::screen_reader, "auto").screen_reader ==
+        settings::ScreenReaderMode::automatic
+    );
+    CHECK(
+        read_one(settings::key::screen_reader, "yes").screen_reader ==
+        settings::ScreenReaderMode::automatic
+    );
+
+    CHECK(read_one(settings::key::speak_chat, "off").speak_chat == settings::SpeakChat::off);
+    CHECK(read_one(settings::key::speak_chat, "pages").speak_chat == settings::SpeakChat::pages);
+    CHECK(read_one(settings::key::speak_chat, "all").speak_chat == settings::SpeakChat::all);
+    CHECK(read_one(settings::key::speak_chat, "chat").speak_chat == settings::SpeakChat::all);
+
+    CHECK(!read_one(settings::key::speak_lobby, "0").speak_lobby);
+    CHECK(read_one(settings::key::speak_lobby, "1").speak_lobby);
+    CHECK(read_one(settings::key::speak_lobby, "on").speak_lobby);
+    CHECK(read_one(settings::key::speak_ticker, "1").speak_ticker);
+    CHECK(!read_one(settings::key::speak_ticker, "0").speak_ticker);
+    CHECK(!read_one(settings::key::speak_ticker, "on").speak_ticker);
+    CHECK(read_one(settings::key::always_show_focus, "1").always_show_focus);
+    CHECK(read_one(settings::key::always_show_focus, "2").always_show_focus);
+    CHECK(!read_one(settings::key::always_show_focus, "0").always_show_focus);
+    CHECK(!read_one(settings::key::always_show_focus, "on").always_show_focus);
+
+    Values values;
+    auto chosen = defaults;
+    chosen.colour_vision = settings::ColourVision::deuteranopia;
+    chosen.shape_cues = true;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.at(std::string{settings::key::colour_vision}) == "deuteranopia");
+    CHECK(values.at(std::string{settings::key::shape_cues}) == "1");
+    CHECK(settings::read_settings(values, {}, false).colour_vision == chosen.colour_vision);
+    CHECK(settings::read_settings(values, {}, false).shape_cues);
+
+    // Achromatopsia already on, with the file still holding 0, is written as 1.
+    values.clear();
+    values[std::string{settings::key::shape_cues}] = "0";
+    values[std::string{settings::key::colour_vision}] = "achromatopsia";
+    const auto opened = settings::read_settings(values, {}, false);
+    CHECK(opened.shape_cues);
+    CHECK(opened.colour_vision == settings::ColourVision::achromatopsia);
+    settings::write_settings(values, opened, opened, defaults, false);
+    CHECK(values.at(std::string{settings::key::shape_cues}) == "1");
+
+    values.clear();
+    chosen = defaults;
+    chosen.speak_lobby = false;
+    chosen.speak_ticker = true;
+    chosen.always_show_focus = true;
+    chosen.screen_reader = settings::ScreenReaderMode::on;
+    chosen.speak_chat = settings::SpeakChat::pages;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(values.at(std::string{settings::key::speak_lobby}) == "0");
+    CHECK(values.at(std::string{settings::key::speak_ticker}) == "1");
+    CHECK(values.at(std::string{settings::key::always_show_focus}) == "1");
+    CHECK(values.at(std::string{settings::key::screen_reader}) == "on");
+    CHECK(values.at(std::string{settings::key::speak_chat}) == "pages");
+    const auto read_back = settings::read_settings(values, {}, false);
+    CHECK(!read_back.speak_lobby);
+    CHECK(read_back.speak_ticker);
+    CHECK(read_back.always_show_focus);
+    CHECK(read_back.screen_reader == settings::ScreenReaderMode::on);
+    CHECK(read_back.speak_chat == settings::SpeakChat::pages);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(!values.contains(std::string{settings::key::speak_lobby}));
+    CHECK(!values.contains(std::string{settings::key::speak_ticker}));
+    CHECK(!values.contains(std::string{settings::key::always_show_focus}));
+    CHECK(!values.contains(std::string{settings::key::screen_reader}));
+    CHECK(!values.contains(std::string{settings::key::speak_chat}));
+
+    values.clear();
+    values[std::string{settings::key::shape_cues}] = "0";
+    chosen = defaults;
+    chosen.colour_vision = settings::ColourVision::achromatopsia;
+    chosen.shape_cues = true;
+    settings::store_access_preferences(values, chosen);
+    CHECK(values.at(std::string{settings::key::colour_vision}) == "achromatopsia");
+    CHECK(values.at(std::string{settings::key::shape_cues}) == "1");
+    const settings::AccessSnapshot snapshot = settings::capture_access_preferences(values);
+    chosen = defaults;
+    settings::store_access_preferences(values, chosen);
+    CHECK(!values.contains(std::string{settings::key::colour_vision}));
+    CHECK(!values.contains(std::string{settings::key::shape_cues}));
+    CHECK(!values.contains(std::string{settings::key::screen_reader}));
+    settings::restore_access_preferences(values, snapshot);
+    CHECK(values.at(std::string{settings::key::colour_vision}) == "achromatopsia");
+    CHECK(values.at(std::string{settings::key::shape_cues}) == "1");
+
+    values.clear();
+    values["other"] = "kept";
+    chosen = defaults;
+    chosen.speak_lobby = false;
+    chosen.speak_ticker = true;
+    chosen.always_show_focus = true;
+    chosen.screen_reader = settings::ScreenReaderMode::off;
+    chosen.speak_chat = settings::SpeakChat::off;
+    settings::store_access_preferences(values, chosen);
+    CHECK(values.at(std::string{settings::key::speak_lobby}) == "0");
+    CHECK(values.at(std::string{settings::key::speak_ticker}) == "1");
+    CHECK(values.at(std::string{settings::key::always_show_focus}) == "1");
+    CHECK(values.at(std::string{settings::key::screen_reader}) == "off");
+    CHECK(values.at(std::string{settings::key::speak_chat}) == "off");
+    CHECK(values.at("other") == "kept");
+    chosen.speak_lobby = true;
+    settings::store_access_preferences(values, chosen);
+    CHECK(!values.contains(std::string{settings::key::speak_lobby}));
+    CHECK(values.at("other") == "kept");
+}
+
 int main() {
     effects_follow_hardware_acceleration();
     effects_take_their_own_defaults();
@@ -3470,6 +3741,8 @@ int main() {
     the_group_keys_centre_default_read_and_round_trip();
     the_double_click_selects_default_read_and_round_trip();
     the_focus_lost_default_read_and_round_trip();
+    the_replays_settings_default_read_and_round_trip();
+    the_replays_settings_follow_the_preferences_when_read_again();
     the_update_channel_default_read_and_round_trip();
     the_camera_inversions_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();
@@ -3482,6 +3755,7 @@ int main() {
     visual_effect_switches_round_trip();
     water_effects_round_trip();
     the_interface_size_default_read_and_round_trip();
+    the_access_rows_read_and_round_trip();
     the_zoom_limits_default_read_and_round_trip();
     the_view_past_the_map_edge_defaults_reads_and_round_trips();
     if (failures != 0)

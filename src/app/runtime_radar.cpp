@@ -82,6 +82,8 @@ void Runtime::load_radar_sprites() {
     radar.sprites.unit_logos = oa::present::find_gaf_sequence(radar.fx, "radlogo");
     radar.sprites.cursor_logo = oa::present::find_gaf_sequence(radar.fx, "radlogohigh");
     radar.sprites.weapon_logos = oa::present::find_gaf_sequence(radar.fx, "nuclogo");
+    // The blips are in hand, so the team colours can pin them to the anchors.
+    apply_colour_vision();
 }
 
 void Runtime::ensure_radar_surfaces() {

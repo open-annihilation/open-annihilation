@@ -326,6 +326,456 @@ int Runtime::check_live_renderer() {
     place_match_view(before_scroll_view[0], before_scroll_view[1]);
     require(snapshot().rgb == rotated.rgb, "scrolling back changed the frozen rotated view");
 
+    // In play, Right held for 20 seconds at Full's widest zoom stays within
+    // the view's limits. A further pan stays there, the frame is still drawn,
+    // and Full stays on. This frame stands Full up, as the classic capture
+    // does, and puts it back. The camera, the zoom and the hold come back
+    // too, so the frozen picture above still matches.
+    {
+        require(!photo_mode(), "the play pan ran in photo mode");
+        require(live_renderer_active(), "the play pan's view was not turned");
+        const auto play_place = match_view_place();
+        const auto play_layout = match_layout_;
+        const auto play_hold = view_hold_;
+        const auto play_time = frame_time_ns_;
+        const auto play_scroll_clock = scroll_clock_;
+        const auto play_zoom = match_zoom_;
+        const auto play_zoom_target = match_zoom_target_;
+        const auto play_focus = zoom_focus_;
+        const auto play_zoom_clock = zoom_clock_;
+        const bool play_zoom_clock_valid = zoom_clock_valid_;
+        const bool play_between = view_between_pixels_;
+        const bool play_on_grid = view_on_scene_grid_;
+        const bool play_moved_by_card = view_moved_by_card_;
+        const bool play_headless = options_.headless_check;
+        const bool play_accelerated = accelerated_.on;
+        const auto play_rung = accelerated_.rung;
+        const auto play_texture_limit = accelerated_.texture_limit;
+        const bool play_layers = match_use_layers_;
+        SDL_Surface* play_canvas =
+            SDL_CreateSurface(match_layout_.width, match_layout_.height, SDL_PIXELFORMAT_XRGB8888);
+        require(play_canvas != nullptr, "the play pan's canvas allocation failed");
+        sdl_.renderer = SDL_CreateSoftwareRenderer(play_canvas);
+        if (sdl_.renderer == nullptr) {
+            SDL_DestroySurface(play_canvas);
+            require(false, "the play pan's windowless renderer failed");
+        }
+        bool play_released = false;
+        const auto play_release = [&] {
+            if (play_released)
+                return;
+            play_released = true;
+            device_state::hold_key(SDL_SCANCODE_RIGHT, false);
+            set_full_presentation(false);
+            free_accelerated_presentation();
+            destroy_match_layer_textures();
+            accelerated_.on = play_accelerated;
+            accelerated_.rung = play_rung;
+            accelerated_.texture_limit = play_texture_limit;
+            match_use_layers_ = play_layers;
+            if (sdl_.renderer != nullptr) {
+                SDL_DestroyRenderer(sdl_.renderer);
+                sdl_.renderer = nullptr;
+            }
+            if (play_canvas != nullptr) {
+                SDL_DestroySurface(play_canvas);
+                play_canvas = nullptr;
+            }
+            options_.headless_check = play_headless;
+            match_zoom_ = play_zoom;
+            match_zoom_target_ = play_zoom_target;
+            zoom_focus_ = play_focus;
+            zoom_clock_ = play_zoom_clock;
+            zoom_clock_valid_ = play_zoom_clock_valid;
+            frame_time_ns_ = play_time;
+            scroll_clock_ = play_scroll_clock;
+            view_between_pixels_ = play_between;
+            view_on_scene_grid_ = play_on_grid;
+            view_moved_by_card_ = play_moved_by_card;
+            place_match_view(play_place[0], play_place[1]);
+            match_layout_ = play_layout;
+            view_hold_ = play_hold;
+        };
+        const auto play_within = [&](const char* play_why) {
+            const auto play_at = match_view_place();
+            const auto play_limited = view_within_limits(play_at[0], play_at[1]);
+            require(play_limited.has_value(), play_why);
+            require(
+                std::abs(play_at[0] - (*play_limited)[0]) < 1.0 &&
+                    std::abs(play_at[1] - (*play_limited)[1]) < 1.0,
+                play_why
+            );
+        };
+        try {
+            options_.headless_check = false;
+            switch_accelerated_presentation(true, play_rung);
+            set_full_presentation(true);
+            require(full_presentation(), "Full did not come on for the play pan");
+            require(live_renderer_active(), "standing Full up ended the turned view");
+            // Full's floor, the widest zoom play offers while Full draws.
+            // The place is held as a zoom out holds it, so the pan starts
+            // inside the limits the wide view draws.
+            const float play_wide = least_match_zoom();
+            match_zoom_ = play_wide;
+            match_zoom_target_ = play_wide;
+            const auto play_opened = match_view_place();
+            if (const auto play_opened_held = view_within_limits(play_opened[0], play_opened[1])) {
+                place_match_view((*play_opened_held)[0], (*play_opened_held)[1]);
+                remember_placed_view((*play_opened_held)[0], (*play_opened_held)[1]);
+            }
+            // The pan measures screen pixels through the frame's projection,
+            // so the frame at this zoom is drawn before the view moves.
+            render_match_surface();
+            require(
+                live_renderer_active() && !live_renderer_failed() && full_presentation(),
+                "the turned play frame was not drawn at Full's widest zoom"
+            );
+            require(
+                std::abs(match_zoom_ - play_wide) < 0.001F, "the play pan left Full's widest zoom"
+            );
+            const auto play_before = match_view_place();
+            // Twenty seconds at the scroll clock, one step a frame.
+            constexpr int play_pan_frames = 20 * 30;
+            device_state::hold_key(SDL_SCANCODE_RIGHT, true);
+            for (int play_frame = 0; play_frame < play_pan_frames; ++play_frame) {
+                frame_time_ns_ += scroll_frame_ns;
+                move_match_camera();
+            }
+            device_state::hold_key(SDL_SCANCODE_RIGHT, false);
+            const auto play_after = match_view_place();
+            require(
+                std::abs(play_after[0] - play_before[0]) >= 1.0 ||
+                    std::abs(play_after[1] - play_before[1]) >= 1.0,
+                "holding Right did not pan the turned view"
+            );
+            play_within("20 seconds of Right left the turned view's limits");
+            scroll_match_view(1, 0, 1.0e7);
+            play_within("a further pan left the turned view's limits");
+            const int32_t play_stopped_x = match_camera_x_;
+            const int32_t play_stopped_z = match_camera_z_;
+            scroll_match_view(1, 0, 1.0e7);
+            require(
+                match_camera_x_ == play_stopped_x && match_camera_z_ == play_stopped_z,
+                "a further pan did not stop at the turned view's limit"
+            );
+            render_match_surface();
+            require(live_renderer_active(), "the play pan left the turned view");
+            require(!live_renderer_failed(), "the play pan was refused");
+            require(full_presentation(), "the play pan turned Full off");
+            play_within("the frame after the play pan left the turned view's limits");
+            // A drag onward past the limit. The drag's own hold stops it:
+            // scroll right is place + pan_delta(+screen), and a drag subtracts
+            // pan_delta(xrel), so a negative travel continues the same way.
+            // The place is read before the next frame.
+            {
+                const float play_at_x =
+                    static_cast<float>(match_layout_.left + match_layout_.battlefield_width() / 2);
+                const float play_at_y =
+                    static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2);
+                constexpr float play_drag_travel = -2000.0F;
+                SDL_Event play_drag{};
+                play_drag.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+                play_drag.button.button = SDL_BUTTON_MIDDLE;
+                play_drag.button.down = true;
+                play_drag.button.x = play_at_x;
+                play_drag.button.y = play_at_y;
+                require(live_renderer_take_event(play_drag), "a drag past the limit did not begin");
+                play_drag = {};
+                play_drag.type = SDL_EVENT_MOUSE_MOTION;
+                play_drag.motion.state = SDL_BUTTON_MASK(SDL_BUTTON_MIDDLE);
+                play_drag.motion.x = play_at_x + play_drag_travel;
+                play_drag.motion.y = play_at_y;
+                play_drag.motion.xrel = play_drag_travel;
+                play_drag.motion.yrel = 0.0F;
+                require(
+                    live_renderer_take_event(play_drag), "a drag past the limit was not consumed"
+                );
+                play_drag = {};
+                play_drag.type = SDL_EVENT_MOUSE_BUTTON_UP;
+                play_drag.button.button = SDL_BUTTON_MIDDLE;
+                play_drag.button.x = play_at_x + play_drag_travel;
+                play_drag.button.y = play_at_y;
+                require(live_renderer_take_event(play_drag), "a drag past the limit did not end");
+                play_within("a drag past the limit left the turned view's limits");
+                const auto play_dragged = match_view_place();
+                require(
+                    std::abs(play_dragged[0] - play_after[0]) < 1.0 &&
+                        std::abs(play_dragged[1] - play_after[1]) < 1.0,
+                    "a drag past the limit moved the turned view"
+                );
+            }
+            // A wheel zoom in about the outward edge of the battlefield. An
+            // unheld zoom walks the centre past the limit; the wheel's own
+            // hold pulls it back within the closer view. Then the frame.
+            {
+                require(!live_renderer_failed(), "the turned view had already failed");
+                const float play_wheel_x =
+                    static_cast<float>(match_layout_.left + match_layout_.battlefield_width() - 4);
+                const float play_wheel_y =
+                    static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2);
+                SDL_Event play_wheel{};
+                play_wheel.type = SDL_EVENT_MOUSE_WHEEL;
+                play_wheel.wheel.y = 8.0F;
+                play_wheel.wheel.mouse_x = play_wheel_x;
+                play_wheel.wheel.mouse_y = play_wheel_y;
+                require(
+                    live_renderer_take_event(play_wheel),
+                    "a wheel zoom in at the limit was not consumed"
+                );
+                require(match_zoom_ > play_wide, "a wheel zoom in at the limit did not zoom in");
+                play_within("a wheel zoom in at the limit left the turned view's limits");
+                render_match_surface();
+                require(live_renderer_active(), "the wheel zoom in left the turned view");
+                require(!live_renderer_failed(), "the wheel zoom in was refused");
+                require(full_presentation(), "the wheel zoom in turned Full off");
+                play_within("the frame after the wheel zoom in left the turned view's limits");
+            }
+            // A view wider than the map, at Full's widest zoom, sits its
+            // centre past the map. Zooming in with the zoom key pulls that
+            // centre back within the closer view. No frame is drawn at this
+            // size: the place is what the card would be asked for.
+            {
+                const auto [play_map_w, play_map_h] = shown_map_size();
+                require(play_map_w > 0 && play_map_h > 0, "the wide corner has no map");
+                match_layout_ = oa::ui::display_layout::make_battlefield_layout(
+                    play_map_w + 480, play_map_h + 480
+                );
+                const float play_corner_zoom = least_match_zoom();
+                match_zoom_ = play_corner_zoom;
+                match_zoom_target_ = play_corner_zoom;
+                const auto play_corner_held = view_within_limits(-1.0e9, -1.0e9);
+                require(play_corner_held.has_value(), "the wide corner has no limits");
+                place_match_view((*play_corner_held)[0], (*play_corner_held)[1]);
+                remember_placed_view((*play_corner_held)[0], (*play_corner_held)[1]);
+                const auto play_corner = match_view_place();
+                const float play_close = std::min(most_match_zoom(), play_corner_zoom * 8.0F);
+                match_zoom_ = play_close;
+                const auto play_close_limits = view_within_limits(play_corner[0], play_corner[1]);
+                match_zoom_ = play_corner_zoom;
+                match_zoom_target_ = play_corner_zoom;
+                remember_placed_view(play_corner[0], play_corner[1]);
+                require(play_close_limits.has_value(), "the closer zoom has no limits");
+                require(
+                    std::abs(play_corner[0] - (*play_close_limits)[0]) >= 1.0 ||
+                        std::abs(play_corner[1] - (*play_close_limits)[1]) >= 1.0,
+                    "the wide corner was already inside the closer zoom"
+                );
+                // Wheel steps from the corner, pointed near that corner of
+                // the battlefield. A remembered centre would leave the place
+                // past the closer limits; each step has to come back inside.
+                // No frame is drawn at this size.
+                {
+                    require(live_renderer_active(), "the wide corner wheel's view was not turned");
+                    std::size_t play_vertices = 0;
+                    require(
+                        aim_live_view_at_match(true, play_vertices),
+                        "the wide corner wheel has no projection"
+                    );
+                    const float play_near_x = static_cast<float>(match_layout_.left + 8);
+                    const float play_near_y = static_cast<float>(match_layout_.top + 8);
+                    for (int play_wheel_step = 0; play_wheel_step < 6; ++play_wheel_step) {
+                        const float play_zoom_before = match_zoom_;
+                        SDL_Event play_corner_wheel{};
+                        play_corner_wheel.type = SDL_EVENT_MOUSE_WHEEL;
+                        play_corner_wheel.wheel.y = 1.0F;
+                        play_corner_wheel.wheel.mouse_x = play_near_x;
+                        play_corner_wheel.wheel.mouse_y = play_near_y;
+                        require(
+                            live_renderer_take_event(play_corner_wheel),
+                            "a wheel zoom in from the wide corner was not consumed"
+                        );
+                        require(
+                            match_zoom_ > play_zoom_before,
+                            "a wheel zoom in from the wide corner did not zoom in"
+                        );
+                        play_within(
+                            "a wheel zoom in from the wide corner left the turned view's limits"
+                        );
+                    }
+                    restore_live_ground(play_vertices);
+                }
+                match_zoom_ = play_corner_zoom;
+                match_zoom_target_ = play_corner_zoom;
+                place_match_view(play_corner[0], play_corner[1]);
+                remember_placed_view(play_corner[0], play_corner[1]);
+                stop_match_tracking();
+                for (int play_zoom_step = 0; play_zoom_step < 24; ++play_zoom_step) {
+                    require(
+                        zoom_match_from_key("camera.zoom-in-key"),
+                        "the wide corner did not take a zoom key"
+                    );
+                    for (int play_ease = 0; play_ease < 6; ++play_ease) {
+                        frame_time_ns_ += 50'000'000ULL;
+                        step_match_zoom();
+                        play_within("a zoom in from the wide corner left the turned view's limits");
+                    }
+                }
+                require(
+                    match_zoom_ > play_corner_zoom * 2.0F, "the wide corner zoom did not come in"
+                );
+                const auto play_pulled = match_view_place();
+                require(
+                    std::abs(play_pulled[0] - play_corner[0]) >= 1.0 ||
+                        std::abs(play_pulled[1] - play_corner[1]) >= 1.0,
+                    "a zoom in from the wide corner did not pull the view back"
+                );
+                match_layout_ = play_layout;
+            }
+            // The classic view under Full, with no turn. A zoom in from a
+            // corner of a view wider than the map leaves the place past the
+            // closer limits and remembers that centre. The pan role's drag
+            // moves by the drag, and does not jump onto the limits. The
+            // camera, the layout and the modifiers come back here; the zoom
+            // and the place come back with the play pan.
+            {
+                const auto classic_angles = live_camera_angles();
+                const bool classic_unlocked = live_renderer_unlocked();
+                const auto classic_mods = SDL_GetModState();
+                restore_live_camera(0.0F, 0.0F, classic_unlocked);
+                require(!live_renderer_active(), "the classic drag's view was still turned");
+                require(full_presentation(), "the classic drag lost Full");
+                const auto [classic_map_w, classic_map_h] = shown_map_size();
+                require(classic_map_w > 0 && classic_map_h > 0, "the classic drag has no map");
+                match_layout_ = oa::ui::display_layout::make_battlefield_layout(
+                    classic_map_w + 480, classic_map_h + 480
+                );
+                const float classic_wide = least_match_zoom();
+                match_zoom_ = classic_wide;
+                match_zoom_target_ = classic_wide;
+                const auto classic_corner_held = view_within_limits(-1.0e9, -1.0e9);
+                require(classic_corner_held.has_value(), "the classic corner has no limits");
+                place_match_view((*classic_corner_held)[0], (*classic_corner_held)[1]);
+                const auto classic_corner = match_view_place();
+                const float classic_close =
+                    std::min(most_match_zoom(), std::max(classic_wide * 8.0F, 1.0F));
+                match_zoom_ = classic_close;
+                match_zoom_target_ = classic_close;
+                remember_placed_view(classic_corner[0], classic_corner[1]);
+                const auto classic_close_limits =
+                    view_within_limits(classic_corner[0], classic_corner[1]);
+                require(classic_close_limits.has_value(), "the classic closer zoom has no limits");
+                require(
+                    std::abs(classic_corner[0] - (*classic_close_limits)[0]) >= 1.0 ||
+                        std::abs(classic_corner[1] - (*classic_close_limits)[1]) >= 1.0,
+                    "the classic corner was already inside the closer zoom"
+                );
+                std::size_t classic_vertices = 0;
+                require(
+                    aim_live_view_at_match(false, classic_vertices),
+                    "the classic drag has no projection"
+                );
+                const auto classic_before = match_view_place();
+                constexpr float classic_travel = 30.0F;
+                const float classic_at_x = static_cast<float>(match_layout_.left + 8);
+                const float classic_at_y = static_cast<float>(match_layout_.top + 8);
+                SDL_SetModState(SDL_KMOD_ALT | SDL_KMOD_SHIFT);
+                SDL_Event classic_drag{};
+                classic_drag.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+                classic_drag.button.button = SDL_BUTTON_LEFT;
+                classic_drag.button.down = true;
+                classic_drag.button.x = classic_at_x;
+                classic_drag.button.y = classic_at_y;
+                const bool classic_began = live_renderer_take_event(classic_drag);
+                classic_drag = {};
+                classic_drag.type = SDL_EVENT_MOUSE_MOTION;
+                classic_drag.motion.state = SDL_BUTTON_MASK(SDL_BUTTON_LEFT);
+                classic_drag.motion.x = classic_at_x - classic_travel;
+                classic_drag.motion.y = classic_at_y - classic_travel;
+                classic_drag.motion.xrel = -classic_travel;
+                classic_drag.motion.yrel = -classic_travel;
+                const bool classic_moved = live_renderer_take_event(classic_drag);
+                classic_drag = {};
+                classic_drag.type = SDL_EVENT_MOUSE_BUTTON_UP;
+                classic_drag.button.button = SDL_BUTTON_LEFT;
+                classic_drag.button.x = classic_at_x - classic_travel;
+                classic_drag.button.y = classic_at_y - classic_travel;
+                const bool classic_ended = live_renderer_take_event(classic_drag);
+                SDL_SetModState(classic_mods);
+                require(classic_began, "a classic pan-role drag did not begin");
+                require(classic_moved, "a classic pan-role drag was not consumed");
+                require(classic_ended, "a classic pan-role drag did not end");
+                const auto classic_after = match_view_place();
+                const double classic_step =
+                    static_cast<double>(classic_travel) / static_cast<double>(classic_close);
+                require(
+                    std::abs((classic_after[0] - classic_before[0]) - classic_step) < 1.0 &&
+                        std::abs((classic_after[1] - classic_before[1]) - classic_step) < 1.0,
+                    "a classic pan-role drag did not move by the drag"
+                );
+                // Turning from this classic place, past the closer limits,
+                // pulls the turned view inside them and draws the frame.
+                // Turning back leaves the classic place and the centre it
+                // remembered. The frame is the window's battlefield: the
+                // wide layout only made the classic corner.
+                {
+                    const auto turn_place = match_view_place();
+                    const auto turn_hold = view_hold_;
+                    match_layout_ = play_layout;
+                    const auto turn_limits = view_within_limits(turn_place[0], turn_place[1]);
+                    require(
+                        turn_limits.has_value(), "the turn from the classic place has no limits"
+                    );
+                    require(
+                        std::abs(turn_place[0] - (*turn_limits)[0]) >= 1.0 ||
+                            std::abs(turn_place[1] - (*turn_limits)[1]) >= 1.0,
+                        "the classic place was already inside the turned view's limits"
+                    );
+                    require(
+                        turn_live_camera(30.0F, 12.0F), "the classic place did not turn the view"
+                    );
+                    render_match_surface();
+                    const auto turn_angles = live_camera_angles();
+                    require(
+                        std::abs(turn_angles[0] - 30.0F) < 0.01F &&
+                            std::abs(turn_angles[1] - 12.0F) < 0.01F,
+                        "the turn from the classic place did not keep its angle"
+                    );
+                    require(
+                        live_renderer_active(),
+                        "the turn from the classic place left the turned view"
+                    );
+                    require(!live_renderer_failed(), "the turn from the classic place was refused");
+                    require(full_presentation(), "the turn from the classic place turned Full off");
+                    const auto turned_place = match_view_place();
+                    const auto turned_limits = view_within_limits(turned_place[0], turned_place[1]);
+                    require(turned_limits.has_value(), "the turned place has no limits");
+                    require(
+                        std::abs(turned_place[0] - (*turned_limits)[0]) < 1.0 &&
+                            std::abs(turned_place[1] - (*turned_limits)[1]) < 1.0,
+                        "the turn from the classic place left the turned view's limits"
+                    );
+                    require(
+                        std::abs(turned_place[0] - turn_place[0]) >= 1.0 ||
+                            std::abs(turned_place[1] - turn_place[1]) >= 1.0,
+                        "the turn from the classic place did not pull the view back"
+                    );
+                    restore_live_camera(0.0F, 0.0F, classic_unlocked);
+                    require(!live_renderer_active(), "turning back left the view turned");
+                    const auto classic_back = match_view_place();
+                    require(
+                        std::abs(classic_back[0] - turn_place[0]) < 1.0 &&
+                            std::abs(classic_back[1] - turn_place[1]) < 1.0,
+                        "turning back moved the classic place"
+                    );
+                    require(
+                        view_hold_.held == turn_hold.held &&
+                            view_hold_.centre_x == turn_hold.centre_x &&
+                            view_hold_.centre_z == turn_hold.centre_z,
+                        "turning back moved the classic centre"
+                    );
+                }
+                restore_live_ground(classic_vertices);
+                restore_live_camera(classic_angles[0], classic_angles[1], classic_unlocked);
+                require(live_renderer_active(), "the classic drag did not turn the view back");
+                match_layout_ = play_layout;
+            }
+            play_release();
+        } catch (...) {
+            play_release();
+            throw;
+        }
+    }
+
     // Menu keys keep the gameplay dispatcher while the battlefield is rotated.
     // Exercise the full event route, including a selected unit and open panels.
     const auto press_menu_key = [&](SDL_Keycode code, SDL_Scancode scancode) {
@@ -1850,6 +2300,448 @@ int Runtime::check_live_renderer() {
             cooled->heat < tracked_wreck.heat,
         "the same wreck did not cool as simulation time advanced"
     );
+    // Photo mode turns and tilts within the same limits as Alt and a drag,
+    // locked and unlocked, and the live renderer draws each. Leaving puts
+    // back the classic orientation this section started from, after a reset,
+    // and the turn the section opened on. It runs as the first match ends:
+    // its far turned frames leave the ground's atlas packed from them, as a
+    // far zoom in play does, and the frozen frames above would differ by a
+    // few texels. The next match starts its scene afresh.
+    {
+        constexpr float locked_yaw = 45.0F;
+        constexpr float locked_pitch = 20.0F;
+        constexpr float classic_elevation = 63.4349488F;
+        constexpr float lowest_pitch = 10.0F - classic_elevation;
+        constexpr float highest_pitch = 85.0F - classic_elevation;
+        constexpr float angle_slack = 0.05F;
+        const auto near_angle = [](float got, float want) {
+            return std::fabs(got - want) < angle_slack;
+        };
+        const auto saved_angles = live_camera_angles();
+        const bool saved_unlocked = live_renderer_unlocked();
+
+        // photo_turn reads Unlocked camera from the settings. Put back the
+        // value this check found, including when a require fails.
+        struct UnlockedSetting {
+            Runtime& runtime;
+            bool saved;
+
+            UnlockedSetting(Runtime& host, bool found) : runtime(host), saved(found) {}
+
+            ~UnlockedSetting() { runtime.engine_settings_->current.unlocked_camera = saved; }
+        } unlocked_setting{*this, engine_settings_->current.unlocked_camera};
+
+        engine_settings_->current.unlocked_camera = false;
+
+        struct CameraRestore {
+            Runtime& runtime;
+            float yaw;
+            float pitch;
+            bool unlocked;
+
+            CameraRestore(Runtime& host, float saved_yaw, float saved_pitch, bool saved_unlocked)
+                : runtime(host), yaw(saved_yaw), pitch(saved_pitch), unlocked(saved_unlocked) {}
+
+            ~CameraRestore() {
+                runtime.leave_photo_mode();
+                runtime.restore_live_camera(yaw, pitch, unlocked);
+            }
+        } camera_restore{*this, saved_angles[0], saved_angles[1], saved_unlocked};
+
+        // A picture is held only in a match shared with other machines. The
+        // skirmish reads as one while a step below holds a picture, and the
+        // extension's own state comes back however the section ends.
+        struct SharedMatch {
+            Runtime& runtime;
+            uint32_t (*state)(void*, const Runtime&);
+
+            static uint32_t shared(void*, const Runtime&) {
+                return extension_state::multiplayer | extension_state::shared_match;
+            }
+
+            explicit SharedMatch(Runtime& host) : runtime(host), state(host.extension_.state) {}
+
+            SharedMatch(const SharedMatch&) = delete;
+            SharedMatch& operator=(const SharedMatch&) = delete;
+
+            void begin() { runtime.extension_.state = shared; }
+
+            void end() { runtime.extension_.state = state; }
+
+            ~SharedMatch() { end(); }
+        } shared_match{*this};
+
+        reset_live_renderer();
+        require(enter_photo_mode(), "photo mode did not open");
+        require(photo_turn_reason().empty(), "the turned view refused a photo turn");
+        require(!live_renderer_unlocked(), "photo mode unlocked the camera");
+        require(photo_turn(locked_yaw + 1.0F), "a locked turn was refused");
+        require(near_angle(live_camera_angles()[0], locked_yaw), "yaw did not stop at 45");
+        require(photo_turn(5.0F), "a turn at the limit was refused");
+        require(near_angle(live_camera_angles()[0], locked_yaw), "yaw passed 45");
+        require(photo_tilt(locked_pitch + 1.0F), "a locked tilt was refused");
+        require(near_angle(live_camera_angles()[1], locked_pitch), "pitch did not stop at 20");
+        require(
+            photo_tilt(-2.0F * locked_pitch - 5.0F), "a tilt toward the other limit was refused"
+        );
+        require(near_angle(live_camera_angles()[1], -locked_pitch), "pitch did not stop at -20");
+        require(photo_turn(-2.0F * locked_yaw - 5.0F), "a turn toward the other limit was refused");
+        require(near_angle(live_camera_angles()[0], -locked_yaw), "yaw did not stop at -45");
+        require(photo_turn(2.0F * locked_yaw), "the locked turn back was refused");
+        require(photo_tilt(2.0F * locked_pitch), "the locked tilt back was refused");
+        require(
+            near_angle(live_camera_angles()[0], locked_yaw) &&
+                near_angle(live_camera_angles()[1], locked_pitch),
+            "the locked limits were not reached"
+        );
+        const auto draw_turned = [&](const char* what) {
+            render_match_surface();
+            require(live_renderer_active(), what);
+            require(!live_renderer_failed(), "the live GPU frame failed");
+            require(live_renderer_vertex_count() > 0, "the turned frame drew no battlefield");
+            require(!full_frame_drawn(), "Full's classic view drew the turned frame");
+        };
+        draw_turned("the locked turn was not drawn by the turned view");
+        // reset() leaves the camera locked. A turn reads the setting itself,
+        // as a drag does, with no apply_live_camera_settings before it.
+        reset_live_renderer();
+        engine_settings_->current.unlocked_camera = true;
+        require(photo_turn(100.0F), "an unlocked turn from the setting was refused");
+        require(
+            std::fabs(live_camera_angles()[0]) > locked_yaw,
+            "Unlocked camera on still stopped the turn at 45"
+        );
+        engine_settings_->current.unlocked_camera = false;
+        reset_live_renderer();
+        require(photo_turn(100.0F), "a locked turn from the setting was refused");
+        require(
+            near_angle(live_camera_angles()[0], locked_yaw),
+            "Unlocked camera off let the turn pass 45"
+        );
+        engine_settings_->current.unlocked_camera = true;
+        apply_live_camera_settings(true, true);
+        require(live_renderer_unlocked(), "the camera did not unlock");
+        const float yaw_now = live_camera_angles()[0];
+        require(photo_turn(180.0F - yaw_now), "an unlocked turn was refused");
+        require(
+            near_angle(std::fabs(live_camera_angles()[0]), 180.0F),
+            "an unlocked turn stayed inside 45 degrees"
+        );
+        require(photo_turn(15.0F), "a further unlocked turn was refused");
+        require(
+            std::fabs(live_camera_angles()[0]) > locked_yaw + 1.0F,
+            "an unlocked turn was held to 45 degrees"
+        );
+        require(
+            photo_tilt(highest_pitch - live_camera_angles()[1] + 5.0F),
+            "an unlocked tilt was refused"
+        );
+        require(
+            near_angle(live_camera_angles()[1], highest_pitch), "pitch did not stop at 85 degrees"
+        );
+        draw_turned("the unlocked tilt was not drawn by the turned view");
+        require(
+            photo_tilt(lowest_pitch - live_camera_angles()[1] - 5.0F),
+            "a tilt toward 10 degrees was refused"
+        );
+        require(
+            near_angle(live_camera_angles()[1], lowest_pitch), "pitch did not stop at 10 degrees"
+        );
+        draw_turned("the low tilt was not drawn by the turned view");
+        // The low tilt looks past the map from an edge. The pan is a moderate
+        // turn, which still looks at the ground, at the whole map and at
+        // eight times. It stays within the view's limits, the frame is still
+        // drawn, and the tier does not change: a card refusal would drop Full.
+        reset_live_renderer();
+        require(photo_turn(20.0F) && photo_tilt(-8.0F), "the pan's turn was refused");
+        require(live_renderer_active(), "the pan's turn did not turn the view");
+        const bool tier_full = full_presentation();
+        const auto hold_edge = [&](float zoom, int32_t way_x, int32_t way_z) {
+            match_zoom_ = zoom;
+            match_zoom_target_ = zoom;
+            // The pan measures screen pixels through the frame's projection,
+            // so the frame at this zoom is drawn before the view moves.
+            render_match_surface();
+            const std::string where = " at zoom " + std::to_string(zoom) + " toward " +
+                                      std::to_string(way_x) + "," + std::to_string(way_z);
+            require(
+                live_renderer_active() && !live_renderer_failed(),
+                ("the turned photo frame was not drawn" + where).c_str()
+            );
+            const int32_t before_x = match_camera_x_;
+            const int32_t before_z = match_camera_z_;
+            scroll_match_view(way_x, way_z, 1.0e7);
+            require(
+                match_camera_x_ != before_x || match_camera_z_ != before_z,
+                ("the turned photo pan did not travel from " + std::to_string(before_x) + "," +
+                 std::to_string(before_z) + where)
+                    .c_str()
+            );
+            const std::array<int32_t, 2> limited = view_camera();
+            require(
+                match_camera_x_ == limited[0] && match_camera_z_ == limited[1],
+                "the turned photo pan left the view's limits"
+            );
+            const int32_t stopped_x = match_camera_x_;
+            const int32_t stopped_z = match_camera_z_;
+            scroll_match_view(way_x, way_z, 1.0e7);
+            require(
+                match_camera_x_ == stopped_x && match_camera_z_ == stopped_z,
+                "the turned photo pan did not stop at its limit"
+            );
+            render_match_surface();
+            require(
+                live_renderer_active(),
+                ("the turned photo pan left the turned view" + where).c_str()
+            );
+            require(
+                !live_renderer_failed(),
+                ("the turned photo pan was refused by the card" + where).c_str()
+            );
+            require(
+                full_presentation() == tier_full,
+                ("the turned photo pan changed the tier" + where).c_str()
+            );
+        };
+        const std::array<float, 2> photo_ends = photo_zoom_limits();
+        const std::array<std::array<int32_t, 2>, 4> edges{{{-1, 0}, {1, 0}, {0, -1}, {0, 1}}};
+        for (const float zoom : {photo_ends[0], photo_ends[1]})
+            for (const auto& edge : edges)
+                hold_edge(zoom, edge[0], edge[1]);
+        // A zoom in from a corner of a view wider than the map pulls the
+        // centre back within the closer view. The layout, the zoom and the
+        // place come back for the held picture below.
+        {
+            const auto photo_layout = match_layout_;
+            const auto photo_place = match_view_place();
+            const auto photo_hold = view_hold_;
+            const float photo_zoom = match_zoom_;
+            const float photo_zoom_target = match_zoom_target_;
+            const auto photo_focus = zoom_focus_;
+            const auto photo_zoom_clock = zoom_clock_;
+            const bool photo_zoom_clock_valid = zoom_clock_valid_;
+            const auto photo_time = frame_time_ns_;
+            const auto photo_wheel = zoom_wheel_;
+            const auto [photo_map_w, photo_map_h] = shown_map_size();
+            require(photo_map_w > 0 && photo_map_h > 0, "the photo corner has no map");
+            match_layout_ = oa::ui::display_layout::make_battlefield_layout(
+                photo_map_w + 480, photo_map_h + 480
+            );
+            const std::array<float, 2> photo_wide_ends = photo_zoom_limits();
+            match_zoom_ = photo_wide_ends[0];
+            match_zoom_target_ = photo_wide_ends[0];
+            const auto photo_corner_held = view_within_limits(-1.0e9, -1.0e9);
+            require(photo_corner_held.has_value(), "the photo corner has no limits");
+            place_match_view((*photo_corner_held)[0], (*photo_corner_held)[1]);
+            remember_placed_view((*photo_corner_held)[0], (*photo_corner_held)[1]);
+            const auto photo_corner = match_view_place();
+            const float photo_close =
+                std::min(photo_wide_ends[1], std::max(photo_wide_ends[0] * 8.0F, 1.5F));
+            match_zoom_ = photo_close;
+            const auto photo_close_limits = view_within_limits(photo_corner[0], photo_corner[1]);
+            match_zoom_ = photo_wide_ends[0];
+            match_zoom_target_ = photo_wide_ends[0];
+            remember_placed_view(photo_corner[0], photo_corner[1]);
+            require(photo_close_limits.has_value(), "the closer photo zoom has no limits");
+            require(
+                std::abs(photo_corner[0] - (*photo_close_limits)[0]) >= 1.0 ||
+                    std::abs(photo_corner[1] - (*photo_close_limits)[1]) >= 1.0,
+                "the photo corner was already inside the closer zoom"
+            );
+            stop_match_tracking();
+            for (int photo_zoom_step = 0; photo_zoom_step < 24; ++photo_zoom_step) {
+                require(
+                    zoom_match_from_key("camera.zoom-in-key"),
+                    "the photo corner did not take a zoom key"
+                );
+                for (int photo_ease = 0; photo_ease < 6; ++photo_ease) {
+                    frame_time_ns_ += 50'000'000ULL;
+                    step_match_zoom();
+                    const auto photo_at = match_view_place();
+                    const auto photo_limited = view_within_limits(photo_at[0], photo_at[1]);
+                    require(
+                        photo_limited.has_value(), "a photo zoom in left the view without limits"
+                    );
+                    require(
+                        std::abs(photo_at[0] - (*photo_limited)[0]) < 1.0 &&
+                            std::abs(photo_at[1] - (*photo_limited)[1]) < 1.0,
+                        "a photo zoom in from the corner left the turned view's limits"
+                    );
+                }
+            }
+            require(
+                match_zoom_ > photo_wide_ends[0] * 2.0F, "the photo corner zoom did not come in"
+            );
+            const auto photo_pulled = match_view_place();
+            require(
+                std::abs(photo_pulled[0] - photo_corner[0]) >= 1.0 ||
+                    std::abs(photo_pulled[1] - photo_corner[1]) >= 1.0,
+                "a photo zoom in from the corner did not pull the view back"
+            );
+            match_layout_ = photo_layout;
+            match_zoom_ = photo_zoom;
+            match_zoom_target_ = photo_zoom_target;
+            zoom_focus_ = photo_focus;
+            zoom_clock_ = photo_zoom_clock;
+            zoom_clock_valid_ = photo_zoom_clock_valid;
+            frame_time_ns_ = photo_time;
+            zoom_wheel_ = photo_wheel;
+            place_match_view(photo_place[0], photo_place[1]);
+            view_hold_ = photo_hold;
+        }
+        // A picture held in the turned view keeps its camera. A turn, a tilt,
+        // the wheel and the zoom keys are refused, a frame drawn under the
+        // hold moves nothing, and letting go gives back that same camera.
+        {
+            match_zoom_ = photo_ends[0];
+            match_zoom_target_ = photo_ends[0];
+            render_match_surface();
+            require(
+                live_renderer_active() && !live_renderer_failed(),
+                "the turned whole map was not drawn before the hold"
+            );
+            const std::array<float, 2> held_angles = live_camera_angles();
+            const int32_t held_x = match_camera_x_;
+            const int32_t held_z = match_camera_z_;
+            const auto camera_kept = [&] {
+                return live_camera_angles() == held_angles && match_camera_x_ == held_x &&
+                       match_camera_z_ == held_z && match_zoom_ == photo_ends[0] &&
+                       match_zoom_target_ == photo_ends[0];
+            };
+            shared_match.begin();
+            require(photo_hold_picture(), "the turned view did not hold the picture");
+            require(photo_picture_held(), "the turned view's picture is not held");
+            require(!photo_turn(15.0F), "a held picture accepted a turn");
+            require(!photo_tilt(-5.0F), "a held picture accepted a tilt");
+            handle_match_zoom(
+                1.0F,
+                static_cast<float>(match_layout_.left + match_layout_.battlefield_width() / 2),
+                static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2),
+                false
+            );
+            require(
+                zoom_match_from_key("camera.zoom-in-key"), "the held picture let the zoom key go"
+            );
+            require(camera_kept(), "a turn, a tilt or a zoom moved the held picture");
+            render_match_surface();
+            require(camera_kept(), "a frame drawn under the hold moved the held picture");
+            require(photo_hold_picture(), "the held picture was not let go");
+            shared_match.end();
+            require(!photo_picture_held(), "the turned view's picture stayed held");
+            require(camera_kept(), "letting go did not give back the turned camera");
+        }
+        // Classic view while the zoom is the whole map. The check's window
+        // can fit that map above Full's floor, so the frame is 320 by 240,
+        // where this map's whole view lies past the floor. The preferences
+        // keep the match below Full, and the headless flag blocks the card,
+        // so this one frame stands Full up as the classic capture does and
+        // puts it back. The zoom goes to Full's floor before the frame is
+        // drawn, and Full draws it.
+        match_layout_ = oa::ui::display_layout::make_battlefield_layout(320, 240);
+        const float whole_map = photo_zoom_limits()[0];
+        require(
+            whole_map < kMinFullBattlefieldZoom,
+            (std::string("the whole map is not past Full's floor (") + std::to_string(whole_map) +
+             ")")
+                .c_str()
+        );
+        // First the turned whole map at this size is held. Under Full, a
+        // failed turned frame leaves the view classic below the floor; the
+        // held picture keeps its zoom until it is let go.
+        match_zoom_ = whole_map;
+        match_zoom_target_ = whole_map;
+        render_match_surface();
+        require(
+            live_renderer_active() && !live_renderer_failed(),
+            "the turned whole map was not drawn at 320 by 240"
+        );
+        const std::array<float, 2> turned_angles = live_camera_angles();
+        shared_match.begin();
+        require(photo_hold_picture(), "the turned whole map was not held");
+        const bool was_headless = options_.headless_check;
+        const bool was_accelerated = accelerated_.on;
+        const auto saved_rung = accelerated_.rung;
+        const auto saved_texture_limit = accelerated_.texture_limit;
+        const bool was_layers = match_use_layers_;
+        SDL_Surface* full_canvas =
+            SDL_CreateSurface(match_layout_.width, match_layout_.height, SDL_PIXELFORMAT_XRGB8888);
+        require(full_canvas != nullptr, "the Full canvas allocation failed");
+        sdl_.renderer = SDL_CreateSoftwareRenderer(full_canvas);
+        if (sdl_.renderer == nullptr) {
+            SDL_DestroySurface(full_canvas);
+            require(false, "the windowless Full renderer failed");
+        }
+        bool full_released = false;
+        const auto release_full = [&] {
+            if (full_released)
+                return;
+            full_released = true;
+            set_full_presentation(false);
+            free_accelerated_presentation();
+            destroy_match_layer_textures();
+            accelerated_.on = was_accelerated;
+            accelerated_.rung = saved_rung;
+            accelerated_.texture_limit = saved_texture_limit;
+            match_use_layers_ = was_layers;
+            if (sdl_.renderer != nullptr) {
+                SDL_DestroyRenderer(sdl_.renderer);
+                sdl_.renderer = nullptr;
+            }
+            if (full_canvas != nullptr) {
+                SDL_DestroySurface(full_canvas);
+                full_canvas = nullptr;
+            }
+            options_.headless_check = was_headless;
+        };
+        try {
+            options_.headless_check = false;
+            switch_accelerated_presentation(true, saved_rung);
+            set_full_presentation(true);
+            require(full_presentation(), "Full did not come on for the classic frame");
+            require(live_renderer_active(), "standing Full up ended the turned view");
+            reset_live_renderer();
+            render_match_surface();
+            require(
+                match_zoom_ == whole_map && match_zoom_target_ == whole_map,
+                "the held picture's zoom was moved to Full's floor"
+            );
+            require(photo_hold_picture(), "the held whole map was not let go");
+            shared_match.end();
+            require(
+                match_zoom_ == whole_map && match_zoom_target_ == whole_map &&
+                    live_camera_angles() == turned_angles,
+                "letting go did not give back the turned whole map"
+            );
+            match_zoom_ = whole_map;
+            match_zoom_target_ = whole_map;
+            reset_live_renderer();
+            render_match_surface();
+            require(full_frame_drawn(), "Full did not draw the frame under its floor");
+            require(!far_view_frame(), "the processor drew Full's frame under its floor");
+            require(!live_renderer_active(), "the turned view stayed up after Classic view");
+            require(
+                match_zoom_ == kMinFullBattlefieldZoom &&
+                    match_zoom_target_ == kMinFullBattlefieldZoom,
+                "the zoom did not reach Full's floor in that frame"
+            );
+            release_full();
+        } catch (...) {
+            release_full();
+            throw;
+        }
+        leave_photo_mode();
+        require(!photo_mode(), "leaving did not end photo mode");
+        require(
+            near_angle(live_camera_angles()[0], 0.0F) && near_angle(live_camera_angles()[1], 0.0F),
+            "leaving did not put the classic orientation back"
+        );
+        require(!photo_turn(12.0F) && !photo_tilt(12.0F), "a turn outside photo mode was accepted");
+        require(photo_turn_reason().empty(), "a reason was given with photo mode closed");
+        require(
+            near_angle(live_camera_angles()[0], 0.0F) && near_angle(live_camera_angles()[1], 0.0F),
+            "a refused turn moved the camera"
+        );
+    }
     engine_settings_->current = saved_effect_settings;
     reset_live_renderer();
     return_to_skirmish_menu();

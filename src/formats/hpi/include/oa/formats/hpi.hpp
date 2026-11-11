@@ -1048,6 +1048,19 @@ class AssetStore {
     /// @param resource '\\'- or '/'-separated path, matched ignoring ASCII case
     /// @return the bytes, the providing path and whether it came from an archive
     [[nodiscard]] AssetData read(std::string_view resource) const;
+    /// Reads a whole resource as read() does, or returns nullopt when nothing provides it.
+    ///
+    /// The search is read()'s, and so are its errors for an invalid or
+    /// traversing path, an ambiguous loose case collision or a failing read.
+    /// A resource nothing provides, or one the mutator layer hides, is
+    /// nullopt instead of an error. Code that looks for files that may be
+    /// absent uses this: on 32-bit Windows the first C++ exception a run
+    /// throws pages in the program's unwind tables, over 4 MB of them.
+    ///
+    /// @param resource '\\'- or '/'-separated path, matched ignoring ASCII case
+    /// @return the bytes, the providing path and whether it came from an
+    ///         archive, or nullopt when nothing provides the resource
+    [[nodiscard]] std::optional<AssetData> read_if_present(std::string_view resource) const;
     /// Reads a resource as though one archive were not mounted.
     ///
     /// The mutator layer is not an archive, so it still answers: a path it
@@ -1340,6 +1353,13 @@ class AssetStore {
     /// @return the mount and node, or nullopt
     [[nodiscard]] std::optional<ArchivedNode>
     archived_node(std::string_view resource, const std::filesystem::path* skipped) const;
+    /// Reads a resource from a loose file or the mounts, optionally skipping one mount.
+    ///
+    /// @param resource '\\'- or '/'-separated path
+    /// @param skipped mount path to pass over, or null
+    /// @return the bytes and their source, or nullopt when nothing provides it
+    [[nodiscard]] std::optional<AssetData>
+    read_present_skipping(std::string_view resource, const std::filesystem::path* skipped) const;
     /// Reads a resource from a loose file or the mounts, optionally skipping one mount.
     ///
     /// @param resource '\\'- or '/'-separated path

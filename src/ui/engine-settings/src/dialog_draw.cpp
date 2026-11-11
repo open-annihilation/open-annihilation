@@ -10,6 +10,7 @@
 // controls named; draw_dialog paints it.
 
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/ui/kit/chrome.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
@@ -63,6 +64,29 @@ std::string named(std::string_view words) {
     return std::string(kNamePrefix) + "." + std::string(words);
 }
 
+/// Tells whether the focus ring is drawn on a control.
+///
+/// A caller that sets focused and leaves focus_shown at its default draws
+/// the ring. The dialog opens with the ring hidden.
+///
+/// @param dialog the dialog
+/// @param control the control
+/// @return true when that control's ring is drawn
+bool ring_on(const Dialog& dialog, int32_t control) noexcept {
+    return dialog.focus_shown && !dialog.pointer_hid_ring && dialog.focused == control;
+}
+
+/// Returns the control the rows draw a ring on.
+///
+/// None while the ring is hidden, so a focused control draws as it does
+/// with no focus.
+///
+/// @param dialog the dialog
+/// @return the focused control, or none
+int32_t row_focus(const Dialog& dialog) noexcept {
+    return dialog.focus_shown && !dialog.pointer_hid_ring ? dialog.focused : no_control;
+}
+
 /// The pieces of the list the dialog's parts go into: the items in the
 /// order they are drawn, and the controls grouped by the order a press
 /// tries them.
@@ -77,9 +101,10 @@ struct Building {
     std::vector<kit::Control> nav;        ///< the sections' entries
     std::vector<kit::Control> header;     ///< the title bar's close mark
     /// The open section's controls Tab stops on, in the declared order: its
-    /// rows that take a change, then on Developer its list's rows that take
-    /// input, Show Active Only and Restore profile values while it is
-    /// enabled. The footer's buttons and the sections' entries follow them.
+    /// card buttons and its rows that take a change, then on Developer its
+    /// list's rows that take input, Show Active Only and Restore profile
+    /// values while it is enabled. The section list is one stop before
+    /// these, and the footer's buttons and the close mark follow them.
     std::vector<kit::ControlId> section_tab;
     kit::Canvas measure{};      ///< what texts are measured in
     const DialogFonts* fonts{}; ///< the fonts; null to estimate widths
@@ -353,7 +378,7 @@ void add_nav(Building& building, const Dialog& dialog) {
         entry.rect = drawn;
         entry.selected = selected;
         entry.hovered = hovered;
-        entry.focused = dialog.focused == piece.control;
+        entry.focused = ring_on(dialog, piece.control);
         nav.entries.push_back(std::move(entry));
         shown.push_back({drawn, &piece, selected || hovered});
     }
@@ -463,7 +488,7 @@ void add_registered_rows(Building& building, const Dialog& dialog) {
     state.name_prefix = std::string(kNamePrefix) + "." + page.id;
     state.hovered = dialog.hovered;
     state.pressed = dialog.pressed;
-    state.focused = dialog.focused;
+    state.focused = row_focus(dialog);
     state.group = layout::section_group;
     state.clip = sized.view_clip;
     kit::DisplayList rows;
@@ -551,7 +576,7 @@ void add_list_row(
     const bool takes = header || !row.locked;
     const bool hovered = takes && row.control != no_control &&
                          (dialog.hovered == row.control || dialog.pressed == row.control);
-    const bool focused = takes && row.control != no_control && dialog.focused == row.control;
+    const bool focused = takes && ring_on(dialog, row.control);
     if (row.kind == layout::ListRowKind::area && !first)
         fill(list, {sized.content_left, row.top, sized.content_width, 1}, kit::colour::rule, clip);
     if (header && hovered)
@@ -731,7 +756,7 @@ void add_developer(Building& building, const Dialog& dialog, const layout::Scrol
     const kit::SwitchLook active =
         switch_look(dialog.developer.active_only, hot(active_only_control), false);
     toggle(list, open.active_only_switch, active, active_only_control, footer_clip);
-    if (dialog.focused == active_only_control)
+    if (ring_on(dialog, active_only_control))
         focus_ring(list, open.active_only_switch, true, footer_clip);
     kit::Control active_only = control_of(
         active_only_control, open.active_only_switch, named("active-only"), kit::ControlKind::toggle
@@ -761,7 +786,7 @@ void add_developer(Building& building, const Dialog& dialog, const layout::Scrol
         restore_profile_control,
         footer_clip
     );
-    if (enabled && dialog.focused == restore_profile_control)
+    if (enabled && ring_on(dialog, restore_profile_control))
         focus_ring(list, restore, true, footer_clip);
     kit::Control restore_profile = control_of(
         restore_profile_control, restore, named("restore-profile-values"), kit::ControlKind::button
@@ -833,7 +858,7 @@ void card_button(
     };
     look.font = DialogFont::regular;
     button(building.list, rect, std::move(look), control, sized.view_clip);
-    if (enabled && dialog.focused == control)
+    if (enabled && ring_on(dialog, control))
         focus_ring(building.list, rect, true, sized.view_clip);
     kit::Control added = control_of(control, card, std::move(name), kit::ControlKind::button);
     // A press reaches the button where the view shows it. Scrolled out of
@@ -999,6 +1024,68 @@ void add_practice_pad(Building& building, const Dialog& dialog, const SourceRect
     );
 }
 
+/// Draws the colour-vision preview: ten player colours, then OK, caution,
+/// danger and information, from the colour-vision module.
+///
+/// @param[in,out] list the display list
+/// @param dialog the dialog
+/// @param placed the section's rows
+/// @param clip the section's view
+void add_colour_preview(
+    kit::DisplayList& list,
+    const Dialog& dialog,
+    const kit::PlacedRows& placed,
+    const SourceRect& clip
+) {
+    if (dialog.page != Page::accessibility)
+        return;
+    const kit::PlacedRow* preview = nullptr;
+    for (const kit::PlacedRow& row : placed.rows) {
+        if (row.view.id == "colour-preview") {
+            preview = &row;
+            break;
+        }
+    }
+    if (preview == nullptr || preview->label.width <= 0 || preview->label.height <= 0)
+        return;
+    namespace vision = oa::present::colour_vision;
+    static_assert(
+        static_cast<uint8_t>(ColourVision::off) == static_cast<uint8_t>(vision::Mode::off)
+    );
+    static_assert(
+        static_cast<uint8_t>(ColourVision::achromatopsia) ==
+        static_cast<uint8_t>(vision::Mode::achromatopsia)
+    );
+    const auto mode = static_cast<vision::Mode>(static_cast<uint8_t>(dialog.chosen.colour_vision));
+    constexpr int32_t chip = 12;
+    constexpr int32_t gap = 4;
+    constexpr int32_t group = 10;
+    constexpr int32_t players = vision::kPlayerCount;
+    constexpr int32_t states = 4;
+    constexpr int32_t chips = players + states;
+    const int32_t span = chips * chip + (chips - 2) * gap + group;
+    int32_t left = preview->label.x + preview->label.width - span;
+    if (left < preview->label.x)
+        left = preview->label.x;
+    const int32_t top = preview->label.y + (preview->label.height - chip) / 2;
+    vision::Rgb swatch[static_cast<std::size_t>(chips)];
+    for (int player = 0; player < players; ++player)
+        swatch[player] = vision::preview_player_srgb(mode, player);
+    const vision::SemanticColours semantic = vision::semantic_colours(mode);
+    swatch[players] = semantic.kit_ok;
+    swatch[players + 1] = semantic.kit_caution;
+    swatch[players + 2] = semantic.kit_danger;
+    swatch[players + 3] = semantic.kit_information;
+    int32_t column = left;
+    for (int at = 0; at < chips; ++at) {
+        const vision::Rgb colour = swatch[at];
+        fill(list, {column, top, chip, chip}, {colour.red, colour.green, colour.blue, 255}, clip);
+        column += chip;
+        if (at + 1 < chips)
+            column += at + 1 == players ? group : gap;
+    }
+}
+
 /// Adds the open section: its heading, its rows clipped to the view they
 /// scroll in, and its scroll bar while they scroll; on Developer, its list
 /// and the list's footer under its rows.
@@ -1042,7 +1129,7 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
     state.name_prefix = std::string(kNamePrefix);
     state.hovered = dialog.hovered;
     state.pressed = dialog.pressed;
-    state.focused = dialog.focused;
+    state.focused = row_focus(dialog);
     state.open_menu = dialog.open_list;
     state.marked_button = static_cast<std::size_t>(dialog.folder_marked);
     state.hovered_button = dialog.folder_hovered;
@@ -1069,6 +1156,7 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
     kit::add_rows(rows, drawn_rows, state);
     for (kit::Item& added : rows.items)
         list.items.push_back(std::move(added));
+    add_colour_preview(list, dialog, placed, sized.view_clip);
     std::vector<kit::ControlId> card_tab;
     if (key_row.has_value())
         add_key_card(building, dialog, *key_row, card_tab);
@@ -1157,7 +1245,7 @@ void add_header_close(Building& building, const Dialog& dialog) {
     look.held = held;
     look.mark = kit::ButtonMark::close;
     button(building.list, rect, look, close_x_control, {});
-    if (dialog.focused == close_x_control)
+    if (ring_on(dialog, close_x_control))
         focus_ring(building.list, rect, true, {});
     kit::Control added =
         control_of(close_x_control, rect, named("close-x"), kit::ControlKind::button);
@@ -1212,7 +1300,7 @@ void add_footer(Building& building, const Dialog& dialog) {
         // action, in the small font; Cancel and OK read in the regular one.
         look.font = footer.control == restore_control ? DialogFont::small : DialogFont::regular;
         button(building.list, rect, std::move(look), footer.control, {});
-        if (dialog.focused == footer.control)
+        if (ring_on(dialog, footer.control))
             focus_ring(building.list, rect, true, {});
         kit::Control added =
             control_of(footer.control, rect, named(footer.name), kit::ControlKind::button);
@@ -1281,7 +1369,7 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
                       : updates_choice ? updates::choice_index(dialog, row)
                                        : kit::row_index(spec, model);
         look.marked = dialog.list_marked;
-        look.focus_shown = dialog.focused != no_control;
+        look.focus_shown = row_focus(dialog) != no_control;
         layout::fill_language_menu(dialog, row.setting, look);
         for (int32_t place = 0; place < shown; ++place) {
             const int32_t choice = dialog.list_first + place;
@@ -1397,15 +1485,36 @@ kit::DisplayList dialog_list(const Dialog& dialog, const DialogFonts* fonts) {
     // An open drop-down list lies over everything else.
     add_open_menu(building, dialog, open);
     kit::DisplayList list = std::move(building.list);
-    // Tab: the open section's controls, the footer's buttons left to right,
-    // then the sections' entries in the list's order.
-    list.tab_order = std::move(building.section_tab);
-    // Tab still reaches the rows, the footer and the list first. The close
-    // mark is the title bar's only stop, so it is last in that order, and
-    // last overall.
-    for (const auto* group : {&building.footer, &building.nav, &building.header})
-        for (const kit::Control& control : *group)
-            list.tab_order.push_back(control.id);
+    // Tab: the section list is one stop, then the open section's controls,
+    // the footer's buttons left to right, and the close mark last. The
+    // entries are the list's parts, not stops of their own.
+    list.tab_order.clear();
+    if (!building.nav.empty()) {
+        kit::Composite composite;
+        composite.id = section_list_control;
+        composite.axis = kit::CompositeAxis::column;
+        composite.role = kit::CompositeRole::tab_list;
+        composite.name = named("sections");
+        int32_t checked = no_control;
+        for (const kit::Control& control : building.nav) {
+            composite.parts.push_back(control.id);
+            if (checked == no_control && control.checked)
+                checked = control.id;
+        }
+        const bool remembered =
+            std::find(composite.parts.begin(), composite.parts.end(), dialog.nav_part) !=
+            composite.parts.end();
+        composite.current = remembered ? dialog.nav_part : checked;
+        list.composites.push_back(std::move(composite));
+        list.tab_order.push_back(section_list_control);
+    }
+    list.tab_order.insert(
+        list.tab_order.end(), building.section_tab.begin(), building.section_tab.end()
+    );
+    for (const kit::Control& control : building.footer)
+        list.tab_order.push_back(control.id);
+    for (const kit::Control& control : building.header)
+        list.tab_order.push_back(control.id);
     for (auto* group :
          {&building.menu,
           &building.developer,

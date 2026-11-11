@@ -476,28 +476,19 @@ void focus_moves_by_geometry() {
         list = laid_out(browser, state, each.frame);
         const kit::Control* focused = kit::control_of(list, state.interaction.focused);
         OA_CHECK(focused != nullptr && kit::wholly_in(focused->rect, focused->clip));
-        // Up from the first row leaves the grid for the bar above it.
+        // Up from the first row stays in the grid. Tab leaves it for Cancel.
         state.interaction.focused = first;
         state.scroll = 0;
         list = laid_out(browser, state, each.frame);
         std::ignore = mb::browser_key(browser, state, list, kit::Key::up);
-        const kit::Control* above = kit::control_of(list, state.interaction.focused);
-        OA_CHECK(above != nullptr && !above->name.starts_with(mb::name_card_prefix));
-        const std::vector<const kit::Control*> now = card_controls(list);
-        OA_CHECK(above != nullptr && !now.empty() && above->rect.y < now[0]->rect.y);
+        OA_CHECK(state.interaction.focused == first);
+        std::ignore = mb::browser_key(browser, state, list, kit::Key::tab);
+        const kit::Control* cancel = kit::control_of(list, state.interaction.focused);
+        OA_CHECK(cancel != nullptr && cancel->name == mb::name_cancel);
     }
 }
 
 void tab_follows_the_declared_order() {
-    const std::array<std::string_view, 7> bar_order{
-        mb::name_filter_all,
-        mb::name_filter_game,
-        mb::name_filter_mod,
-        mb::name_filter_downloads,
-        mb::name_players,
-        mb::name_sizes,
-        mb::name_search,
-    };
     for (const ClassFrame& each : frames()) {
         mb::Browser browser = many_maps();
         // The selected card is where Tab enters the grid.
@@ -507,22 +498,36 @@ void tab_follows_the_declared_order() {
                 isle = index;
         browser.selected = isle;
         mb::ScreenState state;
+        const kit::DisplayList opened = laid_out(browser, state, each.frame);
+        bool columns = false;
+        for (const kit::Composite& composite : opened.composites)
+            if (composite.name == mb::name_cards)
+                columns = composite.columns == static_cast<int32_t>(each.columns) &&
+                          composite.axis == kit::CompositeAxis::grid;
+        OA_CHECK(columns);
         std::vector<std::string> walked;
-        for (int32_t step = 0; step < 11; ++step) {
+        for (int32_t step = 0; step < 8; ++step) {
             const kit::DisplayList list = laid_out(browser, state, each.frame);
             std::ignore = mb::browser_key(browser, state, list, kit::Key::tab);
             const kit::DisplayList after = laid_out(browser, state, each.frame);
             const kit::Control* control = kit::control_of(after, state.interaction.focused);
             walked.push_back(control != nullptr ? control->name : std::string());
         }
-        for (std::size_t index = 0; index < bar_order.size(); ++index)
-            OA_CHECK(walked[index] == bar_order[index]);
-        OA_CHECK(walked[7] == "maps-card-isle-of-ashes-archipelago");
-        OA_CHECK(walked[8] == mb::name_cancel);
-        OA_CHECK(walked[9] == mb::name_select);
-        OA_CHECK(walked[10] == mb::name_close);
-        // Shift+Tab from the close mark goes back to the grid at the selected card.
+        // The screen opens on All, so the first Tab is the players strip and
+        // the eighth wraps back to All. The source pills are one stop, and so
+        // are the cards; each strip is a stop of its own.
+        OA_CHECK(walked[0] == mb::name_players);
+        OA_CHECK(walked[1] == mb::name_sizes);
+        OA_CHECK(walked[2] == mb::name_search);
+        OA_CHECK(walked[3] == "maps-card-isle-of-ashes-archipelago");
+        OA_CHECK(walked[4] == mb::name_cancel);
+        OA_CHECK(walked[5] == mb::name_select);
+        OA_CHECK(walked[6] == mb::name_close);
+        OA_CHECK(walked[7] == mb::name_filter_all);
+        // Shift+Tab from All goes back through Close, Select and Cancel to the card.
         kit::DisplayList list = laid_out(browser, state, each.frame);
+        std::ignore = mb::browser_key(browser, state, list, kit::Key::back_tab);
+        list = laid_out(browser, state, each.frame);
         std::ignore = mb::browser_key(browser, state, list, kit::Key::back_tab);
         list = laid_out(browser, state, each.frame);
         std::ignore = mb::browser_key(browser, state, list, kit::Key::back_tab);
@@ -533,6 +538,95 @@ void tab_follows_the_declared_order() {
         OA_CHECK(control != nullptr && control->name == "maps-card-isle-of-ashes-archipelago");
         OA_CHECK(control != nullptr && kit::wholly_in(control->rect, control->clip));
     }
+}
+
+/// The browser opens on All with the ring hidden. The first Tab is the
+/// players strip, Shift+Tab is Close, Return with the ring hidden chooses when
+/// Select can, and Return on Close presses it and hides the ring.
+void the_screen_opens_on_its_first_stop() {
+    const kit::Frame frame = frames()[1].frame;
+    mb::Browser browser = many_maps();
+    mb::ScreenState opened;
+    const kit::DisplayList list = laid_out(browser, opened, frame);
+    OA_CHECK(!list.tab_order.empty());
+    if (list.tab_order.empty())
+        return;
+    const kit::Control* all_stop = named(list, mb::name_filter_all);
+    OA_CHECK(all_stop != nullptr);
+    if (all_stop == nullptr)
+        return;
+    const kit::ControlId first = all_stop->id;
+    kit::focus_opened(opened.interaction, list, false);
+    OA_CHECK(opened.interaction.focused == first && !opened.interaction.focus_shown);
+    OA_CHECK(all_stop->name == mb::name_filter_all);
+
+    std::ignore = mb::browser_key(browser, opened, list, kit::Key::tab);
+    const kit::Control* second = kit::control_of(list, opened.interaction.focused);
+    OA_CHECK(second != nullptr && second->name == mb::name_players);
+    OA_CHECK(opened.interaction.focus_shown);
+
+    mb::Browser backing = many_maps();
+    mb::ScreenState back;
+    const kit::DisplayList back_list = laid_out(backing, back, frame);
+    kit::focus_opened(back.interaction, back_list, false);
+    std::ignore = mb::browser_key(backing, back, back_list, kit::Key::back_tab);
+    const kit::Control* last = kit::control_of(back_list, back.interaction.focused);
+    OA_CHECK(last != nullptr && last->name == mb::name_close);
+    OA_CHECK(back.interaction.focus_shown);
+
+    mb::Browser plain_browser = many_maps();
+    mb::ScreenState plain;
+    const kit::DisplayList plain_list = laid_out(plain_browser, plain, frame);
+    const kit::Control* select = named(plain_list, mb::name_select);
+    const bool can_choose = select != nullptr && select->enabled;
+    kit::focus_opened(plain.interaction, plain_list, false);
+    const mb::ScreenResult accepted =
+        mb::browser_key(plain_browser, plain, plain_list, kit::Key::enter);
+    OA_CHECK(accepted.action == (can_choose ? mb::BrowserAction::choose : mb::BrowserAction::none));
+    const kit::Control* plain_all = named(plain_list, mb::name_filter_all);
+    OA_CHECK(plain_all != nullptr && plain.interaction.focused == plain_all->id);
+    OA_CHECK(!plain.interaction.focus_shown);
+
+    mb::Browser shown_browser = many_maps();
+    mb::ScreenState shown;
+    const kit::DisplayList shown_list = laid_out(shown_browser, shown, frame);
+    const kit::Control* close = named(shown_list, mb::name_close);
+    OA_CHECK(close != nullptr && close->enabled);
+    if (close == nullptr)
+        return;
+    shown.interaction.focused = close->id;
+    shown.interaction.focus_shown = true;
+    const mb::ScreenResult closed =
+        mb::browser_key(shown_browser, shown, shown_list, kit::Key::enter);
+    OA_CHECK(closed.action == mb::BrowserAction::cancel);
+    OA_CHECK(!shown.interaction.focus_shown);
+}
+
+/// A click in the search, a pointer move and then typing leave the text in
+/// the field, and the field is still drawn focused.
+void a_pointer_move_keeps_the_search() {
+    const kit::Frame frame = frames()[1].frame;
+    mb::Browser browser = many_maps();
+    mb::ScreenState state;
+    kit::DisplayList list = laid_out(browser, state, frame);
+    std::ignore = press(browser, state, list, mb::name_search);
+    OA_CHECK(mb::focused_field(state, list).has_value());
+    const kit::Control* search = named(list, mb::name_search);
+    OA_CHECK(search != nullptr);
+    if (search == nullptr)
+        return;
+    const kit::Point away{search->rect.x, search->rect.y + search->rect.height + 30};
+    std::ignore = mb::browser_pointer(browser, state, list, mb::PointerKind::move, 0, away, 0);
+    OA_CHECK(mb::focused_field(state, list).has_value());
+    std::ignore = mb::browser_text(browser, state, list, "isle");
+    OA_CHECK(browser.filters.query == "isle");
+    list = laid_out(browser, state, frame);
+    bool drawn = false;
+    for (const kit::Item& item : list.items)
+        if (const auto* look = std::get_if<kit::SearchLook>(&item.look))
+            if (look->focused && look->field.text == "isle")
+                drawn = true;
+    OA_CHECK(drawn);
 }
 
 void pointer_and_keys() {
@@ -567,13 +661,28 @@ void pointer_and_keys() {
     list = laid_out(browser, state, frame);
     std::ignore = press(browser, state, list, "maps-size.any");
     OA_CHECK(!browser.filters.players && !browser.filters.size);
-    // Left and Right step the focused strip, and stop at the ends. Enter and
-    // Space on it leave the choice and do not accept the dialog.
+    // Right walks the source pills and stays on Downloads, changing no
+    // filter. Tab goes on to the players strip, then the sizes strip, so any
+    // pair of choices can be made. Left and Right step the focused strip,
+    // and stop at the ends. Enter and Space on it leave the choice and do
+    // not accept the dialog.
     list = laid_out(browser, state, frame);
-    state.interaction.focused = kit::control_named(list, mb::name_players);
+    state.interaction.focused = kit::control_named(list, mb::name_filter_all);
     state.interaction.focus_shown = true;
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::right);
+    OA_CHECK(state.interaction.focused == kit::control_named(list, mb::name_filter_game));
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::right);
+    OA_CHECK(state.interaction.focused == kit::control_named(list, mb::name_filter_mod));
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::right);
+    OA_CHECK(state.interaction.focused == kit::control_named(list, mb::name_filter_downloads));
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::right);
+    OA_CHECK(state.interaction.focused == kit::control_named(list, mb::name_filter_downloads));
+    OA_CHECK(!browser.filters.players && !browser.filters.size);
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::tab);
+    OA_CHECK(state.interaction.focused == kit::control_named(list, mb::name_players));
     mb::ScreenResult stepped = mb::browser_key(browser, state, list, kit::Key::left);
     OA_CHECK(stepped.action == mb::BrowserAction::none && !browser.filters.players);
+    OA_CHECK(state.interaction.focused == kit::control_named(list, mb::name_players));
     stepped = mb::browser_key(browser, state, list, kit::Key::right);
     OA_CHECK(browser.filters.players && *browser.filters.players == 2);
     list = laid_out(browser, state, frame);
@@ -583,6 +692,14 @@ void pointer_and_keys() {
     OA_CHECK(stepped.action == mb::BrowserAction::none && !browser.filters.players);
     stepped = mb::browser_key(browser, state, list, kit::Key::space);
     OA_CHECK(stepped.action == mb::BrowserAction::none && !browser.filters.players);
+    // The sizes strip is the next stop, reached with the players strip left on Any.
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::tab);
+    OA_CHECK(state.interaction.focused == kit::control_named(list, mb::name_sizes));
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::right);
+    OA_CHECK(!browser.filters.players && browser.filters.size);
+    list = laid_out(browser, state, frame);
+    std::ignore = mb::browser_key(browser, state, list, kit::Key::left);
+    OA_CHECK(!browser.filters.players && !browser.filters.size);
 
     // Typing in the search filters as it goes.
     list = laid_out(browser, state, frame);
@@ -1235,6 +1352,8 @@ void layout_tests() {
     pictures_asked_for_the_view_alone();
     focus_moves_by_geometry();
     tab_follows_the_declared_order();
+    the_screen_opens_on_its_first_stop();
+    a_pointer_move_keeps_the_search();
     pointer_and_keys();
     wheel_and_drag_scroll();
     scroll_bar_drags();

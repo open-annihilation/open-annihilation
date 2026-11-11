@@ -713,16 +713,22 @@ void Runtime::check_brain_picker() {
         std::cout << "brain picker check: the keyboard reached Calm and USE THIS" << on << "\n";
 
         open_picker(steady_choice(), on);
-        require(
-            oa_layer().take_pad_action(pad::Action::focus_next), "the controller did not focus" + on
-        );
-        frames(1);
         if (compact) {
+            // The ring is hidden, so Down shows it on the list and does not
+            // move the selection. Enter on that list opens the details on the
+            // level. The first focus-next would land on DETAILS instead.
+            require(
+                oa_layer().take_pad_action(pad::Action::focus_down),
+                "the controller did not focus the list" + on
+            );
+            frames(1);
             require(
                 oa_layer().take_pad_action(pad::Action::press),
                 "the controller did not open the details" + on
             );
         } else {
+            // The first focus-next moves on from the list, and the level is
+            // the next stop.
             require(
                 oa_layer().take_pad_action(pad::Action::focus_next),
                 "the controller did not reach the level" + on

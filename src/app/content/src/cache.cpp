@@ -4,11 +4,13 @@
 // The catalogue cache under <data>/content/catalogues/<registry id>/.
 #include "service_state.hpp"
 
+#include "oa/data/catalogue/releases.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/platform/files.hpp"
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <optional>
 #include <span>
@@ -288,6 +290,24 @@ void read_cache(ServiceState& state, RegistryRecord& record) {
     record.served_from = note.source;
     record.refresh_failed = false;
     record.sources = sources_of(record);
+    record.releases.reset();
+    record.releases_digest.reset();
+    if (!record.catalogue->releases.has_value())
+        return;
+    const ReadFile releases_file =
+        read_limited(directory / "releases.json", data::catalogue::max_catalogue_bytes);
+    if (releases_file.kind != ReadKind::ok)
+        return;
+    data::catalogue::ReleasesTake taken = data::catalogue::ReleasesTake::mismatch;
+    data::catalogue::HeldReleases held = data::catalogue::take_releases(
+        *record.catalogue->releases, releases_file.bytes, {}, &taken
+    );
+    if (taken != data::catalogue::ReleasesTake::taken) {
+        log_line(state, "cache of " + id + ": the cached releases list was not kept");
+        return;
+    }
+    record.releases_digest = held.digest;
+    record.releases = std::make_shared<const data::catalogue::ReleasesList>(std::move(held.list));
 }
 
 void write_cache(
@@ -331,6 +351,19 @@ void write_cache(
         ))
         log_line(
             state, "cache of " + std::string(id) + ": the catalogue state was not saved: " + error
+        );
+}
+
+void write_releases_cache(
+    const ServiceState& state, std::string_view id, std::span<const uint8_t> bytes
+) {
+    const fs::path directory = cache_directory(state, id);
+    if (directory.empty())
+        return;
+    std::string error;
+    if (!replace_bytes(directory / "releases.json", bytes, error))
+        log_line(
+            state, "cache of " + std::string(id) + ": the releases list was not saved: " + error
         );
 }
 

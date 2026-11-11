@@ -289,7 +289,7 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     /// @param registry_id the registry a mirror is for; empty otherwise
     AddRegistryScreen(Runtime& runtime, settings::AddRegistry window, std::string registry_id)
         : runtime_(runtime), model_(std::move(window)), registry_id_(std::move(registry_id)) {
-        settings::add_registry_settle(model_);
+        settle();
         hold.live = this;
     }
 
@@ -300,6 +300,13 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
     ///
     /// @param keys their fingerprints
     void set_mirror_keys(std::vector<std::string> keys) { mirror_keys_ = std::move(keys); }
+
+    /// Places the window's first focus, with the ring shown while Always
+    /// show focus asks for it.
+    void settle() {
+        settings::add_registry_settle(model_);
+        model_.interaction.focus_shown = runtime_.oa_layer().always_show_focus();
+    }
 
     /// Forgets itself if it is still the window showing.
     ~AddRegistryScreen() override {
@@ -536,7 +543,7 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
         model_.checking = std::move(address);
         model_.phase = settings::AddRegistry::Phase::checking;
         model_.shown = {};
-        settings::add_registry_settle(model_);
+        settle();
         ++revision_;
     }
 
@@ -548,7 +555,7 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
         model_.shown = {};
         model_.shown.refusal = std::move(sentence);
         model_.phase = settings::AddRegistry::Phase::refused;
-        settings::add_registry_settle(model_);
+        settle();
         ++revision_;
         log_line("refused: " + model_.shown.refusal);
     }
@@ -624,7 +631,7 @@ struct Runtime::AddRegistryScreen final : LayerScreen {
                 model_.shown.icon_registry, model_.shown.icon_url
             );
         model_.phase = settings::AddRegistry::Phase::ready;
-        settings::add_registry_settle(model_);
+        settle();
         ++revision_;
     }
 

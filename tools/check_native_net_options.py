@@ -31,6 +31,7 @@ import sys
 import tempfile
 import threading
 import time
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -44,9 +45,17 @@ LINE_TIMEOUT = 120
 # The address and name a joiner's preferences hold before the run.
 STORED_ADDRESS = "192.0.2.7"
 STORED_NAME = "Stored"
-PREFERENCES = ('open-annihilation-preferences 1\n'
+PREFERENCES = ('open-annihilation-preferences 1\n"open-annihilation.update-check" "never"\n"open-annihilation.content-updates" "never"\n'
                f'"multiplayer|tcpaddr" "{STORED_ADDRESS}"\n'
                f'"Total Annihilation|Nickname" "{STORED_NAME}"\n')
+
+# A launch whose preferences file nothing wrote runs on the defaults, with both
+# online checks on. This is the file such a launch starts from.
+OFFLINE_PREFERENCES = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"\n'
+)
 
 
 class NetOptionsFailure(Exception):
@@ -71,9 +80,13 @@ class Game:
         environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy",
                            SDL_RENDER_DRIVER="software")
         self.preferences = workdir / f"{name}.conf"
+        if not self.preferences.exists():
+            self.preferences.write_text(OFFLINE_PREFERENCES, encoding="utf-8")
+        data_dir = workdir / f"{name}.data"
+        data_dir.mkdir(exist_ok=True)
         self.process = subprocess.Popen(
             [*RUNNER, str(native), "--game-dir", str(game_dir), "--mute",
-             "--preferences-file", str(self.preferences), *arguments],
+             "--preferences-file", str(self.preferences), "--data-dir", str(data_dir), *arguments],
             cwd=workdir, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, errors="replace")
         threading.Thread(target=self._read, daemon=True).start()

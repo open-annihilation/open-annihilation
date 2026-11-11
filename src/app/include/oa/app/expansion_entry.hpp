@@ -6,12 +6,13 @@
 // other header of the engine: an extension that includes it links
 // oa::app::headers and needs no more of the engine's.
 //
-// An entry runs in this order: the online features (the update check and
-// the catalogue check) are on, the latest Open Annihilation is running,
-// the mod is switched off, and the latest package of the expansion is
-// installed and in use. Only then is it ready. A quiet run (nobody to
-// answer) asks nothing in the first two steps, changes no setting and logs
-// what a player would have been asked.
+// An entry runs in this order: the online features (the update check, the
+// catalogue check, and a needed install ID of the registry the entry
+// picked) are on, the latest Open Annihilation is running, the mod is
+// switched off, and the latest package of the expansion is installed and
+// in use. Only then is it ready. A quiet run (nobody to answer) asks
+// nothing in the first two steps, changes no setting and logs what a
+// player would have been asked.
 #pragma once
 
 #include <cstddef>
@@ -82,6 +83,12 @@ struct ExpansionEntryAsk {
     std::string progress{};     ///< the progress line; "{percent}" is replaced
     /// The question that asks to turn the online features on.
     std::string services_question{};
+    /// The same question when it also names one registry's install ID.
+    /// "{registry}" is that registry's name.
+    std::string services_and_id_question{};
+    /// The question that names only that registry's install ID.
+    /// "{registry}" is that registry's name.
+    std::string install_id_question{};
     std::string turn_on_label{}; ///< the button that turns them on and goes on
     /// The sentence a failed update check shows.
     std::string retry_question{};
@@ -544,20 +551,78 @@ void turn_on_online_checks(Values& values) {
 
 /// What the entry does about the online features.
 enum class ServicesDecision {
-    proceed, ///< both checks are on
+    proceed, ///< the checks are on, and no needed install ID is off
     ask,     ///< a player is asked to turn them on
     note,    ///< a quiet run logs the question and goes on as it always has
 };
+
+/// The install ID of the registry the entry picked, when that registry is known.
+///
+/// A registry that is not known yet, or whose descriptor does not require an
+/// install ID, is not part of the question. An off key for any other
+/// registry is not read.
+struct InstallIdFeature {
+    bool needed{false}; ///< the picked registry requires an install ID
+    bool off{false};    ///< that registry's install ID is off
+};
+
+/// Which sentence asks about the online features.
+enum class ServicesWording {
+    checks,        ///< the update check and the catalogue check
+    checks_and_id, ///< those checks and the registry's install ID
+    install_id,    ///< the registry's install ID alone
+};
+
+/// The question the entry would ask, and which features that sentence names.
+struct NamedServices {
+    ServicesDecision decision{ServicesDecision::proceed}; ///< ask, note or go on
+    ServicesWording wording{ServicesWording::checks};     ///< which sentence
+    bool names_updates{false};                            ///< the sentence names the update check
+    bool names_catalogue{false};  ///< the sentence names the catalogue check
+    bool names_install_id{false}; ///< the sentence names the install ID
+};
+
+/// Decides what the entry does about the online features, and which it names.
+///
+/// Either check being off names both checks, which is the sentence the
+/// checks have always used. A needed install ID that is off is named with
+/// them when a check is also off, and on its own when the checks are on.
+/// An install ID that is not required is never named, even when its key is
+/// off.
+///
+/// @param checks the two checks
+/// @param feature the picked registry's install ID; empty when it is not known
+/// @param way who is asking
+/// @return the decision and the sentence
+[[nodiscard]] inline NamedServices
+named_services(OnlineChecks checks, InstallIdFeature feature, EntryWay way) noexcept {
+    NamedServices named;
+    const bool checks_off = !checks.updates || !checks.catalogue;
+    const bool id_off = feature.needed && feature.off;
+    if (!checks_off && !id_off)
+        return named;
+    named.decision = way == EntryWay::quiet ? ServicesDecision::note : ServicesDecision::ask;
+    named.names_updates = checks_off;
+    named.names_catalogue = checks_off;
+    named.names_install_id = id_off;
+    if (checks_off && id_off)
+        named.wording = ServicesWording::checks_and_id;
+    else if (id_off)
+        named.wording = ServicesWording::install_id;
+    else
+        named.wording = ServicesWording::checks;
+    return named;
+}
 
 /// Decides what the entry does about the online features.
 ///
 /// @param checks the two checks
 /// @param way who is asking
-/// @return proceed when both are on; otherwise ask a player, and note a quiet run
-[[nodiscard]] inline ServicesDecision decide_services(OnlineChecks checks, EntryWay way) noexcept {
-    if (checks.updates && checks.catalogue)
-        return ServicesDecision::proceed;
-    return way == EntryWay::quiet ? ServicesDecision::note : ServicesDecision::ask;
+/// @param feature the picked registry's install ID; empty when it is not known
+/// @return proceed when nothing is off; otherwise ask a player, and note a quiet run
+[[nodiscard]] inline ServicesDecision
+decide_services(OnlineChecks checks, EntryWay way, InstallIdFeature feature = {}) noexcept {
+    return named_services(checks, feature, way).decision;
 }
 
 /// The answers to the question about the online features.
@@ -754,6 +819,29 @@ fill_entry_token(std::string_view pattern, std::string_view token, std::string_v
     if (at != std::string::npos)
         text.replace(at, token.size(), value);
     return text;
+}
+
+/// The sentence the online-features question shows.
+///
+/// The checks' sentence is unchanged. The other two replace "{registry}"
+/// with the registry's name.
+///
+/// @param ask the sentences
+/// @param wording which sentence
+/// @param registry_name the registry's name
+/// @return the sentence to show
+[[nodiscard]] inline std::string services_sentence(
+    const ExpansionEntryAsk& ask, ServicesWording wording, std::string_view registry_name
+) {
+    switch (wording) {
+    case ServicesWording::checks_and_id:
+        return fill_entry_token(ask.services_and_id_question, "{registry}", registry_name);
+    case ServicesWording::install_id:
+        return fill_entry_token(ask.install_id_question, "{registry}", registry_name);
+    case ServicesWording::checks:
+        break;
+    }
+    return ask.services_question;
 }
 
 /// Builds one of the questions the entry asks before the package.

@@ -11,7 +11,8 @@ side-prompt replay covers a member's login and that prompt. The contents
 replay covers news, ladders and help, and a message box. The beta replay
 covers a Beta Tester's account: battles to join, matchmaking, a locator
 search and quick play's options. Nothing is dialled, and nothing launches a
-battle. The guest password stays empty.
+battle. Each launch logs in as a registered player. The name and password
+are made up; the replay does not check them.
 
 Each step is logged as it starts. A failure names the launch and the step,
 and the last screen: its name, its dialogs and the controls on it. The
@@ -32,6 +33,7 @@ import time
 
 _TOOLS = Path(__file__).resolve().parents[4] / "tools"
 sys.path.insert(0, str(_TOOLS))
+import native_offline  # noqa: E402
 import check_native_automation as automation  # noqa: E402
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
@@ -399,32 +401,22 @@ def dismiss_registration(client):
     raise Failure("registration did not open the web page, a form, or a message box")
 
 
-def guest_login(client, user_name):
-    """Enters as the replay's guest and waits until the war map is up."""
-    step("waiting for the login console")
-    wait_control(client, "Guest Login")
-    dismiss_registration(client)
-    step("waiting for the login console after registration")
-    wait_control(client, "Guest Login")
-    step("choosing Guest Login and typing the name")
-    click_named(client, "Guest Login")
-    type_into(client, "Username", user_name)
-    step("pressing LOGIN")
-    click_named(client, "LOGIN")
-    step("waiting for the war map")
-    wait_for_war_map(client)
+def member_login(client, user_name, *, registration=False):
+    """Logs in as a registered player.
 
-
-def member_login(client, user_name):
-    """Logs in as a registered player so the side prompt can open.
-
-    The password only enables LOGIN. The replay does not check it. A guest
-    login never reaches the prompt.
+    Registered User is already chosen, so the check waits for that and does
+    not click it. The password only enables LOGIN. The replay does not check
+    the name or the password, and neither is a real account. When
+    registration is set, REGISTER is opened and closed before the name is
+    typed.
     """
     step("waiting for the login console")
     wait_control(client, "Username")
-    step("choosing Registered User")
-    click_named(client, "Registered User")
+    if registration:
+        dismiss_registration(client)
+        step("waiting for the login console after registration")
+        wait_control(client, "Username")
+    step("Registered User is already chosen")
     wait_checked(client, "Registered User", True)
     step("typing the name and a password")
     type_into(client, "Username", user_name)
@@ -765,6 +757,22 @@ def drive_chat(client):
         client, "Chat players", lambda rows: OTHER_PLAYER in rows, f"listed {OTHER_PLAYER}"
     )
     require("oa_check" in players, f"the players are {players}")
+    # Grade 1 is the red square (oa_check) and grade 2 the amber one
+    # (Ghost_Commander). The words follow those squares.
+    step("reading each player's latency")
+    latency_labels = sorted(
+        {
+            str(leaf.get("label") or "")
+            for leaf in leaves(tree_of(client))
+            if leaf.get("visible")
+            and str(leaf.get("name") or "") == "LatencyIcon"
+            and str(leaf.get("window") or "") == "Chat players"
+        }
+    )
+    require(
+        latency_labels == ["Latency fair", "Latency poor"],
+        f"the latency words are {latency_labels}",
+    )
     step(f"choosing {OTHER_PLAYER} and reading the player pane")
     client.call("ui.select", {"list": "Chat players", "item": OTHER_PLAYER}, CALL_TIMEOUT)
     poll_leaf(client, "PAGE")
@@ -932,7 +940,9 @@ def drive_rest(client):
 
 def drive_chat_replay(client):
     """The chat replay: login, the map, chat, and the other consoles."""
-    guest_login(client, "oa_check")
+    member_login(client, "oa_check", registration=True)
+    step("waiting for the war map")
+    wait_for_war_map(client)
     drive_map(client)
     drive_chat(client)
     drive_rest(client)
@@ -1012,7 +1022,9 @@ BETA_BATTLES = ("Rumble", "Seated", "Locked")
 
 def drive_beta(client):
     """A Beta Tester's gated consoles: battles to join, matchmaking, the locator, quick play."""
-    guest_login(client, "oa_check")
+    member_login(client, "oa_check", registration=True)
+    step("waiting for the war map")
+    wait_for_war_map(client)
     choose_planet(client, SLAG)
     step("opening the battle console and choosing each battle")
     click_named(client, "MF_Battle_Button")
@@ -1134,7 +1146,9 @@ def drive_help(client):
 
 def drive_contents(client):
     """News, a ladders search that opens a message box, and the help tree."""
-    guest_login(client, "oa_check")
+    member_login(client, "oa_check", registration=True)
+    step("waiting for the war map")
+    wait_for_war_map(client)
     step("opening the news console")
     click_named(client, "MF_News_Button")
     wait_control(client, "ContentsList")
@@ -1235,7 +1249,7 @@ def keep_log(log_dir, kept):
     return tail
 
 
-def run_game(native, game_dir, mod_dir, replay, scratch, drive):
+def run_game(native, game_dir, mod_dir, replay, scratch, drive, extra_args=None):
     """Starts one game on the dummy drivers and drives it."""
     root = Path(scratch)
     root.mkdir(parents=True, exist_ok=True)
@@ -1244,38 +1258,47 @@ def run_game(native, game_dir, mod_dir, replay, scratch, drive):
     with tempfile.TemporaryDirectory(prefix="mcp-lobby-", dir=root) as work:
         workdir = Path(work)
         preferences = workdir / "automation.PREFERENCES"
-        preferences.write_text(automation.PREFERENCES, encoding="utf-8")
+        # Every launch here enters the Boneyards with -y, which stops when both online
+        # checks are never: the catalogue is read only when the Library opens.
+        preferences.write_text(automation.entry_preferences(automation.PREFERENCES), encoding="utf-8")
         log_dir = workdir / "logs"
         user_folder = workdir / "user"
+        data_folder = workdir / "data"
         log_dir.mkdir()
         user_folder.mkdir()
+        data_folder.mkdir()
         environment = dict(os.environ)
         environment.pop("OA_BY_USER", None)
         environment.pop("OA_BY_PASSWORD", None)
         environment["SDL_VIDEO_DRIVER"] = "dummy"
         environment["SDL_AUDIO_DRIVER"] = "dummy"
         environment["SDL_RENDER_DRIVER"] = "software"
+        command = [
+            *RUNNER,
+            str(native),
+            "--game-dir",
+            str(game_dir),
+            "--mod-dir",
+            str(mod_dir),
+            "--mcp",
+            "--skip-intro",
+            "--mute",
+            "-y",
+            "--boneyards-replay",
+            str(replay),
+            "--preferences-file",
+            str(preferences),
+            "--log-dir",
+            str(log_dir),
+            "--user-folder",
+            str(user_folder),
+            "--data-dir",
+            str(data_folder),
+        ]
+        if extra_args:
+            command.extend(extra_args)
         process = subprocess.Popen(
-            [
-                *RUNNER,
-                str(native),
-                "--game-dir",
-                str(game_dir),
-                "--mod-dir",
-                str(mod_dir),
-                "--mcp",
-                "--skip-intro",
-                "--mute",
-                "-y",
-                "--boneyards-replay",
-                str(replay),
-                "--preferences-file",
-                str(preferences),
-                "--log-dir",
-                str(log_dir),
-                "--user-folder",
-                str(user_folder),
-            ],
+            command,
             cwd=workdir,
             env=environment,
             stdin=subprocess.PIPE,

@@ -938,6 +938,7 @@ void layer_tables() {
                         row(PadButton::dpad_right, Action::team_menu),
                         row(PadButton::l1, Action::share_panel),
                         row(PadButton::r2, Action::screenshot),
+                        row(PadButton::l2, Action::photo_mode),
                     },
                     grips
                 );
@@ -1007,6 +1008,21 @@ void layer_tables() {
                         row(PadButton::l2, Action::right_button),
                     }
                 );
+                check_table(
+                    ctx,
+                    Layer::photo,
+                    {
+                        row(PadButton::a, Action::photo_capture),
+                        row(PadButton::b, Action::photo_leave),
+                        row(PadButton::x, Action::photo_freeze),
+                        row(PadButton::y, Action::photo_panel),
+                        row(PadButton::l1, Action::photo_mark),
+                        row(PadButton::dpad_up, Action::focus_up),
+                        row(PadButton::dpad_right, Action::focus_right),
+                        row(PadButton::dpad_down, Action::focus_down),
+                        row(PadButton::dpad_left, Action::focus_left),
+                    }
+                );
             }
 }
 
@@ -1047,6 +1063,8 @@ void mirror_swaps_the_sides() {
     OA_CHECK(pad::binding_for(ctx, Layer::base, PadButton::left_pad).action == Action::left_button);
     OA_CHECK(pad::binding_for(ctx, Layer::base, PadButton::right_pad).action == Action::minimap);
     OA_CHECK(pad::binding_for(ctx, Layer::base, PadButton::l2).action == Action::left_button);
+    OA_CHECK(pad::binding_for(ctx, Layer::game, PadButton::r2).action == Action::photo_mode);
+    OA_CHECK(pad::binding_for(ctx, Layer::game, PadButton::l2).action == Action::screenshot);
     OA_CHECK(pad::binding_for(ctx, Layer::base, PadButton::l4).action == Action::queue);
     OA_CHECK(pad::binding_for(ctx, Layer::base, PadButton::a).action == Action::left_button);
 }
@@ -1071,6 +1089,13 @@ void layer_follows_what_is_held() {
     OA_CHECK(pad::layer_for(held) == Layer::build_ring);
     held.order_ring = true;
     OA_CHECK(pad::layer_for(held) == Layer::order_ring);
+    held = {};
+    held.photo = true;
+    OA_CHECK(pad::layer_for(held) == Layer::photo);
+    held.in_match = true;
+    held.order_ring = true;
+    held.game = true;
+    OA_CHECK(pad::layer_for(held) == Layer::photo);
 }
 
 /// Returns whether a chord is the one expected.
@@ -1107,6 +1132,12 @@ void chords_for_every_badge() {
         chord_is(pad::chord_for(deck, Action::unit_info), PadButton::none, PadButton::view, true)
     );
     OA_CHECK(chord_is(pad::chord_for(deck, Action::keys_overlay), PadButton::view, PadButton::r1));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_mode), PadButton::view, PadButton::l2));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_capture), PadButton::none, PadButton::a));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_leave), PadButton::none, PadButton::b));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_freeze), PadButton::none, PadButton::x));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_panel), PadButton::none, PadButton::y));
+    OA_CHECK(chord_is(pad::chord_for(deck, Action::photo_mark), PadButton::none, PadButton::l1));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::left_button), PadButton::none, PadButton::r2));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::right_button), PadButton::none, PadButton::l2));
     OA_CHECK(chord_is(pad::chord_for(deck, Action::order_ring), PadButton::none, PadButton::r1));
@@ -1161,6 +1192,7 @@ void chords_for_every_badge() {
     OA_CHECK(!pad::chord_for(xbox, Action::force));
     OA_CHECK(!pad::chord_for(xbox, Action::self_destruct));
     OA_CHECK(chord_is(pad::chord_for(xbox, Action::pause), PadButton::menu, PadButton::x));
+    OA_CHECK(chord_is(pad::chord_for(xbox, Action::photo_mode), PadButton::menu, PadButton::l2));
     OA_CHECK(chord_is(pad::chord_for(xbox, Action::group, 1), PadButton::view, PadButton::dpad_up));
     OA_CHECK(!pad::chord_for(xbox, Action::group, 9));
     OA_CHECK(!pad::chord_for(xbox, Action::minimap));
@@ -1179,6 +1211,7 @@ void chords_for_every_badge() {
     OA_CHECK(chord_is(pad::chord_for(left, Action::group, 9), PadButton::r5, PadButton::right_pad));
     OA_CHECK(chord_is(pad::chord_for(left, Action::pause), PadButton::view, PadButton::x));
     OA_CHECK(chord_is(pad::chord_for(left, Action::keys_overlay), PadButton::view, PadButton::l1));
+    OA_CHECK(chord_is(pad::chord_for(left, Action::photo_mode), PadButton::view, PadButton::r2));
     OA_CHECK(chord_is(pad::chord_for(left, Action::centre), PadButton::none, PadButton::r3));
 }
 

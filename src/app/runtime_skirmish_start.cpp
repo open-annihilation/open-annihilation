@@ -506,6 +506,10 @@ void Runtime::bind_match_speech() {
 }
 
 void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
+    // A replay that switched content stays on `wait` until the match is
+    // starting. This is before anything here can throw.
+    if (bootstrap.replay)
+        begin_replay_content_playback();
     pause_content_for_match();
     // A check still waiting is not a result: the load can outlast its idle
     // limit, so the cancel is set before any of that work.

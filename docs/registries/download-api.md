@@ -66,7 +66,7 @@ string. A server MUST treat a missing `language` as empty.
 |---|---|
 | `install` | Present only when `install-id` is `required`. Lower-case hex, `8-4-4-4-12`. |
 | `package` | 1 to 64 characters of `[A-Za-z0-9][A-Za-z0-9._-]*`. This is wider than a catalogue key. |
-| `kind` | `oamod`, `oamap`, `oalang`, `expansion`, `oamut`, `oabrain` or `oakeys`. |
+| `kind` | `oamod`, `oamap`, `oalang`, `expansion`, `oamut`, `oabrain`, `oakeys` or `oademo`. `oademo` is a replay file, not a catalogue kind. |
 | `release` | A whole number from 1 to 2147483647. |
 | `sha256` | 64 hex digits. A server accepts either case and compares them in lower case. The catalogue itself requires lower case. |
 | `engine` | 1 to 32 characters of `[0-9A-Za-z.+-]`. |
@@ -199,6 +199,7 @@ Every refusal is `{"error", "message"}` plus the extra member named here.
 | 429 | `rate_limited` | The caller is past the registry's limit. | `retry_after`, and the header `Retry-After`, the same whole number of seconds |
 | 500 | `internal` | The registry failed. | |
 | 503 | `catalogue_unavailable` | The registry has no catalogue yet. | |
+| 503 | `replays_unavailable` | The registry is not serving replay files just now. | |
 | 428 | `challenge_required` | A check is required. | `challenge`, above |
 | 404 | `unknown_challenge` | The challenge code is not known. | |
 | 410 | `challenge_expired` | The challenge has ended. | |
@@ -207,9 +208,25 @@ Every refusal is `{"error", "message"}` plus the extra member named here.
 
 OA treats `404` and `409` on the key request alike, as no longer offered,
 and refreshes its catalogue. It does not treat `unknown_package` and
-`release_mismatch` differently. Any other 4xx is a refusal and does not try
+`release_mismatch` differently. A replay's **Get … and watch** asks for the
+release and the digest the recording names, including a release that is only
+in the catalogue's [releases list](catalogue.md#releases-list). A `409`
+`release_mismatch` is shown as that release not being in the registry's
+catalogue. Core Prime is named when the replay names no registry. Any other 4xx is a refusal and does not try
 a mirror. `429` waits. A 5xx, a 201 that does not read, and a 428 that does
 not read are retried, and then a mirror may be tried.
+
+## Replay files
+
+Kind `oademo` asks for one replay. `package` is the replay's id (`r_` and 22
+base64url characters), `release` is the entry's revision, and `sha256` is
+`files.oademo.sha256`. The key signs `/v1/r/<sha256>.oademo`. The game
+downloads that file and does not download the `.tad`. A `404`
+`unknown_package` removes the row. A `409` `release_mismatch` makes the game
+read the entry again and ask once more; a second `409` stops. A `503`
+`replays_unavailable` says the replays are not available just now. When a key
+was issued, the game posts the result, including a file whose digest differs.
+No result is posted when no key was issued.
 
 The registry sends `retry_after` and the header `Retry-After` as the same
 number of whole seconds. Core Prime's wait is at least 60 seconds and can

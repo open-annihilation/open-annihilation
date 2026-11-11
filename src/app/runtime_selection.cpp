@@ -64,6 +64,14 @@ void Runtime::handle_match_left_click(float x, float y, int32_t clicks) {
     // Off the radar and the battlefield a click gives nothing.
     if (!battlefield_contains(x, y))
         return;
+    // A replay click does not select or give an order. The first press of a
+    // double-click arrives on its own and leaves the selection as it was.
+    // The second press keeps the unit under the pointer in the middle.
+    if ((current_extension_state() & extension_state::replay) != 0) {
+        if (clicks >= 2 && hovered_match_unit_ != 0)
+            replay_follow_unit(hovered_match_unit_);
+        return;
+    }
     if (selection_shortcut_double_click(x, y, clicks))
         return;
     const uint16_t target = hovered_match_unit_;

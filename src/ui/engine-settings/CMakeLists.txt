@@ -21,6 +21,7 @@ target_include_directories(oa-ui-engine-settings PUBLIC include)
 target_compile_features(oa-ui-engine-settings PUBLIC cxx_std_20)
 target_link_libraries(oa-ui-engine-settings PUBLIC oa-platform-preferences oa-platform-file-types
   oa-data-languages oa-data-limits oa-data-mod-profile oa-ui-pad-controls oa-present
+  oa-present-colour-vision
   oa-ui-frontend-renderer oa-formats-fnt oa-formats-hpi oa-ui-kit PRIVATE oa-sim-session oa-ui-decoded oa-ui-library oa-formats-url oa-options
   oa-base-text oa-platform-display-modes oa-data-input-actions)
 

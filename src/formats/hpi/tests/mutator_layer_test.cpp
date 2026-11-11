@@ -359,7 +359,7 @@ void check_provider(
 }
 
 bool hidden_everywhere(oa::AssetStore& store, std::string_view path, std::string_view key) {
-    const bool read_missing = throws_not_found(store, path);
+    const bool read_missing = throws_not_found(store, path) && !store.read_if_present(path);
     const bool open_missing = store.open(path) == nullptr;
     const bool size_missing = store.file_size(path) == 0;
     const bool provider_missing = store.provider(path).kind == oa::ProviderKind::none;

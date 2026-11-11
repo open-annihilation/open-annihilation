@@ -106,4 +106,14 @@ bool append_error_log(const char* directory, const char* text) noexcept;
 ///         will not say where the program is
 [[nodiscard]] std::string program_directory();
 
+/// Returns the file this process was started from, in UTF-8.
+///
+/// Windows reads the module file name, macOS reads the executable inside the
+/// bundle, and Linux reads /proc/self/exe. This is the file to start again.
+/// program_directory() names the folder beside that file, or on macOS the
+/// bundle's Resources folder.
+///
+/// @return the path; empty when the system will not say where the program is
+[[nodiscard]] std::string program_executable();
+
 } // namespace oa::platform

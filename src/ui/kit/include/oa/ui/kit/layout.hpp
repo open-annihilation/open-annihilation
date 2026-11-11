@@ -767,9 +767,28 @@ struct Control {
     /// Left and Right act on it, as a switch or a slider takes them, instead
     /// of moving the focus.
     bool steps{};
-    int32_t group{-1};  ///< its scroll area's number; -1 when it is in none
-    bool checked{};     ///< a switch that is on, or a chosen row, for automation
+    int32_t group{-1}; ///< its scroll area's number; -1 when it is in none
+    bool checked{};    ///< a switch that is on, or a chosen row, for automation
+    /// A section header is open. Automation writes it as expanded. A control
+    /// that is not a section header leaves it false.
+    bool expanded{};
+    /// How a change of it is announced: 0 is off, 1 is polite, 2 is assertive.
+    /// The screen reader bridge reads the polite and assertive values.
+    uint8_t live{};
     std::string text{}; ///< its caption or its value, for automation
+    /// The caption a player hears. Empty on a button, a link, a tab, a list
+    /// row or an area means automation uses `text`. On a switch, a strip, a
+    /// drop-down, a slider, a field or a list the caption is this, or none,
+    /// and `text` is the value. Setting it does not change `text`.
+    std::string label{};
+    /// More words about it, such as why a locked row cannot change. Empty
+    /// when there are none. A screen reader reads this as the description.
+    std::string description{};
+    bool search{}; ///< a text field is a search field
+    /// Its place in a set, from 1. 0 when it has none.
+    int32_t place{};
+    /// How many share the set. 0 when it has none.
+    int32_t set_size{};
     /// The words automation names its parts by, in order, each a word of
     /// a-z, 0-9 and hyphens: a strip's levels, a row of buttons' buttons, a
     /// drop-down's items. A part without one is named by its place from 1;
@@ -777,16 +796,58 @@ struct Control {
     std::vector<std::string> parts{};
 };
 
+/// How a composite's parts are arranged, and which arrows move among them.
+enum class CompositeAxis : uint8_t {
+    row,    ///< Left and Right
+    column, ///< Up and Down
+    grid,   ///< the arrows, one cell at a time, by columns
+};
+
+/// What a screen reader calls a composite. Its parts keep their own roles.
+enum class CompositeRole : uint8_t {
+    tab_list, ///< a row or a column of tabs
+    list,     ///< a list of rows
+};
+
+/// Part controls grouped into one stop of a display list's tab order.
+///
+/// Tab and Shift+Tab leave the group. The arrows along its axis move between
+/// its parts and do not wrap. Home and End go to its ends. Return and Space
+/// go to the part. The part the keys land on is remembered in `current`: a
+/// caller sets the chosen part, and the keys keep the part they last moved
+/// to. `next_in_tab_order` and `focus_toward` return that part, never this
+/// id. `current` is mutable so those calls can remember the part on a const
+/// display list.
+struct Composite {
+    ControlId id{no_control};                  ///< the one stop in tab_order
+    CompositeAxis axis{CompositeAxis::column}; ///< which arrows move among the parts
+    std::vector<ControlId> parts{};            ///< the parts, in order
+    /// A grid's columns. A row or a column ignores it. Fewer than 1 counts as 1.
+    int32_t columns{1};
+    CompositeRole role{CompositeRole::list}; ///< what a screen reader calls the group
+    /// Its automation name, as a control's: words of a-z, 0-9 and hyphens
+    /// joined by dots, at most 100 bytes, and unique on the screen. Empty
+    /// lists no group entry.
+    std::string name{};
+    /// The part the keys return to. The chosen part, else the first that
+    /// takes the focus.
+    mutable ControlId current{no_control};
+};
+
 /// What a screen drew, and where its controls are.
 ///
 /// Items are in drawing order. Controls are in the order a point is tested,
 /// and the two lists are not one list: drawing never reads a control, and a
-/// hit never reads an item. Tab follows tab_order.
+/// hit never reads an item. Tab follows tab_order. A composite is one stop
+/// of that order; its parts are not listed there.
 struct DisplayList {
     std::vector<Item> items{};       ///< what is drawn, first to last
     std::vector<Control> controls{}; ///< what can be pressed, first tested first
-    /// The declared order Tab follows. Only these controls take the focus.
+    /// The declared order Tab follows. A composite's id is one stop. Only
+    /// these stops, and a composite's parts, take the focus.
     std::vector<ControlId> tab_order{};
+    /// Groups of parts, each one stop of tab_order.
+    std::vector<Composite> composites{};
 };
 
 /// Returns the first enabled control a point lies in.
@@ -1110,9 +1171,14 @@ struct ScrollColumn {
 /// carry their controls. Every part from first_live_part that draws a control
 /// becomes one, the last drawn first, so a point is tested against the top
 /// part first: its rectangle and clip are the part's, it is enabled unless
-/// the part is disabled, a toggle for a switch and a button otherwise. Each
-/// enabled control joins the Tab order once, in drawing order. A part under a
-/// backdrop takes no press and no focus.
+/// the part is disabled, a toggle for a switch and a button otherwise. Its
+/// name is made from the part's words: ASCII letters lower-cased, digits
+/// kept, and each run of anything else one hyphen, trimmed at both ends and
+/// cut to 100 bytes. Nothing left is named `part-<id>`. A name already used in
+/// the list gains -2, -3 and so on. Its label keeps the words as shown, the
+/// first line or else its text. A disabled part stays in the list and stays
+/// out of the Tab order. Each enabled control joins the Tab order once, in
+/// drawing order. A part under a backdrop takes no press and no focus.
 ///
 /// @param[in,out] list the display list; its controls and Tab order are replaced
 void list_part_controls(DisplayList& list);

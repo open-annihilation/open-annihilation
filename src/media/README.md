@@ -150,7 +150,9 @@ Target `oa-media-director-planner`, headers
 and `oa/media/director/planner.hpp`, namespace `oa::media::director`. It
 links `oa-media-director`, `oa-formats-oascript`, `oa-sim-match-runtime` and
 `oa-core-types`. The generator (`--generate-script`) records a replayed
-game's timeline with it, then plans a director script from that timeline.
+game's timeline with it, then plans a director script from that timeline,
+and the index pass (`--replay-index`) records the same timeline and writes
+the replay's index from it (`oa-app-replay-index`).
 
 ### Entry points
 
@@ -168,6 +170,9 @@ game's timeline with it, then plans a director script from that timeline.
   unfinished) and every active player every `stats_period_ticks` ticks,
   both counted from the first tick. `finish` sets the last tick, the
   verdict and the usable end; `take` hands the timeline over.
+  `read_player_stats` gives the players' entries for a world as it stands,
+  the same ones `after_tick` records on a stats tick; the index pass
+  (`--replay-index`) reads the totals on the last tick with it.
 - `plan_script` plans a script from a timeline: shots from the first tick
   to the usable end (or the ending), `director.endTick` always written, the
   settings' size and rates, one-minute chunks and no interface. Its notes

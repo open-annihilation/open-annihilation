@@ -6,6 +6,8 @@
 // with this machine.
 #include "oa/ui/hud/shared_views.hpp"
 
+#include "oa/present/colour_vision/colour_vision.hpp"
+
 #include "check.hpp"
 #include "fixtures.hpp"
 
@@ -82,11 +84,29 @@ void reported_cameras() {
     CHECK(camera_rectangles(*w.world, shared, false, frame, out) == 0);
 }
 
+// Colour 0 is blue's dot and colour 1 is red's, with no mode and in achromatopsia.
+void colour_numbers_pick_the_dot() {
+    namespace vision = oa::present::colour_vision;
+
+    struct Restore {
+        ~Restore() { vision::set_active(vision::Mode::off, false); }
+    } restore;
+
+    vision::set_active(vision::Mode::off, false);
+    CHECK(colour_dot_index(0) == kPlayerDotColors[0]);
+    CHECK(colour_dot_index(1) == kPlayerDotColors[1]);
+    vision::set_active(vision::Mode::achromatopsia, true);
+    CHECK(colour_dot_index(0) == vision::stock_anchor_index(vision::Mode::achromatopsia, 0));
+    CHECK(colour_dot_index(1) == vision::stock_anchor_index(vision::Mode::achromatopsia, 1));
+    (void)restore;
+}
+
 } // namespace
 
 int main() {
     rectangles();
     reported_cameras();
+    colour_numbers_pick_the_dot();
     std::puts("ui-hud-shared-views-test: ok");
     return 0;
 }

@@ -22,11 +22,16 @@ import shutil
 import subprocess
 import sys
 import zipfile
+import native_offline
 
 # A command that starts the executable under test; empty runs it directly.
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 RUN_TIMEOUT = 600
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 USER_FOLDER = "Open Annihilation"
 ATTACK_LINE = "input action pressed order.attack chord=A context=play"
 KEY_TABLE_LINE = "rows match"

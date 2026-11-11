@@ -10,6 +10,12 @@ campaign mission, a saved game, a recorded game and a network game seat
 their own players for that match and put your rows back when you return
 to the setup. Starting Open Annihilation again shows the same rows.
 
+A skirmish you play is kept as a replay, as a network game is.
+[Recording a game](replays.md#recording-a-game) says when, and what the
+file holds. In that file `recorded.how` and `game.kind` are `skirmish`.
+Starting the skirmish again keeps a new recording. A skirmish opened from
+a saved game is kept too, beginning with every unit already on the map.
+
 How many rows appear is **Skirmish players** under Settings › Engine
 Limits, from 2 to 10. A new install shows all ten. A count you already
 stored stays. The same count is what the setup's key codes `*III` to

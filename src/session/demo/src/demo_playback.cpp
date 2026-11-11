@@ -3,9 +3,11 @@
 
 #include "oa/session/demo.hpp"
 
+#include "oa/formats/oademo/oademo.hpp"
 #include "oa/netgame/match/launch.hpp"
 #include "oa/netgame/private_channel.hpp"
 #include "oa/netgame/records.hpp"
+#include "oa/netgame/recorder_messages.hpp"
 #include "oa/netgame/unit_state.hpp"
 #include "oa/netgame/network.hpp"
 #include "oa/base/text.hpp"
@@ -201,14 +203,7 @@ bool bind_recorded_players(DemoPlayback* playback, std::string* error) {
                     " cannot address a transport"
             );
         seen[player.number] = true;
-        RecordedPlayer recorded;
-        recorded.info.side = player.side;
-        recorded.info.color = player.color;
-        for (const auto& status : playback->demo.statuses)
-            if (status.number == player.number && status_player_info(status, &recorded.info)) {
-                recorded.from_status = true;
-                break;
-            }
+        const RecordedPlayer recorded = demo_recorded_player(playback->demo, player);
         const uint32_t id = recorded.from_status ? recorded.info.player_id : player.number;
         if (id == 0 || id >= netgame::match::no_player_id - 1)
             return fail(
@@ -286,6 +281,11 @@ void note_record(void* context, uint32_t sender_id, const uint8_t* record, std::
     auto* sender = recorded_sender(world, sender_id);
     if (sender == nullptr || sender->index >= OA_PLAYER_COUNT)
         return;
+    if (demo_note_shown_camera(&session.shown_camera[sender->index], record, size)) {
+        if (session.shown_camera[sender->index].shared)
+            session.recording_shares_camera = true;
+        return;
+    }
     const auto type = static_cast<netgame::RecordType>(record[0]);
     if (type == netgame::RecordType::chat && demo_watches_without_slot(session.playback)) {
         if (session.net.rules.private_channel != netgame::PrivateChannel::none &&
@@ -296,10 +296,17 @@ void note_record(void* context, uint32_t sender_id, const uint8_t* record, std::
         session.lines.push_back(netgame::match::net_match_chat_text(&session.net, *sender, text));
         return;
     }
-    if (type == netgame::RecordType::economy &&
-        session.playback.ten_player_replay == netgame::TenPlayerReplay::watcher_view) {
+    if (type == netgame::RecordType::economy) {
         netgame::EconomyRecord economy{};
-        if (netgame::decode_record(record, size, &economy) == netgame::WireError::ok)
+        if (netgame::decode_record(record, size, &economy) != netgame::WireError::ok)
+            return;
+        demo_income_for_display(
+            &session.shown_samples[sender->index],
+            &session.shown_income[sender->index],
+            economy,
+            session.playback.tick
+        );
+        if (session.playback.ten_player_replay == netgame::TenPlayerReplay::watcher_view)
             demo_follow_economy(
                 &session.economy_samples[sender->index], sender, economy, session.playback.tick
             );
@@ -366,9 +373,77 @@ void mix_value(uint64_t* hash, T value) {
     mix(hash, &value, sizeof value);
 }
 
+// The file's player order is the playback slot. -1 when the number is none of them.
+int recorded_player_slot(const formats::tad::Demo& demo, uint8_t sender) {
+    const auto& players = demo.players;
+    for (std::size_t index = 0; index < players.size() && index < OA_PLAYER_COUNT; ++index)
+        if (players[index].number == sender)
+            return static_cast<int>(index);
+    return -1;
+}
+
+// Camera records ride in the file and are left out of the rebuilt game frame.
+void keep_packet_cameras(
+    DemoPlayback* playback, const formats::tad::Packet& packet, uint32_t tick
+) {
+    const int player_slot = recorded_player_slot(playback->demo, packet.sender);
+    if (player_slot < 0)
+        return;
+    const auto decoded = formats::tad::decode_payload(packet.payload);
+    if (!decoded.ok())
+        return;
+    const auto split = formats::tad::split_records(decoded.bytes);
+    for (const auto& record : split.records) {
+        ShownCamera shown{};
+        if (!demo_note_shown_camera(&shown, record.bytes.data(), record.bytes.size()) ||
+            !shown.seen)
+            continue;
+        RecordedCamera kept{};
+        kept.slot = static_cast<uint8_t>(player_slot);
+        kept.tick = tick;
+        kept.x = shown.x;
+        kept.y = shown.y;
+        kept.shared = shown.shared;
+        playback->cameras.push_back(kept);
+    }
+}
+
+// The latest camera at or before the match's tick, for each recorded player.
+void apply_recorded_cameras(DemoSession* session) {
+    if (session->match == nullptr)
+        return;
+    const uint32_t played_tick = session->match->state().game.tick;
+    for (const RecordedCamera& camera : session->playback.cameras) {
+        if (camera.tick > played_tick || camera.slot >= OA_PLAYER_COUNT)
+            continue;
+        ShownCamera& shown = session->shown_camera[camera.slot];
+        shown.seen = true;
+        shown.x = camera.x;
+        shown.y = camera.y;
+        shown.shared = camera.shared;
+        if (camera.shared)
+            session->recording_shares_camera = true;
+    }
+}
+
 } // namespace
 
+RecordedPlayer
+demo_recorded_player(const formats::tad::Demo& demo, const formats::tad::Player& player) {
+    RecordedPlayer recorded;
+    recorded.info.side = player.side;
+    recorded.info.color = player.color;
+    for (const auto& status : demo.statuses)
+        if (status.number == player.number && status_player_info(status, &recorded.info)) {
+            recorded.from_status = true;
+            break;
+        }
+    return recorded;
+}
+
 bool demo_recognised(std::span<const uint8_t> bytes) noexcept {
+    if (formats::oademo::recognised(bytes))
+        return true;
     // The header is the first chunk: its length field, then the magic.
     constexpr std::size_t magic_at = formats::tad::layout::chunk_length_bytes;
     if (bytes.size() < magic_at + formats::tad::layout::magic_bytes)
@@ -395,6 +470,15 @@ bool demo_open(DemoPlayback* playback, const std::filesystem::path& path, std::s
 
 bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* error) {
     *playback = DemoPlayback{};
+    if (formats::oademo::recognised(bytes)) {
+        formats::oademo::ReadResult replay = formats::oademo::read(bytes);
+        if (!replay.ok())
+            return fail(error, replay.error);
+        // The mission's unit table is decided when playback loads the map the
+        // stream names, not from this description. A .tad has none, and a
+        // recording packed back from one says it was imported.
+        bytes = std::move(replay.replay->recording);
+    }
     playback->file = std::move(bytes);
     auto parsed = formats::tad::parse(playback->file);
     if (!parsed.ok())
@@ -441,9 +525,13 @@ bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* 
             continue;
         }
         uint32_t last_tick = 0;
-        if (!rebuild_frame(
-                packet, playback->unit_def_bits, forms, &frame, &last_tick, &playback->stats
-            )) {
+        const bool built = rebuild_frame(
+            packet, playback->unit_def_bits, forms, &frame, &last_tick, &playback->stats
+        );
+        if (last_tick != 0)
+            due_tick = last_tick;
+        keep_packet_cameras(playback, packet, due_tick);
+        if (!built) {
             ++playback->stats.empty_packets;
             continue;
         }
@@ -452,8 +540,6 @@ bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* 
         DemoFrame out;
         out.time_ms = packet.time_ms;
         out.sender = packet.sender;
-        if (last_tick != 0)
-            due_tick = last_tick;
         out.due_tick = due_tick;
         try {
             out.datagram = oa::netgame::network::encode_frame(frame, false);
@@ -567,6 +653,47 @@ void demo_follow_economy(
     sample->metal_requested_total = record.metal_requested_total;
 }
 
+void demo_income_for_display(
+    EconomySample* sample, ShownIncome* shown, const netgame::EconomyRecord& record, uint32_t tick
+) noexcept {
+    if (sample == nullptr || shown == nullptr)
+        return;
+    if (sample->taken) {
+        if (tick <= sample->tick)
+            return;
+        const auto per_settlement =
+            static_cast<float>(economy_settlement_ticks) / static_cast<float>(tick - sample->tick);
+        shown->metal =
+            (record.metal_produced_total - sample->metal_produced_total) * per_settlement;
+        shown->energy =
+            (record.energy_produced_total - sample->energy_produced_total) * per_settlement;
+        shown->taken = true;
+    }
+    sample->taken = true;
+    sample->tick = tick;
+    sample->energy_produced_total = record.energy_produced_total;
+    sample->energy_requested_total = record.energy_requested_total;
+    sample->metal_produced_total = record.metal_produced_total;
+    sample->metal_requested_total = record.metal_requested_total;
+}
+
+bool demo_note_shown_camera(ShownCamera* camera, const uint8_t* record, std::size_t size) noexcept {
+    if (camera == nullptr || record == nullptr || size < netgame::recorder_camera_bytes)
+        return false;
+    if (record[0] != static_cast<uint8_t>(netgame::RecorderRecordType::camera))
+        return false;
+    const auto word = [](const uint8_t* bytes) {
+        return static_cast<uint16_t>(bytes[0] | (static_cast<uint16_t>(bytes[1]) << 8));
+    };
+    const uint16_t x = word(record + 1);
+    const uint16_t y = word(record + 3);
+    camera->seen = true;
+    camera->x = x;
+    camera->y = y;
+    camera->shared = x != netgame::recorder_camera_off || y != netgame::recorder_camera_off;
+    return true;
+}
+
 bool demo_bind_players(const DemoPlayback& playback, World* world, uint8_t* watcher_slot) noexcept {
     const auto count = playback.demo.players.size();
     const bool slotless = demo_watches_without_slot(playback);
@@ -664,6 +791,13 @@ bool demo_session_begin(
     match->set_slotless_viewer(demo_slotless_viewer(session->playback));
     match->set_slotless_view_switched(false);
     session->economy_samples = {};
+    session->shown_samples = {};
+    session->shown_income = {};
+    session->shown_camera = {};
+    session->recording_shares_camera = false;
+    for (const RecordedCamera& camera : session->playback.cameras)
+        if (camera.shared)
+            session->recording_shares_camera = true;
     session->match = match;
     session->connection = netgame::match::NetConnection{};
     session->connection.packets = new netgame::match::PacketLayer();
@@ -723,9 +857,14 @@ bool demo_session_begin(
     session->net.unicode_chat = session->unicode_chat;
     netgame::match::match_binding_install(&session->binding);
     netgame::match::net_match_enter_game(&session->net);
+    apply_recorded_cameras(session);
     session->tick_errors = 0;
     session->last_error.clear();
     session->lines.clear();
+    // A new binding is a new game as far as keyframes go.
+    session->keyframe_base.clear();
+    session->keyframe_expected.reset();
+    session->keyframe_faults.clear();
     return true;
 }
 
@@ -747,6 +886,15 @@ void demo_session_frame(DemoSession* session) {
     game.sim_run_flags =
         static_cast<uint16_t>(game.sim_run_flags & ~netgame::match::run_flag_paused);
     forget_empty_slots(session);
+    apply_recorded_cameras(session);
+    // A replay that began at a restore meets the digest the keyframe of this tick holds.
+    if (session->keyframe_expected && game.tick >= session->keyframe_expected->tick) {
+        const auto expected = *session->keyframe_expected;
+        session->keyframe_expected.reset();
+        const auto found = demo_world_digest(&session->match->state());
+        if (game.tick == expected.tick && found != expected.digest)
+            session->keyframe_faults.push_back({expected.tick, expected.digest, found});
+    }
 }
 
 void demo_session_end(DemoSession* session) noexcept {

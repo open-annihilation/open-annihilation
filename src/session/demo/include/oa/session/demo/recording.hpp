@@ -8,7 +8,9 @@
 // version 5, the recording machine as player 1, every player's status as
 // the datagram of its setup block and team, the battle room's unit checks,
 // and every record sent or received in order, each unit state stored
-// without its tick behind a tick base.
+// without its tick behind a tick base. The container holds no player's
+// network address. A recording keeps its packets in memory, or streams them
+// to a file as they are made (RecordingStream).
 
 #include "oa/core/player_setup.h"
 #include "oa/formats/tad.hpp"
@@ -16,6 +18,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -23,13 +27,14 @@
 
 namespace oa::session::demo {
 
+class RecordingStream;
+
 /// One player of the recorded game.
 struct RecordingPlayer {
     uint32_t player_id{}; ///< its transport id; records are stored under its player number
     std::string name;
     PlayerSetupInfo info{}; ///< its setup block as last sent
     uint8_t team{};         ///< its team byte (0x24)
-    std::string address;    ///< its network address as text; stored masked
 };
 
 /// The most loadout text one recording holds: a sector chunk less its length and type words.
@@ -67,10 +72,16 @@ struct RecordingSetup {
 /// A recording being made.
 struct DemoRecording {
     RecordingSetup setup;
-    std::vector<std::vector<uint8_t>> packets; ///< each u16 delay, u8 sender, payload
+    /// Each u16 delay, u8 sender, payload. Empty while a stream takes the
+    /// packets (recording_stream_to).
+    std::vector<std::vector<uint8_t>> packets;
     uint64_t last_ms{};
     bool started{};
     uint32_t dropped_records{}; ///< from senders the recording does not name
+    /// How many packets were added, those a stream took included.
+    uint64_t packet_count{};
+    /// Where the packets go as they are made; null keeps them in `packets`.
+    std::shared_ptr<RecordingStream> stream{};
 };
 
 /// Starts a recording.
@@ -79,11 +90,28 @@ struct DemoRecording {
 /// @param setup the game being recorded
 void recording_begin(DemoRecording* recording, RecordingSetup setup);
 
+/// Streams a started recording's packets to a file as they are made.
+///
+/// The file is made now, holding everything that comes before the packets
+/// (recording_header): the header, the sectors, the players, their
+/// statuses and the unit checks. Each packet added after that is appended to it. The
+/// packets already added stay where they are. The file is the same bytes
+/// recording_write gives for the same records.
+///
+/// @param[in,out] recording a recording begun with recording_begin that holds no packet yet
+/// @param path the file; an existing file is replaced
+/// @param[out] error why the file could not be started; may be null
+/// @return false when the recording has packets, has no header that fits, or the file cannot be made
+[[nodiscard]] bool recording_stream_to(
+    DemoRecording* recording, const std::filesystem::path& path, std::string* error
+);
+
 /// Adds one record sent or received.
 ///
 /// A unit state (0x2c) is stored as a tick base and the record without its
 /// tick, an empty one as the empty-tick marker. The delay is the time since
-/// the previous record, in milliseconds.
+/// the previous record, in milliseconds. The packet goes to the recording's
+/// stream when it has one, and is kept in memory otherwise.
 ///
 /// @param[in,out] recording the recording
 /// @param sender_id transport id of the player the record is from
@@ -95,9 +123,23 @@ void recording_add(
 
 /// Writes the recording's container.
 ///
+/// A recording whose packets went to a stream holds none in memory, so this
+/// writes its header alone.
+///
 /// @param recording the recording
 /// @return the file bytes, or the container's error
 [[nodiscard]] formats::tad::WriteResult recording_write(const DemoRecording& recording);
+
+/// Writes everything of a recording's container that comes before its packets.
+///
+/// The header, the sectors (the recorder's line, the date, the loadout, the
+/// brains and the limits when the setup has them), the players, their
+/// statuses and the unit checks. A network address is never among them.
+/// recording_write is this and the packets after it.
+///
+/// @param setup the game being recorded
+/// @return the bytes, or the container's error
+[[nodiscard]] formats::tad::WriteResult recording_header(const RecordingSetup& setup);
 
 /// Builds the file name an automatic recording takes: the date and time, then the map.
 ///

@@ -92,6 +92,7 @@ struct Building {
     std::vector<kit::Control> detail{};       ///< the details' controls
     std::vector<kit::Control> footer{};       ///< the footer's buttons and labels
     std::vector<kit::ControlId> order{};      ///< Tab's order
+    std::vector<kit::Composite> composites{}; ///< groups that are one stop of that order
     std::vector<std::string> names{};         ///< the names given so far
     std::vector<kit::ControlId> tag_pills{};  ///< the tag pills, in the order shown
     std::vector<kit::ControlId> option_ids{}; ///< the selected mutator's option controls
@@ -571,6 +572,86 @@ void tab_stop(Building& building, kit::Control& control) {
         building.order.push_back(control.id);
 }
 
+/// Returns the control of a number, searching every group.
+///
+/// @param building the layout
+/// @param id the control
+/// @return the control, or null
+kit::Control* find_control(Building& building, kit::ControlId id);
+
+/// Tells whether a control can be a part of a composite stop.
+///
+/// A control that is missing, disabled or wholly clipped is left out. This
+/// does not change the control: a part stays focusable so the arrows can
+/// land on it.
+///
+/// @param building the layout
+/// @param id the control
+/// @return true when it can take the focus
+bool can_stop(Building& building, kit::ControlId id) {
+    const kit::Control* control = find_control(building, id);
+    if (control == nullptr || !control->enabled || !control->focusable)
+        return false;
+    if (control->clip.width > 0 && control->clip.height > 0) {
+        const kit::Rect shown = kit::intersect(control->rect, control->clip);
+        if (shown.width <= 0 || shown.height <= 0)
+            return false;
+    }
+    return true;
+}
+
+/// Adds the controls that can take the focus as one stop.
+///
+/// The part the focus is on is the one the keys return to. Otherwise it is
+/// the checked part, the filter or tag in use, and otherwise the first.
+///
+/// @param[in,out] building the layout
+/// @param id the one stop
+/// @param axis which arrows move among the parts
+/// @param role what a screen reader calls the group
+/// @param name its automation name
+/// @param ids the parts, in order
+void add_group(
+    Building& building,
+    kit::ControlId id,
+    kit::CompositeAxis axis,
+    kit::CompositeRole role,
+    std::string name,
+    const std::vector<kit::ControlId>& ids
+) {
+    kit::Composite group;
+    group.id = id;
+    group.axis = axis;
+    group.role = role;
+    group.name = std::move(name);
+    const kit::ControlId focused = building.state->interaction.focused;
+    bool focus_is_part = false;
+    kit::ControlId checked = kit::no_control;
+    for (const kit::ControlId part : ids) {
+        if (!can_stop(building, part))
+            continue;
+        group.parts.push_back(part);
+        if (part == focused)
+            focus_is_part = true;
+        if (checked == kit::no_control) {
+            const kit::Control* control = find_control(building, part);
+            if (control != nullptr && control->checked)
+                checked = part;
+        }
+    }
+    if (group.parts.empty())
+        return;
+    keep_name(building, group.name);
+    if (focus_is_part)
+        group.current = focused;
+    else if (checked != kit::no_control)
+        group.current = checked;
+    else
+        group.current = group.parts.front();
+    building.order.push_back(id);
+    building.composites.push_back(std::move(group));
+}
+
 /// Tells whether the pointer is over an enabled control.
 ///
 /// @param building the layout
@@ -598,7 +679,8 @@ bool held(const Building& building, kit::ControlId id, bool enabled) noexcept {
 /// @param id the control
 /// @return true while the focus is shown there
 bool focused_on(const Building& building, kit::ControlId id) noexcept {
-    return building.state->interaction.focus_shown && building.state->interaction.focused == id;
+    return kit::focus_ring_visible(building.state->interaction) &&
+           building.state->interaction.focused == id;
 }
 
 /// Returns the control of a number, searching every group.
@@ -760,6 +842,7 @@ void add_filter_pill(
     keep_name(building, name);
     kit::add_pill(building.list, rect, look, id, std::move(name));
     move_controls(building.list, before, building.top);
+    building.top.back().checked = active;
 }
 
 /// Appends the filters and the search on a row of Kit 2's control height,
@@ -851,6 +934,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
         keep_name(building, search_name);
         kit::add_search(building.list, search_rect, search, controls::search, search_name);
         move_controls(building.list, search_before, building.top);
+        building.top.back().label = placeholder;
         return;
     }
 
@@ -923,6 +1007,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
             keep_name(building, name);
             kit::add_pill(building.list, {cursor, pill_y, width, pill_h}, measure, id, name);
             move_controls(building.list, before, building.top);
+            building.top.back().checked = picker.tag == tags[place];
             building.tag_pills.push_back(id);
             cursor += width + pill_gap;
         } else {
@@ -984,6 +1069,7 @@ void add_filters(Building& building, const Window& window, const std::vector<std
     keep_name(building, search_name);
     kit::add_search(building.list, search_rect, search, controls::search, search_name);
     move_controls(building.list, search_before, building.top);
+    building.top.back().label = placeholder;
 }
 
 /// One piece of the list's scrolling content.
@@ -1242,6 +1328,8 @@ void add_row(
             building.rows.back().focusable = false;
             building.rows.back().clip = clip;
             building.rows.back().group = controls::list_group;
+            building.rows.back().label =
+                std::string(library::shown(picker.inputs.text, words::drag_to_reorder));
             if (!visuals)
                 building.list.items.resize(grip_items);
             else if (!building.list.items.empty())
@@ -1461,6 +1549,7 @@ void add_list(
         list_control.focusable = true;
         list_control.name = std::string(name_list);
         keep_name(building, list_control.name);
+        list_control.label = library::shown(building.picker->inputs.text, words::list_label);
         list_control.kind = kit::ControlKind::list;
         building.panes.push_back(std::move(list_control));
         return;
@@ -1610,6 +1699,7 @@ void add_list(
     list_control.focusable = true;
     list_control.name = std::string(name_list);
     keep_name(building, list_control.name);
+    list_control.label = library::shown(building.picker->inputs.text, words::list_label);
     list_control.kind = kit::ControlKind::list;
     building.panes.push_back(std::move(list_control));
 
@@ -2612,11 +2702,25 @@ void declare_tabs(Building& building, bool page) {
         stop(controls::close_mark);
         return;
     }
-    stop(controls::filter_all);
-    stop(controls::filter_installed);
-    stop(controls::filter_downloads);
-    for (const kit::ControlId id : building.tag_pills)
-        stop(id);
+    // The three pills are one stop, and the tag pills are another. Tags, the
+    // overflow menu, stays its own stop. Compact's drop-down is one control
+    // already, so this path is Regular and Large only.
+    add_group(
+        building,
+        controls::filters_group,
+        kit::CompositeAxis::row,
+        kit::CompositeRole::tab_list,
+        std::string(name_filters),
+        {controls::filter_all, controls::filter_installed, controls::filter_downloads}
+    );
+    add_group(
+        building,
+        controls::tags_group,
+        kit::CompositeAxis::row,
+        kit::CompositeRole::tab_list,
+        std::string(name_tag_pills),
+        building.tag_pills
+    );
     stop(controls::tags);
     stop(controls::search);
     stop(controls::list);
@@ -2638,7 +2742,7 @@ void declare_tabs(Building& building, bool page) {
 /// @param window the window
 void add_focus_ring(Building& building, const Window& window) {
     const kit::Interaction& interaction = building.state->interaction;
-    if (!interaction.focus_shown || interaction.focused == kit::no_control)
+    if (!kit::focus_ring_visible(interaction) || interaction.focused == kit::no_control)
         return;
     if (interaction.focused == controls::search)
         return;
@@ -2692,7 +2796,7 @@ void add_open_menu(Building& building, int32_t footer_line) {
     look.total = count;
     look.chosen = menu_open.chosen;
     look.marked = marked;
-    look.focus_shown = building.state->interaction.focus_shown;
+    look.focus_shown = kit::focus_ring_visible(building.state->interaction);
     // Every item is a named control, including those the menu has scrolled
     // out of the eight it shows. One past that window has no rectangle, so
     // it is not drawn and a press does not reach it.
@@ -2747,6 +2851,7 @@ kit::DisplayList finish(Building& building, const Window& window) {
             laid.controls.push_back(std::move(control));
     }
     laid.tab_order = std::move(building.order);
+    laid.composites = std::move(building.composites);
     return laid;
 }
 

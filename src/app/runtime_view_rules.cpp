@@ -606,6 +606,11 @@ void Runtime::give_view_command(const std::string& line, bool share) {
 }
 
 bool Runtime::handle_view_rule_key(const SDL_Event& event) {
+    // Photo mode keeps the match's view rules off. A chat macro, an armed
+    // building's rotate and spacing, and a display-modes screenshot do not
+    // run while it is open. The key goes on to the photo commands.
+    if (photo_mode())
+        return false;
     if (event.type == SDL_EVENT_MOUSE_WHEEL) {
         if (screen_ != Screen::match || !match_)
             return false;

@@ -3,6 +3,8 @@
 
 #include "gadget_internal.hpp"
 #include "oa/base/text/line_break.hpp"
+#include "oa/ui/gui_input/scroll_bar.hpp"
+#include "oa/ui/gui_input/tab_order.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -34,6 +36,70 @@ void refresh_help(GadgetPanel& panel) {
     update_help_text(panel);
 }
 
+[[nodiscard]] ui::gui_layout::Gadget gadget_from_record(const GadgetRecord& record) {
+    ui::gui_layout::Gadget gadget;
+    const auto type = ui::gui_layout::gadget_type_of(record);
+    gadget.common.type = static_cast<ui::gui_layout::GadgetType>(type);
+    gadget.common.name = std::string(ui::gui_layout::record_string(record, field::name));
+    gadget.common.x = i16(record, field::x);
+    gadget.common.y = i16(record, field::y);
+    gadget.common.width = i16(record, field::width);
+    gadget.common.height = i16(record, field::height);
+    gadget.common.attributes = static_cast<int32_t>(attributes(record));
+    gadget.common.active = static_cast<int8_t>(record.bytes[field::active]);
+    if (type == gadget_type::button) {
+        ui::gui_layout::ButtonFields fields;
+        fields.grayed_out = (record.bytes[field::button_flags] & 1) != 0;
+        gadget.fields = fields;
+    } else if (type == gadget_type::scroll_bar) {
+        ui::gui_layout::ScrollBarFields fields;
+        fields.locked = i32(record, field::scroll_locked) != 0;
+        fields.range = i16(record, field::scroll_range);
+        fields.knob_position = i16(record, field::scroll_knob);
+        gadget.fields = fields;
+    } else if (type == gadget_type::list_box) {
+        gadget.fields = ui::gui_layout::ListBoxFields{};
+    } else if (type == gadget_type::text_box) {
+        gadget.fields = ui::gui_layout::TextBoxFields{};
+    } else if (type == gadget_type::hot_surface) {
+        gadget.fields = ui::gui_layout::HotSurfaceFields{};
+    }
+    return gadget;
+}
+
+void move_keyboard_focus(GadgetPanel& panel, int32_t index) {
+    if (!valid_index(panel, index))
+        return;
+    panel.captured = kNoGadget;
+    panel.owner->focus = index;
+    if (ui::gui_layout::gadget_type_of(record_at(panel, index)) == gadget_type::text_box)
+        focus_text_box(panel, index);
+}
+
+[[nodiscard]] int16_t scrolled_knob(FocusKeyEffect effect, int16_t range, int16_t knob) {
+    const int16_t span = scroll_page_span(range);
+    switch (effect) {
+    case FocusKeyEffect::scroll_back:
+        return static_cast<int16_t>(static_cast<int32_t>(knob) - 1);
+    case FocusKeyEffect::scroll_forward:
+        return static_cast<int16_t>(static_cast<int32_t>(knob) + 1);
+    case FocusKeyEffect::scroll_page_back: {
+        const int32_t stepped = static_cast<int32_t>(knob) - static_cast<int32_t>(span);
+        return static_cast<int16_t>(stepped < -32768 ? -32768 : stepped);
+    }
+    case FocusKeyEffect::scroll_page_forward: {
+        const int32_t stepped = static_cast<int32_t>(knob) + static_cast<int32_t>(span);
+        return static_cast<int16_t>(stepped > 32767 ? 32767 : stepped);
+    }
+    case FocusKeyEffect::scroll_home:
+        return 0;
+    case FocusKeyEffect::scroll_end:
+        return range > 0 ? static_cast<int16_t>(static_cast<int32_t>(range) - 1) : int16_t{0};
+    default:
+        return knob;
+    }
+}
+
 } // namespace
 
 int32_t dispatch_key(GadgetPanel& panel, int32_t key) {
@@ -54,6 +120,85 @@ int32_t dispatch_key(GadgetPanel& panel, int32_t key) {
 
     bool consumed = false;
     int32_t result = key;
+    // A text box keeps the caret keys. They are not a scroll or a page of the screen.
+    if (type == gadget_type::text_box &&
+        (key == key_code::left || key == key_code::right || key == key_code::home ||
+         key == key_code::end || key == key_code::page_up || key == key_code::page_down))
+        return key;
+
+    ui::gui_layout::Gadget focused_gadget;
+    const ui::gui_layout::Gadget* focused_query = nullptr;
+    if (valid_index(panel, focus)) {
+        focused_gadget = gadget_from_record(focused);
+        focused_query = &focused_gadget;
+    }
+    FocusKeyQuery query;
+    query.gadget = focused_query;
+    query.key = key;
+    query.shift = key_down(panel, key_code::shift);
+    query.ring_shown = false;
+    const FocusKeyEffect effect = focus_key_action(query);
+    if (effect == FocusKeyEffect::tab_next || effect == FocusKeyEffect::tab_previous) {
+        const bool forward = effect == FocusKeyEffect::tab_next;
+        if (valid_index(panel, focus)) {
+            std::vector<int32_t> order;
+            {
+                const int32_t end = scan_end(panel);
+                std::vector<ui::gui_layout::Gadget> copied(static_cast<std::size_t>(end));
+                for (int32_t index = 0; index < end; ++index)
+                    copied[static_cast<std::size_t>(index)] =
+                        gadget_from_record(record_at(panel, index));
+                order = tab_order(copied);
+            }
+            bool found = false;
+            int32_t landed = focus;
+            for (std::size_t at = 0; at < order.size(); ++at) {
+                if (order[at] != focus)
+                    continue;
+                found = true;
+                if (forward)
+                    landed = order[(at + 1U) % order.size()];
+                else
+                    landed = order[at == 0 ? order.size() - 1U : at - 1U];
+                break;
+            }
+            if (found)
+                move_keyboard_focus(panel, landed);
+            else
+                focus_nearest(panel, forward ? FocusDirection::next : FocusDirection::previous);
+        } else {
+            // Nothing is focused. Tab still moves, as it does today.
+            focus_nearest(panel, forward ? FocusDirection::next : FocusDirection::previous);
+        }
+        finish_consumed(chosen);
+        consumed = true;
+    } else if (
+        effect == FocusKeyEffect::scroll_back || effect == FocusKeyEffect::scroll_forward ||
+        effect == FocusKeyEffect::scroll_page_back ||
+        effect == FocusKeyEffect::scroll_page_forward || effect == FocusKeyEffect::scroll_home ||
+        effect == FocusKeyEffect::scroll_end
+    ) {
+        if (valid_index(panel, focus)) {
+            const auto& bar = record_at(panel, focus);
+            place_scroll_knob(
+                panel,
+                focus,
+                scrolled_knob(effect, i16(bar, field::scroll_range), i16(bar, field::scroll_knob))
+            );
+        }
+        finish_consumed(chosen);
+        consumed = true;
+    } else if (effect == FocusKeyEffect::list_previous || effect == FocusKeyEffect::list_next) {
+        if (effect == FocusKeyEffect::list_previous)
+            list_select_previous(panel, focus);
+        else
+            list_select_next(panel, focus);
+        if (focused.refs.list_changed != nullptr)
+            focused.refs.list_changed(panel, focus);
+        panel.dirty = 1;
+        consumed = true;
+    }
+
     auto activate_focused = [&]() -> bool {
         if (type == gadget_type::text_box ||
             (type != gadget_type::button && type != gadget_type::list_box &&
@@ -79,7 +224,7 @@ int32_t dispatch_key(GadgetPanel& panel, int32_t key) {
         return true;
     };
 
-    switch (key) {
+    switch (consumed ? 0 : key) {
     case key_code::left:
         if (type == gadget_type::text_box)
             return key_code::left;

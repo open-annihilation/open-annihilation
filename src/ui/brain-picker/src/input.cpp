@@ -349,6 +349,7 @@ void select_brain(
     if (kit::control_of(list, controls::list) != nullptr) {
         state.interaction.focused = controls::list;
         state.interaction.focus_shown = true;
+        state.interaction.pointer_hid_ring = false;
     }
 }
 
@@ -710,9 +711,14 @@ ScreenResult open_page(const Picker& picker, ScreenState& state) {
     state.menu = Menu::none;
     state.menu_option.clear();
     state.menu_marked = -1;
-    if (state.interaction.focus_shown) {
+    // The page's first control takes the focus whether or not the ring shows,
+    // so the focus never names a control the page no longer lists. The ring
+    // stays as it was: Return hides it, and a player who never pressed Tab
+    // sees none.
+    if (state.interaction.focused != kit::no_control) {
         state.interaction.focused = page_focus(picker);
-        state.interaction.focus_shown = true;
+        if (state.interaction.focus_shown)
+            state.interaction.pointer_hid_ring = false;
     }
     return redrawn();
 }
@@ -736,17 +742,21 @@ kit::ControlId first_detail(const kit::DisplayList& list) {
 /// @param[in,out] state the screen's state
 /// @param list the display list
 void repair_focus(ScreenState& state, const kit::DisplayList& list) {
-    if (!state.interaction.focus_shown)
+    if (state.interaction.focused == kit::no_control)
         return;
     const kit::Control* control = kit::control_of(list, state.interaction.focused);
     if (control != nullptr && control->enabled && control->focusable)
         return;
+    // A disabled or missing control cannot take the keys. Move on, and leave
+    // the ring hidden when it was hidden.
+    const bool shown = state.interaction.focus_shown;
     if (list.tab_order.empty()) {
         state.interaction.focused = kit::no_control;
         state.interaction.focus_shown = false;
         return;
     }
     state.interaction.focused = list.tab_order.front();
+    state.interaction.focus_shown = shown;
 }
 
 /// The open menu's field.
@@ -1247,6 +1257,7 @@ ScreenResult enter_list(const Picker& picker, ScreenState& state, const kit::Dis
         return {};
     state.interaction.focused = detail;
     state.interaction.focus_shown = true;
+    state.interaction.pointer_hid_ring = false;
     show_in_details(state, list, detail);
     return redrawn();
 }
@@ -1403,7 +1414,13 @@ picker_key(Picker& picker, ScreenState& state, const kit::DisplayList& list, kit
         if (const std::optional<ScreenResult> taken = menu_key(picker, state, pressed))
             return *taken;
     }
+    // The first stop takes the keys from the first key, with the ring hidden,
+    // unless the host already opened the screen (and may have asked for the ring).
+    kit::focus_opened(state.interaction, list, false);
     kit::Interaction& interaction = state.interaction;
+    if (pressed != kit::Key::escape && pressed != kit::Key::yes && pressed != kit::Key::no &&
+        pressed != kit::Key::info)
+        kit::show_ring_for_key(interaction);
     const kit::ControlId focus = interaction.focus_shown ? interaction.focused : kit::no_control;
     const bool on_list = focus == controls::list;
     const bool in_details = details_focused(state, list);
@@ -1417,8 +1434,10 @@ picker_key(Picker& picker, ScreenState& state, const kit::DisplayList& list, kit
         if (on_list || focus == kit::no_control)
             return enter_list(picker, state, list);
         if (const std::optional<ScreenResult> stepped =
-                step_key(picker, state, list, focus, pressed))
+                step_key(picker, state, list, focus, pressed)) {
+            interaction.focus_shown = false;
             return *stepped;
+        }
         break;
     case kit::Key::space:
         if (on_list)

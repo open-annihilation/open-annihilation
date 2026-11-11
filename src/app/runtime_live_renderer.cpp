@@ -12,6 +12,7 @@
 #include "renderer_effects.hpp"
 #include "graphics_report.hpp"
 #include "render_host.hpp"
+#include "photo_state.hpp"
 #include "render_run.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
@@ -19,9 +20,14 @@
 #include "renderer_live_scene.hpp"
 #include "renderer_water_surface.hpp"
 #include "xrgb_conversion.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/job_pool.hpp"
 #include "oa/platform/render_probe.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/present/photo/looks.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
+#include "oa/ui/hud/health_bar.hpp"
+#include "oa/ui/hud/shared_views.hpp"
 
 #include <algorithm>
 #include <array>
@@ -30,6 +36,7 @@
 #include <iostream>
 #include <limits>
 #include <span>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -41,6 +48,12 @@ namespace render_probe = oa::platform::render_probe;
 namespace {
 /// Camera rotation per logical mouse pixel.
 constexpr float orbit_degrees_per_pixel = 0.25F;
+
+/// Two places are the same to the view when they are under a map pixel apart.
+bool same_view_place(double one, double other) noexcept {
+    return std::abs(one - other) < 1.0;
+}
+
 /// Painted height cell edge and the classic projection's height lift.
 constexpr int terrain_cell_edge = 16;
 constexpr float height_lift = 0.5F;
@@ -84,8 +97,40 @@ struct Runtime::LiveRenderer {
     renderer_live_camera::State camera{};
     renderer_live_camera::Matrix projection{};
     renderer_live_camera::View view{};
+    /// The ground under the middle of the window, from the frame before,
+    /// in world units. A larger photo uses this point rather than a pick
+    /// in its own pixels, which the frame before did not project.
+    bool focus_held{};
+    float focus_x{};
+    float focus_height{};
+    float focus_z{};
+    /// The picture the last frame projected, in pixels. A photo's own frame
+    /// at a larger size projects another picture than the window's, so the
+    /// frame after it, which puts the window back, does not pick the focus
+    /// from it.
+    int32_t projected_width{};
+    int32_t projected_height{};
     bool pivot_held{};
+    /// The view aim_live_view_at_match replaced, put back by
+    /// restore_live_ground, so a check's corner does not stay as the
+    /// height of the next frame.
+    bool aimed_kept{};
+    renderer_live_camera::View aimed_view{};
+    renderer_live_camera::Matrix aimed_projection{};
+    bool aimed_pivot{};
+    /// A turn from a classic place past this zoom's limits pulled the view
+    /// in. The classic place and the centre it remembered go back when the
+    /// view turns back, unless the turned view has moved since.
+    bool classic_kept{};
+    double classic_x{};
+    double classic_z{};
+    ViewHold classic_hold{};
+    double pulled_x{};
+    double pulled_z{};
     renderer_live_scene::Scene scene{};
+    /// The window's scene, set aside while a turned photo packs its own
+    /// from a fresh one, and put back before the window's frame is drawn.
+    std::optional<renderer_live_scene::Scene> parked_scene{};
     bool scene_built{}; ///< the last frame's scene was built
     renderer_live_gpu::Context gpu{};
     std::vector<uint8_t> rgba{};
@@ -172,6 +217,14 @@ struct Runtime::LiveRenderer {
 
     Overlay overlay{};
 };
+
+void Runtime::drop_live_team_frames() {
+    if (live_renderer_ == nullptr)
+        return;
+    // The ground stays. The units' texels are packed again from the recoloured frames.
+    live_renderer_->scene.materials.clear();
+    ++live_renderer_->scene.texture_revision;
+}
 
 void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
     delete renderer;
@@ -278,7 +331,7 @@ void Runtime::note_turned_text_run(const oa::present::TextWorldRun& run) {
     );
 }
 
-bool Runtime::turned_picture(renderer::Surface& world) {
+bool Runtime::turned_card_picture(renderer::Surface& world) {
     if (!turned_overlay_painted())
         return false;
     auto& live = *live_renderer_;
@@ -290,19 +343,27 @@ bool Runtime::turned_picture(renderer::Surface& world) {
     }
     const uint32_t width = match_world_cpu_.width;
     const uint32_t height = match_world_cpu_.height;
-    if (live.rgba.size() != std::size_t{width} * height * 4 ||
-        match_world_cpu_.rgb.size() != std::size_t{width} * height * 3)
+    if (live.rgba.size() != std::size_t{width} * height * 4)
         return false;
     world.width = width;
     world.height = height;
     world.rgb.resize(std::size_t{width} * height * 3);
     for (std::size_t pixel = 0; pixel < world.rgb.size() / 3; ++pixel)
         std::copy_n(live.rgba.data() + pixel * 4, 3, world.rgb.data() + pixel * 3);
+    return true;
+}
+
+bool Runtime::turned_picture(renderer::Surface& world) {
+    if (!turned_card_picture(world))
+        return false;
+    if (match_world_cpu_.rgb.size() != world.rgb.size())
+        return false;
+    auto& live = *live_renderer_;
     const bool palette = match_palette_ != oa::PaletteBytes{};
     renderer_live_overlay::compose(
         world.rgb,
-        width,
-        height,
+        world.width,
+        world.height,
         match_world_cpu_.rgb,
         live.overlay.key,
         live.overlay.operations,
@@ -489,9 +550,171 @@ bool Runtime::live_renderer_active() const noexcept {
            (live_renderer_->camera.yaw_degrees != 0 || live_renderer_->camera.pitch_degrees != 0);
 }
 
-bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
+bool Runtime::photo_card_keeps_depth() const noexcept {
+    return live_renderer_active() && live_renderer_ &&
+           renderer_live_gpu::draws_lights(live_renderer_->gpu);
+}
+
+std::string Runtime::photo_turn_reason() {
+    // Outside photo mode the panel is not up, so there is no reason to give.
+    if (!photo_mode())
+        return {};
+    const bool match_ready = screen_ == Screen::match && match_ && selected_tnt_;
+    const bool full_or_headless = full_presentation() || options_.headless_check;
+    if (!match_ready || !full_or_headless)
+        return std::string(oa::data::languages::interface_text("Needs Full acceleration"));
+    if (!engine_settings().allow_full_3d)
+        return std::string(oa::data::languages::interface_text("Needs Allow full 3D mode"));
+    // Opening the device is what tells a software renderer from Metal or Vulkan.
+    // The setting is already on, so a machine with no device is not that line.
+    auto& live = ensure_live_renderer();
+    if (renderer_live_gpu::device(live.gpu) == nullptr)
+        return std::string(oa::data::languages::interface_text("Not available here"));
+    return {};
+}
+
+bool Runtime::photo_turn(float yaw_delta_degrees) {
+    // A held picture is not turned. Its camera comes back when it is let go.
+    if (!photo_mode() || photo_camera_locked() || !photo_turn_reason().empty())
+        return false;
+    auto& live = *live_renderer_;
+    // A fresh camera and reset() are locked. A drag reads the setting at its
+    // start; a turn and a tilt do the same before they move.
+    renderer_live_camera::set_unlocked(live.camera, engine_settings().unlocked_camera);
+    const bool was_turned = live_renderer_active();
+    renderer_live_camera::orbit(live.camera, yaw_delta_degrees, 0.0F);
+    live.dragging = false;
+    live.drag_button = 0;
+    live.failed = false;
+    if (!was_turned && live_renderer_active())
+        pull_place_for_turned_view();
+    else if (was_turned && !live_renderer_active())
+        restore_classic_place_after_turn();
+    return true;
+}
+
+bool Runtime::photo_tilt(float pitch_delta_degrees) {
+    if (!photo_mode() || photo_camera_locked() || !photo_turn_reason().empty())
+        return false;
+    auto& live = *live_renderer_;
+    renderer_live_camera::set_unlocked(live.camera, engine_settings().unlocked_camera);
+    const bool was_turned = live_renderer_active();
+    renderer_live_camera::orbit(live.camera, 0.0F, pitch_delta_degrees);
+    live.dragging = false;
+    live.drag_button = 0;
+    live.failed = false;
+    if (!was_turned && live_renderer_active())
+        pull_place_for_turned_view();
+    else if (was_turned && !live_renderer_active())
+        restore_classic_place_after_turn();
+    return true;
+}
+
+bool Runtime::aim_live_view_at_match(bool quiet_ground, std::size_t& terrain_vertices) {
     ensure_live_renderer();
     auto& live = *live_renderer_;
+    live.aimed_kept = true;
+    live.aimed_view = live.view;
+    live.aimed_projection = live.projection;
+    live.aimed_pivot = live.pivot_held;
+    terrain_vertices = live.scene.terrain_vertex_count;
+    if (quiet_ground)
+        live.scene.terrain_vertex_count = 0;
+    const auto place = match_view_place();
+    const float zoom = match_zoom() <= 0.0F ? 1.0F : match_zoom();
+    const float width = static_cast<float>(match_layout_.battlefield_width());
+    const float height = static_cast<float>(match_layout_.battlefield_height());
+    live.view = {
+        static_cast<float>(place[0]) + width / (2.0F * zoom),
+        0.0F,
+        static_cast<float>(place[1]) + height / (2.0F * zoom),
+        width * 0.5F,
+        height * 0.5F,
+        zoom
+    };
+    return renderer_live_camera::projection(live.camera, live.view, live.projection);
+}
+
+void Runtime::restore_live_ground(std::size_t terrain_vertices) {
+    if (live_renderer_ == nullptr)
+        return;
+    auto& live = *live_renderer_;
+    live.scene.terrain_vertex_count = terrain_vertices;
+    if (!live.aimed_kept)
+        return;
+    live.view = live.aimed_view;
+    live.projection = live.aimed_projection;
+    live.pivot_held = live.aimed_pivot;
+    live.aimed_kept = false;
+}
+
+void Runtime::pull_place_for_turned_view() {
+    // A held picture keeps the place it was copied from. The director's
+    // shot stays where it was aimed. The classic view is not pulled: its
+    // place and its remembered centre are what a turn back shows.
+    if (director_mode() || photo_camera_locked() || !live_renderer_active())
+        return;
+    auto& live = *live_renderer_;
+    const auto place = match_view_place();
+    const auto limited = view_within_limits(place[0], place[1]);
+    if (!limited)
+        return;
+    const bool outside =
+        !same_view_place(place[0], (*limited)[0]) || !same_view_place(place[1], (*limited)[1]);
+    if (live.classic_kept) {
+        const bool still_pulled =
+            same_view_place(place[0], live.pulled_x) && same_view_place(place[1], live.pulled_z);
+        if (still_pulled)
+            return;
+        if (!outside) {
+            // The turned view has moved. Turning back keeps this place.
+            live.classic_kept = false;
+            return;
+        }
+        // Outside again, somewhere other than where the turn pulled it.
+        // That place is the classic one to come back to.
+        if (!same_view_place(place[0], live.classic_x) ||
+            !same_view_place(place[1], live.classic_z)) {
+            live.classic_x = place[0];
+            live.classic_z = place[1];
+            live.classic_hold = view_hold_;
+        }
+    } else if (!outside) {
+        return;
+    } else {
+        live.classic_kept = true;
+        live.classic_x = place[0];
+        live.classic_z = place[1];
+        live.classic_hold = view_hold_;
+    }
+    live.pulled_x = (*limited)[0];
+    live.pulled_z = (*limited)[1];
+    place_match_view(live.pulled_x, live.pulled_z);
+}
+
+void Runtime::restore_classic_place_after_turn() {
+    // The director's shot and a held picture keep the place they have.
+    if (director_mode() || photo_camera_locked() || live_renderer_ == nullptr ||
+        !live_renderer_->classic_kept)
+        return;
+    auto& live = *live_renderer_;
+    const auto place = match_view_place();
+    const bool still_pulled =
+        same_view_place(place[0], live.pulled_x) && same_view_place(place[1], live.pulled_z);
+    live.classic_kept = false;
+    if (!still_pulled)
+        return;
+    place_match_view(live.classic_x, live.classic_z);
+    view_hold_ = live.classic_hold;
+}
+
+bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
+    // A held picture is not turned.
+    if (photo_camera_locked())
+        return false;
+    ensure_live_renderer();
+    auto& live = *live_renderer_;
+    const bool was_turned = live_renderer_active();
     live.camera.yaw_degrees = yaw_degrees;
     live.camera.pitch_degrees = pitch_degrees;
     // Held within the unlocked range by the camera's own limits, so that
@@ -502,7 +725,27 @@ bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
     live.pivot_held = false;
     live.failed = false;
     live.unavailable = false;
-    return live.camera.yaw_degrees != 0 || live.camera.pitch_degrees != 0;
+    const bool turned = live.camera.yaw_degrees != 0 || live.camera.pitch_degrees != 0;
+    // A turn from a classic place past this zoom's limits pulls the view in
+    // before the frame is asked for. Turning the other way puts that place
+    // back when the view has not moved.
+    if (!was_turned && turned)
+        pull_place_for_turned_view();
+    else if (was_turned && !turned)
+        restore_classic_place_after_turn();
+    return turned;
+}
+
+void Runtime::restore_live_camera(float yaw_degrees, float pitch_degrees, bool unlocked) noexcept {
+    if (live_renderer_ == nullptr)
+        return;
+    const bool was_turned = live_renderer_active();
+    auto& live = *live_renderer_;
+    live.camera.yaw_degrees = yaw_degrees;
+    live.camera.pitch_degrees = pitch_degrees;
+    renderer_live_camera::set_unlocked(live.camera, unlocked);
+    if (was_turned && !live_renderer_active())
+        restore_classic_place_after_turn();
 }
 
 bool Runtime::live_renderer_unlocked() const noexcept {
@@ -517,6 +760,16 @@ std::array<float, 2> Runtime::live_camera_angles() const noexcept {
 
 bool Runtime::live_renderer_failed() const noexcept {
     return live_renderer_ && live_renderer_->failed;
+}
+
+Runtime::TurnedFrameSampling Runtime::turned_frame_sampling() const noexcept {
+    TurnedFrameSampling sampling;
+    if (live_renderer_ == nullptr)
+        return sampling;
+    sampling.supersample = live_renderer_->gpu.actual_supersample;
+    sampling.multisample = live_renderer_->gpu.actual_multisample;
+    sampling.device_multisamples = renderer_live_gpu::device_multisamples(live_renderer_->gpu);
+    return sampling;
 }
 
 bool Runtime::live_renderer_unavailable() const noexcept {
@@ -574,7 +827,10 @@ void Runtime::apply_live_camera_settings(bool allowed, bool unlocked) {
 
 void Runtime::reset_live_renderer() {
     if (live_renderer_) {
+        const bool was_turned = live_renderer_active();
         renderer_live_camera::reset(live_renderer_->camera);
+        if (was_turned)
+            restore_classic_place_after_turn();
         live_renderer_->dragging = false;
         live_renderer_->pivot_held = false;
         live_renderer_->drag_button = 0;
@@ -596,6 +852,9 @@ bool Runtime::answer_live_view_key(std::string_view action) {
     // keys.
     if (match_question_open() || chat_composing_ || whiteboard_input_.editing || match_paused_)
         return false;
+    // A held picture keeps the view it was copied from. The key is taken.
+    if (photo_camera_locked())
+        return true;
     ensure_live_renderer();
     if (action == "camera.classic-view") {
         reset_live_renderer();
@@ -687,6 +946,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         const PointerCameraDrag drag = pointer_camera_drag(button, pointer_modifier_bits());
         const bool blocked = order_armed && button == match_select_button();
         if (drag != PointerCameraDrag::none && !blocked) {
+            // A held picture is not panned or turned by the pointer.
+            if (photo_camera_locked())
+                return true;
             // An explicit camera gesture retries after a failed frame.
             live.failed = false;
             live.unavailable = false;
@@ -700,6 +962,12 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         }
     }
     if (event.type == SDL_EVENT_MOUSE_MOTION && live.dragging) {
+        if (photo_camera_locked()) {
+            live.dragging = false;
+            live.drag_button = 0;
+            update_pointer(x, y);
+            return true;
+        }
         // Camera gestures consume the event before normal pointer handling.
         // Keep the custom cursor at the physical pointer throughout the drag.
         update_pointer(x, y);
@@ -717,7 +985,15 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
                  converted.motion.yrel * orbit_degrees_per_pixel},
                 inversion
             );
+            const bool was_turned = live_renderer_active();
             renderer_live_camera::orbit(live.camera, turn.x, turn.y);
+            // The first movement that turns the view pulls a classic place
+            // past this zoom's limits in, so the frame is drawn. Back at
+            // the classic angles, that place returns when nothing moved it.
+            if (!was_turned && live_renderer_active())
+                pull_place_for_turned_view();
+            else if (was_turned && !live_renderer_active())
+                restore_classic_place_after_turn();
         } else {
             const auto ground = camera_inversion::pan_drag(
                 {converted.motion.xrel, converted.motion.yrel}, inversion
@@ -725,7 +1001,18 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
             float dx{}, dz{};
             if (renderer_live_camera::pan_delta(live.projection, ground.x, ground.y, dx, dz)) {
                 const auto place = match_view_place();
-                place_match_view(place[0] - dx, place[1] - dz);
+                double pan_x = place[0] - static_cast<double>(dx);
+                double pan_z = place[1] - static_cast<double>(dz);
+                // While the view is turned, the limits of this zoom, with
+                // nothing remembered past them. While it is classic, the
+                // remembered centre, as a classic scroll keeps it.
+                const std::array<double, 2> held = held_turned_place(pan_x, pan_z);
+                pan_x = held[0];
+                pan_z = held[1];
+                place_match_view(pan_x, pan_z);
+                // The next pan widens from this place, which is on the map.
+                const auto placed = match_view_place();
+                remember_placed_view(placed[0], placed[1]);
             }
         }
         return true;
@@ -736,6 +1023,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         return false;
     // Build rotation and spacing keep their modified-wheel gestures.
     if (handle_build_tool_key(event))
+        return true;
+    // A held picture keeps its zoom. The wheel is taken.
+    if (photo_camera_locked())
         return true;
     if (!engine_settings().wheel_zoom || live.failed)
         return true;
@@ -759,10 +1049,16 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
     zoom_focus_ = {false, x, y};
     const float half_width = match_layout_.battlefield_width() / (2 * zoom);
     const float half_height = match_layout_.battlefield_height() / (2 * zoom);
-    place_match_view(
-        view.focus_x - half_width, view.focus_z - view.focus_y * height_lift - half_height
+    // The place stays within the limits of this zoom. A zoom in pulls a
+    // centre the wider view left past them back inside, which is a frame
+    // the card can draw, and the next pan widens from that held place.
+    const float lifted = view.focus_z - view.focus_y * height_lift;
+    const std::array<double, 2> held = held_turned_place(
+        static_cast<double>(view.focus_x - half_width), static_cast<double>(lifted - half_height)
     );
-    view_hold_ = {true, view.focus_x, view.focus_z - view.focus_y * height_lift};
+    place_match_view(held[0], held[1]);
+    const auto placed = match_view_place();
+    remember_placed_view(placed[0], placed[1]);
     live.view = view;
     if (renderer_live_camera::projection(live.camera, live.view, live.projection))
         rebuild_live_picking();
@@ -780,17 +1076,51 @@ bool Runtime::render_live_match_surface() {
     auto& live = *live_renderer_;
     if (live.match != match_.get()) {
         live.scene = {};
+        live.parked_scene.reset();
         live.drawn = {};
         live.pivot_held = false;
         live.match = match_.get();
         live.failed = false;
         live.unavailable = false;
+        live.classic_kept = false;
+    }
+    // A turned photo packs from a fresh scene, so one drawn whole and the
+    // same one drawn in tiles start from the same ground. The window's
+    // scene is put back before its frame is drawn again. The card still
+    // holds the photo's atlas, so the restored revision moves on and that
+    // frame is sent whole.
+    if (live.parked_scene.has_value() && !photo_isolate_scene_) {
+        live.scene = std::move(*live.parked_scene);
+        live.parked_scene.reset();
+        live.scene.texture_revision += 0x100000ULL;
+        live.scene_built = true;
+    }
+    if (photo_isolate_scene_ && !live.parked_scene.has_value()) {
+        live.parked_scene = std::move(live.scene);
+        live.scene = {};
+        live.scene_built = false;
     }
     const auto& map = *selected_tnt_;
+    // A turn from a classic place past this zoom's limits is pulled in
+    // before the frame is built, including a turn that did not pass through
+    // a drag. Turning back puts that classic place back before a classic
+    // frame is taken from it.
+    // A turned-view tile keeps the photo's camera. Pulling it in for the
+    // tile's smaller picture would show a different part of the map.
+    if (live_renderer_active() && !live.failed && !photo_tile_frame_)
+        pull_place_for_turned_view();
+    else if (!live_renderer_active())
+        restore_classic_place_after_turn();
     const auto place = match_view_place();
     const float zoom = match_zoom();
-    const float width = static_cast<float>(match_layout_.battlefield_width());
-    const float height = static_cast<float>(match_layout_.battlefield_height());
+    // A tile's picture is one piece. The view is the whole photo's, and the
+    // projection is shifted onto the tile after the scene is packed.
+    const bool tiling = photo_tile_frame_ && photo_capture_live_ && photo_tile_whole_width_ > 0 &&
+                        photo_tile_whole_height_ > 0;
+    const float width = tiling ? static_cast<float>(photo_tile_whole_width_)
+                               : static_cast<float>(match_layout_.battlefield_width());
+    const float height = tiling ? static_cast<float>(photo_tile_whole_height_)
+                                : static_cast<float>(match_layout_.battlefield_height());
     const float focus_x = static_cast<float>(place[0]) + width / (2 * zoom);
     const float focus_y = static_cast<float>(place[1]) + height / (2 * zoom);
     float elevation{};
@@ -878,8 +1208,13 @@ bool Runtime::render_live_match_surface() {
         inputs.models_on_card = live_models_on_card();
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
-        inputs.clip_width = match_world_cpu_.width;
-        inputs.clip_height = match_world_cpu_.height;
+        if (tiling) {
+            inputs.clip_width = static_cast<uint32_t>(photo_tile_whole_width_);
+            inputs.clip_height = static_cast<uint32_t>(photo_tile_whole_height_);
+        } else {
+            inputs.clip_width = match_world_cpu_.width;
+            inputs.clip_height = match_world_cpu_.height;
+        }
         inputs.camera_x = models.renderer.camera_x;
         inputs.camera_y = models.renderer.camera_y;
         std::copy_n(
@@ -925,10 +1260,19 @@ bool Runtime::render_live_match_surface() {
         Span building(Stage::scene_build);
         // A frame a check draws again on the card takes the scene drawn
         // last, unchanged, so that the frames after it are as they would be.
-        const bool built = turned_overlay_checked_
-                               ? live.scene_built
-                               : renderer_live_scene::build(inputs, live.scene, error);
+        // A turned-view photo packs the scene once, for the whole photo.
+        // Later tiles draw that packing, so the detail does not change
+        // where the tiles meet.
+        const bool built =
+            tiling && photo_tile_hold_scene_ && live.scene_built
+                ? true
+                : (turned_overlay_checked_ ? live.scene_built
+                                           : renderer_live_scene::build(inputs, live.scene, error));
         live.scene_built = built;
+        if (tiling) {
+            live.projection[3] -= static_cast<float>(photo_tile_shift_x_);
+            live.projection[7] -= static_cast<float>(photo_tile_shift_y_);
+        }
         building.stop();
         bench_timers::note_scene(
             {static_cast<double>(live.scene.vertices.size()),
@@ -956,8 +1300,9 @@ bool Runtime::render_live_match_surface() {
         // so that it adds them; a card that cannot leaves them to the
         // processor, which adds them to the picture read back.
         Span lighting(Stage::effects);
+        const float effect_row = tiling ? static_cast<float>(photo_tile_shift_y_) : 0.0F;
         const auto lights = project_match_effects(
-            match_world_cpu_.width, match_world_cpu_.height, 0, 0, 1, 1, true
+            match_world_cpu_.width, match_world_cpu_.height, 0, 0, 1, 1, true, effect_row
         );
         const renderer_live_gpu::Lights card_lights{
             lights, match_effect_settings(), static_cast<double>(match_->simulation().tick) / 30.0
@@ -966,37 +1311,157 @@ bool Runtime::render_live_match_surface() {
         // A frame drawn to be presented, in a window that presents through
         // the device the card draws on, stays on the card: the painters
         // paint the overlay canvas and the card adds it as the window
-        // presents the frame. Any other frame is read back.
+        // presents the frame. Any other frame is read back. A photo's own
+        // frame is read back too, so the picture can be saved.
         live.gpu.keep_on_card =
-            (presenting_frame_ && match_use_layers_ && director_ == nullptr &&
-             !options_.headless_check && render_run_ && render_run_->host != nullptr &&
-             render_run_->host->presenting_on_card() &&
-             sdl_.renderer == render_run_->host->renderer()) ||
-            turned_overlay_checked_;
+            !photo_capture_live_ &&
+            ((presenting_frame_ && match_use_layers_ && director_ == nullptr &&
+              !options_.headless_check && render_run_ && render_run_->host != nullptr &&
+              render_run_->host->presenting_on_card() &&
+              sdl_.renderer == render_run_->host->renderer()) ||
+             turned_overlay_checked_);
+        // A look needs the picture in memory. A frozen frame whose camera
+        // and look are unchanged keeps the card's picture and presents the
+        // filtered copy. A held picture is that copy, not a new read-back.
+        if (photo_look_active() && !photo_picture_held() &&
+            (photo_look_preview_due() || !photo_look_cpu_valid_))
+            live.gpu.keep_on_card = false;
+        // The ground under the middle of the window, remembered for the
+        // depth pass. A photo drawn larger than the window keeps this point:
+        // its own picture was not what the frame before projected.
+        if (photo_mode() && photo_ != nullptr && !photo_capture_live_ && !photo_tile_frame_ &&
+            live.projected_width == match_layout_.width &&
+            live.projected_height == match_layout_.height) {
+            const float centre_x = static_cast<float>(match_layout_.left) +
+                                   static_cast<float>(match_layout_.width) * 0.5F;
+            const float centre_y = static_cast<float>(match_layout_.top) +
+                                   static_cast<float>(match_layout_.height) * 0.5F;
+            if (const auto ground_hit = live_ground_hit(centre_x, centre_y)) {
+                constexpr float fixed_scale = 65536.0F;
+                live.focus_x = static_cast<float>((*ground_hit)[0]) / fixed_scale;
+                live.focus_height = static_cast<float>((*ground_hit)[1]) / fixed_scale;
+                live.focus_z = static_cast<float>((*ground_hit)[2]) / fixed_scale;
+                live.focus_held = true;
+            }
+        }
+        renderer_live_gpu::DepthCue depth_cue{};
+        const renderer_live_gpu::DepthCue* depth_ptr = nullptr;
+        int drawn_blur = 0;
+        int drawn_haze = 0;
+        // Play, and a director's frames, pass no cue. A photo asks only
+        // while its depth of field or its haze is on.
+        if (photo_mode() && photo_ != nullptr) {
+            namespace photo = oa::present::photo;
+            const int dof = std::clamp(photo_->look_depth_of_field, 0, 32);
+            const int haze_amount = std::clamp(photo_->look_haze, 0, 100);
+            // A photo is drawn at its size times smooth edges' step, and
+            // reduced by the step after, so the blur in the drawn picture
+            // grows by both: the saved photo then matches the preview.
+            const int times = photo_capture_live_ ? std::clamp(photo_->size_factor, 1, 4) *
+                                                        std::clamp(photo_->smooth_factor, 1, 4)
+                                                  : 1;
+            const int blur_px = photo::photo_tilt_radius(dof, times);
+            const bool want_dof = blur_px > 0 && live.focus_held;
+            const bool want_haze = haze_amount > 0;
+            if (want_dof || want_haze) {
+                const auto& rows = live.projection;
+                const float gradient =
+                    std::sqrt(rows[8] * rows[8] + rows[9] * rows[9] + rows[10] * rows[10]);
+                const float step = std::max(gradient, 1.0e-4F);
+                const float focus = rows[8] * live.focus_x + rows[9] * live.focus_height +
+                                    rows[10] * live.focus_z + rows[11];
+                depth_cue.focus = focus;
+                depth_cue.range = want_dof ? 48.0F * step : 0.0F;
+                depth_cue.max_blur = want_dof ? static_cast<float>(blur_px) : 0.0F;
+                depth_cue.blur_scale = depth_cue.max_blur / std::max(400.0F * step, 1.0e-4F);
+                depth_cue.haze = static_cast<float>(haze_amount) / 100.0F;
+                const photo::HazeField air{};
+                depth_cue.haze_red = static_cast<float>(air.red) / 255.0F;
+                depth_cue.haze_green = static_cast<float>(air.green) / 255.0F;
+                depth_cue.haze_blue = static_cast<float>(air.blue) / 255.0F;
+                depth_cue.near_depth = live.focus_held ? focus : 0.0F;
+                depth_cue.depth_span = std::max(800.0F * step, 1.0e-3F);
+                depth_ptr = &depth_cue;
+                if (want_dof)
+                    drawn_blur = blur_px;
+                if (want_haze)
+                    drawn_haze = haze_amount;
+            }
+        }
         const auto model_draws =
             renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
+        // The lights were placed in the tile. The card draws the whole
+        // photo's pixels and clips them to the tile, so a vertex rounds
+        // where it does in the photo drawn whole. Putting the shift back
+        // leaves that projection for the card.
+        if (tiling) {
+            live.projection[3] += static_cast<float>(photo_tile_shift_x_);
+            live.projection[7] += static_cast<float>(photo_tile_shift_y_);
+            live.gpu.tile_origin_x = static_cast<uint32_t>(photo_tile_shift_x_);
+            live.gpu.tile_origin_y = static_cast<uint32_t>(photo_tile_shift_y_);
+            live.gpu.tile_span_x = static_cast<uint32_t>(photo_tile_whole_width_);
+            live.gpu.tile_span_y = static_cast<uint32_t>(photo_tile_whole_height_);
+        }
+        live.gpu.viewport_limit = photo_check_viewport_limit_ > 0
+                                      ? static_cast<uint32_t>(photo_check_viewport_limit_)
+                                      : 0U;
         Span drawing(Stage::gpu_total);
-        const auto result = built ? renderer_live_gpu::render(
-                                        live.gpu,
-                                        live.scene.vertices,
-                                        live.scene.texture_rgba,
-                                        live.scene.texture_width,
-                                        live.scene.texture_height,
-                                        live.scene.texture_revision,
-                                        match_world_cpu_.width,
-                                        match_world_cpu_.height,
-                                        live.projection,
-                                        live.rgba,
-                                        error,
-                                        static_cast<uint32_t>(engine_settings().anti_aliasing),
-                                        &live.scene.atlas_update,
-                                        &inputs.water,
-                                        &ground,
-                                        rebuild_picking,
-                                        &card_lights,
-                                        &model_draws
-                                    )
-                                  : renderer_live_gpu::Result::failed;
+        const auto result = built
+                                ? renderer_live_gpu::render(
+                                      live.gpu,
+                                      live.scene.vertices,
+                                      live.scene.texture_rgba,
+                                      live.scene.texture_width,
+                                      live.scene.texture_height,
+                                      live.scene.texture_revision,
+                                      match_world_cpu_.width,
+                                      match_world_cpu_.height,
+                                      live.projection,
+                                      live.rgba,
+                                      error,
+                                      tiling && photo_tile_supersample_ > 0
+                                          ? photo_tile_supersample_
+                                          : static_cast<uint32_t>(engine_settings().anti_aliasing),
+                                      &live.scene.atlas_update,
+                                      &inputs.water,
+                                      &ground,
+                                      rebuild_picking,
+                                      &card_lights,
+                                      &model_draws,
+                                      depth_ptr
+                                  )
+                                : renderer_live_gpu::Result::failed;
+        if (tiling && result == renderer_live_gpu::Result::success) {
+            ++photo_check_tiles_drawn_;
+            if (live.gpu.tile_shifted)
+                ++photo_check_tiles_shifted_;
+            photo_check_widest_tile_viewport_ =
+                std::max(photo_check_widest_tile_viewport_, live.gpu.tile_viewport_side);
+        }
+        live.gpu.tile_origin_x = 0;
+        live.gpu.tile_origin_y = 0;
+        live.gpu.tile_span_x = 0;
+        live.gpu.tile_span_y = 0;
+        live.gpu.viewport_limit = 0;
+        // A tile is not the window, even when it happens to be the same
+        // size. The next frame must not take the tile's focus for the
+        // window's.
+        if (photo_tile_frame_) {
+            live.projected_width = 0;
+            live.projected_height = 0;
+        } else {
+            live.projected_width = match_layout_.width;
+            live.projected_height = match_layout_.height;
+        }
+        if (photo_ != nullptr) {
+            if (result == renderer_live_gpu::Result::success && live.gpu.depth_drawn) {
+                photo_->card_dof_pixels = drawn_blur;
+                photo_->card_haze = drawn_haze;
+            } else {
+                photo_->card_dof_pixels = 0;
+                photo_->card_haze = 0;
+            }
+        }
         drawing.stop();
         bench_timers::note_supersample(live.gpu.actual_supersample);
         const auto& last = live.drawn;
@@ -1041,6 +1506,10 @@ bool Runtime::render_live_match_surface() {
                     lights
                 );
             }
+        } else if (photo_capture_live_) {
+            // A photo that did not draw is refused. The play camera stays
+            // where it was, and the live renderer is not marked failed.
+            return false;
         } else if (
             !built && live.scene.out_of_room && last.held && director_ == nullptr &&
             (!at_last || last_picture_read())
@@ -1085,6 +1554,9 @@ bool Runtime::render_live_match_surface() {
             live.dragging = false;
             live.drag_button = 0;
             live.pivot_held = false;
+            // The turn was not drawn. The classic place comes back with the
+            // classic view.
+            restore_classic_place_after_turn();
             std::cerr << "3D view: " << error << '\n';
             // This frame left out the classic raster: render_match_surface
             // draws the frame again, once, classically.
@@ -1093,8 +1565,9 @@ bool Runtime::render_live_match_surface() {
     }
     if (!live_renderer_active())
         return true;
-    // A director's frame without the interface is the world alone.
-    const bool bare = director_ != nullptr && !director_->presentation.show_interface;
+    // A director's frame without the interface, or photo mode, is the world
+    // alone. Photo mode can put the selection boxes and the health bars back.
+    const bool bare = match_interface_hidden();
     if (!live.failed) {
         if (!bare) {
             Span overlays(Stage::overlays);
@@ -1105,6 +1578,16 @@ bool Runtime::render_live_match_surface() {
             selection.stop();
             const Span unit_overlays(Stage::unit_overlays);
             draw_live_unit_overlays();
+        } else if (photo_show_selection() || photo_show_health_bars()) {
+            if (photo_show_selection()) {
+                Span selection(Stage::selection);
+                draw_live_selection(true);
+                selection.stop();
+            }
+            if (photo_show_health_bars()) {
+                const Span unit_overlays(Stage::unit_overlays);
+                draw_live_health_bars();
+            }
         }
         const Span on_screen(Stage::on_screen_units);
         rebuild_on_screen_units();
@@ -1113,6 +1596,8 @@ bool Runtime::render_live_match_surface() {
 }
 
 bool Runtime::scroll_live_match_view(double screen_dx, double screen_dy) {
+    if (photo_camera_locked())
+        return false;
     if (!live_renderer_active() || !live_renderer_ || live_renderer_->failed)
         return false;
     auto& live = *live_renderer_;
@@ -1125,7 +1610,13 @@ bool Runtime::scroll_live_match_view(double screen_dx, double screen_dy) {
         return false;
     stop_match_tracking();
     const auto place = match_view_place();
-    place_match_view(place[0] + dx, place[1] + dz);
+    double x = place[0] + static_cast<double>(dx);
+    double z = place[1] + static_cast<double>(dz);
+    // The same limits as a classic scroll, in play and in photo mode.
+    const std::array<double, 2> held = held_turned_place(x, z);
+    x = held[0];
+    z = held[1];
+    place_match_view(x, z);
     const auto moved = match_view_place();
     remember_placed_view(moved[0], moved[1]);
     return true;
@@ -1813,7 +2304,7 @@ void Runtime::live_scene_visibility(
     });
 }
 
-void Runtime::draw_live_selection() {
+void Runtime::draw_live_selection(bool selection_only) {
     // Draw directly into the GPU readback so feedback follows the shown geometry.
     const auto line = [&](int x0, int y0, int x1, int y1, const std::array<uint8_t, 3>& color) {
         const int steps = std::max(std::abs(x1 - x0), std::abs(y1 - y0));
@@ -1841,11 +2332,64 @@ void Runtime::draw_live_selection() {
         line(bounds.x2, bounds.y2, bounds.x1, bounds.y2, color);
         line(bounds.x1, bounds.y2, bounds.x1, bounds.y1, color);
     };
-    constexpr std::array<uint8_t, 3> selection_color{0, 255, 0};
+    // Off draws the turned view's own green, red and white. A mode reads the
+    // same slots as the classic view: good for a selection and a legal site,
+    // mid for a site over the player's own units, bad for a refused site.
+    // The unit under the pointer stays white in every mode.
+    constexpr std::array<uint8_t, 3> plain_selection{0, 255, 0};
+    constexpr std::array<uint8_t, 3> plain_refused{255, 0, 0};
     constexpr std::array<uint8_t, 3> hover_color{255, 255, 255};
+    const auto mark_colour = [&](uint8_t slot, const std::array<uint8_t, 3>& today) {
+        if (oa::present::colour_vision::active_mode() == oa::present::colour_vision::Mode::off)
+            return today;
+        ensure_ui_colors();
+        if (!ui_colors_ready_)
+            return today;
+        return palette_rgb(ui_colors_[slot]);
+    };
+    const std::array<uint8_t, 3> selection_color =
+        mark_colour(kBuildSiteClearColor, plain_selection);
     for (const auto id : selected_local_ids())
         if (const auto bounds = live_unit_bounds(id))
             box(*bounds, selection_color);
+    // Photo mode draws the selection without the unit overlay, so the
+    // markers go here. The ordinary turned view stamps them with that overlay.
+    if (selection_only) {
+        if (oa::present::colour_vision::shape_cues_active() && match_) {
+            const auto stamp_marked = [&](uint16_t id) {
+                const auto& slots = match_->world().slots;
+                if (id == 0 || id >= slots.size())
+                    return;
+                const auto& marked = slots[id].record;
+                if (marked.owner_index >= OA_PLAYER_COUNT || marked.type_index == 0)
+                    return;
+                constexpr float fixed_scale = 65536.0F;
+                const auto frame = live_project_world(
+                    marked.position.x / fixed_scale,
+                    marked.position.y / fixed_scale,
+                    marked.position.z / fixed_scale
+                );
+                const auto bounds = live_unit_bounds(id);
+                const int mark_x = bounds ? bounds->x1 - match_layout_.left - 13
+                                          : frame.x - match_layout_.left - 29;
+                const int mark_y =
+                    bounds ? bounds->y1 - match_layout_.top - 7 : frame.y - match_layout_.top - 19;
+                stamp_shape_marker(
+                    mark_x,
+                    mark_y,
+                    static_cast<int>(marked.owner_index),
+                    oa::ui::hud::player_dot_color(match_->state(), marked.owner_index)
+                );
+            };
+            // Health bars stamp the same units when they are drawn.
+            if (!photo_show_health_bars()) {
+                for (const auto id : selected_local_ids())
+                    stamp_marked(id);
+                stamp_marked(hovered_match_unit_);
+            }
+        }
+        return;
+    }
     if (const auto bounds = live_unit_bounds(hovered_match_unit_))
         box(*bounds, hover_color);
     const bool queue_drag = build_queue_drag_ && build_queue_drag_->moved;
@@ -1869,16 +2413,114 @@ void Runtime::draw_live_selection() {
                 live_project_world(x1, height, z1),
                 live_project_world(x0, height, z1)
             };
-            const auto color = site->legal ? selection_color : std::array<uint8_t, 3>{255, 0, 0};
+            uint8_t site_slot = kBuildSiteClearColor;
+            const std::array<uint8_t, 3>* today = &plain_selection;
+            if (!site->legal) {
+                site_slot = kBuildSiteRefusedColor;
+                today = &plain_refused;
+            } else if (site->over_own_units && ui_rules().build_tools.enabled) {
+                site_slot = kBuildSiteOverOwnUnitsColor;
+            }
+            const std::array<uint8_t, 3> site_colour = mark_colour(site_slot, *today);
             for (std::size_t edge = 0; edge < corners.size(); ++edge) {
                 const auto next = (edge + 1) % corners.size();
-                line(corners[edge].x, corners[edge].y, corners[next].x, corners[next].y, color);
+                line(
+                    corners[edge].x, corners[edge].y, corners[next].x, corners[next].y, site_colour
+                );
+            }
+            // The same cross the classic view draws at the pointer on a refused site.
+            // Two diagonals, so it is not the top bar's income mark.
+            if (!site->legal && oa::present::colour_vision::shape_cues_active()) {
+                const int pointer_x = static_cast<int>(std::lround(match_pointer_x_));
+                const int pointer_y = static_cast<int>(std::lround(match_pointer_y_));
+                const std::array<uint8_t, 3> cross_edge{0, 0, 0};
+                const std::array<uint8_t, 3> refused =
+                    mark_colour(kBuildSiteRefusedColor, plain_refused);
+                for (int stroke = -1; stroke <= 1; ++stroke) {
+                    line(
+                        pointer_x - 4,
+                        pointer_y - 4 + stroke,
+                        pointer_x + 4,
+                        pointer_y + 4 + stroke,
+                        cross_edge
+                    );
+                    line(
+                        pointer_x - 4 + stroke,
+                        pointer_y + 4,
+                        pointer_x + 4 + stroke,
+                        pointer_y - 4,
+                        cross_edge
+                    );
+                }
+                line(pointer_x - 4, pointer_y - 4, pointer_x + 4, pointer_y + 4, refused);
+                line(pointer_x - 4, pointer_y + 4, pointer_x + 4, pointer_y - 4, refused);
             }
         }
     }
     if (match_drag_) {
         const auto corners = match_drag_corners(live_viewport(match_camera_x_, match_camera_z_));
         box({corners[0].x, corners[0].y, corners[1].x, corners[1].y}, selection_color);
+    }
+}
+
+void Runtime::draw_live_health_bars() {
+    if (!live_renderer_active() || !match_ || match_world_cpu_.rgb.empty())
+        return;
+    drawn_health_bars_.clear();
+    paint_on(PaintLayer::battlefield);
+    const auto& world = match_->state();
+    const auto& slots = match_->world().slots;
+    const auto size = oa::ui::hud::health_bar_size(match_zoom());
+    constexpr float fixed_scale = 65536.0F;
+    std::vector<bool> painted(slots.size());
+    for (const auto& draw : match_models().draws.models) {
+        if (draw.on_map || draw.stand_in >= 0 || draw.model.unit == nullptr)
+            continue;
+        const auto id = draw.model.unit->id;
+        if (id == 0 || id >= slots.size() || painted[id] || !live_unit_bounds(id))
+            continue;
+        const auto& unit = slots[id].record;
+        const auto position = draw.shown_position.value_or(unit.position);
+        const auto frame = live_project_world(
+            position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+        );
+        const int x = frame.x - match_layout_.left;
+        const int y = frame.y - match_layout_.top + size.below_unit;
+        painted[id] = true;
+        if (oa::ui::hud::draws_health_bar(world, unit)) {
+            const auto* definition = oa::world_unit_def_of(&world, &unit);
+            oa::ui::hud::HealthBar bar{};
+            if (definition != nullptr &&
+                oa::ui::hud::unit_health_bar(world.game, unit, *definition, x, y, bar, size)) {
+                const auto fill = [this](const oa::Rect32& rect, uint8_t color) {
+                    fill_hud_rect(
+                        rect.x1, rect.y1, rect.x2 - rect.x1 + 1, rect.y2 - rect.y1 + 1, color
+                    );
+                };
+                fill(bar.trough, bar.trough_color);
+                fill(bar.fill, bar.fill_color);
+                drawn_health_bars_.push_back(bar);
+                notch_health_bar(bar);
+            }
+        }
+        if (unit.owner_index < OA_PLAYER_COUNT) {
+            const bool marked = (unit.flags & OA_UNIT_FLAG_SELECTED) != 0 ||
+                                unit.id == hovered_match_unit_ ||
+                                unit.id == world.game.cursor_unit_id;
+            if (marked) {
+                const auto bounds = live_unit_bounds(id);
+                const int mark_x = bounds ? bounds->x1 - match_layout_.left - 13
+                                          : frame.x - match_layout_.left - 29;
+                const int mark_y =
+                    bounds ? bounds->y1 - match_layout_.top - 7 : frame.y - match_layout_.top - 19;
+                stamp_shape_marker(
+                    mark_x,
+                    mark_y,
+                    static_cast<int>(unit.owner_index),
+                    oa::ui::hud::player_dot_color(world, unit.owner_index)
+                );
+            }
+        }
     }
 }
 

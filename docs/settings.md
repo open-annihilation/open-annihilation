@@ -4,8 +4,9 @@ Open Annihilation adds settings of its own to the game: a few controls, the
 unit limit, the language and fonts of the game's text, graphics and the
 size of Open Annihilation's own screens, the input helpers, touch and
 gamepad controls, downloads, whether Open Annihilation looks for a new
-release, where the game keeps your files and which of its file types it
-opens, and Developer Mode. The registries packages come from are a tab
+release, whether it keeps a recording of your games and for how long, where
+the game keeps your files and which of its file types it opens, and
+Developer Mode. The registries packages come from are a tab
 of the Library. They live in one dialog, apart from the game's own
 options, which stay in 3.1c's Options menu. This page shows each section
 of the dialog and says what every setting does, its default, when it takes
@@ -40,6 +41,7 @@ Accessibility have a second picture of their end.
 - [Downloads](#downloads)
 - [Updates](#updates)
 - [Game Content](#game-content)
+- [Replays](#replays)
 - [System](#system)
 - [Developer](#developer)
 - [For one run: the command line](#for-one-run-the-command-line)
@@ -72,13 +74,15 @@ between two, each section with a small picture beside its name:
   game has touch controls, and Controller once a gamepad has been used;
 - how the game looks: Graphics, User Interface, and Language & Text;
 - what the game holds and fetches: Game files in the main menu on an
-  iPhone or an iPad, then Downloads, Updates and Game Content;
+  iPhone or an iPad, then Downloads, Updates, Game Content and Replays;
 - the computer and the engine: Engine Limits, System and Developer.
 
-At Regular and Large every section fits. At Compact, the smallest layout
-([Interface size](#user-interface)), the list scrolls once Touch,
-Controller or Game files is listed, a thin bar at its right shows where it
-is, and the open section's entry stays in view. Where a section's name in
+At Regular and Large every section fits, except in a dialog that lists
+Touch, Controller and Game files all together, where the list scrolls a
+little. At Compact, the smallest layout ([Interface size](#user-interface)),
+the list scrolls, a thin bar at its right shows where it is, and the open
+section's entry stays in view; Developer, at the foot, shows as the list
+scrolls to it. Where a section's name in
 the language you play in needs the room, the Compact list leaves the
 pictures out. While an update downloads, Updates shows its share at its
 right, as "41%", and "ready" once it is ready
@@ -124,16 +128,24 @@ opened, "1 setting changed" or "4 settings changed", beside Cancel, and
 nothing while you have changed none. A setting you change and then put
 back is not counted.
 
-The keyboard works the whole dialog:
+The keyboard works the whole dialog. Settings opens on the open section,
+with no ring. The section list is one stop. Tab walks that stop, then
+the open section's rows, then Restore defaults, Cancel and OK, then the
+close mark. The first Tab shows the ring on the section's first row. The
+first Shift+Tab shows it on the close mark. Until the ring shows, Up
+moves to the close mark, and Down, Left, Right and Space move to the
+section's first row. Once the ring is on the section list, the arrows
+change section. Enter is OK while the ring is hidden. While the ring
+shows, Enter presses the focused control and hides the ring.
 
 | Key | Does |
 |---|---|
-| Enter | OK |
+| Enter | OK while the ring is hidden; the focused control, and the ring hides, while it shows |
 | Escape | Cancel |
-| Tab, Down | moves to the next control: the section's rows, then Restore defaults, Cancel and OK, then the sections |
-| Shift+Tab, Up | moves to the previous control |
-| Left, Right | turns a switch Off or On, or moves a slider, a row of choices or a drop-down one step |
-| Space | flips a switch, presses a button, opens a section or a drop-down's list |
+| Tab | the next stop, in the order above |
+| Shift+Tab | the previous stop |
+| Left, Right | once the ring shows, turns a switch Off or On, or moves a slider, a row of choices or a drop-down one step |
+| Space | once the ring shows, flips a switch, presses a button, opens a section or a drop-down's list |
 | Page Up, Page Down | scrolls the section |
 | Home, End | scrolls to the section's top or end |
 
@@ -222,10 +234,15 @@ Each of these takes effect at once.
   any zoom. 50% lets the map's edge reach the middle of the
   battlefield, or, with more than the whole map in view, the map's centre
   reach the view's edge; a zoom keeps the ground under the pointer under
-  it wherever that takes the view. 25% lets a quarter of the battlefield
-  show past an edge, or, with more than the whole map in view, the map's
-  centre a quarter of the battlefield from its middle. Off keeps the view
-  on the map, as 3.1c does, and centres the map in a view wider than it.
+  it wherever that takes the view. In Full 3D Mode's turned view, a zoom in
+  stays within the closer view's limits instead, and the ground under the
+  pointer slides where the view meets them. Turning the view from a place
+  the classic view left past those limits pulls the turned view in, so the
+  frame is drawn, and turning back before the turned view moves shows the
+  classic place again. 25% lets a quarter of the battlefield show past an
+  edge, or, with more than the whole map in view, the map's centre a
+  quarter of the battlefield from its middle. Off keeps the view on the
+  map, as 3.1c does, and centres the map in a view wider than it.
   At 25% and Off a zoom keeps to the limit too: where the view meets it,
   the ground under the pointer slides instead. A unit the camera follows
   toward an edge takes the view as far as the limit, where it stops; the
@@ -888,15 +905,51 @@ press OK.
 
 ## Accessibility
 
-![The top of the Accessibility section: Hold keys that latch 2 of 7 with Choose…, Sticky modifiers Off, Hold to confirm Off and the start of Long press.](images/settings/accessibility-1.png)
+![The top of the Accessibility section: Colour vision Off, Shape cues Off, the colour preview, Screen reader Automatic and Speak chat All.](images/settings/accessibility-1.png)
 
 ![The end of the Accessibility section: Edge scrolling On, then the practice pad: Try it here, "Press a key, alone or with Shift, Ctrl or Alt.", its well, "Keys pressed here never reach the game." and Turn every helper off, greyed while every helper is off.](images/settings/accessibility-2.png)
 
-The Accessibility section gathers the input helpers in one place.
+The Accessibility section gathers colour, speech, the focus ring and the
+input helpers in one place.
+[Accessibility](accessibility.md) is what a player meets: the colour-vision
+modes, the shape cues, the focus ring, the keyboard and what is spoken.
 [Keys](keys.md#accessibility) lists each helper, what it does in a match
 and where it is kept. Each
-setting takes effect at once. The pictures show two of the seven latchable
-actions on, so Hold keys that latch reads "2 of 7".
+setting takes effect at once, and Cancel puts back what the section held
+when Settings opened. A locked row, Shape cues under Achromatopsia, is
+skipped by Tab. Its reason is only written beside it.
+
+- **Colour vision**, Off, Protanopia, Deuteranopia, Tritanopia or
+  Achromatopsia, Off by default. It changes team colours, the minimap,
+  bars, the war map and status colours on this machine only. The preview
+  below Shape cues shows the ten player colours, then OK, caution,
+  danger and information, in the mode you chose.
+- **Shape cues**, Off or On, Off by default. On, player markers, side
+  symbols, notched bars and a mark on every status are drawn. Choosing any
+  mode other than Off turns Shape cues on. Choosing Off does not turn them
+  off. In Achromatopsia the row stays on and is locked, and it says
+  "Achromatopsia keeps shape cues on".
+- **Screen reader**, Automatic, On or Off, Automatic by default. Automatic
+  works with a screen reader, such as VoiceOver, Narrator, NVDA or JAWS,
+  while the system says one is running. On also works with one the system
+  does not report. Off never does. On Windows older than Windows 10,
+  including 8, 7, Vista, XP and the Windows 95 package, the game speaks
+  with the system's own voice instead: under Automatic while a screen
+  reader is running, and under On always. The Windows 95 package leaves
+  the screen-reader support out. When that package also has no voice, the
+  row says "Nothing on this system can speak."
+- **Speak chat**, Off, Pages only or All, All by default. All speaks chat
+  lines, whispers, pages and someone joining or leaving a chat room. Pages
+  only speaks pages, the short messages one player sends another. Off
+  speaks none of them.
+- **Speak lobby changes**, Off or On, On by default. On speaks a player
+  joining or leaving the battle room, a change of ready, side, colour,
+  team, map or option, the countdown, and the host leaving. Your own
+  changes are not spoken. It covers the battle room only.
+- **Speak the ticker**, Off or On, Off by default. The ticker repeats, so
+  it stays quiet until this is on.
+- **Always show focus**, Off or On, Off by default. On, the focus ring is
+  drawn on the first item when a screen opens.
 
 Beside the rows, or under the last one at Compact, a practice pad lets you
 try the helpers before a match. It says what to try with the helpers that
@@ -937,7 +990,10 @@ off.
 - **Key repeat delay**, System, then 150 to 1000 ms in steps of 50, System
   by default, and **Key repeat rate**, System, then 2 to 30 a second,
   System by default. System uses the system's repeat. Together they say
-  how soon a held camera, speed or page key repeats, and how fast.
+  how soon a held camera, speed or page key repeats, and how fast. They
+  reach a held focus key (Next button, Previous button, the focus arrows
+  and the list keys) only on the multiplayer screens and in the lobby's
+  consoles.
 - **Drag threshold**, 32 to 96 px in steps of 8, 32 px by default: how far
   a press may move and still be a click.
 - **Edge scrolling**, Off or On, On by default. Off stops the view
@@ -1073,7 +1129,17 @@ download sends and records.
   an install ID has its own,
   labelled "Install ID · *registry*" when there is more than one. The
   switch takes effect at OK; RESET acts at once, and Cancel does not undo
-  it.
+  it. Entering an expansion whose registry needs an install ID, while that
+  ID is off, asks to turn it back on. When the game already has that
+  registry's list, from this start or an earlier one, the question names
+  the registry, and names both checks when either of them is off. A player
+  with a check off and no list kept sees the checks question first, then
+  the install-ID question. When the question comes as you press ENTER,
+  Turn on goes on to the update check first. A question asked once the
+  catalogue has answered goes straight to the fetch. Cancel stays on the
+  main menu and leaves the ID off. A quiet start, or a start with -y,
+  writes the question to the log and changes no setting. The download then
+  stops with "Downloads are off for Core Prime." when that is the registry.
 - **Downloaded files**: how much the download folder keeps for resuming and
   repairs, or "Nothing kept". **Empty** removes those files at once; it is
   greyed while nothing is kept, or while a download is using them.
@@ -1161,20 +1227,37 @@ it keeps.
 
 ### What entering the Boneyards turns on
 
-The Boneyards needs both online features: the check for updates, so the
-game it plays is the latest Open Annihilation, and the check for content
-updates, so its expansion is the latest package. When either is Never,
-entering the Boneyards asks "The Boneyards needs Open Annihilation's online
-features: update checks and the content catalogue. Turn them on and
-continue?" **Turn on** sets each one that is Never to Automatically,
-stores it and goes on; one already on keeps the choice you made, so Only
-when I ask, or Only when I open the Library, stays as it was. **Cancel**
-changes nothing and stays on the main menu. The two settings are
-`open-annihilation.update-check` (Check for updates: `automatically`,
-`when-asked` or `never`) and `open-annihilation.content-updates` (Check for
-content updates: `automatically`, `library` or `never`). A run with nobody
-to answer, such as `-y`, a headless run or a check, is not asked and
-changes neither setting; its log says what a player would have been asked
+The Boneyards needs the online features: the check for updates, so the
+game it plays is the latest Open Annihilation, the check for content
+updates, so its expansion is the latest package, and the install ID of a
+registry that requires one. When either check is Never, entering the
+Boneyards asks "The Boneyards needs Open Annihilation's online features:
+update checks and the content catalogue. Turn them on and continue?" That
+sentence names both checks, as 0.9.0 did. When the game already has that
+registry's list, from this start or an earlier one, and that registry's
+install ID is also off, the one question names the checks and the install
+ID: "The Boneyards needs Open Annihilation's online features: update
+checks, the content catalogue and {registry}'s install ID. Turn them on
+and continue?" When only the install ID is off, it asks "The Boneyards
+needs {registry}'s install ID turned on. Turn it on and continue?" A
+player with a check off and no list kept sees the checks question first,
+then the install-ID question. `{registry}` is the registry's name. **Turn
+on** sets each check that is Never to Automatically, and clears an install
+ID the question named. When the question comes as you press ENTER, Turn
+on goes on to the update check first. A question asked once the catalogue
+has answered goes straight to the fetch. One check already on keeps the
+choice you made, so Only when I ask, or Only when I open the Library,
+stays as it was. **Cancel** changes nothing and stays on the main menu.
+The two check settings are `open-annihilation.update-check` (Check for
+updates:
+`automatically`, `when-asked` or `never`) and
+`open-annihilation.content-updates` (Check for content updates:
+`automatically`, `library` or `never`). The install ID is
+`open-annihilation.install-id.<registry>`, `off` while it is off. A run
+with nobody to answer, such as `-y`, a headless run or a check, is not
+asked and changes no setting; its log says what a player would have been
+asked, and a needed install ID that stays off stops the download with
+"Downloads are off for Core Prime." when that is the registry
 ([Entering the Boneyards](boneyards/entry.md#what-enter-does)).
 
 ## Game Content
@@ -1196,6 +1279,49 @@ installation is not used or changed.
   The dialog stays open and keeps drawing.
 - **Open folder** opens the Games folder in the system's file manager.
 
+## Replays
+
+![The Replays section: Record my games On, with its line, Keep replays for 30 days, with its line, and Open replay files with Open Annihilation On, with its line.](images/settings/replays.png)
+
+Replays is where you choose whether the game keeps a recording of the
+games you play, and for how long. [Replays](replays.md) says what a
+recording is and where it goes.
+
+- **Record my games**, On by default. On, the game records your games as
+  replays, and [Recording a game](replays.md#recording-a-game) says which
+  games it records. Off, the game starts no new recording; the replays you
+  already have stay. It takes effect when you press OK, and applies from
+  the next game: a game that is already running goes on as it started.
+  Cancel puts back the choice the dialog opened with. The setting is
+  `open-annihilation.replays.record`, `on` or `off`; only `off` turns it
+  off.
+- **Keep replays for**, 30 days, 90 days, A year or Forever, 30 days by
+  default. It is how long the game keeps the replays it recorded. A replay
+  you keep in the Library stays until you delete it, whatever this says.
+  It takes effect when you press OK, and Cancel puts back the choice the
+  dialog opened with. The setting is `open-annihilation.replays.keep`,
+  `30-days`, `90-days`, `1-year` or `forever`; any other text reads as 30
+  days.
+- **Open replay files with Open Annihilation**, On by default, on Windows,
+  Linux and macOS. On, a `.oademo` or a `.tad` file opens in this copy.
+  On Windows and Linux the game registers both when you play, and again
+  when you press OK after turning the switch on: `.oademo` as this game's
+  own type, and `.tad` offered beside it, never as the default. Turning it
+  off withdraws that registration. On macOS the switch chooses whether this
+  copy is the default opener of `.oademo` only, and a start never replaces
+  a choice made in Finder. iOS and Android have no row. It takes effect
+  when you press OK, and Cancel puts back the choice the dialog opened
+  with. The setting is `open-annihilation.replays.open-files`, `on` or
+  `off`; only `off` turns it off.
+
+Settings reads the Replays settings from the preferences each time it opens,
+so a change made elsewhere in the game shows here, and pressing OK with a
+choice you left alone writes nothing.
+
+**Restore defaults** turns Record my games On, sets Keep replays for to
+30 days and turns Open replay files On, and OK then removes those keys from
+the preferences file, so they follow their defaults.
+
 ## System
 
 ![The top of the System section: Your files with the folder path and SAVES, SCREENSHOTS and MODS, Welcome setup with Show again, File Type Registration, and the Mod packages and Map packs switches On.](images/settings/system-1.png)
@@ -1206,7 +1332,8 @@ of the game's file types this copy opens.
 - **Your files** is not a setting: it shows where your saved games,
   screenshots, films, recordings and mods go, the Open Annihilation folder
   in your Documents folder unless you moved it. **SAVES**, **SCREENSHOTS**
-  and **MODS** open those folders in the system's file manager. Films and
+  and **MODS** open those folders in the system's file manager.
+  **SCREENSHOTS** opens the photos as well as the screenshots. Films and
   the recordings of network games are in its `Films` and `Recordings`
   folders, which have no button. `Saves`, `Screenshots`, `Films` and
   `Recordings` each hold a folder for each mod, named after its id, and

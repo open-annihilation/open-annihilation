@@ -7,6 +7,7 @@
 // frame's time, and the "+stats" overlay of frame, tick, draw and present
 // times and the latest frames' graph, with its console check.
 #include "oa/app/runtime.hpp"
+#include "oa/app/hook_call.hpp"
 #include "device_state.hpp"
 #include "frame_stats_panel.hpp"
 #include "full_presentation.hpp"
@@ -224,6 +225,13 @@ uint32_t Runtime::frame_clock_milliseconds() const {
 }
 
 void Runtime::step_match_frame() {
+    // Photo mode's freeze and slow hold the clock here, and a slow pace
+    // grants the ticks it owes, before a stepped clock returns. Snapping
+    // each held frame keeps Run, and leaving, from catching the held time up.
+    if (photo_clock_held()) {
+        grant_photo_slow_ticks();
+        snap_held_clock();
+    }
     // A stepped clock draws this frame and does not take wall-clock time.
     // The ticks it runs were granted earlier in the frame. Snapping the
     // clock's reading keeps a return to the wall clock from catching up
@@ -252,6 +260,10 @@ void Runtime::step_match_frame() {
         stepped = false;
     if (stepped)
         advance_match_clock(now_ms);
+    else if (match_ && (current_extension_state() & extension_state::replay) != 0)
+        call_hook_or_report<&Extension::replay_hold>(
+            extension_, hook_error_report(), *this, now_ms
+        );
     present_frame_between_ticks(stepped, ticks_before);
     place_tracking_camera();
 }
@@ -259,7 +271,9 @@ void Runtime::step_match_frame() {
 void Runtime::present_frame_between_ticks(bool stepped, uint32_t ticks_before) {
     FrameTicks ticks{};
     ticks.owed = stepped ? match_timing_.pending_steps : 0;
-    ticks.ran = match_timing_.tick - ticks_before;
+    // A jump back leaves the tick behind the one this frame started on. The picture shows no
+    // ticks across that jump; play only ever moves the tick forward.
+    ticks.ran = match_timing_.tick >= ticks_before ? match_timing_.tick - ticks_before : 0;
     // A check's fixed clock draws whole ticks, as before frames were drawn
     // between them; a --frame-rate run's clock does not. Smooth motion Off
     // draws whole ticks too, as the game drew them: the frames between two
@@ -288,8 +302,12 @@ void Runtime::pace_next_frame(bool& running) {
     if (now > loop_frame_start_ns_)
         note_frame_measure(frame_stats_, FrameMeasure::work, now - loop_frame_start_ns_);
     FrameActivity activity{};
-    activity.match_advancing =
-        match_clock_steps() && (match_->state().game.sim_run_flags & console::kSimRunPaused) == 0;
+    // Photo mode's slow pace draws at the play rate. Frozen, and a replay
+    // whose pause is on, stay at the idle rate, as the game menu does. The
+    // menu has no match, so the pause bit is read only while one is open.
+    const bool paused =
+        match_ != nullptr && (match_->state().game.sim_run_flags & console::kSimRunPaused) != 0;
+    activity.match_advancing = !paused && (match_clock_steps() || photo_slow_speed() != 0);
     activity.camera_moving = camera_moved_;
     // A finger resting on the screen, or a pad's button, stick or trackpad
     // held, is a held button: hold timers, ghost drags and auto-scroll need

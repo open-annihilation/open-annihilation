@@ -589,6 +589,23 @@ void check_rows(BattleConsole* console) {
     CHECK(mode != nullptr && mode->children.items[mode->children.count - 1]->x == mode->x + 0x10);
 }
 
+// Down from the first mode rests on the battle under it. The mode stays open,
+// and a later tick does not put the highlight back on the first mode.
+void check_arrow_chooses(BattleConsole* console) {
+    ListBox* rows = &console->list->list;
+    desktop_set_focus(&g_widget->desktop, &rows->base);
+    rows->selected = 0;
+    console->list->selected_item = list_box_item(rows, 0);
+    const int32_t before = rows->count;
+    // Arrows choose only once Tab or F6 has shown the keyboard ring.
+    g_widget->desktop.keyboard_ring = 1;
+    press(key::down);
+    tick(1);
+    CHECK(rows->selected == 1 && rows->count == before);
+    CHECK(console->list->selected_item == list_box_item(rows, 1));
+    CHECK(row_titled(console, "Brawl") != nullptr && row_titled(console, "For Fun") != nullptr);
+}
+
 // A mode row picked sounds GREEN_BUTTON and hides its battles, its arrow up;
 // picked again it lists them. (The list tells the console only of a pick
 // that changes its selection, so the first row, selected as the rows are
@@ -630,11 +647,63 @@ void check_intel(BattleConsole* console) {
 // battle, its seats, skill and commander death and the password entry of a
 // password game; JOIN tells the console (the light runs) and joins with the
 // password typed.
+std::string focus_label() {
+    Window* focus = g_widget->desktop.focus;
+    if (focus == nullptr)
+        return "";
+    if (focus->name != nullptr && focus->name[0] != '\0')
+        return focus->name;
+    return text_of(focus);
+}
+
+int32_t stop_at(const std::vector<std::string>& stops, const char* name) {
+    for (int32_t i = 0; i < static_cast<int32_t>(stops.size()); ++i) {
+        if (stops[i] == name)
+            return i;
+    }
+    return -1;
+}
+
+// One Tab cycle from `start`, back to `start`. HOST's caption is its name.
+std::vector<std::string> tab_cycle(Window* start) {
+    std::vector<std::string> stops;
+    desktop_set_focus(&g_widget->desktop, start);
+    for (int32_t step = 0; step < 16; ++step) {
+        press(key::tab);
+        stops.push_back(focus_label());
+        if (g_widget->desktop.focus == start)
+            break;
+    }
+    return stops;
+}
+
 void check_join(MainFrame* frame, BattleConsole* console) {
     Window* row = row_titled(console, "Last Stand");
     CHECK(row != nullptr);
     if (row == nullptr)
         return;
+    // Arrows choose the battle the list names. Down leaves Last Stand and
+    // Up returns to it, which opens the summary; close that so the click
+    // below is the one these checks count.
+    ListBox* rows = &console->list->list;
+    const int32_t last_index = list_box_index_of(rows, row);
+    if (last_index >= 0) {
+        rows->selected = last_index;
+        console->list->selected_item = row;
+        desktop_set_focus(&g_widget->desktop, &rows->base);
+        g_widget->desktop.keyboard_ring = 1;
+        press(key::down);
+        CHECK(rows->selected != last_index);
+        press(key::up);
+        CHECK(rows->selected == last_index && console->list->selected_item == row);
+        auto* opened = reinterpret_cast<JoinSummaryPane*>(console->panes[1]);
+        if (opened != nullptr && window_is_shown(&opened->pane.base))
+            click_window(opened->pane.close_button);
+        // The click below has to change the selection. An arrow that lands
+        // on this row again does not, and the list then keeps the click.
+        if (rows->count > 1)
+            rows->selected = last_index == 0 ? 1 : 0;
+    }
     g_log.calls.clear();
     g_log.sounds.clear();
     click_window(row);
@@ -642,6 +711,17 @@ void check_join(MainFrame* frame, BattleConsole* console) {
     auto* pane = reinterpret_cast<JoinSummaryPane*>(console->panes[1]);
     CHECK(window_is_shown(&pane->pane.base) && g_widget->navigation->battles.join_visible);
     CHECK(heard_count("GREEN_BUTTON") == 2); // the row, and the pane opening
+    // A click brings a pointer move, which hides the keyboard ring. Down still
+    // moves the highlight, and the opened battle stays the one that was clicked.
+    // Those arrows sound on their own, so they come after the click's count.
+    g_widget->desktop.keyboard_ring = 0;
+    const int32_t opened = rows->selected;
+    const std::string opened_name = text_of(pane->name);
+    press(key::down);
+    CHECK(rows->selected != opened && console->list->selected_item == row);
+    CHECK(window_is_shown(&pane->pane.base) && text_of(pane->name) == opened_name);
+    press(key::up);
+    CHECK(rows->selected == opened);
     const Window& c = console->base;
     CHECK(console->intel->list.base.y == c.y + 0xab && console->intel->list.base.height == 0x89);
     CHECK(console->intel_title->y == c.y + 0x9f);
@@ -667,6 +747,16 @@ void check_join(MainFrame* frame, BattleConsole* console) {
     );
     CHECK(pane->password->base.visible == 1 && pane->password_label->visible == 1);
     press('z');
+    CHECK(std::strcmp(single_edit_text(pane->password), "z") == 0);
+    // Tab: the battle list, HOST once, then the password and JOIN.
+    const std::vector<std::string> stops = tab_cycle(&console->list->list.base);
+    const int32_t host_at = stop_at(stops, "HOST");
+    const int32_t password_at = stop_at(stops, "Join password");
+    const int32_t join_at = stop_at(stops, "JOIN");
+    int32_t host_count = 0;
+    for (const std::string& stop : stops)
+        host_count += stop == "HOST" ? 1 : 0;
+    CHECK(host_count == 1 && host_at >= 0 && password_at > host_at && join_at > password_at);
     CHECK(std::strcmp(single_edit_text(pane->password), "z") == 0);
     CHECK(
         text_of(pane->seat_captions[0]) == "Host:" && text_of(pane->seat_captions[3]) == "Player 4:"
@@ -751,6 +841,60 @@ void check_host(MainFrame* frame, BattleConsole* console) {
     single_edit_set_text(pane->game_name, "Rumble");
     tick(1);
     CHECK(pane->start->states.current == button_state::unpressed);
+
+    // The form ends at START. Each radio row is one stop. Left and Right move
+    // along it, and the line does not wrap. Down steps to the next row.
+    const std::vector<std::string> stops = tab_cycle(&pane->game_name->base);
+    CHECK(stop_at(stops, "Battle password") >= 0);
+    CHECK(stop_at(stops, "Game types") > stop_at(stops, "Battle password"));
+    CHECK(stop_at(stops, "Novice") > stop_at(stops, "Game types"));
+    CHECK(stop_at(stops, "Seasoned") < 0 && stop_at(stops, "Expert") < 0);
+    CHECK(stop_at(stops, "2") > stop_at(stops, "Novice"));
+    CHECK(stop_at(stops, "3") < 0 && stop_at(stops, "4") < 0);
+    CHECK(stop_at(stops, "Ends") > stop_at(stops, "2"));
+    CHECK(stop_at(stops, "START") > stop_at(stops, "Ends"));
+    desktop_set_focus(&g_widget->desktop, &pane->skill->members[0]->base);
+    press(key::right);
+    CHECK(selected_names(pane->skill) == "Seasoned");
+    press(key::right);
+    CHECK(selected_names(pane->skill) == "Expert");
+    press(key::right);
+    CHECK(
+        selected_names(pane->skill) == "Expert" &&
+        g_widget->desktop.focus == &pane->skill->members[2]->base
+    );
+    press(key::down);
+    CHECK(
+        selected_names(pane->skill) == "Expert" &&
+        g_widget->desktop.focus == &pane->players->members[0]->base
+    );
+    press(key::down);
+    CHECK(g_widget->desktop.focus == &pane->commander_death->members[0]->base);
+    // The click further down is what selects Expert, and it counts one sound.
+    desktop_set_focus(&g_widget->desktop, &pane->skill->members[2]->base);
+    press(key::left);
+    press(key::left);
+    CHECK(selected_names(pane->skill) == "Novice");
+    desktop_set_focus(&g_widget->desktop, &pane->types->list.base);
+    // Arrows choose a game type only once Tab or F6 has shown the keyboard
+    // ring. Tab through the form already did. With no ring, the clicked
+    // type stays.
+    g_widget->desktop.keyboard_ring = 1;
+    press(key::down);
+    CHECK(pane->types->selected_item == list_box_item(types, 1));
+    press(key::up);
+    CHECK(
+        pane->types->selected_item == list_box_item(types, 0) &&
+        pane->players->members[1]->base.states.current != button_state::disabled &&
+        pane->players->members[2]->base.states.current != button_state::disabled
+    );
+    g_widget->desktop.keyboard_ring = 0;
+    const int32_t type_index = types->selected;
+    const Window* type_kept = pane->types->selected_item;
+    press(key::down);
+    CHECK(types->selected != type_index && pane->types->selected_item == type_kept);
+    press(key::up);
+    CHECK(types->selected == type_index);
 
     // Duel: two players, the other counts disabled.
     g_log.sounds.clear();
@@ -944,6 +1088,7 @@ void test_battle_console(Data* data) {
         return;
     check_build(frame, console);
     check_rows(console);
+    check_arrow_chooses(console);
     check_mode_toggle(console);
     check_intel(console);
     check_join(frame, console);

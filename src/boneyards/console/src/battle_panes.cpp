@@ -6,6 +6,7 @@
 // progress. The Main Frame builds each once; the battle list decides which
 // battle a pane shows, and these windows show it and hand the list what the
 // player does.
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/utf8.hpp"
 
 #include <cstdio>
@@ -369,6 +370,14 @@ void host_start(HostBattlePane* pane) {
 void host_pane_on_notify(Window* self, const Notify* notify) {
     HostBattlePane* pane = as_host(self);
     if (notify != nullptr && notify->source == &pane->types->list.base) {
+        // A click has already named its row. An arrow names the row the list
+        // shows only once Tab, Shift+Tab or F6 has shown the keyboard ring.
+        // With no ring, the type the click named stays.
+        Window* chosen = list_box_item(&pane->types->list, list_box_selected(&pane->types->list));
+        const Desktop* desktop = services().desktop;
+        const bool ring_shown = desktop != nullptr && desktop->keyboard_ring != 0;
+        if (ring_shown && chosen != nullptr)
+            pane->types->selected_item = chosen;
         host_pick_type(pane);
         return;
     }
@@ -547,6 +556,7 @@ void join_pane_on_notify(Window* self, const Notify* notify) {
     const screens::BattleEntry* battle = join_battle(pane);
     if (battle == nullptr)
         return;
+    screens::arm_after_battle(battle->type);
     const BoneyardsService& service = nav_of(&pane->pane)->service;
     (void)service.join_game(
         service.user, battle->area_id, battle->game_id, has_password ? password : nullptr
@@ -701,6 +711,8 @@ InfoPane* host_battle_pane_create(MainFrame* frame, const char* title) {
         self,
         true
     );
+    // A focus must not move the game-type list past the radio rows and START.
+    window_keep_place(&pane->types->list.base);
     caption(l::types_caption_y, "Game Type", 0);
     const char* const skills[] = {"Novice", "Seasoned", "Expert"};
     const char* const players[] = {"2", "3", "4"};
@@ -717,6 +729,11 @@ InfoPane* host_battle_pane_create(MainFrame* frame, const char* title) {
     for (screens::ByRadioGroup* group : {pane->skill, pane->players, pane->commander_death}) {
         group->play_sound = play_group_sound;
         group->sound_user = base;
+        // Each group is its own parent, so the same id is a separate stop.
+        for (int32_t i = 0; i < group->count; ++i) {
+            if (group->members[i] != nullptr)
+                group->members[i]->base.radio_group = 1;
+        }
     }
     pane->start = button_create();
     screens::function_button_setup(pane->start, false, l::groups_x, l::start_y, "START", self);

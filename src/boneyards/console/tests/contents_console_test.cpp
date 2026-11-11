@@ -91,6 +91,15 @@ void click_window(StatusWidget* widget, const Window* w) {
     click_at(widget, w->x + w->width / 2, w->y + w->height / 2);
 }
 
+void press(StatusWidget* widget, int32_t k) {
+    Message msg{};
+    msg.code = MessageCode::key_down;
+    msg.key = k;
+    boneyards_status_widget_event(widget, msg);
+    msg.code = MessageCode::key_up;
+    boneyards_status_widget_event(widget, msg);
+}
+
 StatusWidget* g_widget = nullptr;
 
 // Captions live in the widget's text service.
@@ -257,6 +266,156 @@ void test_help_console(Data* data) {
         "activity light stops once the page is in"
     );
 
+    // Until Tab or F6, Down from Help does not enter the contents list, so
+    // Return can still open News. After F6 the list chooses, opens and
+    // closes, and Return follows a link on the page.
+    check(widget->desktop.focus == &help_button->base, "Help keeps the keyboard");
+    check(widget->desktop.keyboard_ring == 0, "no keyboard place before Tab or F6");
+    const int32_t rows_before = list->count;
+    const int32_t selected_before = list->selected;
+    press(widget, key::down);
+    check(
+        widget->desktop.focus != &list->base && frame->console_screen == console_screen::help &&
+            list->count == rows_before && list->selected == selected_before &&
+            widget->desktop.keyboard_ring == 0,
+        "Down from Help leaves the contents list alone"
+    );
+    {
+        ScopedServices scope(widget);
+        desktop_set_focus(&widget->desktop, &help_button->base);
+    }
+    press(widget, key::f6);
+    check(
+        widget->desktop.focus == &list->base && widget->desktop.keyboard_ring == 1,
+        "F6 lands on the contents list"
+    );
+    const int32_t chosen = list->selected;
+    press(widget, key::down);
+    check(
+        list->selected != chosen && frame->console_screen == console_screen::help &&
+            markup(view).find("Welcome") != std::string_view::npos,
+        "Down chooses the next row and does not open it"
+    );
+    bool found_screen = false;
+    for (int32_t step = 0; step < list->count + 2; ++step) {
+        Window* row = list_box_item(list, list->selected);
+        if (row != nullptr && caption(row) == "+ Screen Help") {
+            found_screen = true;
+            break;
+        }
+        press(widget, key::down);
+    }
+    check(found_screen, "Down reaches the closed Screen Help category");
+    const int32_t closed_rows = list->count;
+    press(widget, key::right);
+    check(
+        row_titled(list, "Login Screen") != nullptr && list->count > closed_rows,
+        "Right opens Screen Help"
+    );
+    Window* screen_row = list_box_item(list, list->selected);
+    check(
+        screen_row != nullptr && caption(screen_row) == "- Screen Help",
+        "the open category stays selected"
+    );
+    press(widget, key::left);
+    check(
+        row_titled(list, "Login Screen") == nullptr && list->count == closed_rows &&
+            row_titled(list, "Getting Started") != nullptr,
+        "Left closes Screen Help and leaves Getting Started open"
+    );
+    // Screens Help, under Galactic War Help, is the page whose link the click
+    // below follows. Home walks from the top, because that category sits
+    // above Screen Help and Down does not wrap.
+    press(widget, key::home);
+    bool found_war = false;
+    for (int32_t step = 0; step < list->count + 2 && !found_war; ++step) {
+        Window* row = list_box_item(list, list->selected);
+        if (row != nullptr && caption(row) == "+ Galactic War Help")
+            found_war = true;
+        else
+            press(widget, key::down);
+    }
+    check(found_war, "Down reaches the closed Galactic War Help category");
+    {
+        std::vector<uint8_t> pixels;
+        draw_frame(widget, &pixels);
+        Window* war = row_titled(list, "Galactic War Help");
+        Window* title = war != nullptr && war->children.count > 0
+                            ? war->children.items[war->children.count - 1]
+                            : nullptr;
+        check(
+            title != nullptr && title->font == widget->system.hat_fonts.small_light,
+            "the chosen category takes the light font while the ring shows"
+        );
+        {
+            ScopedServices scope(widget);
+            widget->desktop.keyboard_ring = 0;
+        }
+        draw_frame(widget, &pixels);
+        check(
+            title != nullptr && title->font == k_no_handle,
+            "hiding the ring restores the category's font"
+        );
+        {
+            ScopedServices scope(widget);
+            widget->desktop.keyboard_ring = 1;
+        }
+    }
+    press(widget, key::right);
+    bool found_screens = false;
+    for (int32_t step = 0; step < list->count + 2 && !found_screens; ++step) {
+        Window* row = list_box_item(list, list->selected);
+        if (row != nullptr && caption(row) == "Screens Help")
+            found_screens = true;
+        else
+            press(widget, key::down);
+    }
+    check(found_screens, "Down reaches Screens Help");
+    press(widget, key::enter);
+    check(markup(view).find("Help112.htm") != std::string_view::npos, "Return opens Screens Help");
+    bool followed = false;
+    for (int32_t step = 0; step < 40 && !followed; ++step) {
+        press(widget, key::tab);
+        Window* focus = widget->desktop.focus;
+        if (focus == nullptr || focus->name == nullptr ||
+            std::strncmp(focus->name, "Link", 4) != 0 || focus->visible == 0)
+            continue;
+        const std::string words = caption(focus);
+        check(
+            !words.empty() && (words.size() < 4 || words.compare(0, 4, "Link") != 0),
+            "a link stop is announced as its words"
+        );
+        const std::string before_link(markup(view));
+        press(widget, key::enter);
+        followed = std::string(markup(view)) != before_link;
+    }
+    check(followed, "Return follows a link on the page");
+    check(widget->desktop.focus == &list->base, "after Return on a link the list has the keyboard");
+    // Close the category again so the click below still opens it.
+    {
+        ScopedServices scope(widget);
+        desktop_set_focus(&widget->desktop, &list->base);
+        widget->desktop.keyboard_ring = 1;
+    }
+    press(widget, key::home);
+    bool closed_war = false;
+    for (int32_t step = 0; step < list->count + 2 && !closed_war; ++step) {
+        Window* row = list_box_item(list, list->selected);
+        if (row != nullptr && caption(row) == "- Galactic War Help") {
+            press(widget, key::left);
+            closed_war = row_titled(list, "Screens Help") == nullptr;
+        } else {
+            press(widget, key::down);
+        }
+    }
+    check(closed_war, "Left closes Galactic War Help");
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 0;
+        desktop_set_focus(&widget->desktop, &help_button->base);
+    }
+    check(row_titled(list, "Login Screen") == nullptr, "Screen Help stays closed for the click");
+
     // Opening "Screen Help" lists its headlines; "Login Screen" shows a page
     // whose IMG is decoded.
     Window* screen_help = row_titled(list, "Screen Help");
@@ -264,6 +423,18 @@ void test_help_console(Data* data) {
     if (screen_help != nullptr)
         click_window(widget, screen_help);
     check(!g_sounds.empty() && g_sounds.back() == "GREEN_BUTTON", "row click sound");
+    {
+        std::vector<uint8_t> pixels;
+        draw_frame(widget, &pixels);
+        Window* clicked_row = row_titled(list, "Screen Help");
+        Window* title = clicked_row != nullptr && clicked_row->children.count > 0
+                            ? clicked_row->children.items[clicked_row->children.count - 1]
+                            : nullptr;
+        check(
+            title != nullptr && title->font == k_no_handle,
+            "a click leaves the chosen category's font as it was"
+        );
+    }
     Window* login = row_titled(list, "Login Screen");
     check(login != nullptr, "category opened");
     if (login != nullptr)
@@ -335,6 +506,7 @@ void test_help_console(Data* data) {
     const std::string before(markup(view));
     click_at(widget, lx, ly);
     check(std::string(markup(view)) != before, "link opens another page");
+    check(widget->desktop.focus == &view->base, "a click on a link leaves the page the keyboard");
 
     click_window(widget, &help_button->base);
     check(frame->console_screen == console_screen::none, "help button closes its console");
@@ -783,6 +955,26 @@ void test_ladders_console(Data* data) {
     single_edit_set_text(entry, "ghost_commander");
     boneyards_status_widget_tick(widget);
     check(search->states.current == button_state::unpressed, "text in the entry enables SEARCH");
+
+    // Links on the page come before the name field. Tab still reaches it,
+    // and the next stop is SEARCH.
+    press(widget, key::f6);
+    bool search_field = false;
+    for (int32_t step = 0; step < 80; ++step) {
+        Window* focus = widget->desktop.focus;
+        if (focus != nullptr && window_is_named(focus, "Ladder search")) {
+            search_field = true;
+            break;
+        }
+        press(widget, key::tab);
+    }
+    check(search_field, "Tab reaches the Ladders search field");
+    press(widget, key::tab);
+    check(widget->desktop.focus == search, "the next Tab reaches SEARCH");
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 0;
+    }
 
     // SEARCH fetches the index of the name's first letter in place of the
     // page's number; it lists the name's line, whose page (a hundred lines

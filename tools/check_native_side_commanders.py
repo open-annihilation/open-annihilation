@@ -52,6 +52,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -228,7 +229,7 @@ def make_mod(oa_tool, game_dir, mod_dir, scratch):
 def preferences(workdir, name, rule, local_side, enemy_side):
     """A preferences file for a skirmish under `rule` between the two sides."""
     path = workdir / f"{name}.conf"
-    path.write_text("open-annihilation-preferences 1\n"
+    path.write_text("open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
                     f"\"Total Annihilation|SkirmishCommanderDeath\" \"{rule}\"\n"
                     f"\"Total Annihilation\\\\Skirmish|Player0Side\" \"{local_side}\"\n"
                     f"\"Total Annihilation\\\\Skirmish|Player1Side\" \"{enemy_side}\"\n")

@@ -8,6 +8,7 @@
 // character boundary; and ties ordered by name and then registry.
 #include "oa/test/check.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/replays.hpp"
 #include "oa/ui/library/text.hpp"
 
 #include <cstddef>
@@ -386,7 +387,35 @@ void test_installed_names() {
 
 } // namespace
 
+/// A replay is found by its map, a player, its mod or its planet, every word
+/// in one of them, without ASCII case; not by its kind or its file.
+void test_replay_search() {
+    lib::ReplayRow row;
+    row.replay.path = "default/show-down.oademo";
+    row.replay.map = "Show Down";
+    row.replay.kind = "multiplayer";
+    row.replay.mod_name = "Ridge";
+    row.replay.planet = "Corvane";
+    oa::data::replays::Player varn;
+    varn.name = "Varn";
+    oa::data::replays::Player kestrel;
+    kestrel.name = "Kestrel";
+    row.replay.players = {varn, kestrel};
+    OA_CHECK(lib::replay_matches(row, ""));
+    OA_CHECK(lib::replay_matches(row, "   "));
+    OA_CHECK(lib::replay_matches(row, "show"));
+    OA_CHECK(lib::replay_matches(row, "DOWN"));
+    OA_CHECK(lib::replay_matches(row, "kestrel"));
+    OA_CHECK(lib::replay_matches(row, "ridge"));
+    OA_CHECK(lib::replay_matches(row, "corv"));
+    OA_CHECK(lib::replay_matches(row, "varn  show"));
+    OA_CHECK(!lib::replay_matches(row, "varn sato"));
+    OA_CHECK(!lib::replay_matches(row, "multiplayer"));
+    OA_CHECK(!lib::replay_matches(row, "oademo"));
+}
+
 int main() {
+    test_replay_search();
     test_field_order();
     test_several_words();
     test_folding();

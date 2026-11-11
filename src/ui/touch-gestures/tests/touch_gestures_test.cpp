@@ -558,6 +558,60 @@ void reset_is_silent() {
     OA_CHECK(kinds_are(line.up(1, 10.0f, 10.0f, 50), {GestureKind::tap}));
 }
 
+/// Checks a twist: a turn past the threshold, and none from a slide, a spread, or while off.
+void a_turn_of_two_fingers_is_a_twist() {
+    gestures::Thresholds thresholds{};
+    thresholds.twist_degrees = 8.0f;
+    Timeline line;
+    line.recogniser.set_thresholds(thresholds);
+    line.down(1, 100.0f, 100.0f, 0);
+    line.down(2, 200.0f, 100.0f, 10);
+    // One finger first, so the turn is read once both have reported. A quarter
+    // turn about the centroid is 90 degrees.
+    line.move(1, 150.0f, 50.0f, 20);
+    const auto turned = line.move(2, 150.0f, 150.0f, 30);
+    bool saw_began = false;
+    float turn = 0.0f;
+    for (const auto& gesture : turned) {
+        if (gesture.kind == GestureKind::twist_began)
+            saw_began = true;
+        if (gesture.kind == GestureKind::twist_moved)
+            turn += gesture.turn;
+    }
+    OA_CHECK(saw_began);
+    OA_CHECK(near(turn, 90.0f, 1.0f));
+    const auto ended = line.up(2, 150.0f, 150.0f, 40);
+    bool saw_ended = false;
+    for (const auto& gesture : ended)
+        saw_ended = saw_ended || gesture.kind == GestureKind::twist_ended;
+    OA_CHECK(saw_ended);
+    line.up(1, 150.0f, 50.0f, 50);
+    OA_CHECK(line.count(GestureKind::two_finger_tap) == 0);
+
+    Timeline slide;
+    slide.recogniser.set_thresholds(thresholds);
+    slide.down(1, 100.0f, 100.0f, 0);
+    slide.down(2, 200.0f, 100.0f, 10);
+    slide.move(1, 140.0f, 100.0f, 20);
+    slide.move(2, 240.0f, 100.0f, 30);
+    OA_CHECK(slide.count(GestureKind::twist_began) == 0);
+
+    Timeline spread;
+    spread.recogniser.set_thresholds(thresholds);
+    spread.down(1, 100.0f, 100.0f, 0);
+    spread.down(2, 200.0f, 100.0f, 10);
+    spread.move(1, 50.0f, 100.0f, 20);
+    spread.move(2, 250.0f, 100.0f, 30);
+    OA_CHECK(spread.count(GestureKind::twist_began) == 0);
+
+    Timeline off;
+    off.down(1, 100.0f, 100.0f, 0);
+    off.down(2, 200.0f, 100.0f, 10);
+    off.move(1, 150.0f, 50.0f, 20);
+    off.move(2, 150.0f, 150.0f, 30);
+    OA_CHECK(off.count(GestureKind::twist_began) == 0);
+}
+
 /// Checks that a finger put back during a pan resumes it without a two-finger tap.
 void a_finger_put_back_resumes_the_pair() {
     Timeline line;
@@ -584,6 +638,7 @@ int main() {
     two_fingers_moving_together_pan();
     two_fingers_spreading_pinch();
     pan_and_pinch_run_together();
+    a_turn_of_two_fingers_is_a_twist();
     a_fast_pan_is_no_pinch();
     a_second_finger_during_a_drag_cancels_it();
     a_third_finger_is_ignored();

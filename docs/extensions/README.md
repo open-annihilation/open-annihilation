@@ -154,7 +154,7 @@ With one extension the combined table behaves as that extension's own.
 ## The version
 
 `OA_EXTENSION_API_VERSION` numbers the table's contract, and
-`oa::app::extension_api_version` is its typed copy. The version is 20. It
+`oa::app::extension_api_version` is its typed copy. The version is 21. It
 rises by one with each change to the contract: a hook added, removed or
 renamed; a hook's parameters, its return value or the meaning of leaving it
 null; when or in which order the engine calls it; what it may keep or must
@@ -205,6 +205,34 @@ holds off the inactive-loop check's release; and
 [`post_extension_note`][ext] and [`take_extension_notes`][ext] pass short
 notes to a program driving the game.
 
+Version 21 adds the accessibility fields on a control: its role, label,
+description, value, range, place in a set, shortcut, live announcement and
+the states chosen, expanded, pressed, hidden and modal, and the same facts
+on the kit's automation entries. The kit's `kit::Control` gains `label`,
+`search`, `place` and `set_size`, placed before `parts`, and the kit gains
+`kit::AccessRole`. It is not a hook. The Boneyards module sets `hidden` on
+its planets while a console covers the map.
+
+Version 21 also adds eight hooks, after `release_runtime`, for a replay the
+viewer is watching. `replay_frame` runs one frame in place of the match
+clock, and `replay_hold` forgets the time an open menu held.
+`replay_play`, `replay_pause`, `replay_set_speed`, `replay_step_speed` and
+`replay_seek` are the viewer's controls. `replay_state` is the first hook
+to fill what a caller reads (`ReplayPlaybackView`). `ReplayFrameHost` is
+how that frame steps, draws and stops the match. None of these is on
+`ReplayHooks`, which a director's playback fills.
+
+Version 21 also adds the rectangle where an extension window's art takes
+the press: `press_x`, `press_y`, `press_width` and `press_height` on
+`ExtensionWindow`. A width or a height of zero means the window states no
+such place. A screen button that lies wholly inside it is listed hidden,
+and stays enabled as the screen reported it. It is not a hook.
+
+Version 21 also adds `ScreenServices::main_menu_order_owns_key`. The
+main-menu overlay calls it before its own windows see a key. Nonzero means
+the host owns that key: the overlay drops its focus and passes the key on.
+The engine fills it. No extension fills it. It is not a hook.
+
 An extension states the version it follows, so that a build against a
 table of another version stops until its author has read the change. The
 automation endpoint's fixture window
@@ -215,7 +243,7 @@ so:
 // The version of the engine's extension table these hooks follow. A build
 // against a table of another version stops here until the engine's change
 // has been read and the hooks follow it.
-constexpr uint32_t kExtensionApiVersionFollowed = 18;
+constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
@@ -267,9 +295,12 @@ which its `///` block states and `hook_call.hpp` lists:
   power of two, with the count. These are `simulation_step`, `player_gone`,
   `message_hooks`, `match_event`, `draw_loading`, `draw_match_hud`,
   `draw_match_overlay`, `pause_changed` and `load_progress`.
-- **must not throw:** `speed_changed`, `app_mode_set`, `release_runtime`
-  and the hooks of a replay (`ReplayHooks`). One that throws all the same is
-  reported, and the engine carries on as for a null hook.
+- **must not throw:** `speed_changed`, `app_mode_set`, `release_runtime`,
+  the hooks of a replay (`ReplayHooks`), and the replay viewer's hooks
+  `replay_frame`, `replay_hold`, `replay_play`, `replay_pause`,
+  `replay_set_speed`, `replay_step_speed`, `replay_seek` and `replay_state`.
+  One that throws all the same is reported, and the engine carries on as for
+  a null hook.
 
 When several extensions fill a hook, those after the one that threw are not
 called for that call.
@@ -414,7 +445,9 @@ which the endpoint calls on the main thread whenever the program asks for
 the controls. The source appends `ExtensionWindow`s, each a name and its
 `ExtensionControl`s (a kind, a place on the canvas, its state, text and a
 list's rows), and the endpoint lists them ahead of the screen's own
-controls, since they take the pointer over it. A null source removes it,
+controls, since they take the pointer over it. A window may also state the
+rectangle where its art takes the press. A screen button that lies wholly
+inside that rectangle is listed hidden, and stays enabled. A null source removes it,
 and at most 16 are kept. [`extension_clock`][ext] is the clock an
 extension's idle work follows, so that a run the program drives advances it
 by a fixed step each frame.

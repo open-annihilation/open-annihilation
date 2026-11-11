@@ -18,6 +18,7 @@
 #include "oa_layer.hpp"
 #include "package_paths.hpp"
 
+#include "oa/app/battle_recording.hpp"
 #include "oa/app/brain_seats.hpp"
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/pictures.hpp"
@@ -70,6 +71,7 @@
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/library/game_icon.hpp"
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/replays.hpp"
 #include "oa/ui/library/mod_questions.hpp"
 #include "oa/ui/library/prerequisites.hpp"
 #include "oa/ui/library/screen.hpp"
@@ -135,6 +137,24 @@ constexpr std::string_view kUnknownAuthor = "unknown";
 /// @return its translation, or the English
 std::string_view shown_word(void* /*context*/, std::string_view english) {
     return oa::data::languages::interface_text(english);
+}
+
+/// The path of a recording below Recordings, with slashes. Empty when it is not below.
+///
+/// @param user the player's folder
+/// @param recording the recording
+/// @return the relative path; empty when it leaves Recordings
+std::string recording_below_recordings(const fs::path& user, const fs::path& recording) {
+    if (user.empty() || recording.empty())
+        return {};
+    const fs::path root = (user / std::string(recordings_folder_name)).lexically_normal();
+    const fs::path relative = recording.lexically_normal().lexically_relative(root);
+    if (relative.empty() || relative.is_absolute())
+        return {};
+    const std::string text = path_to_generic_utf8(relative);
+    if (text.empty() || text == "." || text.starts_with("../") || text.starts_with(".."))
+        return {};
+    return text;
 }
 
 /// Returns the Library's kind for a catalogue's kind.
@@ -1736,6 +1756,7 @@ void Runtime::LibraryHost::rebuild(Runtime& runtime) {
             installed.brain->verdict = std::move(verdict);
         }
     }
+    fill_replay_inputs(runtime, inputs);
     library::refresh(model, std::move(inputs));
     if (keeping)
         select_kept();
@@ -3585,6 +3606,15 @@ struct Runtime::LibraryScreen final : LayerScreen {
         else if (kind != ScreenInputKind::pointer_move)
             return LayerAnswer::none;
         LibraryHost& host = runtime_.library_host();
+        // Shift marks a run of replays, Ctrl or Command one more. The
+        // keyboard's modifiers include a key the automation endpoint holds.
+        if (moved != library::PointerKind::move) {
+            const SDL_Keymod held = runtime_.input_modifiers(Runtime::ModifierUse::keyboard);
+            host.state.row_pick = (held & SDL_KMOD_SHIFT) != 0 ? library::ReplayPick::extend
+                                  : (held & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0
+                                      ? library::ReplayPick::toggle
+                                      : library::ReplayPick::only;
+        }
         return take(
             library::library_pointer(host.model, host.state, list_, moved, button, at, finger_reach)
         );
@@ -3958,8 +3988,18 @@ struct Runtime::LibraryScreen final : LayerScreen {
         LibraryHost& host = *runtime_.library_;
         seen_model_ = host.model_revision;
         list_ = library::library_layout(host.model, host.state, frame_, *fonts);
+        // The ring is drawn from the state this layout reads. Place the
+        // opening focus first, then lay out again when that moved it, so the
+        // frame that is drawn wears the ring the preference asked for.
+        const kit::ControlId was_focused = host.state.interaction.focused;
+        const bool was_shown = host.state.interaction.focus_shown;
+        kit::focus_opened(host.state.interaction, list_, runtime_.oa_layer().always_show_focus());
+        if (host.state.interaction.focused != was_focused ||
+            host.state.interaction.focus_shown != was_shown)
+            list_ = library::library_layout(host.model, host.state, frame_, *fonts);
         host.request_pictures(list_);
         host.pump_map_previews(runtime_, list_);
+        host.pump_replay_pictures(runtime_, list_);
     }
 
     /// Carries out what an input asked for, and lays the Library out again
@@ -4418,6 +4458,32 @@ struct Runtime::LibraryScreen final : LayerScreen {
             );
             return false;
         }
+        case library::Action::watch_replay:
+        case library::Action::watch_from:
+        case library::Action::download_replay:
+        case library::Action::browse_core_prime:
+        case library::Action::keep_replays:
+        case library::Action::open_replay_folder:
+        case library::Action::turn_on_recording:
+        case library::Action::open_replay_file:
+        case library::Action::delete_replays:
+        case library::Action::confirm_delete_replays:
+        case library::Action::export_replays:
+        case library::Action::choose_export_folder:
+        case library::Action::run_export:
+        case library::Action::show_export_folder:
+        case library::Action::export_browse_up:
+        case library::Action::export_browse_open:
+        case library::Action::export_browse_use:
+        case library::Action::sign_in:
+        case library::Action::submit_sign_in:
+        case library::Action::sign_out:
+        case library::Action::share_replay:
+        case library::Action::submit_share:
+        case library::Action::open_shared_replay:
+        case library::Action::cancel_sign_in:
+        case library::Action::cancel_share:
+            return host.replay_action(runtime_, result);
         case library::Action::edit_keys:
             runtime_.open_key_editor({});
             return false;
@@ -4451,6 +4517,8 @@ void Runtime::open_library(std::optional<library::Tab> tab) {
         return;
     begin_screen_change("library");
     LibraryHost& host = library_host();
+    // A return's replay is chosen again after this open, once the folder is read.
+    host.kept_replay.reset();
     // The catalogues are asked for again as the player's setting allows; a
     // run nobody watches fetches nothing.
     if (host.own_feed && !options_.unattended && !options_.headless_check)
@@ -4460,6 +4528,9 @@ void Runtime::open_library(std::optional<library::Tab> tab) {
             host.feed.generation != nullptr ? host.feed.generation(host.feed.context) : 0;
         host.rebuild(*this);
     }
+    // The Replays section reads the Recordings folder again each time the
+    // Library opens; what the index holds unchanged is not opened.
+    host.scan_replays(*this);
     const library::Tab shown = tab ? *tab : library::Tab::active;
     OaLayer& layer = oa_layer();
     if (layer.find(library_screen_name) != nullptr) {
@@ -4484,6 +4555,46 @@ void Runtime::open_library(std::optional<library::Tab> tab) {
     button.button_hovered = false;
     button.button_pressed = false;
     play_ui_sound(kOpenSound, 0);
+}
+
+void Runtime::open_replays_to_share_battle() {
+    battle_share_pending_ = true;
+}
+
+void note_battle_recording(Runtime& runtime, std::filesystem::path path) {
+    if (path == runtime.battle_recording_)
+        return;
+    const std::string previous =
+        recording_below_recordings(runtime.user_folder(), runtime.battle_recording_);
+    runtime.battle_recording_ = std::move(path);
+    if (runtime.library_ == nullptr || previous.empty())
+        return;
+    if (!runtime.library_->kept_replay || *runtime.library_->kept_replay != previous)
+        return;
+    const std::string next =
+        recording_below_recordings(runtime.user_folder(), runtime.battle_recording_);
+    if (next.empty())
+        runtime.library_->kept_replay.reset();
+    else
+        runtime.library_->kept_replay = next;
+}
+
+void Runtime::offer_battle_share() {
+    if (!battle_share_pending_ || !library_can_open())
+        return;
+    const std::string relative = recording_below_recordings(user_folder(), battle_recording_);
+    open_library(library::Tab::replays);
+    if (oa_layer().find(library_screen_name) == nullptr)
+        return;
+    battle_share_pending_ = false;
+    LibraryHost& host = library_host();
+    library::set_replay_source(host.model, library::ReplaySource::computer);
+    host.share_kept_replay = false;
+    if (!relative.empty()) {
+        host.kept_replay = relative;
+        host.share_kept_replay = true;
+    }
+    ++host.model_revision;
 }
 
 void Runtime::close_library() {
@@ -4525,6 +4636,14 @@ void Runtime::keep_library_for_restart() {
     shown->list_scroll = host.state.list_scroll;
     shown->details_open = host.model.details_open;
     shown->details_page = host.state.details_page;
+    shown->replay_filter = host.model.replays.filter;
+    shown->replay_kind = host.model.replays.kind;
+    shown->replay_sort = host.model.replays.sort;
+    shown->replay_source = host.model.replays.source;
+    shown->core_filter = host.model.replays.core_filter;
+    shown->core_planet = host.model.replays.planet;
+    shown->replay = host.model.replays.selected;
+    shown->replay_page = host.state.replay_page;
     library_kept_ = std::move(shown);
 }
 
@@ -4612,12 +4731,69 @@ void Runtime::reopen_kept_library() {
         library::open_details(host.model);
         host.state.details_page = shown.details_page;
     }
+    // The Replays section comes back on the replay it showed, at the scroll
+    // it had: a Library left for WATCH, or for a switch of the mod.
+    library::set_replay_filter(host.model, shown.replay_filter);
+    library::set_replay_kind(host.model, shown.replay_kind);
+    library::set_replay_sort(host.model, shown.replay_sort);
+    library::set_replay_source(host.model, shown.replay_source);
+    library::set_core_filter(host.model, shown.core_filter);
+    if (!shown.core_planet.empty())
+        library::set_core_planet(host.model, shown.core_planet);
+    if (shown.replay) {
+        library::select_replay(host.model, *shown.replay);
+        if (shown.tab == library::Tab::replays) {
+            host.state.list_scroll = shown.list_scroll;
+            if (const std::optional<std::size_t> place =
+                    library::replay_place(host.model, *shown.replay))
+                host.state.reveal_row = static_cast<int32_t>(*place);
+            host.state.replay_page =
+                shown.replay_page && host.model.replays.selected == shown.replay;
+        }
+    }
+    // Recordings is read on its own thread. A new run's folder is not listed
+    // yet, so the row is selected once that read ends.
+    if (shown.replay && host.model.replays.selected != shown.replay) {
+        host.kept_replay = shown.replay;
+        host.kept_replay_scroll = shown.list_scroll;
+        host.kept_replay_page = shown.replay_page;
+    } else {
+        host.kept_replay.reset();
+    }
+    if (pending_replay_refused_) {
+        pending_replay_refused_ = false;
+        if (shown.replay && !shown.replay->empty()) {
+            library::refuse_replay(
+                host.model,
+                *shown.replay,
+                std::string(library::shown(host.model.text, library::words::replay_cannot_watch))
+            );
+        }
+    }
     ++host.model_revision;
 }
 
 void Runtime::tick_library() {
+    offer_battle_share();
     LibraryHost& host = library_host();
     const bool in_match = screen_ == Screen::match || match_ != nullptr;
+    // Where a watched replay is, sampled while its match runs, and the index
+    // pass stops for a match. A stopped pass writes nothing.
+    if (in_match) {
+        host.note_watched_replay(*this);
+        host.stop_index_pass();
+    }
+    // A replay WATCH opened is closed once its match has gone, and what the
+    // Replays section's worker read reaches the model.
+    host.end_watched_replay(*this);
+    if (!in_match && !soft_restart_requested_) {
+        host.pump_core_prime(*this);
+        host.pump_replay_fetch(*this);
+    }
+    if (screen_ != Screen::match && match_ == nullptr && !soft_restart_requested_) {
+        static_cast<void>(host.pump_replays(*this));
+        host.select_kept_replay();
+    }
     {
         base::threads::LockGuard guard(host.work.mutex);
         const bool was_running = host.work.match_running;
@@ -4650,8 +4826,18 @@ void Runtime::tick_library() {
     }
     // A run a switch of the mod from the Library began shows it again on
     // the main menu, or drops it once the wait is over on any screen.
-    if (library_return_ && !soft_restart_requested_)
-        reopen_kept_library();
+    // A replay that switched the mod or an expansion is about to play, or
+    // is playing: opening the Library now would take the row this run is
+    // keeping for the restart that puts the player's choice back.
+    if (library_return_ && !soft_restart_requested_) {
+        const auto replay_switch =
+            preference_values_.find(std::string(replay_expansion_state_preference));
+        const bool replay_holding_choice =
+            replay_switch != preference_values_.end() &&
+            (replay_switch->second == "wait" || replay_switch->second == "play");
+        if (!replay_holding_choice)
+            reopen_kept_library();
+    }
     // The Library and its dot are the main menu's.
     if (screen_ != Screen::main_menu)
         return;

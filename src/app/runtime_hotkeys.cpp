@@ -6,6 +6,7 @@
 #include "console_actions.hpp"
 #include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
+#include "photo_state.hpp"
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/languages/translation.hpp"
@@ -49,6 +50,13 @@ namespace oa::app {
 
 namespace keys = oa::ui::key_bindings;
 
+bool photo_match_command(std::string_view id) noexcept {
+    return id == "game.menu" || id == "game.pause" || id == "game.speed-up" ||
+           id == "game.speed-down" || id == "camera.follow" || id == "camera.follow-previous" ||
+           id == "camera.centre" || id == "camera.classic-view" || id == "camera.unlocked" ||
+           id == "camera.zoom-in-key" || id == "camera.zoom-out-key" || id == "camera.zoom-reset";
+}
+
 namespace {
 
 /// The squad or page number at the end of an action id, or 0.
@@ -74,7 +82,12 @@ int action_number(std::string_view id, std::string_view prefix) {
 /// @return true for the speed, page and zoom-key actions
 bool answers_repeat(std::string_view id) {
     return id == "game.speed-up" || id == "game.speed-down" || id == "build.page-next" ||
-           id == "build.page-previous" || id == "camera.zoom-in-key" || id == "camera.zoom-out-key";
+           id == "build.page-previous" || id == "camera.zoom-in-key" ||
+           id == "camera.zoom-out-key" || id == "photo.zoom-in" || id == "photo.zoom-out" ||
+           id == "photo.turn-left" || id == "photo.turn-right" || id == "photo.tilt-up" ||
+           id == "photo.tilt-down" || id == "photo.shutter-back" || id == "photo.shutter-on" ||
+           id == "photo.mark-left" || id == "photo.mark-right" || id == "photo.mark-up" ||
+           id == "photo.mark-down";
 }
 
 /// The build cell at the end of `build.cell-N`, or 0.
@@ -226,10 +239,303 @@ bool Runtime::press_shown_panel_action(std::string_view id, keys::Phase phase) {
     return false;
 }
 
+bool Runtime::answer_photo_action(const keys::ActionEvent& action) {
+    const std::string_view id = action.action;
+    if (!id.starts_with("photo."))
+        return false;
+    if (!photo_mode())
+        return true;
+    const bool pressed = action.phase == keys::Phase::pressed;
+    const bool repeated = action.phase == keys::Phase::repeated && answers_repeat(id);
+    if (!pressed && !repeated)
+        return true;
+    if (id == "photo.leave") {
+        leave_photo_mode();
+        return true;
+    }
+    if (id == "photo.capture") {
+        // One place for Enter, Ctrl+F9 and any later button. A photo asked
+        // for before a photo-mode frame has been presented waits there.
+        take_photo();
+        return true;
+    }
+    if (id == "photo.copy") {
+        copy_last_photo();
+        return true;
+    }
+    if (id == "photo.freeze") {
+        // Freeze lets a frozen clock run again, as Hold picture lets go of
+        // the picture, so the keys alone can get back to the match's speed.
+        if (photo_time_is_local() || photo_time_is_replay()) {
+            if (photo_frozen())
+                std::ignore = photo_run();
+            else
+                std::ignore = photo_freeze();
+        } else {
+            std::ignore = photo_hold_picture();
+        }
+        return true;
+    }
+    if (id == "photo.step") {
+        std::ignore = photo_step();
+        return true;
+    }
+    if (id == "photo.step-back") {
+        std::ignore = photo_step_back();
+        return true;
+    }
+    // Ten seconds and one minute, the same steps as the playback bar.
+    if (id == "photo.scrub-back") {
+        std::ignore = photo_scrub(-300);
+        return true;
+    }
+    if (id == "photo.scrub-forward") {
+        std::ignore = photo_scrub(300);
+        return true;
+    }
+    if (id == "photo.scrub-back-long") {
+        std::ignore = photo_scrub(-1800);
+        return true;
+    }
+    if (id == "photo.scrub-forward-long") {
+        std::ignore = photo_scrub(1800);
+        return true;
+    }
+    if (id == "photo.shutter-back" || id == "photo.shutter-on") {
+        const int32_t now = photo_shutter_eighth();
+        const int32_t next = id == "photo.shutter-on" ? std::min(now + 1, int32_t{8})
+                                                      : std::max(now - 1, int32_t{0});
+        std::ignore = photo_between(next);
+        return true;
+    }
+    if (id == "photo.zoom-in" || id == "photo.zoom-out") {
+        // The photo range, whether or not Mouse wheel zoom is on. A held
+        // picture stays where it is. The key is taken either way.
+        if (!photo_camera_locked()) {
+            const float target = wheel_zoom_target(id == "photo.zoom-in" ? 1.0F : -1.0F);
+            EngineSettingsState::ease_zoom_about_centre(*this, target);
+        }
+        return true;
+    }
+    if (id == "photo.panel") {
+        toggle_photo_panel();
+        return true;
+    }
+    if (id == "photo.mark") {
+        // A held picture stays where it is. The key is taken either way.
+        if (!photo_camera_locked())
+            photo_mark_area();
+        return true;
+    }
+    if (id == "photo.mark-left" || id == "photo.mark-right" || id == "photo.mark-up" ||
+        id == "photo.mark-down") {
+        if (!photo_camera_locked()) {
+            const int across = id == "photo.mark-left" ? -1 : (id == "photo.mark-right" ? 1 : 0);
+            const int down = id == "photo.mark-up" ? -1 : (id == "photo.mark-down" ? 1 : 0);
+            photo_poster_grow(across, down);
+        }
+        return true;
+    }
+    if (id == "photo.guides") {
+        cycle_photo_guides();
+        return true;
+    }
+    if (id == "photo.turn-left" || id == "photo.turn-right" || id == "photo.tilt-up" ||
+        id == "photo.tilt-down") {
+        constexpr float kStep = 5.0F;
+        bool turned = false;
+        if (id == "photo.turn-left")
+            turned = photo_turn(-kStep);
+        else if (id == "photo.turn-right")
+            turned = photo_turn(kStep);
+        else if (id == "photo.tilt-up")
+            turned = photo_tilt(kStep);
+        else
+            turned = photo_tilt(-kStep);
+        if (!turned) {
+            const std::string reason = photo_turn_reason();
+            if (!reason.empty()) {
+                status_ = reason;
+                photo_notice_ = reason;
+            }
+        }
+        return true;
+    }
+    return true;
+}
+
+std::vector<oa::ui::hud::PanelButton> Runtime::hud_focus_buttons() const {
+    std::vector<oa::ui::hud::PanelButton> buttons;
+    if (!match_hud_)
+        return buttons;
+    const auto& gadgets = match_hud_->layout.gadgets;
+    buttons.resize(gadgets.size());
+    for (std::size_t index = 0; index < gadgets.size(); ++index) {
+        const auto& gadget = gadgets[index];
+        oa::ui::hud::PanelButton& button = buttons[index];
+        button.name = gadget.common.name.c_str();
+        button.x = gadget.common.x;
+        button.y = gadget.common.y;
+        button.width = gadget.common.width;
+        button.height = gadget.common.height;
+        button.attributes = static_cast<uint8_t>(gadget.common.common_attributes);
+        const auto* fields = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+        const bool state_gray = index < match_hud_states_.size() && match_hud_states_[index].grayed;
+        button.grayed = state_gray || (fields != nullptr && fields->grayed_out);
+        button.active = gadget.common.type == oa::ui::gui_layout::GadgetType::button &&
+                        gadget.common.active != 0 && fields != nullptr;
+    }
+    return buttons;
+}
+
+void Runtime::toggle_hud_button_focus() {
+    if (hud_buttons_focused_) {
+        leave_hud_button_focus();
+        return;
+    }
+    if (match_ == nullptr || match_finished_ || match_paused_ || photo_mode() || unit_info_panel_ ||
+        !match_hud_)
+        return;
+    const std::vector<oa::ui::hud::PanelButton> buttons = hud_focus_buttons();
+    const std::vector<int32_t> stops = oa::ui::hud::panel_button_stops(buttons);
+    if (stops.empty())
+        return;
+    hud_buttons_focused_ = true;
+    hud_button_focus_ = stops.front();
+    if (oa_layer_ != nullptr && oa_layer_->always_show_focus())
+        oa_layer_->note_family_tab();
+}
+
+void Runtime::leave_hud_button_focus() {
+    if (!hud_buttons_focused_)
+        return;
+    hud_buttons_focused_ = false;
+    hud_button_focus_ = -1;
+    if (oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
+}
+
+bool Runtime::answer_hud_button_focus_key(const SDL_KeyboardEvent& key) {
+    namespace hud = oa::ui::hud;
+    namespace bindings = oa::ui::key_bindings;
+    if (!hud_buttons_focused_ || match_ == nullptr || match_finished_ || match_paused_ ||
+        photo_mode() || unit_info_panel_ || !match_hud_)
+        return false;
+    const bool modified = (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0;
+    const bool tab_key = !modified && (key.key == SDLK_TAB || key.scancode == SDL_SCANCODE_TAB);
+    const std::vector<hud::PanelButton> buttons = hud_focus_buttons();
+    // A panel that shows no button any more (the selection went) ends the
+    // focus, so the keys go back to the battlefield.
+    if (hud::panel_button_stops(buttons).empty()) {
+        leave_hud_button_focus();
+        return false;
+    }
+    // In a shared game, and wherever the alliance menu is offered, Tab opens
+    // that menu. It is not this mode's next key, even when next is also Tab.
+    if (tab_key && (multiplayer_session() || team_menu_every_game())) {
+        for (const bindings::ActionEvent& fed : match_action_events()) {
+            if (fed.phase == bindings::Phase::pressed && fed.action == "game.team-menu")
+                return false;
+        }
+    }
+    // Next and Previous are the bound actions. The direction is the action's,
+    // so a Previous chord with no Shift still goes backward.
+    const bool next = fired_action("ui.menu-focus-next") != nullptr;
+    const bool previous = fired_action("ui.menu-focus-previous") != nullptr;
+    if (next || previous) {
+        if (oa_layer_ != nullptr)
+            oa_layer_->note_family_tab();
+        const hud::PanelFocusStep step = hud::step_panel_button_focus(
+            buttons,
+            hud_button_focus_,
+            previous && !next ? hud::PanelFocusMove::tab_previous : hud::PanelFocusMove::tab_next,
+            true
+        );
+        if (step.index > 0)
+            hud_button_focus_ = step.index;
+        return true;
+    }
+    const bool ring = oa_layer_ != nullptr && oa_layer_->family_ring_shown();
+    if (!ring)
+        return false;
+    const auto pressed = [](const bindings::ActionEvent* fired) {
+        return fired != nullptr && fired->phase == bindings::Phase::pressed;
+    };
+    hud::PanelFocusMove move = hud::PanelFocusMove::press;
+    bool arrow = false;
+    if (fired_action("ui.menu-focus-left") != nullptr) {
+        move = hud::PanelFocusMove::left;
+        arrow = true;
+    } else if (fired_action("ui.menu-focus-right") != nullptr) {
+        move = hud::PanelFocusMove::right;
+        arrow = true;
+    } else if (
+        fired_action("ui.menu-focus-up") != nullptr || fired_action("ui.menu-list-up") != nullptr
+    ) {
+        move = hud::PanelFocusMove::up;
+        arrow = true;
+    } else if (
+        fired_action("ui.menu-focus-down") != nullptr ||
+        fired_action("ui.menu-list-down") != nullptr
+    ) {
+        move = hud::PanelFocusMove::down;
+        arrow = true;
+    } else if (pressed(fired_action("ui.menu-cancel"))) {
+        leave_hud_button_focus();
+        return true;
+    } else if (!pressed(fired_action("ui.menu-accept"))) {
+        return false;
+    }
+    if (arrow) {
+        const hud::PanelFocusStep step =
+            hud::step_panel_button_focus(buttons, hud_button_focus_, move, true);
+        if (step.index > 0)
+            hud_button_focus_ = step.index;
+        return true;
+    }
+    const hud::PanelFocusStep pressed_stop =
+        hud::step_panel_button_focus(buttons, hud_button_focus_, hud::PanelFocusMove::press, true);
+    if (pressed_stop.press && pressed_stop.index > 0)
+        activate_match_hud(static_cast<std::size_t>(pressed_stop.index));
+    if (oa_layer_ != nullptr)
+        oa_layer_->note_family_return();
+    return true;
+}
+
 bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     // Action ids are strings, so this is a chain of comparisons.
     const std::string_view id = action.action;
+    // A replay's own keys are taken before photo mode and before the match.
+    // They answer only while a replay plays. Any other phase is swallowed.
+    if (id.starts_with("watch.replay-") || id == "watch.next-player-view" ||
+        id == "watch.previous-player-view" || id == "watch.whole-view" ||
+        id == "watch.camera-mode") {
+        // Photo mode has its own step and scrub. The bar's keys do nothing
+        // here, including C, Q and the pinned bar.
+        if (photo_mode())
+            return true;
+        if (action.phase == keys::Phase::pressed)
+            static_cast<void>(replay_viewer_command(id));
+        return true;
+    }
+    if (id == "game.photo-mode") {
+        leave_hud_button_focus();
+        if (!photo_mode() && action.phase == keys::Phase::pressed)
+            std::ignore = enter_photo_mode();
+        return true;
+    }
+    if (answer_photo_action(action))
+        return true;
+    // Anything photo mode does not name is taken and does nothing. The
+    // game menu is named, and leaves before it opens.
+    if (photo_mode() && !photo_match_command(id))
+        return true;
     if (id == "game.kill-board" || id == "game.resource-panel") {
+        if ((current_extension_state() & extension_state::replay) != 0) {
+            if (action.phase == keys::Phase::pressed)
+                replay_toggle_player_list();
+            return true;
+        }
         if (resource_panel_f4_key())
             return true;
         if (match_console() == nullptr)
@@ -249,7 +555,16 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         std::ignore = open_unit_info();
         return true;
     }
+    if (id == "ui.hud-focus") {
+        if (action.phase == keys::Phase::pressed)
+            toggle_hud_button_focus();
+        return true;
+    }
     if (id == "game.menu") {
+        // The game menu is the match's own. Photo mode ends first, so the
+        // menu opens on the interface the player left.
+        if (photo_mode())
+            leave_photo_mode();
         if (match_paused_)
             resume_match_pause();
         else
@@ -269,6 +584,16 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     // always taken. Pressed while the pause the window's absence holds has
     // yet to end, it keeps the match paused, now as the player's own pause.
     if (id == "game.pause") {
+        // A replay's pause is the playback's. The bit alone is dropped by a jump.
+        if (photo_mode() && photo_time_is_replay()) {
+            if (action.phase == keys::Phase::pressed) {
+                if (photo_frozen())
+                    std::ignore = photo_run();
+                else
+                    std::ignore = photo_freeze();
+            }
+            return true;
+        }
         if (away_pause_holds()) {
             away_pause_.held = false;
             away_pause_.resume_ns.reset();
@@ -479,6 +804,9 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         return true;
     }
     if (id == "camera.follow" || id == "camera.follow-previous") {
+        // A held picture is not followed. The key is taken.
+        if (photo_camera_locked())
+            return true;
         cycle_match_tracking(id == "camera.follow-previous");
         return true;
     }
@@ -488,11 +816,23 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (id == "game.status-strip")
         return true;
     // Home centres the view on the selected unit, or with none selects the
-    // local commander and centres on it.
+    // local commander and centres on it. In photo mode it centres on the
+    // commander and selects nothing.
     if (id == "camera.centre") {
-        if (selected_match_unit_ != 0)
+        // A held picture is not centred. The key is taken.
+        if (photo_camera_locked())
+            return true;
+        if (selected_match_unit_ != 0) {
             center_camera_on_unit(selected_match_unit_);
-        else {
+        } else if (photo_mode()) {
+            for (const auto& slot : match_->world().slots) {
+                if (slot.unit_index == 0 || slot.unit == nullptr ||
+                    slot.owner_index != match_local_player_ || slot.unit->type_index == 0)
+                    continue;
+                center_camera_on_unit(slot.unit_index);
+                break;
+            }
+        } else {
             select_local_commander();
             apply_match_hud_for_selection();
             if (selected_match_unit_ != 0)
@@ -520,7 +860,41 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (id == "game.speed-up" || id == "game.speed-down") {
         if (action.phase != keys::Phase::pressed && action.phase != keys::Phase::repeated)
             return false;
-        if ((current_extension_state() & extension_state::local_watcher) == 0)
+        // Photo mode drives its own slow motion on a match on this machine.
+        // A replay keeps the speed it is watched at. A shared match is taken
+        // and does not change anyone's speed.
+        if (photo_mode()) {
+            if (photo_time_is_replay()) {
+                call_hook_or_report<&Extension::replay_step_speed>(
+                    extension_, hook_error_report(), *this, id == "game.speed-up" ? 1 : -1
+                );
+                note_replay_photo_pace();
+            } else if (photo_time_is_local()) {
+                // Frozen, Slow 1 to the fastest slow speed, then the match's
+                // own speed: + climbs that ladder and - goes down it.
+                const int32_t now = photo_slow_speed();
+                if (id == "game.speed-up") {
+                    if (photo_frozen())
+                        std::ignore = photo_slow(1);
+                    else if (now != 0 && !photo_slow(now + 1))
+                        std::ignore = photo_run();
+                } else if (now == 0 && !photo_frozen()) {
+                    std::ignore = photo_slow(9);
+                } else if (now == 1) {
+                    std::ignore = photo_freeze();
+                } else if (now > 1) {
+                    std::ignore = photo_slow(now - 1);
+                }
+            }
+            return true;
+        }
+        // A replay's + and - step the speed it is watched at. A recording's own speed change
+        // still paces it, and does not put the viewer's speed back.
+        if ((current_extension_state() & extension_state::replay) != 0)
+            call_hook_or_report<&Extension::replay_step_speed>(
+                extension_, hook_error_report(), *this, id == "game.speed-up" ? 1 : -1
+            );
+        else if ((current_extension_state() & extension_state::local_watcher) == 0)
             adjust_game_speed(id == "game.speed-up" ? 1 : -1);
         return true;
     }
@@ -607,6 +981,30 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     // modifier's own key does not: Alt may go down again between the two.
     if (!key.repeat && !modifier_key(key.scancode) && !group_key_pressed(events))
         group_key_last_ = 0;
+    // Photo mode answers only the commands photo_match_command names. The
+    // rest, including the chat line, the kills board and the console, are
+    // taken here so they do not reach the match. Pan stays a held key.
+    if (photo_mode()) {
+        // A photo command wins over a match command on the same chord, so
+        // Ctrl+F9 takes a photo here and a screenshot outside photo mode.
+        for (const keys::ActionEvent& fed : events) {
+            if (!fed.action.starts_with("photo."))
+                continue;
+            const bool answers = fed.phase == keys::Phase::pressed ||
+                                 (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));
+            if (answers && handle_match_action(fed))
+                return true;
+        }
+        for (const keys::ActionEvent& fed : events) {
+            if (fed.action.starts_with("photo."))
+                continue;
+            const bool answers = fed.phase == keys::Phase::pressed ||
+                                 (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));
+            if (answers && handle_match_action(fed))
+                return true;
+        }
+        return true;
+    }
     if (key.repeat && !deletes_typed_text && !repeats_speed_or_page(events))
         return false;
     if ((!question && take_whiteboard_chord(key)) || take_megamap_toggle(key))
@@ -671,6 +1069,11 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     // match opens, take the keys they answer while they hold the keyboard.
     if (press_match_panel_key(key))
         return true;
+    // Focus of the order buttons and the build page takes the menu's next and
+    // previous actions, and, once the ring shows, its arrows, Return and
+    // Escape. While the ring is hidden the other keys go on to the match.
+    if (answer_hud_button_focus_key(key))
+        return true;
     // The console's actions come before Escape and the play keys, so a shared
     // game's Tab opens the allies menu and, with the debug keys on, '=', ']',
     // I and M do not change the speed, press a quick key or arm Move.
@@ -687,6 +1090,18 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
         return handle_match_action(*back);
     if (match_paused_)
         return false;
+    // A replay's view and camera keys win over a match key on the same letter.
+    if ((current_extension_state() & extension_state::replay) != 0) {
+        for (const keys::ActionEvent& fed : events) {
+            if (fed.phase != keys::Phase::pressed)
+                continue;
+            const std::string_view watch_id = fed.action;
+            if (watch_id != "watch.next-player-view" && watch_id != "watch.previous-player-view" &&
+                watch_id != "watch.whole-view" && watch_id != "watch.camera-mode")
+                continue;
+            return handle_match_action(fed);
+        }
+    }
     for (const keys::ActionEvent& fed : events) {
         const bool answers = fed.phase == keys::Phase::pressed ||
                              (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));
@@ -1859,11 +2274,15 @@ void Runtime::center_camera_on_unit(uint16_t id) {
     const auto* unit = match_->world().slots[id].unit;
     if (unit == nullptr)
         return;
-    set_camera_position(
-        static_cast<int32_t>(unit->position[0] >> 16) - visible_map_width() / 2,
-        static_cast<int32_t>(unit->position[2] >> 16) - visible_map_height() / 2,
-        0
-    );
+    const int32_t x = static_cast<int32_t>(unit->position[0] >> 16);
+    int32_t z = static_cast<int32_t>(unit->position[2] >> 16);
+    // Photo mode centres the place the unit is drawn. Play keeps the ground
+    // point, as 3.1c does.
+    if (photo_mode()) {
+        const int32_t height = static_cast<int32_t>(unit->position[1] >> 16);
+        z -= height / 2;
+    }
+    set_camera_position(x - visible_map_width() / 2, z - visible_map_height() / 2, 0);
 }
 
 void Runtime::apply_match_hud_for_selection() {

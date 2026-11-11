@@ -86,6 +86,7 @@ constexpr std::string_view name_prefix = "library.";
 /// The tabs, in the order they are shown.
 constexpr std::array<Tab, tab_total> tab_order{
     Tab::active,
+    Tab::replays,
     Tab::mods,
     Tab::maps,
     Tab::mutators,
@@ -97,7 +98,16 @@ constexpr std::array<Tab, tab_total> tab_order{
 };
 /// The words the tabs are named by, in that order.
 constexpr std::array<std::string_view, tab_total> tab_words{
-    "active", "mods", "maps", "mutators", "brains", "keys", "languages", "updates", "registries"
+    "active",
+    "replays",
+    "mods",
+    "maps",
+    "mutators",
+    "brains",
+    "keys",
+    "languages",
+    "updates",
+    "registries"
 };
 /// The filters, in the order they are shown.
 constexpr std::array<Filter, filter_total> filter_order{
@@ -106,6 +116,26 @@ constexpr std::array<Filter, filter_total> filter_order{
 /// The words the filters are named by, in that order.
 constexpr std::array<std::string_view, filter_total> filter_words{
     "all", "new", "installed", "updates"
+};
+/// The Replays section's filters, in the order they are shown.
+constexpr std::array<ReplayFilter, replay_filter_total> replay_filter_order{
+    ReplayFilter::this_month, ReplayFilter::older, ReplayFilter::kept, ReplayFilter::imported
+};
+/// The words the Replays section's filters are named by, in that order.
+constexpr std::array<std::string_view, replay_filter_total> replay_filter_words{
+    "this-month", "older", "kept", "imported"
+};
+/// The sorts, in the order the sort menu shows them.
+constexpr std::array<ReplaySort, replay_sort_total> replay_sort_order{
+    ReplaySort::newest, ReplaySort::longest, ReplaySort::map, ReplaySort::players
+};
+/// The words the sorts are named by, in that order.
+constexpr std::array<std::string_view, replay_sort_total> replay_sort_words{
+    "newest", "longest", "map", "players"
+};
+/// Core Prime's filters, in the order the section list shows them.
+constexpr std::array<std::string_view, core_prime_filter_total> core_filter_words{
+    "latest", "longest", "downloads", "planet", "mine"
 };
 
 /// Returns the tags a row or the details show.
@@ -225,6 +255,56 @@ std::string_view action_word(Action action) {
         return "use";
     case Action::edit_keys:
         return "edit-keys";
+    case Action::watch_replay:
+        return "watch";
+    case Action::watch_from:
+        return "watch-from";
+    case Action::keep_replays:
+        return "keep";
+    case Action::open_replay_folder:
+        return "open-folder";
+    case Action::turn_on_recording:
+        return "turn-on-recording";
+    case Action::open_replay_file:
+        return "open-replay-file";
+    case Action::delete_replays:
+        return "delete";
+    case Action::confirm_delete_replays:
+        return "delete-confirm";
+    case Action::export_replays:
+        return "export";
+    case Action::choose_export_folder:
+        return "choose-export-folder";
+    case Action::run_export:
+        return "export";
+    case Action::show_export_folder:
+        return "show-folder";
+    case Action::export_browse_up:
+        return "up";
+    case Action::export_browse_open:
+        return "folder";
+    case Action::export_browse_use:
+        return "use-folder";
+    case Action::download_replay:
+        return "download";
+    case Action::browse_core_prime:
+        return "browse-core-prime";
+    case Action::sign_in:
+        return "sign-in";
+    case Action::submit_sign_in:
+        return "sign-in";
+    case Action::sign_out:
+        return "sign-out";
+    case Action::share_replay:
+        return "share";
+    case Action::submit_share:
+        return "share";
+    case Action::open_shared_replay:
+        return "open-shared";
+    case Action::cancel_sign_in:
+        return "cancel-sign-in";
+    case Action::cancel_share:
+        return "cancel-share";
     }
     return "action";
 }
@@ -376,6 +456,12 @@ struct Building {
     std::vector<kit::ControlId> chooser_order{};
     /// Tab's order while USE's question is open: its choices and buttons only.
     std::vector<kit::ControlId> question_order{};
+    /// Tab's order while Export is open: its choices and buttons only.
+    std::vector<kit::ControlId> export_order{};
+    /// Tab's order while the sign-in question is open.
+    std::vector<kit::ControlId> sign_in_order{};
+    /// Tab's order while the share question is open.
+    std::vector<kit::ControlId> share_order{};
     std::unordered_set<std::string> names{}; ///< the names given so far
     /// For each name wanted, the first count after it not yet tried.
     std::unordered_map<std::string, int32_t> next_count{};
@@ -603,7 +689,7 @@ bool held(const Building& building, kit::ControlId id) {
 /// @return true while it has the focus
 bool focused(const Building& building, kit::ControlId id) {
     const kit::Interaction& interaction = building.state->interaction;
-    return interaction.focus_shown && interaction.focused == id;
+    return kit::focus_ring_visible(interaction) && interaction.focused == id;
 }
 
 /// Returns a button's width as Settings sizes its buttons (Cancel, OK,
@@ -772,6 +858,7 @@ kit::RowSpacing row_spacing(const Building& building) {
 /// @param scroll_group its scroll area, or -1
 /// @param font the caption's font
 /// @param in_tab_order false draws it and leaves Tab's order for the caller
+/// @param danger drawn in the danger look while it is enabled
 void add_button_in(
     Building& building,
     std::vector<kit::Control>& group,
@@ -784,11 +871,14 @@ void add_button_in(
     const kit::Rect& clip,
     int32_t scroll_group,
     kit::FontRole font,
-    bool in_tab_order
+    bool in_tab_order,
+    bool danger = false
 ) {
     kit::ButtonLook look;
     look.caption = cut(building, font, caption, rect.width - 2);
-    look.style = accent && enabled ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+    look.style = danger && enabled   ? kit::ButtonStyle::danger
+                 : accent && enabled ? kit::ButtonStyle::accent
+                                     : kit::ButtonStyle::plain;
     look.hovered = hovered(building, id);
     look.held = held(building, id);
     look.enabled = enabled;
@@ -819,6 +909,7 @@ void add_button_in(
 /// @param clip the part of it that shows; empty for all
 /// @param scroll_group its scroll area, or -1
 /// @param in_tab_order false draws it and leaves Tab's order for the caller
+/// @param danger drawn in the danger look while it is enabled
 void add_button(
     Building& building,
     std::vector<kit::Control>& group,
@@ -830,7 +921,8 @@ void add_button(
     std::string name,
     const kit::Rect& clip,
     int32_t scroll_group,
-    bool in_tab_order = true
+    bool in_tab_order = true,
+    bool danger = false
 ) {
     add_button_in(
         building,
@@ -844,7 +936,8 @@ void add_button(
         clip,
         scroll_group,
         kit::FontRole::regular,
-        in_tab_order
+        in_tab_order,
+        danger
     );
 }
 
@@ -1829,6 +1922,8 @@ std::string_view placeholder_of(const Library& library) {
         return shown(library.text, words::search_languages);
     case Tab::updates:
         return shown(library.text, words::search_updates);
+    case Tab::replays:
+        return shown(library.text, words::search_replays);
     }
     return {};
 }
@@ -1852,6 +1947,7 @@ void add_search(Building& building, const kit::Rect& rect) {
         building.list, rect, look, controls::search, unique_name(building, named("search"))
     );
     move_controls(building.list, before, building.top);
+    building.top.back().label = std::string(placeholder_of(*building.library));
     tab_stop(building, building.top.back());
 }
 
@@ -1866,6 +1962,8 @@ void add_search(Building& building, const kit::Rect& rect) {
 /// @param items its items
 /// @param id its control's number
 /// @param name its control's name
+/// @param wide_menu true opens the menu as wide as its widest item, wider than
+///     its field when it needs to be, as far as the window's right edge
 void add_drop_down(
     Building& building,
     std::vector<kit::Control>& group,
@@ -1874,7 +1972,8 @@ void add_drop_down(
     std::string_view caption,
     std::vector<controls::MenuItem> items,
     kit::ControlId id,
-    std::string name
+    std::string name,
+    bool wide_menu = false
 ) {
     const kit::Metrics& metrics = *building.metrics;
     kit::ChoiceLook look;
@@ -1899,6 +1998,18 @@ void add_drop_down(
         OpenMenu opened;
         opened.menu = menu;
         opened.field = rect;
+        if (wide_menu) {
+            // The items are whole: the menu takes the widest one's room.
+            int32_t widest = 0;
+            for (const controls::MenuItem& item : items)
+                widest = std::max(widest, width_of(building, kit::FontRole::regular, item.caption));
+            const int32_t needed =
+                widest + metrics.choice_item_text_inset + metrics.list_row_inset + 2;
+            const int32_t window_width =
+                building.list.items.empty() ? 0 : building.list.items.front().rect.width;
+            const int32_t room = std::max(window_width - metrics.edge - rect.x, rect.width);
+            opened.field.width = std::max(rect.width, std::min(needed, room));
+        }
         opened.chosen = controls::chosen_item(*building.library, menu, items);
         opened.items = std::move(items);
         opened.name = given;
@@ -1970,6 +2081,25 @@ void add_updates_line(Building& building, const kit::Rect& row) {
     );
 }
 
+/// The shapes the Replays section draws as pictures of its own: the section's
+/// film frame, a kept replay's star and a player's colour dot.
+enum class ReplayIcon : uint8_t {
+    film, ///< a strip of film, the section's icon
+    star, ///< a five-pointed star, a kept replay
+    dot,  ///< a round dot, a player's colour
+    edge, ///< the ring round a dot's rim, light, so that a dark colour shows on a dark ground
+};
+
+/// Appends one of the Replays section's icons; its definition is with the
+/// section's layout.
+void add_replay_icon(
+    Building& building,
+    ReplayIcon icon,
+    const kit::Rect& rect,
+    kit::Colour ink,
+    const kit::Rect& clip
+);
+
 /// Settings' section list, copied from the settings dialog's NavMetrics.
 /// The Library does not include that module. Compact, Regular, then Large:
 /// an entry's height, the gap under it, the rows above and below a divider,
@@ -2030,10 +2160,11 @@ void fit_section_icons(SectionNav& nav, const Building& building, int32_t entry_
     }
 }
 
-/// Returns the tag icon a tab draws. Keys and Registries use a mark instead.
+/// Returns the tag icon a tab draws. Keys and Registries use a mark instead,
+/// and Replays its film (add_replay_icon).
 ///
 /// @param tab the tab
-/// @return the icon; none for Keys and Registries
+/// @return the icon; none for Replays, Keys and Registries
 std::optional<kit::TagIcon> tab_tag_icon(Tab tab) {
     switch (tab) {
     case Tab::active:
@@ -2050,6 +2181,7 @@ std::optional<kit::TagIcon> tab_tag_icon(Tab tab) {
         return kit::TagIcon::statistics;
     case Tab::updates:
         return kit::TagIcon::economy;
+    case Tab::replays:
     case Tab::keys:
     case Tab::registries:
         return std::nullopt;
@@ -2089,6 +2221,14 @@ std::string heading_of(std::string_view title) {
 /// @param library the model
 /// @return the word
 std::string filter_choice_word(const Library& library) {
+    if (library.tab == Tab::replays) {
+        if (library.replays.source == ReplaySource::core_prime)
+            return std::to_string(static_cast<int32_t>(library.tab)) + "/core/" +
+                   std::to_string(static_cast<int32_t>(library.replays.core_filter)) + "/" +
+                   library.replays.planet;
+        return std::to_string(static_cast<int32_t>(library.tab)) + "/" +
+               std::to_string(static_cast<int32_t>(library.replays.filter)) + "/";
+    }
     return std::to_string(static_cast<int32_t>(library.tab)) + "/" +
            std::to_string(static_cast<int32_t>(shown_filter(library))) + "/" + library.tag;
 }
@@ -2124,13 +2264,18 @@ struct NavPart {
     std::string name{};                 ///< an entry's name
     std::optional<kit::TagIcon> tag{};  ///< an entry's tag icon
     std::optional<kit::Mark> mark{};    ///< a tab's mark, when it has no tag icon
+    bool film{};                        ///< Replays' film, drawn as a picture of its own
     bool in_filters{};                  ///< a filter or a tag: the pane's scroll group
+    /// The word takes the room it needs and the count follows it only when
+    /// both fit, instead of the word giving way to the count.
+    bool whole_word{};
 };
 
 /// Appends the section list down the left: the tabs, then, under a divider,
-/// the open tab's filters and tags. The whole column scrolls. The tabs are
-/// stops here; the filters and tags are stopped once the search has been,
-/// so Tab's order stays tabs, search, filters.
+/// the open tab's filters and tags. The whole column scrolls. The tabs join
+/// Tab's order here, and the filters and tags once the search has been, so
+/// the order stays tabs, search, filters, tags. finish groups each run into
+/// one stop.
 ///
 /// @param[in,out] building the layout
 /// @param column the list's face
@@ -2176,13 +2321,62 @@ void add_section_nav(Building& building, const kit::Rect& column) {
         part.name = named("tab." + std::string(tab_words[index]));
         part.tag = tab_tag_icon(tab);
         part.mark = tab_mark(tab);
+        part.film = tab == Tab::replays;
         push(std::move(part));
         if (index + 1 < tab_order.size())
             cursor += nav.entry_gap;
     }
 
-    const bool catalogue = library.tab != Tab::active && library.tab != Tab::registries;
+    const bool catalogue =
+        library.tab != Tab::active && library.tab != Tab::registries && library.tab != Tab::replays;
     int32_t divider_top = -1;
+    if (library.tab == Tab::replays) {
+        // Replays' own filters, under the divider as a tab's filters are.
+        cursor += nav.rule_margin;
+        divider_top = cursor;
+        cursor += 1 + nav.rule_margin;
+        const bool core = library.replays.source == ReplaySource::core_prime;
+        const std::size_t filter_count =
+            core ? core_filter_words.size() : replay_filter_order.size();
+        for (std::size_t index = 0; index < filter_count; ++index) {
+            NavPart part;
+            part.height = nav.entry_height;
+            // At Compact the column is narrow: the filters sit nearer the edge so
+            // that each word is whole (the longest, "Dieser Monat", needs the room).
+            part.indent = building.size_class == kit::SizeClass::compact ? section_filter_indent / 2
+                                                                         : section_filter_indent;
+            if (core) {
+                const auto filter = static_cast<CorePrimeFilter>(index);
+                // My battles is the signed-in player's list. Unsigned-in cards
+                // do not grow a fifth filter.
+                if (filter == CorePrimeFilter::mine && !library.inputs.replays.core_signed_in)
+                    continue;
+                part.word = core_filter_title(library, filter);
+                if (const std::optional<std::size_t> count = core_filter_count(library, filter))
+                    part.count = std::to_string(*count);
+                part.selected = library.replays.core_filter == filter;
+                part.id = controls::core_filter_control(filter);
+                part.name = named("replays.filter." + std::string(core_filter_words[index]));
+            } else {
+                const ReplayFilter filter = replay_filter_order[index];
+                part.word = replay_filter_title(library, filter);
+                part.count = std::to_string(replay_filter_count(library, filter));
+                part.selected = library.replays.filter == filter;
+                part.id = controls::replay_filter_control(filter);
+                part.name = named("filter." + std::string(replay_filter_words[index]));
+            }
+            part.reading = part.count.empty() ? part.word
+                                              : filled(
+                                                    library.text,
+                                                    words::filter_with_count,
+                                                    {{"filter", part.word}, {"count", part.count}}
+                                                );
+            part.in_filters = true;
+            part.whole_word = true;
+            push(std::move(part));
+            cursor += nav.entry_gap;
+        }
+    }
     if (catalogue) {
         cursor += nav.rule_margin;
         divider_top = cursor;
@@ -2299,6 +2493,9 @@ void add_section_nav(Building& building, const kit::Rect& column) {
                 continue;
             state.filters_scroll =
                 shown_offset(state.filters_scroll, part.top, part.height, view.height, limit);
+            // The keys return to this filter or tag after they leave its group.
+            if (part.in_filters)
+                state.filters_stop = focused_id;
             break;
         }
         state.filters_focused = focused_id;
@@ -2308,6 +2505,12 @@ void add_section_nav(Building& building, const kit::Rect& column) {
 
     const auto room_for = [&](int32_t width, const NavPart& part) {
         int32_t visual = width - nav.text_left - section_text_margin;
+        if (part.whole_word) {
+            // The word takes the room; the kit draws the count after it when it fits.
+            const int32_t check =
+                width - kit::compact_metrics.padding - kit::compact_metrics.list_row_inset;
+            return std::max(std::min(visual, check), int32_t{0});
+        }
         if (!part.count.empty()) {
             const int32_t count_width = width_of(building, kit::FontRole::small, part.count);
             const int32_t gap = width_of(building, kit::FontRole::small, " ");
@@ -2359,6 +2562,7 @@ void add_section_nav(Building& building, const kit::Rect& column) {
         kit::NavEntry entry;
         entry.rect = {left, row, width, part.height};
         entry.caption = cut(building, kit::FontRole::regular, part.word, room_for(width, part));
+        // The count follows the word where the kit draws it, and only when it fits.
         entry.count = part.count;
         entry.icon_column = nav.icon_left;
         entry.icon_side = nav.icon_side;
@@ -2373,7 +2577,7 @@ void add_section_nav(Building& building, const kit::Rect& column) {
         ids.push_back(part.id);
         names.push_back(unique_name(building, std::move(part.name)));
         readings.push_back(std::move(part.reading));
-        if (nav.icon_side > 0 && part.mark.has_value())
+        if (nav.icon_side > 0 && (part.mark.has_value() || part.film))
             marks.push_back(part);
     }
     const std::size_t first_item = building.list.items.size();
@@ -2408,6 +2612,23 @@ void add_section_nav(Building& building, const kit::Rect& column) {
             tab_stop(building, control);
     }
     for (const NavPart& part : marks) {
+        if (part.film) {
+            const int32_t row = view.y - offset + part.top;
+            const int32_t left = item_left + part.indent;
+            const int32_t film_side = nav.icon_side;
+            add_replay_icon(
+                building,
+                ReplayIcon::film,
+                {left + nav.icon_left, row + (part.height - film_side) / 2, film_side, film_side},
+                part.selected ? kit::colour::text : kit::colour::list_text,
+                view
+            );
+            // The film is the Replays entry's own icon.
+            if (!building.list.items.empty() &&
+                building.list.items.back().role == kit::Role::picture)
+                building.list.items.back().control = part.id;
+            continue;
+        }
         const kit::Point pixels = kit::mark_size(*part.mark);
         const int32_t row = view.y - offset + part.top;
         const int32_t left = item_left + part.indent;
@@ -2432,7 +2653,8 @@ void add_section_nav(Building& building, const kit::Rect& column) {
 }
 
 /// Stops on the filters and tags, after the search, so Tab reaches them in
-/// the order they are drawn and then the list.
+/// the order they are drawn and then the list. finish gathers each run into
+/// one stop.
 ///
 /// @param[in,out] building the layout
 void stop_on_filters(Building& building) {
@@ -3948,28 +4170,53 @@ struct ActionPlan {
 /// @param building the layout
 /// @param actions the actions, in the order they are shown
 /// @param width the bar's width, in points
+/// @param button_height a button's height; 0 uses the control height
+/// @param row_space the rows between lines; negative uses one space
+/// @param pair_tail the last two share a row when both captions fit on one
 /// @return the plan
-ActionPlan
-plan_actions(const Building& building, const std::vector<ActionButton>& actions, int32_t width) {
+ActionPlan plan_actions(
+    const Building& building,
+    const std::vector<ActionButton>& actions,
+    int32_t width,
+    int32_t button_height = 0,
+    int32_t row_space = -1,
+    bool pair_tail = false
+) {
     const kit::Metrics& metrics = *building.metrics;
     ActionPlan plan;
     if (actions.empty())
         return plan;
     const int32_t gap = button_spacing(metrics);
-    const int32_t button_height = metrics.control_height;
+    const int32_t height = button_height > 0 ? button_height : metrics.control_height;
+    const int32_t under = row_space >= 0 ? row_space : metrics.space;
+    const int32_t room = std::max(width, int32_t{0});
+    // Open on Core Prime and Share my own recording take one row when the
+    // two captions fit on it. A caption wider than the bar stays on its own
+    // row, so the words are not cut.
+    bool share_row = false;
+    if (pair_tail && actions.size() >= 2 && room > 0) {
+        const int32_t left =
+            std::min(button_width(building, actions[actions.size() - 2].text), room);
+        const int32_t right = std::min(button_width(building, actions.back().text), room);
+        share_row = left + gap + right <= room;
+    }
     int32_t x = 0;
     int32_t y = 0;
-    for (const ActionButton& action : actions) {
-        const int32_t across =
-            std::min(button_width(building, action.text), std::max(width, int32_t{0}));
-        if (x > 0 && x + across > width) {
+    for (std::size_t index = 0; index < actions.size(); ++index) {
+        const ActionButton& action = actions[index];
+        const int32_t across = std::min(button_width(building, action.text), room);
+        const bool pair_here = share_row && index + 2 == actions.size();
+        if (pair_here && x > 0) {
             x = 0;
-            y += button_height + metrics.space;
+            y += height + under;
+        } else if (x > 0 && x + across > room) {
+            x = 0;
+            y += height + under;
         }
-        plan.buttons.push_back({x, y, across, button_height});
+        plan.buttons.push_back({x, y, across, height});
         x += across + gap;
     }
-    plan.height = y + button_height;
+    plan.height = y + height;
     return plan;
 }
 
@@ -5162,6 +5409,7 @@ void add_maps_search(Building& building, const kit::Rect& rect, const kit::Rect&
     kit::Control& added = building.detail.back();
     added.clip = clip;
     added.group = -1;
+    added.label = std::string(shown(library.text, words::search_active_maps));
     tab_stop(building, added);
 }
 
@@ -6670,6 +6918,2152 @@ void add_registries(Building& building, const kit::Rect& area) {
     }
 }
 
+/// The sides of the square the icons are drawn in, in their own units.
+constexpr int32_t icon_units = 1024;
+/// The samples taken across a pixel, each way, to find how much of it an icon covers.
+constexpr int32_t icon_samples = 4;
+
+/// The star's corners, in icon units, clockwise from its top point.
+constexpr std::array<std::array<int32_t, 2>, 10> star_corners{{
+    {512, 115},
+    {634, 365},
+    {909, 403},
+    {710, 595},
+    {755, 870},
+    {512, 742},
+    {269, 870},
+    {314, 595},
+    {115, 403},
+    {390, 365},
+}};
+
+/// The players' colours, as plain swatches of the game's ten.
+constexpr std::array<kit::Colour, 10> player_swatches{{
+    {0x1f, 0x4f, 0xd6},
+    {0xd6, 0x2c, 0x1f},
+    {0xe8, 0xe8, 0xe8},
+    {0x23, 0xa0, 0x3a},
+    {0x1b, 0x2d, 0x8c},
+    {0x8e, 0x3f, 0xb8},
+    {0xe8, 0xd2, 0x1f},
+    {0x2b, 0x2b, 0x2b},
+    {0x9f, 0xd4, 0xe8},
+    {0xb0, 0x7a, 0x3a},
+}};
+
+/// Tells whether a point lies in a range, its ends included.
+///
+/// @param value the point
+/// @param low the range's start
+/// @param high the range's end
+/// @return true inside it
+constexpr bool within(int32_t value, int32_t low, int32_t high) noexcept {
+    return value >= low && value <= high;
+}
+
+/// Tells whether an icon covers a point of its square.
+///
+/// @param icon the icon
+/// @param x the point's column, in icon units
+/// @param y the point's row, in icon units
+/// @return true when the point is drawn
+bool icon_covers(ReplayIcon icon, int32_t x, int32_t y) {
+    switch (icon) {
+    case ReplayIcon::film: {
+        // A frame 12 by 11 units of 16, its edge a unit and a half, two
+        // strips inside it, and three sprocket holes along each strip.
+        const bool outer = within(x, 80, 944) && within(y, 112, 912);
+        const bool inner = within(x, 176, 848) && within(y, 208, 816);
+        if (outer && !inner)
+            return true;
+        if (!inner)
+            return false;
+        if (within(x, 272, 368) || within(x, 656, 752))
+            return true;
+        if (x < 272 || x > 752)
+            return within(y, 291, 387) || within(y, 464, 560) || within(y, 637, 733);
+        return false;
+    }
+    case ReplayIcon::star: {
+        bool inside = false;
+        for (std::size_t corner = 0, before = star_corners.size() - 1; corner < star_corners.size();
+             before = corner++) {
+            const int64_t xi = star_corners[corner][0];
+            const int64_t yi = star_corners[corner][1];
+            const int64_t xj = star_corners[before][0];
+            const int64_t yj = star_corners[before][1];
+            if ((yi > y) != (yj > y) &&
+                (((x - xi) * (yj - yi) < (xj - xi) * (y - yi)) == (yj > yi)))
+                inside = !inside;
+        }
+        return inside;
+    }
+    case ReplayIcon::dot: {
+        const int64_t dx = x - icon_units / 2;
+        const int64_t dy = y - icon_units / 2;
+        const int64_t radius = icon_units * 7 / 16;
+        return dx * dx + dy * dy <= radius * radius;
+    }
+    case ReplayIcon::edge: {
+        const int64_t dx = x - icon_units / 2;
+        const int64_t dy = y - icon_units / 2;
+        const int64_t outer = icon_units * 7 / 16;
+        const int64_t inner = icon_units * 5 / 16;
+        const int64_t across = dx * dx + dy * dy;
+        return across <= outer * outer && across >= inner * inner;
+    }
+    }
+    return false;
+}
+
+/// Appends one of the Replays section's icons, drawn at the canvas's own
+/// pixels so that it stays crisp, in one colour on a clear ground. Its
+/// pixels live on the Library until the next layout.
+///
+/// @param[in,out] building the layout
+/// @param icon the icon
+/// @param rect its square, in points
+/// @param ink its colour
+/// @param clip what drawing may touch
+void add_replay_icon(
+    Building& building,
+    ReplayIcon icon,
+    const kit::Rect& rect,
+    kit::Colour ink,
+    const kit::Rect& clip
+) {
+    const kit::Point pixels = badge_pixel_size(building, rect);
+    if (pixels.x <= 0 || pixels.y <= 0)
+        return;
+    const auto columns = static_cast<std::size_t>(pixels.x);
+    const auto rows = static_cast<std::size_t>(pixels.y);
+    std::vector<uint8_t> drawn(columns * rows * 4U, 0);
+    const int64_t across = static_cast<int64_t>(pixels.x) * icon_samples;
+    const int64_t down = static_cast<int64_t>(pixels.y) * icon_samples;
+    for (std::size_t row = 0; row < rows; ++row) {
+        for (std::size_t column = 0; column < columns; ++column) {
+            int32_t covered = 0;
+            for (int32_t sample_row = 0; sample_row < icon_samples; ++sample_row) {
+                for (int32_t sample_column = 0; sample_column < icon_samples; ++sample_column) {
+                    const int64_t sx = static_cast<int64_t>(column) * icon_samples + sample_column;
+                    const int64_t sy = static_cast<int64_t>(row) * icon_samples + sample_row;
+                    const auto x = static_cast<int32_t>((2 * sx + 1) * icon_units / (2 * across));
+                    const auto y = static_cast<int32_t>((2 * sy + 1) * icon_units / (2 * down));
+                    if (icon_covers(icon, x, y))
+                        ++covered;
+                }
+            }
+            const std::size_t at = (row * columns + column) * 4U;
+            drawn[at] = ink.r;
+            drawn[at + 1] = ink.g;
+            drawn[at + 2] = ink.b;
+            drawn[at + 3] = static_cast<uint8_t>(covered * 255 / (icon_samples * icon_samples));
+        }
+    }
+    std::vector<uint8_t>& kept =
+        building.library->scaled_badge_pixels.emplace_back(std::move(drawn));
+    oa::ui::frontend_renderer::RgbaPicture picture;
+    picture.width = static_cast<uint32_t>(columns);
+    picture.height = static_cast<uint32_t>(rows);
+    picture.pixels = kept;
+    add_item(building.list, kit::Role::picture, rect, clip).look = kit::PictureLook{picture};
+}
+
+/// Palette indexes the match uses for the ten player colours. A colour of 0
+/// to 9 is already a swatch. One of these indexes is that swatch too.
+constexpr std::array<uint8_t, 10> palette_of_colour{227, 212, 80, 235, 108, 219, 208, 93, 130, 67};
+
+/// Returns a player's colour swatch.
+///
+/// @param colour the game's player colour, or a palette index of one
+/// @return the swatch; the first when the colour is neither
+kit::Colour player_swatch(int32_t colour) {
+    if (colour >= 0 && static_cast<std::size_t>(colour) < player_swatches.size())
+        return player_swatches[static_cast<std::size_t>(colour)];
+    if (colour >= 0 && colour <= 255) {
+        const auto byte = static_cast<uint8_t>(colour);
+        for (std::size_t index = 0; index < palette_of_colour.size(); ++index) {
+            if (palette_of_colour[index] == byte)
+                return player_swatches[index];
+        }
+    }
+    return player_swatches.front();
+}
+
+/// Returns a replay's map's picture, fitted to a square, or none.
+///
+/// @param building the layout
+/// @param row the replay
+/// @param square the square
+/// @return the picture; empty without one
+oa::ui::frontend_renderer::RgbaPicture
+replay_picture(Building& building, const ReplayRow& row, const kit::Rect& square) {
+    if (!row.picture || row.picture->rgba.empty() || row.picture->width == 0 ||
+        row.picture->height == 0)
+        return {};
+    return fitted_well_picture(building, picture_of_map(*row.picture), square);
+}
+
+/// Appends a replay's map picture in a square: the installed map's minimap,
+/// or a plain tile while there is none.
+///
+/// @param[in,out] building the layout
+/// @param row the replay
+/// @param square the square
+/// @param clip what drawing may touch
+void add_replay_thumb(
+    Building& building, const ReplayRow& row, const kit::Rect& square, const kit::Rect& clip
+) {
+    const oa::ui::frontend_renderer::RgbaPicture picture = replay_picture(building, row, square);
+    if (oa::ui::frontend_renderer::picture_drawable(picture)) {
+        add_item(building.list, kit::Role::picture, square, clip).look = kit::PictureLook{picture};
+        return;
+    }
+    add_item(building.list, kit::Role::fill, square, clip).colour = badge_face;
+}
+
+/// The most lines the card's note takes before it is cut: a refusal names the
+/// unit definitions that differ.
+constexpr std::size_t most_note_lines = 6;
+
+/// The most lines a fact's value takes on the card before it is cut; the Mod
+/// takes all it needs.
+constexpr std::size_t most_fact_lines = 3;
+
+/// The colour of the light ring round every player's dot.
+constexpr kit::Colour player_dot_edge{0xc8, 0xc8, 0xc8};
+
+/// The side of a player's dot, in points: two thirds of a small line.
+///
+/// @param metrics the class's metrics
+/// @return the side
+int32_t player_dot_side(const kit::Metrics& metrics) {
+    return std::max(metrics.small_line * 2 / 3, int32_t{5});
+}
+
+/// Appends a player's colour dot with a light edge, so that a dark colour (a
+/// black or a deep blue player) shows on the dark rows and card.
+///
+/// @param[in,out] building the layout
+/// @param rect the dot's square
+/// @param colour the game's player colour
+/// @param clip what drawing may touch
+void add_player_dot(
+    Building& building, const kit::Rect& rect, int32_t colour, const kit::Rect& clip
+) {
+    add_replay_icon(building, ReplayIcon::dot, rect, player_swatch(colour), clip);
+    add_replay_icon(building, ReplayIcon::edge, rect, player_dot_edge, clip);
+}
+
+/// The rows a day's heading takes in the list.
+///
+/// @param building the layout
+/// @return the heading's height, in points
+int32_t replay_day_height(const Building& building) {
+    const kit::Metrics& metrics = *building.metrics;
+    return metrics.small_line + 2 * metrics.hint_gap;
+}
+
+/// Returns a replay row's height: its map's line and the players' line, as
+/// a catalogue row holds its title and summary.
+///
+/// @param building the layout
+/// @return the height, in points
+int32_t replay_row_height(const Building& building) {
+    return row_height(
+        building,
+        building.size_class == kit::SizeClass::compact ? RowForm::compact : RowForm::regular
+    );
+}
+
+/// The first eight Unicode scalars of a map's name, padded with `n` when shorter.
+///
+/// The width of this sample is the shortest readable name at Regular.
+///
+/// @param title the map's name
+/// @return eight scalars
+std::string eight_character_sample(std::string_view title) {
+    std::string sample;
+    std::size_t scalars = 0;
+    std::size_t index = 0;
+    while (index < title.size() && scalars < 8) {
+        const auto lead = static_cast<unsigned char>(title[index]);
+        std::size_t bytes = 1;
+        if ((lead & 0xE0U) == 0xC0U)
+            bytes = 2;
+        else if ((lead & 0xF0U) == 0xE0U)
+            bytes = 3;
+        else if ((lead & 0xF8U) == 0xF0U)
+            bytes = 4;
+        if (index + bytes > title.size())
+            break;
+        sample.append(title.substr(index, bytes));
+        index += bytes;
+        ++scalars;
+    }
+    while (scalars < 8) {
+        sample.push_back('n');
+        ++scalars;
+    }
+    return sample;
+}
+
+/// Appends one replay's row.
+///
+/// @param[in,out] building the layout
+/// @param row the replay
+/// @param place its place among the visible replays, from 0
+/// @param rect the row
+/// @param view the list's view, which clips it
+void add_replay_row(
+    Building& building,
+    const ReplayRow& row,
+    std::size_t place,
+    const kit::Rect& rect,
+    const kit::Rect& view
+) {
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const kit::ControlId id = controls::first_replay_row + static_cast<kit::ControlId>(place);
+    const std::vector<std::string>& marked = library.replays.marked;
+    const bool selected = library.replays.selected == row.replay.path;
+    const bool is_marked = std::find(marked.begin(), marked.end(), row.replay.path) != marked.end();
+    if (selected) {
+        add_item(building.list, kit::Role::fill, rect, view).colour = kit::colour::list_selected;
+        const int32_t bar_height = std::max(rect.height / 3, int32_t{4});
+        add_item(
+            building.list,
+            kit::Role::fill,
+            {rect.x, rect.y + (rect.height - bar_height) / 2, 2, bar_height},
+            view
+        )
+            .colour = kit::colour::accent;
+    } else if (is_marked || hovered(building, id)) {
+        add_item(building.list, kit::Role::fill, rect, view).colour = kit::colour::hover;
+    }
+    const int32_t inset = metrics.list_row_inset;
+    const int32_t side = std::max(rect.height - 2 * inset, int32_t{0});
+    const int32_t thumb_x = rect.x + inset + 2;
+    int32_t text_left = thumb_x + side + metrics.list_row_gap;
+    const std::string clock_words = replay_time_text(row.minute);
+    const std::string size_words = size_text(row.replay.size, library.text);
+    const int32_t aside_width = std::max(
+        width_of(building, kit::FontRole::small, clock_words),
+        width_of(building, kit::FontRole::small, size_words)
+    );
+    const int32_t right = rect.x + rect.width - inset;
+    const int32_t aside_left = right - aside_width;
+    int32_t text_right = aside_left - metrics.space;
+    const int32_t block = metrics.regular_line + metrics.hint_gap + metrics.small_line;
+    const int32_t first = rect.y + std::max(rect.height - block, int32_t{0}) / 2;
+    const int32_t second = first + metrics.regular_line + metrics.hint_gap;
+
+    // The map, its kind, and a chip for a replay finished after a crash or
+    // one whose file does not read.
+    const bool damaged = oa::data::replays::damaged(row.replay);
+    std::optional<kit::ChipLook> chip;
+    if (damaged) {
+        chip = kit::ChipLook{};
+        chip->text = std::string(shown(library.text, words::replay_damaged));
+        chip->state = kit::ChipState::problem;
+    } else if (const std::string needed = replay_need_chip(library, row); !needed.empty()) {
+        chip = state_chip(needed);
+    } else if (row.indexing) {
+        chip = tag_chip(std::string(shown(library.text, words::replay_reading_now)));
+    } else if (row.replay.after_crash) {
+        chip = state_chip(std::string(shown(library.text, words::replay_after_crash)));
+    }
+    int32_t chip_width = chip ? tag_width(building, *chip) : 0;
+    // At Regular, a chip that would leave the map's name shorter than about
+    // eight characters moves to the second line, in place of the players.
+    // The name keeps the first line. The picture and the time stay unless
+    // the chip's words need their columns.
+    bool chip_on_second = false;
+    if (chip && building.size_class == kit::SizeClass::regular) {
+        const std::string title = replay_title(row);
+        const int32_t least =
+            width_of(building, kit::FontRole::regular, eight_character_sample(title));
+        const int32_t ellipsis = width_of(building, kit::FontRole::regular, "\xE2\x80\xA6");
+        const int32_t beside = text_right - text_left - chip_width - metrics.space;
+        const int32_t full = width_of(building, kit::FontRole::regular, title);
+        // A name that fits stays. One that would be cut shorter than about
+        // eight characters, once the ellipsis takes its room, moves the chip.
+        if (full > beside && beside < least + ellipsis)
+            chip_on_second = true;
+    }
+    // A need is never dropped. The map's name and its kind shorten first.
+    // A chip wider than that line takes the time and size, then the picture's
+    // columns. Only a need longer than the row itself is shortened.
+    bool chip_takes_aside = false;
+    bool chip_takes_thumb = false;
+    if (!chip_on_second && chip && chip_width > text_right - text_left) {
+        chip_takes_aside = true;
+        text_right = right;
+    }
+    if (!chip_on_second && chip && chip_width > text_right - text_left) {
+        chip_takes_thumb = true;
+        text_left = thumb_x;
+    }
+    if (!chip_on_second && chip && chip_width > text_right - text_left) {
+        const int32_t span = std::max(text_right - text_left, int32_t{0});
+        const int32_t words = width_of(building, kit::FontRole::small, chip->text);
+        // Less padding still draws the words inside the row.
+        if (words <= span) {
+            chip_width = span;
+        } else {
+            const int32_t room = std::max(span - 2 * chip_side(metrics), int32_t{0});
+            chip->text = cut(building, kit::FontRole::small, chip->text, room);
+            chip_width = std::min(tag_width(building, *chip), span);
+        }
+    }
+    // The size shares the second line. A chip whose words need that column
+    // takes it, then the picture's. The map's name keeps the first line.
+    // Only a need longer than the row itself is shortened.
+    int32_t second_left = text_left;
+    int32_t second_right = text_right;
+    bool chip_hides_size = false;
+    if (chip_on_second && chip) {
+        const int32_t words = width_of(building, kit::FontRole::small, chip->text);
+        if (words > second_right - second_left) {
+            chip_hides_size = true;
+            second_right = right;
+        }
+        if (words > second_right - second_left) {
+            chip_takes_thumb = true;
+            second_left = thumb_x;
+            text_left = thumb_x;
+        }
+    }
+    if (!chip_takes_thumb)
+        add_replay_thumb(building, row, {thumb_x, rect.y + inset, side, side}, view);
+    // A kept replay's star sits left of the clock. A chip on the first line
+    // ends a space before that star. A row with no chip is left as it is,
+    // and so is a chip that took the clock's column: the star is not drawn.
+    int32_t chip_limit = text_right;
+    if (chip && !chip_on_second && row.replay.kept && !chip_takes_aside) {
+        const int32_t star = metrics.small_line - 2;
+        const int32_t time_width = width_of(building, kit::FontRole::small, clock_words);
+        const int32_t before_star = right - time_width - metrics.space / 2 - star - metrics.space;
+        if (before_star < chip_limit)
+            chip_limit = std::max(before_star, text_left);
+        const int32_t span = std::max(chip_limit - text_left, int32_t{0});
+        if (chip_width > span) {
+            const int32_t words = width_of(building, kit::FontRole::small, chip->text);
+            if (words <= span)
+                chip_width = span;
+            else {
+                const int32_t room = std::max(span - 2 * chip_side(metrics), int32_t{0});
+                chip->text = cut(building, kit::FontRole::small, chip->text, room);
+                chip_width = std::min(tag_width(building, *chip), span);
+            }
+        }
+    }
+    const int32_t name_room =
+        chip_on_second
+            ? std::max(text_right - text_left, int32_t{0})
+            : std::max(
+                  chip_limit - text_left - (chip ? chip_width + metrics.space : 0), int32_t{0}
+              );
+    const std::string name = cut(building, kit::FontRole::regular, replay_title(row), name_room);
+    const int32_t name_width = width_of(building, kit::FontRole::regular, name);
+    // A cut that is still wider than its room would cover the chip.
+    int32_t after = text_left;
+    if (!name.empty() && name_width <= name_room) {
+        add_text(
+            building,
+            kit::FontRole::regular,
+            name,
+            {text_left, first, name_width, metrics.regular_line},
+            kit::Align::left,
+            kit::colour::text,
+            view
+        );
+        after += name_width + metrics.space;
+    }
+    const int32_t kind_room = std::max(text_left + name_room - after, int32_t{0});
+    const std::string kind =
+        cut(building, kit::FontRole::small, replay_kind_line(library, row), kind_room);
+    const int32_t kind_width = width_of(building, kit::FontRole::small, kind);
+    if (!kind.empty() && kind_width <= kind_room) {
+        add_text(
+            building,
+            kit::FontRole::small,
+            kind,
+            {after,
+             first + metrics.regular_line - metrics.small_line,
+             kind_width,
+             metrics.small_line},
+            kit::Align::left,
+            kit::colour::hint,
+            view
+        );
+        after += kind_width + metrics.space;
+    }
+    if (chip && !chip_on_second) {
+        const int32_t chip_height_points = chip_height(metrics);
+        kit::Item& item = add_item(
+            building.list,
+            kit::Role::chip,
+            {std::min(after, chip_limit - chip_width),
+             first + (metrics.regular_line - chip_height_points) / 2,
+             chip_width,
+             chip_height_points},
+            view
+        );
+        item.look = std::move(*chip);
+    }
+
+    // The players, each with a dot of their colour, and the game's length.
+    // At Regular a chip that would swallow the map's name takes this line.
+    if (chip_on_second && chip) {
+        const int32_t span = std::max(second_right - second_left, int32_t{0});
+        const int32_t words = width_of(building, kit::FontRole::small, chip->text);
+        int32_t drawn_width = std::min(chip_width, span);
+        if (words <= span) {
+            drawn_width = std::min(std::max(chip_width, words), span);
+        } else {
+            const int32_t room = std::max(span - 2 * chip_side(metrics), int32_t{0});
+            chip->text = cut(building, kit::FontRole::small, chip->text, room);
+            drawn_width = std::min(tag_width(building, *chip), span);
+        }
+        const int32_t chip_height_points = chip_height(metrics);
+        kit::Item& item = add_item(
+            building.list,
+            kit::Role::chip,
+            {second_left,
+             second + (metrics.small_line - chip_height_points) / 2,
+             drawn_width,
+             chip_height_points},
+            view
+        );
+        item.look = std::move(*chip);
+    } else {
+        const int32_t side_of_dot = player_dot_side(metrics);
+        const int32_t dot_top = second + (metrics.small_line - side_of_dot) / 2;
+        const int32_t dot_gap = std::max(side_of_dot / 3, int32_t{2});
+        int32_t x = text_left;
+        for (const ReplayLinePiece& piece : replay_line_pieces(library, row)) {
+            if (piece.dot) {
+                if (x + side_of_dot > text_right)
+                    break;
+                add_player_dot(building, {x, dot_top, side_of_dot, side_of_dot}, *piece.dot, view);
+                x += side_of_dot + dot_gap;
+                continue;
+            }
+            const std::string drawn = cut(
+                building, kit::FontRole::small, piece.text, std::max(text_right - x, int32_t{0})
+            );
+            const int32_t drawn_width = width_of(building, kit::FontRole::small, drawn);
+            if (!drawn.empty())
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    drawn,
+                    {x, second, drawn_width, metrics.small_line},
+                    kit::Align::left,
+                    kit::colour::list_text,
+                    view
+                );
+            x += drawn_width;
+            if (drawn != piece.text)
+                break;
+        }
+    }
+
+    // The time it was played, with a kept replay's star, and the file's size.
+    // A chip that needed this column takes their place.
+    if (!chip_takes_aside) {
+        add_text(
+            building,
+            kit::FontRole::small,
+            clock_words,
+            {aside_left,
+             first + metrics.regular_line - metrics.small_line,
+             aside_width,
+             metrics.small_line},
+            kit::Align::right,
+            kit::colour::list_text,
+            view
+        );
+        if (row.replay.kept) {
+            const int32_t star = metrics.small_line - 2;
+            const int32_t time_width = width_of(building, kit::FontRole::small, clock_words);
+            add_replay_icon(
+                building,
+                ReplayIcon::star,
+                {right - time_width - metrics.space / 2 - star,
+                 first + metrics.regular_line - metrics.small_line + 1,
+                 star,
+                 star},
+                kit::colour::brand,
+                view
+            );
+        }
+        if (!chip_hides_size)
+            add_text(
+                building,
+                kit::FontRole::small,
+                size_words,
+                {aside_left, second, aside_width, metrics.small_line},
+                kit::Align::right,
+                kit::colour::hint,
+                view
+            );
+    }
+
+    // The row is a list item, read as its whole line.
+    kit::Control control;
+    control.id = id;
+    control.rect = rect;
+    control.clip = view;
+    control.name = unique_name(building, named("row.replay." + std::to_string(place + 1)));
+    control.kind = kit::ControlKind::list_item;
+    control.focusable = false;
+    control.group = controls::list_group;
+    control.checked = is_marked;
+    control.text = replay_reading(library, row);
+    building.rows.push_back(std::move(control));
+}
+
+/// One part of the replays list, placed from the top of its content: a
+/// day's heading or a replay's row.
+struct ReplayPart {
+    int32_t top{};         ///< its top, from the content's top
+    int32_t height{};      ///< its height
+    std::string heading{}; ///< a heading's words; empty for a row
+    std::size_t place{};   ///< a row's place among the visible replays
+};
+
+/// Places the replays list's headings and rows.
+///
+/// @param building the layout
+/// @return the parts, top to bottom
+std::vector<ReplayPart> replay_parts(const Building& building) {
+    const Library& library = *building.library;
+    std::vector<ReplayPart> parts;
+    const int32_t row = replay_row_height(building);
+    const int32_t day = replay_day_height(building);
+    int32_t cursor = 0;
+    for (const ReplayDay& group : replay_days(library)) {
+        if (!group.heading.empty()) {
+            parts.push_back({cursor, day, group.heading, 0});
+            cursor += day;
+        }
+        for (std::size_t place = group.first; place < group.first + group.count; ++place) {
+            parts.push_back({cursor, row, {}, place});
+            cursor += row + 1;
+        }
+    }
+    return parts;
+}
+
+/// Appends what the Replays section shows while no row shows: the film, the
+/// words, Turn on recording while the setting does not record, Open a
+/// replay file where the platform has a file dialog, and Browse Core Prime's
+/// replays while the folder has none.
+///
+/// @param[in,out] building the layout
+/// @param area where it is centred
+void add_replays_empty(Building& building, const kit::Rect& area) {
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const ReplayEmpty empty = replay_empty(library);
+    const std::vector<std::string> title =
+        wrapped(building, kit::FontRole::regular, empty.title, area.width, 2);
+    const std::vector<std::string> line =
+        empty.line.empty() ? std::vector<std::string>{}
+                           : wrapped(building, kit::FontRole::small, empty.line, area.width, 3);
+    const int button_count =
+        (empty.turn_on ? 1 : 0) + (empty.open_file ? 1 : 0) + (empty.browse ? 1 : 0);
+    const auto stack_height = [&](int32_t icon_side) {
+        int32_t used = icon_side + (icon_side > 0 ? metrics.row_gap : 0) +
+                       static_cast<int32_t>(title.size()) * metrics.regular_line;
+        if (!line.empty())
+            used += metrics.hint_gap + static_cast<int32_t>(line.size()) * metrics.small_line;
+        used += static_cast<int32_t>(button_count) * (metrics.row_gap + metrics.control_height);
+        return used;
+    };
+    int32_t icon = std::min(3 * metrics.regular_line, std::max(area.height / 4, int32_t{0}));
+    // A second button takes the room the film would have used, so the empty
+    // section stays inside the window it already fitted with one button.
+    if (button_count > 1)
+        icon = std::max(icon - (metrics.row_gap + metrics.control_height), int32_t{0});
+    while (icon > 0 && stack_height(icon) > area.height)
+        icon = std::max(icon - metrics.regular_line, int32_t{0});
+    const int32_t height = stack_height(icon);
+    int32_t top = area.y + std::max(area.height - height, int32_t{0}) / 2;
+    const int32_t middle = area.x + area.width / 2;
+    // A film smaller than one line is a dot. The room it was given stays, so
+    // the buttons under it do not move, and nothing is drawn there.
+    if (icon >= metrics.regular_line) {
+        add_replay_icon(
+            building,
+            ReplayIcon::film,
+            {middle - icon / 2, top, icon, icon},
+            kit::colour::hint,
+            area
+        );
+    }
+    if (icon > 0)
+        top += icon + metrics.row_gap;
+    for (const std::string& text : title) {
+        add_text(
+            building,
+            kit::FontRole::regular,
+            text,
+            {area.x, top, area.width, metrics.regular_line},
+            kit::Align::centre,
+            kit::colour::text,
+            area
+        );
+        top += metrics.regular_line;
+    }
+    add_label(
+        building.panes,
+        controls::status,
+        {area.x,
+         top - static_cast<int32_t>(title.size()) * metrics.regular_line,
+         area.width,
+         static_cast<int32_t>(title.size()) * metrics.regular_line},
+        unique_name(building, named("status")),
+        empty.line.empty()
+            ? empty.title
+            : filled(
+                  library.text, words::replay_joined, {{"left", empty.title}, {"right", empty.line}}
+              ),
+        {},
+        -1
+    );
+    if (!line.empty()) {
+        top += metrics.hint_gap;
+        for (const std::string& text : line) {
+            add_text(
+                building,
+                kit::FontRole::small,
+                text,
+                {area.x, top, area.width, metrics.small_line},
+                kit::Align::centre,
+                kit::colour::list_text,
+                area
+            );
+            top += metrics.small_line;
+        }
+    }
+    const auto place_button = [&](Action action) {
+        const std::string_view caption = action_text(action, library.text);
+        const int32_t across = std::min(button_width(building, caption), area.width);
+        top += metrics.row_gap;
+        add_button(
+            building,
+            building.panes,
+            {middle - across / 2, top, across, metrics.control_height},
+            caption,
+            false,
+            true,
+            controls::action_control(action),
+            named("action." + std::string(action_word(action))),
+            {},
+            -1
+        );
+        top += metrics.control_height;
+    };
+    if (empty.turn_on)
+        place_button(Action::turn_on_recording);
+    if (empty.open_file)
+        place_button(Action::open_replay_file);
+    if (empty.browse)
+        place_button(Action::browse_core_prime);
+}
+
+/// Appends the replays list: each day's heading and its rows, scrolled by
+/// the list's scroll bar, the selected row brought into view when asked.
+///
+/// @param[in,out] building the layout
+/// @param pane the list's pane
+void add_replay_list(Building& building, const kit::Rect& pane) {
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const int32_t rows_width = std::max(pane.width - well_width - metrics.button_gap, int32_t{0});
+    const kit::Rect view = pane;
+    const std::vector<ReplayPart> parts = replay_parts(building);
+    const int32_t content = parts.empty() ? 0 : parts.back().top + parts.back().height;
+    const int32_t limit = kit::ScrollArea::limit_for(content, view.height);
+    if (building.state->reveal_row >= 0) {
+        // The selected row comes into view, and the scroll stays where it
+        // is while it shows.
+        for (std::size_t index = 0; index < parts.size(); ++index) {
+            const ReplayPart& part = parts[index];
+            if (!part.heading.empty() ||
+                part.place != static_cast<std::size_t>(building.state->reveal_row))
+                continue;
+            // The day's heading over a day's first row comes into view with it.
+            int32_t top = part.top;
+            if (index > 0 && !parts[index - 1].heading.empty())
+                top = parts[index - 1].top;
+            building.state->list_scroll = shown_offset(
+                building.state->list_scroll, top, part.top + part.height - top, view.height, limit
+            );
+            break;
+        }
+        building.state->reveal_row = -1;
+    }
+    const int32_t offset = std::clamp(building.state->list_scroll, int32_t{0}, limit);
+    building.state->list_scroll = offset;
+    const int32_t slack = replay_row_height(building);
+    building.state->core_near_end =
+        library.replays.source == ReplaySource::core_prime &&
+        (content <= view.height || offset + view.height + slack >= content);
+    const std::vector<std::size_t>& visible = library.replays.visible;
+    const std::vector<ReplayRow>& rows = shown_replay_rows(library);
+    for (const ReplayPart& part : parts) {
+        const int32_t top = view.y - offset + part.top;
+        if (top + part.height <= view.y || top >= view.y + view.height)
+            continue;
+        if (!part.heading.empty()) {
+            const std::string heading = heading_of(part.heading);
+            kit::Item& item = add_item(
+                building.list,
+                kit::Role::heading,
+                {view.x + 4, top + metrics.hint_gap, rows_width - 4, metrics.small_line},
+                view
+            );
+            item.text = heading;
+            item.look = kit::HeadingLook{heading};
+            add_item(
+                building.list, kit::Role::rule, {view.x, top + part.height - 1, rows_width, 1}, view
+            )
+                .colour = kit::colour::rule;
+            continue;
+        }
+        if (part.place >= visible.size() || visible[part.place] >= rows.size())
+            continue;
+        const ReplayRow& row = rows[visible[part.place]];
+        add_replay_row(building, row, part.place, {view.x, top, rows_width, part.height}, view);
+        add_item(building.list, kit::Role::rule, {view.x, top + part.height, rows_width, 1}, view)
+            .colour = kit::colour::rule;
+    }
+    // The content's first and last rows, so its height reads from the list.
+    add_extent_edge(building.list, view, view.y - offset);
+    add_extent_edge(building.list, view, view.y - offset + content - 1);
+    if (limit > 0) {
+        kit::ScrollArea scroll;
+        scroll.view = view;
+        scroll.well = {view.x + view.width - well_width, view.y, well_width, view.height};
+        scroll.page_step = view.height;
+        scroll.content_height = content;
+        scroll.limit = limit;
+        scroll.offset = offset;
+        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::list
+        };
+    }
+    kit::Control pane_control;
+    pane_control.id = controls::list;
+    pane_control.rect = view;
+    pane_control.name = unique_name(building, named("list"));
+    pane_control.kind = kit::ControlKind::list;
+    building.panes.push_back(std::move(pane_control));
+    tab_stop(building, building.panes.back());
+}
+
+/// Converts the card's buttons into the details' actions, to lay them out as those are.
+///
+/// @param library the model
+/// @return the buttons as actions
+std::vector<ActionButton> replay_actions(const Library& library) {
+    std::vector<ActionButton> actions;
+    for (const ReplayButton& button : replay_buttons(library))
+        actions.push_back({button.action, button.enabled, button.text, button.danger});
+    return actions;
+}
+
+/// Appends the card's timeline strip: a dark bar, and a mark at each moment
+/// the index recorded. A commander's death is taller and in that player's colour.
+///
+/// @param[in,out] building the layout
+/// @param row the replay
+/// @param left the bar's left
+/// @param top its top
+/// @param width its width
+/// @param clip what drawing may touch
+/// @return the row under the bar; `top` when the replay has no length yet
+int32_t add_timeline_strip(
+    Building& building,
+    const ReplayRow& row,
+    int32_t left,
+    int32_t top,
+    int32_t width,
+    const kit::Rect& clip
+) {
+    if (row.length_ticks == 0 || width <= 0)
+        return top;
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t bar_height = std::max(metrics.small_line / 2, int32_t{6});
+    add_item(building.list, kit::Role::fill, {left, top, width, bar_height}, clip).colour =
+        kit::colour::edge_dark;
+    const int32_t across = std::max(width - 1, int32_t{1});
+    for (const TimelineMark& mark : row.marks) {
+        const int64_t along = static_cast<int64_t>(mark.tick) * static_cast<int64_t>(across) /
+                              static_cast<int64_t>(row.length_ticks);
+        int32_t x = left + static_cast<int32_t>(along);
+        if (x < left)
+            x = left;
+        if (x > left + width - 1)
+            x = left + width - 1;
+        const int32_t mark_height =
+            mark.commander ? bar_height : std::max(bar_height / 2, int32_t{2});
+        kit::Colour ink = kit::colour::accent;
+        if (mark.commander) {
+            for (const oa::data::replays::Player& player : row.replay.players) {
+                if (player.number == mark.player) {
+                    ink = player_swatch(player.colour);
+                    break;
+                }
+            }
+        }
+        add_item(
+            building.list,
+            kit::Role::fill,
+            {x, top + bar_height - mark_height, 2, mark_height},
+            clip
+        )
+            .colour = ink;
+    }
+    return top + bar_height + metrics.hint_gap;
+}
+
+/// The card's buttons. A primary caption wider than the bar uses the shorter
+/// Watch words, so the caption is not cut and the other buttons stay.
+///
+/// @param building the layout
+/// @param width the bar's width, in points
+/// @return the buttons
+std::vector<ActionButton> fitted_replay_actions(const Building& building, int32_t width) {
+    std::vector<ActionButton> actions = replay_actions(*building.library);
+    if (actions.empty() || actions.front().action != Action::watch_replay)
+        return actions;
+    if (button_width(building, actions.front().text) <= width)
+        return actions;
+    const std::string shorter = replay_watch_short(*building.library);
+    if (!shorter.empty())
+        actions.front().text = shorter;
+    return actions;
+}
+
+/// Which of the card's facts a block draws.
+enum class ReplayFactSpan : uint8_t {
+    all,     ///< every fact
+    opening, ///< Length and Recorded
+    rest,    ///< the facts after those two
+};
+
+/// Tells whether a fact belongs in a block.
+///
+/// @param key the fact's key
+/// @param span which block
+/// @return true when the block draws it
+bool fact_in_span(std::string_view key, ReplayFactSpan span) {
+    const bool opening = key == "length" || key == "recorded";
+    if (span == ReplayFactSpan::opening)
+        return opening;
+    if (span == ReplayFactSpan::rest)
+        return !opening;
+    return true;
+}
+
+/// Tells whether a card shows something of Core Prime: Open on Core Prime,
+/// a Share button, On Core Prime or the last share's sentence. Only such a
+/// card has its foot fitted to Length and Recorded, and leaves out a fact's
+/// line the pane would cut. Any other card keeps the layout it had before
+/// sharing, and scrolls to its facts when they are taller than the pane.
+///
+/// @param library the model
+/// @param row the replay
+/// @return true when the card shows Core Prime's buttons or note
+bool replay_card_shows_core_prime(const Library& library, const ReplayRow& row) {
+    for (const ActionButton& action : replay_actions(library)) {
+        if (action.action == Action::open_shared_replay || action.action == Action::share_replay)
+            return true;
+    }
+    const ReplayInputs& inputs = library.inputs.replays;
+    const bool listed = inputs.core_battle && inputs.core_listing_path == row.replay.path &&
+                        inputs.core_listing == CoreListing::listed;
+    const bool shared =
+        inputs.core_share_path == row.replay.path && !inputs.core_share_note.empty();
+    return listed || shared;
+}
+
+/// Tells whether a fact's line may be drawn. A line that only partly meets
+/// the clip is left out, so a cut sliver is not shown. A line wholly outside
+/// the clip is kept: the clip hides it, and a later scroll lays it out again.
+///
+/// @param line the line
+/// @param clip what drawing may touch
+/// @return true when the line is drawn
+bool fact_line_shows(const kit::Rect& line, const kit::Rect& clip) {
+    const bool outside = line.x + line.width <= clip.x || clip.x + clip.width <= line.x ||
+                         line.y + line.height <= clip.y || clip.y + clip.height <= line.y;
+    if (outside)
+        return true;
+    return line.x >= clip.x && line.y >= clip.y && line.x + line.width <= clip.x + clip.width &&
+           line.y + line.height <= clip.y + clip.height;
+}
+
+/// Appends one block of the card's facts. The label control is always kept,
+/// so a scroll can find it. On a card that shows Core Prime, a line the clip
+/// would cut is not drawn. On any other card the clip cuts it, as before
+/// sharing.
+///
+/// @param[in,out] building the layout
+/// @param row the replay
+/// @param left the column's left
+/// @param top the block's top
+/// @param width its width
+/// @param clip what drawing may touch
+/// @param span which facts
+/// @param whole_lines leave out a line the clip would cut
+/// @return the row under the block
+int32_t add_replay_fact_block(
+    Building& building,
+    const ReplayRow& row,
+    int32_t left,
+    int32_t top,
+    int32_t width,
+    const kit::Rect& clip,
+    ReplayFactSpan span,
+    bool whole_lines
+) {
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const std::vector<ReplayFact> facts = replay_facts(library, row);
+    int32_t label_width = 0;
+    for (const ReplayFact& fact : facts) {
+        if (!fact_in_span(fact.key, span))
+            continue;
+        label_width = std::max(label_width, width_of(building, kit::FontRole::small, fact.label));
+    }
+    label_width = std::min(label_width, width / 2);
+    const int32_t value_left = left + label_width + metrics.space;
+    const int32_t value_width = std::max(left + width - value_left, int32_t{0});
+    int32_t y = top;
+    for (std::size_t fact_place = 0; fact_place < facts.size(); ++fact_place) {
+        const ReplayFact& fact = facts[fact_place];
+        if (!fact_in_span(fact.key, span))
+            continue;
+        const kit::Rect label_line{left, y, label_width, metrics.small_line};
+        if (!whole_lines || fact_line_shows(label_line, clip)) {
+            add_text(
+                building,
+                kit::FontRole::small,
+                cut(building, kit::FontRole::small, fact.label, label_width),
+                label_line,
+                kit::Align::left,
+                kit::colour::hint,
+                clip
+            );
+        }
+        // The Mod is the name a player looks for to get what the replay needs,
+        // and a `.tad`'s note or a missing mod may give it at length: it takes
+        // every line it needs, as the catalogue's Rules and From do.
+        const std::size_t most_lines = fact.key == "mod" ? 0 : most_fact_lines;
+        const std::vector<std::string> value_lines =
+            wrapped(building, kit::FontRole::small, fact.value, value_width, most_lines);
+        const int32_t fact_top = y;
+        for (const std::string& line : value_lines) {
+            const kit::Rect value_line{value_left, y, value_width, metrics.small_line};
+            if (!whole_lines || fact_line_shows(value_line, clip)) {
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    line,
+                    value_line,
+                    kit::Align::left,
+                    kit::colour::text,
+                    clip
+                );
+            }
+            y += metrics.small_line;
+        }
+        if (value_lines.empty())
+            y += metrics.small_line;
+        // Each fact is a label, its label and value read as one, so that a
+        // screen reader and automation find it where it is scrolled to.
+        add_label(
+            building.detail,
+            controls::first_replay_fact + static_cast<kit::ControlId>(fact_place),
+            {left, fact_top, width, y - fact_top},
+            unique_name(building, named("fact." + fact.key)),
+            filled(
+                library.text, words::replay_joined, {{"left", fact.label}, {"right", fact.value}}
+            ),
+            clip,
+            -1
+        );
+        y += metrics.hint_gap;
+    }
+    return y;
+}
+
+/// Appends the selected replay's details: its picture, title, kind and
+/// time, the marks, why it cannot be watched, its timeline, its players and
+/// its facts,
+/// from the top of a column. A fact's value wraps to a second or a third
+/// line rather than being cut, and the Mod's to every line its name takes.
+/// On a crowded card, Length and Recorded can sit above the players, or
+/// under the title when the caution still leaves no room, and the gap above
+/// the facts can be one space.
+///
+/// @param[in,out] building the layout
+/// @param row the replay
+/// @param left the column's left
+/// @param top its top
+/// @param width its width
+/// @param clip what drawing may touch
+/// @param facts_before_players Length and Recorded sit above the players
+/// @param tight_facts the gap above the facts is one space; otherwise two
+/// @param facts_under_header Length and Recorded sit under the title, in
+/// place of its day-and-length line
+/// @return the row under the last part
+int32_t add_replay_details(
+    Building& building,
+    const ReplayRow& row,
+    int32_t left,
+    int32_t top,
+    int32_t width,
+    const kit::Rect& clip,
+    bool facts_before_players = false,
+    bool tight_facts = false,
+    bool facts_under_header = false
+) {
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const bool large = building.size_class == kit::SizeClass::large;
+    const int32_t thumb = large ? details_badge_side + details_badge_side / 2 : details_badge_side;
+    const auto fact_gap = [&] { return tight_facts ? metrics.space : part_gap(metrics); };
+    // Only a card that shows Core Prime leaves out a fact's line the pane would cut.
+    const bool whole_lines = replay_card_shows_core_prime(library, row);
+    add_replay_thumb(building, row, {left, top, thumb, thumb}, clip);
+    const int32_t beside = left + thumb + metrics.list_row_gap;
+    const int32_t beside_width = std::max(left + width - beside, int32_t{0});
+    int32_t y = top;
+    add_text(
+        building,
+        kit::FontRole::regular,
+        cut(building, kit::FontRole::regular, replay_title(row), beside_width),
+        {beside, y, beside_width, metrics.regular_line},
+        kit::Align::left,
+        kit::colour::text,
+        clip
+    );
+    y += metrics.regular_line + metrics.hint_gap;
+    // Under the title, Length and Recorded say the day and the length, so the
+    // day-and-length line gives them its room there.
+    std::vector<std::string> header_lines{replay_card_kind(library, row)};
+    if (!facts_under_header)
+        header_lines.push_back(replay_when_line(library, row));
+    for (const std::string& line : header_lines) {
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building, kit::FontRole::small, line, beside_width),
+            {beside, y, beside_width, metrics.small_line},
+            kit::Align::left,
+            kit::colour::hint,
+            clip
+        );
+        y += metrics.small_line + metrics.hint_gap;
+    }
+    // The replay's whole line is the card's label: automation reads it, and it
+    // sits in the details' group, which gives the card its scroll.
+    add_label(
+        building.detail,
+        controls::status,
+        {beside, top, beside_width, std::max(y - top, metrics.regular_line)},
+        unique_name(building, named("status")),
+        replay_reading(library, row),
+        clip,
+        controls::details_group
+    );
+    y = std::max(y, top + thumb);
+    // A card whose caution and note fill the pane puts Length and Recorded
+    // here, under the title and in place of its "Today · length" line, so
+    // both stay whole. Any other card keeps that line and the old gap.
+    if (facts_under_header) {
+        y += metrics.hint_gap;
+        y = add_replay_fact_block(
+            building, row, left, y, width, clip, ReplayFactSpan::opening, whole_lines
+        );
+    } else {
+        y += part_gap(metrics);
+    }
+
+    const std::size_t marked = library.replays.marked.size();
+    if (marked > 1) {
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building,
+                kit::FontRole::small,
+                filled(library.text, words::replays_marked, {{"count", std::to_string(marked)}}),
+                width),
+            {left, y, width, metrics.small_line},
+            kit::Align::left,
+            kit::colour::accent,
+            clip
+        );
+        y += metrics.small_line + part_gap(metrics);
+    }
+
+    // Content the replay still needs, in the kit's caution box. A damaged
+    // file and a refusal stay in the note below, as they were.
+    const std::string caution = replay_caution(library, row);
+    if (!caution.empty()) {
+        const int32_t pad = metrics.space;
+        const int32_t inner_width = std::max(width - 2 * pad, int32_t{0});
+        const std::vector<std::string> lines =
+            wrapped(building, kit::FontRole::small, caution, inner_width, most_note_lines);
+        const int32_t box_height =
+            pad +
+            static_cast<int32_t>(std::max(lines.size(), std::size_t{1})) * metrics.small_line + pad;
+        add_item(building.list, kit::Role::fill, {left, y, width, box_height}, clip).colour =
+            kit::colour::caution_tint;
+        int32_t line_y = y + pad;
+        for (const std::string& line : lines) {
+            add_text(
+                building,
+                kit::FontRole::small,
+                line,
+                {left + pad, line_y, inner_width, metrics.small_line},
+                kit::Align::left,
+                kit::colour::lock,
+                clip
+            );
+            line_y += metrics.small_line;
+        }
+        add_label(
+            building.detail,
+            controls::note,
+            {left, y, width, box_height},
+            unique_name(building, named("note")),
+            caution,
+            clip,
+            -1
+        );
+        y += box_height + part_gap(metrics);
+    }
+
+    // Why the replay cannot be watched: its file does not read, or the game
+    // refused it. A Delete the trash refused is said here too, first.
+    const bool problem =
+        oa::data::replays::damaged(row.replay) ||
+        (!library.replays.refusal.empty() && library.replays.refused_path == row.replay.path);
+    const bool delete_failed = !library.replays.delete_failure.empty() &&
+                               library.replays.selected &&
+                               *library.replays.selected == row.replay.path;
+    std::string note = problem         ? replay_note(library, row)
+                       : delete_failed ? library.replays.delete_failure
+                                       : std::string{};
+    // A healthy card still says when Core Prime lists the battle, and the
+    // last share's sentence. A damaged file already includes both.
+    if (!problem) {
+        const ReplayInputs& inputs = library.inputs.replays;
+        const bool on_prime = inputs.core_battle && inputs.core_listing_path == row.replay.path &&
+                              inputs.core_listing == CoreListing::listed;
+        const bool shared =
+            inputs.core_share_path == row.replay.path && !inputs.core_share_note.empty();
+        if (on_prime) {
+            if (!note.empty())
+                note += ' ';
+            note += shown(library.text, words::core_on_prime);
+        }
+        // A new sentence, not a run-on: "On Core Prime Already on Core Prime".
+        if (shared) {
+            if (!note.empty())
+                note.push_back(on_prime ? '\n' : ' ');
+            note += inputs.core_share_note;
+        }
+    }
+    if (!note.empty()) {
+        const std::vector<std::string> lines =
+            wrapped(building, kit::FontRole::small, note, width, most_note_lines);
+        const int32_t note_top = y;
+        for (const std::string& line : lines) {
+            add_text(
+                building,
+                kit::FontRole::small,
+                line,
+                {left, y, width, metrics.small_line},
+                kit::Align::left,
+                kit::colour::lock,
+                clip
+            );
+            y += metrics.small_line;
+        }
+        add_label(
+            building.detail,
+            controls::note,
+            {left, note_top, width, y - note_top},
+            unique_name(building, named("note")),
+            note,
+            clip,
+            -1
+        );
+        y += part_gap(metrics);
+    }
+
+    // A crowded card puts Length and Recorded above the players, so the
+    // button foot can sit below them. The header's "Today · length" line is
+    // not those facts. A card that already placed them under the title does
+    // not place them again.
+    if (facts_before_players && !facts_under_header) {
+        y += fact_gap();
+        y = add_replay_fact_block(
+            building, row, left, y, width, clip, ReplayFactSpan::opening, whole_lines
+        );
+    }
+
+    y = add_timeline_strip(building, row, left, y, width, clip);
+
+    // The players: each one's colour, name and side, and, once the pass has
+    // read the replay, that player's result, kills and losses. Core Prime's
+    // list gives a result and kills, and no losses. Every player is laid
+    // out: the card scrolls, so none is left out for want of room.
+    for (std::size_t place = 0; place < row.replay.players.size(); ++place) {
+        const oa::data::replays::Player& player = row.replay.players[place];
+        const int32_t side = player_dot_side(metrics);
+        add_player_dot(
+            building, {left, y + (metrics.small_line - side) / 2, side, side}, player.colour, clip
+        );
+        std::string_view side_word = player.side;
+        if (player.side == "arm")
+            side_word = shown(library.text, words::replay_side_arm);
+        else if (player.side == "core")
+            side_word = shown(library.text, words::replay_side_core);
+        else if (player.side == "watcher" || player.kind == "watcher")
+            side_word = shown(library.text, words::replay_side_watcher);
+        const std::string side_text(side_word);
+        const int32_t side_width =
+            std::min(width_of(building, kit::FontRole::small, side_text), width / 3);
+        const int32_t name_left = left + side + metrics.space;
+        const int32_t name_room =
+            std::max(left + width - side_width - metrics.space - name_left, int32_t{0});
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building, kit::FontRole::small, player.name, name_room),
+            {name_left, y, name_room, metrics.small_line},
+            kit::Align::left,
+            kit::colour::text,
+            clip
+        );
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building, kit::FontRole::small, side_text, side_width),
+            {left + width - side_width, y, side_width, metrics.small_line},
+            kit::Align::right,
+            kit::colour::hint,
+            clip
+        );
+        y += metrics.small_line + metrics.hint_gap;
+        if (place >= row.standings.size())
+            continue;
+        const PlayerStanding& standing = row.standings[place];
+        std::string extra;
+        if (standing.result == RecordedResult::won)
+            extra = std::string(shown(library.text, words::replay_won));
+        else if (standing.result == RecordedResult::lost)
+            extra = std::string(shown(library.text, words::replay_lost));
+        if (standing.known) {
+            const std::string kills = standing.kills == 1
+                                          ? std::string(shown(library.text, words::replay_kill_one))
+                                          : filled(
+                                                library.text,
+                                                words::replay_kills_many,
+                                                {{"kills", std::to_string(standing.kills)}}
+                                            );
+            const std::string losses =
+                standing.losses == 1 ? std::string(shown(library.text, words::replay_loss_one))
+                                     : filled(
+                                           library.text,
+                                           words::replay_losses_many,
+                                           {{"losses", std::to_string(standing.losses)}}
+                                       );
+            const std::string counts =
+                standing.kills_only
+                    ? kills
+                    : filled(
+                          library.text, words::replay_joined, {{"left", kills}, {"right", losses}}
+                      );
+            extra =
+                extra.empty()
+                    ? counts
+                    : filled(
+                          library.text, words::replay_joined, {{"left", extra}, {"right", counts}}
+                      );
+        }
+        if (extra.empty())
+            continue;
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building,
+                kit::FontRole::small,
+                extra,
+                std::max(width - (name_left - left), int32_t{0})),
+            {name_left, y, std::max(left + width - name_left, int32_t{0}), metrics.small_line},
+            kit::Align::left,
+            kit::colour::hint,
+            clip
+        );
+        y += metrics.small_line + metrics.hint_gap;
+    }
+    // Two spaces on a card that is not crowded, as the facts were laid out
+    // before a crowded card pulled them up by one space. A crowded card uses
+    // one space, and only then.
+    y += fact_gap();
+    y = add_replay_fact_block(
+        building,
+        row,
+        left,
+        y,
+        width,
+        clip,
+        facts_before_players || facts_under_header ? ReplayFactSpan::rest : ReplayFactSpan::all,
+        whole_lines
+    );
+    return y;
+}
+
+/// Appends the card's buttons, as the details' actions are laid out.
+///
+/// @param[in,out] building the layout
+/// @param bar where they lie
+/// @param group the group their controls go to
+/// @param button_height a button's height; 0 uses the control height
+/// @param row_space the rows between lines; negative uses one space
+/// @param pair_tail the last two share a row when both captions fit on one
+void add_replay_buttons(
+    Building& building,
+    const kit::Rect& bar,
+    std::vector<kit::Control>& group,
+    int32_t button_height = 0,
+    int32_t row_space = -1,
+    bool pair_tail = false
+) {
+    const std::vector<ActionButton> actions = fitted_replay_actions(building, bar.width);
+    const ActionPlan plan =
+        plan_actions(building, actions, bar.width, button_height, row_space, pair_tail);
+    for (std::size_t index = 0; index < actions.size() && index < plan.buttons.size(); ++index) {
+        const ActionButton& action = actions[index];
+        const kit::Rect& place = plan.buttons[index];
+        add_button(
+            building,
+            group,
+            {bar.x + place.x, bar.y + place.y, place.width, place.height},
+            action.text,
+            action.action == Action::watch_replay,
+            action.enabled,
+            controls::action_control(action.action),
+            named("action." + std::string(action_word(action.action))),
+            {},
+            -1,
+            true,
+            action.danger
+        );
+    }
+}
+
+/// How the card's button foot is sized so Length and Recorded stay whole.
+struct ReplayFoot {
+    int32_t height{};            ///< 0 asks for the control height
+    int32_t gap{-1};             ///< negative asks for one space between rows
+    bool facts_before_players{}; ///< Length and Recorded sit above the players
+    bool facts_under_header{};   ///< Length and Recorded sit under the title
+    bool tight_facts{};          ///< one space above the facts; otherwise two
+    bool pair_tail{};            ///< Open and Share share a row when they fit
+};
+
+/// Tells whether Length and Recorded lie wholly inside the pane at this foot.
+///
+/// The body is laid out as the card lays it out, including the narrower
+/// column when it scrolls. A card with neither fact is not crowded.
+///
+/// @param building the layout
+/// @param row the replay
+/// @param inner the card's inside
+/// @param watched_line the line under the buttons, or 0
+/// @param foot the foot to try
+/// @return true when both facts are whole, above the foot
+bool replay_facts_fit(
+    const Building& building,
+    const ReplayRow& row,
+    const kit::Rect& inner,
+    int32_t watched_line,
+    const ReplayFoot& foot
+) {
+    const kit::Metrics& metrics = *building.metrics;
+    const std::vector<ActionButton> actions = fitted_replay_actions(building, inner.width);
+    const ActionPlan plan =
+        plan_actions(building, actions, inner.width, foot.height, foot.gap, foot.pair_tail);
+    const kit::Rect pane{
+        inner.x,
+        inner.y,
+        inner.width,
+        std::max(inner.height - plan.height - metrics.row_gap - watched_line, int32_t{0}),
+    };
+    if (pane.height <= 0)
+        return false;
+
+    struct Laid {
+        Building building;
+        int32_t bottom{};
+    };
+
+    const auto laid = [&](int32_t width) {
+        Laid result;
+        result.building = building;
+        result.building.list = {};
+        result.building.detail.clear();
+        result.building.order.clear();
+        result.bottom = add_replay_details(
+            result.building,
+            row,
+            pane.x,
+            pane.y,
+            width,
+            pane,
+            foot.facts_before_players,
+            foot.tight_facts,
+            foot.facts_under_header
+        );
+        return result;
+    };
+    Laid trial = laid(pane.width);
+    const int32_t well = metrics.scroll_thumb_width + 2;
+    // The same width the card keeps once the body is taller than the pane.
+    if (trial.bottom > pane.y + pane.height) {
+        const int32_t narrow = std::max(pane.width - well - metrics.button_gap, int32_t{0});
+        trial = laid(narrow);
+    }
+    const auto inside = [&](const kit::Control& control) {
+        const kit::Rect& rect = control.rect;
+        return rect.height > 0 && rect.y >= pane.y && rect.y + rect.height <= pane.y + pane.height;
+    };
+    for (const kit::Control& control : trial.building.detail) {
+        if (control.name != "library.fact.length" && control.name != "library.fact.recorded")
+            continue;
+        if (!inside(control))
+            return false;
+    }
+    return true;
+}
+
+/// The tallest buttons that leave Length and Recorded whole above the foot.
+///
+/// A card that shows nothing of Core Prime keeps full buttons and the old
+/// gap, as it did before sharing. A card that already fits keeps them too.
+/// A crowded card tightens that gap, then shortens the buttons. When the
+/// shortest buttons still leave no room, Length and Recorded move above the
+/// players. When the two widest captions fit on one row, Open on Core Prime
+/// and Share my own recording share that row. When the caution and the note
+/// still fill the pane, the two facts sit under the title.
+///
+/// @param building the layout
+/// @param row the replay
+/// @param inner the card's inside
+/// @param watched_line the line under the buttons, or 0
+/// @return the foot
+ReplayFoot choose_replay_foot(
+    const Building& building, const ReplayRow& row, const kit::Rect& inner, int32_t watched_line
+) {
+    const auto fits = [&](const ReplayFoot& foot) {
+        return replay_facts_fit(building, row, inner, watched_line, foot);
+    };
+    const ReplayFoot plain;
+    if (!replay_card_shows_core_prime(*building.library, row) || fits(plain))
+        return plain;
+    const kit::Metrics& metrics = *building.metrics;
+    ReplayFoot tight;
+    tight.tight_facts = true;
+    if (fits(tight))
+        return tight;
+    const int32_t least = std::max(metrics.small_line + metrics.space, int32_t{28});
+    const int32_t row_gap = std::max(metrics.space / 2, int32_t{4});
+    const auto search = [&](
+                            bool facts_first, bool under_header, bool pair, int32_t row_space
+                        ) -> std::optional<ReplayFoot> {
+        if (least > metrics.control_height)
+            return std::nullopt;
+        ReplayFoot foot;
+        foot.tight_facts = true;
+        foot.facts_before_players = facts_first;
+        foot.facts_under_header = under_header;
+        foot.pair_tail = pair;
+        foot.gap = row_space;
+        int32_t low = least;
+        int32_t high = metrics.control_height;
+        std::optional<int32_t> fitted;
+        while (low <= high) {
+            const int32_t mid = low + (high - low) / 2;
+            foot.height = mid;
+            if (fits(foot)) {
+                fitted = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        if (!fitted)
+            return std::nullopt;
+        foot.height = *fitted;
+        return foot;
+    };
+    if (const std::optional<ReplayFoot> fitted = search(false, false, false, row_gap))
+        return *fitted;
+    ReplayFoot early = tight;
+    early.facts_before_players = true;
+    if (fits(early))
+        return early;
+    if (const std::optional<ReplayFoot> fitted = search(true, false, false, row_gap))
+        return *fitted;
+    ReplayFoot paired = early;
+    paired.pair_tail = true;
+    if (fits(paired))
+        return paired;
+    if (const std::optional<ReplayFoot> fitted = search(true, false, true, row_gap))
+        return *fitted;
+    ReplayFoot high = tight;
+    high.facts_under_header = true;
+    if (fits(high))
+        return high;
+    if (const std::optional<ReplayFoot> fitted = search(false, true, false, row_gap))
+        return *fitted;
+    high.pair_tail = true;
+    if (fits(high))
+        return high;
+    if (const std::optional<ReplayFoot> fitted = search(false, true, true, row_gap))
+        return *fitted;
+    // The last room: the button rows drawn closer, as at 960×540 in German,
+    // where five rows of buttons leave Recorded's second line under them.
+    if (const std::optional<ReplayFoot> fitted = search(false, true, true, metrics.hint_gap))
+        return *fitted;
+    ReplayFoot last;
+    last.tight_facts = true;
+    last.facts_under_header = true;
+    last.pair_tail = true;
+    last.height = std::min(least, metrics.control_height);
+    last.gap = metrics.hint_gap;
+    return last;
+}
+
+/// Appends the selected replay's card in a bordered card, as the catalogue's
+/// details are. Its parts scroll when they are taller than the room above the
+/// buttons, and the buttons sit at the card's foot, which does not scroll.
+///
+/// @param[in,out] building the layout
+/// @param whole the card
+void add_replay_card(Building& building, const kit::Rect& whole) {
+    const ReplayRow* row = selected_replay(*building.library);
+    if (row == nullptr)
+        return;
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t pad = 2 * metrics.space;
+    add_card_face(building, whole);
+    const kit::Rect inner{
+        whole.x + pad,
+        whole.y + pad,
+        std::max(whole.width - 2 * pad, int32_t{0}),
+        std::max(whole.height - 2 * pad, int32_t{0}),
+    };
+    const std::vector<ActionButton> actions = fitted_replay_actions(building, inner.width);
+    const bool watched = row->replay.watched_tick.has_value();
+    const int32_t watched_line = watched ? metrics.small_line + metrics.hint_gap : 0;
+    // The foot is sized from this card's own trial, not from a one-player
+    // estimate. A card that fits keeps full buttons and the old gap.
+    const ReplayFoot foot = choose_replay_foot(building, *row, inner, watched_line);
+    const int32_t foot_height = foot.height;
+    const int32_t foot_gap = foot.gap;
+    const ActionPlan plan =
+        plan_actions(building, actions, inner.width, foot_height, foot_gap, foot.pair_tail);
+    const kit::Rect pane{
+        inner.x,
+        inner.y,
+        inner.width,
+        std::max(inner.height - plan.height - metrics.row_gap - watched_line, int32_t{0})
+    };
+    const auto lay_out_body = [&](Building& into, int32_t width, int32_t offset) {
+        const std::size_t first_item = into.list.items.size();
+        const int32_t first = pane.y - offset;
+        static_cast<void>(add_replay_details(
+            into,
+            *row,
+            pane.x,
+            first,
+            width,
+            pane,
+            foot.facts_before_players,
+            foot.tight_facts,
+            foot.facts_under_header
+        ));
+        const std::optional<controls::Extent> extent =
+            controls::clipped_extent(into.list, pane, first_item);
+        return extent ? extent->bottom - first : 0;
+    };
+    // Laid out once at the pane's width to learn its height, then again
+    // narrower when that is taller than the pane.
+    Building trial = building;
+    trial.list = {};
+    trial.detail.clear();
+    trial.order.clear();
+    const int32_t whole_height = lay_out_body(trial, pane.width, 0);
+    const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const bool scrolls = whole_height > pane.height;
+    const int32_t width = scrolls ? pane.width - well_width - metrics.button_gap : pane.width;
+    int32_t height = whole_height;
+    if (scrolls) {
+        trial = building;
+        trial.list = {};
+        trial.detail.clear();
+        trial.order.clear();
+        height = lay_out_body(trial, width, 0);
+    }
+    const int32_t limit = kit::ScrollArea::limit_for(height, pane.height);
+    const int32_t offset = std::clamp(building.state->details_scroll, int32_t{0}, limit);
+    // Its parts scroll with the card: they are in the details' group.
+    const std::size_t first_detail = building.detail.size();
+    lay_out_body(building, width, offset);
+    for (std::size_t index = first_detail; index < building.detail.size(); ++index)
+        building.detail[index].group = controls::details_group;
+    if (limit > 0) {
+        kit::ScrollArea scroll;
+        scroll.view = pane;
+        scroll.well = {pane.x + pane.width - well_width, pane.y, well_width, pane.height};
+        scroll.content_height = height;
+        scroll.limit = limit;
+        scroll.offset = offset;
+        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::details
+        };
+    }
+    const int32_t buttons_top = inner.y + inner.height - plan.height - watched_line;
+    add_replay_buttons(
+        building,
+        {inner.x, buttons_top, inner.width, plan.height},
+        building.detail,
+        foot_height,
+        foot_gap,
+        foot.pair_tail
+    );
+    if (watched) {
+        const Library& library = *building.library;
+        const std::string when = replay_tick_text(*row->replay.watched_tick);
+        const std::string line = filled(library.text, words::replay_watched_to, {{"time", when}});
+        const int32_t line_top = inner.y + inner.height - metrics.small_line;
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building, kit::FontRole::small, line, inner.width),
+            {inner.x, line_top, inner.width, metrics.small_line},
+            kit::Align::left,
+            kit::colour::hint,
+            inner
+        );
+        add_label(
+            building.detail,
+            controls::replays_watched,
+            {inner.x, line_top, inner.width, metrics.small_line},
+            unique_name(building, named("replays.watched")),
+            line,
+            inner,
+            -1
+        );
+    }
+}
+
+/// Returns the words the kind menu's field shows.
+///
+/// @param library the model
+/// @param items the menu's items
+/// @return the chosen item's words
+std::string
+replay_kind_caption(const Library& library, const std::vector<controls::MenuItem>& items) {
+    for (const controls::MenuItem& item : items)
+        if (item.replay_kind && *item.replay_kind == library.replays.kind)
+            return item.caption;
+    return replay_kind_title(library, library.replays.kind);
+}
+
+/// Appends the switch over the replays list: On this computer, or On Core Prime.
+///
+/// @param[in,out] building the layout
+/// @param row the switch's row
+void add_replay_source(Building& building, const kit::Rect& row) {
+    const Library& library = *building.library;
+    const int32_t gap = building.metrics->space;
+    const int32_t each = std::max((row.width - gap) / 2, int32_t{0});
+    const int32_t rest = std::max(row.width - each - gap, int32_t{0});
+    const bool computer = library.replays.source == ReplaySource::computer;
+    add_button(
+        building,
+        building.top,
+        {row.x, row.y, each, row.height},
+        shown(library.text, words::core_on_computer),
+        computer,
+        true,
+        controls::replay_source_computer,
+        named("replays.source.computer"),
+        {},
+        -1
+    );
+    add_button(
+        building,
+        building.top,
+        {row.x + each + gap, row.y, rest, row.height},
+        shown(library.text, words::core_on_prime),
+        !computer,
+        true,
+        controls::replay_source_core,
+        named("replays.source.core-prime"),
+        {},
+        -1
+    );
+}
+
+/// Appends the bar over the replays list: the kind menu and the sort menu,
+/// or Core Prime's planet menu while By planet is chosen.
+///
+/// @param[in,out] building the layout
+/// @param row the bar
+void add_replay_bar(Building& building, const kit::Rect& row) {
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    if (library.replays.source == ReplaySource::core_prime) {
+        if (library.replays.core_filter != CorePrimeFilter::planet)
+            return;
+        std::vector<controls::MenuItem> planets =
+            controls::menu_items(library, MenuKind::replay_planet, {});
+        const std::string caption = library.replays.planet.empty()
+                                        ? std::string(shown(library.text, words::core_by_planet))
+                                        : library.replays.planet;
+        const int32_t width = std::min(drop_down_width(building, caption, planets), row.width);
+        add_drop_down(
+            building,
+            building.top,
+            {row.x, row.y, width, row.height},
+            MenuKind::replay_planet,
+            caption,
+            std::move(planets),
+            controls::replay_planet_menu,
+            named("replays.planet"),
+            true
+        );
+        return;
+    }
+    std::vector<controls::MenuItem> kinds =
+        controls::menu_items(library, MenuKind::replay_kind, {});
+    std::vector<controls::MenuItem> sorts =
+        controls::menu_items(library, MenuKind::replay_sort, {});
+    const std::string kind_caption = replay_kind_caption(library, kinds);
+    const std::string sort_caption = replay_sort_title(library, library.replays.sort);
+    const int32_t gap = metrics.space;
+    // Each field is as wide as its widest item when both fit the row. When they do
+    // not, each is as wide as the words it shows, and the open menu is wider
+    // than its field (add_drop_down), so that its items are whole.
+    int32_t kind_width = drop_down_width(building, kind_caption, kinds);
+    int32_t sort_width = drop_down_width(building, sort_caption, sorts);
+    if (kind_width + gap + sort_width > row.width) {
+        const auto caption_width = [&](const std::string& caption) {
+            return width_of(building, kit::FontRole::regular, caption) + metrics.choice_text_inset +
+                   metrics.choice_arrow_room;
+        };
+        kind_width = caption_width(kind_caption);
+        sort_width = caption_width(sort_caption);
+        const int32_t room = std::max(row.width - gap, int32_t{0});
+        if (kind_width + sort_width > room) {
+            // Neither caption is cut while the other can give: the wider yields first.
+            const int32_t half = room / 2;
+            if (kind_width > half && sort_width > half)
+                kind_width = sort_width = half;
+            else if (kind_width > half)
+                kind_width = room - sort_width;
+            else
+                sort_width = room - kind_width;
+        }
+    }
+    add_drop_down(
+        building,
+        building.top,
+        {row.x, row.y, kind_width, row.height},
+        MenuKind::replay_kind,
+        kind_caption,
+        std::move(kinds),
+        controls::replay_kind_menu,
+        named("replays.kind"),
+        true
+    );
+    add_drop_down(
+        building,
+        building.top,
+        {row.x + kind_width + gap, row.y, sort_width, row.height},
+        MenuKind::replay_sort,
+        sort_caption,
+        std::move(sorts),
+        controls::replay_sort_menu,
+        named("replays.sort"),
+        true
+    );
+}
+
+/// Sign in or Sign out for the source row. Beside the switch when the three
+/// captions fit, and on the next row when they do not. Absent until the app
+/// offers sign-in, and absent on a system that cannot use TLS.
+struct ReplayAccount {
+    bool wanted{};                  ///< a button is drawn
+    bool beside{};                  ///< it shares the switch's row
+    int32_t width{};                ///< its width when it shares that row
+    Action action{Action::sign_in}; ///< sign in, or sign out
+    std::string caption{};          ///< the button's words
+};
+
+/// Decides where Sign in or Sign out sits on a row of `row_width`.
+///
+/// @param building the layout
+/// @param row_width the switch's row, in points
+/// @return the button; wanted is false when none is drawn
+ReplayAccount replay_account(const Building& building, int32_t row_width) {
+    ReplayAccount account;
+    const Library& library = *building.library;
+    const ReplayInputs& inputs = library.inputs.replays;
+    const bool sign_in =
+        inputs.core_sign_in_secure && inputs.core_sign_in_offered && !inputs.core_signed_in;
+    const bool sign_out = inputs.core_signed_in;
+    if (!sign_in && !sign_out)
+        return account;
+    account.wanted = true;
+    account.action = sign_out ? Action::sign_out : Action::sign_in;
+    account.caption = std::string(action_text(account.action, library.text));
+    const int32_t natural = button_width(building, account.caption);
+    const int32_t cap = std::max(row_width / 3, int32_t{1});
+    if (natural > cap)
+        return account;
+    const int32_t gap = building.metrics->space;
+    const int32_t source_room = row_width - natural - 2 * gap;
+    if (source_room <= 0)
+        return account;
+    const int32_t each = source_room / 2;
+    const int32_t other = source_room - each;
+    const int32_t computer_w = button_width(building, shown(library.text, words::core_on_computer));
+    const int32_t prime_w = button_width(building, shown(library.text, words::core_on_prime));
+    if (computer_w <= each && prime_w <= other) {
+        account.beside = true;
+        account.width = natural;
+    }
+    return account;
+}
+
+/// Appends Sign in or Sign out.
+///
+/// @param[in,out] building the layout
+/// @param account the button
+/// @param rect where it lies
+void place_replay_account(Building& building, const ReplayAccount& account, const kit::Rect& rect) {
+    add_button(
+        building,
+        building.top,
+        rect,
+        account.caption,
+        false,
+        true,
+        controls::action_control(account.action),
+        named("action." + std::string(action_word(account.action))),
+        {},
+        -1
+    );
+}
+
+/// Appends the sentence under the source switch when this system cannot sign
+/// in. It is the line where Sign in would be, on either list.
+///
+/// @param[in,out] building the layout
+/// @param x the line's left
+/// @param y the line's top
+/// @param width the line's width
+/// @param gap the rows under it
+/// @return the points it takes, the gap included; 0 when signing in can use TLS
+int32_t
+add_replay_secure_line(Building& building, int32_t x, int32_t y, int32_t width, int32_t gap) {
+    const Library& library = *building.library;
+    if (library.inputs.replays.core_sign_in_secure)
+        return 0;
+    const std::string sentence(shown(library.text, words::sign_in_needs_secure));
+    const std::vector<std::string> lines =
+        wrapped(building, kit::FontRole::small, sentence, width, most_note_lines);
+    const int32_t line_h = building.metrics->small_line;
+    const auto count = static_cast<int32_t>(std::max(lines.size(), std::size_t{1}));
+    const int32_t block = count * line_h;
+    int32_t line_y = y;
+    for (const std::string& line : lines) {
+        add_text(
+            building,
+            kit::FontRole::small,
+            line,
+            {x, line_y, width, line_h},
+            kit::Align::left,
+            kit::colour::lock,
+            {}
+        );
+        line_y += line_h;
+    }
+    add_label(
+        building.top,
+        controls::replay_sign_in_secure,
+        {x, y, width, block},
+        unique_name(building, named("replays.sign-in.secure")),
+        sentence,
+        {},
+        -1
+    );
+    return block + gap;
+}
+
+/// Appends the Replays section under its heading: the bar, then the list
+/// and, at Regular and Large, the selected replay's card beside it. With no
+/// row to show, the words of the empty section take the list's and the
+/// card's place.
+///
+/// @param[in,out] building the layout
+/// @param area the section's body, under the heading
+/// @param window the window
+void add_replays(Building& building, const kit::Rect& area, const Window& window) {
+    const Library& library = *building.library;
+    const bool compact = building.size_class == kit::SizeClass::compact;
+    const bool large = building.size_class == kit::SizeClass::large;
+    building.state->core_near_end = false;
+    const bool computer = library.replays.source == ReplaySource::computer;
+    const bool planet_menu = !computer && library.replays.core_filter == CorePrimeFilter::planet;
+    int32_t top = area.y;
+    // The switch is the first row on both lists, so it stays under the pointer
+    // that pressed it. Sign in or Sign out sits beside it when the three
+    // captions fit, and on the next row when they do not. The kind and sort
+    // menus, or the planet field, follow.
+    const ReplayAccount account = replay_account(building, area.width);
+    const int32_t source_gap = building.metrics->space;
+    if (account.beside) {
+        const int32_t source_width = std::max(area.width - account.width - source_gap, int32_t{0});
+        add_replay_source(building, {area.x, top, source_width, window.field_height});
+        place_replay_account(
+            building,
+            account,
+            {area.x + area.width - account.width, top, account.width, window.field_height}
+        );
+    } else {
+        add_replay_source(building, {area.x, top, area.width, window.field_height});
+    }
+    top += window.field_height + window.gap;
+    if (account.wanted && !account.beside) {
+        const int32_t width =
+            std::min(button_width(building, account.caption), std::max(area.width, int32_t{1}));
+        place_replay_account(building, account, {area.x, top, width, window.field_height});
+        top += window.field_height + window.gap;
+    }
+    top += add_replay_secure_line(building, area.x, top, area.width, window.gap);
+    if (computer || planet_menu) {
+        add_replay_bar(building, {area.x, top, area.width, window.field_height});
+        top += window.field_height + window.gap;
+    }
+    const kit::Rect body{area.x, top, area.width, std::max(area.y + area.height - top, int32_t{0})};
+    if (library.replays.visible.empty()) {
+        add_replays_empty(building, body);
+        return;
+    }
+    int32_t list_width = body.width;
+    if (!compact) {
+        const int32_t beside = std::max(body.width - window.gutter - details_floor, int32_t{1});
+        list_width = large ? std::min(large_list_width, beside) : beside;
+        if (list_width + window.gutter >= body.width)
+            list_width = std::max(body.width / 2, int32_t{1});
+    }
+    // A signed-in battle adds Open on Core Prime and Share my own recording.
+    // When the two widest captions cannot share a row, the list gives the
+    // card that width, down to a readable column, so Length and Recorded
+    // stay above the buttons. At 960×540 the German captions still do not
+    // share one row; the facts then sit under the title.
+    if (!compact && computer) {
+        const std::vector<ReplayButton> buttons = replay_buttons(library);
+        if (buttons.size() >= 7) {
+            int32_t widest = 0;
+            for (const ReplayButton& button : buttons)
+                widest = std::max(widest, button_width(building, button.text));
+            const int32_t pair_gap = button_spacing(*building.metrics);
+            const int32_t card_need = 2 * widest + pair_gap + 4 * building.metrics->space;
+            const int32_t card_now = body.width - list_width - window.gutter;
+            if (card_now < card_need) {
+                const int32_t least_column = std::max(least_list_width * 2, int32_t{192});
+                const int32_t list_room =
+                    std::max(body.width - window.gutter - card_need, least_column);
+                list_width = std::min(list_width, list_room);
+            }
+        }
+    }
+    add_replay_list(building, {body.x, body.y, list_width, body.height});
+    if (!compact) {
+        const int32_t card_left = body.x + list_width + window.gutter;
+        add_replay_card(
+            building,
+            {card_left, body.y, std::max(body.x + body.width - card_left, int32_t{0}), body.height}
+        );
+    }
+}
+
+/// Appends the Replays section's line at the footer's left: how far the
+/// folder has been read, with a bar, or what the list shows.
+///
+/// @param[in,out] building the layout
+/// @param window the window
+/// @param width the room the buttons leave, in points
+void add_replays_footer_line(Building& building, const Window& window, int32_t width) {
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const std::string line = replay_status(library);
+    if (line.empty())
+        return;
+    const bool bar = library.inputs.replays.reading && library.inputs.replays.total > 0;
+    const int32_t block =
+        metrics.small_line + (bar ? metrics.hint_gap + metrics.progress_bar_height : 0);
+    const int32_t line_top =
+        window.footer_top + std::max(window.footer_height - block, int32_t{0}) / 2;
+    const std::string drawn = cut(building, kit::FontRole::small, line, width);
+    const kit::Rect box{window.left, line_top, width, metrics.small_line};
+    add_text(building, kit::FontRole::small, drawn, box, kit::Align::left, kit::colour::text, {});
+    add_label(
+        building.footer,
+        controls::replays_status,
+        box,
+        unique_name(building, named("replays.status")),
+        drawn,
+        {},
+        -1
+    );
+    if (bar) {
+        const ReplayInputs& inputs = library.inputs.replays;
+        const auto done = static_cast<int32_t>(
+            std::min(inputs.read, inputs.total) * static_cast<std::size_t>(progress_whole) /
+            inputs.total
+        );
+        kit::add_progress(
+            building.list,
+            {window.left,
+             box.y + box.height + metrics.hint_gap,
+             width,
+             metrics.progress_bar_height},
+            done,
+            progress_whole
+        );
+    }
+}
+
 /// Appends ADD REGISTRY… at the top right of the Registries tab, above the
 /// list, and moves the body down past it. During a match the padlock and
 /// "Choose from the main menu." stand there, and the button is absent. The
@@ -6758,7 +9152,12 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
     };
 
     std::vector<FooterButton> buttons;
-    if (compact && library.tab != Tab::active && library.tab != Tab::registries)
+    const bool replays = library.tab == Tab::replays;
+    if (compact && replays)
+        buttons.push_back(
+            {Action::details, controls::details, selected_replay(library) != nullptr}
+        );
+    else if (compact && library.tab != Tab::active && library.tab != Tab::registries)
         buttons.push_back({Action::details, controls::details, library.selected.has_value()});
     buttons.push_back({Action::close, controls::close, true});
     int32_t total = 0;
@@ -6791,8 +9190,14 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
         left += width + button_spacing(metrics);
     }
 
-    const QueueLines lines = queue_lines(library);
     const int32_t queue_width = std::max(queue_right - window.left, int32_t{0});
+    // Replays says what its list shows, or how far its folder has been read,
+    // in the queue's place.
+    if (replays) {
+        add_replays_footer_line(building, window, queue_width);
+        return;
+    }
+    const QueueLines lines = queue_lines(library);
     // Compact keeps the one short line. Regular and Large keep the two lines.
     // While a download runs, the same 8-point bar sits under the first line.
     const std::string primary = compact ? lines.compact : lines.first;
@@ -6858,7 +9263,7 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
 /// @param[in,out] building the layout
 void add_focus_ring(Building& building) {
     const kit::Interaction& interaction = building.state->interaction;
-    if (!interaction.focus_shown || interaction.focused == kit::no_control ||
+    if (!kit::focus_ring_visible(interaction) || interaction.focused == kit::no_control ||
         interaction.focused == controls::search || interaction.focused == controls::active_search)
         return;
     for (const kit::Item& item : building.list.items)
@@ -6904,7 +9309,7 @@ void add_open_menu(Building& building, int32_t footer_line) {
     look.total = count;
     look.chosen = menu_open.chosen;
     look.marked = building.state->menu_marked;
-    look.focus_shown = building.state->interaction.focus_shown;
+    look.focus_shown = kit::focus_ring_visible(building.state->interaction);
     // A menu with a heading names each row: a heading is a divider, which
     // takes no press and no name.
     const bool headed = std::any_of(
@@ -7002,7 +9407,7 @@ void append_fitted(
 /// @return the icon's control; none when neither rests on a key icon
 kit::ControlId key_tip_id(const ScreenState& state) noexcept {
     const kit::Interaction& interaction = state.interaction;
-    if (interaction.focus_shown && controls::registry_key_control(interaction.focused))
+    if (kit::focus_ring_visible(interaction) && controls::registry_key_control(interaction.focused))
         return interaction.focused;
     if (controls::registry_key_control(interaction.hovered))
         return interaction.hovered;
@@ -8035,6 +10440,1695 @@ void add_key_use(Building& building, const Window& window) {
     building.overlay.back().focusable = false;
 }
 
+/// Appends one of Export's buttons and puts it in the dialog's tab order.
+///
+/// @param[in,out] building the layout
+/// @param id the control
+/// @param control_name the name after `library.`
+/// @param rect where it lies
+/// @param caption the words, already looked up
+/// @param accent the accent face
+/// @param takes a press
+void take_export_button(
+    Building& building,
+    kit::ControlId id,
+    std::string control_name,
+    const kit::Rect& rect,
+    std::string caption,
+    bool accent,
+    bool takes
+) {
+    kit::ButtonLook look;
+    look.caption =
+        cut(building, kit::FontRole::small, caption, std::max(rect.width - 2, int32_t{0}));
+    // A button that takes no press is drawn plain, as the Library's other
+    // main buttons are, so a disabled Export does not look pressable.
+    look.style = accent && takes ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+    look.hovered = hovered(building, id);
+    look.held = held(building, id);
+    look.enabled = takes;
+    const std::size_t before = building.list.controls.size();
+    kit::add_button(
+        building.list, rect, look, id, unique_name(building, named(std::move(control_name)))
+    );
+    move_controls(building.list, before, building.overlay);
+    kit::Control& added = building.overlay.back();
+    added.focusable = takes;
+    added.enabled = takes;
+    added.text = std::move(caption);
+    if (takes)
+        building.export_order.push_back(added.id);
+}
+
+/// Appends Export over the Library. A `.oademo` is offered first, with the
+/// size each file will be. A `.tad` adds what to include and the warnings
+/// that apply. The chooser replaces the form. Where the window is short the
+/// descriptions go first, then headings, and warnings that still do not fit
+/// are paged as whole sets. A warning taller than the page is shown as the
+/// lines that fit, and its label keeps the whole sentence. Every row is
+/// counted, the pager included, before the dialog is placed, and nothing in
+/// the body meets the buttons.
+///
+/// @param[in,out] building the layout
+/// @param window the window
+void add_export(Building& building, const Window& window) {
+    const Library& library = *building.library;
+    const ExportDialog& dialog = library.export_dialog;
+    if (!dialog.open)
+        return;
+    const kit::Metrics& metrics = *building.metrics;
+    const TextHooks& text = library.text;
+    const bool compact = building.size_class == kit::SizeClass::compact;
+    const kit::Rect shade{0, 0, window.width, window.height};
+    kit::Item& dim = add_item(building.list, kit::Role::blend, shade, {});
+    dim.colour = kit::colour::backdrop;
+    dim.opacity = 180;
+
+    const int32_t outer = compact ? metrics.space : window.padding;
+    const int32_t pad = compact ? 2 * metrics.space : metrics.window_padding;
+    const int32_t gap = metrics.space;
+    const int32_t section_gap = metrics.section_gap;
+    const int32_t control = metrics.control_height;
+    const int32_t room_width = std::max(window.width - 2 * outer, int32_t{1});
+    const int32_t dialog_width = compact ? room_width : std::min(metrics.notice_width, room_width);
+    const int32_t inner = std::max(dialog_width - 2 * pad, int32_t{1});
+    const int32_t most_height = std::max(window.height - 2 * outer, int32_t{1});
+    const int32_t line = metrics.small_line;
+
+    const auto folder_shown = [&]() {
+        if (dialog.folder_is_downloads)
+            return std::string(shown(text, words::export_downloads));
+        if (!dialog.folder_label.empty())
+            return dialog.folder_label;
+        return dialog.folder;
+    };
+    const bool several = dialog.files.size() > 1;
+    const std::string title =
+        several
+            ? filled(text, words::export_count, {{"count", std::to_string(dialog.files.size())}})
+        : dialog.files.size() == 1 && !dialog.files.front().title.empty()
+            ? filled(text, words::export_title, {{"name", dialog.files.front().title}})
+            : std::string(shown(text, words::export_confirm));
+
+    // The buttons are pinned to the foot. Everything above them gives way.
+    const auto place_dialog = [&](int32_t wanted) {
+        const int32_t height = std::min(std::max(wanted, pad + control + pad), most_height);
+        const int32_t x = (window.width - dialog_width) / 2;
+        const int32_t y = std::max((window.height - height) / 2, int32_t{0});
+        const kit::Rect dialog{x, y, dialog_width, height};
+        add_item(building.list, kit::Role::fill, dialog, {}).colour = kit::colour::panel;
+        add_item(building.list, kit::Role::outline, dialog, {}).colour =
+            kit::colour::control_border;
+        return dialog;
+    };
+    const auto note_of = [&](kit::ControlId id, const kit::Rect& rect, std::string read) {
+        add_label(
+            building.overlay,
+            id,
+            rect,
+            unique_name(building, named("export.note")),
+            std::move(read),
+            {},
+            -1
+        );
+    };
+
+    if (dialog.browsing) {
+        const int32_t rows_wanted = static_cast<int32_t>(std::min(
+            dialog.entries.size() - std::min(dialog.browse_first, dialog.entries.size()),
+            static_cast<std::size_t>(controls::export_browse_page)
+        ));
+        const bool more =
+            dialog.browse_first + static_cast<std::size_t>(controls::export_browse_page) <
+            dialog.entries.size();
+        const bool previous = dialog.browse_first > 0;
+        const auto browse_height = [&](int32_t rows) {
+            int32_t height = pad + metrics.regular_line + gap + control + gap;
+            if (rows > 0)
+                height += rows * control + (rows - 1) * gap;
+            if (more || previous)
+                height += gap + control;
+            return height + section_gap + control + pad;
+        };
+        int32_t rows = std::max(rows_wanted, int32_t{0});
+        while (rows > 1 && browse_height(rows) > most_height)
+            --rows;
+        const kit::Rect dialog_rect = place_dialog(browse_height(rows));
+        const int32_t left = dialog_rect.x + pad;
+        int32_t cursor = dialog_rect.y + pad;
+        add_text(
+            building,
+            kit::FontRole::regular,
+            cut(building, kit::FontRole::regular, dialog.browse_folder, inner),
+            {left, cursor, inner, metrics.regular_line},
+            kit::Align::left,
+            kit::colour::text,
+            {}
+        );
+        cursor += metrics.regular_line + gap;
+        const std::string up_caption(shown(text, words::export_up));
+        const int32_t up_width = std::min(small_button_width(building, up_caption), inner);
+        take_export_button(
+            building,
+            controls::export_browse_up,
+            "export.up",
+            {left, cursor, up_width, control},
+            up_caption,
+            false,
+            true
+        );
+        cursor += control + gap;
+        const std::size_t first = dialog.browse_first;
+        for (int32_t row = 0; row < rows; ++row) {
+            const std::size_t place = first + static_cast<std::size_t>(row);
+            if (place >= dialog.entries.size() || place >= controls::most_export_rows)
+                break;
+            const ExportFolder& entry = dialog.entries[place];
+            const kit::ControlId id =
+                controls::first_export_row + static_cast<kit::ControlId>(place);
+            const kit::Rect rect{left, cursor, inner, control};
+            kit::ButtonLook look;
+            look.style = kit::ButtonStyle::quiet;
+            look.caption = cut(building, kit::FontRole::small, entry.name, inner - 2 * gap);
+            look.hovered = hovered(building, id);
+            look.held = held(building, id);
+            look.enabled = true;
+            const std::size_t before = building.list.controls.size();
+            kit::add_button(
+                building.list,
+                rect,
+                look,
+                id,
+                unique_name(building, named("export.folder." + name_word(entry.name)))
+            );
+            move_controls(building.list, before, building.overlay);
+            kit::Control& added = building.overlay.back();
+            added.focusable = true;
+            added.enabled = true;
+            added.text = entry.name;
+            building.export_order.push_back(added.id);
+            cursor += control + gap;
+        }
+        if (more || previous) {
+            const std::string more_caption(shown(text, words::export_more_folders));
+            const std::string previous_caption(shown(text, words::export_previous_folders));
+            const int32_t more_width =
+                std::min(small_button_width(building, more_caption), inner / 2);
+            const int32_t previous_width =
+                std::min(small_button_width(building, previous_caption), inner / 2);
+            if (previous)
+                take_export_button(
+                    building,
+                    controls::export_browse_previous,
+                    "export.previous",
+                    {left, cursor, previous_width, control},
+                    previous_caption,
+                    false,
+                    true
+                );
+            if (more)
+                take_export_button(
+                    building,
+                    controls::export_browse_more,
+                    "export.more",
+                    {left + inner - more_width, cursor, more_width, control},
+                    more_caption,
+                    false,
+                    true
+                );
+            cursor += control;
+        }
+        const int32_t button_y = dialog_rect.y + dialog_rect.height - pad - control;
+        const std::string use_caption(shown(text, words::export_use_folder));
+        const std::string cancel_caption(shown(text, words::action_cancel));
+        const int32_t use_width = std::min(small_button_width(building, use_caption), inner / 2);
+        const int32_t cancel_width =
+            std::min(small_button_width(building, cancel_caption), inner / 2);
+        take_export_button(
+            building,
+            controls::export_cancel,
+            "export.cancel",
+            {left + inner - use_width - gap - cancel_width, button_y, cancel_width, control},
+            cancel_caption,
+            false,
+            true
+        );
+        take_export_button(
+            building,
+            controls::export_browse_use,
+            "export.use",
+            {left + inner - use_width, button_y, use_width, control},
+            use_caption,
+            true,
+            true
+        );
+        static_cast<void>(cursor);
+    } else if (dialog.exporting || dialog.done || dialog.files.empty()) {
+        // One file names a compression only while one runs, and a write while
+        // the bytes are copied. Several files show the count.
+        const bool moving_one = dialog.exporting && !several && dialog.progress_bytes_total > 0;
+        const auto writing_name = [&]() {
+            std::string name = dialog.files.front().title;
+            const std::string extension =
+                dialog.format == ExportFormat::tad ? std::string(".tad") : std::string(".oademo");
+            const bool already =
+                name.size() >= extension.size() &&
+                name.compare(name.size() - extension.size(), extension.size(), extension) == 0;
+            if (!already)
+                name += extension;
+            return name;
+        };
+        const std::string progress =
+            progress_text(dialog.progress_bytes_done, dialog.progress_bytes_total, text);
+        const std::string sentence =
+            moving_one && dialog.compressing
+                ? std::string(shown(text, words::export_compressing)) + " · " + progress
+            : moving_one
+                ? filled(text, words::export_writing, {{"name", writing_name()}}) + " · " + progress
+            : dialog.exporting ? filled(
+                                     text,
+                                     words::export_progress,
+                                     {{"done", std::to_string(dialog.progress_done)},
+                                      {"total", std::to_string(dialog.progress_total)}}
+                                 )
+            : dialog.done      ? filled(text, words::export_saved, {{"folder", folder_shown()}})
+            : !dialog.problem.empty() ? dialog.problem
+                                      : std::string(shown(text, words::export_none));
+        const std::vector<std::string> heading =
+            wrapped(building, kit::FontRole::regular, title, inner, 0);
+        const std::vector<std::string> lines =
+            wrapped(building, kit::FontRole::small, sentence, inner, 0);
+        const int32_t heading_height =
+            static_cast<int32_t>(std::max(heading.size(), std::size_t{1})) * metrics.regular_line;
+        const int32_t bar = moving_one ? gap + metrics.progress_bar_height : 0;
+        const int32_t wanted = pad + heading_height + gap +
+                               static_cast<int32_t>(std::max(lines.size(), std::size_t{1})) * line +
+                               bar + section_gap + control + pad;
+        const kit::Rect dialog_rect = place_dialog(wanted);
+        const int32_t left = dialog_rect.x + pad;
+        int32_t cursor = dialog_rect.y + pad;
+        for (const std::string& heading_line : heading) {
+            add_text(
+                building,
+                kit::FontRole::regular,
+                heading_line,
+                {left, cursor, inner, metrics.regular_line},
+                kit::Align::left,
+                kit::colour::text,
+                {}
+            );
+            cursor += metrics.regular_line;
+        }
+        if (heading.empty())
+            cursor += metrics.regular_line;
+        cursor += gap;
+        const int32_t top = cursor;
+        for (const std::string& sentence_line : lines) {
+            add_text(
+                building,
+                kit::FontRole::small,
+                sentence_line,
+                {left, cursor, inner, line},
+                kit::Align::left,
+                kit::colour::text,
+                {}
+            );
+            cursor += line;
+        }
+        note_of(controls::export_note, {left, top, inner, std::max(cursor - top, line)}, sentence);
+        if (moving_one) {
+            cursor += gap;
+            const uint64_t whole = std::max(dialog.progress_bytes_total, uint64_t{1});
+            const uint64_t taken = std::min(dialog.progress_bytes_done, whole);
+            const int32_t filled_bar = static_cast<int32_t>(std::min<uint64_t>(
+                taken * static_cast<uint64_t>(progress_whole) / whole,
+                static_cast<uint64_t>(progress_whole)
+            ));
+            kit::add_progress(
+                building.list,
+                {left, cursor, inner, metrics.progress_bar_height},
+                filled_bar,
+                progress_whole
+            );
+        }
+        const int32_t button_y = dialog_rect.y + dialog_rect.height - pad - control;
+        if (dialog.done) {
+            const std::string show_caption(shown(text, words::export_show));
+            const std::string close_caption(shown(text, words::action_close));
+            const int32_t show_width =
+                std::min(small_button_width(building, show_caption), inner / 2);
+            const int32_t close_width =
+                std::min(small_button_width(building, close_caption), inner / 3);
+            take_export_button(
+                building,
+                controls::export_close,
+                "export.close",
+                {left + inner - show_width - gap - close_width, button_y, close_width, control},
+                close_caption,
+                false,
+                true
+            );
+            take_export_button(
+                building,
+                controls::export_show,
+                "export.show-folder",
+                {left + inner - show_width, button_y, show_width, control},
+                show_caption,
+                true,
+                true
+            );
+        } else if (dialog.exporting) {
+            const std::string cancel_caption(shown(text, words::action_cancel));
+            const int32_t cancel_width =
+                std::min(small_button_width(building, cancel_caption), inner / 2);
+            take_export_button(
+                building,
+                controls::export_cancel,
+                "export.cancel",
+                {left + inner - cancel_width, button_y, cancel_width, control},
+                cancel_caption,
+                false,
+                true
+            );
+        } else if (!dialog.problem.empty()) {
+            const std::string close_caption(shown(text, words::action_close));
+            const int32_t close_width =
+                std::min(small_button_width(building, close_caption), inner / 2);
+            take_export_button(
+                building,
+                controls::export_close,
+                "export.close",
+                {left + inner - close_width, button_y, close_width, control},
+                close_caption,
+                false,
+                true
+            );
+        } else {
+            const std::string export_caption(shown(text, words::export_confirm));
+            const std::string cancel_caption(shown(text, words::action_cancel));
+            const int32_t export_width =
+                std::min(small_button_width(building, export_caption), inner / 2);
+            const int32_t cancel_width =
+                std::min(small_button_width(building, cancel_caption), inner / 3);
+            take_export_button(
+                building,
+                controls::export_cancel,
+                "export.cancel",
+                {left + inner - export_width - gap - cancel_width, button_y, cancel_width, control},
+                cancel_caption,
+                false,
+                true
+            );
+            take_export_button(
+                building,
+                controls::export_confirm,
+                "export.export",
+                {left + inner - export_width, button_y, export_width, control},
+                export_caption,
+                true,
+                false
+            );
+        }
+    } else {
+        struct WrappedNote {
+            std::string sentence{};
+            std::vector<std::string> lines{};
+        };
+
+        std::vector<WrappedNote> warnings;
+        if (dialog.format == ExportFormat::tad) {
+            std::vector<std::string> ids;
+            std::vector<std::string> labels;
+            bool unnamed = false;
+            bool wide = false;
+            bool names_cut = false;
+            bool status_cut = false;
+            const auto mutator_label = [&](const ExportFile& file, std::size_t at) {
+                const std::string& id = file.mutator_ids[at];
+                for (const Entry& entry : library.entries) {
+                    if (entry.id.kind != Kind::mutator || entry.id.key != id)
+                        continue;
+                    if (entry.installed != nullptr && !entry.installed->name.empty())
+                        return entry.installed->name;
+                    if (entry.listing != nullptr && !entry.listing->name.empty())
+                        return entry.listing->name;
+                }
+                if (at < file.mutator_names.size() && !file.mutator_names[at].empty())
+                    return file.mutator_names[at];
+                return id;
+            };
+            for (const ExportFile& file : dialog.files) {
+                wide = wide || file.wide_records;
+                names_cut = names_cut || file.names_cut;
+                status_cut = status_cut || file.status_cut;
+                if (!file.mutators)
+                    continue;
+                if (file.mutator_ids.empty())
+                    unnamed = true;
+                for (std::size_t at = 0; at < file.mutator_ids.size(); ++at) {
+                    bool seen = false;
+                    for (const std::string& have : ids)
+                        seen = seen || have == file.mutator_ids[at];
+                    if (seen)
+                        continue;
+                    ids.push_back(file.mutator_ids[at]);
+                    labels.push_back(mutator_label(file, at));
+                }
+            }
+            const auto push_warning = [&](std::string sentence) {
+                WrappedNote note;
+                note.lines = wrapped(building, kit::FontRole::small, sentence, inner, 0);
+                if (note.lines.empty())
+                    note.lines.emplace_back();
+                note.sentence = std::move(sentence);
+                warnings.push_back(std::move(note));
+            };
+            for (const std::string& label : labels)
+                push_warning(filled(text, words::export_mutator, {{"name", label}}));
+            if (unnamed)
+                push_warning(std::string(shown(text, words::export_mutators)));
+            if (wide)
+                push_warning(std::string(shown(text, words::export_wide)));
+            if (names_cut)
+                push_warning(std::string(shown(text, words::export_names)));
+            if (status_cut)
+                push_warning(std::string(shown(text, words::export_status)));
+        }
+        const auto measuring_size = [&](bool oademo_side) {
+            for (const ExportFile& file : dialog.files) {
+                if (file.unreadable)
+                    return std::string{};
+                if (!file.ready)
+                    return std::string(shown(text, words::export_measuring));
+            }
+            uint64_t total = 0;
+            for (const ExportFile& file : dialog.files)
+                total += oademo_side
+                             ? file.oademo_bytes
+                             : (dialog.keep_oa_sectors ? file.tad_bytes : file.tad_without_bytes);
+            return size_text(total, text);
+        };
+
+        struct FormatChoice {
+            std::string full{};
+            std::string name{};
+            std::vector<std::string> detail{};
+        };
+
+        const auto choice_of = [&](std::string name, std::string detail, bool recommended) {
+            FormatChoice choice;
+            choice.name = std::move(name);
+            std::string extra = std::move(detail);
+            if (recommended) {
+                if (!extra.empty())
+                    extra += " · ";
+                extra += shown(text, words::export_recommended);
+            }
+            choice.full = choice.name;
+            if (!extra.empty()) {
+                choice.full += " · ";
+                choice.full += extra;
+            }
+            const kit::Rect probe{0, 0, inner, control};
+            const int32_t room = std::max(kit::radio_parts(probe, true).caption.width, int32_t{0});
+            // The fit is the regular face, which is what the layout test measures.
+            if (width_of(building, kit::FontRole::regular, choice.full) > room && !extra.empty())
+                choice.detail = wrapped(building, kit::FontRole::small, extra, inner, 0);
+            return choice;
+        };
+        const FormatChoice oademo_choice =
+            choice_of(std::string(shown(text, words::export_oademo)), measuring_size(true), true);
+        const FormatChoice tad_choice =
+            choice_of(std::string(shown(text, words::export_tad)), measuring_size(false), false);
+        const std::vector<std::string> oademo_about = wrapped(
+            building, kit::FontRole::small, shown(text, words::export_oademo_about), inner, 0
+        );
+        const std::vector<std::string> tad_about =
+            wrapped(building, kit::FontRole::small, shown(text, words::export_tad_about), inner, 0);
+        const std::vector<std::string> heading =
+            wrapped(building, kit::FontRole::regular, title, inner, 0);
+        const int32_t heading_height =
+            static_cast<int32_t>(std::max(heading.size(), std::size_t{1})) * metrics.regular_line;
+        const bool show_bar = !dialog.files.empty() && dialog.progress_bytes_total > 0;
+        bool any_unreadable = false;
+        for (const ExportFile& file : dialog.files)
+            any_unreadable = any_unreadable || file.unreadable;
+        const std::string form_note = any_unreadable
+                                          ? std::string(shown(text, words::export_unreadable))
+                                      : !dialog.problem.empty() ? dialog.problem
+                                                                : std::string{};
+        const std::vector<std::string> note_lines =
+            form_note.empty() ? std::vector<std::string>{}
+                              : wrapped(building, kit::FontRole::small, form_note, inner, 0);
+        const auto lines_height = [&](const std::vector<std::string>& rows) {
+            return static_cast<int32_t>(rows.size()) * line;
+        };
+        const std::string sectors(shown(text, words::export_oa_sectors));
+        const int32_t sectors_room = std::max(inner - metrics.switch_width - gap, int32_t{1});
+        const std::vector<std::string> sectors_lines =
+            wrapped(building, kit::FontRole::small, sectors, sectors_room, 0);
+        const int32_t sectors_height = std::max(control, lines_height(sectors_lines));
+        const std::vector<std::string> include_lines =
+            wrapped(building, kit::FontRole::small, shown(text, words::export_include), inner, 0);
+        const std::vector<std::string> compatibility_lines = wrapped(
+            building, kit::FontRole::small, shown(text, words::export_compatibility), inner, 0
+        );
+        const auto block_height = [&](const std::vector<std::string>& rows) {
+            return std::max(lines_height(rows), line);
+        };
+
+        // Headings and the gap above the buttons give way, fullest first. Every
+        // warning is kept when a stage can hold them. Only a stage that cannot
+        // is paged, by whole warnings. When no stage holds even one warning
+        // with the pager, the sparsest stage shows the lines of that warning
+        // that fit, and the label keeps the whole sentence.
+        struct ChromeStage {
+            bool about{};
+            bool include_heading{};
+            bool compatibility_heading{};
+            int32_t button_gap{};
+        };
+
+        const ChromeStage stages[] = {
+            {true, true, true, section_gap},
+            {false, true, true, section_gap},
+            {false, true, false, section_gap},
+            {false, false, false, section_gap},
+            {false, false, false, gap},
+        };
+        static_assert(sizeof(stages) / sizeof(stages[0]) == 5);
+        const auto warning_span = [&](std::size_t start, std::size_t count) {
+            int32_t height = 0;
+            for (std::size_t at = start; at < start + count && at < warnings.size(); ++at)
+                height += lines_height(warnings[at].lines);
+            return height;
+        };
+        // `cut_lines` replaces the warnings' own height, for one warning shown
+        // as the lines that fit. `keep_where` leaves the folder row out when
+        // even those lines need its room.
+        const auto chrome = [&](const ChromeStage& stage,
+                                std::size_t start,
+                                std::size_t count,
+                                bool with_page,
+                                int32_t cut_lines = 0,
+                                bool keep_where = true) {
+            int32_t height =
+                pad + heading_height + gap + control + lines_height(oademo_choice.detail);
+            if (stage.about)
+                height += gap + lines_height(oademo_about);
+            height += gap + control + lines_height(tad_choice.detail);
+            if (stage.about)
+                height += gap + lines_height(tad_about);
+            if (show_bar)
+                height += gap + metrics.progress_bar_height;
+            if (dialog.format == ExportFormat::tad) {
+                height += section_gap;
+                if (stage.include_heading)
+                    height += block_height(include_lines) + gap;
+                height += sectors_height;
+                if (count > 0 || with_page) {
+                    height += section_gap;
+                    if (stage.compatibility_heading)
+                        height += block_height(compatibility_lines) + gap;
+                    if (cut_lines > 0)
+                        height += cut_lines * line;
+                    else
+                        height += warning_span(start, count);
+                    if (with_page)
+                        height += gap + control;
+                }
+            }
+            if (keep_where) {
+                height += section_gap + control;
+                if (!note_lines.empty())
+                    height += gap + lines_height(note_lines);
+            }
+            return height + stage.button_gap + control + pad;
+        };
+        bool about = false;
+        bool include_heading = false;
+        bool compatibility_heading = false;
+        int32_t button_gap = gap;
+        bool page = false;
+        std::size_t warning_start = std::min(dialog.warning_first, warnings.size());
+        if (!warnings.empty() && warning_start >= warnings.size())
+            warning_start = warnings.size() - 1;
+        std::size_t warning_count = 0;
+        int32_t partial_lines = 0;
+        bool show_where = true;
+        bool fitted = false;
+
+        struct WarningFit {
+            bool about{};
+            bool include_heading{};
+            bool compatibility_heading{};
+            int32_t button_gap{};
+            std::size_t count{};
+            int32_t partial_lines{};
+            bool page{};
+            bool where{true};
+        };
+
+        // The fullest stage that holds the most whole warnings. A later,
+        // sparser stage replaces it only when that stage holds more. The same
+        // choice at every page start, so the pages do not share a warning.
+        const auto fit_at = [&](std::size_t page_start) {
+            WarningFit fit;
+            fit.button_gap = gap;
+            if (page_start >= warnings.size())
+                return fit;
+            bool held = false;
+            bool spare = false;
+            ChromeStage spare_stage{false, false, false, gap};
+            std::size_t spare_count = 0;
+            for (const ChromeStage& candidate : stages) {
+                const std::size_t rest = warnings.size() - page_start;
+                // A page already turned still needs its pager. The first page
+                // does not, when every warning fits.
+                const bool turned = page_start > 0;
+                if (chrome(candidate, page_start, rest, turned) <= most_height) {
+                    fit.about = candidate.about;
+                    fit.include_heading = candidate.include_heading;
+                    fit.compatibility_heading = candidate.compatibility_heading;
+                    fit.button_gap = candidate.button_gap;
+                    fit.count = rest;
+                    fit.page = turned;
+                    held = true;
+                    break;
+                }
+                std::size_t held_count = 0;
+                for (std::size_t step = 1; step <= rest; ++step) {
+                    if (chrome(candidate, page_start, step, true) > most_height)
+                        break;
+                    held_count = step;
+                }
+                if (held_count > spare_count) {
+                    spare = true;
+                    spare_stage = candidate;
+                    spare_count = held_count;
+                }
+            }
+            if (!held && spare) {
+                fit.about = spare_stage.about;
+                fit.include_heading = spare_stage.include_heading;
+                fit.compatibility_heading = spare_stage.compatibility_heading;
+                fit.button_gap = spare_stage.button_gap;
+                fit.count = spare_count;
+                fit.page = true;
+                return fit;
+            }
+            if (held)
+                return fit;
+
+            // The last stage is the sparsest. The assert above keeps this the last.
+            const ChromeStage& sparse = stages[4];
+            const bool paging = page_start > 0 || page_start + 1 < warnings.size();
+            bool keep_where = true;
+            int32_t base = chrome(sparse, page_start, 0, paging, 0, true);
+            // A count of zero leaves the warning block out when the page has
+            // no pager. The lines are drawn under that block's gap.
+            if (!paging)
+                base += section_gap;
+            int32_t room = most_height - base;
+            if (room < line) {
+                keep_where = false;
+                base = chrome(sparse, page_start, 0, paging, 0, false);
+                if (!paging)
+                    base += section_gap;
+                room = most_height - base;
+            }
+            int32_t fitted_lines = room > 0 ? room / line : 0;
+            if (fitted_lines < 1)
+                fitted_lines = 1;
+            const int32_t have_lines = static_cast<int32_t>(warnings[page_start].lines.size());
+            fit.about = sparse.about;
+            fit.include_heading = sparse.include_heading;
+            fit.compatibility_heading = sparse.compatibility_heading;
+            fit.button_gap = sparse.button_gap;
+            fit.count = 1;
+            fit.partial_lines = fitted_lines >= have_lines ? 0 : fitted_lines;
+            fit.where = keep_where;
+            fit.page = paging;
+            return fit;
+        };
+
+        if (dialog.format != ExportFormat::tad || warnings.empty()) {
+            for (const ChromeStage& candidate : stages) {
+                if (chrome(candidate, 0, 0, false) > most_height)
+                    continue;
+                about = candidate.about;
+                include_heading = candidate.include_heading;
+                compatibility_heading = candidate.compatibility_heading;
+                button_gap = candidate.button_gap;
+                fitted = true;
+                break;
+            }
+            if (!fitted) {
+                about = false;
+                include_heading = false;
+                compatibility_heading = false;
+                button_gap = gap;
+            }
+            dialog.warning_span = 0;
+            dialog.warning_back = 0;
+            dialog.warning_more = false;
+        } else {
+            std::size_t boundary = 0;
+            std::size_t earlier = 0;
+            const std::size_t requested = warning_start;
+            while (boundary < requested && boundary < warnings.size()) {
+                const WarningFit step_fit = fit_at(boundary);
+                if (step_fit.count == 0)
+                    break;
+                const std::size_t next_start = boundary + step_fit.count;
+                if (next_start > requested)
+                    break;
+                earlier = boundary;
+                boundary = next_start;
+            }
+            const WarningFit chosen = fit_at(boundary);
+            if (boundary != dialog.warning_first) {
+                // The layout takes a const Library. A start inside a page is
+                // put back on that page's first warning, so the next page
+                // does not show a warning again.
+                const_cast<ExportDialog&>(dialog).warning_first = boundary;
+            }
+            warning_start = boundary;
+            about = chosen.about;
+            include_heading = chosen.include_heading;
+            compatibility_heading = chosen.compatibility_heading;
+            button_gap = chosen.button_gap;
+            warning_count = chosen.count;
+            partial_lines = chosen.partial_lines;
+            page = chosen.page;
+            show_where = chosen.where;
+            dialog.warning_span = chosen.count;
+            dialog.warning_back = boundary == 0 ? std::size_t{0} : earlier;
+            dialog.warning_more = chosen.count > 0 && boundary + chosen.count < warnings.size();
+        }
+        const kit::Rect dialog_rect = place_dialog(chrome(
+            ChromeStage{about, include_heading, compatibility_heading, button_gap},
+            warning_start,
+            warning_count,
+            page,
+            partial_lines,
+            show_where
+        ));
+        const int32_t left = dialog_rect.x + pad;
+        int32_t cursor = dialog_rect.y + pad;
+        // The buttons own the foot. A body row that would meet them is not drawn.
+        const int32_t foot_top = dialog_rect.y + dialog_rect.height - pad - control;
+        const auto above_foot = [&](int32_t height) { return cursor + height < foot_top; };
+        if (heading.empty())
+            cursor += metrics.regular_line;
+        for (const std::string& heading_line : heading) {
+            add_text(
+                building,
+                kit::FontRole::regular,
+                heading_line,
+                {left, cursor, inner, metrics.regular_line},
+                kit::Align::left,
+                kit::colour::text,
+                {}
+            );
+            cursor += metrics.regular_line;
+        }
+        cursor += gap;
+
+        const auto radio_row = [&](kit::ControlId id,
+                                   std::string control_name,
+                                   const FormatChoice& choice,
+                                   bool marked) {
+            const kit::Rect rect{left, cursor, inner, control};
+            kit::RadioLook look;
+            look.caption = choice.detail.empty() ? choice.full : choice.name;
+            look.on = marked;
+            look.hovered = hovered(building, id);
+            look.held = held(building, id);
+            const std::size_t before = building.list.controls.size();
+            kit::add_radio(
+                building.list, rect, look, id, unique_name(building, named(std::move(control_name)))
+            );
+            move_controls(building.list, before, building.overlay);
+            kit::Control& added = building.overlay.back();
+            added.focusable = true;
+            added.enabled = true;
+            added.text = choice.full;
+            building.export_order.push_back(added.id);
+            cursor += control;
+            for (const std::string& detail_line : choice.detail) {
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    detail_line,
+                    {left, cursor, inner, line},
+                    kit::Align::left,
+                    kit::colour::hint,
+                    {}
+                );
+                cursor += line;
+            }
+        };
+        const auto about_lines = [&](const std::vector<std::string>& rows) {
+            if (!about || rows.empty())
+                return;
+            cursor += gap;
+            for (const std::string& row : rows) {
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    row,
+                    {left, cursor, inner, line},
+                    kit::Align::left,
+                    kit::colour::hint,
+                    {}
+                );
+                cursor += line;
+            }
+        };
+        radio_row(
+            controls::export_format_oademo,
+            "export.format.oademo",
+            oademo_choice,
+            dialog.format == ExportFormat::oademo
+        );
+        about_lines(oademo_about);
+        cursor += gap;
+        radio_row(
+            controls::export_format_tad,
+            "export.format.tad",
+            tad_choice,
+            dialog.format == ExportFormat::tad
+        );
+        about_lines(tad_about);
+        if (show_bar) {
+            cursor += gap;
+            const uint64_t whole = std::max(dialog.progress_bytes_total, uint64_t{1});
+            const uint64_t taken = std::min(dialog.progress_bytes_done, whole);
+            const int32_t filled_bar = static_cast<int32_t>(std::min<uint64_t>(
+                taken * static_cast<uint64_t>(progress_whole) / whole,
+                static_cast<uint64_t>(progress_whole)
+            ));
+            kit::add_progress(
+                building.list,
+                {left, cursor, inner, metrics.progress_bar_height},
+                filled_bar,
+                progress_whole
+            );
+            cursor += metrics.progress_bar_height;
+        }
+
+        if (dialog.format == ExportFormat::tad) {
+            cursor += section_gap;
+            if (include_heading) {
+                for (const std::string& include_line : include_lines) {
+                    add_text(
+                        building,
+                        kit::FontRole::small,
+                        include_line,
+                        {left, cursor, inner, line},
+                        kit::Align::left,
+                        kit::colour::hint,
+                        {}
+                    );
+                    cursor += line;
+                }
+                if (include_lines.empty())
+                    cursor += line;
+                cursor += gap;
+            }
+            const kit::Rect swatch{left, cursor, metrics.switch_width, control};
+            kit::SwitchLook swatch_look;
+            swatch_look.on = dialog.keep_oa_sectors;
+            swatch_look.hovered = hovered(building, controls::export_oa_sectors);
+            swatch_look.off_caption = std::string(shown(text, words::registry_off));
+            swatch_look.on_caption = std::string(shown(text, words::registry_on));
+            const std::size_t before = building.list.controls.size();
+            kit::add_switch(
+                building.list,
+                swatch,
+                swatch_look,
+                controls::export_oa_sectors,
+                unique_name(building, named("export.oa-sectors"))
+            );
+            move_controls(building.list, before, building.overlay);
+            kit::Control& added = building.overlay.back();
+            added.focusable = true;
+            added.enabled = true;
+            added.text = sectors;
+            building.export_order.push_back(added.id);
+            const int32_t label_left = swatch.x + swatch.width + gap;
+            const int32_t label_width = std::max(left + inner - label_left, int32_t{0});
+            int32_t label_y = cursor;
+            for (const std::string& sectors_line : sectors_lines) {
+                add_text(
+                    building,
+                    kit::FontRole::small,
+                    sectors_line,
+                    {label_left, label_y, label_width, line},
+                    kit::Align::left,
+                    kit::colour::text,
+                    {}
+                );
+                label_y += line;
+            }
+            cursor += sectors_height;
+            if (warning_count > 0 || page) {
+                cursor += section_gap;
+                if (compatibility_heading) {
+                    for (const std::string& compatibility_line : compatibility_lines) {
+                        add_text(
+                            building,
+                            kit::FontRole::small,
+                            compatibility_line,
+                            {left, cursor, inner, line},
+                            kit::Align::left,
+                            kit::colour::hint,
+                            {}
+                        );
+                        cursor += line;
+                    }
+                    if (compatibility_lines.empty())
+                        cursor += line;
+                    cursor += gap;
+                }
+                for (std::size_t drawn = 0; drawn < warning_count; ++drawn) {
+                    const std::size_t place = warning_start + drawn;
+                    if (place >= warnings.size() || place >= controls::most_export_warnings)
+                        break;
+                    const WrappedNote& note = warnings[place];
+                    // A warning cut to the lines that fit ends with the kit's
+                    // ellipsis, as its other cuts do. The label keeps the
+                    // whole sentence.
+                    const bool cut = drawn == 0 && partial_lines > 0 &&
+                                     static_cast<std::size_t>(partial_lines) < note.lines.size();
+                    const std::vector<std::string> ended_lines =
+                        cut ? wrapped(
+                                  building,
+                                  kit::FontRole::small,
+                                  note.sentence,
+                                  inner,
+                                  static_cast<std::size_t>(partial_lines)
+                              )
+                            : std::vector<std::string>{};
+                    const std::vector<std::string>& shown_lines = cut ? ended_lines : note.lines;
+                    const int32_t drawn_lines = static_cast<int32_t>(shown_lines.size());
+                    const int32_t note_height = drawn_lines * line;
+                    if (!above_foot(note_height))
+                        break;
+                    const int32_t top = cursor;
+                    for (int32_t line_at = 0; line_at < drawn_lines; ++line_at) {
+                        add_text(
+                            building,
+                            kit::FontRole::small,
+                            shown_lines[static_cast<std::size_t>(line_at)],
+                            {left, cursor, inner, line},
+                            kit::Align::left,
+                            kit::colour::text,
+                            {}
+                        );
+                        cursor += line;
+                    }
+                    add_label(
+                        building.overlay,
+                        controls::first_export_warning + static_cast<kit::ControlId>(place),
+                        {left, top, inner, std::max(cursor - top, line)},
+                        unique_name(building, named("export.warning." + std::to_string(place))),
+                        note.sentence,
+                        {},
+                        -1
+                    );
+                }
+                if (page && above_foot(gap + control)) {
+                    cursor += gap;
+                    const bool previous = warning_start > 0;
+                    const bool more = warning_start + warning_count < warnings.size();
+                    const std::string more_caption(shown(text, words::export_more_warnings));
+                    const std::string previous_caption(
+                        shown(text, words::export_previous_warnings)
+                    );
+                    const int32_t more_width =
+                        std::min(small_button_width(building, more_caption), inner / 2);
+                    const int32_t previous_width =
+                        std::min(small_button_width(building, previous_caption), inner / 2);
+                    if (previous)
+                        take_export_button(
+                            building,
+                            controls::export_warnings_previous,
+                            "export.warnings.previous",
+                            {left, cursor, previous_width, control},
+                            previous_caption,
+                            false,
+                            true
+                        );
+                    if (more)
+                        take_export_button(
+                            building,
+                            controls::export_warnings_more,
+                            "export.warnings.more",
+                            {left + inner - more_width, cursor, more_width, control},
+                            more_caption,
+                            false,
+                            true
+                        );
+                    cursor += control;
+                }
+            }
+        }
+
+        if (show_where && above_foot(section_gap + control)) {
+            cursor += section_gap;
+            const std::string where_caption(shown(text, words::use_where));
+            const std::string where_value = folder_shown();
+            const std::string where_line = where_caption + "  " + where_value;
+            const int32_t choose_width = std::min(
+                small_button_width(building, shown(text, words::export_choose)), inner / 3
+            );
+            const int32_t where_width = std::max(inner - choose_width - gap, int32_t{1});
+            add_text(
+                building,
+                kit::FontRole::small,
+                cut(building, kit::FontRole::small, where_line, where_width),
+                {left, cursor, where_width, control},
+                kit::Align::left,
+                kit::colour::text,
+                {}
+            );
+            add_label(
+                building.overlay,
+                controls::export_where,
+                {left, cursor, where_width, control},
+                unique_name(building, named("export.where")),
+                where_value,
+                {},
+                -1
+            );
+            take_export_button(
+                building,
+                controls::export_choose,
+                "export.choose",
+                {left + inner - choose_width, cursor, choose_width, control},
+                std::string(shown(text, words::export_choose)),
+                false,
+                !dialog.folder.empty()
+            );
+            cursor += control;
+            if (!note_lines.empty() && above_foot(gap + lines_height(note_lines))) {
+                cursor += gap;
+                const int32_t top = cursor;
+                for (const std::string& note_line : note_lines) {
+                    add_text(
+                        building,
+                        kit::FontRole::small,
+                        note_line,
+                        {left, cursor, inner, line},
+                        kit::Align::left,
+                        kit::colour::text,
+                        {}
+                    );
+                    cursor += line;
+                }
+                note_of(
+                    controls::export_note,
+                    {left, top, inner, std::max(cursor - top, line)},
+                    form_note
+                );
+            }
+        }
+
+        const int32_t button_y = dialog_rect.y + dialog_rect.height - pad - control;
+        const bool can_run = export_can_run(dialog);
+        const std::string export_caption(shown(text, words::export_confirm));
+        const std::string cancel_caption(shown(text, words::action_cancel));
+        const int32_t export_width =
+            std::min(small_button_width(building, export_caption), inner / 2);
+        const int32_t cancel_width =
+            std::min(small_button_width(building, cancel_caption), inner / 3);
+        take_export_button(
+            building,
+            controls::export_cancel,
+            "export.cancel",
+            {left + inner - export_width - gap - cancel_width, button_y, cancel_width, control},
+            cancel_caption,
+            false,
+            true
+        );
+        take_export_button(
+            building,
+            controls::export_confirm,
+            "export.export",
+            {left + inner - export_width, button_y, export_width, control},
+            export_caption,
+            true,
+            can_run
+        );
+        static_cast<void>(cursor);
+    }
+
+    const std::size_t before = building.list.controls.size();
+    kit::ButtonLook shade_look;
+    shade_look.style = kit::ButtonStyle::quiet;
+    kit::add_button(
+        building.list, shade, shade_look, controls::export_blocker, named("export.block")
+    );
+    move_controls(building.list, before, building.overlay);
+    building.overlay.back().enabled = true;
+    building.overlay.back().focusable = false;
+}
+
+/// Which run of stops becomes one composite, or none when the stop stays.
+enum class StopGroup : uint8_t {
+    none,
+    tabs,
+    filters,
+    tags,
+    expansions,
+    detail_tags,
+    replay_source,
+};
+
+/// Returns the group a stop belongs to, or none when it stays its own stop.
+///
+/// @param id the control
+/// @return its group
+StopGroup stop_group(kit::ControlId id) {
+    if (id >= controls::first_tab &&
+        id < controls::first_tab + static_cast<kit::ControlId>(tab_total))
+        return StopGroup::tabs;
+    if ((id >= controls::first_filter &&
+         id < controls::first_filter + static_cast<kit::ControlId>(filter_total)) ||
+        (id >= controls::first_replay_filter &&
+         id < controls::first_replay_filter + static_cast<kit::ControlId>(replay_filter_total)) ||
+        controls::core_filter_entry(id))
+        return StopGroup::filters;
+    if (id >= controls::first_tag && id < controls::first_menu_item)
+        return StopGroup::tags;
+    if (controls::expansion_control(id))
+        return StopGroup::expansions;
+    if (controls::detail_tag_control(id))
+        return StopGroup::detail_tags;
+    if (id == controls::replay_source_computer || id == controls::replay_source_core)
+        return StopGroup::replay_source;
+    return StopGroup::none;
+}
+
+/// Appends one run of parts as a single stop, in the order the parts were stopped.
+///
+/// Tabs, filters and tags are a column. Expansion pills and a package's tags
+/// are a row: they wrap, and Left and Right follow the pill order. The
+/// Replays switch is a row of two tabs. The part
+/// the keys are on is the one they return to; a filter or tag remembers the
+/// one that last had the focus. Otherwise the chosen part, then the first.
+///
+/// @param[in,out] list the display list; the composite is appended
+/// @param[in,out] order the stops; the composite's id is appended
+/// @param kind which run
+/// @param parts the parts, in order
+/// @param state the focus, and the filter or tag to return to
+/// @param chosen the part that is chosen, for a run whose parts are not
+///        checked controls; no_control for the others
+void append_group(
+    kit::DisplayList& list,
+    std::vector<kit::ControlId>& order,
+    StopGroup kind,
+    std::vector<kit::ControlId> parts,
+    const ScreenState& state,
+    kit::ControlId chosen
+) {
+    if (parts.empty())
+        return;
+    kit::Composite composite;
+    switch (kind) {
+    case StopGroup::tabs:
+        composite.id = controls::tabs;
+        composite.axis = kit::CompositeAxis::column;
+        composite.role = kit::CompositeRole::tab_list;
+        composite.name = named("tabs");
+        break;
+    case StopGroup::filters:
+        composite.id = controls::filters;
+        composite.axis = kit::CompositeAxis::column;
+        composite.role = kit::CompositeRole::list;
+        composite.name = named("filters");
+        break;
+    case StopGroup::tags:
+        composite.id = controls::tags_stop;
+        composite.axis = kit::CompositeAxis::column;
+        composite.role = kit::CompositeRole::list;
+        composite.name = named("tags");
+        break;
+    case StopGroup::expansions:
+        composite.id = controls::expansions;
+        composite.axis = kit::CompositeAxis::row;
+        composite.role = kit::CompositeRole::list;
+        composite.name = named("expansions");
+        break;
+    case StopGroup::detail_tags:
+        composite.id = controls::detail_tags;
+        composite.axis = kit::CompositeAxis::row;
+        composite.role = kit::CompositeRole::list;
+        composite.name = named("detail-tags");
+        break;
+    case StopGroup::replay_source:
+        composite.id = controls::replay_source_stop;
+        composite.axis = kit::CompositeAxis::row;
+        composite.role = kit::CompositeRole::tab_list;
+        composite.name = named("replays.source");
+        break;
+    case StopGroup::none:
+        return;
+    }
+    const auto contains = [&parts](kit::ControlId id) {
+        return std::find(parts.begin(), parts.end(), id) != parts.end();
+    };
+    if (contains(state.interaction.focused))
+        composite.current = state.interaction.focused;
+    else if (
+        (kind == StopGroup::filters || kind == StopGroup::tags) && contains(state.filters_stop)
+    )
+        composite.current = state.filters_stop;
+    else if (chosen != kit::no_control && contains(chosen))
+        composite.current = chosen;
+    composite.parts = std::move(parts);
+    order.push_back(composite.id);
+    list.composites.push_back(std::move(composite));
+}
+
+/// Groups the tabs, the filters, the tags, the expansion pills, a package's
+/// tags and the Replays switch into one stop each, and puts Refresh
+/// immediately before the close mark. The other stops keep the order they
+/// were declared in.
+///
+/// @param building the layout
+/// @param[in,out] list the display list
+void group_library_stops(const Building& building, kit::DisplayList& list) {
+    std::vector<kit::ControlId> order;
+    std::vector<kit::ControlId> run;
+    StopGroup run_kind = StopGroup::none;
+    bool saw_refresh = false;
+    const auto flush = [&]() {
+        if (run_kind == StopGroup::none) {
+            order.insert(order.end(), run.begin(), run.end());
+        } else {
+            // The switch's sides are buttons, not checked tabs: Tab lands on the chosen one.
+            const kit::ControlId chosen =
+                run_kind != StopGroup::replay_source ? kit::no_control
+                : building.library->replays.source == ReplaySource::core_prime
+                    ? controls::replay_source_core
+                    : controls::replay_source_computer;
+            append_group(list, order, run_kind, std::move(run), *building.state, chosen);
+        }
+        run.clear();
+        run_kind = StopGroup::none;
+    };
+    for (const kit::ControlId id : building.order) {
+        if (id == controls::refresh) {
+            saw_refresh = true;
+            continue;
+        }
+        const StopGroup kind = stop_group(id);
+        if (kind == StopGroup::none) {
+            flush();
+            order.push_back(id);
+            continue;
+        }
+        if (kind != run_kind)
+            flush();
+        run_kind = kind;
+        run.push_back(id);
+    }
+    flush();
+    if (saw_refresh) {
+        const auto close = std::find(order.begin(), order.end(), controls::close_x);
+        if (close == order.end())
+            order.push_back(controls::refresh);
+        else
+            order.insert(close, controls::refresh);
+    }
+    list.tab_order = std::move(order);
+}
+
+/// How many Unicode scalars `text` holds up to `bytes`.
+std::size_t scalars_until(std::string_view text, std::size_t bytes) {
+    std::size_t count = 0;
+    std::size_t at = 0;
+    const std::size_t end = std::min(bytes, text.size());
+    while (at < end) {
+        const auto lead = static_cast<unsigned char>(text[at]);
+        std::size_t length = 1;
+        if ((lead & 0xE0U) == 0xC0U)
+            length = 2;
+        else if ((lead & 0xF0U) == 0xE0U)
+            length = 3;
+        else if ((lead & 0xF8U) == 0xF0U)
+            length = 4;
+        if (at + length > text.size())
+            break;
+        at += length;
+        ++count;
+    }
+    return count;
+}
+
+/// The password as bullets, one per character, with the caret on a bullet.
+kit::TextField password_mask(const SignInDialog& dialog) {
+    constexpr std::string_view bullet = "\xE2\x80\xA2";
+    const std::size_t count = scalars_until(dialog.password, dialog.password.size());
+    const std::size_t caret = scalars_until(dialog.password, dialog.password_caret);
+    kit::TextField field;
+    field.text.reserve(count * bullet.size());
+    for (std::size_t index = 0; index < count; ++index)
+        field.text += bullet;
+    field.caret = caret * bullet.size();
+    return field;
+}
+
+/// One button of a question over the Library. It joins `order` when it takes a press.
+void take_question_button(
+    Building& building,
+    std::vector<kit::ControlId>& order,
+    kit::ControlId id,
+    std::string control_name,
+    const kit::Rect& rect,
+    std::string caption,
+    bool accent,
+    bool takes
+) {
+    kit::ButtonLook look;
+    look.caption = cut(building, kit::FontRole::small, caption, rect.width);
+    look.style = accent && takes ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+    look.hovered = hovered(building, id);
+    look.held = held(building, id);
+    look.enabled = takes;
+    const std::size_t before = building.list.controls.size();
+    kit::add_button(
+        building.list, rect, look, id, unique_name(building, named(std::move(control_name)))
+    );
+    move_controls(building.list, before, building.overlay);
+    kit::Control& added = building.overlay.back();
+    added.focusable = takes;
+    added.enabled = takes;
+    added.text = std::move(caption);
+    if (takes)
+        order.push_back(added.id);
+}
+
+/// A text field of a question. The drawn text is `field`, never a secret the model holds.
+void take_question_field(
+    Building& building,
+    std::vector<kit::ControlId>& order,
+    kit::ControlId id,
+    std::string control_name,
+    const kit::Rect& rect,
+    kit::TextField field,
+    std::string placeholder,
+    bool takes
+) {
+    kit::SearchLook look;
+    look.magnifier = false;
+    look.field = std::move(field);
+    look.focused = focused(building, id);
+    look.hovered = hovered(building, id);
+    look.placeholder =
+        cut(building, kit::FontRole::regular, placeholder, kit::field_text_rect(rect, look).width);
+    const std::size_t before = building.list.controls.size();
+    kit::add_search(
+        building.list, rect, look, id, unique_name(building, named(std::move(control_name)))
+    );
+    move_controls(building.list, before, building.overlay);
+    kit::Control& added = building.overlay.back();
+    added.focusable = takes;
+    added.enabled = takes;
+    if (takes)
+        order.push_back(added.id);
+}
+
+struct QuestionFrame {
+    kit::Rect dialog{};
+    int32_t left{};
+    int32_t inner{};
+    int32_t cursor{};
+    int32_t control{};
+    int32_t gap{};
+    int32_t pad{};
+};
+
+/// The shade, the panel and the title. The caller places fields under `cursor`.
+QuestionFrame place_question(
+    Building& building, const Window& window, std::string_view title, int32_t body_rows
+) {
+    const kit::Metrics& metrics = *building.metrics;
+    const bool compact = building.size_class == kit::SizeClass::compact;
+    const kit::Rect shade{0, 0, window.width, window.height};
+    kit::Item& dim = add_item(building.list, kit::Role::blend, shade, {});
+    dim.colour = kit::colour::backdrop;
+    dim.opacity = 180;
+    const int32_t outer = compact ? metrics.space : window.padding;
+    const int32_t pad = compact ? 2 * metrics.space : metrics.window_padding;
+    const int32_t gap = metrics.space;
+    const int32_t control = metrics.control_height;
+    const int32_t room_width = std::max(window.width - 2 * outer, int32_t{1});
+    const int32_t dialog_width = compact ? room_width : std::min(metrics.notice_width, room_width);
+    const int32_t inner = std::max(dialog_width - 2 * pad, int32_t{1});
+    const int32_t most_height = std::max(window.height - 2 * outer, int32_t{1});
+    const int32_t wanted =
+        pad + metrics.regular_line + gap + body_rows * (control + gap) + gap + control + pad;
+    const int32_t height = std::min(std::max(wanted, pad + control + pad), most_height);
+    const int32_t x = (window.width - dialog_width) / 2;
+    const int32_t y = std::max((window.height - height) / 2, int32_t{0});
+    const kit::Rect dialog{x, y, dialog_width, height};
+    add_item(building.list, kit::Role::fill, dialog, {}).colour = kit::colour::panel;
+    add_item(building.list, kit::Role::outline, dialog, {}).colour = kit::colour::control_border;
+    const int32_t left = dialog.x + pad;
+    int32_t cursor = dialog.y + pad;
+    add_text(
+        building,
+        kit::FontRole::regular,
+        cut(building, kit::FontRole::regular, std::string(title), inner),
+        {left, cursor, inner, metrics.regular_line},
+        kit::Align::left,
+        kit::colour::text,
+        {}
+    );
+    cursor += metrics.regular_line + gap;
+    return {dialog, left, inner, cursor, control, gap, pad};
+}
+
+/// Appends the sign-in question. The password field shows bullets.
+void add_sign_in(Building& building, const Window& window) {
+    const Library& library = *building.library;
+    const SignInDialog& dialog = library.sign_in;
+    if (!dialog.open)
+        return;
+    const TextHooks& text = library.text;
+    // Title, handle, password, note, buttons.
+    QuestionFrame frame = place_question(building, window, shown(text, words::sign_in_title), 4);
+    kit::TextField handle;
+    handle.text = dialog.handle;
+    handle.caret = std::min(dialog.handle_caret, dialog.handle.size());
+    take_question_field(
+        building,
+        building.sign_in_order,
+        controls::sign_in_handle,
+        "sign-in.handle",
+        {frame.left, frame.cursor, frame.inner, frame.control},
+        std::move(handle),
+        std::string(shown(text, words::sign_in_handle)),
+        !dialog.busy
+    );
+    frame.cursor += frame.control + frame.gap;
+    take_question_field(
+        building,
+        building.sign_in_order,
+        controls::sign_in_password,
+        "sign-in.password",
+        {frame.left, frame.cursor, frame.inner, frame.control},
+        password_mask(dialog),
+        std::string(shown(text, words::sign_in_password)),
+        !dialog.busy
+    );
+    frame.cursor += frame.control + frame.gap;
+    const std::string note = dialog.busy           ? std::string(shown(text, words::sign_in_busy))
+                             : dialog.note.empty() ? std::string(shown(text, words::sign_in_forgot))
+                                                   : dialog.note;
+    add_text(
+        building,
+        kit::FontRole::small,
+        cut(building, kit::FontRole::small, note, frame.inner),
+        {frame.left, frame.cursor, frame.inner, frame.control},
+        kit::Align::left,
+        kit::colour::text,
+        {}
+    );
+    add_label(
+        building.overlay,
+        controls::sign_in_note,
+        {frame.left, frame.cursor, frame.inner, frame.control},
+        unique_name(building, named("sign-in.note")),
+        note,
+        {},
+        -1
+    );
+    const int32_t button_y = frame.dialog.y + frame.dialog.height - frame.pad - frame.control;
+    const std::string submit_caption(shown(text, words::action_sign_in));
+    const std::string cancel_caption(shown(text, words::action_cancel));
+    const int32_t submit_width =
+        std::min(small_button_width(building, submit_caption), frame.inner / 2);
+    const int32_t cancel_width =
+        std::min(small_button_width(building, cancel_caption), frame.inner / 2);
+    const bool can = sign_in_can_submit(dialog);
+    take_question_button(
+        building,
+        building.sign_in_order,
+        controls::sign_in_submit,
+        "sign-in.submit",
+        {frame.left, button_y, submit_width, frame.control},
+        submit_caption,
+        true,
+        can
+    );
+    take_question_button(
+        building,
+        building.sign_in_order,
+        controls::sign_in_cancel,
+        "sign-in.cancel",
+        {frame.left + frame.inner - cancel_width, button_y, cancel_width, frame.control},
+        cancel_caption,
+        false,
+        true
+    );
+    const std::size_t before = building.list.controls.size();
+    kit::ButtonLook shade_look;
+    shade_look.style = kit::ButtonStyle::quiet;
+    kit::add_button(
+        building.list,
+        {0, 0, window.width, window.height},
+        shade_look,
+        controls::sign_in_blocker,
+        unique_name(building, named("sign-in.block"))
+    );
+    move_controls(building.list, before, building.overlay);
+    // A press tries controls from the front. The shade stays at the back of
+    // the overlay, as Export's does, so a press on a field wins and a press
+    // on the shade still covers the Library behind it.
+    if (!building.overlay.empty() && building.overlay.back().id == controls::sign_in_blocker) {
+        building.overlay.back().focusable = false;
+        building.overlay.back().enabled = true;
+    }
+}
+
+/// Appends the share question. Public is offered first.
+void add_share(Building& building, const Window& window) {
+    const Library& library = *building.library;
+    const ShareQuestion& dialog = library.share_question;
+    if (!dialog.open)
+        return;
+    const TextHooks& text = library.text;
+    QuestionFrame frame = place_question(building, window, shown(text, words::share_title), 4);
+    kit::TextField title;
+    title.text = dialog.title;
+    title.caret = std::min(dialog.title_caret, dialog.title.size());
+    take_question_field(
+        building,
+        building.share_order,
+        controls::share_title,
+        "share.title",
+        {frame.left, frame.cursor, frame.inner, frame.control},
+        std::move(title),
+        std::string(shown(text, words::share_title_label)),
+        !dialog.busy
+    );
+    frame.cursor += frame.control + frame.gap;
+    const std::string public_caption(shown(text, words::share_public));
+    const std::string unlisted_caption(shown(text, words::share_unlisted));
+    const int32_t half = std::max((frame.inner - frame.gap) / 2, int32_t{1});
+    take_question_button(
+        building,
+        building.share_order,
+        controls::share_public,
+        "share.public",
+        {frame.left, frame.cursor, half, frame.control},
+        public_caption,
+        dialog.listed,
+        !dialog.busy
+    );
+    take_question_button(
+        building,
+        building.share_order,
+        controls::share_unlisted,
+        "share.unlisted",
+        {frame.left + frame.inner - half, frame.cursor, half, frame.control},
+        unlisted_caption,
+        !dialog.listed,
+        !dialog.busy
+    );
+    frame.cursor += frame.control + frame.gap;
+    const std::string share_note =
+        dialog.busy ? std::string(shown(text, words::share_busy)) : dialog.note;
+    if (!share_note.empty()) {
+        add_text(
+            building,
+            kit::FontRole::small,
+            cut(building, kit::FontRole::small, share_note, frame.inner),
+            {frame.left, frame.cursor, frame.inner, frame.control},
+            kit::Align::left,
+            kit::colour::text,
+            {}
+        );
+        add_label(
+            building.overlay,
+            controls::share_note,
+            {frame.left, frame.cursor, frame.inner, frame.control},
+            unique_name(building, named("share.note")),
+            share_note,
+            {},
+            -1
+        );
+    }
+    const int32_t button_y = frame.dialog.y + frame.dialog.height - frame.pad - frame.control;
+    const std::string submit_caption(shown(text, words::share_confirm));
+    const std::string cancel_caption(shown(text, words::action_cancel));
+    const int32_t submit_width =
+        std::min(small_button_width(building, submit_caption), frame.inner / 2);
+    const int32_t cancel_width =
+        std::min(small_button_width(building, cancel_caption), frame.inner / 2);
+    take_question_button(
+        building,
+        building.share_order,
+        controls::share_submit,
+        "share.submit",
+        {frame.left, button_y, submit_width, frame.control},
+        submit_caption,
+        true,
+        share_can_submit(dialog)
+    );
+    take_question_button(
+        building,
+        building.share_order,
+        controls::share_cancel,
+        "share.cancel",
+        {frame.left + frame.inner - cancel_width, button_y, cancel_width, frame.control},
+        cancel_caption,
+        false,
+        true
+    );
+    const std::size_t before = building.list.controls.size();
+    kit::ButtonLook shade_look;
+    shade_look.style = kit::ButtonStyle::quiet;
+    kit::add_button(
+        building.list,
+        {0, 0, window.width, window.height},
+        shade_look,
+        controls::share_blocker,
+        unique_name(building, named("share.block"))
+    );
+    move_controls(building.list, before, building.overlay);
+    if (!building.overlay.empty() && building.overlay.back().id == controls::share_blocker) {
+        building.overlay.back().focusable = false;
+        building.overlay.back().enabled = true;
+    }
+}
+
 /// Finishes a layout: the window's edge, the focus ring, the open menu over
 /// everything, the key tooltip, and the controls in the order a press tries them.
 ///
@@ -8050,6 +12144,9 @@ kit::DisplayList finish(Building& building, const Window& window) {
     add_key_tooltip(building, window);
     add_base_chooser(building, window);
     add_key_use(building, window);
+    add_export(building, window);
+    add_sign_in(building, window);
+    add_share(building, window);
     for (kit::Control& control : building.top)
         if (control.id == controls::close_x)
             tab_stop(building, control);
@@ -8066,13 +12163,140 @@ kit::DisplayList finish(Building& building, const Window& window) {
           &building.footer})
         for (kit::Control& control : *group)
             list.controls.push_back(std::move(control));
-    if (building.library->chooser.open)
+    std::vector<kit::ControlId>* question = nullptr;
+    if (building.library->export_dialog.open)
+        question = &building.export_order;
+    else if (building.library->sign_in.open)
+        question = &building.sign_in_order;
+    else if (building.library->share_question.open)
+        question = &building.share_order;
+    if (question != nullptr) {
+        list.tab_order = std::move(*question);
+        // The question is modal. Tab and the arrows stay inside it, so a
+        // control of the Library behind the shade does not take the focus.
+        const std::unordered_set<kit::ControlId> in_dialog(
+            list.tab_order.begin(), list.tab_order.end()
+        );
+        for (kit::Control& control : list.controls)
+            if (in_dialog.count(control.id) == 0)
+                control.focusable = false;
+    } else if (building.library->chooser.open)
         list.tab_order = std::move(building.chooser_order);
     else if (building.library->key_use.open)
         list.tab_order = std::move(building.question_order);
     else
-        list.tab_order = std::move(building.order);
+        group_library_stops(building, list);
     return list;
+}
+
+/// Lays out Compact's page of the selected replay: its map in the header;
+/// its details in a card that scrolls; WATCH, EXPORT, KEEP, DELETE (and its
+/// confirm) and OPEN FOLDER, and BACK to the list, in the footer. When the
+/// buttons wrap, the footer grows so a second row stays inside the window.
+///
+/// @param library the model, with a replay selected
+/// @param state the hover, press, focus and scroll
+/// @param frame the room; the page takes its class's window size
+/// @param fonts the fonts its texts are measured in
+/// @return what the page draws and where its controls are
+kit::DisplayList replay_page_layout(
+    const Library& library,
+    const ScreenState& state,
+    const kit::Frame& frame,
+    const kit::Fonts& fonts
+) {
+    Building building = start(library, state, frame, fonts);
+    Window window = window_of(frame);
+    const kit::Metrics& metrics = *building.metrics;
+    const ReplayRow& row = *selected_replay(library);
+    // Compact's footer is one row. When the card's buttons wrap, that row
+    // grows so the second line stays inside the dialog. Back stays on the
+    // first row, at the right.
+    const int32_t back_width = button_width(building, action_text(Action::back, library.text));
+    const int32_t back_left = window.right - back_width;
+    const int32_t buttons_width = std::max(back_left - metrics.label_gap - window.left, int32_t{0});
+    const ActionPlan actions =
+        plan_actions(building, fitted_replay_actions(building, buttons_width), buttons_width);
+    if (frame.size_class == kit::SizeClass::compact && actions.height > window.button_height) {
+        const int32_t extra = actions.height - window.button_height;
+        window.footer_height += extra;
+        window.footer_rule -= extra;
+        window.footer_top = window.footer_rule + 1;
+        window.button_top = window.footer_top + metrics.space;
+    }
+    const int32_t buttons_height = std::max(actions.height, window.button_height);
+    add_library_header(building, window, replay_title(row), {}, replay_time_text(row.minute));
+    const int32_t body_top = window.body_top + window.gap;
+    const int32_t pad = 2 * metrics.space;
+    // The card stops above the footer, which has grown when the buttons wrap.
+    const kit::Rect card{
+        window.left,
+        body_top,
+        window.right - window.left,
+        std::max(window.footer_rule - window.bottom_gap - body_top, int32_t{0}),
+    };
+    add_card_face(building, card);
+    const kit::Rect view{
+        card.x + pad,
+        card.y + pad,
+        std::max(card.width - 2 * pad, int32_t{0}),
+        std::max(card.height - 2 * pad, int32_t{0}),
+    };
+    const auto lay_out_body = [&](Building& into, int32_t width, int32_t offset) {
+        const std::size_t first_item = into.list.items.size();
+        const int32_t first = view.y - offset;
+        static_cast<void>(add_replay_details(into, row, view.x, first, width, view));
+        const std::optional<controls::Extent> extent =
+            controls::clipped_extent(into.list, view, first_item);
+        return extent ? extent->bottom - first : 0;
+    };
+    Building trial = building;
+    const int32_t whole_height = lay_out_body(trial, view.width, 0);
+    const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const bool scrolls = whole_height > view.height;
+    const int32_t width = scrolls ? view.width - well_width - metrics.button_gap : view.width;
+    int32_t height = whole_height;
+    if (scrolls) {
+        trial = building;
+        height = lay_out_body(trial, width, 0);
+    }
+    const int32_t limit = kit::ScrollArea::limit_for(height, view.height);
+    const int32_t offset = std::clamp(state.details_scroll, int32_t{0}, limit);
+    // Its parts scroll with the details: the note is in their group.
+    const std::size_t first_detail = building.detail.size();
+    lay_out_body(building, width, offset);
+    for (std::size_t index = first_detail; index < building.detail.size(); ++index)
+        building.detail[index].group = controls::details_group;
+    if (limit > 0) {
+        kit::ScrollArea scroll;
+        scroll.view = view;
+        scroll.well = {view.x + view.width - well_width, view.y, well_width, view.height};
+        scroll.content_height = height;
+        scroll.limit = limit;
+        scroll.offset = offset;
+        add_item(building.list, kit::Role::scroll_bar, scroll.well, {}).look = kit::ScrollBarLook{
+            scroll.thumb(metrics.least_thumb_height), state.bar_held == Pane::details
+        };
+    }
+
+    add_footer_band(building, window);
+    const std::string_view back_caption = action_text(Action::back, library.text);
+    add_replay_buttons(
+        building, {window.left, window.button_top, buttons_width, buttons_height}, building.footer
+    );
+    add_button(
+        building,
+        building.footer,
+        {back_left, window.button_top, back_width, window.button_height},
+        back_caption,
+        false,
+        true,
+        controls::back,
+        named("back"),
+        {},
+        -1
+    );
+    return finish(building, window);
 }
 
 } // namespace
@@ -8155,6 +12379,33 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
         }
         break;
     }
+    case MenuKind::replay_kind:
+        for (const ReplayKindItem& kind : replay_kind_items(library)) {
+            MenuItem item;
+            item.caption = kind.title;
+            item.word = kind.id.empty() ? std::string("all") : name_word(kind.id);
+            item.replay_kind = kind.id;
+            items.push_back(std::move(item));
+        }
+        break;
+    case MenuKind::replay_sort:
+        for (std::size_t index = 0; index < replay_sort_order.size(); ++index) {
+            MenuItem item;
+            item.caption = replay_sort_title(library, replay_sort_order[index]);
+            item.word = std::string(replay_sort_words[index]);
+            item.replay_sort = replay_sort_order[index];
+            items.push_back(std::move(item));
+        }
+        break;
+    case MenuKind::replay_planet:
+        for (const std::string& planet : library.inputs.replays.planets) {
+            MenuItem item;
+            item.caption = planet;
+            item.word = name_word(planet);
+            item.replay_planet = planet;
+            items.push_back(std::move(item));
+        }
+        break;
     case MenuKind::more: {
         const Entry* entry = selected_entry(library);
         if (entry == nullptr)
@@ -8176,6 +12427,17 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
 int32_t chosen_item(const Library& library, MenuKind menu, const std::vector<MenuItem>& items) {
     if (menu == MenuKind::more)
         return -1;
+    if (menu == MenuKind::replay_kind || menu == MenuKind::replay_sort ||
+        menu == MenuKind::replay_planet) {
+        for (std::size_t place = 0; place < items.size(); ++place) {
+            const MenuItem& item = items[place];
+            if ((item.replay_kind && *item.replay_kind == library.replays.kind) ||
+                (item.replay_sort && *item.replay_sort == library.replays.sort) ||
+                (item.replay_planet && *item.replay_planet == library.replays.planet))
+                return static_cast<int32_t>(place);
+        }
+        return -1;
+    }
     const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
     for (std::size_t place = 0; place < items.size(); ++place) {
         const MenuItem& item = items[place];
@@ -8266,6 +12528,9 @@ kit::DisplayList library_layout(
     if (frame.size_class == kit::SizeClass::compact && state.details_page && library.details_open &&
         selected_entry(library) != nullptr)
         return details_page_layout(library, state, frame, fonts);
+    if (frame.size_class == kit::SizeClass::compact && state.replay_page &&
+        library.tab == Tab::replays && selected_replay(library) != nullptr)
+        return replay_page_layout(library, state, frame, fonts);
     Building building = start(library, state, frame, fonts);
     const Window window = window_of(frame);
     const bool compact = frame.size_class == kit::SizeClass::compact;
@@ -8291,13 +12556,15 @@ kit::DisplayList library_layout(
     add_section_nav(building, nav);
     const bool active = library.tab == Tab::active;
     const bool registries = library.tab == Tab::registries;
-    const bool catalogue = !active && !registries;
+    const bool replays = library.tab == Tab::replays;
+    const bool catalogue = !active && !registries && !replays;
     // The Updates tab's line, count and UPDATE ALL, takes a row over its list.
     const bool updates_line = library.tab == Tab::updates;
     const int32_t updates_row = window.button_height + window.gap;
     int32_t top = content.y;
-    const int32_t heading_height = catalogue ? window.field_height : building.metrics->small_line;
-    add_section_heading(building, {content.x, top, content.width, heading_height}, catalogue);
+    const bool searched = catalogue || replays;
+    const int32_t heading_height = searched ? window.field_height : building.metrics->small_line;
+    add_section_heading(building, {content.x, top, content.width, heading_height}, searched);
     top += heading_height + window.gap;
     // The filters join Tab's order after the search, which the heading added.
     stop_on_filters(building);
@@ -8311,6 +12578,8 @@ kit::DisplayList library_layout(
     };
     if (active)
         add_active(building, body_of(top));
+    else if (replays)
+        add_replays(building, body_of(top), window);
     else if (registries) {
         add_registry_bar(building, window, top);
         add_registries(building, body_of(top));
@@ -8813,6 +13082,18 @@ void request_visible_pictures(
             continue;
         source.request(source.context, entry, lead);
     }
+}
+
+std::vector<std::size_t> replay_places_shown(const Library& library, const kit::DisplayList& list) {
+    std::vector<std::size_t> places;
+    for (const kit::Control& control : list.controls) {
+        if (!controls::replay_row_control(control.id))
+            continue;
+        const auto place = static_cast<std::size_t>(control.id - controls::first_replay_row);
+        if (place < library.replays.visible.size())
+            places.push_back(place);
+    }
+    return places;
 }
 
 bool entry_row_shown(const Library& library, const kit::DisplayList& list, const EntryId& id) {

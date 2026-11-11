@@ -39,10 +39,14 @@
 #include "oa/boneyards/rover_replay.hpp"
 #include "oa/boneyards/rover_session.hpp"
 #include "oa/boneyards/service.hpp"
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/screens/galaxy.hpp"
+#include "oa/boneyards/screens/lobby_widgets.hpp"
 #include "oa/boneyards/screens/profile.hpp"
 #include "oa/boneyards/screens/registration.hpp"
+#include "oa/boneyards/shown_text.hpp"
 
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/fonts.hpp"
 #include "oa/platform/preferences.hpp"
@@ -54,6 +58,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <initializer_list>
+#include <iterator>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -83,15 +90,30 @@
 // simulation_hash, the hash the run plays under. Version 15 adds the OA UI
 // kit to the contract. Version 16 adds run_mutators. Version 17 adds
 // hear_remote_seat_chat. Version 18 adds the kit's key pictures. Version 19
-// is Kit 2's look in the kit's headers. None of 15 to 19 is a hook this
-// module fills.
-constexpr uint32_t kExtensionApiVersionFollowed = 20;
+// is Kit 2's look in the kit's headers. Version 20 adds ExtensionControl's
+// masked, text_length, scroll_up and scroll_down members, and the calls
+// answer_multiplayer_entry, defer_inactive_loop_release,
+// post_extension_note and take_extension_notes. Version 21 adds
+// accessibility fields on controls, the replay viewer's eight hooks, and
+// the rectangle where an extension window's art takes the press. The strip
+// states that rectangle while its art is drawn. Version 21 also adds
+// ScreenServices::main_menu_order_owns_key. The main-menu overlay calls it
+// and passes the key on when the host owns it. Version 21 also adds
+// ScreenServices::bound_focus_action. The multiplayer screens call it, and so
+// do these consoles, the frame and the war map. spoken_updates_open, which
+// this module asks before it composes a spoken line, is the same version.
+// This extension table fills no new hook. None of 15 to 21 is a hook
+// this module fills.
+constexpr uint32_t kExtensionApiVersionFollowed = 21;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
     "kExtensionApiVersionFollowed"
 );
-constexpr uint32_t kNetworkPlayApiVersionFollowed = 3;
+// Version 4 of network play's API adds recorded_game, which the Boneyards
+// fills (boneyards_recorded_game): a battle's replay carries its game id,
+// planet and sector.
+constexpr uint32_t kNetworkPlayApiVersionFollowed = 4;
 static_assert(
     oa::app::netgame::extension_api::api_version == kNetworkPlayApiVersionFollowed,
     "network play's API changed: follow its change, then raise kNetworkPlayApiVersionFollowed"
@@ -115,6 +137,7 @@ oa::boneyards::console::StatusWidget* boneyards_console_status_widget();
 void boneyards_console_set_text_fonts(const oa::boneyards::html::FontService& fonts);
 void boneyards_console_set_analogue_atlas_path(const char* path);
 void boneyards_console_idle(uint32_t now_ms);
+void boneyards_console_exit_to_menu();
 bool boneyards_console_up();
 bool boneyards_console_ask_exit();
 void boneyards_console_release();
@@ -134,6 +157,11 @@ bool boneyards_console_menu_entry(
 );
 void boneyards_entry_install(Runtime& runtime);
 void boneyards_entry_on_frame(Runtime& runtime, FrameStage stage);
+// Runtime is incomplete here. These reach its methods from the files that
+// define them.
+void snapshot_presented_stage(Runtime& runtime, const char* stage);
+void queue_battle_replay_share(Runtime& runtime);
+[[nodiscard]] bool battle_has_recording(const Runtime& runtime);
 
 // The --check-* runs. Defined in boneyards_self_checks.cpp, which a release
 // build does not compile, so this file includes no header of the checks.
@@ -277,6 +305,12 @@ struct LobbySeen {
     int32_t connection_level{};
     int32_t console_screen{};
     char user_name[oa::boneyards::kSessionNameCapacity]{};
+    char selected_name[16]{};
+    bool summary_shown{};
+    char summary_name[16]{};
+    char summary_owner[16]{};
+    char summary_battles[12]{};
+    char summary_forming[12]{};
 };
 
 LobbySeen g_lobby_seen{};
@@ -497,6 +531,8 @@ void append_driver_control(
     item.visible = control.visible;
     item.enabled = control.enabled;
     item.focused = control.focused;
+    // The window's own focus, copied before a reported first stop is named.
+    item.holds_focus = control.focused;
     item.checked = control.checked;
     item.masked = control.masked;
     item.text_length = control.text_length > 0 ? control.text_length : 0;
@@ -714,12 +750,462 @@ const char* console_note_name(int32_t id) {
     }
 }
 
+/// The Boneyards catalogue beside the program, or an empty one.
+///
+/// The engine does not read this file. A missing file leaves every sentence
+/// in English.
+///
+/// @return the catalogue; it lives for the process
+const oa::data::languages::InterfaceText& speech_words() {
+    static const oa::data::languages::InterfaceText catalogue = [] {
+        oa::data::languages::InterfaceText loaded;
+        const std::filesystem::path file =
+            oa::platform::path_from_utf8(oa::platform::program_directory()) / "languages" /
+            "boneyards.tdf";
+        std::ifstream input(file, std::ios::binary);
+        if (!input)
+            return loaded;
+        const std::string bytes(
+            (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()
+        );
+        loaded.add(bytes, nullptr);
+        return loaded;
+    }();
+    return catalogue;
+}
+
+/// One catalogue sentence in the language the interface is showing.
+///
+/// @param english the sentence as the source writes it
+/// @return the translation, or the English when the catalogue has none
+std::string speech(const char* english) {
+    if (english == nullptr || english[0] == '\0')
+        return {};
+    const std::string_view line =
+        speech_words().text(english, oa::data::languages::interface_language());
+    return std::string(line);
+}
+
+/// Fills `{token}` places in a catalogue sentence.
+///
+/// @param english the pattern
+/// @param places each place name and the text that replaces it
+/// @return the filled sentence
+std::string speech_filled(
+    const char* english, std::initializer_list<std::pair<std::string_view, std::string_view>> places
+) {
+    std::string pattern = speech(english);
+    for (const auto& place : places) {
+        const std::string token = std::string("{") + std::string(place.first) + "}";
+        std::string::size_type at = 0;
+        while ((at = pattern.find(token, at)) != std::string::npos) {
+            pattern.replace(at, token.size(), place.second);
+            at += place.second.size();
+        }
+    }
+    return pattern;
+}
+
+/// The room joins and leaves name. Entering a room replaces it.
+///
+/// @return the room
+std::string& spoken_room() {
+    static std::string room = "Main";
+    return room;
+}
+
+/// Posts one internal spoken line. `S` is a login, `P` waits, `A` does not.
+/// `G` is a page and `W` a whisper, which follow speak-chat.
+///
+/// @param runtime the running app
+/// @param prefix `S`, `P`, `A`, `G` or `W`
+/// @param sentence the sentence, already in the player's language
+void post_spoken_line(Runtime& runtime, char prefix, const std::string& sentence) {
+    if (!spoken_updates_open() || sentence.empty())
+        return;
+    std::string text;
+    text.push_back(prefix);
+    text.push_back('\t');
+    text += sentence;
+    post_extension_note(runtime, "line", text.c_str());
+}
+
+/// Posts a join or a leave that may collapse with the room's chat.
+///
+/// @param runtime the running app
+/// @param room the room
+/// @param speaker the player
+/// @param sentence the sentence
+void post_spoken_membership(
+    Runtime& runtime,
+    const std::string& room,
+    const std::string& speaker,
+    const std::string& sentence
+) {
+    if (!spoken_updates_open() || sentence.empty())
+        return;
+    const std::string text = std::string("C\t") + room + "\t" + speaker + "\t" + sentence;
+    post_extension_note(runtime, "line", text.c_str());
+}
+
+/// The English title of a console id.
+///
+/// @param id the short name the console note carries
+/// @return the title, or null
+const char* console_english(const char* id) {
+    if (std::strcmp(id, "update") == 0)
+        return "Update";
+    if (std::strcmp(id, "login") == 0)
+        return "Login";
+    if (std::strcmp(id, "recon") == 0)
+        return "Recon";
+    if (std::strcmp(id, "chat") == 0)
+        return "Chat";
+    if (std::strcmp(id, "battle") == 0)
+        return "Battle";
+    if (std::strcmp(id, "ladders") == 0)
+        return "Ladders";
+    if (std::strcmp(id, "news") == 0)
+        return "News";
+    if (std::strcmp(id, "profile") == 0)
+        return "Profile";
+    if (std::strcmp(id, "help") == 0)
+        return "Help";
+    if (std::strcmp(id, "quickplay") == 0)
+        return "QuickPlay";
+    if (std::strcmp(id, "locator") == 0)
+        return "Locator";
+    return nullptr;
+}
+
+/// Posts "Planet {name}".
+///
+/// @param runtime the running app
+/// @param name the planet
+void post_spoken_place(Runtime& runtime, const char* name) {
+    if (!spoken_updates_open() || name == nullptr || name[0] == '\0')
+        return;
+    post_spoken_line(runtime, 'P', speech_filled("Planet {name}", {{"name", name}}));
+}
+
+/// Posts a planet's summary.
+///
+/// @param runtime the running app
+/// @param name the planet
+/// @param owner its owner
+/// @param battles how many battles
+/// @param forming how many are forming
+void post_spoken_summary(
+    Runtime& runtime, const char* name, const char* owner, const char* battles, const char* forming
+) {
+    if (!spoken_updates_open() || name == nullptr || name[0] == '\0')
+        return;
+    post_spoken_line(
+        runtime,
+        'P',
+        speech_filled(
+            "Summary of {name}: {owner}, {battles} battles, {forming} forming",
+            {{"name", name},
+             {"owner", owner != nullptr ? owner : ""},
+             {"battles", battles != nullptr ? battles : ""},
+             {"forming", forming != nullptr ? forming : ""}}
+        )
+    );
+}
+
+/// Posts the connection sentence. A login is said once by the engine.
+///
+/// @param runtime the running app
+/// @param level the session level
+/// @param name the player, when one is logged in
+void post_spoken_session(Runtime& runtime, int level, const char* name) {
+    if (!spoken_updates_open())
+        return;
+    std::string sentence;
+    if (level <= 0)
+        sentence = speech("Offline");
+    else if (level == 1)
+        sentence = speech("Connecting");
+    else if (level == 2)
+        sentence = speech("Disconnected");
+    else if (name != nullptr && name[0] != '\0')
+        sentence = speech_filled("Logged in as {name}", {{"name", name}});
+    post_spoken_line(runtime, 'S', sentence);
+}
+
+/// Posts the console sentence, in the catalogue's words for that console.
+///
+/// @param runtime the running app
+/// @param id the console note's short name
+void post_spoken_console(Runtime& runtime, const char* id) {
+    if (!spoken_updates_open())
+        return;
+    const char* english = console_english(id);
+    if (english == nullptr)
+        return;
+    if (std::strcmp(id, "battle") == 0 && g_lobby_seen.selected_name[0] != '\0') {
+        post_spoken_line(
+            runtime, 'P', speech_filled("Battle, {place}", {{"place", g_lobby_seen.selected_name}})
+        );
+        return;
+    }
+    const std::string title = speech(english);
+    post_spoken_line(runtime, 'P', speech_filled("Opened {console}", {{"console", title}}));
+}
+
+/// Reads `[Entered 'Room']`.
+///
+/// @param text the line
+/// @param[out] room the room name
+/// @return true when the line is that sentence
+bool entered_room_line(const std::string& text, std::string& room) {
+    constexpr std::string_view kOpen = "[Entered '";
+    constexpr std::string_view kClose = "']";
+    if (!text.starts_with(kOpen) || !text.ends_with(kClose) ||
+        text.size() < kOpen.size() + kClose.size())
+        return false;
+    room.assign(text, kOpen.size(), text.size() - kOpen.size() - kClose.size());
+    return true;
+}
+
+/// Reads `<Page from Name> text`.
+///
+/// @param text the line
+/// @param[out] name the sender
+/// @param[out] body the message
+/// @return true when the line is a page
+bool page_from_line(std::string_view text, std::string& name, std::string& body) {
+    constexpr std::string_view kOpen = "<Page from ";
+    if (!text.starts_with(kOpen))
+        return false;
+    const std::size_t end = text.find('>');
+    if (end == std::string_view::npos || end < kOpen.size())
+        return false;
+    name.assign(text.substr(kOpen.size(), end - kOpen.size()));
+    body.clear();
+    if (end + 1 < text.size()) {
+        std::string_view rest = text.substr(end + 1);
+        if (rest.starts_with(" "))
+            rest.remove_prefix(1);
+        body.assign(rest);
+    }
+    return !name.empty();
+}
+
+/// Reads `<You whispered to Name> text`.
+///
+/// @param text the line
+/// @param[out] name the other player
+/// @param[out] body the message
+/// @return true when the line is that echo
+bool whisper_to(std::string_view text, std::string& name, std::string& body) {
+    constexpr std::string_view kMark = "whispered to ";
+    const std::size_t at = text.find(kMark);
+    if (at == std::string_view::npos)
+        return false;
+    const std::size_t name_at = at + kMark.size();
+    const std::size_t end = text.find('>', name_at);
+    if (end == std::string_view::npos)
+        return false;
+    name.assign(text.substr(name_at, end - name_at));
+    body.clear();
+    if (end + 1 < text.size()) {
+        std::string_view rest = text.substr(end + 1);
+        if (rest.starts_with(" "))
+            rest.remove_prefix(1);
+        body.assign(rest);
+    }
+    return !name.empty();
+}
+
+/// Reads `Name: text`.
+///
+/// @param text the line
+/// @param[out] name the speaker
+/// @param[out] body the message
+/// @return true when the line is ordinary chat
+bool said_speaker(std::string_view text, std::string& name, std::string& body) {
+    if (text.empty() || text.front() == '[' || text.front() == '<')
+        return false;
+    const std::size_t colon = text.find(": ");
+    if (colon == std::string_view::npos || colon == 0)
+        return false;
+    name.assign(text.substr(0, colon));
+    const std::size_t tag = name.find(" [");
+    if (tag != std::string::npos)
+        name.resize(tag);
+    body.assign(text.substr(colon + 2));
+    return !name.empty();
+}
+
+/// The message box's words, with its escaped newlines turned into breaks.
+///
+/// @param english the line the box was given
+/// @return the words it shows
+std::string box_words(const char* english) {
+    const char* face = oa::boneyards::shown_text(english != nullptr ? english : "");
+    std::string copy = face != nullptr ? face : "";
+    std::string broken;
+    broken.reserve(copy.size());
+    for (std::size_t index = 0; index < copy.size(); ++index) {
+        if (copy[index] == '\\' && index + 1 < copy.size() && copy[index + 1] == 'n') {
+            broken.push_back('\n');
+            ++index;
+            continue;
+        }
+        broken.push_back(copy[index]);
+    }
+    return broken;
+}
+
+/// Posts the spoken form of one forwarded note. The raw note is posted too.
+///
+/// @param runtime the running app
+/// @param kind the note's kind
+/// @param text the note's text
+void speak_forwarded(Runtime& runtime, const char* kind, const char* text) {
+    if (!spoken_updates_open() || kind == nullptr || text == nullptr)
+        return;
+    const std::string line(text);
+    if (std::strcmp(kind, "said") == 0) {
+        std::string room;
+        if (entered_room_line(line, room)) {
+            if (!room.empty())
+                spoken_room() = room;
+            post_spoken_line(
+                runtime, 'P', speech_filled("Entered {room}", {{"room", spoken_room()}})
+            );
+            return;
+        }
+        std::string name;
+        std::string body;
+        if (whisper_to(line, name, body)) {
+            post_spoken_line(
+                runtime,
+                'W',
+                speech_filled("Whisper to {name}: {text}", {{"name", name}, {"text", body}})
+            );
+            return;
+        }
+        if (page_from_line(line, name, body))
+            return;
+        if (!said_speaker(line, name, body))
+            return;
+        constexpr std::string_view kWhispered = "<Whispered>";
+        if (body.starts_with(kWhispered)) {
+            std::string_view rest(body);
+            rest.remove_prefix(kWhispered.size());
+            if (rest.starts_with(" "))
+                rest.remove_prefix(1);
+            const char* pattern =
+                rest.empty() ? "Whisper from {name}" : "Whisper from {name}: {text}";
+            post_spoken_line(
+                runtime, 'W', speech_filled(pattern, {{"name", name}, {"text", rest}})
+            );
+        }
+        return;
+    }
+    if (std::strcmp(kind, "page") == 0) {
+        std::string name;
+        std::string body;
+        if (!page_from_line(line, name, body)) {
+            post_spoken_line(runtime, 'G', line);
+            return;
+        }
+        const char* pattern = body.empty() ? "Page from {name}" : "Page from {name}: {text}";
+        post_spoken_line(runtime, 'G', speech_filled(pattern, {{"name", name}, {"text", body}}));
+        return;
+    }
+    if (std::strcmp(kind, "alert") == 0) {
+        std::string name;
+        std::string body;
+        if (page_from_line(line, name, body))
+            return;
+        post_spoken_line(runtime, 'A', box_words(text));
+        return;
+    }
+    if (std::strcmp(kind, "room") != 0)
+        return;
+    constexpr std::string_view kJoined = "joined ";
+    constexpr std::string_view kLeaving = "left ";
+    const bool joined = line.starts_with(kJoined);
+    const bool leaving = line.starts_with(kLeaving);
+    if (!joined && !leaving)
+        return;
+    const std::string name = line.substr((joined ? kJoined : kLeaving).size());
+    if (name.empty() || name == g_lobby_seen.user_name)
+        return;
+    const char* pattern = joined ? "{name} joined {room}" : "{name} left {room}";
+    post_spoken_membership(
+        runtime,
+        spoken_room(),
+        name,
+        speech_filled(pattern, {{"name", name}, {"room", spoken_room()}})
+    );
+}
+
+/// Remembers the selected planet and its summary, and posts them after the seed.
+///
+/// @param runtime the running app
+/// @param probe the frame just read
+/// @param post true to post a change; the seed only remembers
+void remember_place(
+    Runtime& runtime, const oa::boneyards::console::MainFrameProbe& probe, bool post
+) {
+    if (std::strcmp(probe.selected_name, g_lobby_seen.selected_name) != 0) {
+        copy_c_text(
+            g_lobby_seen.selected_name, sizeof g_lobby_seen.selected_name, probe.selected_name
+        );
+        if (post && g_lobby_seen.selected_name[0] != '\0') {
+            post_extension_note(runtime, "place", g_lobby_seen.selected_name);
+            post_spoken_place(runtime, g_lobby_seen.selected_name);
+        }
+    }
+    const bool summary_changed =
+        probe.summary_shown != g_lobby_seen.summary_shown ||
+        std::strcmp(probe.summary_name, g_lobby_seen.summary_name) != 0 ||
+        std::strcmp(probe.summary_owner, g_lobby_seen.summary_owner) != 0 ||
+        std::strcmp(probe.summary_battles, g_lobby_seen.summary_battles) != 0 ||
+        std::strcmp(probe.summary_forming, g_lobby_seen.summary_forming) != 0;
+    if (!summary_changed)
+        return;
+    g_lobby_seen.summary_shown = probe.summary_shown;
+    copy_c_text(g_lobby_seen.summary_name, sizeof g_lobby_seen.summary_name, probe.summary_name);
+    copy_c_text(g_lobby_seen.summary_owner, sizeof g_lobby_seen.summary_owner, probe.summary_owner);
+    copy_c_text(
+        g_lobby_seen.summary_battles, sizeof g_lobby_seen.summary_battles, probe.summary_battles
+    );
+    copy_c_text(
+        g_lobby_seen.summary_forming, sizeof g_lobby_seen.summary_forming, probe.summary_forming
+    );
+    if (!post || !probe.summary_shown || probe.summary_name[0] == '\0')
+        return;
+    char text[128];
+    std::snprintf(
+        text,
+        sizeof text,
+        "summary\t%s\t%s\t%s\t%s",
+        probe.summary_name,
+        probe.summary_owner,
+        probe.summary_battles,
+        probe.summary_forming
+    );
+    post_extension_note(runtime, "place", text);
+    post_spoken_summary(
+        runtime,
+        probe.summary_name,
+        probe.summary_owner,
+        probe.summary_battles,
+        probe.summary_forming
+    );
+}
+
 /// Posts a session or console note when the lobby changes.
 ///
 /// The first successful read is remembered and not posted. A later change of
 /// the connection or the login name posts `session` as the level and the
 /// name. A console posts `console` once it shows, unless it is the one last
-/// posted and has not closed since.
+/// posted and has not closed since. A planet and its summary post `place`.
 ///
 /// @param runtime the running app
 void note_lobby_frame(Runtime& runtime) {
@@ -736,6 +1222,7 @@ void note_lobby_frame(Runtime& runtime) {
         g_lobby_seen.connection_level = probe.connection_level;
         g_lobby_seen.console_screen = probe.screen_shown ? probe.console_screen : console_ids::none;
         copy_c_text(g_lobby_seen.user_name, sizeof g_lobby_seen.user_name, probe.user_name);
+        remember_place(runtime, probe, false);
         return;
     }
     // Losing the Boneyards after the player has left drops the battle tunnel.
@@ -753,16 +1240,20 @@ void note_lobby_frame(Runtime& runtime) {
             text, sizeof text, "%d %s", static_cast<int>(probe.connection_level), probe.user_name
         );
         post_extension_note(runtime, "session", text);
+        post_spoken_session(runtime, probe.connection_level, probe.user_name);
     }
     if (probe.screen_shown && probe.console_screen != g_lobby_seen.console_screen) {
-        if (const char* name = console_note_name(probe.console_screen))
+        if (const char* name = console_note_name(probe.console_screen)) {
             post_extension_note(runtime, "console", name);
+            post_spoken_console(runtime, name);
+        }
         g_lobby_seen.console_screen = probe.console_screen;
     } else if (probe.console_screen == console_ids::none) {
         g_lobby_seen.console_screen = console_ids::none;
     }
     g_lobby_seen.connection_level = probe.connection_level;
     copy_c_text(g_lobby_seen.user_name, sizeof g_lobby_seen.user_name, probe.user_name);
+    remember_place(runtime, probe, true);
 }
 
 /// Forwards a lobby note onto the running app. A quiet load posts nothing.
@@ -773,13 +1264,609 @@ void forward_driver_note(const char* kind, const char* text) {
     if (g_quiet_load || g_player_folder_runtime == nullptr)
         return;
     post_extension_note(*g_player_folder_runtime, kind, text);
+    speak_forwarded(*g_player_folder_runtime, kind, text);
+}
+
+/// The words a player hears for one English line.
+///
+/// The pointer from the catalogue is copied before the next line is asked for.
+///
+/// @param english the line as the source writes it
+/// @return the line in the player's language
+std::string spoken(const char* english) {
+    const char* line = oa::boneyards::shown_text(english);
+    return std::string(line != nullptr ? line : "");
+}
+
+/// A printf template in the player's language, or the English when a
+/// translation asks for different arguments.
+///
+/// @param english the template as the source writes it
+/// @return the template to fill
+std::string spoken_pattern(const char* english) {
+    char line[192];
+    oa::boneyards::copy_shown_pattern(line, sizeof line, english);
+    return std::string(line);
+}
+
+/// One picture button, named as its window is, and the words it speaks.
+struct SpokenButton {
+    const char* name{};
+    const char* label{};
+    const char* shortcut{};
+    bool tab{};
+};
+
+/// Picture buttons and the words a player hears for them. The window names
+/// stay as they are. A shortcut is a single letter, empty when it has none.
+constexpr SpokenButton k_spoken_buttons[] = {
+    {"MF_Release_Button", "Release", "", false},
+    {"MF_Recon_Button", "Recon", "", false},
+    {"MF_Chat_Button", "Chat", "", false},
+    {"MF_Battle_Button", "Battle", "", false},
+    {"MF_News_Button", "News", "", false},
+    {"MF_Ladders_Button", "Ladders", "", false},
+    {"MF_Locator_Button", "Locator", "", false},
+    {"MF_Profile_Button", "Profile", "", false},
+    {"MF_Help_Button", "Help", "", false},
+    {"MF_Quickplay_Button", "QuickPlay", "", false},
+    {"ExitBYBtn", "Exit", "", false},
+    {"Map up", "Scroll the map up", "", false},
+    {"Map up right", "Scroll the map up and right", "", false},
+    {"Map right", "Scroll the map right", "", false},
+    {"Map down right", "Scroll the map down and right", "", false},
+    {"Map down", "Scroll the map down", "", false},
+    {"Map down left", "Scroll the map down and left", "", false},
+    {"Map left", "Scroll the map left", "", false},
+    {"Map up left", "Scroll the map up and left", "", false},
+    {"SingleBtn", "SINGLE", "S", false},
+    {"SingleFormer", "SINGLE", "S", false},
+    {"MultiBtn", "MULTI", "M", false},
+    {"MultiFormer", "MULTI", "M", false},
+    {"IntroBtn", "INTRO", "I", false},
+    {"IntroFormer", "INTRO", "I", false},
+    {"ExitBtn", "EXIT", "E", false},
+    {"ExitFormer", "EXIT", "E", false},
+    {"CreditsBtn", "Credits", "", false},
+    {"EnterBYBtn", "Enter the Boneyards", "B", false},
+    {"GeneralTabBtn", "General", "", true},
+    {"LadderTabBtn", "Ladder", "", true},
+    {"AwardsTabBtn", "Awards", "", true},
+    // Matchmaking draws this as a picture, so the window name is the word.
+    {"Close", "Close", "", false},
+};
+
+/// Tells whether a name is only decimal digits.
+///
+/// @param name the control's name
+/// @return true when every character is a digit and there is at least one
+bool digits_only(const std::string& name) {
+    if (name.empty())
+        return false;
+    for (const char character : name) {
+        if (character < '0' || character > '9')
+            return false;
+    }
+    return true;
+}
+
+/// Reads a trailing index from a name such as "Pick0" or "row_3".
+///
+/// @param name the control's name
+/// @param prefix the part before the index
+/// @param[out] index the index
+/// @return true when the name is that prefix and a decimal index
+bool indexed_name(const std::string& name, const char* prefix, int* index) {
+    if (prefix == nullptr || index == nullptr)
+        return false;
+    const std::size_t length = std::strlen(prefix);
+    if (name.size() <= length || name.compare(0, length, prefix) != 0)
+        return false;
+    int value = 0;
+    bool any = false;
+    for (std::size_t at = length; at < name.size(); ++at) {
+        const char character = name[at];
+        if (character < '0' || character > '9')
+            return false;
+        any = true;
+        value = value * 10 + (character - '0');
+    }
+    if (!any)
+        return false;
+    *index = value;
+    return true;
+}
+
+/// The planet name a control speaks. A control named only by its id takes
+/// the name of the control that shows the same facts.
+///
+/// @param window the console the control sits on
+/// @param control the planet control
+/// @return the name; empty when the control has none
+std::string planet_label_of(const ExtensionWindow& window, const ExtensionControl& control) {
+    if (!digits_only(control.name))
+        return control.name;
+    for (const ExtensionControl& other : window.controls) {
+        if (other.text == control.text && !digits_only(other.name))
+            return other.name;
+    }
+    return control.name;
+}
+
+/// Finds a control by its name.
+///
+/// @param window the console
+/// @param name the name
+/// @return the control, or null
+const ExtensionControl* find_named(const ExtensionWindow& window, const std::string& name) {
+    for (const ExtensionControl& control : window.controls) {
+        if (control.name == name)
+            return &control;
+    }
+    return nullptr;
+}
+
+/// The window a rank or latency icon is listed under: the list that holds the row.
+///
+/// @param icon the icon
+/// @return the window's name, or null when it has none
+const char* icon_window_name(const oa::boneyards::Window* icon) {
+    for (const oa::boneyards::Window* at = icon != nullptr ? icon->parent : nullptr; at != nullptr;
+         at = at->parent) {
+        if (at->ops != nullptr && at->ops->class_name != nullptr &&
+            std::strcmp(at->ops->class_name, oa::boneyards::screens::kByPlayerRowClass) == 0)
+            continue;
+        if (at->name != nullptr && at->name[0] != '\0')
+            return at->name;
+    }
+    return nullptr;
+}
+
+/// The words a rank or latency icon speaks.
+///
+/// @param words what the icon is showing
+/// @return the words, in the player's language; empty when it is neither
+std::string icon_label(const oa::boneyards::screens::PlayerIconWords& words) {
+    namespace screens = oa::boneyards::screens;
+    if (words.kind == screens::PlayerIconKind::rank) {
+        if (words.rank == nullptr || words.rank[0] == '\0')
+            return spoken("Rank");
+        const std::string title = spoken(words.rank);
+        const std::string pattern = spoken_pattern("Rank: %s");
+        char line[192];
+        std::snprintf(line, sizeof line, pattern.c_str(), title.c_str());
+        return std::string(line);
+    }
+    if (words.kind == screens::PlayerIconKind::latency)
+        return spoken(screens::latency_grade_phrase(words.latency_grade));
+    return {};
+}
+
+/// Appends one picture that speaks, under the window that holds it.
+///
+/// @param[in,out] windows the windows being filled
+/// @param window_name the list or console
+/// @param icon the picture
+/// @param label the words
+void append_spoken_image(
+    std::vector<ExtensionWindow>& windows,
+    const char* window_name,
+    const oa::boneyards::Window* icon,
+    const std::string& label,
+    const char* description
+) {
+    if (window_name == nullptr || window_name[0] == '\0' || icon == nullptr ||
+        icon->name == nullptr)
+        return;
+    oa::boneyards::DriverControlView shown{};
+    shown.name = icon->name;
+    shown.kind = oa::boneyards::DriverControlKind::image;
+    shown.x = icon->x;
+    shown.y = icon->y;
+    shown.width = icon->width;
+    shown.height = icon->height;
+    shown.visible = true;
+    shown.enabled = false;
+    shown.text = "";
+    shown.selected = -1;
+    append_driver_control(&windows, window_name, shown);
+    for (ExtensionWindow& window : windows) {
+        if (window.name != window_name || window.controls.empty())
+            continue;
+        ExtensionControl& added = window.controls.back();
+        if (added.name == icon->name) {
+            added.kind = ExtensionControlKind::image;
+            added.enabled = false;
+            added.role_set = true;
+            added.role = ExtensionControlRole::image;
+            added.label = label;
+            if (description != nullptr && description[0] != '\0')
+                added.description = description;
+        }
+        break;
+    }
+}
+
+/// Lists each shown rank and latency icon with the words for what it shows.
+///
+/// The pictures are not given captions, so they paint as they do today.
+///
+/// @param[in,out] windows the windows being filled
+/// @param window a window to search; null searches nothing
+void append_player_icons(std::vector<ExtensionWindow>& windows, oa::boneyards::Window* window) {
+    if (window == nullptr || !oa::boneyards::window_is_shown(window))
+        return;
+    oa::boneyards::screens::PlayerIconWords words;
+    if (oa::boneyards::screens::player_icon_words(window, &words)) {
+        const std::string label = icon_label(words);
+        const char* player_name = nullptr;
+        const oa::boneyards::Window* row = window->parent;
+        if (row != nullptr && row->ops != nullptr && row->ops->class_name != nullptr &&
+            std::strcmp(row->ops->class_name, oa::boneyards::screens::kByPlayerRowClass) == 0)
+            player_name = reinterpret_cast<const oa::boneyards::screens::ByPlayerRow*>(row)->name;
+        if (!label.empty())
+            append_spoken_image(windows, icon_window_name(window), window, label, player_name);
+    }
+    for (int32_t index = 0; index < window->children.count; ++index) {
+        oa::boneyards::Window* child = window->children.items[index];
+        if (child != nullptr)
+            append_player_icons(windows, child);
+    }
+}
+
+/// The old-column hotspot under a strip button. It stays enabled: the pointer
+/// still lands there. A screen reader hears the strip button, so this one is
+/// hidden.
+///
+/// @param name the control's name
+/// @return true for SingleFormer, MultiFormer, IntroFormer and ExitFormer
+bool menu_former(const std::string& name) {
+    return name == "SingleFormer" || name == "MultiFormer" || name == "IntroFormer" ||
+           name == "ExitFormer";
+}
+
+oa::boneyards::Window* find_named_on_desktop(const char* name) {
+    oa::boneyards::console::StatusWidget* widget = boneyards_console_status_widget();
+    if (widget == nullptr || name == nullptr)
+        return nullptr;
+    for (int32_t i = 0; i < widget->desktop.windows.count; ++i) {
+        oa::boneyards::Window* top = widget->desktop.windows.items[i];
+        if (top == nullptr)
+            continue;
+        oa::boneyards::Window* found = oa::boneyards::window_find_named(top, name, nullptr);
+        if (found != nullptr)
+            return found;
+    }
+    return nullptr;
+}
+
+/// The three player-pane tabs are one set. Their captions share the buttons'
+/// rectangles, so those captions are hidden. The icons stay on Chat players.
+void note_player_tabs(ExtensionWindow& window) {
+    const char* names[3] = {"GeneralTabBtn", "LadderTabBtn", "AwardsTabBtn"};
+    const char* captions[3] = {"General", "Ladder", "Awards"};
+    int index[3] = {-1, -1, -1};
+    for (std::size_t i = 0; i < window.controls.size(); ++i) {
+        for (int tab = 0; tab < 3; ++tab) {
+            if (window.controls[i].name == names[tab])
+                index[tab] = static_cast<int>(i);
+        }
+    }
+    if (index[0] < 0 || index[1] < 0 || index[2] < 0)
+        return;
+    int32_t left = window.controls[static_cast<std::size_t>(index[0])].x;
+    int32_t top = window.controls[static_cast<std::size_t>(index[0])].y;
+    int32_t right = left;
+    int32_t bottom = top;
+    for (int tab = 0; tab < 3; ++tab) {
+        ExtensionControl& control = window.controls[static_cast<std::size_t>(index[tab])];
+        const oa::boneyards::Window* live = find_named_on_desktop(names[tab]);
+        control.place = tab + 1;
+        control.set_size = 3;
+        control.chosen = live != nullptr && live->access_chosen != 0;
+        if (control.x < left)
+            left = control.x;
+        if (control.y < top)
+            top = control.y;
+        if (control.x + control.width > right)
+            right = control.x + control.width;
+        if (control.y + control.height > bottom)
+            bottom = control.y + control.height;
+    }
+    for (ExtensionControl& control : window.controls) {
+        if (control.kind != ExtensionControlKind::label)
+            continue;
+        bool caption = false;
+        for (const char* name : captions) {
+            if (control.name == name)
+                caption = true;
+        }
+        if (!caption)
+            continue;
+        for (int tab = 0; tab < 3; ++tab) {
+            const ExtensionControl& button = window.controls[static_cast<std::size_t>(index[tab])];
+            if (control.x == button.x && control.y == button.y && control.width == button.width &&
+                control.height == button.height)
+                control.hidden = true;
+        }
+    }
+    int earliest = index[0];
+    if (index[1] < earliest)
+        earliest = index[1];
+    if (index[2] < earliest)
+        earliest = index[2];
+    ExtensionControl group;
+    group.name = "PlayerTabs";
+    group.kind = ExtensionControlKind::label;
+    group.role_set = true;
+    group.role = ExtensionControlRole::tab_list;
+    group.enabled = false;
+    group.visible = true;
+    group.label = spoken("Player");
+    group.x = left;
+    group.y = top;
+    group.width = right > left ? right - left : 0;
+    group.height = bottom > top ? bottom - top : 0;
+    window.controls.insert(window.controls.begin() + earliest, std::move(group));
+}
+
+/// The catalogue line for a list, a field, a slider, or the Search button.
+///
+/// A name that is not here keeps an empty label, so a keyboard walk still
+/// catches a stop nobody named. Battle name and Battle password use the
+/// words Name and Password, and the chat entry the room's Chat line. The
+/// page's scroll bar is not Page: the PAGE button already says that, and
+/// Scroll is the list's own bar.
+///
+/// @param name the control's name
+/// @return the English line, or null when this name is not spoken here
+const char* access_word(const std::string& name) {
+    if (name == "ChatList")
+        return "Chat";
+    if (name == "ReconList")
+        return "Recon";
+    if (name == "BattleList")
+        return "Battle";
+    if (name == "ProfileList")
+        return "Profile";
+    if (name == "ContentsList")
+        return "Contents";
+    if (name == "PlanetIntelList")
+        return "Planets";
+    if (name == "HTMLSlider")
+        return "Page scroll bar";
+    if (name == "slider")
+        return "Scroll";
+    if (name == "Mag_Slider")
+        return "Zoom";
+    if (name == "Chat rooms")
+        return "Chat rooms";
+    if (name == "Chat players")
+        return "Chat players";
+    if (name == "Chat entry")
+        return "Chat line";
+    if (name == "Game types")
+        return "Game types";
+    if (name == "Battle name")
+        return "Name";
+    if (name == "Battle password")
+        return "Password";
+    if (name == "Ladder search")
+        return "Ladder search";
+    if (name == "Username")
+        return "Name";
+    if (name == "Password")
+        return "Password";
+    if (name == "Server List")
+        return "Server List";
+    if (name == "Status")
+        return "Status";
+    if (name == "Name")
+        return "Name";
+    if (name == "Search")
+        return "Search";
+    return nullptr;
+}
+
+/// Fills the words, roles and shortcuts of the controls just listed.
+///
+/// Window names and the text a control shows stay as they are. A planet's
+/// facts line stays in `text`. Its label is its name and its value says who
+/// holds it, how many battles it has, how many are forming and whether it
+/// is the chosen planet. One battle uses the singular line. An id alias and
+/// a former stay enabled and are marked hidden.
+///
+/// @param[in,out] windows the consoles and their controls
+/// @param probe the open main frame; null leaves no planet chosen
+void fill_access(
+    std::vector<ExtensionWindow>& windows, const oa::boneyards::console::MainFrameProbe* probe
+) {
+    namespace console = oa::boneyards::console;
+    const uint32_t chosen_area = probe != nullptr ? probe->selected_area_id : 0;
+    const std::string battles_line = spoken_pattern(console::k_planet_value);
+    const std::string battle_line = spoken_pattern(console::k_planet_battle);
+    const std::string battles_chosen_line = spoken_pattern(console::k_planet_value_chosen);
+    const std::string battle_chosen_line = spoken_pattern(console::k_planet_battle_chosen);
+    const console::PlanetValuePatterns patterns{
+        battles_line.c_str(),
+        battle_line.c_str(),
+        battles_chosen_line.c_str(),
+        battle_chosen_line.c_str(),
+    };
+    for (ExtensionWindow& window : windows) {
+        for (ExtensionControl& control : window.controls) {
+            for (const SpokenButton& button : k_spoken_buttons) {
+                if (control.name != button.name)
+                    continue;
+                control.label = spoken(button.label);
+                if (button.shortcut[0] != '\0')
+                    control.shortcut = button.shortcut;
+                if (button.tab) {
+                    control.role_set = true;
+                    control.role = ExtensionControlRole::tab;
+                }
+                if (menu_former(control.name))
+                    control.hidden = true;
+                break;
+            }
+            if ((control.kind == ExtensionControlKind::check_box ||
+                 control.kind == ExtensionControlKind::button) &&
+                (control.name == "Arm" || control.name == "Core"))
+                control.label = spoken(control.name.c_str());
+            int planet_id = 0;
+            char owner = '\0';
+            if (console::planet_parse_facts(
+                    control.text.c_str(), &planet_id, &owner, nullptr, nullptr
+                )) {
+                const bool chosen =
+                    chosen_area != 0 && static_cast<uint32_t>(planet_id) == chosen_area;
+                const std::string planet_name = planet_label_of(window, control);
+                const std::string owner_word = spoken(console::planet_owner_word(owner));
+                char label[64];
+                char value[192];
+                if (console::planet_access_words(
+                        label,
+                        sizeof label,
+                        value,
+                        sizeof value,
+                        control.text.c_str(),
+                        planet_name.c_str(),
+                        chosen,
+                        patterns,
+                        owner_word.c_str()
+                    )) {
+                    control.label = label;
+                    control.value_text = value;
+                    control.chosen = chosen;
+                    // The driver's id alias (1801, and the off-viewer id label)
+                    // stays enabled, at its rectangle. The planet's own name is
+                    // the one a player hears.
+                    if (digits_only(control.name))
+                        control.hidden = true;
+                }
+            }
+            int pick = 0;
+            if (indexed_name(control.name, "Pick", &pick)) {
+                const ExtensionControl* type_label =
+                    find_named(window, std::string("Label") + std::to_string(pick));
+                if (type_label != nullptr && !type_label->text.empty())
+                    control.label = type_label->text;
+            }
+            int row = 0;
+            if (indexed_name(control.name, "row_", &row)) {
+                const ExtensionControl* kind =
+                    find_named(window, std::string("kind_") + std::to_string(row));
+                if (kind != nullptr && !kind->text.empty())
+                    control.label = kind->text;
+            }
+            int hit = 0;
+            if (indexed_name(control.name, "rhit", &hit)) {
+                std::string result;
+                const char* parts[] = {"rname", "rwhere", "rstatus"};
+                for (const char* part : parts) {
+                    const ExtensionControl* piece =
+                        find_named(window, std::string(part) + std::to_string(hit));
+                    if (piece == nullptr || piece->text.empty())
+                        continue;
+                    if (!result.empty())
+                        result += ", ";
+                    result += piece->text;
+                }
+                if (!result.empty())
+                    control.label = std::move(result);
+            }
+            // A list's text is the chosen row, a field's text is what was
+            // typed, and a slider's text is its position. Only a name
+            // access_word knows is spoken. Anything else keeps an empty
+            // label, so a walk still catches it. Search is a button whose
+            // caption is the same word.
+            const bool named_stop = control.kind == ExtensionControlKind::list ||
+                                    control.kind == ExtensionControlKind::text_field ||
+                                    control.kind == ExtensionControlKind::slider ||
+                                    control.name == "Search";
+            if (control.label.empty() && named_stop) {
+                if (const char* word = access_word(control.name); word != nullptr)
+                    control.label = spoken(word);
+            }
+        }
+        constexpr int k_max_win_icons = 8;
+        ExtensionControl* icons[k_max_win_icons]{};
+        int32_t tops[k_max_win_icons]{};
+        int icon_count = 0;
+        for (ExtensionControl& control : window.controls) {
+            if (control.name != "SmallArmIcon" || icon_count == k_max_win_icons)
+                continue;
+            icons[icon_count] = &control;
+            tops[icon_count] = control.y;
+            ++icon_count;
+        }
+        const char* words[k_max_win_icons]{};
+        console::summary_win_icon_labels(tops, static_cast<std::size_t>(icon_count), words);
+        for (int icon = 0; icon < icon_count; ++icon) {
+            icons[icon]->label = spoken(words[icon]);
+            icons[icon]->role_set = true;
+            icons[icon]->role = ExtensionControlRole::image;
+        }
+        for (std::size_t index = 0; index < window.controls.size(); ++index) {
+            if (window.controls[index].name != "RadioGroup")
+                continue;
+            std::string selected;
+            std::size_t next = index + 1;
+            while (next < window.controls.size() &&
+                   window.controls[next].kind == ExtensionControlKind::check_box) {
+                ExtensionControl& radio = window.controls[next];
+                radio.role_set = true;
+                radio.role = ExtensionControlRole::radio;
+                radio.chosen = radio.checked;
+                if (radio.checked)
+                    selected = radio.text.empty() ? radio.name : radio.text;
+                ++next;
+            }
+            std::string title;
+            if (next < window.controls.size() &&
+                window.controls[next].kind == ExtensionControlKind::label) {
+                const ExtensionControl& caption = window.controls[next];
+                title = caption.text.empty() ? caption.name : caption.text;
+            }
+            ExtensionControl& group = window.controls[index];
+            group.role_set = true;
+            group.role = ExtensionControlRole::radio_group;
+            if (!title.empty())
+                group.label = spoken(title.c_str());
+            if (!selected.empty())
+                group.value_text = spoken(selected.c_str());
+        }
+        note_player_tabs(window);
+    }
+}
+
+/// States the rectangle where the strip's art takes the press.
+///
+/// The panel is drawn across the bottom of the main menu. A screen button
+/// that lies wholly inside it is not seen and takes no click, so the
+/// listing hides it. Button mode and none mode draw no such panel.
+///
+/// @param[in,out] windows the consoles being listed
+void state_strip_press(std::vector<ExtensionWindow>& windows) {
+    namespace console = oa::boneyards::console;
+    for (ExtensionWindow& window : windows) {
+        if (window.name != "MainMenuOverlay")
+            continue;
+        window.press_x = console::overlay_layout::x;
+        window.press_y = console::overlay_layout::y;
+        window.press_width = console::overlay_layout::width;
+        window.press_height = console::overlay_layout::height;
+    }
 }
 
 /// Keeps the main menu's strip in the listing to what the menu shows.
 ///
 /// With the strip's rows not shown (button and none modes) its buttons take
-/// no click, so they are left out. In button mode ENTER is listed where it
-/// stands on the plate.
+/// no click, so they are left out. In button mode only ENTER is listed,
+/// where it stands once the plate's place is applied. Credits is the menu's
+/// own control, at the place it is drawn, and is not listed here. While the
+/// strip is drawn, its window states the rectangle where that art takes the
+/// press.
 ///
 /// @param[in,out] windows the consoles being listed
 void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
@@ -787,9 +1874,12 @@ void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
     console::MenuEntryMode mode = console::MenuEntryMode::strip;
     oa::ui::frontend_renderer::SourceRect place{};
     if (boneyards_console_up() ||
-        !boneyards_console_menu_entry(&mode, &place.x, &place.y, &place.width, &place.height) ||
-        mode == console::MenuEntryMode::strip)
+        !boneyards_console_menu_entry(&mode, &place.x, &place.y, &place.width, &place.height))
         return;
+    if (mode == console::MenuEntryMode::strip) {
+        state_strip_press(windows);
+        return;
+    }
     for (ExtensionWindow& window : windows) {
         if (window.name != "MainMenuOverlay")
             continue;
@@ -805,12 +1895,54 @@ void list_menu_entry_as_shown(std::vector<ExtensionWindow>& windows) {
     }
 }
 
+/// Names the region's first stop when the toolkit focuses none.
+///
+/// The report only changes. The toolkit's own focus, and the frame it draws,
+/// stay as they are. A focused control that is hidden still counts as the
+/// toolkit's focus. The first stop is the visible, enabled control with area
+/// that is not a label or a picture, earliest in reading order.
+///
+/// @param[in,out] windows the consoles being listed
+void note_region_first_stop(std::vector<ExtensionWindow>& windows) {
+    if (!boneyards_console_up())
+        return;
+    for (const ExtensionWindow& window : windows)
+        for (const ExtensionControl& control : window.controls)
+            if (control.focused)
+                return;
+    ExtensionControl* stop = nullptr;
+    int64_t best = 0;
+    for (ExtensionWindow& window : windows) {
+        for (ExtensionControl& control : window.controls) {
+            if (!control.visible || !control.enabled || control.hidden)
+                continue;
+            if (control.kind == ExtensionControlKind::label ||
+                control.kind == ExtensionControlKind::image)
+                continue;
+            if (control.width <= 0 || control.height <= 0)
+                continue;
+            const int64_t score =
+                static_cast<int64_t>(control.y) * 5000 + static_cast<int64_t>(control.x);
+            if (stop == nullptr || score < best) {
+                stop = &control;
+                best = score;
+            }
+        }
+    }
+    if (stop != nullptr)
+        stop->focused = true;
+}
+
 /// Lists the consoles the Boneyards is showing (ExtensionWindowSource).
 ///
 /// The ticker reads its whole line. While the map is locked (the green layer
 /// slides or covers it, or a console is open), a press on a planet selects
 /// nothing, so each planet on the viewer is listed as not taking a click.
-/// On a main menu without the strip only the plate's ENTER is listed.
+/// Picture buttons, icons and planets carry the words a player hears. Their
+/// window names, and the facts line a planet shows, stay as they are.
+/// On a main menu without the strip the plate's ENTER is listed. Credits is
+/// the menu's own control there, not a second button under the plate.
+/// While the strip is drawn, its window states where its art takes the press.
 ///
 /// @param context unused
 /// @param runtime the running app (unused)
@@ -824,19 +1956,28 @@ void list_driver_windows(
             widget, &windows, append_driver_control
         );
         append_lobby_facts(windows, widget);
+        if (widget != nullptr) {
+            for (int32_t index = 0; index < widget->desktop.windows.count; ++index)
+                append_player_icons(windows, widget->desktop.windows.items[index]);
+        }
         list_menu_entry_as_shown(windows);
         oa::boneyards::console::MainFrameProbe probe{};
-        if (oa::boneyards::console::boneyards_status_widget_probe(widget, &probe)) {
+        const bool probed = oa::boneyards::console::boneyards_status_widget_probe(widget, &probe);
+        fill_access(windows, probed ? &probe : nullptr);
+        if (probed) {
             for (ExtensionWindow& window : windows) {
                 const bool planets = window.name == "MapPanel";
                 for (ExtensionControl& control : window.controls) {
                     if (control.name == "Ticker")
                         control.text = probe.ticker_text;
-                    if (planets && probe.map_locked)
+                    if (planets && probe.map_locked) {
                         control.enabled = false;
+                        control.hidden = true;
+                    }
                 }
             }
         }
+        note_region_first_stop(windows);
     } catch (const std::exception&) {
         windows.clear();
     }
@@ -1019,7 +2160,8 @@ DataFacts played_data_facts(void*) {
 
 /// The strip's MULTI. With no multiplayer map the press shows that notice and
 /// stays on the main menu, as the main menu's own MULTI does. A mod that
-/// cannot start a game says so instead. Otherwise the strip opens multiplayer.
+/// cannot start a game says so instead. An extension that has taken the game
+/// over keeps the main menu too. Otherwise the strip opens multiplayer.
 ///
 /// @param user unused
 /// @return true when the press was answered here
@@ -1168,7 +2310,9 @@ void register_screens(void* /*context*/, ScreenRegistry* registry) {
     // build does not compile them, so this branch is left out with them.
     if constexpr (self_checks_built) {
         if (boneyards_options().boneyards_launch)
-            register_boneyards_launch_check(registry, *boneyards_options().boneyards_launch);
+            register_boneyards_launch_check(
+                registry, *boneyards_options().boneyards_launch, boneyards_options().launch_for_fun
+            );
         if (boneyards_options().boneyards_features)
             register_boneyards_features_check(registry, *boneyards_options().boneyards_features);
         if (boneyards_options().boneyards_overlay)
@@ -1239,6 +2383,12 @@ void frame(void* /*context*/, Runtime& runtime, FrameStage stage) {
         if constexpr (self_checks_built) {
             if (boneyards_options().boneyards_overlay)
                 present_boneyards_overlay(check_host(runtime), runtime_options(runtime));
+            if (boneyards_launch_notice_pending()) {
+                snapshot_presented_stage(
+                    runtime, oa::boneyards::screens::after_battle_picture_name()
+                );
+                boneyards_launch_notice_taken();
+            }
         }
         return;
     }
@@ -1249,6 +2399,13 @@ void frame(void* /*context*/, Runtime& runtime, FrameStage stage) {
     oa::boneyards::console::chat_set_modern_text(text.modern_fonts, text.text_size);
     exit_prompt_observe(g_exit_prompt, exit_prompt_observation());
     boneyards_console_idle(idle_clock_ms(runtime));
+    // Share… on the For Fun prompt leaves these screens and opens that
+    // battle's recording in the Library, with the share question. The
+    // prompt only records the choice; this frame takes it.
+    if (oa::boneyards::screens::take_after_battle_share()) {
+        boneyards_console_exit_to_menu();
+        queue_battle_replay_share(runtime);
+    }
     note_lobby_frame(runtime);
     boneyards_pump_overlay_route();
     // The idle work pumps the session, so this reads the login, logout or
@@ -1299,14 +2456,15 @@ void app_mode_set(void* /*context*/, Runtime& /*runtime*/, int32_t mode) {
 /// @param game The new match's Game block (unused).
 void match_game(void* /*context*/, oa::Game& /*game*/) {
     exit_prompt_match_started(g_exit_prompt);
+    oa::boneyards::screens::mark_after_battle_played();
 }
 
 /// Notes a match that finished, was left or was torn down, which the Boneyards box follows (Extension::match_event).
 ///
 /// @param context Extension context (unused).
-/// @param runtime The running app (unused).
+/// @param runtime The running app.
 /// @param event What happened to the match.
-void match_event(void* /*context*/, Runtime& /*runtime*/, MatchEvent event) {
+void match_event(void* /*context*/, Runtime& runtime, MatchEvent event) {
     // boneyards_match_event_leaves knows these values. A reorder has to change it.
     static_assert(static_cast<uint8_t>(MatchEvent::finished) == 0);
     static_assert(static_cast<uint8_t>(MatchEvent::torn_down) == 1);
@@ -1318,6 +2476,11 @@ void match_event(void* /*context*/, Runtime& /*runtime*/, MatchEvent event) {
     if (event == MatchEvent::finished || event == MatchEvent::torn_down ||
         event == MatchEvent::left)
         exit_prompt_match_ended(g_exit_prompt);
+    // torn_down also runs when a new battle's setup destroys the previous
+    // match, before that battle starts. The recording is sampled only on the
+    // way out.
+    if (event == MatchEvent::finished || event == MatchEvent::left)
+        oa::boneyards::screens::mark_after_battle_recorded(battle_has_recording(runtime));
     if (boneyards_match_event_leaves(static_cast<uint8_t>(event)))
         boneyards_match_ended();
 }
@@ -1408,6 +2571,8 @@ void oa_extension_init_boneyards(oa::app::Extension* table) {
     app::fill_boneyards_report_hooks(hooks);
     hooks.page = app::boneyards_page;
     hooks.join_failed = app::boneyards_join_failed;
+    hooks.recorded_game = app::boneyards_recorded_game;
     oa::app::netgame::extension_api::set_hooks(hooks);
     oa::app::register_expansion_overlay();
+    oa::app::register_boneyards_replay_kind();
 }

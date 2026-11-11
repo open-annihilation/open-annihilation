@@ -101,21 +101,67 @@ bool wet(const Inputs& in, float x, float z) {
     return depth(in, x, z) > 0 && in.visible && in.visible(x, z - in.map->sea_level * 0.5F);
 }
 
-/// Place a projected map point in the current render target.
-std::array<float, 2> screen(const Inputs& in, float x, float y) {
-    const auto& v = in.view;
+/// The point a photo tile submits on a renderer that truncates a vertex
+/// times the target's factor toward zero. Other renderers keep the point,
+/// and so does a scissor, which rounds the unshifted place.
+std::array<float, 2> drawn_point(const Inputs& in, std::array<float, 2> point) {
+    if (!in.view.truncate_geometry)
+        return point;
+    const float draw_factor =
+        static_cast<float>(in.view.target_factor == 0 ? 1U : in.view.target_factor);
     return {
-        v.origin_x + (x - v.camera_x - float(v.offset.x)) * v.zoom * v.scale,
-        v.origin_y + (y - v.camera_y - float(v.offset.y)) * v.zoom * v.scale
+        full::truncated_tile_pixel(point[0], in.view.strip_anchor_x, draw_factor),
+        full::truncated_tile_pixel(point[1], in.view.strip_anchor_y, draw_factor)
+    };
+}
+
+/// Place a projected map point in the current render target.
+///
+/// A photo tile places the point where the whole photo places it, the
+/// whole photo's camera taken before the conversion to float, then
+/// subtracts the tile's draw origin. `beside_sprite` keeps the view's own
+/// camera: a sprite's corners are already in the tile, and the height
+/// beside them is measured there. Both anchors and both map shifts at zero
+/// leave the two-line place a frame already uses.
+std::array<float, 2> screen(const Inputs& in, float x, float y, bool beside_sprite = false) {
+    const auto& v = in.view;
+    if (beside_sprite || (v.strip_anchor_x == 0.0F && v.strip_anchor_y == 0.0F &&
+                          v.tile_map_x == 0 && v.tile_map_y == 0)) {
+        return {
+            v.origin_x + (x - v.camera_x - float(v.offset.x)) * v.zoom * v.scale,
+            v.origin_y + (y - v.camera_y - float(v.offset.y)) * v.zoom * v.scale
+        };
+    }
+    const float camera_x = float(v.camera_x - v.tile_map_x);
+    const float camera_y = float(v.camera_y - v.tile_map_y);
+    return {
+        v.origin_x + (x - camera_x - float(v.offset.x)) * v.zoom * v.scale - v.strip_anchor_x,
+        v.origin_y + (y - camera_y - float(v.offset.y)) * v.zoom * v.scale - v.strip_anchor_y
     };
 }
 
 /// Recover a water-plane point from target geometry.
-std::array<float, 2> water_position(const Inputs& in, const card::Vertex& p) {
+///
+/// `model_place` inverts a model vertex that was projected in the whole
+/// photo and then shifted by the tile's draw origin. A sprite's vertex was
+/// not, so it keeps the view's own camera.
+std::array<float, 2>
+water_position(const Inputs& in, const card::Vertex& p, bool model_place = false) {
     const auto& v = in.view;
+    const bool shifted = model_place && (v.strip_anchor_x != 0.0F || v.strip_anchor_y != 0.0F ||
+                                         v.tile_map_x != 0 || v.tile_map_y != 0);
+    if (!shifted) {
+        return {
+            (p.x - v.origin_x) / (v.zoom * v.scale) + v.camera_x + float(v.offset.x),
+            (p.y - v.origin_y) / (v.zoom * v.scale) + v.camera_y + float(v.offset.y) +
+                in.map->sea_level * 0.5F
+        };
+    }
+    const float camera_x = float(v.camera_x - v.tile_map_x);
+    const float camera_y = float(v.camera_y - v.tile_map_y);
     return {
-        (p.x - v.origin_x) / (v.zoom * v.scale) + v.camera_x + float(v.offset.x),
-        (p.y - v.origin_y) / (v.zoom * v.scale) + v.camera_y + float(v.offset.y) +
+        (p.x + v.strip_anchor_x - v.origin_x) / (v.zoom * v.scale) + camera_x + float(v.offset.x),
+        (p.y + v.strip_anchor_y - v.origin_y) / (v.zoom * v.scale) + camera_y + float(v.offset.y) +
             in.map->sea_level * 0.5F
     };
 }
@@ -189,8 +235,9 @@ void move_with_art(
         return;
     const float scale = in.view.zoom * in.view.scale;
     const auto& v = in.view;
-    const auto anchor =
-        screen(in, sprite->world_position->x / fixed, sprite->world_position->z / fixed - y * 0.5F);
+    const auto anchor = screen(
+        in, sprite->world_position->x / fixed, sprite->world_position->z / fixed - y * 0.5F, true
+    );
     const bool lying = sprite->terrain_decal || sprite->shadow || !sprite->on_map;
     for (std::size_t i = first_vertex; i < frame.vertices.size(); ++i) {
         auto& vertex = frame.vertices[i];
@@ -449,8 +496,11 @@ void surface(card::CardFrame& frame, const Inputs& in) {
             const auto first = static_cast<card::Index>(frame.vertices.size());
             for (int down = 0; down <= across; ++down)
                 for (int along = 0; along <= across; ++along) {
-                    const auto point = screen(
-                        in, x + float(along * spacing), z + float(down * spacing) - sea * 0.5F
+                    const auto point = drawn_point(
+                        in,
+                        screen(
+                            in, x + float(along * spacing), z + float(down * spacing) - sea * 0.5F
+                        )
                     );
                     const auto& corner = corners[std::size_t(down) * (across + 1) + along];
                     const card::Colour colour{
@@ -524,6 +574,7 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                         continue;
                     const auto point =
                         screen(in, x - half_width, projected_z - sea * 0.5F - half_height);
+                    const auto splash_first = frame.vertices.size();
                     card::append_quad(
                         frame,
                         point[0],
@@ -536,6 +587,13 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                         1,
                         {0.72F, 0.88F, 0.96F, splash_alpha}
                     );
+                    for (std::size_t splash = splash_first; splash < frame.vertices.size();
+                         ++splash) {
+                        const auto settled =
+                            drawn_point(in, {frame.vertices[splash].x, frame.vertices[splash].y});
+                        frame.vertices[splash].x = settled[0];
+                        frame.vertices[splash].y = settled[1];
+                    }
                 }
             }
             for (int segment = 0; segment < segments; ++segment) {
@@ -551,7 +609,7 @@ void surface(card::CardFrame& frame, const Inputs& in) {
                     continue;
                 const auto first = static_cast<card::Index>(frame.vertices.size());
                 const auto emit = [&](float x, float z) {
-                    const auto point = screen(in, x, z - sea * 0.5F);
+                    const auto point = drawn_point(in, screen(in, x, z - sea * 0.5F));
                     frame.vertices.push_back(
                         {point[0], point[1], {0.65F, 0.84F, 0.92F, std::min(alpha, 0.3F)}, 0, 0}
                     );
@@ -676,13 +734,16 @@ void objects(
         auto v = corner.vertex;
         const float altitude = std::max(0.0F, corner.height - sea);
         v.y += altitude * scale;
-        const auto water = water_position(in, v);
+        const auto water = water_position(in, v, true);
         v.x += std::sin(water[1] * 0.12F + float(in.seconds) * 1.3F) * 0.65F * scale;
         v.colour.red *= renderer_water_appearance::reflection_brightness;
         v.colour.green *= renderer_water_appearance::reflection_brightness;
         v.colour.blue *= renderer_water_appearance::reflection_brightness;
         // Fainter the higher the point it mirrors.
         v.colour.alpha *= opacity * std::clamp(1 - altitude / 100, 0.0F, 1.0F);
+        const auto settled = drawn_point(in, {v.x, v.y});
+        v.x = settled[0];
+        v.y = settled[1];
         return v;
     };
     // Reject any triangle whose water footprint crosses a dry or unseen cell.
@@ -745,7 +806,7 @@ void objects(
                 continue;
             std::array<std::array<float, 2>, 4> p{};
             for (std::size_t k = 0; k < count; ++k)
-                p[k] = water_position(in, clipped[k]);
+                p[k] = water_position(in, clipped[k], true);
             float left = p[0][0], right = left, top = p[0][1], bottom = top;
             for (const auto& point : std::span(p.data(), count)) {
                 left = std::min(left, point[0]);

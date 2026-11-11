@@ -36,7 +36,9 @@ namespace oa::app::package_install::oamod {
 );
 
 /// Reads what a folder in Mods holds: its oamod.yaml's id, name, version
-/// and packaging.revision, read without resolving the profile.
+/// and packaging.revision, and the folder's origin record when it has one,
+/// read without resolving the profile. The origin's SHA-256 is the installed
+/// package file's digest. A folder with no record leaves that digest unknown.
 ///
 /// @param folder the folder
 /// @return what it holds

@@ -166,7 +166,83 @@ void reevaluate_units(Lobby& lobby) noexcept {
     }
 }
 
+// The verdict as it is sent: local, remote, then the limit.
+uint32_t verdict_value(const UnitSyncRecord& record) noexcept {
+    return static_cast<uint32_t>(record.local) | static_cast<uint32_t>(record.remote) << 8U |
+           static_cast<uint32_t>(static_cast<uint16_t>(record.limit)) << 16U;
+}
+
+// True when this pass already stored this key with the same verdict.
+bool verdict_repeats_this_pass(const UnitSync& sync, uint32_t key, uint32_t value) noexcept {
+    const auto* stored = find(sync, key);
+    return stored != nullptr && stored->from_host != 0 && verdict_value(*stored) == value;
+}
+
+// The host's setup block carries the Open Annihilation signature. A missing block does not.
+bool host_open_annihilation(Lobby& lobby) noexcept {
+    const auto host_id = host_player_id(lobby);
+    if (host_id == netgame::no_player_id)
+        return false;
+    const auto* player = netgame::player_of_id(*lobby.game, host_id);
+    if (player == nullptr)
+        return false;
+    const auto* info = player_info(lobby, *player);
+    return info != nullptr &&
+           netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(info));
+}
+
+// TADR's replayer names its session with this prefix, then the map. An Open
+// Annihilation host whose player chose such a name is not the replayer.
+bool recorder_session(Lobby& lobby) noexcept {
+    if (lobby.game == nullptr)
+        return false;
+    constexpr char kPrefix[] = "TADR ";
+    return std::strncmp(lobby.joined_session, kPrefix, sizeof(kPrefix) - 1) == 0 &&
+           !host_open_annihilation(lobby);
+}
+
+// Distinct keys the recorder gave with its first-pass status.
+uint32_t first_pass_units(const UnitSync& sync) noexcept {
+    uint32_t count = 0;
+    for (int32_t index = 0; index < sync.record_count; ++index)
+        if (sync.records[index].first_given != 0)
+            ++count;
+    return count;
+}
+
+// The count TADR's replayer waits for when a repeated verdict starts its
+// check again. Zero when this record does not. The first pass, status
+// 0x0001, waits for two. The second pass, status 0x0101, waits for the
+// first pass's units plus two.
+uint32_t count_again_at(
+    Lobby& lobby, const UnitSync& sync, uint8_t subtype, uint32_t key, uint32_t value
+) noexcept {
+    if (!recorder_session(lobby) || subtype != kSubtypeVerdict)
+        return 0;
+    if (!verdict_repeats_this_pass(sync, key, value))
+        return 0;
+    const auto pass = static_cast<uint16_t>(value);
+    if (pass == 0x0001)
+        return 2;
+    if (pass == 0x0101)
+        return first_pass_units(sync) + 2U;
+    return 0;
+}
+
+void clear_host_verdicts(UnitSync& sync) noexcept {
+    for (int32_t at = 0; at < sync.record_count; ++at)
+        sync.records[at].from_host = 0;
+}
+
 } // namespace
+
+uint32_t unit_sync_handled_count(uint32_t handled, uint8_t subtype, uint32_t again_at) noexcept {
+    if (subtype >= netgame::handshake_subtype_limit)
+        return handled;
+    if (again_at != 0 && subtype != static_cast<uint8_t>(netgame::HandshakeSubtype::announce))
+        return again_at;
+    return handled + 1U;
+}
 
 void unit_sync_rebuild(Lobby& lobby) noexcept {
     // The local player's role decides. sync.host is unset until the table
@@ -281,14 +357,19 @@ void unit_sync_receive(Lobby& lobby, std::span<const uint8_t> bytes, uint8_t fro
     const uint8_t subtype = record.subtype;
     if (subtype >= netgame::handshake_subtype_limit || sync.finished)
         return;
-    ++sync.records_handled;
     const auto key = record.key;
+    const uint32_t again_at =
+        sync.host ? 0U : count_again_at(lobby, sync, subtype, key, record.value);
+    if (again_at != 0)
+        clear_host_verdicts(sync);
+    sync.records_handled = unit_sync_handled_count(sync.records_handled, subtype, again_at);
     if (!sync.host) {
-        // A greeting starts this machine's report again. A 3.1c host greets
-        // each peer once, before any checksum, so resetting here changes
-        // nothing it sees. An Open Annihilation host greets again after the
-        // room's units change, and the next ticks send the count and then
-        // the checksums from the first unit.
+        // A greeting starts this machine's report again. The next ticks
+        // send the count and then the checksums from the first unit. The
+        // handled count keeps going: a greeting is not a pass that starts
+        // again. TADR's replayer starts the check again, and the viewer
+        // then counts that pass as TADR does. Every other host, the
+        // original game's included, is counted as the original game counts.
         if (subtype == kSubtypeGreeting)
             sync.next_unit = 0;
         if (subtype != kSubtypeVerdict)
@@ -297,12 +378,17 @@ void unit_sync_receive(Lobby& lobby, std::span<const uint8_t> bytes, uint8_t fro
         if (entry == nullptr)
             return;
         // A verdict's value holds the local and remote bytes, then the limit.
+        const bool opened =
+            static_cast<uint16_t>(record.value) == 0x0001 && entry->first_given == 0;
         entry->checksum = 0;
         entry->local = static_cast<uint8_t>(record.value);
         entry->local_high = 0;
         entry->remote = static_cast<uint8_t>(record.value >> 8U);
         entry->remote_high = 0;
         entry->limit = static_cast<int16_t>(record.value >> 16U);
+        entry->from_host = 1;
+        if (opened)
+            entry->first_given = 1;
         unit_sync_relay(lobby, key);
         return;
     }

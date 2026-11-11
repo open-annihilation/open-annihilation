@@ -12,6 +12,7 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/package_install/inbox.hpp"
 #include "oa/app/package_install/origin.hpp"
+#include "oa/app/package_install/replay_release.hpp"
 #include "oa/platform/preferences.hpp"
 
 #include <SDL3/SDL.h>
@@ -93,6 +94,8 @@ std::filesystem::path compared_path(const std::filesystem::path& file) {
 
 struct Runtime::ContentState {
     content::Service service;
+    /// The player's own folder, where a replay's release is kept beside Mods.
+    std::filesystem::path player_folder;
     bool developer_mode = false;
     std::unique_ptr<content::Downloads> downloads;
     std::string language;
@@ -131,6 +134,18 @@ struct Runtime::ContentState {
         record.catalogue_id = origin.key;
         record.release = origin.release;
         record.sha256 = origin.sha256;
+        if (origin.beside) {
+            // Beside the release in use. The ordinary installer would ask to
+            // replace that folder, or would list the copy as an update.
+            std::string reason;
+            const std::optional<std::filesystem::path> kept =
+                oa::app::package_install::install_replay_release(
+                    state->player_folder, file, record, &reason
+                );
+            if (!kept)
+                std::cerr << "open-annihilation: content: " << reason << '\n';
+            return kept.has_value();
+        }
         oa::app::package_install::post_package_file(file, record);
         std::lock_guard<std::mutex> guard(state->handed_mutex);
         state->handed.emplace_back(compared_path(file), item);
@@ -200,7 +215,9 @@ void Runtime::start_content() {
     options.log = content_log;
     const bool developer = options.developer_mode;
     const std::filesystem::path data_folder = options.data_folder;
+    const std::filesystem::path player_folder = options.player_folder;
     content_.reset(new ContentState(std::move(options), developer));
+    content_->player_folder = player_folder;
     content_->service.start();
     content::DownloadsOptions queue_options;
     queue_options.data_folder = data_folder;

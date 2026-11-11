@@ -19,15 +19,29 @@ sent and recorded bytes as they were.
 
 ## Invariants
 
-The extension table followed is 19 and network play's API is 2. Hooks added
+The extension table followed is 19 and network play's API is 4. Hooks added
 in versions 15 to 19 are not filled. The library links `oa-app-netgame-sdk`,
-so it is asked before network play.
+so it is asked before network play. Network play's `recorded_game` hook
+(`boneyards_recorded_game`) names the kind `boneyards` for a battle the
+Boneyards launched, with its game id, its planet and its sector as the
+members of the object under `game` in the battle's replay; the planet and the
+sector are the galactic map's names when the launch reply came (the status
+widget's `boneyards_status_widget_battle_place`). A member the map does not
+name is left out. As the table is filled, `register_boneyards_replay_kind`
+registers that kind with the Library's Replays section
+(`oa::data::replays::register_kind`) under the title `Boneyards`, which
+`languages/boneyards.tdf` translates: the section's kind menu offers the
+Boneyards' battles, and a battle's row shows the title and its planet, its
+card the planet and the sector.
 
 ## Tests
 
-`boneyards-options`, `boneyards-launch`, `boneyards-exit-prompt`,
+`boneyards-options`, `boneyards-launch` (which also checks that the hook's
+game id, planet and sector reach a replay's `meta.json`), `boneyards-exit-prompt`,
 `boneyards-entry-flow` (the entry's decisions before the package), and the
-`native-boneyards-*` checks. Launch checks read `OA_LAUNCHER_GAME_DIR`.
+`native-boneyards-*` checks. `native-boneyards-launch` records each
+side's battle and requires that replay to name the battle's game id, planet and
+sector. Launch checks read `OA_LAUNCHER_GAME_DIR`.
 
 ## Limitations
 

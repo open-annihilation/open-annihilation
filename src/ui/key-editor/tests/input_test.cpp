@@ -12,6 +12,7 @@
 #include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
+#include "oa/ui/kit/looks.hpp"
 #include "screen_fixture.hpp"
 
 #include <cstddef>
@@ -21,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -134,8 +136,10 @@ void focus_list(Session& session) {
     if (list == nullptr)
         std::fprintf(stderr, "the list is not a control\n");
     OA_CHECK(list != nullptr);
-    if (list != nullptr)
+    if (list != nullptr) {
         session.state.interaction.focused = list->id;
+        session.state.interaction.focus_shown = true;
+    }
 }
 
 /// A point inside a control's press area.
@@ -145,6 +149,92 @@ void focus_list(Session& session) {
 kit::Point centre_of(const kit::Control& control) {
     const kit::Rect area = press_area(control);
     return {area.x + area.width / 2, area.y + area.height / 2};
+}
+
+/// A click in the search, a pointer move and then typing leave the text in
+/// the field, and the field is still drawn focused.
+void a_pointer_move_keeps_the_search() {
+    const kit::Frame frame = frame_for(1280, 720, 100);
+    Session session(frame);
+    session.click(editor::name_search);
+    OA_CHECK(editor::focused_field(session.state, session.list).has_value());
+    const kit::Control* search = find_named(session.list, editor::name_search);
+    OA_CHECK(search != nullptr);
+    if (search == nullptr)
+        return;
+    const kit::Point away{search->rect.x + search->rect.width + 8, search->rect.y + 4};
+    session.take(
+        editor::editor_pointer(
+            session.model, session.state, session.list, editor::PointerKind::move, 0, away, 0
+        )
+    );
+    OA_CHECK(editor::focused_field(session.state, session.list).has_value());
+    session.take(editor::editor_text(session.model, session.state, session.list, "atta"));
+    OA_CHECK(session.state.search.text == "atta");
+    session.show();
+    bool drawn = false;
+    for (const kit::Item& item : session.list.items)
+        if (const auto* look = std::get_if<kit::SearchLook>(&item.look))
+            if (look->focused && look->field.text == "atta")
+                drawn = true;
+    OA_CHECK(drawn);
+}
+
+/// A click on Attack, then a pointer move: Return opens that row's details,
+/// and Down chooses Move. The move hides the ring and leaves the keys on
+/// the list.
+void a_move_after_a_click_keeps_the_row() {
+    const std::string attack = std::string(editor::name_row_prefix) + "order.attack";
+    Session session(frame_for(640, 480, 100));
+    OA_CHECK(session.frame.size_class == kit::SizeClass::compact);
+    session.click(attack);
+    if (session.state.selected != "order.attack")
+        std::fprintf(stderr, "the click selected \"%s\"\n", session.state.selected.c_str());
+    OA_CHECK(session.state.selected == "order.attack");
+    OA_CHECK(session.state.interaction.focus_shown);
+    const kit::Point away{4, 4};
+    session.take(
+        editor::editor_pointer(
+            session.model, session.state, session.list, editor::PointerKind::move, 0, away, 0
+        )
+    );
+    OA_CHECK(session.state.selected == "order.attack");
+    OA_CHECK(session.state.interaction.focus_shown && session.state.interaction.pointer_hid_ring);
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::enter));
+    if (!session.state.details_page)
+        std::fprintf(stderr, "return after the move did not open the details\n");
+    OA_CHECK(session.state.details_page);
+
+    Session down(frame_for(640, 480, 100));
+    down.click(attack);
+    down.take(
+        editor::editor_pointer(
+            down.model, down.state, down.list, editor::PointerKind::move, 0, away, 0
+        )
+    );
+    OA_CHECK(down.state.interaction.pointer_hid_ring && down.state.selected == "order.attack");
+    down.take(editor::editor_key(down.model, down.state, down.list, kit::Key::down));
+    if (down.state.selected != "order.move")
+        std::fprintf(stderr, "down after the move chose \"%s\"\n", down.state.selected.c_str());
+    OA_CHECK(down.state.selected == "order.move");
+    OA_CHECK(down.state.interaction.focus_shown && !down.state.interaction.pointer_hid_ring);
+}
+
+/// Click the search, type, press Return and type again: every character
+/// stays in the field. Return hides the ring and does not stop the typing.
+void return_in_the_search_keeps_the_typing() {
+    Session session(frame_for(1280, 720, 100));
+    session.click(editor::name_search);
+    session.take(editor::editor_text(session.model, session.state, session.list, "at"));
+    OA_CHECK(session.state.search.text == "at");
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::enter));
+    OA_CHECK(
+        session.state.interaction.focused == kit::control_named(session.list, editor::name_search)
+    );
+    session.take(editor::editor_text(session.model, session.state, session.list, "x"));
+    if (session.state.search.text != "atx")
+        std::fprintf(stderr, "the search holds \"%s\"\n", session.state.search.text.c_str());
+    OA_CHECK(session.state.search.text == "atx");
 }
 
 /// The search takes the focus, and typing "attack" leaves fewer rows.
@@ -533,7 +623,59 @@ void clone_from_more() {
     OA_CHECK(session.model.layout_description() == "Based on Ridge grid, mine");
 }
 
+/// The editor opens on its first stop with the ring hidden. The first Tab is
+/// the second stop, Shift+Tab is the last, and Return does nothing until the
+/// ring shows, when it presses the focused control and hides the ring.
+void the_screen_opens_on_its_first_stop() {
+    Session session(frame_for(1280, 720, 100));
+    OA_CHECK(!session.list.tab_order.empty());
+    if (session.list.tab_order.empty())
+        return;
+    const kit::ControlId first = session.list.tab_order.front();
+    const kit::ControlId last = session.list.tab_order.back();
+    kit::focus_opened(session.state.interaction, session.list, false);
+    OA_CHECK(session.state.interaction.focused == first);
+    OA_CHECK(!session.state.interaction.focus_shown);
+    session.take(editor::editor_key(session.model, session.state, session.list, kit::Key::tab));
+    OA_CHECK(session.list.tab_order.size() > 1);
+    if (session.list.tab_order.size() > 1)
+        OA_CHECK(session.state.interaction.focused == session.list.tab_order[1]);
+    OA_CHECK(session.state.interaction.focus_shown);
+
+    Session back(frame_for(1280, 720, 100));
+    kit::focus_opened(back.state.interaction, back.list, false);
+    back.take(editor::editor_key(back.model, back.state, back.list, kit::Key::back_tab));
+    OA_CHECK(back.state.interaction.focused == last);
+    OA_CHECK(back.state.interaction.focus_shown);
+
+    Session plain(frame_for(1280, 720, 100));
+    kit::focus_opened(plain.state.interaction, plain.list, false);
+    const editor::EditorResult accepted =
+        plain.take(editor::editor_key(plain.model, plain.state, plain.list, kit::Key::enter));
+    OA_CHECK(accepted.action == editor::EditorAction::none);
+    OA_CHECK(plain.state.interaction.focused == first);
+    OA_CHECK(!plain.state.interaction.focus_shown);
+
+    const kit::Control* cancel = find_named(session.list, editor::name_cancel);
+    OA_CHECK(cancel != nullptr);
+    if (cancel == nullptr)
+        return;
+    session.state.interaction.focused = cancel->id;
+    session.state.interaction.focus_shown = true;
+    const editor::EditorResult closed = session.take(
+        editor::editor_key(session.model, session.state, session.list, kit::Key::enter)
+    );
+    OA_CHECK(
+        closed.action == editor::EditorAction::cancel ||
+        closed.action == editor::EditorAction::ask_keep_changes
+    );
+    OA_CHECK(!session.state.interaction.focus_shown);
+}
+
 int main() {
+    a_pointer_move_keeps_the_search();
+    a_move_after_a_click_keeps_the_row();
+    return_in_the_search_keeps_the_typing();
     search_and_escape();
     leave_and_save();
     clone_from_more();
@@ -541,5 +683,6 @@ int main() {
     nav_and_pills_are_one_stop();
     enter_opens_details();
     finger_scrolls_and_taps();
+    the_screen_opens_on_its_first_stop();
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }

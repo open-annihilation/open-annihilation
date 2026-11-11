@@ -43,6 +43,9 @@
 
       # The engine as this system builds it. Its source is this tree, so what is
       # built is what is checked out rather than a release fetched from GitHub.
+      # AccessKit comes from the pinned release. aarch64-linux leaves the
+      # screen-reader bridge out: that release has no aarch64 static library,
+      # and this flake does not build the pinned source with cargo.
       linux = pkgs: pkgs.callPackage ./tools/nix/linux.nix { src = self; inherit version; };
 
       # A Windows build of the tree, cross-compiled from a cross set.
@@ -78,6 +81,54 @@
               "--without-brotli"
             ];
           });
+          # Static, so the link does not fall back to a DLL import library.
+          # FreeType stays without HarfBuzz; this HarfBuzz is a separate library.
+          #
+          # Without GObject introspection, and with only the tools its build
+          # runs. nixpkgs' defaults put glib and the documentation tools in
+          # the build, and evaluating those for a Windows set looks for Wine
+          # to run the target's programs: on an Arm machine (the suite's)
+          # nixpkgs has no 32-bit Wine ("i686 Linux package set can only be
+          # used with the x86 family"), and on an x86 one it refuses Wine for
+          # a Windows host.
+          harfbuzz = (cross.harfbuzz.override { withIntrospection = false; }).overrideAttrs (old: {
+            nativeBuildInputs = with cross.buildPackages; [
+              meson
+              ninja
+              pkg-config
+              python3
+            ];
+            buildInputs = [ freetype ];
+            propagatedBuildInputs = [ freetype ];
+            # No documentation is built, so there is no devdoc output to make.
+            outputs = [
+              "out"
+              "dev"
+            ];
+            # nixpkgs configures with every automatic feature on, so PNG and
+            # zlib would be required. This build takes the shaping library
+            # alone, as tools/bootstrap_text_fonts.py does: no subset, raster
+            # or vector library.
+            mesonFlags = (old.mesonFlags or [ ]) ++ [
+              "-Dauto_features=disabled"
+              "-Ddefault_library=static"
+              "-Dpng=disabled"
+              "-Dzlib=disabled"
+              "-Dsubset=disabled"
+              "-Draster=disabled"
+              "-Dvector=disabled"
+              "-Dglib=disabled"
+              "-Dgobject=disabled"
+              "-Dcairo=disabled"
+              "-Dicu=disabled"
+              "-Dgraphite=disabled"
+              "-Dfreetype=enabled"
+              "-Dtests=disabled"
+              "-Ddocs=disabled"
+              "-Dintrospection=disabled"
+              "-Dutilities=disabled"
+            ];
+          });
           sdl3 = cross.callPackage ./tools/nix/windows-sdl.nix {
             pname = "SDL3-${pname}";
             description = "The SDL3 library, built for ${windowsName}";
@@ -86,11 +137,12 @@
         in
         cross.callPackage ./tools/nix/windows.nix {
           src = self;
-          inherit version freetype zlib sdl3 toolchain definitions fullPackage;
+          inherit version freetype harfbuzz zlib sdl3 toolchain definitions fullPackage;
           inherit pname;
           description = "Open Source port of the Total Annihilation & TA: Kingdoms engines, for ${windowsName}";
           textFonts = (linux pkgs).textFonts;
           pageFonts = (linux pkgs).pageFonts;
+          accesskit = (linux pkgs).accesskit;
         };
 
     in

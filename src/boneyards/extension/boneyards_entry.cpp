@@ -61,6 +61,17 @@ constexpr std::string_view k_services_question =
     "The Boneyards needs Open Annihilation's online features: update checks and the content "
     "catalogue. Turn them on and continue?";
 
+/// The same question when it also names one registry's install ID, in English.
+/// "{registry}" is that registry's name.
+constexpr std::string_view k_services_and_id_question =
+    "The Boneyards needs Open Annihilation's online features: update checks, the content "
+    "catalogue and {registry}'s install ID. Turn them on and continue?";
+
+/// The question that names only that registry's install ID, in English.
+/// "{registry}" is that registry's name.
+constexpr std::string_view k_install_id_question =
+    "The Boneyards needs {registry}'s install ID turned on. Turn it on and continue?";
+
 /// The failed update check's sentence, in English.
 constexpr std::string_view k_retry_question = "Open Annihilation could not check for updates.";
 
@@ -107,13 +118,18 @@ bool g_real = false;
 /// so a pass that ran before the strip could take it is tried again.
 bool g_entry_begun = false;
 
-/// Each line is printed once for a request.
+/// Each line is printed once for a request. The services line is once per
+/// question, so the install ID asked after the checks has its own.
 bool g_printed_ask = false;
 bool g_printed_open = false;
 bool g_printed_stayed = false;
 bool g_printed_failed = false;
 bool g_printed_mod = false;
 bool g_printed_services = false;
+
+/// The services sentence last printed. Cleared once that step is left, so
+/// the next question prints even when its words match.
+std::string g_services_notice;
 bool g_printed_retry = false;
 bool g_printed_updating = false;
 bool g_printed_restart = false;
@@ -182,6 +198,9 @@ ExpansionEntryAsk make_ask() {
     ask.cancel_label = std::string(languages::interface_text("Cancel"));
     ask.ok_label = ok_label;
     ask.services_question = std::string(languages::interface_text(k_services_question));
+    ask.services_and_id_question =
+        std::string(languages::interface_text(k_services_and_id_question));
+    ask.install_id_question = std::string(languages::interface_text(k_install_id_question));
     ask.turn_on_label = std::string(languages::interface_text("Turn on"));
     ask.retry_question = std::string(languages::interface_text(k_retry_question));
     ask.retry_label = std::string(languages::interface_text("Try again"));
@@ -469,12 +488,22 @@ bool expansion_in_use(Runtime& runtime, std::string& what) {
 void drive(Runtime& runtime, console::StatusWidget* widget) {
     const ExpansionEntryStatus status = advance_expansion_entry(runtime);
     show_real(widget, status);
-    if (status.step == ExpansionEntryStep::services_asking && !g_printed_services) {
-        g_printed_services = true;
-        std::cout << "entry flow: asking to turn the online features on\n" << status.notice << '\n';
-        std::cout.flush();
+    // One line per question. The flag stays set while the question is up, so
+    // the pass that records stayed still sees it, and is cleared once the
+    // step leaves services_asking. A question whose sentence changed inside
+    // this pass, the install ID after the checks, prints as well.
+    if (status.step == ExpansionEntryStep::services_asking) {
+        if (!g_printed_services || status.notice != g_services_notice) {
+            g_printed_services = true;
+            g_services_notice = status.notice;
+            std::cout << "entry flow: asking to turn the online features on\n"
+                      << status.notice << '\n';
+            std::cout.flush();
+        }
         return;
     }
+    g_printed_services = false;
+    g_services_notice.clear();
     if (status.step == ExpansionEntryStep::retry_asking && !g_printed_retry) {
         g_printed_retry = true;
         std::cout << "entry flow: asking to check for updates again\n" << status.notice << '\n';
@@ -573,6 +602,7 @@ void on_request(console::StatusWidget* widget) {
     g_printed_failed = false;
     g_printed_mod = false;
     g_printed_services = false;
+    g_services_notice.clear();
     g_printed_retry = false;
     g_printed_updating = false;
     g_printed_restart = false;
@@ -808,6 +838,13 @@ void on_pump(Runtime& runtime) {
         on_request(widget);
     } else if (expansion_entry_busy(runtime) && !remembered_mod_question_open(runtime)) {
         drive(runtime, widget);
+    } else if (
+        g_printed_services && !g_printed_stayed && !g_printed_failed && !g_printed_open &&
+        !expansion_entry_busy(runtime) && !remembered_mod_question_open(runtime)
+    ) {
+        // Turn on and Cancel leave the asking phase from the button, after
+        // this pump has already run. One more pass records stayed or failed.
+        drive(runtime, widget);
     }
     if (g_open_pumps >= 0)
         run_entry_check_inside(runtime);
@@ -871,6 +908,7 @@ void boneyards_entry_install(Runtime& runtime) {
     g_printed_failed = false;
     g_printed_mod = false;
     g_printed_services = false;
+    g_services_notice.clear();
     g_printed_retry = false;
     g_printed_updating = false;
     g_printed_restart = false;

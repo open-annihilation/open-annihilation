@@ -265,6 +265,10 @@ void check_conflicts() {
     OA_CHECK(conflict({"--mcp", "--benchmark", "10"}) == "--benchmark");
     OA_CHECK(conflict({"--mcp", "--match-ticks", "10"}) == "--match-ticks");
     OA_CHECK(conflict({"--mcp", "--render-script", "film.oascript"}) == "--render-script");
+    OA_CHECK(
+        conflict({"--mcp", "--replay-index", "game.tad", "--output", "game.json"}) ==
+        "--replay-index"
+    );
     OA_CHECK(conflict({"--mcp", "--showcase", "skirmish-battle"}) == "--showcase");
     OA_CHECK(conflict({"--mcp", "--check-navigation"}) == "a --check-* option");
     OA_CHECK(conflict({"--mcp", "--check-multiplayer-menu"}) == "a --check-* option");

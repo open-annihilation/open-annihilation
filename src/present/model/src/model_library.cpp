@@ -5,10 +5,13 @@
 #include "oa/present/model/model_library.hpp"
 
 #include "oa/formats/hpi.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/palette_tables.hpp"
 #include "oa/present/span_sample.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <span>
@@ -155,6 +158,83 @@ TextureLibrary load_texture_library(AssetStore& assets) {
         }
     }
     return library;
+}
+
+void recolour_team_textures(TextureLibrary& library, std::span<const uint8_t> palette) {
+    namespace vision = oa::present::colour_vision;
+    const bool paint = vision::active_mode() != vision::Mode::off &&
+                       palette.size() >= static_cast<std::size_t>(vision::kPaletteColours) * 4U;
+    // Off, and never recoloured: the arena is already the loaded indices.
+    if (!paint && !library.team_colours_applied)
+        return;
+    const uint8_t* const arena = library.pixels.data();
+    const std::size_t arena_bytes = library.pixels.size();
+    std::vector<vision::RawSequence> reading;
+
+    struct ArenaFrame {
+        uint8_t* pixels{};
+        std::size_t count{};
+        int key{-1};
+        bool ready{};
+    };
+
+    std::vector<std::array<ArenaFrame, vision::kPlayerCount>> arenas;
+    for (auto& [folded_name, sequence] : library.sequences) {
+        (void)folded_name;
+        if (!sequence.team_archive || sequence.sequence == nullptr)
+            continue;
+        const formats::gaf::Sequence& source = *sequence.sequence;
+        if (source.frames.size() != sequence.frames.size() ||
+            source.frames.size() != static_cast<std::size_t>(vision::kPlayerCount))
+            continue;
+        vision::RawSequence raw;
+        std::array<ArenaFrame, vision::kPlayerCount> copied{};
+        bool any = false;
+        for (int player = 0; player < vision::kPlayerCount; ++player) {
+            const formats::gaf::Frame& frame = source.frames[static_cast<std::size_t>(player)];
+            Sprite& sprite = sequence.frames[static_cast<std::size_t>(player)];
+            if (!readable_frame(frame) || sprite.data == nullptr || arena == nullptr)
+                continue;
+            const auto count = static_cast<std::size_t>(frame.width) * frame.height;
+            auto* data = static_cast<uint8_t*>(sprite.data);
+            const auto begin = reinterpret_cast<uintptr_t>(arena);
+            const auto at = reinterpret_cast<uintptr_t>(data);
+            if (at < begin || at - begin > arena_bytes || arena_bytes - (at - begin) < count)
+                continue;
+            std::memcpy(data, frame.pixels.data(), count);
+            raw.frames[static_cast<std::size_t>(player)] = {
+                frame.pixels.data(), count, static_cast<int>(frame.transparency_index)
+            };
+            copied[static_cast<std::size_t>(player)] = {
+                data, count, frame.transparency_index, true
+            };
+            any = true;
+        }
+        if (!any)
+            continue;
+        reading.push_back(raw);
+        arenas.push_back(copied);
+    }
+    if (!paint) {
+        library.team_colours_applied = false;
+        return;
+    }
+    const vision::TeamMaps maps = vision::team_maps(vision::active_mode(), palette, reading);
+    if (!reading.empty())
+        vision::remember_team_maps(maps);
+    for (const auto& frames : arenas) {
+        for (int player = 0; player < vision::kPlayerCount; ++player) {
+            const ArenaFrame& frame = frames[static_cast<std::size_t>(player)];
+            if (!frame.ready)
+                continue;
+            vision::remap_indices(
+                std::span<uint8_t>(frame.pixels, frame.count),
+                maps[static_cast<std::size_t>(player)],
+                frame.key
+            );
+        }
+    }
+    library.team_colours_applied = true;
 }
 
 void sort_object_primitives(

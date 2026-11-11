@@ -153,6 +153,9 @@ struct MessageLogSink {
     /// oldest of them is left out, though the newest always shows. 0 for no
     /// limit.
     int32_t most_rows{};
+    /// A line a player typed, beginning `<name> `, is left out. System lines
+    /// and the rest of the log still show. Off leaves every line as it was.
+    bool hide_recorded_chat{};
 };
 
 /// Left edge of the message log.

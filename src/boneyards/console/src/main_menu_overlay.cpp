@@ -173,10 +173,11 @@ bool enter_boneyards_requested(MainMenuOverlay* overlay) {
 }
 
 // Answers the strip's MULTI before this overlay opens multiplayer. A true
-// result means the press was answered (the demo's notice, or a mod that
-// cannot start) and the overlay does nothing else. Null leaves MULTI
-// opening multiplayer. Read when the button is pressed, so an answer
-// installed before the strip exists is the one that runs.
+// result means the press was answered (the demo's notice, a mod that cannot
+// start, or an extension that took the game over) and the overlay does
+// nothing else. Null leaves MULTI opening multiplayer. Read when the button
+// is pressed, so an answer installed before the strip exists is the one that
+// runs.
 bool (*g_multiplayer_answer)(void* user) = nullptr;
 void* g_multiplayer_answer_user = nullptr;
 
@@ -480,6 +481,18 @@ void open_overlay_message(MainMenuOverlay* overlay, const char* text) {
 }
 
 } // namespace
+
+void boneyards_status_widget_clear_focus(StatusWidget* widget) {
+    if (widget == nullptr)
+        return;
+    ScopedServices installed(widget);
+    // The keyboard goes back to the overlay itself, where the main menu
+    // opens with it: B still enters, and Return and Space press none of the
+    // strip's buttons. With no focus at all, the next Return or Space would
+    // land on the strip's first button, and the one after would press it.
+    Window* home = widget->system.main_menu != nullptr ? &widget->system.main_menu->base : nullptr;
+    desktop_set_focus(&widget->desktop, home);
+}
 
 void boneyards_status_widget_open_message(StatusWidget* widget, const char* text) {
     if (widget == nullptr || widget->system.main_menu == nullptr || text == nullptr)

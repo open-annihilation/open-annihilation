@@ -33,6 +33,7 @@
 #include "renderer_aircraft_shadow.hpp"
 
 #include "oa/base/game_math.hpp"
+
 #include "oa/present/palette_tables.hpp"
 #include "oa/present/polygon.hpp"
 #include "oa/sim/effect_particles.hpp"
@@ -1566,6 +1567,19 @@ class Emitter {
           scale_(pixels_per_map_pixel(view)), whole_scale_(std::floor(scale_) == scale_),
           texel_offset_(whole_scale_ ? texel_edge : texel_centre),
           camera_x_(fixed_of_pixels(view.camera_x)), camera_z_(fixed_of_pixels(view.camera_y)) {
+        // A photo tile projects in the whole photo's map pixels, then
+        // subtracts the tile's draw origin. A frame leaves both at zero.
+        whole_photo_tile_ = view.strip_anchor_x != 0.0F || view.strip_anchor_y != 0.0F ||
+                            view.tile_map_x != 0 || view.tile_map_y != 0;
+        anchor_x_ = view.strip_anchor_x;
+        anchor_y_ = view.strip_anchor_y;
+        map_shift_x_ = view.tile_map_x;
+        map_shift_y_ = view.tile_map_y;
+        // The battlefield's target scales vertices by its factor. The shadow
+        // target is made at factor one, so a vertex drawn there is settled
+        // at one. A renderer that keeps fractions needs no settlement.
+        truncates_ = view.truncate_geometry;
+        view_factor_ = static_cast<float>(view.target_factor == 0 ? 1U : view.target_factor);
         // The battlefield's rectangle in the target, and where the frame's
         // pixel (0, 0) lands in it: the view's offset moves every vertex by
         // its negative at the zoom, as the sprite stage moves its own.
@@ -1790,6 +1804,43 @@ class Emitter {
         return half_alpha * draw::shadow_level_strength(level);
     }
 
+    /// Places a map pixel on the surface. A frame places it from the tile,
+    /// which is the view. A photo tile places the whole photo's pixel, the
+    /// map shift added before the conversion to float, then subtracts the
+    /// tile's draw origin.
+    [[nodiscard]] float place_x(float origin, double map_pixels) const noexcept {
+        if (!whole_photo_tile_)
+            return origin + static_cast<float>(map_pixels) * scale_;
+        return origin +
+               static_cast<float>(map_pixels + static_cast<double>(map_shift_x_)) * scale_ -
+               anchor_x_;
+    }
+
+    /// Places a map pixel down the surface, as place_x places one across.
+    [[nodiscard]] float place_y(float origin, double map_pixels) const noexcept {
+        if (!whole_photo_tile_)
+            return origin + static_cast<float>(map_pixels) * scale_;
+        return origin +
+               static_cast<float>(map_pixels + static_cast<double>(map_shift_y_)) * scale_ -
+               anchor_y_;
+    }
+
+    /// The map pixel a placed vertex came from, in the corner space the
+    /// height plane was fitted in. A tile adds the draw origin back and
+    /// takes off the map shift. A frame keeps the vertex's own division.
+    [[nodiscard]] float map_x_of(float placed, float origin) const noexcept {
+        if (!whole_photo_tile_)
+            return (placed - origin) / scale_;
+        return (placed + anchor_x_ - origin) / scale_ - static_cast<float>(map_shift_x_);
+    }
+
+    /// The map pixel down, as map_x_of reads one across.
+    [[nodiscard]] float map_y_of(float placed, float origin) const noexcept {
+        if (!whole_photo_tile_)
+            return (placed - origin) / scale_;
+        return (placed + anchor_y_ - origin) / scale_ - static_cast<float>(map_shift_y_);
+    }
+
     ModelStage::Impl& impl_;
     gw::SpritePages& pages_;
     gw::SpritePages& bright_pages_;
@@ -1812,6 +1863,16 @@ class Emitter {
     float pan_y_{};
     int32_t camera_x_{}; ///< the camera, 16.16
     int32_t camera_z_{};
+    /// A photo tile: vertices are the whole photo's, minus the draw origin.
+    bool whole_photo_tile_{false};
+    float anchor_x_{}; ///< the tile's draw origin, in the vertices' pixels
+    float anchor_y_{};
+    int32_t map_shift_x_{}; ///< the tile's place in the whole photo, map pixels
+    int32_t map_shift_y_{};
+    /// The renderer truncates a vertex times the target's factor toward zero.
+    bool truncates_{false};
+    /// The battlefield target's factor. The shadow target is drawn at one.
+    float view_factor_{1.0F};
     std::vector<card::Vertex> vertices_;
     std::vector<card::Index> indices_;
     std::vector<card::Vertex> wet_vertices_;
@@ -2523,7 +2584,20 @@ void Emitter::append(
         asked_sampling.value_or(whole_scale_ ? card::Sampling::nearest : card::Sampling::linear);
     const auto base = static_cast<card::Index>(frame_.vertices.size());
     const auto first = static_cast<card::Index>(frame_.indices.size());
-    frame_.vertices.insert(frame_.vertices.end(), vertices.begin(), vertices.end());
+    // A photo tile on a renderer that truncates toward zero submits the
+    // pixel whose truncation is the whole photo's minus a whole number of
+    // the target's pixels. The shadow target is factor one. Anywhere the
+    // truncation already matches, the vertex is stored unchanged.
+    if (whole_photo_tile_ && truncates_) {
+        const float pixel_factor = surface.target == view_.target ? view_factor_ : 1.0F;
+        for (card::Vertex vertex : vertices) {
+            vertex.x = truncated_tile_pixel(vertex.x, anchor_x_, pixel_factor);
+            vertex.y = truncated_tile_pixel(vertex.y, anchor_y_, pixel_factor);
+            frame_.vertices.push_back(vertex);
+        }
+    } else {
+        frame_.vertices.insert(frame_.vertices.end(), vertices.begin(), vertices.end());
+    }
     for (const card::Index index : indices)
         frame_.indices.push_back(base + index);
     const auto count = static_cast<uint32_t>(indices.size());
@@ -2603,7 +2677,11 @@ namespace {
 ///     two_triangle_shift_allowed of a pixel (a parallelogram, a quad small
 ///     at the zoom, or one of no height), for a quad with a side that turns
 ///     back up or runs along a row between two sloped edges, and once the
-///     frame holds most_strip_frame_vertices or most_strip_frame_indices
+///     frame holds most_strip_frame_vertices or most_strip_frame_indices.
+///     A photo tile evaluates the cuts in the whole photo's coordinates
+///     (SceneView::strip_anchor_x and strip_anchor_y) and takes the anchor
+///     back, so the tile's strips are that photo's. An anchor of zero runs
+///     the cuts unchanged.
 bool Emitter::walk_strips(const Canvas& surface, std::span<const Corner> corners) {
     if (corners.size() != quad_corner_count || vertices_.size() != quad_corner_count ||
         frame_.vertices.size() >= most_strip_frame_vertices ||
@@ -2656,11 +2734,43 @@ bool Emitter::walk_strips(const Canvas& surface, std::span<const Corner> corners
     size_t right_count = 0;
     if (!walk_side(false, left_side, left_count) || !walk_side(true, right_side, right_count))
         return false;
+    // A tile's corners sit a whole number of draw pixels off the one-piece
+    // photo. The vertices already are that photo's, minus the draw origin.
+    // The cuts add the origin back, mix there, then subtract it. Zero leaves
+    // the mix as it is.
+    const bool anchored = whole_photo_tile_;
+    const float anchor_x = anchor_x_;
+    const float anchor_y = anchor_y_;
     // Where an edge crosses a row of the target: its corners' places,
     // texture coordinates and colours, each in proportion along it.
     const auto on_edge = [&](const Edge& edge, float y) {
-        const card::Vertex& from = vertices_[edge.from];
-        const card::Vertex& to = vertices_[edge.to];
+        const card::Vertex& from_vertex = vertices_[edge.from];
+        const card::Vertex& to_vertex = vertices_[edge.to];
+        if (!anchored) {
+            const card::Vertex& from = from_vertex;
+            const card::Vertex& to = to_vertex;
+            const float t = (y - from.y) / (to.y - from.y);
+            if (t <= 0.0F)
+                return from;
+            if (t >= 1.0F)
+                return to;
+            card::Vertex end;
+            end.x = from.x + t * (to.x - from.x);
+            end.y = y;
+            end.u = from.u + t * (to.u - from.u);
+            end.v = from.v + t * (to.v - from.v);
+            end.colour.red = from.colour.red + t * (to.colour.red - from.colour.red);
+            end.colour.green = from.colour.green + t * (to.colour.green - from.colour.green);
+            end.colour.blue = from.colour.blue + t * (to.colour.blue - from.colour.blue);
+            end.colour.alpha = from.colour.alpha + t * (to.colour.alpha - from.colour.alpha);
+            return end;
+        }
+        card::Vertex from = from_vertex;
+        card::Vertex to = to_vertex;
+        from.x += anchor_x;
+        from.y += anchor_y;
+        to.x += anchor_x;
+        to.y += anchor_y;
         const float t = (y - from.y) / (to.y - from.y);
         if (t <= 0.0F)
             return from;
@@ -2702,36 +2812,67 @@ bool Emitter::walk_strips(const Canvas& surface, std::span<const Corner> corners
     // rows apart as keep that within strip_shift_allowed. More than a
     // strip's height outside the surface's scissor only the corners' rows
     // are cut, since nothing there is seen.
-    const float view_top = surface.scissored ? static_cast<float>(surface.scissor.y) : 0.0F;
+    const auto walk_cuts = [&](float view_top, float view_bottom, float y_shift, bool place_rows) {
+        size_t left = 0;
+        size_t right = 0;
+        // An anchor of zero adds nothing: the cut stays the corner's own y.
+        cut(left_side[0],
+            right_side[0],
+            y_shift == 0.0F ? vertices_[top].y : vertices_[top].y + y_shift);
+        while (left < left_count && right < right_count) {
+            const Edge& left_edge = left_side[left];
+            const Edge& right_edge = right_side[right];
+            const auto slope = [&](const Edge& edge) {
+                return static_cast<float>(corners[edge.to].x - corners[edge.from].x) /
+                       static_cast<float>(corners[edge.to].y - corners[edge.from].y);
+            };
+            const float narrowing = std::fabs(slope(right_edge) - slope(left_edge));
+            const int32_t lower_row = std::min(corners[left_edge.to].y, corners[right_edge.to].y);
+            const float lower_at = surface.origin_y + static_cast<float>(lower_row) * scale_;
+            // A tile's row is the whole photo's corner row: the map shift is
+            // added before the conversion to float. A frame keeps the row it
+            // already cuts, and an anchor of zero adds nothing to that row.
+            const float lower =
+                place_rows ? surface.origin_y + static_cast<float>(
+                                                    static_cast<int64_t>(lower_row) + map_shift_y_
+                                                ) * scale_
+                           : (y_shift == 0.0F ? lower_at : lower_at + y_shift);
+            if (narrowing > 0.0F) {
+                const float rows =
+                    std::max(1.0F, std::floor(4.0F * strip_shift_allowed / narrowing));
+                const float upper = std::max(strip_vertices_.back().y, view_top - rows);
+                const float last = std::min(lower, view_bottom + rows);
+                for (float y = std::floor(upper - pixel_centre) + 1.0F + pixel_centre; y < last;
+                     y += rows)
+                    cut(left_edge, right_edge, y);
+            }
+            cut(left_edge, right_edge, lower);
+            if (corners[left_edge.to].y == lower_row)
+                ++left;
+            if (corners[right_edge.to].y == lower_row)
+                ++right;
+        }
+    };
+    if (!anchored) {
+        const float view_top = surface.scissored ? static_cast<float>(surface.scissor.y) : 0.0F;
+        const float view_bottom = surface.scissored
+                                      ? view_top + static_cast<float>(surface.scissor.height)
+                                      : static_cast<float>(card::largest_target_edge);
+        walk_cuts(view_top, view_bottom, 0.0F, false);
+        return true;
+    }
+    const float view_top =
+        (surface.scissored ? static_cast<float>(surface.scissor.y) : 0.0F) + anchor_y;
     const float view_bottom = surface.scissored
                                   ? view_top + static_cast<float>(surface.scissor.height)
-                                  : static_cast<float>(card::largest_target_edge);
-    size_t left = 0;
-    size_t right = 0;
-    cut(left_side[0], right_side[0], vertices_[top].y);
-    while (left < left_count && right < right_count) {
-        const Edge& left_edge = left_side[left];
-        const Edge& right_edge = right_side[right];
-        const auto slope = [&](const Edge& edge) {
-            return static_cast<float>(corners[edge.to].x - corners[edge.from].x) /
-                   static_cast<float>(corners[edge.to].y - corners[edge.from].y);
-        };
-        const float narrowing = std::fabs(slope(right_edge) - slope(left_edge));
-        const int32_t lower_row = std::min(corners[left_edge.to].y, corners[right_edge.to].y);
-        const float lower = surface.origin_y + static_cast<float>(lower_row) * scale_;
-        if (narrowing > 0.0F) {
-            const float rows = std::max(1.0F, std::floor(4.0F * strip_shift_allowed / narrowing));
-            const float upper = std::max(strip_vertices_.back().y, view_top - rows);
-            const float last = std::min(lower, view_bottom + rows);
-            for (float y = std::floor(upper - pixel_centre) + 1.0F + pixel_centre; y < last;
-                 y += rows)
-                cut(left_edge, right_edge, y);
-        }
-        cut(left_edge, right_edge, lower);
-        if (corners[left_edge.to].y == lower_row)
-            ++left;
-        if (corners[right_edge.to].y == lower_row)
-            ++right;
+                                  : static_cast<float>(card::largest_target_edge) + anchor_y;
+    walk_cuts(view_top, view_bottom, anchor_y, true);
+    // The cuts were made where the one-piece photo cuts them. The anchor is a
+    // whole number of target pixels, so taking it back leaves each vertex
+    // where this tile draws it.
+    for (card::Vertex& vertex : strip_vertices_) {
+        vertex.x -= anchor_x;
+        vertex.y -= anchor_y;
     }
     return true;
 }
@@ -2741,11 +2882,16 @@ bool Emitter::walk_strips(const Canvas& surface, std::span<const Corner> corners
 /// its parts outside every hole, the vertices on the cuts taken in
 /// proportion along its edges, so that a textured quad's strips keep their
 /// texels. The parts are drawn as fans. An edge of no length, where two of a
-/// hole's corners meet, divides nothing.
+/// hole's corners meet, divides nothing. A photo tile cuts where the
+/// one-piece photo cuts, in that photo's coordinates, then places the kept
+/// part back on the tile.
 ///
 /// @param surface the canvas the polygon is drawn on
 /// @param polygon the polygon, with its holes
 void Emitter::leave_out_holes(const Canvas& surface, const Polygon& polygon) {
+    const bool anchored = whole_photo_tile_;
+    const float anchor_x = anchor_x_;
+    const float anchor_y = anchor_y_;
     const auto between = [](const card::Vertex& from, const card::Vertex& to, float along) {
         const auto mix = [along](float first, float second) {
             return first + along * (second - first);
@@ -2786,9 +2932,22 @@ void Emitter::leave_out_holes(const Canvas& surface, const Polygon& polygon) {
         HoleBox box{static_cast<uint32_t>(edges.size()), 0};
         const auto placed = [&](uint32_t k) {
             const PlanePoint& point = impl_.hole_points[hole.first_point + k % hole.point_count];
+            // A frame places the hole from the tile. A photo tile places it
+            // where the whole photo places it: the map shift is added in
+            // double before the scale, and the draw origin is not added
+            // here. The triangle copies add that origin, so both meet in
+            // the whole photo, and the kept part subtracts it afterwards.
+            if (!anchored) {
+                return PlanePoint{
+                    surface.origin_x + point.x * static_cast<double>(scale_),
+                    surface.origin_y + point.y * static_cast<double>(scale_)
+                };
+            }
             return PlanePoint{
-                surface.origin_x + point.x * static_cast<double>(scale_),
-                surface.origin_y + point.y * static_cast<double>(scale_)
+                surface.origin_x +
+                    (point.x + static_cast<double>(map_shift_x_)) * static_cast<double>(scale_),
+                surface.origin_y +
+                    (point.y + static_cast<double>(map_shift_y_)) * static_cast<double>(scale_)
             };
         };
         for (uint32_t k = 0; k < hole.point_count; ++k) {
@@ -2836,9 +2995,15 @@ void Emitter::leave_out_holes(const Canvas& surface, const Polygon& polygon) {
     hole_vertices_.clear();
     hole_indices_.clear();
     for (size_t t = 0; t + 2 < indices_.size(); t += 3) {
-        const std::array<card::Vertex, 3> triangle{
+        std::array<card::Vertex, 3> triangle{
             vertices_[indices_[t]], vertices_[indices_[t + 1]], vertices_[indices_[t + 2]]
         };
+        if (anchored) {
+            for (card::Vertex& vertex : triangle) {
+                vertex.x += anchor_x;
+                vertex.y += anchor_y;
+            }
+        }
         // A triangle no hole's box reaches is kept whole.
         if (std::all_of(boxes.begin(), boxes.end(), [&](const HoleBox& box) {
                 return outside(box, triangle);
@@ -2949,6 +3114,12 @@ void Emitter::leave_out_holes(const Canvas& surface, const Polygon& polygon) {
             }
         }
     }
+    if (anchored) {
+        for (card::Vertex& vertex : hole_vertices_) {
+            vertex.x -= anchor_x;
+            vertex.y -= anchor_y;
+        }
+    }
     std::swap(vertices_, hole_vertices_);
     std::swap(indices_, hole_indices_);
 }
@@ -2957,8 +3128,8 @@ void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::P
     if (polygon.hole_count != 0)
         leave_out_holes(surface, polygon);
     const auto height_of = [&](const card::Vertex& vertex) {
-        const float x = (vertex.x - surface.origin_x) / scale_;
-        const float y = (vertex.y - surface.origin_y) / scale_;
+        const float x = map_x_of(vertex.x, surface.origin_x);
+        const float y = map_y_of(vertex.y, surface.origin_y);
         return polygon.height_origin + polygon.height_x * x + polygon.height_y * y;
     };
     // Each vertex's world height beside the frame's vertices, where they are
@@ -2981,8 +3152,8 @@ void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::P
             wet_indices_,
             [&](const card::Vertex& vertex) { return in_.water_sea_level - height_of(vertex); },
             [&](card::Vertex& vertex, float depth) {
-                const float x = (vertex.x - surface.origin_x) / scale_;
-                const float y = (vertex.y - surface.origin_y) / scale_;
+                const float x = map_x_of(vertex.x, surface.origin_x);
+                const float y = map_y_of(vertex.y, surface.origin_y);
                 renderer_water_shading::apply(
                     vertex,
                     x + camera_x_ / 65536.0F,
@@ -3132,8 +3303,16 @@ card::Vertex Emitter::body_vertex(
     const card::Colour& colour
 ) const {
     card::Vertex vertex;
-    vertex.x = surface.origin_x + static_cast<float>(x) * scale_;
-    vertex.y = surface.origin_y + static_cast<float>(y) * scale_;
+    // A frame places the corner from the view. A photo tile places the
+    // whole photo's corner, the map shift added before the conversion to
+    // float, then subtracts the tile's draw origin.
+    if (!whole_photo_tile_) {
+        vertex.x = surface.origin_x + static_cast<float>(x) * scale_;
+        vertex.y = surface.origin_y + static_cast<float>(y) * scale_;
+    } else {
+        vertex.x = place_x(surface.origin_x, x);
+        vertex.y = place_y(surface.origin_y, y);
+    }
     vertex.colour = colour;
     if (polygon.underwater) {
         vertex.colour.red *= half_colour;
@@ -3184,12 +3363,25 @@ void Emitter::emit_outline(const Canvas& surface) {
     // pixel across and down.
     const float least = scale_ < 1.0F ? 1.0F : 0.0F;
     for (const OutlineRun& run : impl_.outline_runs) {
-        const float x0 = surface.origin_x + static_cast<float>(run.x) * scale_;
-        const float y0 = surface.origin_y + static_cast<float>(run.y) * scale_;
-        const float x1 =
-            std::max(surface.origin_x + static_cast<float>(run.x + run.width) * scale_, x0 + least);
-        const float y1 =
-            std::max(surface.origin_y + static_cast<float>(run.y + 1) * scale_, y0 + least);
+        float x0 = 0.0F;
+        float y0 = 0.0F;
+        float x1 = 0.0F;
+        float y1 = 0.0F;
+        if (!whole_photo_tile_) {
+            x0 = surface.origin_x + static_cast<float>(run.x) * scale_;
+            y0 = surface.origin_y + static_cast<float>(run.y) * scale_;
+            x1 = std::max(
+                surface.origin_x + static_cast<float>(run.x + run.width) * scale_, x0 + least
+            );
+            y1 = std::max(surface.origin_y + static_cast<float>(run.y + 1) * scale_, y0 + least);
+        } else {
+            x0 = place_x(surface.origin_x, run.x);
+            y0 = place_y(surface.origin_y, run.y);
+            x1 = std::max(
+                place_x(surface.origin_x, static_cast<double>(run.x) + run.width), x0 + least
+            );
+            y1 = std::max(place_y(surface.origin_y, static_cast<double>(run.y) + 1), y0 + least);
+        }
         vertices_.clear();
         for (const auto& [x, y] :
              {std::pair{x0, y0}, std::pair{x1, y0}, std::pair{x1, y1}, std::pair{x0, y1}}) {
@@ -3222,8 +3414,13 @@ void Emitter::emit_silhouettes(
         vertices_.clear();
         for (const Corner& corner : corners) {
             card::Vertex vertex;
-            vertex.x = surface.origin_x + static_cast<float>(corner.x) * scale_;
-            vertex.y = surface.origin_y + static_cast<float>(corner.y) * scale_;
+            if (!whole_photo_tile_) {
+                vertex.x = surface.origin_x + static_cast<float>(corner.x) * scale_;
+                vertex.y = surface.origin_y + static_cast<float>(corner.y) * scale_;
+            } else {
+                vertex.x = place_x(surface.origin_x, corner.x);
+                vertex.y = place_y(surface.origin_y, corner.y);
+            }
             vertex.colour = shade;
             vertex.u = texel_centre;
             vertex.v = texel_centre;
@@ -3672,8 +3869,19 @@ bool Emitter::aircraft_shadow(
         cached.image_data = image.data;
         ++counts_.page_uploads;
     }
-    const float centre_x = static_cast<float>(x - image.origin_x) + width * 0.5F;
-    const float centre_y = static_cast<float>(y - image.origin_y) + height * 0.5F;
+    // The map shift is added to the integer place before the conversion to
+    // float. Adding it to the centre afterwards is a different float.
+    float centre_x = 0.0F;
+    float centre_y = 0.0F;
+    if (!whole_photo_tile_) {
+        centre_x = static_cast<float>(x - image.origin_x) + width * 0.5F;
+        centre_y = static_cast<float>(y - image.origin_y) + height * 0.5F;
+    } else {
+        centre_x = static_cast<float>(static_cast<int64_t>(x) + map_shift_x_ - image.origin_x) +
+                   width * 0.5F;
+        centre_y = static_cast<float>(static_cast<int64_t>(y) + map_shift_y_ - image.origin_y) +
+                   height * 0.5F;
+    }
     const float half_width = width * 0.5F + padding;
     const float half_height = height * 0.5F + padding;
     vertices_.clear();
@@ -3681,6 +3889,10 @@ bool Emitter::aircraft_shadow(
         card::Vertex vertex;
         vertex.x = surface.origin_x + (centre_x + (sx * 2 - 1) * half_width) * scale_;
         vertex.y = surface.origin_y + (centre_y + (sy * 2 - 1) * half_height) * scale_;
+        if (whole_photo_tile_) {
+            vertex.x -= anchor_x_;
+            vertex.y -= anchor_y_;
+        }
         vertex.u = static_cast<float>(sx * (width + padding * 2)) / edge;
         vertex.v = static_cast<float>(sy * (height + padding * 2)) / edge;
         vertex.colour = {1, 1, 1, shadow_alpha()};
@@ -3867,9 +4079,22 @@ void Emitter::shadow_of_projectile(const ProjectileDraw& shot, const Canvas& sur
         ))
         return;
     const oa::formats::gaf::RenderedFrame& sprite = *in_.projectile_shadow;
-    const float left = surface.origin_x + static_cast<float>(shot.x - sprite.origin_x) * scale_;
-    const float top =
-        surface.origin_y + static_cast<float>(shot.shadow_y - sprite.origin_y) * scale_;
+    float left = 0.0F;
+    float top = 0.0F;
+    if (!whole_photo_tile_) {
+        left = surface.origin_x + static_cast<float>(shot.x - sprite.origin_x) * scale_;
+        top = surface.origin_y + static_cast<float>(shot.shadow_y - sprite.origin_y) * scale_;
+    } else {
+        left = surface.origin_x +
+               static_cast<float>(static_cast<int64_t>(shot.x) + map_shift_x_ - sprite.origin_x) *
+                   scale_ -
+               anchor_x_;
+        top = surface.origin_y +
+              static_cast<float>(
+                  static_cast<int64_t>(shot.shadow_y) + map_shift_y_ - sprite.origin_y
+              ) * scale_ -
+              anchor_y_;
+    }
     const float width = static_cast<float>(sprite.width) * scale_;
     const float height = static_cast<float>(sprite.height) * scale_;
     const auto page = static_cast<float>(placed.page_size);
@@ -3958,8 +4183,19 @@ void Emitter::game_shadow_of_model(const ModelDraw& drawn) {
         ))
         return;
     const Canvas surface = drawn.on_map ? on_map(battlefield()) : battlefield();
-    const float left = surface.origin_x + static_cast<float>(shadow.left) * scale_;
-    const float top = surface.origin_y + static_cast<float>(shadow.top) * scale_;
+    float left = 0.0F;
+    float top = 0.0F;
+    if (!whole_photo_tile_) {
+        left = surface.origin_x + static_cast<float>(shadow.left) * scale_;
+        top = surface.origin_y + static_cast<float>(shadow.top) * scale_;
+    } else {
+        left = surface.origin_x +
+               static_cast<float>(static_cast<int64_t>(shadow.left) + map_shift_x_) * scale_ -
+               anchor_x_;
+        top = surface.origin_y +
+              static_cast<float>(static_cast<int64_t>(shadow.top) + map_shift_y_) * scale_ -
+              anchor_y_;
+    }
     const float width = static_cast<float>(shadow.width) * scale_;
     const float height = static_cast<float>(shadow.height) * scale_;
     const auto page = static_cast<float>(placed.page_size);
@@ -4148,6 +4384,13 @@ void ModelStage::set_palette(const Palette& palette, float gamma) {
     pages_.set_palette(palette, gamma);
     bright_pages_.set_palette(doubled(palette), gamma);
     impl_->forget_contents();
+}
+
+void ModelStage::drop_frames() {
+    pages_.clear();
+    bright_pages_.clear();
+    if (impl_ != nullptr)
+        impl_->forget_contents();
 }
 
 void ModelStage::close(card::Executor& executor) noexcept {

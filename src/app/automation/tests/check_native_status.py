@@ -32,6 +32,7 @@ import time
 # that file's Game, which merges standard error into standard output.
 _TOOLS = Path(__file__).resolve().parents[4] / "tools"
 sys.path.insert(0, str(_TOOLS))
+import native_offline  # noqa: E402
 import check_native_automation as automation  # noqa: E402
 
 AutomationFailure = automation.AutomationFailure

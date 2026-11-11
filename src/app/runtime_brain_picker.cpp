@@ -11,6 +11,7 @@
 // and tick do not list the folder, read a manifest or decode an icon.
 
 #include "oa_layer.hpp"
+
 #include "library_host.hpp"
 
 #include "engine_settings_state.hpp"
@@ -782,6 +783,13 @@ void Runtime::BrainPickerScreen::relayout() {
         return;
     }
     list_ = brains::picker_layout(picker_, state_, frame_, *fonts);
+    // The ring is drawn from the state this layout reads. Place the opening
+    // focus first, then lay out again when that moved it.
+    const kit::ControlId was_focused = state_.interaction.focused;
+    const bool was_shown = state_.interaction.focus_shown;
+    kit::focus_opened(state_.interaction, list_, runtime_.oa_layer().always_show_focus());
+    if (state_.interaction.focused != was_focused || state_.interaction.focus_shown != was_shown)
+        list_ = brains::picker_layout(picker_, state_, frame_, *fonts);
 }
 
 std::vector<brains::Brain> Runtime::own_brain_picker_brains(void* context) {

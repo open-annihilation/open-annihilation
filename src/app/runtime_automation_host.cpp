@@ -5,20 +5,31 @@
 // runtime holds, or holds a key or button down for the reads of what is
 // held (device_state.hpp).
 #include "oa/app/automation_host.hpp"
+#include "oa/app/control_names.hpp"
+#include "controls.hpp"
+#include "oa/app/extension.hpp"
+#include "gui_actions.hpp"
 
 #include "device_state.hpp"
 #include "oa_layer.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/data/defs/sides.hpp"
+#include "oa/data/languages/unit_texts.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
+#include "oa/formats/fnt.hpp"
 #include "oa/ui/gui_input.hpp"
+#include "oa/ui/gui_input/tab_order.hpp"
 #include "oa/ui/gui_layout/gui_gadget.hpp"
+#include "oa/ui/hud/order_panel.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -176,6 +187,50 @@ std::string gadget_text(const gui::Gadget& gadget, std::size_t stage) {
     return {};
 }
 
+/// Returns the label on the same row, to the left of a scroll bar.
+///
+/// The nearest label whose right edge is not past the bar's left, plus a
+/// little slack, wins. A label that does not share the bar's rows is left out.
+///
+/// @param gadgets the panel's gadgets
+/// @param bar_index the scroll bar
+/// @return its text; empty when the row has none
+std::string beside_label(std::span<const gui::Gadget> gadgets, std::size_t bar_index) {
+    const gui::CommonFields& bar = gadgets[bar_index].common;
+    const int32_t bar_top = bar.y;
+    const int32_t bar_bottom = static_cast<int32_t>(bar.y) + static_cast<int32_t>(bar.height);
+    const int32_t bar_left = bar.x;
+    // A label that ends a few columns into the bar still belongs to its row.
+    constexpr int32_t kSlack = 4;
+    bool found = false;
+    int32_t best_gap = 0;
+    std::string caption;
+    for (std::size_t other = 0; other < gadgets.size(); ++other) {
+        if (other == bar_index || gadgets[other].common.type != gui::GadgetType::label)
+            continue;
+        const gui::CommonFields& common = gadgets[other].common;
+        const int32_t top = common.y;
+        const int32_t bottom = static_cast<int32_t>(common.y) + static_cast<int32_t>(common.height);
+        const int32_t overlap_top = top > bar_top ? top : bar_top;
+        const int32_t overlap_bottom = bottom < bar_bottom ? bottom : bar_bottom;
+        if (overlap_bottom <= overlap_top)
+            continue;
+        const int32_t right = static_cast<int32_t>(common.x) + static_cast<int32_t>(common.width);
+        if (right > bar_left + kSlack)
+            continue;
+        const int32_t gap = bar_left - right;
+        if (found && gap >= best_gap)
+            continue;
+        const auto* label = std::get_if<gui::LabelFields>(&gadgets[other].fields);
+        if (label == nullptr)
+            continue;
+        found = true;
+        best_gap = gap;
+        caption = label->text;
+    }
+    return caption;
+}
+
 /// Makes the control a gadget is, without a list's rows.
 ///
 /// @param gadgets the panel's gadgets
@@ -213,7 +268,235 @@ AutomationControl gadget_control(
     control.checked =
         kind == AutomationControlKind::check_box && button != nullptr && button->status != 0;
     control.text = gadget_text(gadget, stage);
+    if (bar != nullptr)
+        fill_scroll_range(control, bar->range, bar->knob_position, beside_label(gadgets, index));
     return control;
+}
+
+/// Folds one ASCII letter. Any other byte is unchanged.
+char fold_letter(unsigned char byte) {
+    if (byte >= 'A' && byte <= 'Z')
+        return static_cast<char>(byte - 'A' + 'a');
+    return static_cast<char>(byte);
+}
+
+/// Reports whether two gadget names are the same, ignoring ASCII case.
+bool names_equal(std::string_view left, std::string_view right) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto a = static_cast<unsigned char>(left[index]);
+        const auto b = static_cast<unsigned char>(right[index]);
+        if (fold_letter(a) != fold_letter(b))
+            return false;
+    }
+    return true;
+}
+
+/// The Tab order of a panel, as a gadget index to its place from 1.
+///
+/// @param gadgets the panel's gadgets
+/// @return the places; a gadget that is not a stop is absent
+std::map<std::size_t, int32_t> tab_stops(std::span<const gui::Gadget> gadgets) {
+    std::map<std::size_t, int32_t> stops;
+    int32_t next_stop = 1;
+    for (const int32_t stop : oa::ui::gui_input::tab_order(gadgets)) {
+        if (stop <= 0)
+            continue;
+        stops.emplace(static_cast<std::size_t>(stop), next_stop);
+        ++next_stop;
+    }
+    return stops;
+}
+
+/// Gives a label authored with no height the height of one line.
+///
+/// @param[in,out] control the label
+/// @param resources the screen's fonts
+void give_label_a_line(AutomationControl& control, const renderer::ScreenResources& resources) {
+    if (control.kind != AutomationControlKind::label || control.height > 0 || control.width <= 0)
+        return;
+    const auto& font = resources.label_font.glyphs[0x49] ? resources.label_font : resources.font;
+    const int32_t line = static_cast<int32_t>(oa::formats::fnt::line_height(font));
+    control.height = line > 0 ? line : 2;
+}
+
+/// The first active, not greyed button that names each letter.
+///
+/// A later button with the same letter is not a shortcut: the key presses
+/// the first. A digit or a mark is not a key. `extra_grayed` is the match
+/// HUD's grayed flag, one per gadget; empty for a menu.
+///
+/// @param gadgets the panel's gadgets
+/// @param extra_grayed 1 when that gadget is greyed beyond the button's own flag
+/// @param[out] first the gadget index of each letter, A in slot 0; -1 for none
+void first_quick_letters(
+    std::span<const gui::Gadget> gadgets,
+    std::span<const uint8_t> extra_grayed,
+    std::array<int, 26>& first
+) {
+    first.fill(-1);
+    for (std::size_t index = 0; index < gadgets.size(); ++index) {
+        const gui::Gadget& gadget = gadgets[index];
+        const auto* button = std::get_if<gui::ButtonFields>(&gadget.fields);
+        if (button == nullptr || gadget.common.active == 0 || button->grayed_out)
+            continue;
+        if (index < extra_grayed.size() && extra_grayed[index] != 0)
+            continue;
+        const std::string letter = shortcut_letter(button->quick_key);
+        if (letter.size() != 1)
+            continue;
+        const int slot = static_cast<int>(static_cast<unsigned char>(letter[0])) - 'A';
+        if (slot >= 0 && slot < 26 && first[static_cast<std::size_t>(slot)] < 0)
+            first[static_cast<std::size_t>(slot)] = static_cast<int>(index);
+    }
+}
+
+/// A one-letter chord's place, A in slot 0. A longer chord is not one.
+bool plain_letter(std::string_view chord, int& slot) {
+    if (chord.size() != 1)
+        return false;
+    const auto byte = static_cast<unsigned char>(chord[0]);
+    if (byte >= 'a' && byte <= 'z') {
+        slot = static_cast<int>(byte - 'a');
+        return true;
+    }
+    if (byte >= 'A' && byte <= 'Z') {
+        slot = static_cast<int>(byte - 'A');
+        return true;
+    }
+    return false;
+}
+
+/// The GUI file's stem, without its folder or its suffix.
+std::string gui_stem(std::string_view file) {
+    if (const auto folder = file.find_last_of("/\\"); folder != std::string_view::npos)
+        file.remove_prefix(folder + 1);
+    if (const auto suffix = file.rfind('.'); suffix != std::string_view::npos && suffix > 0)
+        file = file.substr(0, suffix);
+    return std::string(file);
+}
+
+/// The displayed chord is the GUI file's own quick key.
+///
+/// A letter is compared in capitals, as a chord is shown. A digit or a mark
+/// matches that one character. A longer chord is a binding of the player's.
+///
+/// @param chord the chord `active_key_chord` returned
+/// @param quick_key the GUI file's quick-key byte
+/// @return true when the chord is that byte
+bool chord_is_file_key(std::string_view chord, int quick_key) {
+    if (chord.empty() || quick_key <= 0 || quick_key >= 128)
+        return false;
+    const std::string letter = shortcut_letter(quick_key);
+    if (!letter.empty())
+        return chord == letter;
+    return chord.size() == 1 && chord[0] == static_cast<char>(quick_key);
+}
+
+/// Tells whether a one-letter chord belongs to this button.
+///
+/// The letter goes to the first active button that names it. A letter no
+/// button names, such as one the player bound, stays on this button.
+///
+/// @param chord a one-letter chord
+/// @param letters the first active button that names each letter
+/// @param index this gadget
+/// @return true when this button is the one the letter presses
+bool letter_is_this_button(std::string_view chord, const std::array<int, 26>& letters, int index) {
+    int slot = 0;
+    if (!plain_letter(chord, slot))
+        return false;
+    const int first = letters[static_cast<std::size_t>(slot)];
+    return first < 0 || first == index;
+}
+
+/// The GUI file a paused match menu's gadget was loaded from.
+///
+/// The options pages are merged into PREFS.GUI. A gadget that panel does
+/// not name keeps the page it came from: the sound, visuals, interface or
+/// music page, or VISUALS.GUI for the screen-size bar the visuals page
+/// copies in.
+///
+/// @param panel the menu's GUI file
+/// @param gadget the gadget's name
+/// @return that file
+std::string match_menu_names_file(std::string_view panel, std::string_view gadget) {
+    if (find_control_name(panel, gadget) != nullptr)
+        return std::string(panel);
+    if (names_equal(gui_stem(panel), "PREFS")) {
+        static constexpr const char* kPages[] = {
+            "SOUNDSRT.GUI",
+            "VISUALRT.GUI",
+            "SPEEDSRT.GUI",
+            "MUSICRT.GUI",
+            "VISUALS.GUI",
+        };
+        for (const char* file : kPages)
+            if (find_control_name(file, gadget) != nullptr)
+                return file;
+    }
+    return std::string(panel);
+}
+
+/// The page-turn action a build-menu page button presses.
+std::string_view page_action(std::string_view name) {
+    if (names_equal(name, "ARMPREV") || names_equal(name, "CORPREV"))
+        return "build.page-previous";
+    if (names_equal(name, "ARMNEXT") || names_equal(name, "CORNEXT"))
+        return "build.page-next";
+    return {};
+}
+
+/// The player a control's name ends with: Color0 is player 1.
+///
+/// @param name the control's name
+/// @return the player, from 1; 0 when the name does not end with a number
+int player_number(std::string_view name) {
+    if (name.empty())
+        return 0;
+    std::size_t start = name.size();
+    while (start > 0 && name[start - 1] >= '0' && name[start - 1] <= '9')
+        --start;
+    if (start == name.size())
+        return 0;
+    int number = 0;
+    for (std::size_t index = start; index < name.size(); ++index)
+        number = number * 10 + (name[index] - '0');
+    return number + 1;
+}
+
+/// The text of the label whose link names a control.
+///
+/// @param gadgets the panel's gadgets
+/// @param name the control
+/// @return that label's text; empty when none links to it
+std::string label_linked_to(std::span<const gui::Gadget> gadgets, std::string_view name) {
+    for (const gui::Gadget& gadget : gadgets) {
+        const auto* label = std::get_if<gui::LabelFields>(&gadget.fields);
+        if (label == nullptr || label->link.empty() || label->text.empty())
+            continue;
+        if (names_equal(label->link, name))
+            return label->text;
+    }
+    return {};
+}
+
+/// The number a neighbouring label draws for a slider.
+///
+/// @param gadgets the panel's gadgets
+/// @param bar the slider
+/// @return that label's text; empty when the slider has no such label
+std::string setting_drawn(std::span<const gui::Gadget> gadgets, std::string_view bar) {
+    const std::string_view label = slider_value_label(bar);
+    if (label.empty())
+        return {};
+    for (const gui::Gadget& gadget : gadgets) {
+        if (!names_equal(gadget.common.name, label))
+            continue;
+        return gadget_text(gadget, 0);
+    }
+    return {};
 }
 
 /// A list's rows as a screen shows them.
@@ -286,13 +569,13 @@ struct AutomationHostAccess {
         )
             frontend_controls(game, *controls);
         layer_controls(game, *controls);
-        stacked_dialog_controls(*controls);
+        stacked_dialog_controls(game, *controls);
     }
 
     /// Puts the controls of Open Annihilation's own screens (the OA layer)
     /// before the others: the OA button and the screens that show take the
     /// pointer over the screen and its panels. While one of them takes every
-    /// input, the controls under it are listed disabled.
+    /// input, the controls under it are listed hidden and disabled.
     ///
     /// @param game the runtime
     /// @param[in,out] controls the screen's controls, which the layer's go before
@@ -300,9 +583,12 @@ struct AutomationHostAccess {
         if (!game.oa_layer_)
             return;
         const OaLayer& layer = *game.oa_layer_;
-        if (layer.modal_shown(game.screen_ == Screen::match))
-            for (AutomationControl& control : controls)
+        if (layer.modal_shown(game.screen_ == Screen::match)) {
+            for (AutomationControl& control : controls) {
+                control.hidden = true;
                 control.enabled = false;
+            }
+        }
         std::vector<AutomationControl> own;
         layer.automation_controls(own);
         controls.insert(controls.begin(), own.begin(), own.end());
@@ -313,8 +599,9 @@ struct AutomationHostAccess {
     /// panel) before the others: it takes the pointer and the keys over the
     /// screen and its panels while it is up.
     ///
+    /// @param game the runtime
     /// @param[in,out] controls the screen's controls, which the dialog's go before
-    static void stacked_dialog_controls(std::vector<AutomationControl>& controls) {
+    static void stacked_dialog_controls(Runtime& game, std::vector<AutomationControl>& controls) {
         const auto* resources = oa::ui::frontend_dialogs::dialog_resources();
         if (resources == nullptr || resources->layout.gadgets.empty())
             return;
@@ -326,20 +613,218 @@ struct AutomationHostAccess {
         placement.x = root.x;
         placement.y = root.y;
         placement.dialog = dialog_name(oa::ui::frontend_dialogs::dialog_layout_name());
+        placement.focus = oa::ui::frontend_dialogs::dialog_keyboard_focus();
         std::vector<AutomationControl> stacked;
+        std::array<int, 26> letters{};
+        first_quick_letters(gadgets, {}, letters);
+        const std::string gui_file(oa::ui::frontend_dialogs::dialog_layout_name());
         // A button with stages reports the caption of the stage it shows,
         // as HELP.GUI's Page does on each page.
-        for (std::size_t index = 1; index < gadgets.size(); ++index)
-            if (const auto kind = control_kind(gadgets[index]))
-                stacked.push_back(gadget_control(
+        for (std::size_t index = 1; index < gadgets.size(); ++index) {
+            if (const auto kind = control_kind(gadgets[index])) {
+                AutomationControl control = gadget_control(
                     gadgets,
                     index,
                     *kind,
                     placement,
                     oa::ui::frontend_dialogs::dialog_button_stage(index),
                     false
-                ));
+                );
+                speak_gadget(
+                    &game, gadgets, index, gui_file, letters, 0, false, false, false, control
+                );
+                stacked.push_back(std::move(control));
+            }
+        }
+        for (AutomationControl& control : stacked) {
+            control.modal = true;
+            if (control.kind == AutomationControlKind::label) {
+                control.role = AutomationControlRole::alert_dialog;
+                control.role_set = true;
+            }
+        }
         controls.insert(controls.begin(), stacked.begin(), stacked.end());
+        conceal_behind_modal(controls);
+    }
+
+    /// The GUI file the frontend screen was loaded from.
+    ///
+    /// The last menu the keys were bound for is that file. With none yet,
+    /// the screen's own layout is.
+    ///
+    /// @param game the runtime
+    /// @return the file; empty when the screen has named neither
+    static std::string frontend_gui_file(const Runtime& game) {
+        if (!game.menu_gui_stems_.empty())
+            return game.menu_gui_stems_.back() + ".GUI";
+        const ScreenDesc* desc = screen_find(&game.screens_, screen_id(game.screen_));
+        if (desc != nullptr && desc->assets.layout != nullptr)
+            return std::string(desc->assets.layout);
+        if (!game.resources_.layout.gadgets.empty())
+            return game.resources_.layout.gadgets.front().common.name;
+        return {};
+    }
+
+    /// Fills a control's label, value and shortcut from the names table.
+    ///
+    /// An order button, a build cell and a build page button take the key
+    /// the player bound, and never the letter written in the GUI file. A
+    /// paused match menu takes the chord of `gui.<shown panel>.<gadget>`,
+    /// the action that menu's keys press. The options pages are merged into
+    /// one panel, so that action is not the page file's. A chord that is the
+    /// file's own quick key is listed only when it is a letter, and only on
+    /// the first button that letter presses. Any other chord is one the
+    /// player bound. A frontend control takes the chord of its
+    /// `gui.<file>.<gadget>` action. A headless check, which has no
+    /// bindings, keeps the GUI file's letter on that same button.
+    ///
+    /// @param game the runtime; null for a dialog that is not one of its screens
+    /// @param gadgets the panel's gadgets
+    /// @param index the gadget
+    /// @param gui_file the GUI file the gadget was loaded from
+    /// @param letters the first active button that names each letter
+    /// @param build_cell the build cell, from 1; 0 when this is not one
+    /// @param build_button the gadget is a unit or weapon picture
+    /// @param match_orders the panel is the match's order panel
+    /// @param match_menu the panel is a menu over a paused match
+    /// @param[in,out] control the control `gadget_control` just made
+    static void speak_gadget(
+        Runtime* game,
+        std::span<const gui::Gadget> gadgets,
+        std::size_t index,
+        std::string_view gui_file,
+        const std::array<int, 26>& letters,
+        int32_t build_cell,
+        bool build_button,
+        bool match_orders,
+        bool match_menu,
+        AutomationControl& control
+    ) {
+        const gui::Gadget& gadget = gadgets[index];
+        const auto* button = std::get_if<gui::ButtonFields>(&gadget.fields);
+        const auto* bar = std::get_if<gui::ScrollBarFields>(&gadget.fields);
+        ControlReading reading;
+        reading.gui.assign(gui_file);
+        reading.linked_label = label_linked_to(gadgets, control.name);
+        reading.drawn = setting_drawn(gadgets, control.name);
+        reading.player = player_number(control.name);
+        if (button != nullptr) {
+            reading.quick_key = button->quick_key;
+            reading.stages = button->stages;
+        }
+        if (bar != nullptr) {
+            reading.has_slider = true;
+            reading.knob = bar->knob_position;
+            reading.range = bar->range;
+        }
+        if (game != nullptr) {
+            const auto frame = game->widget_gaf_frames_.find(control.name);
+            if (frame != game->widget_gaf_frames_.end()) {
+                reading.alliance_frame = static_cast<int>(frame->second);
+                if (frame->second < 10)
+                    reading.colour = static_cast<int>(frame->second);
+            }
+            const auto staged = game->widget_text_stages_.find(control.name);
+            if (staged != game->widget_text_stages_.end()) {
+                const oa::Side* side = oa::data::defs::side_at(
+                    game->side_table_, static_cast<uint32_t>(staged->second)
+                );
+                if (side != nullptr && side->name[0] != '\0') {
+                    std::size_t length = 0;
+                    while (length < sizeof side->name && side->name[length] != '\0')
+                        ++length;
+                    reading.side_name.assign(side->name, length);
+                }
+            }
+        }
+        if (reading.side_name.empty() && button != nullptr && !button->text.empty())
+            reading.side_name = button->text;
+        bool keyed = build_button;
+        const std::string_view page = page_action(control.name);
+        const bool headless =
+            game == nullptr || (game->options_.headless_check && game->options_.snapshot.empty());
+        if (!page.empty()) {
+            keyed = true;
+            if (game != nullptr)
+                reading.shortcut = game->active_key_chord(page);
+        } else if (match_orders && game != nullptr && !build_button) {
+            const std::string_view action = game->order_gadget_action(index);
+            if (!action.empty()) {
+                keyed = true;
+                reading.shortcut = game->active_key_chord(action);
+            }
+        } else if (build_button && game != nullptr && build_cell >= 1 && build_cell <= 12)
+            reading.shortcut = game->build_cell_chord(build_cell);
+        // A menu over the match is not the order panel. A common-attribute
+        // bit the build page uses as "this picture builds a unit" is also
+        // set on some of the menu's buttons, and that must not take their keys.
+        if (match_menu)
+            keyed = false;
+        if (!keyed && button != nullptr && control.enabled) {
+            if (match_menu && game != nullptr && !headless) {
+                // The match answers gui.<shown panel>.<gadget>. When that
+                // action has no binding, the button's own letter still
+                // presses it, and a digit or a mark does not. The letter is
+                // written here: a later step only copies a shortcut that is
+                // already set.
+                const std::string shown = game->shown_hud_stem();
+                std::string chord;
+                if (!shown.empty())
+                    chord = game->active_key_chord(gui_action_id(shown, control.name));
+                const int here = static_cast<int>(index);
+                if (chord.empty() || chord_is_file_key(chord, reading.quick_key)) {
+                    const std::string letter = shortcut_letter(reading.quick_key);
+                    if (letter.size() == 1 && letter_is_this_button(letter, letters, here))
+                        reading.shortcut = letter;
+                } else {
+                    int slot = 0;
+                    if (!plain_letter(chord, slot) || letter_is_this_button(chord, letters, here))
+                        reading.shortcut = std::move(chord);
+                }
+            } else if (game != nullptr && !headless) {
+                // A merged panel, such as the options tabs, holds two files.
+                // The letter is the action of the file that is on screen.
+                std::string chord;
+                if (!game->menu_gui_stems_.empty()) {
+                    for (const std::string& stem : game->menu_gui_stems_) {
+                        chord = game->active_key_chord(gui_action_id(stem, control.name));
+                        if (!chord.empty())
+                            break;
+                    }
+                } else
+                    chord = game->active_key_chord(gui_action_id(gui_stem(gui_file), control.name));
+                int slot = 0;
+                if (!chord.empty() && plain_letter(chord, slot)) {
+                    const int first = letters[static_cast<std::size_t>(slot)];
+                    if (first < 0 || first == static_cast<int>(index))
+                        reading.shortcut = chord;
+                } else if (!chord.empty() && !chord_is_file_key(chord, reading.quick_key))
+                    reading.shortcut = chord;
+            } else {
+                const std::string letter = shortcut_letter(reading.quick_key);
+                if (letter.size() == 1) {
+                    const int slot = static_cast<int>(static_cast<unsigned char>(letter[0])) - 'A';
+                    if (slot >= 0 && slot < 26 &&
+                        letters[static_cast<std::size_t>(slot)] == static_cast<int>(index))
+                        reading.publish_letter = true;
+                }
+            }
+        }
+        apply_control_words(control, reading);
+        if (build_button && control.label.empty() && game != nullptr) {
+            for (const auto& definition : game->unit_definitions_) {
+                if (!names_equal(definition.unit_name, control.name))
+                    continue;
+                const std::string shown(
+                    oa::data::languages::unit_display_name(
+                        definition.unit_name, definition.display_name
+                    )
+                );
+                if (!shown.empty())
+                    control.label = shown;
+                break;
+            }
+        }
     }
 
     /// Collects the controls of a frontend screen's panel, or of the dialog
@@ -369,9 +854,16 @@ struct AutomationHostAccess {
                                                                   : gadgets.front().common.name
             );
         }
-        // The focus counts while the panel takes the keys.
-        placement.focus = game.frontend_has_keyboard() ? game.frontend_focus() : -1;
+        // The focus the tree reports. Where the screen focuses none, it is the
+        // first record of the order, and the screen's own focus stays put.
+        placement.focus = game.announced_frontend_focus();
         auto* scrolls = game.frontend_scrolls();
+        const std::string gui_file = frontend_gui_file(game);
+        std::array<int, 26> letters{};
+        first_quick_letters(gadgets, {}, letters);
+        const std::map<std::size_t, int32_t> ring_at = tab_stops(gadgets);
+        const std::size_t began = controls.size();
+        std::string titled;
         for (std::size_t index = 1; index < gadgets.size(); ++index) {
             const auto kind = control_kind(gadgets[index]);
             if (!kind)
@@ -409,7 +901,23 @@ struct AutomationHostAccess {
                     control.selected = rows->selected ? static_cast<int32_t>(*rows->selected) : -1;
                 }
             }
+            speak_gadget(&game, gadgets, index, gui_file, letters, 0, false, false, false, control);
+            if (const auto found = ring_at.find(index); found != ring_at.end())
+                control.tab_index = found->second;
+            // A label authored with no height is still one line, as the
+            // version line on the main menu is. The rectangle is that line.
+            give_label_a_line(control, game.resources_);
+            if (names_equal(control.name, "TITLE")) {
+                if (!control.label.empty())
+                    titled = control.label;
+                else if (!control.text.empty())
+                    titled = control.text;
+            }
             controls.push_back(std::move(control));
+        }
+        if (!titled.empty()) {
+            for (std::size_t index = began; index < controls.size(); ++index)
+                controls[index].title = titled;
         }
     }
 
@@ -481,12 +989,55 @@ struct AutomationHostAccess {
         PanelPlacement placement;
         if (game.match_hud_placement_ != 0 || game.match_panel_under_)
             placement.dialog = dialog_name(game.match_hud_panel_);
-        // The focus counts while the match's panels take the keys.
-        placement.focus = game.match_panels_keyboard_ ? game.match_hud_focus_ : -1;
+        // The focus the tree reports while the panels have the keyboard.
+        // Where the panel focuses none, it is the first record of its order.
+        placement.focus = game.announced_match_focus();
         const auto area = game.placed_panel_area();
         const auto& root = gadgets.front().common;
         if (area && (root.width <= 0 || root.height <= 0))
             return;
+        std::vector<uint8_t> grayed(gadgets.size(), 0);
+        const std::size_t grayed_count = std::min(gadgets.size(), game.match_hud_states_.size());
+        for (std::size_t at = 0; at < grayed_count; ++at)
+            grayed[at] = game.match_hud_states_[at].grayed ? 1 : 0;
+        std::array<int, 26> letters{};
+        first_quick_letters(gadgets, grayed, letters);
+        // A paused menu's letter belongs to the button whose shown-panel
+        // action that key runs, which is the button the key presses. A
+        // letter no such action names stays with the first button whose
+        // own quick key is that letter.
+        if (game.pause_menu_shown()) {
+            const std::string shown = game.shown_hud_stem();
+            std::array<bool, 26> claimed{};
+            claimed.fill(false);
+            if (!shown.empty()) {
+                for (std::size_t index = 1; index < gadgets.size(); ++index) {
+                    const auto* button = std::get_if<gui::ButtonFields>(&gadgets[index].fields);
+                    if (button == nullptr || gadgets[index].common.active == 0 ||
+                        button->grayed_out)
+                        continue;
+                    if (index < grayed.size() && grayed[index] != 0)
+                        continue;
+                    const std::string chord =
+                        game.active_key_chord(gui_action_id(shown, gadgets[index].common.name));
+                    int slot = 0;
+                    if (!plain_letter(chord, slot) || claimed[static_cast<std::size_t>(slot)])
+                        continue;
+                    claimed[static_cast<std::size_t>(slot)] = true;
+                    letters[static_cast<std::size_t>(slot)] = static_cast<int>(index);
+                }
+            }
+        }
+        std::vector<int32_t> cell_of(gadgets.size(), 0);
+        const std::vector<std::size_t> cells = game.build_cell_gadgets();
+        for (std::size_t at = 0; at < cells.size() && at < 12; ++at)
+            if (cells[at] < cell_of.size())
+                cell_of[cells[at]] = static_cast<int32_t>(at) + 1;
+        constexpr uint8_t build_bits =
+            oa::ui::hud::kCommonUnitButton | oa::ui::hud::kCommonWeaponButton;
+        const std::map<std::size_t, int32_t> ring_at = tab_stops(gadgets);
+        const std::size_t began = controls.size();
+        std::string titled;
         for (std::size_t index = 1; index < gadgets.size(); ++index) {
             const auto kind = control_kind(gadgets[index]);
             if (!kind)
@@ -536,7 +1087,42 @@ struct AutomationHostAccess {
                 control.x = centre.x - rect.width / 2;
                 control.y = centre.y - rect.height / 2;
             }
+            const auto attributes = static_cast<uint8_t>(common.common_attributes);
+            const bool build_button = (attributes & build_bits) != 0;
+            const int32_t build_cell = index < cell_of.size() ? cell_of[index] : 0;
+            // A menu over the paused match is not the order panel. Its
+            // gadgets are named from the GUI file each was loaded from, and
+            // its keys are the menu's own.
+            const bool menu = game.pause_menu_shown();
+            const std::string names_file =
+                menu ? match_menu_names_file(game.match_hud_panel_, common.name)
+                     : game.match_hud_panel_;
+            speak_gadget(
+                &game,
+                gadgets,
+                index,
+                names_file,
+                letters,
+                build_button ? build_cell : 0,
+                build_button,
+                !menu,
+                menu,
+                control
+            );
+            if (const auto found = ring_at.find(index); found != ring_at.end())
+                control.tab_index = found->second;
+            give_label_a_line(control, game.resources_);
+            if (names_equal(control.name, "TITLE")) {
+                if (!control.label.empty())
+                    titled = control.label;
+                else if (!control.text.empty())
+                    titled = control.text;
+            }
             controls.push_back(std::move(control));
+        }
+        if (!titled.empty()) {
+            for (std::size_t index = began; index < controls.size(); ++index)
+                controls[index].title = titled;
         }
     }
 
@@ -723,6 +1309,7 @@ struct AutomationHostAccess {
                     control.visible = source.visible;
                     control.enabled = source.enabled;
                     control.focused = source.focused;
+                    control.holds_focus = source.holds_focus;
                     control.checked = source.checked;
                     control.masked = source.masked;
                     control.text_length = source.text_length > 0 ? source.text_length : 0;
@@ -730,8 +1317,41 @@ struct AutomationHostAccess {
                         control.text.clear();
                     else
                         control.text = bounded_text(source.text, kMaxControlText);
+                    // A masked field's words are never the text it holds.
+                    const auto shown_words = [&](const std::string& words) {
+                        if (source.masked && !source.text.empty() && words == source.text)
+                            return std::string{};
+                        return bounded_text(words, kMaxControlText);
+                    };
+                    control.role_set = source.role_set;
+                    control.role =
+                        static_cast<AutomationControlRole>(static_cast<uint8_t>(source.role));
+                    control.label = shown_words(source.label);
+                    control.description = shown_words(source.description);
+                    control.value_text = shown_words(source.value_text);
+                    control.has_value = source.has_value;
+                    control.value = source.value;
+                    control.has_range = source.has_range;
+                    control.range_least = source.range_least;
+                    control.range_most = source.range_most;
+                    control.step = source.step;
+                    control.place = source.place;
+                    control.set_size = source.set_size;
+                    control.shortcut = shown_words(source.shortcut);
+                    control.live = static_cast<AutomationLive>(static_cast<uint8_t>(source.live));
+                    control.chosen = source.chosen;
+                    control.expanded = source.expanded;
+                    control.pressed = source.pressed;
+                    control.hidden = source.hidden;
+                    control.modal = source.modal;
                     control.scroll_up = source.scroll_up;
                     control.scroll_down = source.scroll_down;
+                    if (window.press_width > 0 && window.press_height > 0) {
+                        control.window_press_x = window.press_x;
+                        control.window_press_y = window.press_y;
+                        control.window_press_width = window.press_width;
+                        control.window_press_height = window.press_height;
+                    }
                     if (*kind == AutomationControlKind::list) {
                         const std::size_t count = std::min(source.items.size(), kMaxListItems);
                         control.items.reserve(count);
@@ -749,6 +1369,14 @@ struct AutomationHostAccess {
                 }
             }
         }
+    }
+
+    /// Marks the focused control the family's ring is drawn around.
+    ///
+    /// @param context AutomationHost::context
+    /// @param[in,out] controls the screen's controls
+    static void stamp_family_focus(void* context, std::vector<AutomationControl>& controls) {
+        static_cast<Runtime*>(context)->stamp_family_focus_shown(controls);
     }
 };
 
@@ -776,6 +1404,16 @@ constexpr AutomationHost kAutomationHostEntries{
 // The entries above, one for each of the table's after its context.
 constexpr std::size_t kAutomationHostEntryCount = 14;
 static_assert(
+    static_cast<uint8_t>(AutomationControlRole::label) ==
+        static_cast<uint8_t>(ExtensionControlRole::label),
+    "automation and extension roles share one order"
+);
+static_assert(
+    static_cast<uint8_t>(AutomationLive::assertive) ==
+        static_cast<uint8_t>(ExtensionLive::assertive),
+    "automation and extension live regions share one order"
+);
+static_assert(
     sizeof(AutomationHost) == sizeof(void*) * (1 + kAutomationHostEntryCount),
     "the automation host's entries changed: set every one of them here"
 );
@@ -783,6 +1421,9 @@ static_assert(
 } // namespace
 
 AutomationHost automation_host(Runtime& runtime) {
+    // The listing marks the control the family's ring is drawn around. The
+    // automation core does not name the runtime, so the mark is set here.
+    automation::set_family_focus_stamp(&AutomationHostAccess::stamp_family_focus);
     AutomationHost host = kAutomationHostEntries;
     host.context = &runtime;
     return host;
@@ -833,6 +1474,15 @@ void copy_note(char* into, std::size_t capacity, const char* from) {
 
 void post_extension_note(Runtime& runtime, const char* kind, const char* text) {
     if (kind == nullptr || kind[0] == '\0')
+        return;
+    // The feed takes the ring during the frame, before spoken updates run.
+    // The inbox keeps the note until then. An announcement is not copied:
+    // speaking it again would loop. line, room, place, muzzle and hear are
+    // speech only. The feed never reads them, so they stay out of the ring.
+    remember_spoken_note(kind, text);
+    const std::string_view spoken_only(kind);
+    if (spoken_only == "line" || spoken_only == "room" || spoken_only == "place" ||
+        spoken_only == "muzzle" || spoken_only == "hear")
         return;
     if (runtime.extension_note_count_ == Runtime::k_extension_note_cap) {
         runtime.extension_note_read_ =

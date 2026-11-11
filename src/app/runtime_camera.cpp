@@ -3,6 +3,7 @@
 
 // Radar interaction, zoom, camera panning and move/patrol orders.
 #include "oa/app/runtime.hpp"
+#include "oa_layer.hpp"
 #include "oa/app/far_view.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/full_screen.hpp"
@@ -17,6 +18,7 @@
 #include "oa/present/world_renderer/world_camera.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -62,9 +64,18 @@ static_assert(
     "the model budget's share, unknown budget and address cap are the bridge's"
 );
 
+/// A budget forced for this process, ahead of the environment and the machine.
+std::optional<uint64_t>& rendered_units_budget_force() noexcept {
+    static std::optional<uint64_t> forced;
+    return forced;
+}
+
 // OA_RENDERED_UNITS_BUDGET, a number of bytes, or nothing when it is unset
 // or not a number. Read once; a failure to read it leaves the machine's budget.
+// A budget forced for this process replaces both.
 std::optional<uint64_t> rendered_units_budget_override() noexcept {
+    if (rendered_units_budget_force().has_value())
+        return rendered_units_budget_force();
     static const std::optional<uint64_t> parsed = []() noexcept -> std::optional<uint64_t> {
         try {
             const std::optional<std::string> text =
@@ -124,6 +135,10 @@ full_screen_edge_point(SDL_Window* window, SDL_Renderer* renderer, int32_t width
 #endif
 
 } // namespace
+
+void Runtime::force_rendered_units_budget(std::optional<uint64_t> bytes) noexcept {
+    rendered_units_budget_force() = bytes;
+}
 
 bool Runtime::radar_contains(float x, float y) const {
     return radar_picture_.width > 0 && radar_picture_.height > 0 &&
@@ -297,7 +312,12 @@ std::array<uint32_t, 2> Runtime::shown_tile_grid() const noexcept {
 }
 
 std::array<int32_t, 2> Runtime::view_camera() const {
-    if (!selected_tnt_)
+    // A Full photo tile is a part of a view the limits held already. Held
+    // again for its own smaller view, a tile past the map's edge would show
+    // another part of the map.
+    // A turned-view tile is one piece of the photo's picture. Holding it to
+    // the tile's own smaller view would pull the camera in (photo_tile_frame_).
+    if (!selected_tnt_ || photo_tile_map_offset_.has_value() || photo_tile_frame_)
         return {match_camera_x_, match_camera_z_};
     const auto [map_width, map_height] = shown_map_size();
     const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
@@ -363,6 +383,9 @@ std::array<double, 2> Runtime::match_view_place() const {
 }
 
 void Runtime::place_match_view(double x, double z) {
+    // A held picture keeps the camera where it was copied.
+    if (photo_camera_locked())
+        return;
     x = std::clamp(x, -kFarthestViewPlace, kFarthestViewPlace);
     z = std::clamp(z, -kFarthestViewPlace, kFarthestViewPlace);
     // A view drawn between map pixels is drawn at the screen pixel nearest
@@ -387,6 +410,8 @@ void Runtime::place_match_view(double x, double z) {
     match_camera_x_ = exact_view_.camera_x;
     match_camera_z_ = exact_view_.camera_z;
     camera_moved_ = true;
+    // A pan during a photo seek keeps the place the player just set.
+    note_photo_replay_camera();
 }
 
 oa::present::world_renderer::ViewOffset Runtime::view_offset() const {
@@ -474,6 +499,9 @@ void Runtime::remember_placed_view(double x, double z) {
 }
 
 void Runtime::set_camera_position(int32_t x, int32_t z, uint32_t flags) {
+    // Home and follow land here. A held picture keeps the camera.
+    if (photo_camera_locked())
+        return;
     // A jump is held by the limits alone. The camera the frames take is the
     // whole map pixel held_camera keeps inside them, the same one a frame
     // draws (view_camera) when no earlier view widens the span.
@@ -502,6 +530,8 @@ void Runtime::set_camera_position(int32_t x, int32_t z, uint32_t flags) {
     match_camera_flags_ = flags;
     // A camera put in place shows its own map pixel.
     exact_view_.held = false;
+    // A pan during a photo seek keeps the place the player just set.
+    note_photo_replay_camera();
 }
 
 void Runtime::centre_view_on(int32_t x, int32_t z) {
@@ -591,8 +621,14 @@ void Runtime::EngineSettingsState::ease_zoom_about_centre(Runtime& runtime, floa
         static_cast<float>(layout.left) + static_cast<float>(layout.battlefield_width()) / 2.0F,
         static_cast<float>(layout.top) + static_cast<float>(layout.battlefield_height()) / 2.0F
     };
-    runtime.match_zoom_target_ =
-        std::clamp(target, runtime.least_match_zoom(), runtime.most_match_zoom());
+    float least = runtime.least_match_zoom();
+    float most = runtime.most_match_zoom();
+    if (runtime.photo_mode()) {
+        const std::array<float, 2> offered = runtime.photo_zoom_limits();
+        least = offered[0];
+        most = offered[1];
+    }
+    runtime.match_zoom_target_ = std::clamp(target, least, most);
 }
 
 float Runtime::least_match_zoom() const noexcept {
@@ -623,11 +659,15 @@ bool Runtime::dots_frame() const noexcept {
     namespace settings = oa::ui::engine_settings;
     if (screen_ != Screen::match || director_mode() || !(match_zoom_ > 0.0F))
         return false;
-    const settings::EngineSettings chosen =
-        engine_settings_ ? engine_settings_->current : settings::EngineSettings{};
-    if (chosen.zoomed_out_units == settings::ZoomedOutUnits::dots &&
-        match_zoom_ < settings::zoomed_out_zoom(chosen.zoomed_out_after))
-        return true;
+    // Photo mode keeps models at every zoom. The player's Zoomed out units
+    // choice is play's. The memory and the reach below still apply.
+    if (!photo_mode()) {
+        const settings::EngineSettings chosen =
+            engine_settings_ ? engine_settings_->current : settings::EngineSettings{};
+        if (chosen.zoomed_out_units == settings::ZoomedOutUnits::dots &&
+            match_zoom_ < settings::zoomed_out_zoom(chosen.zoomed_out_after))
+            return true;
+    }
     // At every zoom, models whose drawing would take more of the machine's
     // memory than it can spare are drawn as dots. Past the drawing's floor,
     // so is a view whose units drawn reach farther from the camera than the
@@ -681,12 +721,25 @@ void Runtime::step_match_zoom() {
     // The director sets the zoom of every frame itself, off the wall clock.
     if (director_mode())
         return;
+    // A held picture stays in the frame it was copied from.
+    if (photo_camera_locked())
+        return;
     // The limits move with the tier, the window, the map and the zoom's
     // settings: the target keeps within them, and a view zoomed past them
-    // eases back within them about the battlefield's centre.
-    const float least = least_match_zoom();
-    const float most = most_match_zoom();
+    // eases back within them about the battlefield's centre. Photo mode
+    // uses its own range, so play's settings are left as they are.
+    float least = least_match_zoom();
+    float most = most_match_zoom();
+    if (photo_mode()) {
+        const std::array<float, 2> offered = photo_zoom_limits();
+        least = offered[0];
+        most = offered[1];
+    }
     match_zoom_target_ = std::clamp(match_zoom_target_, least, most);
+    // The offer's far end moved closer than the zoom because the tier
+    // changed. Take it there before this frame eases, and before it draws.
+    if (photo_mode() && match_zoom_ < least)
+        snap_photo_zoom_to_far_end();
     const auto bf_w = static_cast<float>(match_layout_.battlefield_width());
     const auto bf_h = static_cast<float>(match_layout_.battlefield_height());
     if (match_zoom_ < least || match_zoom_ > most)
@@ -739,6 +792,8 @@ void Runtime::step_match_zoom() {
 }
 
 void Runtime::zoom_view_about(float zoom, double focus_x, double focus_y) {
+    if (photo_camera_locked())
+        return;
     if (!selected_tnt_ || !(zoom > 0.0F))
         return;
     const auto before = static_cast<double>(match_zoom_ > 0.0F ? match_zoom_ : 1.0F);
@@ -765,8 +820,21 @@ void Runtime::zoom_view_about(float zoom, double focus_x, double focus_y) {
             return place;
         return held_view(place, visible, static_cast<double>(map), share, view_hold_from(centre));
     };
-    const double x = along(point_x, focus_x, visible_x, map_width, view_hold_.centre_x);
-    const double z = along(point_z, focus_y, visible_z, map_height, view_hold_.centre_z);
+    double x = along(point_x, focus_x, visible_x, map_width, view_hold_.centre_x);
+    double z = along(point_z, focus_y, visible_z, map_height, view_hold_.centre_z);
+    // The lines above are the classic view, which keeps a centre past the
+    // closer limits. The turned view cannot draw that frame: a zoom in pulls
+    // the centre back within the limits this zoom draws (view_within_limits),
+    // in play and in photo mode. A zoom out, and a zoom that is already
+    // inside, are left as they were.
+    if (!director_mode() && live_renderer_active() && after > before) {
+        if (const auto pulled = view_within_limits(x, z)) {
+            if (std::abs((*pulled)[0] - x) >= 1.0 || std::abs((*pulled)[1] - z) >= 1.0) {
+                x = (*pulled)[0];
+                z = (*pulled)[1];
+            }
+        }
+    }
     place_match_view(x, z);
     view_hold_ = {true, x + visible_x / 2.0, z + visible_z / 2.0};
 }
@@ -774,6 +842,8 @@ void Runtime::zoom_view_about(float zoom, double focus_x, double focus_y) {
 void Runtime::handle_match_zoom(
     float wheel_y, float pointer_x, float pointer_y, bool follow_pointer
 ) {
+    if (photo_camera_locked())
+        return;
     if (wheel_y == 0.0F || !selected_tnt_)
         return;
     if (pointer_x < static_cast<float>(match_layout_.left) ||
@@ -805,6 +875,8 @@ bool Runtime::zoom_match_from_key(std::string_view id) {
     const bool reset = id == "camera.zoom-reset";
     if (!zoom_in && !zoom_out && !reset)
         return false;
+    if (photo_camera_locked())
+        return true;
     // Mouse wheel zoom off is the game's own scale: the key is taken and the
     // view stays where it is, including at either end of the zoom's range.
     if (!engine_settings().wheel_zoom)
@@ -820,9 +892,14 @@ bool Runtime::zoom_match_from_key(std::string_view id) {
 
 float Runtime::wheel_zoom_target(float wheel_y) {
     // A target something else set since the wheel's last step begins the
-    // count again.
-    const float least = least_match_zoom();
-    const float most = most_match_zoom();
+    // count again. Photo mode counts within its own range.
+    float least = least_match_zoom();
+    float most = most_match_zoom();
+    if (photo_mode()) {
+        const std::array<float, 2> offered = photo_zoom_limits();
+        least = offered[0];
+        most = offered[1];
+    }
     if (zoom_wheel_.target != match_zoom_target_)
         zoom_wheel_ = {std::clamp(match_zoom_target_, least, most), 0.0, match_zoom_target_};
     const auto from = static_cast<double>(zoom_wheel_.from);
@@ -875,10 +952,12 @@ void Runtime::pan_match_camera() {
             const auto share = middle_pan::scroll_share(
                 middle_pan_.anchor_x, middle_pan_.anchor_y, match_pointer_x_, match_pointer_y_
             );
-            if (share.x != 0.0F || share.y != 0.0F)
+            if (share.x != 0.0F || share.y != 0.0F) {
+                replay_release_unit_follow();
                 scroll_match_view_by(
                     static_cast<double>(share.x) * step, static_cast<double>(share.y) * step
                 );
+            }
             return;
         }
     }
@@ -888,14 +967,21 @@ void Runtime::pan_match_camera() {
         dx += frame_run_scroll_;
     // Only the pan actions scroll, as in 3.1c: the letter keys stay the
     // game's own commands (A attack, S stop and so on). A modifier never
-    // stops an arrow that is held.
-    if (action_key_held("camera.pan-left"))
+    // stops an arrow that is held. While the order buttons hold the keyboard
+    // and their ring is showing, an arrow moves that ring and does not pan.
+    // A pan that was moved onto another key still scrolls.
+    const bool arrows_move_the_ring =
+        hud_buttons_focused_ && oa_layer_ != nullptr && oa_layer_->family_ring_shown();
+    // While Area is the picture, the arrows grow the mark. The same keys
+    // are still held as pan, so this frame skips that pan.
+    const bool arrows_grow_the_mark = photo_mode() && photo_poster_takes_drag();
+    if (!arrows_grow_the_mark && action_key_held("camera.pan-left", arrows_move_the_ring))
         --dx;
-    if (action_key_held("camera.pan-right"))
+    if (!arrows_grow_the_mark && action_key_held("camera.pan-right", arrows_move_the_ring))
         ++dx;
-    if (action_key_held("camera.pan-up"))
+    if (!arrows_grow_the_mark && action_key_held("camera.pan-up", arrows_move_the_ring))
         --dz;
-    if (action_key_held("camera.pan-down"))
+    if (!arrows_grow_the_mark && action_key_held("camera.pan-down", arrows_move_the_ring))
         ++dz;
     // Off stops this edge scroll only. Arrow keys above, and the touch HUD's
     // edge band while a drag is held, keep moving the view.
@@ -944,10 +1030,39 @@ void Runtime::pan_match_camera() {
     }
     if (dx == 0 && dz == 0)
         return;
+    replay_release_unit_follow();
     scroll_match_view(dx, dz, step);
 }
 
+std::array<double, 2> Runtime::held_turned_place(double x, double z) const {
+    // A centre a wider view left past this zoom, seen up close, is a frame
+    // the card will not draw: the turned view drops back to classic, and
+    // Full stays on. While the view is turned, the limits are the classic
+    // view's at this zoom with nothing remembered past them, so a zoom in
+    // pulls the centre back and a pan stops there. While the view is
+    // classic, the pan role's drag reaches this hold too, and it keeps the
+    // remembered centre, as a classic zoom does. In play and in photo mode.
+    const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
+    const auto [map_width, map_height] = shown_map_size();
+    const bool turned = live_renderer_active();
+    const auto along = [&](double place, int32_t battlefield, int32_t map, double centre) {
+        return held_view(
+            place,
+            static_cast<double>(battlefield) / zoom,
+            static_cast<double>(map),
+            past_map_edge_share(),
+            turned ? std::nullopt : view_hold_from(centre)
+        );
+    };
+    return {
+        along(x, match_layout_.battlefield_width(), map_width, view_hold_.centre_x),
+        along(z, match_layout_.battlefield_height(), map_height, view_hold_.centre_z)
+    };
+}
+
 void Runtime::scroll_match_view_by(double screen_dx, double screen_dy) {
+    if (photo_camera_locked())
+        return;
     if (!selected_tnt_ || (screen_dx == 0.0 && screen_dy == 0.0))
         return;
     if (live_renderer_active()) {
@@ -983,6 +1098,8 @@ void Runtime::scroll_match_view_by(double screen_dx, double screen_dy) {
 }
 
 void Runtime::scroll_match_view(int32_t way_x, int32_t way_z, double step) {
+    if (photo_camera_locked())
+        return;
     way_x = std::clamp(way_x, -1, 1);
     way_z = std::clamp(way_z, -1, 1);
     if (!selected_tnt_ || !(step > 0.0) || (way_x == 0 && way_z == 0))

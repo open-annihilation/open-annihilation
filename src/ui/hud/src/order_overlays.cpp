@@ -3,6 +3,7 @@
 
 #include "oa/ui/hud/order_overlays.hpp"
 
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
 
 #include <algorithm>
@@ -71,6 +72,21 @@ weapon_of(const OverlayContext& context, const Unit& unit, std::size_t slot) noe
 
 bool weapon_enabled(const Unit& unit, std::size_t slot) noexcept {
     return (unit.weapons[slot].flags & OA_UNIT_WEAPON_ENABLED) != 0;
+}
+
+/// A ring the game already draws is dashed, while shape cues are in effect,
+/// when the unit is not the local player's and not an ally's. Every ring
+/// with cues off stays solid.
+bool range_is_dashed(const OverlayContext& context, const Unit& unit) noexcept {
+    if (!oa::present::colour_vision::shape_cues_active())
+        return false;
+    const auto viewer = context.world->game.local_player_index;
+    if (unit.owner_index == viewer)
+        return false;
+    const Player* owner = world_unit_owner(context.world, &unit);
+    if (owner != nullptr && viewer < sizeof owner->alliance && owner->alliance[viewer] != 0)
+        return false;
+    return true;
 }
 
 const UnitDef* type_def(const OverlayContext& context, uint32_t type) noexcept {
@@ -219,7 +235,8 @@ void draw_range_circle(
     uint32_t radius,
     uint8_t color,
     const char* label,
-    int32_t label_slot
+    int32_t label_slot,
+    bool dashed
 ) {
     if (radius == 0)
         return;
@@ -259,7 +276,8 @@ void draw_range_circle(
             const auto to = on_terrain(angle);
             end_x = to.x;
             end_y = to.y;
-            line(context, from.x, from.y, to.x, to.y, color);
+            if (!dashed || (index % 2) == 0)
+                line(context, from.x, from.y, to.x, to.y, color);
             if (index == label_slot * 3) {
                 label_x = end_x;
                 label_y = end_y;
@@ -286,6 +304,33 @@ void draw_unit_ranges(const OverlayContext& context, const OrderOverlay& order) 
     const FixedVec3 center = shown_place(context, *unit);
     const auto cloak = def->min_cloak_distance;
     const auto& game = context.world->game;
+    // Weapon rings blink between colours 12 and 4. With cues in effect a
+    // ring this function already draws, for a unit that is not the local
+    // player's and not an ally's, is dashed. Cues add no ring of their own.
+    const auto weapon_rings = [&](bool dashed, bool labelled) {
+        const auto ring =
+            ui_color(context, (game.tick & 1u) == 0 ? kUiColorRange : kUiColorRangeBlink);
+        static const char* const weapon_labels[] = {
+            "weapon1 range", "weapon2 range", "weapon3 range"
+        };
+        for (std::size_t weapon = 0; weapon < 3; ++weapon) {
+            // The third weapon's circle is gated on the first weapon's enable bit,
+            // or on its own under third_ring_own_weapon.
+            if (!weapon_enabled(*unit, weapon == 2 && !context.third_ring_own_weapon ? 0 : weapon))
+                continue;
+            const auto* weapon_def = weapon_of(context, *unit, weapon);
+            if (weapon_def != nullptr && weapon_def->range != 0)
+                draw_range_circle(
+                    context,
+                    center,
+                    static_cast<uint32_t>(weapon_def->range),
+                    ring,
+                    labelled ? weapon_labels[weapon] : nullptr,
+                    static_cast<int32_t>(weapon),
+                    dashed
+                );
+        }
+    };
     if (!context.show_ranges) {
         if (cloak != 0 && (unit->state_flags & kUnitStateCloaked) != 0)
             draw_range_circle(
@@ -348,25 +393,7 @@ void draw_unit_ranges(const OverlayContext& context, const OrderOverlay& order) 
             "kamikazedistance",
             slot
         );
-    const auto color =
-        ui_color(context, (game.tick & 1u) == 0 ? kUiColorRange : kUiColorRangeBlink);
-    static const char* const weapon_labels[] = {"weapon1 range", "weapon2 range", "weapon3 range"};
-    for (std::size_t index = 0; index < 3; ++index) {
-        // The third weapon's circle is gated on the first weapon's enable bit,
-        // or on its own under third_ring_own_weapon.
-        if (!weapon_enabled(*unit, index == 2 && !context.third_ring_own_weapon ? 0 : index))
-            continue;
-        const auto* weapon = weapon_of(context, *unit, index);
-        if (weapon != nullptr && weapon->range != 0)
-            draw_range_circle(
-                context,
-                center,
-                static_cast<uint32_t>(weapon->range),
-                color,
-                weapon_labels[index],
-                static_cast<int32_t>(index)
-            );
-    }
+    weapon_rings(range_is_dashed(context, *unit), true);
 }
 
 void draw_order_target(const OverlayContext& context, OrderOverlay& order, FixedVec3& point) {
@@ -500,6 +527,7 @@ void draw_target_ring(const OverlayContext& context, const OrderOverlay& order, 
         radius = def != nullptr ? high16(def->size_x) : 0;
         center = shown_place(context, *order.target);
     }
+    const bool dashed = order.target != nullptr && range_is_dashed(context, *order.target);
     if (context.view.project != nullptr) {
         draw_range_circle(
             context,
@@ -507,7 +535,8 @@ void draw_target_ring(const OverlayContext& context, const OrderOverlay& order, 
             static_cast<uint32_t>(radius),
             ui_color(context, kUiColorRange),
             nullptr,
-            0
+            0,
+            dashed
         );
         point = center;
         return;
@@ -517,13 +546,16 @@ void draw_target_ring(const OverlayContext& context, const OrderOverlay& order, 
     const auto color = ui_color(context, kUiColorRange);
     int32_t last_x = radius + origin.x;
     int32_t last_y = origin.y;
+    int32_t segment = 0;
     for (uint32_t angle = kRingStep; angle <= 0x10000u; angle += kRingStep) {
         const auto a = static_cast<uint16_t>(angle);
         const auto x = sim::unit_movement::cosine_scaled(a, radius) + origin.x;
         const auto y = sim::unit_movement::sine_scaled(a, squashed) + origin.y;
-        line(context, last_x, last_y, x, y, color);
+        if (!dashed || (segment % 2) == 0)
+            line(context, last_x, last_y, x, y, color);
         last_x = x;
         last_y = y;
+        ++segment;
     }
     point = center;
 }

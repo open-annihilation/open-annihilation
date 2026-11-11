@@ -125,6 +125,8 @@ struct RadioLook {
 };
 
 /// A strip of levels. captions are already looked up, one per level from the left.
+/// columns of 0, or at least as many as the captions, draws them on one row.
+/// Fewer columns wraps them, left to right, with row_gap between the rows.
 struct LevelsLook {
     std::vector<std::string> captions{}; ///< each level's words
     int32_t level_width{};               ///< each level's columns, inside the 1-pixel border
@@ -134,6 +136,10 @@ struct LevelsLook {
     std::size_t offered{};
     bool hovered{}; ///< the pointer is over the strip
     bool locked{};  ///< it cannot be changed: the chosen level shows without the accent
+    /// Captions on one row. 0 keeps every caption on the one row.
+    int32_t columns{0};
+    /// Points between wrapped rows. A single row ignores it.
+    int32_t row_gap{0};
 };
 
 /// A slider's knob on its track.

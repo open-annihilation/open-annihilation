@@ -5,8 +5,11 @@
 // from, the water map, the units already there recorded as created, every
 // event hook's fields, samples of live mobile units every
 // sample_period_ticks ticks with their flags, players' stats every
-// stats_period_ticks ticks, the usable end and take() leaving the recorder
-// empty.
+// stats_period_ticks ticks (and read_player_stats, which gives the same
+// entries for the world as it stands), the standings detail that keeps
+// no more than a replay's index reads, the battles detail that also keeps
+// every unit and building destroyed, the usable end and take() leaving the
+// recorder empty.
 
 #include "oa/core/world.h"
 #include "oa/media/director/timeline_recorder.hpp"
@@ -447,6 +450,24 @@ void test_samples() {
         const director::PlayerStats& blue_stats{timeline.stats[1]};
         expect(blue_stats.losses == 3 && blue_stats.commanders_lost == 1, "losses");
     }
+    // read_player_stats gives the entries after_tick records, for the same world.
+    const std::vector<director::PlayerStats> read{
+        director::read_player_stats(*world, start_tick + 30)
+    };
+    expect(read.size() == 3 && timeline.stats.size() >= 3, "an entry for each player in use");
+    if (read.size() == 3 && timeline.stats.size() >= 3)
+        for (size_t entry{}; entry < 3; ++entry) {
+            const director::PlayerStats& have{timeline.stats[entry]};
+            const director::PlayerStats& now{read[entry]};
+            expect(
+                now.tick == have.tick && now.player == have.player && now.kills == have.kills &&
+                    now.losses == have.losses && now.commanders_killed == have.commanders_killed &&
+                    now.commanders_lost == have.commanders_lost &&
+                    now.unit_count == have.unit_count && now.metal == have.metal &&
+                    now.energy == have.energy,
+                "the same entry as after_tick records"
+            );
+        }
     expect(timeline.header.last_tick == start_tick + 60, "last tick");
     expect(timeline.usable_end_tick == start_tick + 40, "usable end at the first error");
     expect(timeline.verdict.errors == 2 && timeline.verdict.last_error == "late", "verdict kept");
@@ -454,6 +475,168 @@ void test_samples() {
     director::Timeline again{recorder.take()};
     expect(again.samples.empty() && again.events.empty(), "empty after take");
     expect(again.header.players.empty(), "no players after take");
+    oa::world_destroy(world);
+}
+
+// The standings: only the commanders created and killed and every hit are
+// recorded, the match is asked for no other event, no unit is sampled, the
+// water is left out and the players' stats are kept.
+void test_standings() {
+    oa::World* world{make_world()};
+    director::TimelineRecorder recorder{};
+    recorder.begin(*world, watcher, "Map", director::Detail::standings);
+    const oa::sim::match_runtime::EventHooks hooks{recorder.event_hooks()};
+    expect(hooks.context == &recorder, "hooks carry the recorder");
+    expect(
+        hooks.unit_created != nullptr && hooks.unit_damaged != nullptr &&
+            hooks.unit_died != nullptr,
+        "the hooks the standings use"
+    );
+    expect(
+        hooks.unit_finished == nullptr && hooks.shot_placed == nullptr &&
+            hooks.shot_detonated == nullptr,
+        "no hook for an event the standings leave out"
+    );
+    // Only red's commander is created at the start, and nothing else of the
+    // world is noted.
+    director::TimelineRecorder starting{};
+    starting.begin(*world, watcher, "Map", director::Detail::standings);
+    starting.finish(*world, director::ReplayVerdict{true, true, true, false, 0, 0, {}});
+    const director::Timeline begun{starting.take()};
+    expect(begun.events.size() == 1, "only the commander is created");
+    if (begun.events.size() == 1)
+        expect(
+            begun.events[0].unit == red_commander &&
+                begun.events[0].flags == director::event_flag::commander,
+            "red's commander"
+        );
+    expect(begun.header.water.empty() && begun.header.water_columns == 0, "no water map");
+    expect(begun.header.unit_types.empty() && begun.header.weapons.empty(), "no types noted");
+    expect(begun.header.players.size() == 3, "the players are noted");
+
+    world->game.tick = start_tick + 1;
+    place(*world, red_tank, tank_type, red, 10, 0, 10);
+    hooks.unit_created(hooks.context, *world, red_tank);
+    world->game.tick = start_tick + 2;
+    hooks.unit_damaged(hooks.context, *world, blue_tank, red_commander, 40, 1);
+    hooks.unit_died(hooks.context, *world, blue_solar, KillOutcome{DeathKind::weapon}, false);
+    world->units[red_commander].last_attacker_id = blue_tank;
+    world->units[red_commander].last_attacker_owner = blue;
+    hooks.unit_died(hooks.context, *world, red_commander, KillOutcome{DeathKind::weapon}, false);
+    for (uint32_t tick{start_tick + 1}; tick <= start_tick + 60; ++tick) {
+        world->game.tick = tick;
+        recorder.after_tick(*world, director::UnitVisibilityHooks{});
+    }
+    // A stats tick the recorder has seen is not recorded again.
+    recorder.after_tick(*world, director::UnitVisibilityHooks{});
+    recorder.finish(*world, director::ReplayVerdict{true, true, true, false, 0, 0, {}});
+    const director::Timeline timeline{recorder.take()};
+    expect(timeline.events.size() == 3, "the commander, the hit and the commander's death");
+    if (timeline.events.size() == 3) {
+        expect(timeline.events[0].kind == director::EventKind::created, "created at the start");
+        expect(timeline.events[1].kind == director::EventKind::damage, "the hit");
+        expect(timeline.events[1].amount == 40 && timeline.events[1].damage_kind == 1, "its size");
+        expect(timeline.events[2].kind == director::EventKind::death, "a death");
+        expect(timeline.events[2].unit == red_commander, "only the commander's");
+        expect(timeline.events[2].flags == director::event_flag::commander, "commander flag");
+        expect(timeline.events[2].other_owner == blue, "its killer's owner");
+    }
+    expect(timeline.samples.empty(), "no unit sampled");
+    expect(timeline.header.unit_types.empty() && timeline.header.weapons.empty(), "no types");
+    expect(timeline.stats.size() == 2u * 3u, "stats every 30 ticks for three players");
+    expect(timeline.header.last_tick == start_tick + 60, "last tick");
+    oa::world_destroy(world);
+}
+
+// The battle: commanders created, every hit, and every unit and building
+// destroyed. A unit created later is not recorded on its own. No unit is
+// sampled and no shot is asked for. A hit or a death notes the unit's type.
+void test_battles() {
+    oa::World* world{make_world()};
+    director::TimelineRecorder recorder{};
+    recorder.begin(*world, watcher, "Map", director::Detail::battles);
+    const oa::sim::match_runtime::EventHooks hooks{recorder.event_hooks()};
+    expect(
+        hooks.unit_created != nullptr && hooks.unit_damaged != nullptr &&
+            hooks.unit_died != nullptr,
+        "the hooks the battles use"
+    );
+    expect(
+        hooks.unit_finished == nullptr && hooks.shot_placed == nullptr &&
+            hooks.shot_detonated == nullptr,
+        "no hook for a shot"
+    );
+    director::TimelineRecorder starting{};
+    starting.begin(*world, watcher, "Map", director::Detail::battles);
+    starting.finish(*world, director::ReplayVerdict{true, true, true, false, 0, 0, {}});
+    const director::Timeline begun{starting.take()};
+    expect(begun.events.size() == 1, "only the commander is created");
+    expect(begun.header.unit_types.empty(), "a commander's type is not noted on its own");
+    expect(begun.samples.empty(), "no unit sampled at the start");
+
+    world->game.tick = start_tick + 1;
+    place(*world, red_tank, tank_type, red, 10, 0, 10);
+    hooks.unit_created(hooks.context, *world, red_tank);
+    world->game.tick = start_tick + 2;
+    hooks.unit_damaged(hooks.context, *world, blue_tank, red_commander, 40, 1);
+    hooks.unit_died(hooks.context, *world, blue_solar, KillOutcome{DeathKind::weapon}, false);
+    world->units[red_commander].last_attacker_id = blue_tank;
+    world->units[red_commander].last_attacker_owner = blue;
+    hooks.unit_died(hooks.context, *world, red_commander, KillOutcome{DeathKind::weapon}, false);
+    for (uint32_t tick{start_tick + 1}; tick <= start_tick + 60; ++tick) {
+        world->game.tick = tick;
+        recorder.after_tick(*world, director::UnitVisibilityHooks{});
+    }
+    recorder.finish(*world, director::ReplayVerdict{true, true, true, false, 0, 0, {}});
+    const director::Timeline timeline{recorder.take()};
+    expect(timeline.events.size() == 4, "the commander, the hit and two deaths");
+    if (timeline.events.size() == 4) {
+        expect(timeline.events[0].kind == director::EventKind::created, "created at the start");
+        expect(timeline.events[0].unit == red_commander, "only the commander's creation");
+        expect(timeline.events[1].kind == director::EventKind::damage, "the hit");
+        expect(timeline.events[1].unit == blue_tank && timeline.events[1].amount == 40, "the tank");
+        expect(timeline.events[2].kind == director::EventKind::death, "the solar's death");
+        expect(timeline.events[2].unit == blue_solar, "the building");
+        expect(timeline.events[3].kind == director::EventKind::death, "the commander's death");
+        expect(timeline.events[3].unit == red_commander, "the commander");
+        expect(timeline.events[3].flags == director::event_flag::commander, "commander flag");
+    }
+    bool created_later{false};
+    bool shot{false};
+    for (const director::TimelineEvent& event : timeline.events) {
+        if (event.kind == director::EventKind::created && event.unit == red_tank)
+            created_later = true;
+        if (event.kind == director::EventKind::shot ||
+            event.kind == director::EventKind::detonation)
+            shot = true;
+    }
+    expect(!created_later, "a unit created later is not recorded then");
+    expect(!shot, "no shot");
+    expect(timeline.samples.empty(), "no unit sampled");
+    // A death notes the commander's type too. The tank is noted by the hit.
+    expect(timeline.header.unit_types.size() == 3, "the commander, the tank and the solar");
+    if (timeline.header.unit_types.size() == 3) {
+        expect(
+            timeline.header.unit_types[0].type_index == commander_type &&
+                timeline.header.unit_types[0].metal_cost == 2500 &&
+                timeline.header.unit_types[0].max_damage == 3000,
+            "the commander"
+        );
+        expect(
+            timeline.header.unit_types[1].type_index == tank_type &&
+                timeline.header.unit_types[1].mobile &&
+                timeline.header.unit_types[1].metal_cost == 90 &&
+                timeline.header.unit_types[1].max_damage == 600,
+            "the tank"
+        );
+        expect(
+            timeline.header.unit_types[2].type_index == solar_type &&
+                !timeline.header.unit_types[2].mobile &&
+                timeline.header.unit_types[2].metal_cost == 145 &&
+                timeline.header.unit_types[2].max_damage == 500,
+            "the solar"
+        );
+    }
     oa::world_destroy(world);
 }
 
@@ -517,6 +700,8 @@ int main() {
     test_events();
     test_wide_weapon();
     test_samples();
+    test_standings();
+    test_battles();
     test_null_visibility();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";

@@ -314,7 +314,7 @@ std::string named(std::string_view section, std::size_t place) {
 /// @param id the control
 /// @return true when it does
 bool focus_on(const GalleryModel& model, ControlId id) noexcept {
-    return model.interaction.focus_shown && model.interaction.focused == id;
+    return focus_ring_visible(model.interaction) && model.interaction.focused == id;
 }
 
 /// Tells whether the pointer is over a working control, or holds it.
@@ -2972,6 +2972,7 @@ GalleryResult press_at(GalleryModel& model, const GalleryLayout& laid, ControlId
     } else if (id == kSearch) {
         model.interaction.focused = kSearch;
         model.interaction.focus_shown = true;
+        model.interaction.pointer_hid_ring = false;
     } else if (const auto chip = in_run(id, kFirstChip, kChipCount)) {
         model.chips[*chip] = !model.chips[*chip];
     } else if (const auto entry = in_run(id, kFirstNav, kNavCount)) {
@@ -3453,6 +3454,7 @@ GalleryResult gallery_act(
         if (outcome.control == kSearch) {
             seen.focused = kSearch;
             seen.focus_shown = true;
+            seen.pointer_hid_ring = false;
         }
         return outcome.result == PointerResult::none ? GalleryResult::none : GalleryResult::redraw;
     }

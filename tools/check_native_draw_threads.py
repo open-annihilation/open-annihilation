@@ -37,6 +37,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -45,7 +46,11 @@ RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 
 SEED = 20261001
 # A preferences file's first line, and the enhanced anti-aliasing setting.
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 ANTI_ALIASING_KEY = "open-annihilation.anti-aliasing"
 # The views: window size, zoom, ticks, units each side, frames a second,
 # whether the scroll is held, the anti-aliasing level (1 for off) and

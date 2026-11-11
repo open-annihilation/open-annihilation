@@ -211,6 +211,110 @@ struct BuiltinScreens {
                                   : 0;
     }
 
+    // The main menu's order owns Tab and Shift+Tab, and, while its ring is
+    // showing, the arrows and the bound Accept and Press. A press and its
+    // release both count: the release is what a window would use to take
+    // the key once the press has gone past it. The overlay asks before its
+    // windows see the key.
+    static int main_menu_order_owns_key(void* host, const ScreenInput* input) {
+        if (host == nullptr || input == nullptr)
+            return 0;
+        if (input->kind != ScreenInputKind::key_down && input->kind != ScreenInputKind::key_up)
+            return 0;
+        auto& runtime = *static_cast<Runtime*>(host);
+        if (runtime.screen_ != Screen::main_menu)
+            return 0;
+        const MenuMove move = runtime.menu_move(MenuMoveCount::every).move;
+        if (move == MenuMove::next || move == MenuMove::previous)
+            return 1;
+        if (runtime.oa_layer_ == nullptr || !runtime.oa_layer_->family_ring_shown())
+            return 0;
+        switch (move) {
+        case MenuMove::next:
+        case MenuMove::previous:
+            return 1;
+        case MenuMove::accept:
+        case MenuMove::press:
+        case MenuMove::left:
+        case MenuMove::right:
+        case MenuMove::up:
+        case MenuMove::down:
+            return 1;
+        case MenuMove::home:
+        case MenuMove::end:
+        case MenuMove::page_up:
+        case MenuMove::page_down:
+            // Go to start, Go to end and the page keys are not the order's.
+            // Accept or Press on the same key still is, whichever report it
+            // made: the order owns the key then, as it does when that is the
+            // only action.
+            for (const auto& fed : runtime.match_action_events()) {
+                const MenuMove other = menu_move_of(fed.action);
+                if (other == MenuMove::accept || other == MenuMove::press)
+                    return 1;
+            }
+            return 0;
+        case MenuMove::none:
+            return 0;
+        }
+        return 0;
+    }
+
+    /// The focus, list or screen action this key fired, and the family's ring.
+    ///
+    /// A menu action is named ahead of a screen action. The id is copied
+    /// before the call returns: the event's own text lives only until the
+    /// next key is fed. The answer is also kept for the family's ring
+    /// (dispatch_screen_input): a key the screen asked about only for the
+    /// ring, because it types into a field, neither shows nor keeps the ring.
+    static int bound_focus_action(
+        void* host, const ScreenInput* input, char* action, std::size_t capacity, int* ring_shown
+    ) {
+        if (ring_shown != nullptr)
+            *ring_shown = 0;
+        if (host == nullptr)
+            return 0;
+        auto& runtime = *static_cast<Runtime*>(host);
+        if (ring_shown != nullptr) {
+            *ring_shown =
+                runtime.oa_layer_ != nullptr && runtime.oa_layer_->family_ring_shown() ? 1 : 0;
+        }
+        if (input == nullptr || input->kind != ScreenInputKind::key_down)
+            return 0;
+        runtime.screen_bound_asked_ = true;
+        runtime.screen_bound_move_ = MenuMove::none;
+        if (action == nullptr || capacity == 0)
+            return 0;
+        const MenuMoveHit hit = runtime.menu_move(MenuMoveCount::down);
+        std::string_view name;
+        MenuMove move = MenuMove::none;
+        if (menu_move_is_travel(hit.move)) {
+            name = hit.id;
+            move = hit.move;
+        } else {
+            // A screen action this key fired that is not one of those moves,
+            // such as Next control. It is reported, and it does not move the
+            // ring: the move stays none.
+            for (const auto& event : runtime.match_action_events()) {
+                if (event.phase != oa::ui::key_bindings::Phase::pressed &&
+                    event.phase != oa::ui::key_bindings::Phase::repeated)
+                    continue;
+                const std::string_view id = event.action;
+                if (!id.starts_with("ui.menu-focus-") && !id.starts_with("ui.menu-list-") &&
+                    !id.starts_with("ui.screen-"))
+                    continue;
+                name = id;
+                break;
+            }
+        }
+        if (name.empty() || name.size() + 1 > capacity)
+            return 0;
+        std::memcpy(action, name.data(), name.size());
+        action[name.size()] = '\0';
+        runtime.screen_bound_move_ = move;
+        return 1;
+    }
+
     static renderer::MainMenuResources load_main_menu(Runtime& runtime) {
         return renderer::load_main_menu(
             runtime.assets_,
@@ -736,7 +840,9 @@ constexpr ScreenServices kRuntimeServices{
     BuiltinScreens::run_frontend,
     BuiltinScreens::open_kit_screen,
     BuiltinScreens::show_notice,
-    BuiltinScreens::ask_prompt
+    BuiltinScreens::ask_prompt,
+    BuiltinScreens::main_menu_order_owns_key,
+    BuiltinScreens::bound_focus_action
 };
 
 bool overlay_applies(const OverlayDesc& overlay, ScreenId screen) {
@@ -932,6 +1038,13 @@ bool Runtime::extension_layer_takes_pointer(float x, float y) {
 }
 
 bool Runtime::dispatch_screen_input(const SDL_Event& event) {
+    // The player's own press, not a platform repeat and not a repeat that
+    // deliver_menu_repeats hands on. Its screen's answer below decides
+    // whether the dispatcher's repeats of this key reach the screens.
+    const bool player_press =
+        event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && !delivering_menu_repeats_;
+    if (player_press)
+        menu_repeat_key_ = 0;
     const auto current = screen_id(screen_);
     const auto* desc = screen_find(&screens_, current);
     bool wanted = desc != nullptr && desc->event != nullptr;
@@ -948,7 +1061,11 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
             input
         ))
         return false;
+    screen_bound_asked_ = false;
+    screen_bound_move_ = MenuMove::none;
     const bool taken = screen_input_taken(input);
+    if (player_press && taken && screen_bound_asked_ && menu_move_is_travel(screen_bound_move_))
+        menu_repeat_key_ = input.key;
     // The built-in handler never sees a taken event, so the cursor sprite
     // follows the pointer here, whether an overlay or the screen took it.
     if (taken && (input.kind == ScreenInputKind::pointer_move ||
@@ -956,6 +1073,34 @@ bool Runtime::dispatch_screen_input(const SDL_Event& event) {
                   input.kind == ScreenInputKind::pointer_up)) {
         pointer_x_ = input.x;
         pointer_y_ = input.y;
+    }
+    // A screen that takes the key still follows the family's rule. Next
+    // button and Previous button show the ring, whichever key the layout
+    // bound, and so does F6. Return hides it, and a pointer move hides it.
+    // An arrow does not show it, and Space does not hide it. An arrow, Home,
+    // End or a page key, or the command the layout bound in its place, that
+    // is taken while the ring already shows keeps it through the windows
+    // that key opens or closes, as Next button does. A screen that reads the
+    // layout (ScreenServices::bound_focus_action) is held to the command it
+    // was given, so a letter it typed into a field does neither. A screen
+    // that reads the keys themselves is held to Tab and the keys, as before.
+    if (taken && oa_layer_ != nullptr) {
+        if (input.kind == ScreenInputKind::key_down) {
+            const MenuMove move = ring_move(input);
+            const bool focus_tab = move == MenuMove::next || move == MenuMove::previous;
+            const bool focus_place = menu_move_is_place(move);
+            if (focus_tab || input.key == static_cast<uint32_t>(SDLK_F6))
+                oa_layer_->note_family_tab();
+            else if (
+                input.key == static_cast<uint32_t>(SDLK_RETURN) ||
+                input.key == static_cast<uint32_t>(SDLK_KP_ENTER)
+            )
+                oa_layer_->note_family_return();
+            else if (oa_layer_->family_ring_shown() && focus_place)
+                oa_layer_->note_family_tab();
+        } else if (input.kind == ScreenInputKind::pointer_move) {
+            oa_layer_->note_family_pointer(input.x, input.y);
+        }
     }
     return taken;
 }

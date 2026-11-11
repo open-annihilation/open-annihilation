@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -47,6 +48,9 @@ struct TextureLibrary {
     std::vector<std::unique_ptr<formats::gaf::Archive>> archives;
     std::vector<uint8_t> pixels;
     std::unordered_map<std::string, TextureSequence> sequences; // folded name, first match
+    /// The arena's team frames hold a colour-vision mode's ramps. Off, before any recolour, it is
+    /// clear and the arena is the indices load_texture_library copied.
+    bool team_colours_applied{};
 };
 
 // A loaded primitive record with its texture binding.
@@ -109,6 +113,17 @@ struct ModelLibrary {
 /// @param assets asset store to list and read
 /// @return the library
 [[nodiscard]] TextureLibrary load_texture_library(AssetStore& assets);
+
+/// Recolours the team frames in the texture arena, or writes their originals back.
+///
+/// The archives keep the indices they were loaded with. With colour vision off, before any
+/// recolour, the arena is left as `load_texture_library` wrote it. A palette shorter than 256
+/// entries restores the originals and does not remap. A mode sends each shade of a player colour's
+/// old ramp to the new ramp, so the units and the 32×32 logos draw in that colour.
+///
+/// @param[in,out] library texture library whose team frames are rewritten
+/// @param palette palette in use, 4 bytes an entry
+void recolour_team_textures(TextureLibrary& library, std::span<const uint8_t> palette);
 
 /// Computes the load-time draw order of an object's primitives.
 ///

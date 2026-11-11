@@ -301,7 +301,7 @@
 
 [Planets]
 	{
-	de=Planèten;
+	de=Planeten;
 	fr=Planètes;
 	it=Pianeti;
 	es=Planetas;
@@ -607,7 +607,7 @@
 
 [you selected. Only on a]
 	{
-	de=Planèten. Nur auf;
+	de=Planeten. Nur auf;
 	fr=planète choisie. Sur;
 	it=pianeta scelto. Su;
 	es=planeta elegido. En;
@@ -634,7 +634,7 @@
 
 [of your own side. The]
 	{
-	de=eigenen Planèten.;
+	de=eigenen Planeten.;
 	fr=une planète a soi.;
 	it=pianeta proprio.;
 	es=planeta propio.;
@@ -1458,5 +1458,851 @@
 	it=La password non è corretta per questo nome. Controlla i valori e riprova. Dimenticata? Reimpostala su coreprime.net/forgot;
 	es=La contraseña no es correcta para ese nombre. Revisa los valores e inténtalo de nuevo. ¿La olvidaste? Restablécela en coreprime.net/forgot;
 	zh-Hans=提供的密码与用户名不符。请检查后再试。忘记了？请到 coreprime.net/forgot 重置;
+	}
+
+[Boneyards]
+	{
+	de=Boneyards;
+	fr=Boneyards;
+	it=Boneyards;
+	es=Boneyards;
+	zh-Hans=Boneyards;
+	}
+
+[Enter the Boneyards]
+	{
+	de=Betritt die Boneyards;
+	fr=Entre dans les Boneyards;
+	it=Entra nei Boneyards;
+	es=Entra en los Boneyards;
+	zh-Hans=进入 Boneyards;
+	}
+
+[Scroll the map up]
+	{
+	de=Karte nach oben;
+	fr=Défile la carte vers le haut;
+	it=Scorri la mappa in alto;
+	es=Desplaza el mapa hacia arriba;
+	zh-Hans=向上滚动地图;
+	}
+
+[Scroll the map up and right]
+	{
+	de=Karte nach oben rechts;
+	fr=Défile la carte vers le haut et la droite;
+	it=Scorri la mappa in alto a destra;
+	es=Desplaza el mapa hacia arriba y a la derecha;
+	zh-Hans=向右上滚动地图;
+	}
+
+[Scroll the map right]
+	{
+	de=Karte nach rechts;
+	fr=Défile la carte vers la droite;
+	it=Scorri la mappa a destra;
+	es=Desplaza el mapa hacia la derecha;
+	zh-Hans=向右滚动地图;
+	}
+
+[Scroll the map down and right]
+	{
+	de=Karte nach unten rechts;
+	fr=Défile la carte vers le bas et la droite;
+	it=Scorri la mappa in basso a destra;
+	es=Desplaza el mapa hacia abajo y a la derecha;
+	zh-Hans=向右下滚动地图;
+	}
+
+[Scroll the map down]
+	{
+	de=Karte nach unten;
+	fr=Défile la carte vers le bas;
+	it=Scorri la mappa in basso;
+	es=Desplaza el mapa hacia abajo;
+	zh-Hans=向下滚动地图;
+	}
+
+[Scroll the map down and left]
+	{
+	de=Karte nach unten links;
+	fr=Défile la carte vers le bas et la gauche;
+	it=Scorri la mappa in basso a sinistra;
+	es=Desplaza el mapa hacia abajo y a la izquierda;
+	zh-Hans=向左下滚动地图;
+	}
+
+[Scroll the map left]
+	{
+	de=Karte nach links;
+	fr=Défile la carte vers la gauche;
+	it=Scorri la mappa a sinistra;
+	es=Desplaza el mapa hacia la izquierda;
+	zh-Hans=向左滚动地图;
+	}
+
+[Scroll the map up and left]
+	{
+	de=Karte nach oben links;
+	fr=Défile la carte vers le haut et la gauche;
+	it=Scorri la mappa in alto a sinistra;
+	es=Desplaza el mapa hacia arriba y a la izquierda;
+	zh-Hans=向左上滚动地图;
+	}
+
+[Recon]
+	{
+	de=Aufklärung;
+	fr=Recon;
+	it=Ricognizione;
+	es=Reconocimiento;
+	zh-Hans=侦察;
+	}
+
+[Chat]
+	{
+	de=Chat;
+	fr=Chat;
+	it=Chat;
+	es=Chat;
+	zh-Hans=聊天;
+	}
+
+[Battle]
+	{
+	de=Schlacht;
+	fr=Bataille;
+	it=Battaglia;
+	es=Batalla;
+	zh-Hans=战斗;
+	}
+
+[News]
+	{
+	de=Nachrichten;
+	fr=Actus;
+	it=Notizie;
+	es=Noticias;
+	zh-Hans=新闻;
+	}
+
+[Ladders]
+	{
+	de=Ranglisten;
+	fr=Classements;
+	it=Classifiche;
+	es=Clasificaciones;
+	zh-Hans=天梯;
+	}
+
+[Profile]
+	{
+	de=Profil;
+	fr=Profil;
+	it=Profilo;
+	es=Perfil;
+	zh-Hans=档案;
+	}
+
+[Help]
+	{
+	de=Hilfe;
+	fr=Aide;
+	it=Aiuto;
+	es=Ayuda;
+	zh-Hans=帮助;
+	}
+
+[Contents]
+	{
+	de=Inhalt;
+	fr=Sommaire;
+	it=Contenuto;
+	es=Contenido;
+	zh-Hans=目录;
+	}
+
+[Chat rooms]
+	{
+	de=Chaträume;
+	fr=Salons;
+	it=Stanze;
+	es=Salas;
+	zh-Hans=聊天室;
+	}
+
+[Chat players]
+	{
+	de=Spieler;
+	fr=Joueurs;
+	it=Giocatori;
+	es=Jugadores;
+	zh-Hans=玩家;
+	}
+
+[Game types]
+	{
+	de=Spielarten;
+	fr=Types de partie;
+	it=Tipi di partita;
+	es=Tipos de partida;
+	zh-Hans=游戏类型;
+	}
+
+[Ladder search]
+	{
+	de=Ranglistensuche;
+	fr=Recherche de classement;
+	it=Ricerca classifica;
+	es=Búsqueda de clasificación;
+	zh-Hans=天梯搜索;
+	}
+
+[Search]
+	{
+	de=Suche;
+	fr=Recherche;
+	it=Cerca;
+	es=Buscar;
+	zh-Hans=搜索;
+	}
+
+[Server List]
+	{
+	de=Serverliste;
+	fr=Liste des serveurs;
+	it=Elenco server;
+	es=Lista de servidores;
+	zh-Hans=服务器列表;
+	}
+
+[Page scroll bar]
+	{
+	de=Bildlaufleiste der Seite;
+	fr=Barre de défilement de la page;
+	it=Barra di scorrimento della pagina;
+	es=Barra de desplazamiento de la página;
+	zh-Hans=页面滚动条;
+	}
+
+[Release]
+	{
+	de=Freigeben;
+	fr=Relâcher;
+	it=Rilascia;
+	es=Soltar;
+	zh-Hans=放开;
+	}
+
+[Locator]
+	{
+	de=Ortung;
+	fr=Repère;
+	it=Ricerca;
+	es=Buscar;
+	zh-Hans=定位;
+	}
+
+[QuickPlay]
+	{
+	de=Schnellspiel;
+	fr=Partie rapide;
+	it=Partita rapida;
+	es=Partida rápida;
+	zh-Hans=快速对战;
+	}
+
+[Login]
+	{
+	de=Anmeldung;
+	fr=Connexion;
+	it=Accesso;
+	es=Acceso;
+	zh-Hans=登录;
+	}
+
+[Update]
+	{
+	de=Aktualisierung;
+	fr=Mise à jour;
+	it=Aggiornamento;
+	es=Actualización;
+	zh-Hans=更新;
+	}
+
+[Exit]
+	{
+	de=Beenden;
+	fr=Quitter;
+	it=Esci;
+	es=Salir;
+	zh-Hans=退出;
+	}
+
+[Credits]
+	{
+	de=Abspann;
+	fr=Crédits;
+	it=Riconoscimenti;
+	es=Créditos;
+	zh-Hans=制作人员;
+	}
+
+[General]
+	{
+	de=Allgemein;
+	fr=Général;
+	it=Generale;
+	es=General;
+	zh-Hans=综合;
+	}
+
+[Ladder]
+	{
+	de=Rangliste;
+	fr=Classement;
+	it=Classifica;
+	es=Clasificación;
+	zh-Hans=天梯;
+	}
+
+[Awards]
+	{
+	de=Auszeichnungen;
+	fr=Récompenses;
+	it=Premi;
+	es=Premios;
+	zh-Hans=奖项;
+	}
+
+[Arm wins]
+	{
+	de=Siege für Arm;
+	fr=Victoires Arm;
+	it=Vittorie Arm;
+	es=Victorias de Arm;
+	zh-Hans=Arm 胜场;
+	}
+
+[Core wins]
+	{
+	de=Siege für Core;
+	fr=Victoires Core;
+	it=Vittorie Core;
+	es=Victorias de Core;
+	zh-Hans=Core 胜场;
+	}
+
+[contested]
+	{
+	de=umkämpft;
+	fr=contesté;
+	it=conteso;
+	es=disputado;
+	zh-Hans=争夺中;
+	}
+
+[unknown]
+	{
+	de=unbekannt;
+	fr=inconnu;
+	it=sconosciuto;
+	es=desconocido;
+	zh-Hans=未知;
+	}
+
+[%s, %d battles, %d forming]
+	{
+	de=%s, %d Kämpfe, %d im Aufbau;
+	fr=%s, %d batailles, %d en formation;
+	it=%s, %d battaglie, %d in avvio;
+	es=%s, %d batallas, %d formándose;
+	zh-Hans=%s，%d 场战斗，%d 场集结;
+	}
+
+[%s, %d battles, %d forming, chosen]
+	{
+	de=%s, %d Kämpfe, %d im Aufbau, gewählt;
+	fr=%s, %d batailles, %d en formation, choisi;
+	it=%s, %d battaglie, %d in avvio, scelta;
+	es=%s, %d batallas, %d formándose, elegido;
+	zh-Hans=%s，%d 场战斗，%d 场集结，已选;
+	}
+
+[%s, %d battle, %d forming]
+	{
+	de=%s, %d Kampf, %d im Aufbau;
+	fr=%s, %d bataille, %d en formation;
+	it=%s, %d battaglia, %d in avvio;
+	es=%s, %d batalla, %d formándose;
+	zh-Hans=%s，%d 场战斗，%d 场集结;
+	}
+
+[%s, %d battle, %d forming, chosen]
+	{
+	de=%s, %d Kampf, %d im Aufbau, gewählt;
+	fr=%s, %d bataille, %d en formation, choisi;
+	it=%s, %d battaglia, %d in avvio, scelta;
+	es=%s, %d batalla, %d formándose, elegido;
+	zh-Hans=%s，%d 场战斗，%d 场集结，已选;
+	}
+
+[Latency good]
+	{
+	de=Verzögerung gut;
+	fr=Latence bonne;
+	it=Latenza buona;
+	es=Latencia buena;
+	zh-Hans=延迟良好;
+	}
+
+[Latency fair]
+	{
+	de=Verzögerung mittel;
+	fr=Latence moyenne;
+	it=Latenza media;
+	es=Latencia media;
+	zh-Hans=延迟一般;
+	}
+
+[Latency poor]
+	{
+	de=Verzögerung schlecht;
+	fr=Latence mauvaise;
+	it=Latenza scarsa;
+	es=Latencia mala;
+	zh-Hans=延迟较差;
+	}
+
+[Latency unknown]
+	{
+	de=Verzögerung unbekannt;
+	fr=Latence inconnue;
+	it=Latenza sconosciuta;
+	es=Latencia desconocida;
+	zh-Hans=延迟未知;
+	}
+
+[Rank]
+	{
+	de=Rang;
+	fr=Grade;
+	it=Grado;
+	es=Rango;
+	zh-Hans=军衔;
+	}
+
+[Rank: %s]
+	{
+	de=Rang: %s;
+	fr=Grade : %s;
+	it=Grado: %s;
+	es=Rango: %s;
+	zh-Hans=军衔：%s;
+	}
+
+[Private]
+	{
+	de=Gefreiter;
+	fr=Soldat;
+	it=Soldato;
+	es=Soldado;
+	zh-Hans=列兵;
+	}
+
+[Corporal]
+	{
+	de=Obergefreiter;
+	fr=Caporal;
+	it=Caporale;
+	es=Cabo;
+	zh-Hans=下士;
+	}
+
+[Sergeant]
+	{
+	de=Unteroffizier;
+	fr=Sergent;
+	it=Sergente;
+	es=Sargento;
+	zh-Hans=中士;
+	}
+
+[Lieutenant]
+	{
+	de=Leutnant;
+	fr=Lieutenant;
+	it=Tenente;
+	es=Teniente;
+	zh-Hans=中尉;
+	}
+
+[Major]
+	{
+	de=Major;
+	fr=Commandant;
+	it=Maggiore;
+	es=Mayor;
+	zh-Hans=少校;
+	}
+
+[Colonel]
+	{
+	de=Oberst;
+	fr=Colonel;
+	it=Colonnello;
+	es=Coronel;
+	zh-Hans=上校;
+	}
+
+[Commander]
+	{
+	de=Kommandeur;
+	fr=Commandeur;
+	it=Comandante;
+	es=Comandante;
+	zh-Hans=指挥官;
+	}
+
+[High Commander]
+	{
+	de=Hochkommandeur;
+	fr=Haut commandeur;
+	it=Alto comandante;
+	es=Alto comandante;
+	zh-Hans=高级指挥官;
+	}
+
+[Supreme Commander]
+	{
+	de=Oberster Kommandeur;
+	fr=Commandant suprême;
+	it=Comandante supremo;
+	es=Comandante supremo;
+	zh-Hans=最高指挥官;
+	}
+
+[Newsbot]
+	{
+	de=Newsbot;
+	fr=Newsbot;
+	it=Newsbot;
+	es=Newsbot;
+	zh-Hans=Newsbot;
+	}
+
+[System Commander]
+	{
+	de=Systemkommandeur;
+	fr=Commandant système;
+	it=Comandante di sistema;
+	es=Comandante del sistema;
+	zh-Hans=系统指挥官;
+	}
+
+[Yard Dog]
+	{
+	de=Yard Dog;
+	fr=Yard Dog;
+	it=Yard Dog;
+	es=Yard Dog;
+	zh-Hans=Yard Dog;
+	}
+
+[Player Skill]
+	{
+	de=Spielstärke;
+	fr=Niveau du joueur;
+	it=Livello del giocatore;
+	es=Nivel del jugador;
+	zh-Hans=玩家水平;
+	}
+
+[Number of Players]
+	{
+	de=Anzahl der Spieler;
+	fr=Nombre de joueurs;
+	it=Numero di giocatori;
+	es=Número de jugadores;
+	zh-Hans=玩家人数;
+	}
+
+[On Commander Death]
+	{
+	de=Beim Tod des Commanders;
+	fr=À la mort du commandeur;
+	it=Alla morte del comandante;
+	es=Al morir el comandante;
+	zh-Hans=指挥官阵亡时;
+	}
+
+[Player Skill:]
+	{
+	de=Spielstärke:;
+	fr=Niveau du joueur :;
+	it=Livello del giocatore:;
+	es=Nivel del jugador:;
+	zh-Hans=玩家水平：;
+	}
+
+[Number of Players:]
+	{
+	de=Anzahl der Spieler:;
+	fr=Nombre de joueurs :;
+	it=Numero di giocatori:;
+	es=Número de jugadores:;
+	zh-Hans=玩家人数：;
+	}
+
+[On Commander Death:]
+	{
+	de=Beim Tod des Commanders:;
+	fr=À la mort du commandeur :;
+	it=Alla morte del comandante:;
+	es=Al morir el comandante:;
+	zh-Hans=指挥官阵亡时：;
+	}
+
+[Core Prime]
+	{
+	de=Core Prime;
+	fr=Core Prime;
+	it=Core Prime;
+	es=Core Prime;
+	zh-Hans=Core Prime;
+	}
+
+[This battle goes on Core Prime by itself, a few minutes after it ends.]
+	{
+	de=Diese Schlacht kommt von selbst auf Core Prime, ein paar Minuten nach dem Ende.;
+	fr=Cette bataille arrive sur Core Prime toute seule, quelques minutes après la fin.;
+	it=Questa battaglia va su Core Prime da sola, qualche minuto dopo la fine.;
+	es=Esta batalla llega sola a Core Prime, unos minutos después de acabar.;
+	zh-Hans=这场战斗会在结束后几分钟自己出现在 Core Prime。;
+	}
+
+[Share this battle on Core Prime?]
+	{
+	de=Diese Schlacht auf Core Prime teilen?;
+	fr=Partager cette bataille sur Core Prime ?;
+	it=Condividere questa battaglia su Core Prime?;
+	es=¿Compartir esta batalla en Core Prime?;
+	zh-Hans=把这场战斗分享到 Core Prime？;
+	}
+
+[Share…]
+	{
+	de=Teilen…;
+	fr=Partager…;
+	it=Condividi…;
+	es=Compartir…;
+	zh-Hans=分享…;
+	}
+
+[Not now]
+	{
+	de=Nicht jetzt;
+	fr=Pas maintenant;
+	it=Non ora;
+	es=Ahora no;
+	zh-Hans=以后再说;
+	}
+
+[This battle was not recorded, so it is not shared.]
+	{
+	de=Diese Schlacht wurde nicht aufgezeichnet und wird deshalb nicht geteilt.;
+	fr=Cette bataille n'a pas été enregistrée, elle n'est donc pas partagée.;
+	it=Questa battaglia non è stata registrata, quindi non è condivisa.;
+	es=Esta batalla no se grabó, así que no se comparte.;
+	zh-Hans=这场战斗没有录像，所以不会分享。;
+	}
+
+[SYS]
+	{
+	de=[SYS];
+	fr=[SYS];
+	it=[SIS];
+	es=[SIS];
+	zh-Hans=[系统];
+	}
+
+[NEWS]
+	{
+	de=[NEWS];
+	fr=[ACTU];
+	it=[NEWS];
+	es=[NOTICIAS];
+	zh-Hans=[新闻];
+	}
+
+[ARM]
+	{
+	de=[ARM];
+	fr=[ARM];
+	it=[ARM];
+	es=[GLAN];
+	zh-Hans=[ARM];
+	}
+
+[CORE]
+	{
+	de=[CORE];
+	fr=[CORE];
+	it=[CORE];
+	es=[NÚCLEO];
+	zh-Hans=[CORE];
+	}
+
+[Battle, {place}]
+	{
+	de=Schlacht, {place};
+	fr=Bataille, {place};
+	it=Battaglia, {place};
+	es=Batalla, {place};
+	zh-Hans=战斗，{place};
+	}
+
+[Offline]
+	{
+	de=Offline;
+	fr=Hors ligne;
+	it=Non in linea;
+	es=Sin conexión;
+	zh-Hans=离线;
+	}
+
+[Connecting]
+	{
+	de=Verbinden;
+	fr=Connexion;
+	it=Connessione;
+	es=Conectando;
+	zh-Hans=正在连接;
+	}
+
+[Disconnected]
+	{
+	de=Getrennt;
+	fr=Déconnecté;
+	it=Disconnesso;
+	es=Desconectado;
+	zh-Hans=已断开;
+	}
+
+[Entered {room}]
+	{
+	de={room} betreten;
+	fr=Entré dans {room};
+	it=Entrato in {room};
+	es=Entraste en {room};
+	zh-Hans=进入 {room};
+	}
+
+[Logged in as {name}]
+	{
+	de=Angemeldet als {name};
+	fr=Connecté en tant que {name};
+	it=Accesso come {name};
+	es=Conectado como {name};
+	zh-Hans=以 {name} 的身份登录;
+	}
+
+[Opened {console}]
+	{
+	de={console} geöffnet;
+	fr={console} ouvert;
+	it=Aperto {console};
+	es=Abierto {console};
+	zh-Hans=打开了 {console};
+	}
+
+[Page from {name}]
+	{
+	de=Page von {name};
+	fr=Page de {name};
+	it=Page da {name};
+	es=Page de {name};
+	zh-Hans=来自 {name} 的传呼;
+	}
+
+[Page from {name}: {text}]
+	{
+	de=Page von {name}: {text};
+	fr=Page de {name} : {text};
+	it=Page da {name}: {text};
+	es=Page de {name}: {text};
+	zh-Hans=来自 {name} 的传呼：{text};
+	}
+
+[Planet {name}]
+	{
+	de=Planet {name};
+	fr=Planète {name};
+	it=Pianeta {name};
+	es=Planeta {name};
+	zh-Hans=行星 {name};
+	}
+
+[Summary of {name}: {owner}, {battles} battles, {forming} forming]
+	{
+	de=Zusammenfassung von {name}: {owner}, {battles} Schlachten, {forming} im Aufbau;
+	fr=Résumé de {name} : {owner}, {battles} batailles, {forming} en formation;
+	it=Riepilogo di {name}: {owner}, {battles} battaglie, {forming} in formazione;
+	es=Resumen de {name}: {owner}, {battles} batallas, {forming} formándose;
+	zh-Hans={name} 的概况：{owner}，{battles} 场战斗，{forming} 场组建中;
+	}
+
+[Whisper from {name}]
+	{
+	de=Flüstern von {name};
+	fr=Chuchotement de {name};
+	it=Sussurro da {name};
+	es=Susurro de {name};
+	zh-Hans=来自 {name} 的低语;
+	}
+
+[Whisper from {name}: {text}]
+	{
+	de=Flüstern von {name}: {text};
+	fr=Chuchotement de {name} : {text};
+	it=Sussurro da {name}: {text};
+	es=Susurro de {name}: {text};
+	zh-Hans=来自 {name} 的低语：{text};
+	}
+
+[Whisper to {name}: {text}]
+	{
+	de=Flüstern an {name}: {text};
+	fr=Chuchotement à {name} : {text};
+	it=Sussurro a {name}: {text};
+	es=Susurro a {name}: {text};
+	zh-Hans=对 {name} 低语：{text};
+	}
+
+[{count} new lines in {room}]
+	{
+	de={count} neue Zeilen in {room};
+	fr={count} nouvelles lignes dans {room};
+	it={count} nuove righe in {room};
+	es={count} líneas nuevas en {room};
+	zh-Hans={room} 有 {count} 条新消息;
+	}
+
+[{name} joined {room}]
+	{
+	de={name} ist {room} beigetreten;
+	fr={name} a rejoint {room};
+	it={name} è entrato in {room};
+	es={name} se unió a {room};
+	zh-Hans={name} 加入了 {room};
+	}
+
+[{name} left {room}]
+	{
+	de={name} hat {room} verlassen;
+	fr={name} a quitté {room};
+	it={name} ha lasciato {room};
+	es={name} dejó {room};
+	zh-Hans={name} 离开了 {room};
 	}
 

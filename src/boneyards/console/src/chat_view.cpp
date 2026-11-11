@@ -8,11 +8,14 @@
 // and hands it the typed ones.
 #include "oa/boneyards/utf8.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 #include "console_state.hpp"
 #include "oa/boneyards/console/feature_consoles.hpp"
 #include "oa/boneyards/release.hpp"
+#include "oa/boneyards/screens/lobby_widgets.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/raster.hpp"
 #include "oa/present/surface.hpp"
 #include "widgets.hpp"
@@ -110,7 +113,11 @@ void add_modern_row(void* user, const char* line, int32_t indent, int32_t height
 /// Plays GREEN_BUTTON first unless the line is quiet. The default colour is
 /// the list's small font. With modern fonts on, the rows use those faces at
 /// the player's Text size and the first row starts six pixels in. The log
-/// follows its end only when it was showing it.
+/// follows its end only when it was showing it. While shape cues are in
+/// effect, a line whose font is the session's status, news, Arm or Core face
+/// is printed with that role's tag in front. The tag is chosen from the
+/// handles at this moment, and a line already in the log keeps the words it
+/// was printed with.
 ///
 /// @param user unused context of the chat's output hook
 /// @param text the line
@@ -123,12 +130,31 @@ void chat_print_line(void* /*user*/, const char* text, int32_t font, bool quiet)
         boneyards_console_driver_note("said", text);
     if (!quiet)
         play_sound(g_open_chat, k_green_button);
+    const char* printed = text;
+    char tagged[screens::kChatLineCapacity + 32];
+    if (present::colour_vision::shape_cues_active() && g_open_chat->owner != nullptr &&
+        g_open_chat->owner->navigation != nullptr) {
+        const screens::ChatSession* session = chat_of(g_open_chat)->session;
+        if (session != nullptr) {
+            const screens::ChatRole role = screens::chat_role_for_handles(
+                font,
+                session->system_font,
+                session->rank_0x15_font,
+                session->arm_font,
+                session->core_font
+            );
+            if (role != screens::ChatRole::none) {
+                screens::write_role_line(tagged, sizeof tagged, text, role, true);
+                printed = tagged;
+            }
+        }
+    }
     const screens::HatFonts& fonts = g_open_chat->owner->system.hat_fonts;
     const Handle face = font == screens::kDefaultTextColor ? fonts.small : font;
     ModernPrint print{g_open_chat, face};
     if (modern_chat_write(
             &g_open_chat->log->list,
-            text,
+            printed,
             screens::by_list_row_width(&g_open_chat->log->list.base),
             layout::modern_indent,
             layout::line_indent - 1,
@@ -139,7 +165,7 @@ void chat_print_line(void* /*user*/, const char* text, int32_t font, bool quiet)
         return;
     screens::by_list_wrap_text(
         g_open_chat->log,
-        text,
+        printed,
         &g_open_chat->owner->system.hat_fonts,
         layout::line_indent,
         font == screens::kDefaultTextColor ? k_no_handle : font
@@ -207,11 +233,25 @@ void chat_room_row(
         remove_list_row(list, found);
 }
 
+/// Posts a join or a leave for the open room.
+///
+/// @param joined true when the member arrived
+/// @param name the member
+void note_room_membership(bool joined, const char* name) {
+    if (name == nullptr || name[0] == '\0')
+        return;
+    // The longer word, its space, and the longest name the chat holds.
+    char text[sizeof "joined " + screens::kPlayerNameCapacity];
+    std::snprintf(text, sizeof text, "%s %s", joined ? "joined" : "left", name);
+    boneyards_console_driver_note("room", text);
+}
+
 /// Keeps the player list in step with the chat's.
 ///
 /// A new member gets a BYPlayerListItem; the rank and latency icons follow
 /// the member, and the muzzle and whisper lock pick the name's font at the
-/// next draw; a member who left loses the row.
+/// next draw; a member who left loses the row. A join, a leave and a muzzle
+/// are posted so a screen reader can hear them.
 ///
 /// @param user unused context of the chat's output hook
 /// @param change how the row changed
@@ -221,22 +261,30 @@ void chat_player_row(
     void* /*user*/, screens::RowChange change, const screens::ChatPlayer* player, size_t index
 ) {
     ChatView* view = g_open_chat;
-    if (view == nullptr)
+    if (view == nullptr || player == nullptr)
         return;
     screens::ByListBox* list = view->player_list;
     screens::ByPlayerRow* row = nullptr;
     if (change == screens::RowChange::added) {
         row = screens::by_player_row_create(list, player->name, player->user_id, fonts_of(view));
+        note_room_membership(true, player->name);
     } else {
         Window* found = list_row(list, index, screens::kByPlayerRowClass);
         row = reinterpret_cast<screens::ByPlayerRow*>(found);
         if (row == nullptr || row->user_id != player->user_id)
             return;
         if (change == screens::RowChange::removed) {
+            boneyards_console_driver_note("hear", player->name);
+            note_room_membership(false, player->name);
             remove_list_row(list, found);
             return;
         }
     }
+    if (row == nullptr)
+        return;
+    const bool was_silenced = change != screens::RowChange::added && row->silenced;
+    if (player->silenced != was_silenced)
+        boneyards_console_driver_note(player->silenced ? "muzzle" : "hear", player->name);
     row->silenced = player->silenced;
     row->whisper_locked = player->whisper_locked;
     if (row->icons.latency_frame != player->latency_icon)
@@ -273,6 +321,110 @@ void chat_show_room(void* /*user*/, size_t index) {
 
 void select_list_row(screens::ByListBox* list, int32_t row) {
     list->selected_item = row >= 0 ? list_box_item(&list->list, row) : nullptr;
+}
+
+bool keyboard_ring_shown() {
+    const Desktop* desktop = services().desktop;
+    return desktop != nullptr && desktop->keyboard_ring != 0;
+}
+
+/// Moves the highlight without telling the parent.
+///
+/// list_box_select reports activated, which opens a pane or a frequency.
+/// Arrows while the ring shows only choose the row.
+void choose_list_row(screens::ByListBox* list, int32_t row) {
+    ListBox* box = &list->list;
+    if (box->count <= 0)
+        return;
+    if (row < 0)
+        row = 0;
+    if (row >= box->count)
+        row = box->count - 1;
+    const int32_t old_top = box->top;
+    int32_t top = box->top;
+    if (row <= top)
+        top = row;
+    if (box->last <= row)
+        top += row - box->last;
+    if (top < 0)
+        top = 0;
+    box->selected = row;
+    list->selected_item = list_box_item(box, row);
+    if (top != old_top)
+        list_box_scroll(box, top - old_top);
+}
+
+bool choose_list_key(screens::ByListBox* list, int32_t key_code) {
+    ListBox* box = &list->list;
+    int32_t row = box->selected;
+    if (row < 0)
+        row = 0;
+    const int32_t page = box->page > 0 ? box->page : 1;
+    switch (key_code) {
+    case key::up:
+        choose_list_row(list, row - 1);
+        return true;
+    case key::down:
+        choose_list_row(list, row + 1);
+        return true;
+    case key::page_up:
+        choose_list_row(list, row - page);
+        return true;
+    case key::page_down:
+        choose_list_row(list, row + page);
+        return true;
+    case key::home:
+        choose_list_row(list, 0);
+        return true;
+    case key::end:
+        choose_list_row(list, box->count - 1);
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool player_list_key_down(Window* self, const Message* msg) {
+    if (msg == nullptr)
+        return false;
+    if (!keyboard_ring_shown())
+        return k_list_box_ops.key_down(self, msg);
+    auto* list = reinterpret_cast<screens::ByListBox*>(self);
+    if (choose_list_key(list, msg->key))
+        return true;
+    if (msg->key == key::enter) {
+        window_notify_parent(self, NotifyCode::activated, 0);
+        return true;
+    }
+    return window_default_key_down(self, msg);
+}
+
+/// The arrows choose a frequency, and Return opens its pane, as a click on
+/// the row does: GO there joins it.
+bool room_list_key_down(Window* self, const Message* msg) {
+    if (msg == nullptr)
+        return false;
+    if (!keyboard_ring_shown())
+        return k_list_box_ops.key_down(self, msg);
+    auto* list = reinterpret_cast<screens::ByListBox*>(self);
+    if (choose_list_key(list, msg->key))
+        return true;
+    if (msg->key == key::enter && list->selected_item != nullptr) {
+        window_notify_parent(self, NotifyCode::activated, 0);
+        return true;
+    }
+    return window_default_key_down(self, msg);
+}
+
+void room_list_install_keys(screens::ByListBox* rooms) {
+    static WindowOps ops{};
+    static bool ready = false;
+    if (!ready) {
+        ops = *rooms->list.base.ops;
+        ops.key_down = room_list_key_down;
+        ready = true;
+    }
+    rooms->list.base.ops = &ops;
 }
 
 void chat_select_room(void*, int32_t row) {
@@ -432,6 +584,7 @@ void player_list_report_selected_row(screens::ByListBox* players) {
         ops = *players->list.base.ops;
         player_list_notify_base = ops.on_notify;
         ops.on_notify = player_list_on_notify;
+        ops.key_down = player_list_key_down;
         ready = true;
     }
     players->list.base.ops = &ops;
@@ -722,6 +875,7 @@ void chat_console_build(Window* self) {
     log->bottom_align = 1;
     log->capacity = l::log_capacity;
     log->log_mode = 1;
+    log->base.tab_place = 5;
     screens::lobby_label_create(
         self,
         l::prompt_x,
@@ -752,6 +906,7 @@ void chat_console_build(Window* self) {
         input, l::selection_r, l::selection_g, l::selection_b, l::selection_a
     );
     window_set_name(&input->base, "Chat entry");
+    input->base.tab_place = 6;
 
     screens::lobby_label_create(
         self,
@@ -765,11 +920,14 @@ void chat_console_build(Window* self) {
     );
     view->room_list =
         add_list(self, true, l::rooms_y, l::rooms_width, l::rooms_height, "Chat rooms");
+    view->room_list->list.base.tab_place = 1;
+    room_list_install_keys(view->room_list);
     view->create_button = button_create();
     screens::function_button_setup(
         view->create_button, false, l::create_x, l::create_y, "CREATE", self
     );
     window_set_state(view->create_button, button_state::unpressed);
+    view->create_button->tab_place = 2;
     screens::lobby_label_create(
         self,
         0,
@@ -788,6 +946,7 @@ void chat_console_build(Window* self) {
         matchmaking ? l::players_height_matchmaking : l::players_height,
         "Chat players"
     );
+    view->player_list->list.base.tab_place = 3;
     player_list_report_selected_row(view->player_list);
     if (matchmaking) {
         screens::lobby_label_create(
@@ -817,6 +976,7 @@ void chat_console_build(Window* self) {
         // too makes a lookup of the dialog find the button, so the dialog
         // never opens and the focus order and the queue never see it.
         window_set_name(view->matchmaking, k_minimize_sequence);
+        view->matchmaking->tab_place = 4;
     }
     place_chat_text(view);
     self->visible = 0;
@@ -867,8 +1027,31 @@ void chat_console_destroy(Window* self) {
     console_window_free(self);
 }
 
+// The panel's own focus scan, saved when the chat ops are built.
+Window* (*k_panel_focus_target)(Window*, Window*, bool) = nullptr;
+
+/// Leaves a click on the "CHAT FREQUENCIES" or "PLAYERS" title where the
+/// keyboard was.
+///
+/// The titles are not stops. The panel would otherwise move on to the list
+/// under the title, and the next letter would go to that list instead of
+/// the entry.
+Window* chat_focus_target(Window* self, Window* from, bool backwards) {
+    if (from != nullptr && from->ops != nullptr && from->ops->state_text != nullptr) {
+        const char* text = from->ops->state_text(from, -1);
+        if (text != nullptr &&
+            (std::strcmp(text, "CHAT FREQUENCIES") == 0 || std::strcmp(text, "PLAYERS") == 0))
+            return nullptr;
+    }
+    if (k_panel_focus_target != nullptr)
+        return k_panel_focus_target(self, from, backwards);
+    return nullptr;
+}
+
 WindowOps make_chat_ops() {
     WindowOps ops = console_panel_ops();
+    k_panel_focus_target = ops.focus_target;
+    ops.focus_target = chat_focus_target;
     ops.destroy = chat_console_destroy;
     ops.on_destroy = chat_console_release_panes;
     ops.on_bounds = chat_console_build;

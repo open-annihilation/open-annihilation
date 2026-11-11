@@ -19,16 +19,17 @@ namespace json = oa::formats::json;
 
 /// Every kind, in the order events.subscribe lists them.
 ///
-/// The first eleven are the automation endpoint's. The next eight are the
-/// match watch: units, orders and what the local player sees. The last six
+/// The first twelve are the automation endpoint's. The next eight are the
+/// match watch: units, orders and what the local player sees. The last seven
 /// are notes an extension posts (a line, a page, the ticker, an alert, the
-/// session and a console opening).
+/// session, a console opening and a spoken update). `focus` is an automation
+/// kind, not a match-watch kind and not an extension note.
 constexpr std::string_view kKinds[] = {
-    "screen",     "player",       "ready",          "chat",          "loaded",
-    "match",      "pause",        "speed",          "alliance",      "transfer",
-    "game_over",  "unit_created", "unit_destroyed", "unit_idle",     "unit_damaged",
-    "order_done", "build_done",   "enemy_seen",     "radar_contact", "said",
-    "page",       "ticker",       "alert",          "session",       "console",
+    "screen",       "player",         "ready",     "chat",         "loaded",     "match",
+    "pause",        "speed",          "alliance",  "transfer",     "game_over",  "focus",
+    "unit_created", "unit_destroyed", "unit_idle", "unit_damaged", "order_done", "build_done",
+    "enemy_seen",   "radar_contact",  "said",      "page",         "ticker",     "alert",
+    "session",      "console",        "announce",
 };
 
 /// Tells whether a kind is one the feed knows.

@@ -8,14 +8,25 @@
 
 #include "window_placement.hpp"
 
+#include "oa/app/family_ring.hpp"
+#include "oa/ui/frontend_renderer.hpp"
+#include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components.hpp"
+#include "oa/ui/kit/layout.hpp"
+#include "oa/ui/kit/theme.hpp"
+#include "oa/ui/paint/painter.hpp"
+
 #include <algorithm>
+#include <array>
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace oa::app::overlay_placement {
 
@@ -303,3 +314,297 @@ OverlayPlace moved_place(
 }
 
 } // namespace oa::app::overlay_placement
+
+namespace oa::app {
+namespace {
+
+namespace kit = oa::ui::kit;
+namespace paint = oa::ui::paint;
+namespace renderer = oa::ui::frontend_renderer;
+
+/// The largest picture the ring is drawn into, on either side. A control
+/// larger than the window the game presents is not given a ring.
+constexpr int32_t k_ring_limit = 8192;
+
+/// The crisp blend's full share, the same 256 `blend_rect` takes as opaque.
+constexpr uint32_t k_crisp_opaque = 256;
+
+/// One channel of the crisp blend, the same arithmetic `blend_rect` uses.
+///
+/// @param ground the channel under the ring
+/// @param ink the ring's channel
+/// @param share the ring's share, 0 to 256
+/// @return the mixed channel
+[[nodiscard]] uint8_t crisp_channel(uint8_t ground, uint8_t ink, uint32_t share) noexcept {
+    const uint32_t keep = k_crisp_opaque - share;
+    const uint32_t painted = uint32_t{ink} * share + k_crisp_opaque / 2U;
+    return static_cast<uint8_t>((uint32_t{ground} * keep + painted) / k_crisp_opaque);
+}
+
+/// The crisp share that reproduces the ring on black and on white.
+///
+/// One channel does not name a share on its own: the integer division
+/// collides. The three channels on two grounds name one share, or none.
+///
+/// @param black the pixel drawn over black
+/// @param white the pixel drawn over white
+/// @param[out] share the share, 0 to 256
+/// @return false when no share reproduces both pixels
+[[nodiscard]] bool
+crisp_share(const uint8_t black[3], const uint8_t white[3], uint16_t& share) noexcept {
+    const std::array<uint8_t, 3> ink{
+        kit::colour::focus.r, kit::colour::focus.g, kit::colour::focus.b
+    };
+    bool found = false;
+    uint16_t kept = 0;
+    for (uint32_t candidate = 0; candidate <= k_crisp_opaque; ++candidate) {
+        bool matches = true;
+        for (std::size_t channel = 0; channel < ink.size(); ++channel) {
+            if (crisp_channel(0, ink[channel], candidate) != black[channel] ||
+                crisp_channel(255, ink[channel], candidate) != white[channel]) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches)
+            continue;
+        if (found)
+            return false;
+        found = true;
+        kept = static_cast<uint16_t>(candidate);
+    }
+    if (!found)
+        return false;
+    share = kept;
+    return true;
+}
+
+/// Draws the ring on the crisp form into a sheet filled with one ground.
+///
+/// @param[out] sheet the picture, replaced
+/// @param sheet_w its columns
+/// @param sheet_h its rows
+/// @param point_width the control's width, in points
+/// @param point_height the control's height, in points
+/// @param scale surface pixels in one point
+/// @param ground the colour under the ring, the same on every channel
+void draw_crisp_sheet(
+    renderer::Surface& sheet,
+    int32_t sheet_w,
+    int32_t sheet_h,
+    int32_t point_width,
+    int32_t point_height,
+    int32_t scale,
+    uint8_t ground
+) {
+    sheet.width = static_cast<uint32_t>(sheet_w);
+    sheet.height = static_cast<uint32_t>(sheet_h);
+    sheet.rgb.assign(
+        static_cast<std::size_t>(sheet_w) * static_cast<std::size_t>(sheet_h) * 3U, ground
+    );
+    kit::Canvas canvas{};
+    canvas.surface = &sheet;
+    canvas.placement = {0, 0, scale, {}};
+    const int32_t inset = kit::compact_metrics.focus_inset;
+    kit::draw_focus_ring(canvas, {inset, inset, point_width, point_height}, true);
+}
+
+/// Draws the ring on the crisp form and keeps each pixel's share.
+///
+/// @param window_x the control's left column
+/// @param window_y the control's top row
+/// @param point_width the control's width, in points
+/// @param point_height the control's height, in points
+/// @param scale surface pixels in one point
+/// @return the ring's pixels
+[[nodiscard]] std::vector<FamilyRingPixel> crisp_ring_pixels(
+    int32_t window_x, int32_t window_y, int32_t point_width, int32_t point_height, int32_t scale
+) {
+    const int32_t inset = kit::compact_metrics.focus_inset;
+    const int32_t sheet_w = (point_width + 2 * inset) * scale;
+    const int32_t sheet_h = (point_height + 2 * inset) * scale;
+    if (sheet_w <= 0 || sheet_h <= 0 || sheet_w > k_ring_limit || sheet_h > k_ring_limit)
+        return {};
+    renderer::Surface on_black;
+    renderer::Surface on_white;
+    draw_crisp_sheet(on_black, sheet_w, sheet_h, point_width, point_height, scale, 0);
+    draw_crisp_sheet(on_white, sheet_w, sheet_h, point_width, point_height, scale, 255);
+    std::vector<FamilyRingPixel> pixels;
+    const int32_t origin_x = window_x - inset * scale;
+    const int32_t origin_y = window_y - inset * scale;
+    for (int32_t row = 0; row < sheet_h; ++row) {
+        for (int32_t column = 0; column < sheet_w; ++column) {
+            const std::size_t at =
+                (static_cast<std::size_t>(row) * static_cast<std::size_t>(sheet_w) +
+                 static_cast<std::size_t>(column)) *
+                3U;
+            const uint8_t* black = on_black.rgb.data() + at;
+            const uint8_t* white = on_white.rgb.data() + at;
+            if (black[0] == 0 && black[1] == 0 && black[2] == 0 && white[0] == 255 &&
+                white[1] == 255 && white[2] == 255)
+                continue;
+            uint16_t share = 0;
+            if (!crisp_share(black, white, share) || share == 0)
+                continue;
+            pixels.push_back(FamilyRingPixel{origin_x + column, origin_y + row, share});
+        }
+    }
+    return pixels;
+}
+
+/// Draws the ring on the smooth form and keeps each pixel's opacity.
+///
+/// The sheet starts clear. The painter stores the ring's colour and the
+/// coverage as the pixel's opacity, which is the share a later blend uses.
+///
+/// @param window_x the control's left column
+/// @param window_y the control's top row
+/// @param point_width the control's width, in points
+/// @param point_height the control's height, in points
+/// @param percent the scale, in percent
+/// @return the ring's pixels
+[[nodiscard]] std::vector<FamilyRingPixel> smooth_ring_pixels(
+    int32_t window_x, int32_t window_y, int32_t point_width, int32_t point_height, int32_t percent
+) {
+    const int32_t inset = kit::compact_metrics.focus_inset;
+    const kit::Rect control{inset, inset, point_width, point_height};
+    const kit::Rect sheet_points{0, 0, point_width + 2 * inset, point_height + 2 * inset};
+    const kit::Rect sheet_px = kit::to_canvas(sheet_points, percent);
+    const kit::Rect control_px = kit::to_canvas(control, percent);
+    if (sheet_px.width <= 0 || sheet_px.height <= 0 || sheet_px.width > k_ring_limit ||
+        sheet_px.height > k_ring_limit)
+        return {};
+    paint::Canvas picture = paint::make_canvas(sheet_px.width, sheet_px.height);
+    paint::Painter painter(picture);
+    kit::Canvas canvas{};
+    canvas.smooth.painter = &painter;
+    canvas.smooth.scale_percent = percent;
+    kit::draw_focus_ring(canvas, control, true);
+    std::vector<FamilyRingPixel> pixels;
+    const int32_t origin_x = window_x - control_px.x;
+    const int32_t origin_y = window_y - control_px.y;
+    const std::size_t count =
+        static_cast<std::size_t>(sheet_px.width) * static_cast<std::size_t>(sheet_px.height);
+    for (std::size_t pixel = 0; pixel < count; ++pixel) {
+        const uint8_t opacity = picture.rgba[pixel * 4U + 3U];
+        if (opacity == 0)
+            continue;
+        const int32_t column =
+            static_cast<int32_t>(pixel % static_cast<std::size_t>(sheet_px.width));
+        const int32_t row = static_cast<int32_t>(pixel / static_cast<std::size_t>(sheet_px.width));
+        pixels.push_back(FamilyRingPixel{origin_x + column, origin_y + row, opacity});
+    }
+    return pixels;
+}
+
+} // namespace
+
+void blend_family_coverage(
+    uint8_t& red, uint8_t& green, uint8_t& blue, uint16_t coverage, bool crisp
+) noexcept {
+    const uint8_t ink_red = kit::colour::focus.r;
+    const uint8_t ink_green = kit::colour::focus.g;
+    const uint8_t ink_blue = kit::colour::focus.b;
+    if (crisp) {
+        const uint32_t share = std::min<uint32_t>(coverage, k_crisp_opaque);
+        if (share == 0)
+            return;
+        red = crisp_channel(red, ink_red, share);
+        green = crisp_channel(green, ink_green, share);
+        blue = crisp_channel(blue, ink_blue, share);
+        return;
+    }
+    const uint32_t opacity = std::min<uint32_t>(coverage, 255U);
+    if (opacity == 0)
+        return;
+    if (opacity == 255U) {
+        red = ink_red;
+        green = ink_green;
+        blue = ink_blue;
+        return;
+    }
+    const uint32_t left = 255U - opacity;
+    const auto mix = [opacity, left](uint8_t ground, uint8_t ink) {
+        return static_cast<uint8_t>(
+            (uint32_t{ink} * opacity + uint32_t{ground} * left + 127U) / 255U
+        );
+    };
+    red = mix(red, ink_red);
+    green = mix(green, ink_green);
+    blue = mix(blue, ink_blue);
+}
+
+bool control_window_rect(
+    const FamilyControlBox& box,
+    const FamilyWindowMap& map,
+    int32_t& left,
+    int32_t& top,
+    int32_t& width,
+    int32_t& height
+) noexcept {
+    if (box.window_pixels) {
+        left = box.x;
+        top = box.y;
+        width = box.width;
+        height = box.height;
+        return width > 0 && height > 0;
+    }
+    if (box.width <= 0 || box.height <= 0)
+        return false;
+    const float density = map.density > 0.0F ? map.density : 1.0F;
+    const float origin_x = map.identity ? 0.0F : map.origin_x;
+    const float origin_y = map.identity ? 0.0F : map.origin_y;
+    const float scale_x = map.identity ? 1.0F : map.scale_x;
+    const float scale_y = map.identity ? 1.0F : map.scale_y;
+    if (scale_x == 0.0F || scale_y == 0.0F)
+        return false;
+    const auto pixel = [density](float coordinate) {
+        return static_cast<int32_t>(
+            std::lround(static_cast<double>(coordinate) * static_cast<double>(density))
+        );
+    };
+    const float window_left = origin_x + static_cast<float>(box.x) * scale_x;
+    const float window_top = origin_y + static_cast<float>(box.y) * scale_y;
+    const float window_right = origin_x + static_cast<float>(box.x + box.width) * scale_x;
+    const float window_bottom = origin_y + static_cast<float>(box.y + box.height) * scale_y;
+    left = pixel(window_left);
+    top = pixel(window_top);
+    width = pixel(window_right) - left;
+    height = pixel(window_bottom) - top;
+    return width > 0 && height > 0;
+}
+
+std::vector<FamilyRingPixel> family_ring_pixels(
+    int32_t window_x,
+    int32_t window_y,
+    int32_t window_width,
+    int32_t window_height,
+    int32_t scale_percent
+) {
+    if (window_width <= 0 || window_height <= 0)
+        return {};
+    int32_t percent = scale_percent > 0 ? scale_percent : 100;
+    if (percent < 100)
+        percent = 100;
+    if (percent % 100 == 0) {
+        const int32_t scale = percent / 100;
+        const int32_t point_width = std::max(window_width / scale, int32_t{1});
+        const int32_t point_height = std::max(window_height / scale, int32_t{1});
+        return crisp_ring_pixels(window_x, window_y, point_width, point_height, scale);
+    }
+    const int32_t point_width = std::max(
+        static_cast<int32_t>(
+            std::lround(static_cast<double>(window_width) * 100.0 / static_cast<double>(percent))
+        ),
+        int32_t{1}
+    );
+    const int32_t point_height = std::max(
+        static_cast<int32_t>(
+            std::lround(static_cast<double>(window_height) * 100.0 / static_cast<double>(percent))
+        ),
+        int32_t{1}
+    );
+    return smooth_ring_pixels(window_x, window_y, point_width, point_height, percent);
+}
+
+} // namespace oa::app

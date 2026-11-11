@@ -2263,6 +2263,9 @@ bool same_frame(const hud::Frame& a, const hud::Frame& b) {
 bool TouchDrawAccess::refresh_layer(Runtime& runtime) {
     // The touch controls, the pad HUD a gamepad brought, or a wheel a mouse button opened.
     // With neither the controls nor the pad HUD on, that wheel is the only thing drawn.
+    // Photo mode shows the battlefield alone.
+    if (runtime.photo_mode())
+        return false;
     if (runtime.touch_ == nullptr || runtime.screen_ != Screen::match)
         return false;
     const bool controls = runtime.touch_controls_active() || runtime.touch_->hud.pad.hud;

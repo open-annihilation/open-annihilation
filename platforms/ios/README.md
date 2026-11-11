@@ -18,6 +18,8 @@ trackpad works as on the desktop, and the Apple Pencil works as a mouse that hov
   3.24 or later, Ninja and Python 3. ccache is used when it is installed.
 - The fonts the desktop build uses: `python3 tools/bootstrap_text_fonts.py --fonts-only` from the
   checkout's folder, once.
+- AccessKit, which the screen-reader bridge links: `python3 tools/bootstrap_accesskit.py` from the
+  checkout's folder, once. The build scripts run it.
 - Your Total Annihilation folder (the one holding `totala1.hpi`).
 
 SDL 3.4 and FreeType are built for iOS by [tools/bootstrap_ios_deps.py](tools/bootstrap_ios_deps.py),

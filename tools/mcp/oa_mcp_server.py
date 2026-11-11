@@ -47,6 +47,10 @@ import threading
 import time
 import traceback
 import zlib
+_OA_TOOLS = Path(__file__).resolve().parents[2] / "tools"
+if str(_OA_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_OA_TOOLS))
+import native_offline  # noqa: E402
 
 SERVER_NAME = "open-annihilation"
 SERVER_VERSION = "1.0.0"
@@ -100,7 +104,11 @@ EXECUTABLE_NAME = EXECUTABLE_NAMES[0] if os.name == "nt" else EXECUTABLE_NAMES[1
 GAME_ARCHIVE = "totala1.hpi"
 # The first line of a preferences file the game reads; a file of that line
 # alone holds no setting, so the game plays on its defaults.
-PREFERENCES_HEADER = "open-annihilation-preferences 1\n"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"\n'
+)
 # The endpoint file the game writes is under 200 bytes; a larger file is not one.
 MAX_ENDPOINT_FILE_BYTES = 4096
 # The hosts the endpoint may be on: the game serves only the loopback address.
@@ -628,6 +636,11 @@ class Game:
         self.preferences_file = preferences_file
         command = [*self.runner, str(executable), "--fark", "--fark-file", str(self.endpoint_file),
                    "--preferences-file", str(preferences_file)]
+        if "--data-dir" not in arguments and not any(
+                item.startswith("--data-dir=") for item in arguments):
+            data_dir = folder / "data"
+            data_dir.mkdir()
+            command += ["--data-dir", str(data_dir)]
         if game_dir:
             command += ["--game-dir", str(game_dir)]
         if skip_intro:

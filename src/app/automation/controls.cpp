@@ -7,15 +7,18 @@
 #include "input.hpp"
 #include "requests.hpp"
 
+#include "oa/app/control_names.hpp"
 #include "oa/ui/frontend_multiplayer/panel.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace oa::app::automation {
@@ -96,6 +99,129 @@ void name_list_scroll(
     std::vector<AutomationControl>& controls
 );
 
+/// Reports whether two names are the same, ignoring ASCII case.
+bool same_control_name(std::string_view left, std::string_view right) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        unsigned char a = static_cast<unsigned char>(left[index]);
+        unsigned char b = static_cast<unsigned char>(right[index]);
+        if (a >= 'A' && a <= 'Z')
+            a = static_cast<unsigned char>(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z')
+            b = static_cast<unsigned char>(b - 'A' + 'a');
+        if (a != b)
+            return false;
+    }
+    return true;
+}
+
+/// Reports whether `name` begins with `prefix`, ignoring ASCII case.
+bool prefixed(std::string_view name, std::string_view prefix) {
+    if (name.size() < prefix.size())
+        return false;
+    return same_control_name(name.substr(0, prefix.size()), prefix);
+}
+
+/// The letter a quick key names, A in slot 0. Anything else is -1.
+int letter_slot(int quick_key) {
+    if (quick_key >= 'a' && quick_key <= 'z')
+        return quick_key - 'a';
+    if (quick_key >= 'A' && quick_key <= 'Z')
+        return quick_key - 'A';
+    return -1;
+}
+
+/// The player a slot's name ends with: LOGO0 is player 1.
+int slot_player_number(std::string_view name) {
+    if (name.empty())
+        return 0;
+    std::size_t start = name.size();
+    while (start > 0 && name[start - 1] >= '0' && name[start - 1] <= '9')
+        --start;
+    if (start == name.size())
+        return 0;
+    int number = 0;
+    for (std::size_t index = start; index < name.size(); ++index)
+        number = number * 10 + (name[index] - '0');
+    return number + 1;
+}
+
+/// Fills a battle-room control's label, value and shortcut from the names table.
+///
+/// The namer is installed with the game. A test that collects these screens
+/// without it keeps the labels the captions already gave. This collector does
+/// not call the names table itself: the providers, the game list and the
+/// battle room link without it, and a letter on those screens does nothing
+/// but type. Only a yes-or-no question's first live button for a letter is
+/// a shortcut.
+///
+/// @param panel the panel shown
+/// @param source the panel's control
+/// @param index `source`'s place in the panel
+/// @param questions the panel is a yes-or-no question
+/// @param first_letter the first live button that names each letter; -1 for none
+/// @param[in,out] control the control just collected
+void speak_multiplayer(
+    const mp::Panel& panel,
+    const mp::Control& source,
+    int32_t index,
+    bool questions,
+    const std::array<int, 26>& first_letter,
+    AutomationControl& control
+) {
+    const oa::app::ControlNamer namer = oa::app::control_namer();
+    if (namer == nullptr)
+        return;
+    if (control.kind == oa::app::AutomationControlKind::slider)
+        oa::app::fill_scroll_range(control, source.scroll.range, source.scroll.knob, {});
+    oa::app::ControlReading reading;
+    reading.gui.assign(panel.name.data());
+    reading.quick_key = source.quick_key;
+    reading.stages = source.stages;
+    reading.player = slot_player_number(control.name);
+    if (prefixed(control.name, "LOGO") && source.stage < 10)
+        reading.colour = source.stage;
+    if (prefixed(control.name, "TEAMICONS"))
+        reading.alliance_frame = source.stage;
+    if (same_control_name(control.name, "battlestart")) {
+        reading.doors_known = true;
+        reading.doors_closed = source.hot;
+    }
+    if (prefixed(control.name, "SIDE")) {
+        if (source.stage == 0)
+            reading.side_name = "Arm";
+        else if (source.stage == 1)
+            reading.side_name = "Core";
+        else if (source.stage == 2)
+            reading.side_name = "Watcher";
+    }
+    reading.neighbours.reserve(static_cast<std::size_t>(std::max<int32_t>(panel.count - 1, 0)));
+    for (int32_t other_index = 1; other_index < panel.count; ++other_index) {
+        const mp::Control& other = panel.controls[static_cast<std::size_t>(other_index)];
+        const std::string_view other_name = mp::control_name(other);
+        reading.neighbours.emplace_back(other_name, mp::control_text(other));
+        if (other.type == mp::ControlType::label &&
+            same_control_name(other.link.data(), control.name)) {
+            const std::string_view linked = mp::control_text(other);
+            if (!linked.empty())
+                reading.linked_label.assign(linked);
+        }
+    }
+    if (source.type == mp::ControlType::slider) {
+        reading.has_slider = true;
+        reading.knob = source.scroll.knob;
+        reading.range = source.scroll.range;
+    }
+    if (questions && source.type == mp::ControlType::button && source.active != 0 &&
+        !source.grayed) {
+        const int slot = letter_slot(source.quick_key);
+        if (slot >= 0 && first_letter[static_cast<std::size_t>(slot)] == index)
+            reading.publish_letter = true;
+    }
+    namer(control, reading);
+}
+
 /// Collects the controls of the multiplayer screen shown, or of the dialog
 /// over it: those of the panel that takes the pointer.
 ///
@@ -107,6 +233,21 @@ void multiplayer_controls(std::vector<AutomationControl>& controls) {
     const mp::PanelOffset offset = mp::multiplayer_panel_offset();
     const std::string dialog =
         mp::multiplayer_modal() == &panel ? dialog_name(panel.name.data()) : std::string();
+    // A letter answers only a yes-or-no question, and only its first live
+    // button. On the other multiplayer screens it types into a line.
+    const bool questions = dialog_name(panel.name.data()) == "yesorno";
+    std::array<int, 26> first_letter{};
+    first_letter.fill(-1);
+    if (questions) {
+        for (int32_t index = 1; index < panel.count; ++index) {
+            const mp::Control& source = panel.controls[static_cast<std::size_t>(index)];
+            if (source.type != mp::ControlType::button || source.active == 0 || source.grayed)
+                continue;
+            const int slot = letter_slot(source.quick_key);
+            if (slot >= 0 && first_letter[static_cast<std::size_t>(slot)] < 0)
+                first_letter[static_cast<std::size_t>(slot)] = static_cast<int>(index);
+        }
+    }
     for (int32_t index = 1; index < panel.count; ++index) {
         const mp::Control& source = panel.controls[static_cast<size_t>(index)];
         const auto kind = multiplayer_kind(source);
@@ -144,6 +285,7 @@ void multiplayer_controls(std::vector<AutomationControl>& controls) {
                     ? source.list_selection
                     : -1;
         }
+        speak_multiplayer(panel, source, index, questions, first_letter, control);
         controls.push_back(std::move(control));
     }
     name_list_scroll(panel, offset, dialog, controls);
@@ -278,6 +420,18 @@ void extension_windows(
 
 } // namespace
 
+namespace {
+
+/// The app's mark for the control the family's ring is drawn around. Null
+/// until the app sets it, and null in a test that does not.
+FamilyFocusStamp family_focus_stamp = nullptr;
+
+} // namespace
+
+void set_family_focus_stamp(FamilyFocusStamp stamp) noexcept {
+    family_focus_stamp = stamp;
+}
+
 void collect_controls(
     const CheckHost& check, const AutomationHost& host, std::vector<AutomationControl>& controls
 ) {
@@ -320,6 +474,17 @@ void collect_controls(
             ++place;
         controls.insert(place, package.begin(), package.end());
     }
+    // A screen button an extension window takes is the same press twice.
+    // The window keeps it: its button, or the rectangle where its art takes
+    // the press. The screen button stays listed, hidden, and stays enabled.
+    conceal_screen_buttons_under_extension(controls);
+    // A modal cover hides extension and package windows. The screen's own
+    // controls, and a screen drawn over the cover, stay as the host listed them.
+    conceal_windows_behind_modal(controls);
+    for (AutomationControl& control : controls)
+        finish_control_access(control);
+    if (family_focus_stamp != nullptr && host.context != nullptr)
+        family_focus_stamp(host.context, controls);
 }
 
 void collect_controls(const Endpoint& endpoint, std::vector<AutomationControl>& controls) {
@@ -348,6 +513,62 @@ std::string_view control_kind_name(AutomationControlKind kind) noexcept {
     return "button";
 }
 
+void write_control_access(JsonWriter& json, const AutomationControl& control) {
+    json.key("role");
+    json.string(control_role_name(control.role));
+    json.key("label");
+    json.string(control.label);
+    if (!control.description.empty()) {
+        json.key("description");
+        json.string(control.description);
+    }
+    if (!control.value_text.empty()) {
+        json.key("value_text");
+        json.string(control.value_text);
+    }
+    if (control.has_value) {
+        json.key("value");
+        json.integer(control.value);
+    }
+    if (control.has_range) {
+        json.key("min");
+        json.integer(control.range_least);
+        json.key("max");
+        json.integer(control.range_most);
+        json.key("step");
+        json.integer(control.step);
+    }
+    if (control.place > 0) {
+        json.key("position");
+        json.integer(control.place);
+    }
+    if (control.set_size > 0) {
+        json.key("set_size");
+        json.integer(control.set_size);
+    }
+    if (!control.shortcut.empty()) {
+        json.key("shortcut");
+        json.string(control.shortcut);
+    }
+    if (control.live != AutomationLive::off) {
+        json.key("live");
+        json.string(live_name(control.live));
+    }
+    json.key("hidden");
+    json.boolean(control.hidden);
+    json.key("expanded");
+    json.boolean(control.expanded);
+    json.key("pressed");
+    json.boolean(control.pressed);
+    json.key("modal");
+    json.boolean(control.modal);
+    // A list already wrote its integer selected. The boolean is the other controls'.
+    if (control.kind != AutomationControlKind::list) {
+        json.key("selected");
+        json.boolean(control.chosen);
+    }
+}
+
 std::vector<std::string> dialog_names(const std::vector<AutomationControl>& controls) {
     std::vector<std::string> dialogs;
     for (const AutomationControl& control : controls)
@@ -359,9 +580,25 @@ std::vector<std::string> dialog_names(const std::vector<AutomationControl>& cont
 
 void write_dialogs_and_focus(JsonWriter& json, const std::vector<AutomationControl>& controls) {
     const AutomationControl* focused = nullptr;
-    for (const AutomationControl& control : controls)
-        if (control.focused && focused == nullptr)
+    for (const AutomationControl& control : controls) {
+        // A hidden control stays in the tree. The focus the screen names is
+        // the first one that is shown, so a kit screen's control wins over a
+        // hidden control underneath it.
+        if (!control.focused || control.hidden || focused != nullptr)
+            continue;
+        focused = &control;
+    }
+    // The family's ring can sit on a control the strip covers. When nothing
+    // shown is focused, name the first hidden control whose ring is drawn.
+    // At open that flag is clear, so the screen still names nothing.
+    if (focused == nullptr) {
+        for (const AutomationControl& control : controls) {
+            if (!control.focused || !control.hidden || !control.focus_shown)
+                continue;
             focused = &control;
+            break;
+        }
+    }
     json.key("dialogs");
     json.begin_array();
     for (const std::string& dialog : dialog_names(controls))
@@ -372,6 +609,8 @@ void write_dialogs_and_focus(JsonWriter& json, const std::vector<AutomationContr
         json.string(focused->name);
     else
         json.null();
+    json.key("focus_shown");
+    json.boolean(focused != nullptr && focused->focus_shown);
 }
 
 void answer_controls(Endpoint& endpoint, const Request& request, Answer& answer) {
@@ -471,6 +710,7 @@ void answer_controls(Endpoint& endpoint, const Request& request, Answer& answer)
             else
                 json.string(control.scroll_down);
         }
+        write_control_access(json, control);
         json.end_object();
     }
     json.end_array();

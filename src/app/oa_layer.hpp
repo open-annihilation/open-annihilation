@@ -263,6 +263,15 @@ class LayerScreen {
     /// @return true for a screen that covers its place, the default
     [[nodiscard]] virtual bool opaque() const { return true; }
 
+    /// Tells whether the screen draws the kit's focus ring on its own controls.
+    ///
+    /// One that does is left to that ring. One that does not, and whose
+    /// control joins a screen of the original game's gadgets, takes the
+    /// family's ring instead, with the family's show and hide rule.
+    ///
+    /// @return true when the screen draws kit::draw_focus_ring, the default
+    [[nodiscard]] virtual bool draws_kit_focus_ring() const { return true; }
+
     /// Draws the screen from its own top left corner at the canvas's scale,
     /// through the kit's draw functions on whichever form the canvas has: an
     /// opaque screen every pixel of its points_width × points_height points,
@@ -1138,6 +1147,58 @@ class OaLayer {
     /// puts the renderer's state back either way.
     void present_mcp_badge() noexcept;
 
+    /// Draws the kit's focus ring around the focused control of a screen that
+    /// does not draw that ring itself, in the window's own pixels, above
+    /// everything else already drawn. Draws nothing while the ring is hidden,
+    /// and puts the renderer's state back either way. A newly shown screen,
+    /// dialog or extension window hides the ring unless Always show focus is
+    /// on, whatever opened it.
+    void present_family_ring() noexcept;
+
+    /// Hides the family's focus ring, or shows it when Always show focus is on.
+    ///
+    /// Load and the in-game menu call it as they open. Any other newly shown
+    /// screen hides the ring the same way, when it is drawn. The pointer's
+    /// place then is the one a later move is compared with, so a move that
+    /// does not change the pixel does not hide the ring.
+    void note_family_opened() noexcept;
+
+    /// Shows the family's focus ring. Tab and Shift+Tab call it, and so can
+    /// the key A05 adds.
+    void note_family_tab() noexcept;
+
+    /// Hides the family's focus ring. Return calls it before the press, so a
+    /// screen the press opens starts from its own rule.
+    void note_family_return() noexcept;
+
+    /// Hides the family's focus ring when the pointer has moved to another
+    /// pixel, the one that holds the point as the Boneyards toolkit counts it
+    /// (the coordinate truncated). The first place, and a move that stays on
+    /// the same pixel, leave it as it is.
+    ///
+    /// @param x the pointer's column, in the coordinates the screen is given
+    /// @param y the pointer's row, in the coordinates the screen is given
+    void note_family_pointer(float x, float y) noexcept;
+
+    /// Tells whether the family's focus ring is drawn.
+    ///
+    /// @return true while the ring shows
+    [[nodiscard]] bool family_ring_shown() const noexcept { return family_ring_shown_; }
+
+    /// Names the screen the main menu's cross-family order has landed on.
+    ///
+    /// Empty names none. The update pill and More maps… open on Return only
+    /// while they are the named stop and the family's ring is showing.
+    ///
+    /// @param screen the screen's name, or empty
+    void note_menu_keyboard_stop(std::string_view screen);
+
+    /// Tells whether the cross-family order has landed on this screen.
+    ///
+    /// @param screen the screen's name
+    /// @return true when note_menu_keyboard_stop was given that name
+    [[nodiscard]] bool menu_keyboard_stop_is(std::string_view screen) const noexcept;
+
     /// Tells whether this frame's OA badges are drawn here, at the window's
     /// own pixels, rather than into the 640 by 480 frame.
     ///
@@ -1174,6 +1235,15 @@ class OaLayer {
     ///
     /// @param[in,out] controls the list they are appended to
     void automation_controls(std::vector<AutomationControl>& controls) const;
+
+    /// Tells whether a kit screen opens with its focus ring drawn.
+    ///
+    /// `open-annihilation.access.always-show-focus` is 0 or 1. Absent, or
+    /// anything that is not a whole number above 0, leaves the ring hidden
+    /// until a key shows it.
+    ///
+    /// @return true when the preference is on
+    [[nodiscard]] bool always_show_focus() const;
 
     /// Returns how far the nearest pressable control of a screen that shows
     /// lies from a point, in the same canvas pixels a finger's claim uses.
@@ -1708,6 +1778,35 @@ class OaLayer {
     void present_match();
 
     Runtime& runtime_; ///< the runtime it hosts screens for
+    /// The kit's ring is drawn on the focused control of a screen that does
+    /// not draw that ring itself. Hidden as a screen opens, unless Always
+    /// show focus is on.
+    bool family_ring_shown_{};
+    /// The screen the cross-family order has landed on; empty when it has not.
+    std::string menu_keyboard_stop_{};
+    /// Tab or Shift+Tab asked for the ring since it was last drawn, so a
+    /// screen that opened on that key still shows it.
+    bool family_tabbed_{};
+    /// A pointer place is known, so the next move can be compared with it.
+    bool family_pointer_known_{};
+    int32_t family_pointer_x_{}; ///< the last pointer column, rounded to a pixel
+    int32_t family_pointer_y_{}; ///< the last pointer row, rounded to a pixel
+
+    /// What was showing when the ring was last drawn: the screen, the dialogs,
+    /// the match's panel page and the extension windows. A change hides the
+    /// ring unless Always show focus is on, or a key just asked for it.
+    struct FamilyPlace {
+        std::string screen;               ///< the screen's name
+        std::vector<std::string> dialogs; ///< the dialogs, in the tree's order
+        /// The in-game panel's page in a match, which the tree does not list
+        /// as a dialog (the in-game menu's Options page); empty elsewhere.
+        std::string panel;
+        std::vector<std::string> windows; ///< the extension windows, front first
+        bool operator==(const FamilyPlace&) const = default;
+    };
+
+    FamilyPlace family_place_{}; ///< the place the ring was last drawn on
+    bool family_place_known_{};  ///< family_place_ has been drawn once
     /// The press on a window's title that moves it; none while no title is held.
     std::optional<window_placement::TitleDrag> drag_{};
     /// The screen drag_ moves; null while no title is held.
@@ -2142,9 +2241,12 @@ class QuestionScreen final : public LayerScreen {
     [[nodiscard]] const oa::ui::kit::Question& question() const noexcept { return question_; }
 
     /// Tells the screen its host changed the question: it keeps the size
-    /// class the layer lays it out at, whatever the host put in its place.
+    /// class the layer lays it out at, and the ring state the screen holds,
+    /// whatever the host put in its place.
     void changed() noexcept {
         question_.size_class = size_class_;
+        question_.focus_shown = focus_shown_;
+        question_.pointer_hid_ring = pointer_hid_ring_;
         ++revision_;
     }
 
@@ -2155,6 +2257,9 @@ class QuestionScreen final : public LayerScreen {
 
     /// Shows the question on any menu screen. It still shows in no match.
     void show_on_any_menu() noexcept { any_menu_ = true; }
+
+    /// Shows the question over the match too, as photo mode asks there.
+    void show_over_match() noexcept { over_match_ = true; }
 
     /// Returns the question's word (kit::question_word_of): "prompt" unless
     /// it gives its own.
@@ -2169,8 +2274,8 @@ class QuestionScreen final : public LayerScreen {
     /// makes it at that width, over its own screen of the game.
     ///
     /// @param view what the screen is placed on
-    /// @return its place; empty in a match, over another screen unless it shows
-    ///     on any menu, or without fonts
+    /// @return its place; empty in a match unless it shows over the match,
+    ///     over another screen unless it shows on any menu, or without fonts
     [[nodiscard]] LayerPlacement placement(const LayerView& view) const override;
 
     /// Lays the question out at the view's size class
@@ -2274,7 +2379,13 @@ class QuestionScreen final : public LayerScreen {
     uint64_t revision_{};            ///< counts the changes to its look
     /// The size class the layer lays the question out at (lay_out).
     oa::ui::kit::SizeClass size_class_{oa::ui::kit::SizeClass::compact};
-    bool any_menu_{}; ///< shows on any menu, never in a match
+    /// The ring state, kept across a host replacing the question. A key that
+    /// showed the ring keeps it; an untouched prompt stays without one.
+    bool focus_shown_{};
+    /// The pointer hid the ring, kept across a host replacing the question.
+    bool pointer_hid_ring_{};
+    bool any_menu_{};   ///< shows on any menu
+    bool over_match_{}; ///< shows over the match as well
 };
 
 /// The UI kit gallery (kit::gallery_layout) as a screen of the OA layer:

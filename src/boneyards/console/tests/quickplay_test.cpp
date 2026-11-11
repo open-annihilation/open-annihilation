@@ -166,6 +166,13 @@ Message pointer(MessageCode code, int32_t x, int32_t y, uint32_t buttons) {
     return msg;
 }
 
+void press_key(int32_t code) {
+    Message msg{};
+    msg.code = MessageCode::key_down;
+    msg.key = code;
+    boneyards_status_widget_event(g_widget, msg);
+}
+
 void click_window(const Window* w) {
     if (w == nullptr)
         return;
@@ -1067,6 +1074,7 @@ void expect_stretched(Window* button, const char* what) {
 }
 
 void expect_idle_pixels(Window* console) {
+    Window* find = named(console, "FIND BATTLE");
     const std::vector<uint8_t> drawn = frame_pixels();
     write_picture(drawn, "quickplay-idle.png");
     expect_glass(drawn);
@@ -1100,7 +1108,6 @@ void expect_idle_pixels(Window* console) {
     expect_picture(drawn, core, 277, 202, 9, "Core logo");
     expect_picture(drawn, checked, 216, 223, 9, "favorite check");
     expect_picture(drawn, scanner, 430, 145, 9, "idle scanner");
-    Window* find = named(console, "FIND BATTLE");
     if (find != nullptr)
         expect_caps(drawn, widened, find->x, find->y, "FIND BATTLE");
     bool saw_check = false;
@@ -1831,6 +1838,55 @@ void test_console(Data* data) {
     CHECK(!model->searching);
     CHECK(model->where == screens::QuickPlayWhere::fuel_dump);
     CHECK(model->skill == screens::QuickPlaySkill::expert);
+
+    // One stop for the chosen game type, then where, skill and side. Right
+    // steps the side row from Arm to Core to Either and stops there. Up and
+    // Down reach the next game type. Escape closes the console; the button
+    // that opened it brings it back.
+    desktop_set_focus(&g_widget->desktop, named(console, "Pick1"));
+    std::vector<std::string> stops;
+    for (int32_t step = 0; step < 16; ++step) {
+        press_key(key::tab);
+        Window* focus = g_widget->desktop.focus;
+        stops.push_back(focus != nullptr && focus->name != nullptr ? focus->name : "");
+        if (focus == named(console, "Pick1") && step > 0)
+            break;
+    }
+    const auto at = [&](const char* name) {
+        for (int32_t i = 0; i < static_cast<int32_t>(stops.size()); ++i) {
+            if (stops[i] == name)
+                return i;
+        }
+        return -1;
+    };
+    CHECK(at("Pick0") < 0 && at("Pick2") < 0 && at("Pick3") < 0 && at("Pick4") < 0);
+    CHECK(at("Fuel Dump only") >= 0 && at("Any planet") < 0);
+    CHECK(at("Expert") > at("Fuel Dump only") && at("Novice") < 0 && at("Seasoned") < 0);
+    CHECK(at("Either") > at("Expert") && at("Arm") < 0 && at("Core") < 0);
+    CHECK(at("FIND BATTLE") > at("Either"));
+    desktop_set_focus(&g_widget->desktop, named(console, "Arm"));
+    press_key(key::right);
+    CHECK(named(console, "Core")->states.current == button_state::pressed);
+    press_key(key::right);
+    CHECK(named(console, "Either")->states.current == button_state::pressed);
+    press_key(key::right);
+    CHECK(
+        named(console, "Either")->states.current == button_state::pressed &&
+        g_widget->desktop.focus == named(console, "Either")
+    );
+    desktop_set_focus(&g_widget->desktop, named(console, "Pick1"));
+    press_key(key::down);
+    CHECK(model->selected == screens::kQuickPlayForFun);
+    press_key(key::up);
+    CHECK(model->selected == screens::kQuickPlayWinnerTakesAll);
+    press_key(key::escape);
+    CHECK(frame->console_screen != console_screen::quickplay);
+    // Escape closes through the release button, which disables the console
+    // buttons until the green layer has slid away. The click waits for that.
+    finish_slide(frame);
+    open_console(frame, frame->quickplay_button);
+    CHECK(frame->console_screen == console_screen::quickplay);
+    expect_idle_card(console, model);
 
     if (!g_log.calls.empty()) {
         for (const std::string& call : g_log.calls)

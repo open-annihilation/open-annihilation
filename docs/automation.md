@@ -31,6 +31,7 @@ server in [tools/mcp](../tools/mcp/README.md) ([below](#through-mcp)).
 - [In a battle room](#in-a-battle-room)
 - [The welcome setup](#the-welcome-setup)
 - [Through MCP](#through-mcp)
+- [The screen reader](#the-screen-reader)
 - [Checks](#checks)
 
 ## Turning it on
@@ -53,7 +54,7 @@ server in [tools/mcp](../tools/mcp/README.md) ([below](#through-mcp)).
   with an option that runs no main loop or runs its own:
   `--headless-check` and the options that imply it, the `--check-*`
   options, `--benchmark`, `--match-ticks`, `--render-script`,
-  `--generate-script` and `--showcase`. It goes with `--host` and
+  `--generate-script`, `--replay-index` and `--showcase`. It goes with `--host` and
   `--join`, so a game can start in a battle room and still be driven.
 - With no window to open, start the game on SDL's dummy drivers
   (`SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy`): the endpoint works
@@ -151,8 +152,8 @@ print(read(sock)[0]["screen"])  # main_menu
 | Request | What it answers |
 |---|---|
 | `hello` | the protocol's version, the engine's, the window's size, where the game's 640x480 canvas lies in it, the tick rate (30) |
-| `screen` | the screen shown (`main_menu`, `skirmish`, `mp_battleroom`, `match` and the like), the dialogs over it, the control that takes the keys, the pointer, in a match where the camera looks, and `hovered`, the control under the pointer or null |
-| `controls` | an extension's windows first, then a message box's, then Open Annihilation's own screens' ([below](#oas-own-screens)), then every control of the panel that takes the pointer, a dialog's first: its name, its kind, the extension window it belongs to (or none), its place on the canvas and in the window, its state and text, and a list's rows. A map list's rows are the words it shows, and `item_keys` names each row ([below](#a-map-lists-names)) |
+| `screen` | the screen shown (`main_menu`, `skirmish`, `mp_battleroom`, `match` and the like), the dialogs over it, the control that takes the keys (the first one that is focused and not hidden, or, when none is shown, the first hidden control whose ring is drawn), `focus_shown` (whether that control's ring is drawn), the pointer, in a match where the camera looks, and `hovered`, the control under the pointer or null |
+| `controls` | an extension's windows first, then a message box's, then Open Annihilation's own screens' ([below](#oas-own-screens)), then every control of the panel that takes the pointer, a dialog's first: its name, its kind, the extension window it belongs to (or none), its place on the canvas and in the window, its state and text, and a list's rows. A map list's rows are the words it shows, and `item_keys` names each row ([below](#a-map-lists-names)). Each control also has `role` and `label`, and `hidden`, `expanded`, `pressed`, `modal` and, except on a list, `selected`. A slider has `value`, `min`, `max` and `step`. A control in a set has `position` and `set_size`. An extension's windows, a package's windows and a screen's own controls under a modal stay listed, with `hidden` true and `enabled` false. A screen button that an extension's button covers, or that lies wholly inside the rectangle where an extension window's art takes the press, is listed with `hidden` true. It stays enabled. Open Annihilation's own screens under a modal one are not listed, as before |
 | `input` | once the game has taken the events it was given, the frame and tick at which it took them ([below](#input)) |
 | `frame` | the frame the game presented in its window, or the one it composed, whole or a region of it, as RGB pixels, a PNG file, or a hash and mean colour |
 | `prefs` | the preferences as the game holds them now, and their file |
@@ -197,11 +198,11 @@ centre would land on the line between Off and On.
 | The Settings button (main menu) | `oa.settings-button` | button; no dialog; the settings icon right of the OA button, which opens Settings with no Library under it; its text "Settings" |
 | GET MAP in the battle room, while a joiner lacks the host's pack map | `oa.get-map`, `oa.get-map-text`, `oa.get-map-progress` | no dialog, listed only while they show: the button (its text "GET MAP"); a label, its text the line saying what it fetches; a label, its text how much of the download has come, as a percentage, while the bar shows in the button's place |
 | A section's entry | `oa.settings.nav.<page>` | check box, checked while its section shows |
-| A switch, and its halves | `oa.settings.<row>`, `oa.settings.<row>.off`, `oa.settings.<row>.on` | the switch a label with its text; the halves check boxes, checked on the half shown |
-| A level strip, and its levels | `oa.settings.<row>`, `oa.settings.<row>.<value>` | label; check boxes, checked on the level chosen |
-| A drop-down, closed | `oa.settings.<row>` | button; its text the choice shown |
+| A switch, and its halves | `oa.settings.<row>`, `oa.settings.<row>.off`, `oa.settings.<row>.on` | the switch a label, its role switch, its label the row's caption, pressed while it is on, and its value_text the caption shown; the halves check boxes, their role check_box, selected on the half shown |
+| A level strip, and its levels | `oa.settings.<row>`, `oa.settings.<row>.<value>` | label, its role radio_group, its label the row's caption and its value_text the chosen level; check boxes, their role radio, selected on the level chosen |
+| A drop-down, closed | `oa.settings.<row>` | button; its text and value_text the choice shown, its label the row's caption |
 | A drop-down's item, while open | `oa.settings.<row>.<value>` | check box, checked on the choice |
-| A slider | `oa.settings.<row>` | slider; its text the value shown |
+| A slider | `oa.settings.<row>` | slider; its label the row's caption, its text and value_text the value shown |
 | A row's own button (Manage…) | `oa.settings.<row>.<button>`, as `oa.settings.game-files-summary.manage` | button |
 | The key layout card's buttons, on Controls | `oa.settings.key-layout.edit`, `oa.settings.key-layout.change` | button, their texts "Edit keys…" and "Change layout…". Edit keys… opens the key editor over Settings, on Common commands. Change layout… is listed only where the Library opens over Settings, and opens it on its Keys tab |
 | Hold keys that latch's Choose… | `oa.settings.latching.choose` | button, its text "Choose…". It opens the key editor over Settings, on Latchable |
@@ -215,6 +216,7 @@ centre would land on the line between Off and On.
 | Game Content's buttons | `oa.settings.content-check.check-again`, `oa.settings.content-copy.copy-again`, `oa.settings.content-open.open-folder` | button. The section's entry is `oa.settings.nav.game-content`. While a bundle is being copied, that bundle's row offers Cancel as `oa.settings.<id>.cancel-copy` |
 | Updates' card | `oa.settings.update-status.<action>`, up to three, the first in the accent: `check-now`, `download`, `pause`, `resume`, `cancel-download`, `when-i-quit` (Install when I quit), `restart-now` (the route's install-now action, as Install and restart), `unschedule` (Don't install when I quit), `skip`, `try-version`, `try-again`, `details`, `show-the-log`, `page` (Open the release page, or Open the download page where the release is installed by hand) and `whats-new` | button, its text the action's caption. The card shows the actions the update centre's state offers now, as the menu's update centre does, less Roll back…, Later and Keep it ready. Check now is absent while Check for updates is Never. The section's entry is `oa.settings.nav.updates` |
 | Updates' rows | `oa.settings.update-download` with `.off` and `.on` (Download automatically); `oa.settings.update-check`, and while open `.automatically`, `.when-asked` and `.never` (Check for updates); `oa.settings.update-install`, and while open `.ask` and `.when-i-quit` (Install updates); `oa.settings.update-previous.roll-back` (Roll back…, while a version is kept) | a switch, two drop-downs and a button. Roll back… asks the question `update-previous`, whose buttons are `oa.update-previous.cancel` and `oa.update-previous.roll-back` |
+| Replays' rows | `oa.settings.record-games` with `.off` and `.on` (Record my games); `oa.settings.keep-replays`, and while open `.30-days`, `.90-days`, `.1-year` and `.forever` (Keep replays for); `oa.settings.open-replay-files` with `.off` and `.on` (Open replay files with Open Annihilation), on Windows, Linux and macOS | a switch, a drop-down and, where the game registers file types, a switch. They take effect at OK, and Cancel and Restore defaults apply. The section's entry is `oa.settings.nav.replays`. System keeps its eight file-type switches |
 | Your files' buttons, on System | `oa.settings.user-folder.saves`, `.screenshots`, `.mods` | button |
 | File Type Registration, on System on Windows, Linux and macOS | `oa.settings.file-type-registration` (the heading); `oa.settings.file-type-oamod`, `oa.settings.file-type-oamap`, `oa.settings.file-type-oalang`, `oa.settings.file-type-oareg`, `oa.settings.file-type-oamut`, `oa.settings.file-type-oabrain`, `oa.settings.file-type-oakeys`, `oa.settings.file-type-oalaunch` | the heading a label; each switch as a switch |
 | File types, on System on iOS | `oa.settings.file-types` | label |
@@ -227,19 +229,22 @@ centre would land on the line between Off and On.
 | The section's scroll bar | `oa.settings.scroll-bar` | slider |
 | A notice's buttons | `oa.<word>.ok`, `oa.<word>.open` | button |
 | A prompt's buttons | `oa.<word>.<id>`, or `oa.<word>.button-<n>` from 1 where a button has no id | button |
+| The old-replays question, the first time any would go | `oa.prompt.keep-them-all` and `oa.prompt.let-them-go`; the words `oa.prompt.body` | button. Keep them all sets Keep replays for to forever and removes nothing. Let them go moves those replays to the trash. Escape does nothing: the question stays up and nothing is removed |
 | A notice's or a prompt's words | `oa.<word>.body` | label; its title and paragraphs, one a line |
 | The Library's UNINSTALL in an installed package's details, its question and its notices | `oa.library.action.uninstall`; the question's `oa.prompt.cancel` and `oa.prompt.uninstall`; a notice's `oa.prompt.ok` | button; UNINSTALL is listed disabled for a map pack during a game and while the package is in the download queue, and `oa.library.note` then says why |
 | The UI kit gallery's working samples, in dialog `oa.gallery` | `oa.gallery.<section>.<n>` from 1, as `oa.gallery.toggle.1` (with `.off`/`.on`), `oa.gallery.drop-down.1`; CLOSE `oa.gallery.close` | as above, by kind |
-| The Library's tabs, in dialog `oa.library` | `oa.library.tab.<tab>`: `active`, `mods`, `maps`, `mutators`, `brains`, `keys`, `languages`, `updates`, `registries`, in that order, so the last is `oa.library.tab.registries` | check box, checked on the tab shown; the Library opens on `active` when no tab is asked for; every tab after Active reads its title and its count in brackets, "Updates (2)", and Active's text stays "Active" |
-| The Library's Registries tab | `oa.library.registry.<id>` with its halves `.off` and `.on`, and for a registry the player added `.remove` and `.add-mirror`; `.key` (the signing-key icon on the card; its text the fingerprints, one a line), `.refresh` (REFRESH, beside the switch, disabled while that registry is off or already being asked), and the labels `.address` (the address it was added from, or its catalogue's address) and `.refreshed` ("refreshed 5 min ago", "never refreshed", or "couldn't reach · 2 h ago"); `oa.library.add-registry` at the top right of the tab, above the cards, absent during a game; the labels `oa.library.registries.note` and `oa.library.registries.notice` | each registry is a card. The switch is a label, its halves check boxes; the key icon, REFRESH, REMOVE, ADD MIRROR… and ADD REGISTRY… are buttons. The heading (the title, or the short name) and the description are drawn text, not controls. Built in is a neutral pill under the key icon, REFRESH and the switch, and it is not a control. The labels' text is the address, the refresh time, the note under the last card and, while a change was refused, why |
-| The Library's filters | `oa.library.filter.<filter>`: `all`, `new`, `installed`, `updates` | check box in the section list, under the tabs, checked on the tab's own filter; the text the filter and how many packages it holds on the tab, whatever the tag and the search: "Installed (4)" |
+| The Library's tabs, in dialog `oa.library` | `oa.library.tab.<tab>`: `active`, `replays`, `mods`, `maps`, `mutators`, `brains`, `keys`, `languages`, `updates`, `registries`, in that order, so the last is `oa.library.tab.registries` | check box, checked on the tab shown; the Library opens on `active` when no tab is asked for; every tab after Active reads its title and its count in brackets, "Updates (2)", and Active's text stays "Active" |
+| The Library's Registries tab | `oa.library.registry.<id>` with its halves `.off` and `.on`, and for a registry the player added `.remove` and `.add-mirror`; `.key` (the signing-key icon on the card; its text the fingerprints, one a line), `.refresh` (REFRESH, beside the switch, disabled while that registry is off or already being asked), and the labels `.address` (the address it was added from, or its catalogue's address) and `.refreshed` ("refreshed 5 min ago", "never refreshed", or "couldn't reach · 2 h ago"); `oa.library.add-registry` at the top right of the tab, above the cards, absent during a game; the labels `oa.library.registries.note` and `oa.library.registries.notice` | each registry is a card. The switch is a label, its halves check boxes, and the switch's role is switch while a half's is check_box; the key icon, REFRESH, REMOVE, ADD MIRROR… and ADD REGISTRY… are buttons. The heading (the title, or the short name) and the description are drawn text, not controls. Built in is a neutral pill under the key icon, REFRESH and the switch, and it is not a control. The labels' text is the address, the refresh time, the note under the last card and, while a change was refused, why |
+| The Library's filters | `oa.library.filter.<filter>`: `all`, `new`, `installed`, `updates`; on Replays `this-month`, `older`, `kept`, `imported`; on Core Prime `oa.library.replays.filter.latest`, `.longest`, `.downloads` and `.planet` | check box in the section list, under the tabs, checked on the tab's own filter; the text the filter and how many packages it holds on the tab, whatever the tag and the search: "Installed (4)"; on Replays how many replays, whatever the kind and the search: "This month (28)" |
+| Signing in and sharing a replay | `oa.library.action.sign-in`, `.sign-out`, `.share` and `.open-shared`; the sign-in question's `oa.library.sign-in.handle`, `.password`, `.submit` and `.cancel`; the share question's `oa.library.share.title`, `.public`, `.unlisted`, `.submit` and `.cancel`; My battles `oa.library.replays.filter.mine`; while this system cannot sign in, `oa.library.replays.sign-in.secure` | button, text field, label. Sign in and Sign out sit beside the source switch once a secure connection can carry a password. Share on Core Prime… and Open on Core Prime are on a replay's card on this computer. The password field shows bullets. Share my own recording is the same `.share` once Core Prime already lists that battle. My battles is a Core Prime filter, shown while signed in. While a sign-in or a share is in flight the question says so and Cancel stays enabled. After a recorded For Fun battle, `oa.prompt.share` and `oa.prompt.not-now`. Share… leaves the battle screens and opens the Library on that recording with the share question, after Sign in when the player is signed out. A For Fun battle that was not recorded says so and does not ask to share. Open on Core Prime is on a listed battle's card whether or not the player is signed in. Share my own recording waits until they are. Length and Recorded stay whole above the first button; the header's day and length line is not those facts. A ranked battle's notice is `oa.registered.ok` |
+| The Library's Replays section | `oa.library.replays.kind` and `oa.library.replays.sort`, their items `oa.library.replays.kind.<kind>` (`all`, `multiplayer`, `skirmish`, `campaign`, then each kind an extension registers, by its id) and `oa.library.replays.sort.<sort>` (`newest`, `longest`, `map`, `players`); the switch `oa.library.replays.source.computer` and `oa.library.replays.source.core-prime`; on Core Prime the filters `oa.library.replays.filter.latest`, `.longest`, `.downloads` and `.planet`, the planet field `oa.library.replays.planet` and its items `oa.library.replays.planet.<planet>`; `oa.library.action.download` and, in the empty section, `oa.library.action.browse-core-prime`; the rows `oa.library.row.replay.<n>` from 1 in the order shown; the card's `oa.library.action.watch`, `.watch-from` (once a Watch was left part way; its text names the time, "Watch from 11:40"), `.export`, `.keep`, `.delete` and `.open-folder`, and once Delete has been pressed `.delete-confirm` beside it; the Export dialog's `oa.library.export.format.oademo`, `.tad`, `oa.library.export.oa-sectors`, `.where`, `.choose`, `.export`, `.cancel`, `.show-folder` and `.close`; and in the empty section `oa.library.action.turn-on-recording` and, on Windows, Linux and macOS, `oa.library.action.open-replay-file` (also while the Imported filter shows nothing); a replay opened from outside tells you in `oa.replay-import.ok` and `oa.replay-import.body`; the labels `oa.library.replays.status` (the footer's line), `oa.library.replays.watched` ("Watched to 11:40", under the card's buttons, once a Watch was left part way), `oa.library.note` (why the selected replay cannot be watched, or that Delete could not move it to the trash, followed by a reason only when the system itself gave one), `oa.library.fact.<fact>` (each of the card's facts as one line: `length`, `recorded`, `mod`, `expansions`, `mutators`, `file`, then `kept-until` or `kept`), `oa.library.status` (the selected replay's whole line, or, while no row shows, what the empty section says: "Reading the replays…" while the folder is read, "No replays yet." after) | drop-down; a row is a list item, checked while marked, whose text is its whole line: "Show Down · Boneyards · Corvane · Varn vs Kestrel · 23:52 · 21:14 · 600 KB", with " · Kept", " · After a crash", " · Damaged", " · Reading…" or " · Won" or " · Lost" when they hold; WATCH is listed disabled for a damaged file and during a game; KEEP reads "Kept" while every marked replay is kept; EXPORT… opens the dialog, where a `.oademo` is selected until a `.tad` is chosen, and SHOW IN FOLDER is listed once the files are written; while a size is still being measured the format line says Measuring… and Export takes nothing, and a bar shows how far the measurement, a compression or one file's write has come; the warnings `oa.library.export.warning.<n>` (the whole sentence, an area, takes nothing), paged with `oa.library.export.warnings.more` and `oa.library.export.warnings.previous` when they do not all fit, the note `oa.library.export.note`, and in the chooser `oa.library.export.up`, `.use`, `.more`, `.previous` and `oa.library.export.folder.<name>`; buttons; labels. A press on a row with Shift or Ctrl (Command on a Mac) held marks a run or one more. The Library reads those modifiers through the keyboard's input modifiers, so a key the automation endpoint holds counts |
 | The Library's Active tab | `oa.library.active.base`, `oa.library.active.change`, `oa.library.active.expansions`, `oa.library.active.expansion.<id>`, `oa.library.active.mod`, `oa.library.active.language`, `oa.library.active.map.<n>` from 1 in the order shown; `oa.library.active.from.<n>` for the same map; while a mod is played, `oa.library.active.unload` | label on the base-game tile ("Total Annihilation · 3.1c"), the expansions heading ("EXPANSIONS · 5 OF 7 ON"), the mod tile, the language tile and each map line: "No Mod" or "Ridge 4.8 · rev 3"; "Deutsch 1.2" or "English · built in"; "Ridgeline · 4 players · 16x16". Those labels take no press, except a map whose pack holds that map alone: its title is the link `oa.library.active.from.<n>`, and the link's text is the title ("Atoll"). A pack of several keeps the From line as the link, "From Core Map Pack". Choosing either opens the Maps tab with that pack selected and in view. The link is left out while its line is scrolled out of the area. On a small window the page scrolls as one when the tiles leave fewer than four map rows, and a map's label and link are absent until that line is in view. CHANGE… is a button, its text "CHANGE…", at the base-game tile's bottom right. Each expansion is one button `oa.library.active.expansion.<id>` (the bundle id, such as `campaign`). Its text is the expansion's name, or "<name> · ADD FROM…" when it is not copied and no registry offers it. One a registry offers and that is not copied keeps the name, and the download arrow sits at the right inside that chip. The whole chip is the press: the same button asks for the download, cancels it while it is in the queue, and tries again after a failure. There is no separate `.get`, `.cancel` or `.retry` control. Unload mod is a button, its text "Unload mod", at the mod tile's bottom right; pressing it asks what Switch off asks. It is listed disabled during a game and while the command line chose the mod, and is absent on the No Mod tile. The expansion pills are listed disabled during a game and while the command line named the content choice, except while a download can be cancelled, which stays enabled. A download or a retry is listed disabled then too, and while that registry's downloads are off |
 | The Add registry window, in dialog `oa.add-registry` | `oa.add-registry.url`, `oa.add-registry.key-field` (the Signing key field, under the address, for an address add only; absent for an `.oareg` file and for a mirror), `oa.add-registry.check`, `oa.add-registry.add`, `oa.add-registry.cancel`, and the labels `oa.add-registry.name`, `oa.add-registry.address`, `oa.add-registry.key` (the fingerprints), `oa.add-registry.refusal` | the fields are text fields; the buttons are buttons; the labels are labels. The names of the controls that were already there are unchanged |
 
 `<page>` is the section's word: `controls`, `accessibility`, `touch`,
 `controller`, `graphics`, `user-interface`, `language`, `game-files`,
-`downloads`, `updates`, `game-content`, `engine-limits`, `system` and
-`developer`, in the order the section list shows them, and `mod-keys` for
+`downloads`, `updates`, `game-content`, `replays`, `engine-limits`, `system`
+and `developer`, in the order the section list shows them, and `mod-keys` for
 a mod's keys. A stage
 file's `settings system` opens System, and `settings engine-limits` opens
 Engine Limits. A stage file may still say `common-tweaks` for that
@@ -261,6 +266,12 @@ name their one button `ok`. Its Switch Mod question names its buttons
 `roll-back`, and the note Play now shows for a folder it cannot play its
 one button `ok`.
 
+A Settings row that cannot change now, such as Pathfinding cycles during a
+game or Shape cues under Achromatopsia, stays listed under its own name,
+disabled, with its value as any row has it. Its `description` is the words
+the dialog draws beside the padlock ("Locked during a game"), and it is
+never a Tab stop.
+
 **The kinds.** Each kit control maps to one kind: a button, a link and a
 row of buttons' button are `button`; a switch, a strip and a row of
 buttons themselves are `label` with the shown text, their parts listed
@@ -269,8 +280,8 @@ open one's items `check box`; a slider and a scroll bar are `slider`; a tab
 and a list's row are `check box`, checked while selected; a text field is
 `text field` with the typed text; an area is `area`, but one neither
 enabled nor focusable is a line a journey reads, such as a notice's words,
-listed as `label` with its text; a list is `list` with `items` empty, its
-rows being controls of their own.
+listed as `label` with its text, and its role is `label`; a list is `list`
+with `items` empty, its rows being controls of their own.
 
 **Where they are listed.** `dialog` is the OA screen's name after `oa.`:
 `oa.settings`, `oa.notice`, `oa.prompt` (or `oa.<word>`), and `oa.<name>`
@@ -541,16 +552,25 @@ rows: `oa.settings.key-layout.edit`, `oa.settings.key-layout.change`,
 After `subscribe`, the client is sent events unasked, among the answers:
 `{"event", "seq", "frame", "tick", ...}`. The kinds are `screen`,
 `player` (a battle-room seat taken or left), `ready`, `chat`, `loaded`,
-`match` (started or ended), `pause`, `speed`, `alliance` and `game_over`.
+`match` (started or ended), `pause`, `speed`, `alliance`, `game_over`
+and `focus`.
 A `match` line whose change is `ended`, and `game_over`, also carry
 `results` and `tick`: how the game ended for each player, the same on
 every machine. `game_over` keeps its own `outcome` and `winner`, which
 are this machine's. The ended `match` line carries the shared `winner`.
+`focus` carries `name` (null when no control takes the keys, and when
+only a hidden control is focused), `label` and `role`. A hidden control
+is passed over. It is sent once when the focused control changes, not
+when the focus stays, and not the first frame after the subscription
+starts to include `focus`. When the screen changes, the `screen` event
+is sent before the `focus` event, so the screen is heard first. A kit
+screen names its first control from the moment it opens, whether or not
+the ring is drawn; `screen`'s `focus_shown` says which.
 The endpoint learns them by comparing what the game holds from one frame
 to the next; nothing is added to the game to produce them.
 
-The same events can be written as lines on standard output, or to a
-file, with no connection to the endpoint.
+Those events other than `focus` can be written as lines on standard
+output, or to a file, with no connection to the endpoint.
 See [what a game reports as it is played](multiplayer/status.md).
 
 ## What it never does
@@ -672,6 +692,20 @@ settings, install and fetch packages, write to the player's folders, and
 in a battle room send chat that the other players see.
 [tools/mcp](../tools/mcp/README.md#what-it-reads-writes-and-starts) says
 it all.
+
+## The screen reader
+
+A screen reader hears this same tree. Hidden controls are left out. What
+it asks to press comes back as the same clicks and keys `ui.click` and
+`ui.key` use: a click is a press at the control's centre, increment of a
+button whose press steps its value one way is that press, and a change of
+a slider is the key the control already takes. A drop-down does not step.
+Set value on a field replaces the focused field's
+text. The bridge builds that tree only while the system says a screen
+reader is running and one has asked for it. The preference
+`open-annihilation.access.screen-reader` is `auto`, `on` or `off`, with
+the other keys in
+[the preferences](../src/platform/preferences/README.md).
 
 ## Checks
 

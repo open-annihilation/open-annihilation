@@ -9,19 +9,25 @@
 // process over 127.0.0.1, runs the in-game team panels over the session
 // and compares both worlds after a settled run.
 #include "oa/app/asset_files.hpp"
+#include "oa/app/battle_recording.hpp"
 #include "oa/app/mutators_memory.hpp"
 #include "oa/app/pack_map_source.hpp"
 #include "oa/app/presence_facts.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/app/version_line.hpp"
 #include "oa/app/view_rules.hpp"
 #include "network_play.hpp"
 #include "oa/app/check_host.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/user_folder.hpp"
 #include "demo_state.hpp"
+#include "launch_binding.hpp"
 #include "oa/session/demo.hpp"
+#include "oa/session/demo/recording_stream.hpp"
+#include "oa/session/demo/replay_record.hpp"
 #include "net_options.hpp"
 #include "net_state.hpp"
+#include "recording_partials.hpp"
 #include "traffic_overlay.hpp"
 #include "wire_rules_binding.hpp"
 
@@ -32,11 +38,16 @@
 #include "oa/netgame/presence.hpp"
 #include "oa/netgame/records.hpp"
 #include "oa/netgame/unicode_chat.hpp"
+#include "oa/netgame/unit_state.hpp"
 #include "oa/app/netgame/extension_api.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/data/campaign/campaign_file.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_header.hpp"
 #include "oa/data/limits.hpp"
+#include "oa/data/map_pack/map_name.hpp"
+#include "oa/data/saves/content_record.hpp"
+#include "oa/data/mod_profile.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/loadout.hpp"
 #include "oa/base/text.hpp"
@@ -74,6 +85,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <new>
 #include <optional>
 #include <ostream>
 #include <stdexcept>
@@ -896,6 +908,54 @@ std::string local_time_text(const char* pattern) {
     return std::string(formatted, length);
 }
 
+/// Formats the clock's time in UTC as a replay writes an instant.
+///
+/// @return the time as `YYYY-MM-DDTHH:MM:SSZ`
+std::string utc_time_text() {
+    const std::time_t now = std::time(nullptr);
+    std::tm parts{};
+#if defined(_WIN32)
+    gmtime_s(&parts, &now);
+#else
+    gmtime_r(&now, &parts);
+#endif
+    char formatted[32];
+    const auto length = std::strftime(formatted, sizeof formatted, "%Y-%m-%dT%H:%M:%SZ", &parts);
+    return std::string(formatted, length);
+}
+
+/// Names the program that records, as a replay's description names it.
+///
+/// @return `open-annihilation ` and the version, with the label when the build has one
+std::string recording_program() {
+    std::string program = "open-annihilation " OA_ENGINE_VERSION;
+#ifdef OA_ENGINE_VERSION_LABEL
+    constexpr std::string_view label = OA_ENGINE_VERSION_LABEL;
+    if (!label.empty()) {
+        program.push_back('-');
+        program.append(label);
+    }
+#endif
+    return program;
+}
+
+/// Names the machine's platform as a replay's description names it.
+///
+/// A universal macOS build names the processor it runs on, as in `macos-arm64`.
+///
+/// @return the platform and the processor
+std::string recording_platform() {
+    std::string platform(release_platform_name());
+    constexpr std::string_view universal = "-universal";
+    if (platform.size() >= universal.size() &&
+        platform.compare(platform.size() - universal.size(), universal.size(), universal) == 0) {
+        platform.resize(platform.size() - universal.size());
+        platform.push_back('-');
+        platform.append(running_architecture());
+    }
+    return platform;
+}
+
 /// Fills the integrity check's answers about this machine: a digest of the
 /// program line, and one of the profile's sim hash with the map, so two
 /// machines agree exactly when they run the same program on the same rules and
@@ -1621,6 +1681,7 @@ struct NetworkPlay::NetHost {
         // other machines it is ready; its players' pass waits for the first
         // tick.
         state.binding.match->finish_load();
+        state.recording_refused = false;
         start_recording(play);
         nm::net_match_end_loading(state.net.get());
         // The recorder's start: a pause under autopause or commander warp.
@@ -1647,27 +1708,50 @@ struct NetworkPlay::NetHost {
         runtime.enter_match_view();
     }
 
-    /// Starts the game's recording under the recorder's rules, or when --net-record names a file.
+    /// Starts the game's recording: under the recorder's rules, when the player's setting keeps
+    /// every game, or when --net-record or --record-game names a file.
     ///
     /// The recording machine's players come first, then the others in slot
     /// order; the unit checks are this machine's unit checksums and the
-    /// battle room's verdicts.
+    /// battle room's verdicts. The recorder hack's layout (a `.tad`) is written under the
+    /// recorder's rules and by --net-record, and a `.oademo` by the setting and by
+    /// --record-game, unless its file name ends in `.tad`; never both. A game in a headless run
+    /// or a check is recorded only when --net-record or --record-game names a file. Nothing is sent
+    /// to the other machines on account of the setting. The recording is streamed to
+    /// Recordings/.replays/partial from here on.
     ///
     /// @param play network play's state for the runtime whose match starts
     static void start_recording(NetworkPlay& play) {
         Runtime& runtime = play.runtime_;
         auto& state = *play.net_;
+        reap_finishing(state);
         state.recording = {};
+        state.partial.reset();
+        state.recording_is_replay = false;
+        state.recording_named = false;
+        state.recording_start = {};
+        state.game_finished = false;
         const bool recorder =
             state.net->rules.recorder_protocol != oa::netgame::recorder_protocol_plain;
-        const auto& forced = net_options().net_record;
+        const auto& net_record = net_options().net_record;
+        const auto& record_game = net_options().record_game;
+        const bool by_setting = runtime.records_games_by_setting();
         // .record's name is game text, which the file's name holds as the
         // characters it stands for.
         const std::string asked = oa::present::decode_game_text(
             state.net->recorder.record_name, runtime.game_text_utf8()
         );
-        if (!recorder && forced.empty())
+        // A new game forgets the previous recording before the plan can return.
+        // An unrecorded game then leaves no path, so Share… cannot open the
+        // previous file.
+        state.recording_path.clear();
+        note_battle_recording(runtime, state.recording_path);
+        // Which layout the game is written in, and whether it is recorded at all.
+        const RecordingPlan plan = plan_recording(recorder, net_record, record_game, by_setting);
+        if (plan.layout == RecordingLayout::none)
             return;
+        const bool replay_layout = plan.layout == RecordingLayout::replay;
+        state.recording_named = plan.named;
         auto& world = *state.net->world;
         const auto* profile = runtime.mod_profile();
         const auto* host = nm::launch_host_info(&world);
@@ -1679,7 +1763,9 @@ struct NetworkPlay::NetHost {
         setup.map_name = map;
         setup.recorder_text = kProgramLine;
         setup.date_text = local_time_text("%Y-%m-%d %H:%M");
-        setup.compress = profile != nullptr && profile->recorder.ta_demo_recorder.compress_files;
+        // A replay stores every packet plain.
+        setup.compress = !replay_layout && profile != nullptr &&
+                         profile->recorder.ta_demo_recorder.compress_files;
         // Empty text writes no sector, so a game without mutators is unchanged.
         const std::string loadout_text = runtime.played_loadout_text();
         if (loadout_text.size() > oa::session::demo::recording_loadout_most_bytes) {
@@ -1703,6 +1789,8 @@ struct NetworkPlay::NetHost {
             recorded.sides = state.net->rules.sides;
             setup.limits = recorded;
         }
+        const bool utf8_text = runtime.game_text_utf8();
+        std::vector<oa::session::demo::ReplayPlayerFacts> player_facts;
         const auto add_player = [&](uint8_t slot) {
             const auto& player = world.game.players[slot];
             oa::session::demo::RecordingPlayer entry{};
@@ -1718,6 +1806,14 @@ struct NetworkPlay::NetHost {
                 state.net->unicode_chat && (here || oa::netgame::announces_unicode_chat(block))
             );
             entry.team = player.team;
+            oa::session::demo::ReplayPlayerFacts facts;
+            facts.name = oa::present::decode_game_text(entry.name, utf8_text);
+            const bool watcher = (entry.info.options & OA_SETUP_OPTION_WATCHER) != 0;
+            facts.kind = watcher                                      ? "watcher"
+                         : player.status == OA_PLAYER_STATUS_COMPUTER ? "computer"
+                                                                      : "human";
+            facts.recorded_here = player.status == OA_PLAYER_STATUS_LOCAL;
+            player_facts.push_back(std::move(facts));
             setup.players.push_back(std::move(entry));
         };
         for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
@@ -1751,8 +1847,13 @@ struct NetworkPlay::NetHost {
         setup.unit_checks.insert(
             setup.unit_checks.end(), state.unit_verdicts.begin(), state.unit_verdicts.end()
         );
+        // The file the recording becomes.
         std::string file_name;
-        if (!asked.empty()) {
+        if (replay_layout) {
+            file_name = oa::session::demo::recording_file_name(
+                local_time_text("%Y-%m-%d %H%M"), map, ".oademo"
+            );
+        } else if (!asked.empty()) {
             // .record names the file; it takes the recorder's manual extension.
             const std::string extension =
                 profile != nullptr ? profile->recorder.ta_demo_recorder.manual_extension : ".tad";
@@ -1764,53 +1865,300 @@ struct NetworkPlay::NetHost {
                 local_time_text("%Y-%m-%d %H%M"), map, extension
             );
         }
-        // --net-record's file as it is given, else the mod's folder in
+        // --record-game's and --net-record's file as it is given, else the mod's folder in
         // Recordings.
-        state.recording_path = recording_file(
-            forced, runtime.user_folder(), runtime.files_mod_id(), path_from_utf8(file_name)
+        state.recording_path = remembered_recording_path(
+            plan.layout,
+            recording_file(
+                !record_game.empty() ? record_game : net_record,
+                runtime.user_folder(),
+                runtime.files_mod_id(),
+                path_from_utf8(file_name)
+            )
         );
+        state.recording_is_replay = replay_layout;
+        // What the game knows that the recording does not hold: the replay's description.
+        if (replay_layout)
+            state.recording_start = oa::session::demo::replay_begin(
+                setup, replay_facts(runtime, std::move(player_facts), map, utf8_text)
+            );
+        std::string problem;
+        state.partial = partial_make(
+            runtime.user_folder(),
+            runtime.files_mod_id(),
+            state.recording_path.filename(),
+            plan.layout,
+            &problem
+        );
+        if (state.partial == nullptr) {
+            std::cerr << "multiplayer: the recording could not be started: " << problem << '\n';
+            state.recording_path.clear();
+            note_battle_recording(runtime, state.recording_path);
+            state.recording_refused = true;
+            return;
+        }
+        // A replay's description is kept before its stream is made, so that no game holds a
+        // replay stream that a crash would leave with no description: a game whose description
+        // cannot be kept is not recorded.
+        if (replay_layout && !partial_write_start(state.partial->files, state.recording_start)) {
+            std::cerr << "multiplayer: the recording could not be started: its description cannot "
+                         "be kept\n";
+            partial_discard(*state.partial);
+            state.partial.reset();
+            state.recording_path.clear();
+            note_battle_recording(runtime, state.recording_path);
+            state.recording_refused = true;
+            return;
+        }
         oa::session::demo::recording_begin(&state.recording, std::move(setup));
+        if (!oa::session::demo::recording_stream_to(
+                &state.recording, state.partial->files.stream, &problem
+            )) {
+            std::cerr << "multiplayer: the recording could not be started: " << problem << '\n';
+            state.recording = {};
+            partial_discard(*state.partial);
+            state.partial.reset();
+            state.recording_path.clear();
+            note_battle_recording(runtime, state.recording_path);
+            state.recording_refused = true;
+            return;
+        }
+        if (!partial_write_note(state.partial->files, runtime.content_note_text()))
+            std::cerr << "multiplayer: the recording's content note could not be kept\n";
+        note_battle_recording(runtime, state.recording_path);
     }
 
-    /// Writes the running game's recording, if one is being made, and stops it.
+    /// Reads what the installed-package records hold of a package; nothing is known of one
+    /// whose folder cannot be read.
+    ///
+    /// @param runtime the runtime
+    /// @param kind the package's kind
+    /// @param id the package's id
+    /// @param version the version it must have; empty takes any
+    /// @return what is known
+    static Runtime::InstalledPackageFacts installed_package(
+        const Runtime& runtime, std::string_view kind, std::string_view id, std::string_view version
+    ) {
+        try {
+            return runtime.installed_package(kind, id, version);
+        } catch (const std::exception& error) {
+            std::cerr << "multiplayer: the installed packages could not be read for the recording: "
+                      << error.what() << '\n';
+            return {};
+        }
+    }
+
+    /// Reads a package's digest from the game, which may throw, as an optional text.
+    ///
+    /// @param fetch reads the digest from the runtime
+    /// @return the digest; empty text when it could not be read
+    template <typename Fetch>
+    static std::string digest_text_of(Fetch fetch) {
+        try {
+            return fetch();
+        } catch (const std::exception& error) {
+            std::cerr << "multiplayer: a package's digest could not be read for the recording: "
+                      << error.what() << '\n';
+            return {};
+        }
+    }
+
+    /// Describes the game being recorded as a replay's description and manifest need it.
+    ///
+    /// @param runtime the runtime whose match starts
+    /// @param players what is known of each recorded player, in the recording's order
+    /// @param map the map's name as the lobby has it, game text
+    /// @param utf8_text whether game text is UTF-8
+    /// @return the facts
+    static oa::session::demo::ReplayFacts replay_facts(
+        const Runtime& runtime,
+        std::vector<oa::session::demo::ReplayPlayerFacts> players,
+        const std::string& map,
+        bool utf8_text
+    ) {
+        oa::session::demo::ReplayFacts facts;
+        facts.recorded_at = utc_time_text();
+        facts.recorded_by = recording_program();
+        facts.platform = recording_platform();
+        facts.how = "multiplayer";
+        facts.engine_version = OA_ENGINE_VERSION;
+        facts.game_kind = "multiplayer";
+        // A game an extension launched names its own kind and what it knows of the game.
+        if (const auto extension = recorded_game_facts()) {
+            facts.game_kind = extension->kind;
+            facts.game_kind_object = extension->object_json;
+        }
+        facts.map_name = oa::present::decode_game_text(map, utf8_text);
+        const oa::data::saves::ContentRecord content = runtime.played_content_record();
+        if (content.present) {
+            facts.base_game = content.base_game;
+            facts.expansions = content.expansions;
+        }
+        facts.players = std::move(players);
+        const auto* profile = runtime.mod_profile();
+        if (profile != nullptr && !profile->id.empty()) {
+            oa::formats::oademo::ModRef mod;
+            mod.id = profile->id;
+            mod.name = profile->name;
+            mod.version = profile->version;
+            if (profile->packaging.revision != 0)
+                mod.revision = profile->packaging.revision;
+            mod.sim_hash = oa::data::mod_profile::digest_text(profile->sim_hash);
+            facts.mod = mod;
+            oa::formats::oademo::Need need;
+            need.kind = "oamod";
+            need.id = profile->id;
+            need.version = profile->version;
+            if (profile->packaging.revision != 0)
+                need.revision = profile->packaging.revision;
+            need.sim_hash = mod.sim_hash;
+            // Every package need carries a digest: the installed package's, else the mod folder's.
+            if (const std::string digest =
+                    digest_text_of([&runtime] { return runtime.played_mod_digest(); });
+                !digest.empty())
+                need.sha256 = digest;
+            facts.packages.push_back(std::move(need));
+        }
+        // A map from a map pack names the pack, by its package's digest or else its folder's. A
+        // pack that is not installed has no digest to give, so no need is written for it.
+        if (const auto pack = oa::data::map_pack::split_pack_map_name(map)) {
+            oa::formats::oademo::Need need;
+            need.kind = "oamap";
+            need.id = std::string(pack->id);
+            const auto installed = installed_package(runtime, "oamap", need.id, {});
+            if (installed.found) {
+                need.version = installed.version;
+                const std::string digest =
+                    !installed.sha256.empty()
+                        ? installed.sha256
+                        : digest_text_of([&runtime, &installed] {
+                              return runtime.folder_digest_text(installed.folder);
+                          });
+                if (!digest.empty()) {
+                    need.sha256 = digest;
+                    facts.packages.push_back(std::move(need));
+                }
+            }
+        }
+        return facts;
+    }
+
+    /// Says how the last game's recording went, once the finish has run.
+    ///
+    /// The frame calls this, so that the log names the file soon after the game is left, not at
+    /// the next game or the end of the session.
+    ///
+    /// @param state network play's state
+    static void reap_if_finished(NetState& state) {
+        if (state.finishing != nullptr && static_cast<bool>(state.finishing->ran))
+            reap_finishing(state);
+    }
+
+    /// Waits for the last game's recording to be in place and says how it went.
+    ///
+    /// @param state network play's state
+    static void reap_finishing(NetState& state) {
+        if (state.finishing == nullptr)
+            return;
+        auto finishing = std::move(state.finishing);
+        finishing->join();
+        if (!finishing->stream_problem.empty())
+            std::cerr << "multiplayer: the recording is not whole: " << finishing->stream_problem
+                      << '\n';
+        const auto& result = finishing->result;
+        if (result.ok) {
+            // The file may have taken another name than the one wanted.
+            state.recording_path = result.placed;
+            std::cout << "multiplayer: recorded the game to " << path_to_utf8(result.placed)
+                      << '\n';
+        } else if (result.empty) {
+            std::cout << "multiplayer: nothing was recorded\n";
+        } else {
+            std::cerr << "multiplayer: the recording was not written: " << result.error << '\n';
+        }
+    }
+
+    /// Finishes a recording on the thread that runs it, or the thread that draws.
+    ///
+    /// @param argument the RecordingFinishing
+    static void run_finishing(void* argument) {
+        auto& finishing = *static_cast<RecordingFinishing*>(argument);
+        try {
+            // What the stream still holds is written, and the file closed, here.
+            const bool whole =
+                finishing.stream == nullptr || finishing.stream->close(&finishing.stream_problem);
+            const uint64_t dropped =
+                finishing.stream != nullptr ? finishing.stream->dropped() : uint64_t{0};
+            finishing.stream.reset();
+            if (!whole) {
+                finishing.finish.cut = true;
+                finishing.finish.end.ended = "cut";
+            }
+            // A packet that did not fit a chunk leaves a hole in the recording: it says so.
+            if (dropped != 0) {
+                finishing.finish.end.ended = "cut";
+                if (!finishing.stream_problem.empty())
+                    finishing.stream_problem += "; ";
+                finishing.stream_problem +=
+                    std::to_string(dropped) + " packets did not fit the file and are missing";
+            }
+            finishing.result = finish_partial(finishing.finish);
+        } catch (const std::exception& error) {
+            finishing.result = {};
+            finishing.result.error = error.what();
+        }
+        // The game's hold on the recording's files ends with the finish.
+        std::error_code failure;
+        const auto lock_file = finishing.finish.files.lock_file;
+        if (finishing.partial != nullptr)
+            finishing.partial->lock.reset();
+        std::filesystem::remove(lock_file, failure);
+        finishing.ran = true;
+    }
+
+    /// Finishes the running game's recording, if one is being made, and stops it.
+    ///
+    /// The stream is closed and the recording finished into its place: compressed into a
+    /// `.oademo`, or moved as the recorder hack's `.tad`. A run nobody watches does so before this
+    /// returns, so that a check reads the file; a game a person plays does so on a thread of its
+    /// own, which the next game or the end of the session waits for, so that no frame waits for
+    /// the disk.
     ///
     /// @param play network play's state
     static void finish_recording(NetworkPlay& play) {
         auto& state = *play.net_;
         if (!state.recording.started)
             return;
-        const auto written = oa::session::demo::recording_write(state.recording);
+        const uint32_t length_ticks = state.net->world != nullptr ? state.net->world->game.tick : 0;
+        auto finishing = std::make_unique<RecordingFinishing>();
+        // The stream goes to the finish, which closes it: what it still holds is written there,
+        // off the thread that draws.
+        finishing->stream = std::move(state.recording.stream);
         state.recording = {};
-        if (!written.ok()) {
-            std::cerr << "multiplayer: the recording was not written: " << written.error->message
-                      << '\n';
+        finishing->partial = std::move(state.partial);
+        if (finishing->partial == nullptr)
             return;
-        }
-        std::error_code error;
-        std::filesystem::create_directories(state.recording_path.parent_path(), error);
-        // An automatic recording never replaces another: the second of one
-        // minute takes " (2)", and so on.
-        if (net_options().net_record.empty()) {
-            const auto stem = path_to_utf8(state.recording_path.stem());
-            const auto extension = path_to_utf8(state.recording_path.extension());
-            for (int copy = 2; std::filesystem::exists(state.recording_path, error); ++copy)
-                state.recording_path.replace_filename(
-                    path_from_utf8(stem + " (" + std::to_string(copy) + ")" + extension)
-                );
-        }
-        std::ofstream out(state.recording_path, std::ios::binary);
-        out.write(
-            reinterpret_cast<const char*>(written.bytes.data()),
-            static_cast<std::streamsize>(written.bytes.size())
-        );
-        if (!out)
-            std::cerr << "multiplayer: the recording could not be saved to "
-                      << path_to_utf8(state.recording_path) << '\n';
-        else {
-            play.runtime_.note_content_beside(state.recording_path);
-            std::cout << "multiplayer: recorded the game to " << path_to_utf8(state.recording_path)
-                      << '\n';
-        }
+        finishing->finish.files = finishing->partial->files;
+        finishing->finish.replay_layout = state.recording_is_replay;
+        finishing->finish.start = std::move(state.recording_start);
+        finishing->finish.end.ended = state.game_finished ? "finished" : "left";
+        if (length_ticks != 0)
+            finishing->finish.end.length_ticks = length_ticks;
+        // An automatic recording never replaces another: the second of one minute takes " (2)",
+        // and so on, where the file is placed. A file that was named is replaced.
+        finishing->finish.destination = state.recording_path;
+        finishing->finish.replace = state.recording_named;
+        state.recording_start = {};
+        // The finish may run beside a frame, so it holds copies of everything it reads.
+        RecordingFinishing* running = finishing.get();
+        state.finishing = std::move(finishing);
+        if (!play.runtime_.person_plays() ||
+            !oa::base::threads::start_thread(running->thread, &run_finishing, running))
+            run_finishing(running);
+        else
+            running->started = true;
+        if (!running->started)
+            reap_finishing(state);
     }
 
     static void abort(NetworkPlay& play, std::string_view reason) {
@@ -2458,9 +2806,959 @@ struct NetworkPlay::NetHost {
 };
 
 void NetworkPlay::destroy_net_state(NetState* state) noexcept {
+    // A recording on its way into place is finished before the session goes.
+    if (state != nullptr)
+        NetHost::reap_finishing(*state);
     if (state != nullptr && state->connected)
         nm::net_connection_destroy(&state->connection);
     delete state;
+}
+
+// A skirmish recording. The packet layer's transport sends nowhere: every
+// record is kept by the recording as it is handed to the match, and the
+// socket host stays null. The match's unit ranges are not moved.
+struct SkirmishRecord {
+    std::unique_ptr<nm::PacketLayer> packets{};
+    nm::NetConnection connection{};
+    std::unique_ptr<nm::NetMatch> net{};
+    nm::MatchBinding binding{};
+    oa::session::demo::DemoRecording recording{};
+    std::filesystem::path recording_path{};
+    std::unique_ptr<PartialRecording> partial{};
+    bool recording_is_replay{};
+    bool recording_named{};
+    oa::formats::oademo::Replay recording_start{};
+    std::unique_ptr<RecordingFinishing> finishing{};
+    /// The id the recording stores for each slot. 0 means the slot is not a sender.
+    std::array<uint32_t, OA_PLAYER_COUNT> sender_ids{};
+    /// True when this recording set the live-game bit and must clear it.
+    bool live_raised{};
+    /// 1 once a create for that slot has been recorded and its death has not.
+    std::vector<uint8_t> announced{};
+    /// The owner slot of an announced unit, so a death between ticks can be sent.
+    std::vector<uint8_t> announced_owner{};
+    /// Economy periods so far. A 0x28 goes out every fourth, as a network game sends it.
+    uint32_t economy_periods{};
+    /// True when the match being recorded is a campaign mission.
+    bool campaign{};
+};
+
+namespace {
+
+/// A route bit and an air-driver flag word, put back after a unit state is sent.
+struct RouteSnap {
+    uint16_t slot{};
+    uint8_t navigation{};
+    bool has_navigation{};
+    uint8_t air{};
+    bool has_air{};
+};
+
+/// Feature changes are recorded. A hit is still applied on this machine.
+bool skirmish_records_features(void*) {
+    return true;
+}
+
+/// A feature hit is applied here and not sent. This machine is the only one.
+bool skirmish_feature_hit_here(void*, uint16_t, int32_t, int32_t) {
+    return false;
+}
+
+/// The players' setup blocks are already in the recording's header. Sending
+/// them again would store the live id 0, which a recording cannot name.
+void skirmish_status_unchanged(void*) {
+}
+
+/// Sends one local player's unit state, then puts the route bits and the
+/// player's last tick back so the rest of the tick matches a skirmish that
+/// is not recording.
+void skirmish_local_ticked(void* context, Player& player) {
+    auto& binding = *static_cast<nm::MatchBinding*>(context);
+    auto* match = binding.match;
+    auto* world = binding.net != nullptr ? binding.net->world : nullptr;
+    std::vector<RouteSnap> snaps;
+    const int32_t last_tick = player.last_sim_tick;
+    if (match != nullptr && world != nullptr && world->units != nullptr) {
+        uint32_t unit_count = 0;
+        Unit* first = world_player_units(world, &player, &unit_count);
+        const uint32_t slot_count = world->unit_slot_count;
+        snaps.reserve(unit_count);
+        for (uint32_t unit_index = 0; unit_index < unit_count; ++unit_index) {
+            const auto& unit = first[unit_index];
+            if (unit.type_index == 0 || unit.movement == 0 || unit.id >= slot_count)
+                continue;
+            RouteSnap snap{};
+            snap.slot = unit.id;
+            if (auto* ground = match->ground_runtime(snap.slot)) {
+                snap.has_navigation = true;
+                snap.navigation = ground->navigation.flags;
+            }
+            if (auto* driver = match->air_driver(snap.slot)) {
+                snap.has_air = true;
+                snap.air = driver->flags;
+            }
+            snaps.push_back(snap);
+        }
+    }
+    // A skirmish never runs the network launch, which is what writes
+    // Game.unit_def_id_bits. A unit state needs that width, and playback
+    // sizes the same width from the loaded table. The field is put on for
+    // the send and the skirmish's own value is put back.
+    int32_t saved_def_bits = 0;
+    bool replaced_def_bits = false;
+    if (world != nullptr) {
+        saved_def_bits = world->game.unit_def_id_bits;
+        const auto current_bits = static_cast<unsigned>(saved_def_bits);
+        if (current_bits < 1u || current_bits > oa::netgame::unit_state_max_def_index_bits) {
+            const int32_t sized_def_bits = nm::unit_def_id_bits_for_count(world->unit_def_count);
+            const auto sized_width = static_cast<unsigned>(sized_def_bits);
+            if (sized_width >= 1u && sized_width <= oa::netgame::unit_state_max_def_index_bits) {
+                world->game.unit_def_id_bits = sized_def_bits;
+                replaced_def_bits = true;
+            }
+        }
+    }
+    nm::match_binding_send_local_tick(context, player);
+    if (replaced_def_bits && world != nullptr)
+        world->game.unit_def_id_bits = saved_def_bits;
+    if (match != nullptr) {
+        for (const RouteSnap& snap : snaps) {
+            if (snap.has_navigation) {
+                if (auto* ground = match->ground_runtime(snap.slot))
+                    ground->navigation.flags = snap.navigation;
+            }
+            if (snap.has_air) {
+                if (auto* driver = match->air_driver(snap.slot))
+                    driver->flags = snap.air;
+            }
+        }
+    }
+    player.last_sim_tick = last_tick;
+    if (binding.net != nullptr && binding.net->connection != nullptr &&
+        binding.net->connection->packets != nullptr)
+        nm::packet_layer_flush(binding.net->connection->packets, 0, true);
+}
+
+/// Stores one record under the sender's recording id. The live id can be 0,
+/// which a recording rejects, so the slot's stored id is used instead.
+void skirmish_record_seen(void* context, uint32_t sender, const uint8_t* bytes, std::size_t size) {
+    auto& binding = *static_cast<nm::MatchBinding*>(context);
+    auto* held = static_cast<SkirmishRecord*>(binding.full_record_probe.context);
+    if (held == nullptr || !held->recording.started || bytes == nullptr || size == 0)
+        return;
+    uint32_t stored = 0;
+    if (binding.net != nullptr && binding.net->world != nullptr) {
+        const auto& players = binding.net->world->game.players;
+        for (uint8_t player_slot = 0; player_slot < OA_PLAYER_COUNT; ++player_slot) {
+            if (players[player_slot].in_use != 0 && players[player_slot].player_id == sender) {
+                stored = held->sender_ids[player_slot];
+                break;
+            }
+        }
+    }
+    if (stored == 0)
+        return;
+    oa::session::demo::recording_add(&held->recording, stored, recording_clock_ms(), {bytes, size});
+}
+
+/// Sends one record from a player's live id. The recording stores the slot's id.
+template <class Record>
+bool send_from_player(nm::NetMatch* net, uint32_t from_id, const Record& record) {
+    constexpr auto length = oa::netgame::record_table_length(static_cast<uint8_t>(Record::type));
+    std::array<uint8_t, length> bytes{};
+    std::size_t written = 0;
+    if (oa::netgame::encode_record(record, bytes.data(), bytes.size(), &written) !=
+        oa::netgame::WireError::ok)
+        return false;
+    return nm::net_match_send(
+        net, from_id, oa::netgame::broadcast_destination_id, bytes.data(), written
+    );
+}
+
+/// True for a player whose records this machine sends.
+bool sends_here(const Player& player) {
+    return player.in_use != 0 &&
+           (player.status == OA_PLAYER_STATUS_LOCAL || player.status == OA_PLAYER_STATUS_COMPUTER);
+}
+
+/// Remembers that a create for this slot is in the recording, or that it is not.
+void mark_announced(SkirmishRecord& record, uint16_t index, uint8_t owner, bool live) {
+    if (record.announced.size() <= index) {
+        record.announced.resize(static_cast<std::size_t>(index) + 1u);
+        record.announced_owner.resize(record.announced.size());
+    }
+    record.announced[index] = live ? 1u : 0u;
+    record.announced_owner[index] = owner;
+}
+
+/// Announces a unit the tick created, and remembers it so a later pass does not.
+void skirmish_unit_created(void* context, uint16_t index) {
+    auto& binding = *static_cast<nm::MatchBinding*>(context);
+    auto* held = static_cast<SkirmishRecord*>(binding.full_record_probe.context);
+    if (index < binding.movement.size())
+        binding.movement[index] = oa::netgame::MovementRecord{};
+    auto* world = binding.net != nullptr ? binding.net->world : nullptr;
+    auto* unit = world != nullptr ? world_unit_at(world, index) : nullptr;
+    const auto* owner = unit != nullptr ? world_player_ref(world, unit->owner) : nullptr;
+    if (unit != nullptr && owner != nullptr && sends_here(*owner))
+        nm::net_match_send_unit_created(binding.net, unit);
+    if (held != nullptr && owner != nullptr)
+        mark_announced(*held, index, static_cast<uint8_t>(owner->index), true);
+}
+
+/// Announces a unit the tick killed, and forgets it.
+void skirmish_unit_killed(
+    void* context, uint16_t index, const sim::match_runtime::KillOutcome& outcome
+) {
+    auto& binding = *static_cast<nm::MatchBinding*>(context);
+    auto* held = static_cast<SkirmishRecord*>(binding.full_record_probe.context);
+    auto* world = binding.net != nullptr ? binding.net->world : nullptr;
+    const auto* unit = world != nullptr ? world_unit_at(world, index) : nullptr;
+    const auto* owner = unit != nullptr ? world_player_ref(world, unit->owner) : nullptr;
+    if (owner != nullptr && sends_here(*owner)) {
+        const auto record = nm::encode_unit_killed_record(
+            *world,
+            index,
+            static_cast<uint8_t>(outcome.kind),
+            outcome.killed_percent,
+            outcome.wreck_level
+        );
+        (void)nm::net_match_send(
+            binding.net,
+            owner->player_id,
+            oa::netgame::broadcast_destination_id,
+            record.data(),
+            record.size()
+        );
+    }
+    if (held != nullptr)
+        mark_announced(*held, index, 0, false);
+}
+
+/// Sets the live-game bit when it is clear, and remembers that this recording set it.
+void raise_skirmish_live(SkirmishRecord& record) {
+    if (record.net == nullptr || record.net->world == nullptr)
+        return;
+    auto& flags = record.net->world->game.session_flags;
+    if ((flags & nm::kNetFlagLive) != 0)
+        return;
+    flags = static_cast<uint8_t>(flags | nm::kNetFlagLive);
+    record.live_raised = true;
+}
+
+/// Clears the live-game bit when this recording set it. A bit set by anything else stays.
+void lower_skirmish_live(SkirmishRecord& record) {
+    if (!record.live_raised)
+        return;
+    record.live_raised = false;
+    if (record.net == nullptr || record.net->world == nullptr)
+        return;
+    auto& flags = record.net->world->game.session_flags;
+    flags = static_cast<uint8_t>(flags & ~nm::kNetFlagLive);
+}
+
+/// Records a create for a unit that appeared while the bit was down, and a
+/// death for one that vanished then. The tick's own hooks cover the rest.
+void catch_up_units(SkirmishRecord& record) {
+    auto* net = record.net.get();
+    auto* world = net != nullptr ? net->world : nullptr;
+    if (world == nullptr || world->units == nullptr)
+        return;
+    for (uint32_t unit_slot = 1; unit_slot < world->unit_slot_count; ++unit_slot) {
+        const Unit& unit = world->units[unit_slot];
+        const bool live = unit.type_index != 0;
+        const bool known = unit_slot < record.announced.size() && record.announced[unit_slot] != 0;
+        if (live && !known) {
+            const auto* owner = world_player_ref(world, unit.owner);
+            if (owner != nullptr && sends_here(*owner)) {
+                nm::net_match_send_unit_created(net, &unit);
+                mark_announced(
+                    record,
+                    static_cast<uint16_t>(unit_slot),
+                    static_cast<uint8_t>(owner->index),
+                    true
+                );
+            }
+            continue;
+        }
+        if (!live && known) {
+            const uint8_t owner_slot = record.announced_owner[unit_slot];
+            if (owner_slot < OA_PLAYER_COUNT) {
+                const auto& owner = world->game.players[owner_slot];
+                if (sends_here(owner)) {
+                    oa::netgame::UnitKilledRecord killed{};
+                    killed.unit_index = static_cast<uint16_t>(unit_slot);
+                    killed.attacker_owner_id = nm::no_player_id;
+                    (void)send_from_player(net, owner.player_id, killed);
+                }
+            }
+            mark_announced(record, static_cast<uint16_t>(unit_slot), 0, false);
+        }
+    }
+}
+
+/// Records one 0x28 for every sender, from that player's own totals.
+void send_skirmish_economies(SkirmishRecord& record) {
+    auto* net = record.net.get();
+    auto* world = net != nullptr ? net->world : nullptr;
+    if (world == nullptr)
+        return;
+    for (uint8_t player_slot = 0; player_slot < OA_PLAYER_COUNT; ++player_slot) {
+        auto& player = world->game.players[player_slot];
+        if (!sends_here(player) || record.sender_ids[player_slot] == 0)
+            continue;
+        oa::netgame::EconomyRecord economy{};
+        economy.kills = player.kills;
+        economy.losses = player.losses;
+        economy.commanders_killed = player.commanders_killed;
+        economy.commanders_lost = player.commanders_lost;
+        economy.metal = player.metal;
+        economy.energy = player.energy;
+        economy.metal_storage = player.metal_storage;
+        economy.energy_storage = player.energy_storage;
+        economy.energy_produced_total = static_cast<float>(player.energy_produced_total);
+        economy.energy_requested_total = static_cast<float>(player.energy_requested_total);
+        economy.energy_wasted_total = static_cast<float>(player.energy_wasted_total);
+        economy.metal_produced_total = static_cast<float>(player.metal_produced_total);
+        economy.metal_requested_total = static_cast<float>(player.metal_requested_total);
+        economy.metal_wasted_total = static_cast<float>(player.metal_wasted_total);
+        (void)send_from_player(net, player.player_id, economy);
+    }
+    if (record.connection.packets != nullptr)
+        nm::packet_layer_flush(record.connection.packets, 0, true);
+}
+
+/// A 0x28 every fourth economy period, the pace net_match_economy_period sends at.
+///
+/// The period is 30 ticks. The call sees the tick that has just finished.
+void send_skirmish_economy_period(SkirmishRecord& record) {
+    auto* world = record.net != nullptr ? record.net->world : nullptr;
+    if (world == nullptr)
+        return;
+    const uint32_t tick = world->game.tick;
+    if (tick == 0 || tick % 30u != 0)
+        return;
+    const uint32_t periods = ++record.economy_periods;
+    if ((periods & 3u) != 0)
+        return;
+    send_skirmish_economies(record);
+}
+
+/// One line per sender: the units still standing and the totals a 0x28 carries.
+///
+/// @param world the world the recording is finishing
+/// @param word `skirmish` or `campaign`, the line's first word
+void print_skirmish_players(const World& world, const char* word) {
+    std::array<uint32_t, OA_PLAYER_COUNT> live_by_owner{};
+    if (world.units != nullptr) {
+        for (uint32_t unit_slot = 1; unit_slot < world.unit_slot_count; ++unit_slot) {
+            const auto& unit = world.units[unit_slot];
+            if (unit.type_index == 0 || unit.owner_index >= OA_PLAYER_COUNT)
+                continue;
+            ++live_by_owner[unit.owner_index];
+        }
+    }
+    for (uint8_t player_slot = 0; player_slot < OA_PLAYER_COUNT; ++player_slot) {
+        const auto& player = world.game.players[player_slot];
+        if (!sends_here(player))
+            continue;
+        std::printf(
+            "%s player: slot %u units %u kills %d losses %d metal %.9g energy %.9g\n",
+            word != nullptr ? word : "skirmish",
+            static_cast<unsigned>(player_slot),
+            live_by_owner[player_slot],
+            static_cast<int>(player.kills),
+            static_cast<int>(player.losses),
+            static_cast<double>(player.metal),
+            static_cast<double>(player.energy)
+        );
+    }
+}
+
+/// Writes one JSON string, quotes included, with the controls a JSON string escapes.
+void append_json_string(std::string& out, std::string_view json_text) {
+    out.push_back('"');
+    for (const char character : json_text) {
+        const auto byte = static_cast<unsigned char>(character);
+        switch (byte) {
+        case '"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\b':
+            out += "\\b";
+            break;
+        case '\f':
+            out += "\\f";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            if (byte < 0x20) {
+                constexpr char kDigits[] = "0123456789abcdef";
+                out += "\\u00";
+                out.push_back(kDigits[byte >> 4]);
+                out.push_back(kDigits[byte & 0x0f]);
+            } else {
+                out.push_back(static_cast<char>(byte));
+            }
+            break;
+        }
+    }
+    out.push_back('"');
+}
+
+/// The `game.campaign` object: the campaign's name, the mission's number and its name.
+///
+/// @param name the campaign's name
+/// @param mission the mission's number in the campaign's list
+/// @param mission_name the mission's name
+/// @return compact JSON
+std::string
+campaign_kind_json(std::string_view name, int32_t mission, std::string_view mission_name) {
+    std::string object;
+    object.reserve(name.size() + mission_name.size() + 48);
+    object += "{\"name\":";
+    append_json_string(object, name);
+    object += ",\"mission\":";
+    object += std::to_string(mission);
+    object += ",\"mission_name\":";
+    append_json_string(object, mission_name);
+    object += '}';
+    return object;
+}
+
+/// Takes the match's network hooks down and clears the live-game bit.
+void detach_skirmish(SkirmishRecord& record) {
+    if (record.binding.match != nullptr) {
+        record.binding.match->multiplayer = {};
+        record.binding.match = nullptr;
+    }
+    record.binding.features = {};
+    if (record.net != nullptr && record.net->world != nullptr) {
+        auto& flags = record.net->world->game.session_flags;
+        flags = static_cast<uint8_t>(flags & ~nm::kNetFlagLive);
+        record.net->world = nullptr;
+    }
+    record.binding.net = nullptr;
+}
+
+/// Says how a skirmish recording finished, once its thread has ended.
+void reap_skirmish(SkirmishRecord& record) {
+    if (record.finishing == nullptr)
+        return;
+    auto finishing = std::move(record.finishing);
+    finishing->join();
+    const char* word = record.campaign ? "campaign" : "skirmish";
+    if (!finishing->stream_problem.empty())
+        std::cerr << word << ": the recording is not whole: " << finishing->stream_problem << '\n';
+    const auto& result = finishing->result;
+    if (result.ok) {
+        record.recording_path = result.placed;
+        std::cout << word << ": recorded the game to " << path_to_utf8(result.placed) << '\n';
+    } else if (result.empty) {
+        std::cout << word << ": nothing was recorded\n";
+    } else {
+        std::cerr << word << ": the recording was not written: " << result.error << '\n';
+    }
+}
+
+/// Gives up a recording that never opened its stream.
+void discard_skirmish_partial(SkirmishRecord& record) {
+    record.recording = {};
+    if (record.partial == nullptr)
+        return;
+    partial_discard(*record.partial);
+    record.partial.reset();
+}
+
+} // namespace
+
+void NetworkPlay::advance_skirmish_recording() {
+    if (skirmish_ == nullptr || !skirmish_->recording.started)
+        return;
+    // The bit is up for this step only: the tick, its feature changes and a
+    // unit a command made while it was down are recorded, and it is cleared
+    // again once the frame has presented.
+    raise_skirmish_live(*skirmish_);
+    catch_up_units(*skirmish_);
+    send_skirmish_economy_period(*skirmish_);
+}
+
+void NetworkPlay::note_skirmish_departure() {
+    if (skirmish_ == nullptr || !skirmish_->recording.started)
+        return;
+    auto* net = skirmish_->net.get();
+    auto* world = net != nullptr ? net->world : nullptr;
+    if (world == nullptr || net->hooks.record_seen == nullptr)
+        return;
+    const uint8_t local = runtime_.match_local_player_;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const auto& player = world->game.players[slot];
+        if (player.in_use == 0 || player.status != OA_PLAYER_STATUS_COMPUTER)
+            continue;
+        if (slot == local || skirmish_->sender_ids[slot] == 0)
+            continue;
+        oa::netgame::RejectRecord leaving{};
+        leaving.player_id = skirmish_->sender_ids[slot];
+        leaving.reason = static_cast<uint8_t>(oa::netgame::RejectReason::leaving);
+        constexpr auto length =
+            oa::netgame::record_table_length(static_cast<uint8_t>(oa::netgame::RejectRecord::type));
+        std::array<uint8_t, length> bytes{};
+        std::size_t written = 0;
+        if (oa::netgame::encode_record(leaving, bytes.data(), bytes.size(), &written) !=
+            oa::netgame::WireError::ok)
+            return;
+        // The recorder's hook stores the record. It does not enter the live simulation.
+        net->hooks.record_seen(net->hooks.context, player.player_id, bytes.data(), written);
+        return;
+    }
+}
+
+void NetworkPlay::hide_skirmish_live_bit() {
+    if (skirmish_ == nullptr)
+        return;
+    lower_skirmish_live(*skirmish_);
+}
+
+void NetworkPlay::print_feature_cells(const char* label, const oa::World& world) {
+    uint32_t cells = 0;
+    // FNV-1a over each occupied cell's column, row and feature, in that order.
+    uint32_t digest = 2166136261u;
+    const int32_t width = world.game.map_width;
+    const int32_t height = world.game.map_height;
+    if (world.plots != nullptr && width > 0 && height > 0) {
+        for (int32_t row = 0; row < height; ++row) {
+            for (int32_t column = 0; column < width; ++column) {
+                const uint16_t feature =
+                    world
+                        .plots
+                            [static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
+                             static_cast<std::size_t>(column)]
+                        .feature;
+                if (feature >= OA_PLOT_FEATURE_RESERVED)
+                    continue;
+                ++cells;
+                const uint32_t parts[3] = {
+                    static_cast<uint32_t>(column),
+                    static_cast<uint32_t>(row),
+                    feature,
+                };
+                for (const uint32_t part : parts) {
+                    digest ^= part;
+                    digest *= 16777619u;
+                }
+            }
+        }
+    }
+    std::printf("%s: cells %u digest %08x\n", label != nullptr ? label : "", cells, digest);
+}
+
+void NetworkPlay::destroy_skirmish_record(SkirmishRecord* record) noexcept {
+    if (record == nullptr)
+        return;
+    // The packet layer is owned by the record. The connection must not free it.
+    record->connection.packets = nullptr;
+    record->connection.host = nullptr;
+    delete record;
+}
+
+NetworkPlay::~NetworkPlay() {
+    const char* word = skirmish_ != nullptr && skirmish_->campaign ? "campaign" : "skirmish";
+    try {
+        finish_skirmish_recording();
+    } catch (const std::exception& error) {
+        std::cerr << word << ": the recording could not be finished: " << error.what() << '\n';
+    }
+}
+
+void NetworkPlay::consider_skirmish_recording() {
+    if (skirmish_decided_)
+        return;
+    if (runtime_.running_match() == nullptr)
+        return;
+    const auto session_kind = runtime_.running_session_kind();
+    if (session_kind != oa::data::campaign::SessionKind::skirmish &&
+        session_kind != oa::data::campaign::SessionKind::campaign)
+        return;
+    // A network match that is still loading does not take the tick, and a
+    // replay takes it above. Neither is recorded here.
+    if (demo_ || (net_ && (net_->active || net_->loading)))
+        return;
+    const bool campaign_match = session_kind == oa::data::campaign::SessionKind::campaign;
+    const char* word = campaign_match ? "campaign" : "skirmish";
+    skirmish_decided_ = true;
+    if (skirmish_ != nullptr) {
+        reap_skirmish(*skirmish_);
+        detach_skirmish(*skirmish_);
+        skirmish_.reset();
+    }
+    const bool recorder =
+        runtime_wire_rules(runtime_).recorder_protocol != oa::netgame::recorder_protocol_plain;
+    const RecordingPlan plan = plan_recording(
+        recorder,
+        net_options().net_record,
+        net_options().record_game,
+        runtime_.records_games_by_setting()
+    );
+    if (plan.layout == RecordingLayout::none)
+        return;
+    auto* world = &runtime_.running_match()->state();
+    if (world->units == nullptr)
+        return;
+    try {
+        auto held = std::unique_ptr<SkirmishRecord, void (*)(SkirmishRecord*) noexcept>(
+            new (std::nothrow) SkirmishRecord(), destroy_skirmish_record
+        );
+        if (held == nullptr) {
+            std::cerr << word << ": the recording could not be started: no storage\n";
+            return;
+        }
+        held->campaign = campaign_match;
+
+        // A failure before the recording is kept takes the hooks down. The
+        // guard dies before `held`, so the record is still there to detach.
+        struct ArmGuard {
+            SkirmishRecord* record{};
+            bool keep{};
+
+            ~ArmGuard() {
+                if (!keep && record != nullptr) {
+                    detach_skirmish(*record);
+                    discard_skirmish_partial(*record);
+                }
+            }
+        } guard{held.get()};
+
+        held->packets.reset(new (std::nothrow) nm::PacketLayer());
+        if (held->packets == nullptr) {
+            std::cerr << word << ": the recording could not be started: no packet storage\n";
+            return;
+        }
+        nm::packet_layer_create(held->packets.get());
+        oa::netgame::NetTransport transport{};
+        nm::packet_layer_start(held->packets.get(), transport);
+        held->connection.packets = held->packets.get();
+        held->connection.rules = runtime_wire_rules(runtime_);
+        held->net = std::make_unique<nm::NetMatch>();
+        nm::match_binding_prepare(&held->binding, runtime_.running_match(), held->net.get());
+        // The record hook's context is the binding. The probe names this
+        // recording, and nothing calls the probe: its placed hook stays null.
+        held->binding.full_record_probe.context = held.get();
+        auto hooks = nm::match_binding_hooks(&held->binding);
+        hooks.record_seen = skirmish_record_seen;
+        const uint16_t load_flags = world->game.load_flags;
+        const int32_t timeout_seconds = world->game.player_timeout_seconds;
+        nm::net_match_begin(
+            held->net.get(), &held->connection, world, nm::match_binding_sim(&held->binding), hooks
+        );
+        // The begin marks the game live and, when no timeout is set, writes
+        // the network default. Put the match's own words back, the live
+        // bit included. The recording raises that bit only while it sends,
+        // so the rest of the game still reads as the match it is.
+        world->game.load_flags = load_flags;
+        world->game.player_timeout_seconds = timeout_seconds;
+        world->game.session_flags =
+            static_cast<uint8_t>(world->game.session_flags & ~nm::kNetFlagLive);
+        held->net->unicode_chat = unicode_chat();
+        nm::match_binding_install(&held->binding);
+        // Hits stay on this machine. Destructions, reclaims and resurrections
+        // are recorded, as a host records them.
+        held->binding.features.networked = skirmish_records_features;
+        runtime_.running_match()->multiplayer.local_player_ticked = skirmish_local_ticked;
+        runtime_.running_match()->multiplayer.player_status_changed = skirmish_status_unchanged;
+        runtime_.running_match()->multiplayer.unit_created = skirmish_unit_created;
+        runtime_.running_match()->multiplayer.unit_killed = skirmish_unit_killed;
+        runtime_.running_match()->multiplayer.feature_hit_elsewhere = skirmish_feature_hit_here;
+        raise_skirmish_live(*held);
+
+        const bool replay_layout = plan.layout == RecordingLayout::replay;
+        held->recording_named = plan.named;
+        const auto* profile = runtime_.mod_profile();
+        // A mission's map is named as its OTA names it, which is how playback finds the file.
+        std::string map = runtime_.played_map_name();
+        Runtime::RunningMissionFacts mission_facts;
+        if (campaign_match) {
+            mission_facts = runtime_.running_mission_facts();
+            if (!mission_facts.map_title.empty())
+                map = mission_facts.map_title;
+        }
+        const bool utf8_text = runtime_.game_text_utf8();
+        oa::session::demo::RecordingSetup setup{};
+        setup.max_units = static_cast<uint16_t>(world->game.units_per_player);
+        setup.map_name = map;
+        setup.recorder_text = kProgramLine;
+        setup.date_text = local_time_text("%Y-%m-%d %H:%M");
+        setup.compress = !replay_layout && profile != nullptr &&
+                         profile->recorder.ta_demo_recorder.compress_files;
+        const std::string loadout_text = runtime_.played_loadout_text();
+        if (loadout_text.size() > oa::session::demo::recording_loadout_most_bytes) {
+            std::cerr
+                << "demo mutators: the loadout is too long for the recording and is left out\n";
+        } else {
+            setup.loadout_text = loadout_text;
+        }
+        const std::string brains_text = runtime_.played_brains_text();
+        if (brains_text.size() > oa::session::demo::recording_brains_most_bytes) {
+            std::cerr << "demo brains: the seats are too long for the recording and are left out\n";
+        } else {
+            setup.brains_text = brains_text;
+        }
+        if (oa::netgame::oa_only(held->connection.rules)) {
+            oa::formats::tad::RecordedLimits recorded;
+            recorded.weapon_types = held->connection.rules.weapon_types;
+            recorded.sides = held->connection.rules.sides;
+            setup.limits = recorded;
+        }
+        std::vector<oa::session::demo::ReplayPlayerFacts> player_facts;
+        const auto add_player = [&](uint8_t player_slot) {
+            const auto& player = world->game.players[player_slot];
+            oa::session::demo::RecordingPlayer entry{};
+            // The live id of the first slot is 0. A recording numbers players
+            // from 1, and playback seats them in this order.
+            entry.player_id = static_cast<uint32_t>(player_slot) + 1u;
+            held->sender_ids[player_slot] = entry.player_id;
+            entry.name = std::string(field_text(player.name, sizeof player.name));
+            entry.info = world->player_info[player_slot];
+            const bool here = player.status != OA_PLAYER_STATUS_MIRRORED;
+            auto* block = reinterpret_cast<uint8_t*>(&entry.info);
+            oa::netgame::mark_unicode_chat(
+                block,
+                held->net->unicode_chat && (here || oa::netgame::announces_unicode_chat(block))
+            );
+            entry.team = player.team;
+            oa::session::demo::ReplayPlayerFacts facts;
+            facts.name = oa::present::decode_game_text(entry.name, utf8_text);
+            const bool watcher = (entry.info.options & OA_SETUP_OPTION_WATCHER) != 0;
+            facts.kind = watcher                                      ? "watcher"
+                         : player.status == OA_PLAYER_STATUS_COMPUTER ? "computer"
+                                                                      : "human";
+            facts.recorded_here = player.status == OA_PLAYER_STATUS_LOCAL;
+            player_facts.push_back(std::move(facts));
+            setup.players.push_back(std::move(entry));
+        };
+        for (uint8_t player_slot = 0; player_slot < OA_PLAYER_COUNT; ++player_slot) {
+            const auto& player = world->game.players[player_slot];
+            if (player.in_use != 0 && (player.status == OA_PLAYER_STATUS_LOCAL ||
+                                       player.status == OA_PLAYER_STATUS_COMPUTER))
+                add_player(player_slot);
+        }
+        for (uint8_t player_slot = 0; player_slot < OA_PLAYER_COUNT; ++player_slot) {
+            const auto& player = world->game.players[player_slot];
+            if (player.in_use != 0 && player.status == OA_PLAYER_STATUS_MIRRORED)
+                add_player(player_slot);
+        }
+        if (setup.players.empty()) {
+            std::cerr << word << ": the recording could not be started: the match has no players\n";
+            return;
+        }
+        // The table the match loaded, mutators included. Playback builds the
+        // same table from the recording's loadout and compares these keys.
+        if (world->unit_defs != nullptr) {
+            for (uint32_t index = 1; index < world->unit_def_count; ++index) {
+                const auto& def = world->unit_defs[index];
+                oa::netgame::UnitDefHandshakeRecord check{};
+                check.subtype = static_cast<uint8_t>(oa::netgame::HandshakeSubtype::def_checksum);
+                check.key = def.fbi_hash;
+                check.value = def.content_checksum;
+                std::array<uint8_t, oa::formats::tad::layout::unit_check_record_bytes> bytes{};
+                std::size_t written = 0;
+                if (oa::netgame::encode_record(check, bytes.data(), bytes.size(), &written) ==
+                    oa::netgame::WireError::ok)
+                    setup.unit_checks.push_back(bytes);
+            }
+        }
+        std::string file_name;
+        if (replay_layout) {
+            file_name = oa::session::demo::recording_file_name(
+                local_time_text("%Y-%m-%d %H%M"), map, ".oademo"
+            );
+        } else {
+            const std::string extension =
+                profile != nullptr ? profile->recorder.ta_demo_recorder.auto_extension : ".tad";
+            file_name = oa::session::demo::recording_file_name(
+                local_time_text("%Y-%m-%d %H%M"), map, extension
+            );
+        }
+        const auto& record_game = net_options().record_game;
+        const auto& net_record = net_options().net_record;
+        held->recording_path = recording_file(
+            !record_game.empty() ? record_game : net_record,
+            runtime_.user_folder(),
+            runtime_.files_mod_id(),
+            path_from_utf8(file_name)
+        );
+        held->recording_is_replay = replay_layout;
+        if (replay_layout) {
+            auto facts = NetHost::replay_facts(runtime_, std::move(player_facts), map, utf8_text);
+            if (campaign_match) {
+                facts.how = "campaign";
+                facts.game_kind = "campaign";
+                facts.game_kind_object = campaign_kind_json(
+                    mission_facts.campaign_name,
+                    mission_facts.mission_number,
+                    mission_facts.mission_name
+                );
+                if (!mission_facts.source_expansion.empty() && std::find(
+                                                                   facts.expansions.begin(),
+                                                                   facts.expansions.end(),
+                                                                   mission_facts.source_expansion
+                                                               ) == facts.expansions.end())
+                    facts.expansions.push_back(mission_facts.source_expansion);
+            } else {
+                facts.how = "skirmish";
+                facts.game_kind = "skirmish";
+                facts.game_kind_object.clear();
+            }
+            held->recording_start = oa::session::demo::replay_begin(setup, facts);
+        }
+        std::string problem;
+        held->partial = partial_make(
+            runtime_.user_folder(),
+            runtime_.files_mod_id(),
+            held->recording_path.filename(),
+            plan.layout,
+            &problem
+        );
+        if (held->partial == nullptr) {
+            std::cerr << word << ": the recording could not be started: " << problem << '\n';
+            return;
+        }
+        if (replay_layout && !partial_write_start(held->partial->files, held->recording_start)) {
+            std::cerr << word
+                      << ": the recording could not be started: its description cannot "
+                         "be kept\n";
+            return;
+        }
+        oa::session::demo::recording_begin(&held->recording, std::move(setup));
+        if (!oa::session::demo::recording_stream_to(
+                &held->recording, held->partial->files.stream, &problem
+            )) {
+            std::cerr << word << ": the recording could not be started: " << problem << '\n';
+            return;
+        }
+        if (!partial_write_note(held->partial->files, runtime_.content_note_text()))
+            std::cerr << word << ": the recording's content note could not be kept\n";
+        // Commanders and, in a game loaded from a save, every unit already
+        // standing were placed before this bit was set, so they sent nothing.
+        // One create each lets a playback build the same world. Later creates
+        // go out through the hooks.
+        for (uint32_t unit_slot = 1; unit_slot < world->unit_slot_count; ++unit_slot) {
+            const Unit& unit = world->units[unit_slot];
+            if (unit.type_index == 0)
+                continue;
+            const auto* owner = world_player_ref(world, unit.owner);
+            if (owner == nullptr || !sends_here(*owner))
+                continue;
+            nm::net_match_send_unit_created(held->net.get(), &unit);
+            mark_announced(
+                *held, static_cast<uint16_t>(unit_slot), static_cast<uint8_t>(owner->index), true
+            );
+        }
+        nm::packet_layer_flush(held->connection.packets, 0, true);
+        print_feature_cells(
+            campaign_match ? "campaign features at start" : "skirmish features at start", *world
+        );
+        guard.keep = true;
+        skirmish_ = std::move(held);
+    } catch (const std::exception& error) {
+        std::cerr << word << ": the recording could not be started: " << error.what() << '\n';
+    }
+}
+
+bool NetworkPlay::skirmish_packing() const noexcept {
+    return skirmish_ != nullptr && skirmish_->finishing != nullptr && skirmish_->finishing->started;
+}
+
+void NetworkPlay::finish_skirmish_recording() {
+    if (skirmish_ == nullptr) {
+        skirmish_decided_ = false;
+        return;
+    }
+    auto& record = *skirmish_;
+    try {
+        if (record.recording.started) {
+            uint32_t length_ticks = 0;
+            bool match_finished = false;
+            const char* mission_word = nullptr;
+            if (runtime_.running_match() != nullptr) {
+                length_ticks = runtime_.running_match()->state().game.tick;
+                const auto outcome = runtime_.running_match()->outcome();
+                match_finished = outcome == oa::sim::scenario::Outcome::victory ||
+                                 outcome == oa::sim::scenario::Outcome::defeat;
+                // meta.json keeps the recording player's result of a campaign
+                // mission. A skirmish and a network game record no such word.
+                if (record.campaign && outcome == oa::sim::scenario::Outcome::victory)
+                    mission_word = "won";
+                else if (record.campaign && outcome == oa::sim::scenario::Outcome::defeat)
+                    mission_word = "lost";
+            }
+            // One last 0x28 per sender, as a network game sends when it ends,
+            // while the world and the send path are still there.
+            raise_skirmish_live(record);
+            send_skirmish_economies(record);
+            const char* word = record.campaign ? "campaign" : "skirmish";
+            if (record.net != nullptr && record.net->world != nullptr) {
+                print_skirmish_players(*record.net->world, word);
+                print_feature_cells(
+                    record.campaign ? "campaign features" : "skirmish features", *record.net->world
+                );
+            }
+            detach_skirmish(record);
+            auto finishing = std::make_unique<RecordingFinishing>();
+            finishing->stream = std::move(record.recording.stream);
+            record.recording = {};
+            finishing->partial = std::move(record.partial);
+            if (finishing->partial == nullptr) {
+                std::cerr << word << ": the recording could not be finished: it has no files\n";
+            } else {
+                finishing->finish.files = finishing->partial->files;
+                finishing->finish.replay_layout = record.recording_is_replay;
+                finishing->finish.start = std::move(record.recording_start);
+                finishing->finish.end.ended = match_finished ? "finished" : "left";
+                if (mission_word != nullptr)
+                    for (oa::formats::oademo::PlayerInfo& recorded :
+                         finishing->finish.start.meta.players)
+                        if (recorded.recorded_here.value_or(false))
+                            recorded.result = mission_word;
+                if (length_ticks != 0)
+                    finishing->finish.end.length_ticks = length_ticks;
+                finishing->finish.destination = record.recording_path;
+                finishing->finish.replace = record.recording_named;
+                record.recording_start = {};
+                RecordingFinishing* running = finishing.get();
+                record.finishing = std::move(finishing);
+                if (!runtime_.person_plays() ||
+                    !oa::base::threads::start_thread(
+                        running->thread, &NetHost::run_finishing, running
+                    ))
+                    NetHost::run_finishing(running);
+                else
+                    running->started = true;
+                if (!running->started)
+                    reap_skirmish(record);
+            }
+        } else if (record.finishing != nullptr) {
+            reap_skirmish(record);
+        } else {
+            // Already closed, or never started. The end and its length stay as written.
+            detach_skirmish(record);
+            discard_skirmish_partial(record);
+        }
+    } catch (const std::exception& error) {
+        const char* word = record.campaign ? "campaign" : "skirmish";
+        std::cerr << word << ": the recording could not be finished: " << error.what() << '\n';
+    }
+    skirmish_decided_ = false;
 }
 
 void NetworkPlay::net_bind_multiplayer() {
@@ -2632,6 +3930,11 @@ void NetworkPlay::follow_presence() {
 // records, and the other players play on. The timeout scan keeps running,
 // so a player who stops answering is dropped and no longer holds the gate.
 void NetworkPlay::net_frame() {
+    // A recording finished off this thread is named in the log as soon as it is in place.
+    if (net_)
+        NetHost::reap_if_finished(*net_);
+    if (net_)
+        note_battle_recording(runtime_, net_->recording_path);
     if (!net_ || !net_->active)
         return;
     auto& state = *net_;
@@ -2642,6 +3945,8 @@ void NetworkPlay::net_frame() {
         } catch (const std::exception& error) {
             NetHost::abort(*this, error.what());
         }
+        if (net_)
+            note_battle_recording(runtime_, net_->recording_path);
         return;
     }
     // A shared match goes on beneath the preferences its menu opens.
@@ -2672,8 +3977,10 @@ void NetworkPlay::net_frame() {
          batch = runtime_.take_whiteboard_batch())
         (void)nm::net_match_send_whiteboard(state.net.get(), batch.data(), batch.size());
     // A .record typed during the game starts its recording now.
-    if (state.net->recorder.record_name[0] != '\0' && !state.recording.started)
+    if (state.net->recorder.record_name[0] != '\0' && !state.recording.started &&
+        !state.recording_refused)
         NetHost::start_recording(*this);
+    note_battle_recording(runtime_, state.recording_path);
     nm::net_match_sync_timing(&runtime_.match_->state(), &runtime_.match_timing_);
     NetHost::watch_timeouts(*this);
     step_reporter_frame();
@@ -3493,6 +4800,7 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     // blocks seen, and those whose five bytes are all zero.
     int32_t remote_blocks = 0;
     int32_t blocks_without_presence = 0;
+    int32_t blocks_with_recorder = 0;
     for (const auto* world : {&host_world, &client_world})
         for (const auto& player : world->game.players) {
             if (player.in_use == 0 || player.status != OA_PLAYER_STATUS_MIRRORED)
@@ -3501,6 +4809,8 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
             if (info == nullptr)
                 continue;
             ++remote_blocks;
+            if (info->recorder_protocol != oa::netgame::recorder_protocol_plain)
+                ++blocks_with_recorder;
             if (std::all_of(
                     std::begin(info->reserved_after_signature),
                     std::end(info->reserved_after_signature),
@@ -3510,6 +4820,10 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         }
     std::cout << "net loopback check: setup blocks carry no presence bytes: "
               << blocks_without_presence << " / " << remote_blocks << '\n';
+    // A game recorded for the player's own sake presents no recorder: the
+    // blocks say what the profile says, whether the game is recorded or not.
+    std::cout << "net loopback check: setup blocks presenting a recorder: " << blocks_with_recorder
+              << " / " << remote_blocks << '\n';
     require(remote_blocks > 0, "no remote setup block reached either machine");
     require(
         blocks_without_presence == remote_blocks,
@@ -3832,6 +5146,10 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         // A speed key on the host reaches the joiner.
         if (tick == 100)
             raise_host_speed();
+        // Photo mode on the host, after the speed key. The time commands are
+        // refused, and the camera moves before the picture is held.
+        if (net_options().net_loopback_photo && tick == 100)
+            runtime_.exercise_shared_photo(static_cast<uint32_t>(tick));
         // The host's preferences send nothing: its RESTORE puts back the
         // normal speed, then its Cancel or UNDO the speed they opened with,
         // and the joiner keeps the speed the key set.
@@ -3884,6 +5202,12 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
             );
             runtime_.match_paused_ = false;
         }
+        // The held picture covers the next 30 exchanges. The pause key below
+        // still answers, and the camera no longer moves.
+        if (net_options().net_loopback_photo && tick == 170)
+            runtime_.exercise_shared_photo(static_cast<uint32_t>(tick));
+        if (net_options().net_loopback_photo && tick == 200)
+            runtime_.exercise_shared_photo(static_cast<uint32_t>(tick));
         // The Pause key pauses both machines, whose ticks then hold, and
         // pressed again resumes both.
         if (tick == 172)
@@ -4239,7 +5563,7 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
             const auto markers_before = board.markers.size();
             const int32_t x = allied != 0 ? 320 : 640;
             const int32_t y = 288;
-            const auto color = oa::ui::hud::player_dot_color(panel_world, panel_host_slot);
+            const auto color = oa::ui::hud::stock_dot_color(panel_world, panel_host_slot);
             const std::string label = allied != 0 ? "allied mark" : "unallied mark";
             auto& drawn = runtime_.match_whiteboard();
             oa::ui::hud::whiteboard_draw_line(drawn, x, y, x + 64, y + 32, color);

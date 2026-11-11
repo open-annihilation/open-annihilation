@@ -179,10 +179,11 @@ if [[ ! -f "$sdl_prefix/lib/cmake/SDL3/SDL3Config.cmake" && ! -f "$sdl_prefix/cm
     choose_python
     "${python[@]}" "$repo_dir/tools/bootstrap_sdl.py"
 fi
-# FreeType and the fonts text outside the game's own fonts is drawn with.
+# FreeType, HarfBuzz and the fonts text outside the game's own fonts is drawn with.
 freetype_prefixes=("$repo_dir"/local/deps/freetype-install-*/lib/cmake/freetype/freetype-config.cmake)
-if [[ ! -f "$repo_dir/local/deps/text-fonts/build-settings.json" || ! -f "${freetype_prefixes[0]}" ]]; then
-    printf 'Building the pinned FreeType and text fonts under local/deps...\n'
+harfbuzz_prefixes=("$repo_dir"/local/deps/harfbuzz-install-*/lib/cmake/harfbuzz/harfbuzzConfig.cmake)
+if [[ ! -f "$repo_dir/local/deps/text-fonts/build-settings.json" || ! -f "${freetype_prefixes[0]}" || ! -f "${harfbuzz_prefixes[0]}" ]]; then
+    printf 'Building the pinned FreeType, HarfBuzz and text fonts under local/deps...\n'
     choose_python
     "${python[@]}" "$repo_dir/tools/bootstrap_text_fonts.py"
 fi
@@ -191,6 +192,11 @@ fi
 if [[ ! -f "$repo_dir/local/deps/fonts/liberation/LiberationSans-Regular.ttf" ]]; then
     printf 'Fetching the pinned page fonts under local/deps...\n'
     python3 "$repo_dir/tools/bootstrap_page_fonts.py" --deps "$repo_dir/local/deps"
+fi
+# AccessKit, the screen-reader bridge. Fetching it here keeps a clean checkout able to configure.
+if [[ ! -f "$repo_dir/local/deps/accesskit-c-0.23.2/.oa-accesskit-settings.json" ]]; then
+    printf 'Fetching the pinned AccessKit libraries under local/deps...\n'
+    python3 "$repo_dir/tools/bootstrap_accesskit.py"
 fi
 prefix_path="$sdl_prefix"
 if [[ -n "${CMAKE_PREFIX_PATH:-}" ]]; then prefix_path="$prefix_path;$CMAKE_PREFIX_PATH"; fi

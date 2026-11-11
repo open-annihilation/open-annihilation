@@ -41,6 +41,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -146,7 +147,7 @@ def make_racing_mod(oa_tool, game_dir, workdir):
 def run(native, game_dir, package, workdir, name, stage, mod=None):
     (workdir / f"{name}.stage").write_text(stage)
     (workdir / f"{name}.conf").write_text(
-        "open-annihilation-preferences 1\n"
+        "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
         f"\"Total Annihilation|SkirmishMap\" \"{MAP}\"\n")
     result = subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",

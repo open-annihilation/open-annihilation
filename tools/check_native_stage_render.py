@@ -29,6 +29,7 @@ import shlex
 import struct
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -86,7 +87,7 @@ FRAMES = re.compile(r"^director: rendered (\d+) frames", re.M)
 
 def run(native, game_dir, workdir, name, arguments):
     preferences = workdir / f"{name}.conf"
-    preferences.write_text("open-annihilation-preferences 1\n")
+    preferences.write_text("open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n")
     return subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(game_dir), "--mute", "--preferences-file",
          str(preferences), *arguments],

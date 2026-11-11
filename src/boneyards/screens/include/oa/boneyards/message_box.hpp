@@ -71,8 +71,10 @@ extern const WindowOps k_blank_button_ops;
 /// Builds a message box as a raised top-level window of the installed desktop.
 ///
 /// The flags are cleared now and set when a button or key closes the box.
-/// The box takes the keyboard focus: a letter presses the button it starts,
-/// Enter presses Ok or Yes, and Escape presses Cancel or No.
+/// The box keeps the keyboard. Enter presses Ok or Yes until an answer has
+/// the focus; Return and Space then press that answer. A letter presses the
+/// button it starts, and Escape presses Cancel or No. The first arrow lands
+/// on the default answer, and later arrows move between the answers.
 ///
 /// @param text message; literal "\n" sequences become line breaks; null shows nothing
 /// @param buttons message_box_buttons set (may be combined; later sets overlap earlier ones)

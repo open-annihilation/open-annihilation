@@ -10,6 +10,7 @@
 #include "oa/ui/hud/command_buttons.hpp"
 #include "director_state.hpp"
 #include "match_models.hpp"
+#include "photo_state.hpp"
 #include "oa/app/hook_call.hpp"
 #include "oa/app/match_model_draws.hpp"
 #include "presentation_interpolation.hpp"
@@ -19,6 +20,7 @@
 #include "renderer_weapon_style.hpp"
 #include "xrgb_conversion.hpp"
 #include "oa/base/float_precision.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/model/model_draw.hpp"
 #include "oa/present/model/rgb_bridge.hpp"
 #include "oa/present/blit.hpp"
@@ -30,6 +32,7 @@
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/hud/backed_text.hpp"
 #include "oa/ui/hud/health_bar.hpp"
+#include "oa/ui/hud/shape_cues.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 #include "oa/present/model/sprite_placement.hpp"
 #include "oa/present/world_renderer/scene_filter.hpp"
@@ -1051,7 +1054,12 @@ void Runtime::place_tracking_camera() {
     const FixedVec3 shown = shown_unit_position(
         models, world, tracked_match_unit_, tick_fraction(presentation_alpha())
     );
-    centre_view_on(static_cast<int32_t>(shown.x), static_cast<int32_t>(shown.z));
+    // Photo mode centres the place the unit is drawn. Play keeps the ground
+    // point, as 3.1c does.
+    int32_t drawn_z = static_cast<int32_t>(shown.z);
+    if (photo_mode())
+        drawn_z -= static_cast<int32_t>(shown.y) / 2;
+    centre_view_on(static_cast<int32_t>(shown.x), drawn_z);
 }
 
 const oa::formats::gaf::RenderedFrame*
@@ -1082,6 +1090,8 @@ MatchModels& Runtime::match_models() {
     for (auto& feature : match_features_)
         feature.state = {};
     fresh.library.textures = model_render::load_texture_library(assets_);
+    // The team ramps, now that the match palette and the fresh textures are both in hand.
+    apply_colour_vision();
     model_render::build_model_display(
         fresh.display, oa::present::palette_from_bytes(match_palette_)
     );
@@ -1282,7 +1292,7 @@ void Runtime::compose_match_hud() {
     // The HUD is drawn into the memory of the layer the frame before last
     // showed, so that a frame takes none of its own.
     renderer::Surface hud = std::move(spare_match_hud_);
-    if (director_ != nullptr && !director_->presentation.show_interface) {
+    if (match_interface_hidden()) {
         // No interface: the HUD layer stays empty.
         hud.width = 0;
         hud.height = 0;
@@ -1350,6 +1360,9 @@ void Runtime::compose_match_hud() {
         present_team_panel(buttons, lists);
         const auto hud_start = std::chrono::steady_clock::now();
         renderer::render_screen_into(hud, *match_hud_, buttons, lists);
+        const auto& panel_palette = match_hud_->background.palette ? *match_hud_->background.palette
+                                                                   : match_hud_->gui_palette;
+        stamp_colour_cell_markers(hud, match_hud_->layout, panel_palette, false);
         if (auto* scrolls = hud_scrolls()) {
             renderer::refresh_layout_scrolls(*scrolls, match_hud_->layout);
             renderer::draw_layout_scrolls(
@@ -1404,11 +1417,18 @@ void Runtime::render_match_surface() {
     // and the second draw draws from there.
     if (!draw_match_surface())
         std::ignore = draw_match_surface();
+    show_held_photo_picture();
+    if (photo_ != nullptr)
+        photo_->drawn_since_enter = true;
 }
 
 bool Runtime::draw_match_surface() {
     if (!match_ || !selected_tnt_)
         throw std::logic_error("match renderer requires an initialized offline match");
+    // Before any pixel. A turned view that just ended can leave the zoom
+    // farther out than Full draws; easing would hand those frames to the
+    // processor. Photo mode takes the zoom to the new end first.
+    snap_photo_zoom_to_far_end();
     // The drawing rebuilds piece placements the match reads, so it rounds as
     // the ticks do.
     oa::base::float_precision::restore_program_float_control();
@@ -1432,7 +1452,10 @@ bool Runtime::draw_match_surface() {
     // map itself, and without the interface unless its presentation asks
     // for it; its draws never start debris particles.
     const bool directed = director_ != nullptr;
-    const bool bare = directed && !director_->presentation.show_interface;
+    const bool bare = match_interface_hidden();
+    // Photo mode can draw the selection boxes over the bare battlefield.
+    // Outside photo mode this is the bare flag's own opposite.
+    const bool show_boxes = !bare || photo_show_selection();
     // Zoomed out past the zoom the tier draws units whole at, the frame is
     // the far view: the processor draws it at the zoom in every tier, the
     // terrain from the map's pyramid.
@@ -1490,6 +1513,9 @@ bool Runtime::draw_match_surface() {
         card_world || processor_below_one,
         card_world && match_zoom() > 0.0F && match_zoom() < 1.0F
     );
+    // A photo seek puts the framed camera back before this frame clamps it,
+    // including the frame the jump lands on.
+    guard_photo_replay_camera();
     const auto held = view_camera();
     const int32_t camera_x = directed ? std::max(0, match_camera_x_) : held[0];
     const int32_t camera_y = directed ? std::max(0, match_camera_z_) : held[1];
@@ -1512,6 +1538,7 @@ bool Runtime::draw_match_surface() {
     observe_match_tick(models, *match_);
     auto& presentation = models.presentation;
     presentation.fraction = tick_fraction(presentation_alpha());
+    apply_photo_fraction(presentation.fraction);
     // The moment the units of other machines' players are drawn at on their
     // playout, which the pointer then picks against.
     presentation.drawn_moment = playout_moment(presentation, presentation.fraction);
@@ -1546,7 +1573,9 @@ bool Runtime::draw_match_surface() {
     ensure_radar_surfaces();
     if (directed)
         bind_director_view();
-    else
+    else if (!photo_mode())
+        // Photo mode draws from its own camera. The Game block keeps the
+        // player's, so the match does not follow the photo camera.
         bind_match_view();
     // The frame's on-screen list, after the ticks and before the drawing: the
     // pointer and the under-attack notice test the list the frame drawn last
@@ -1654,8 +1683,17 @@ bool Runtime::draw_match_surface() {
     };
     // Past the tier's floor a unit is a few pixels at most: the margin
     // keeps to the map pixels a large unit and its shadow reach.
+    // A turned-view tile's picture is one piece. Units in the rest of the
+    // photo still belong in the scene, which is packed once for the whole
+    // photo (photo_tile_frame_).
+    const int shown_w = photo_tile_frame_ && photo_tile_whole_width_ > 0
+                            ? static_cast<int>(photo_tile_whole_width_)
+                            : bf_w;
+    const int shown_h = photo_tile_frame_ && photo_tile_whole_height_ > 0
+                            ? static_cast<int>(photo_tile_whole_height_)
+                            : bf_h;
     const auto cull_margin =
-        live_renderer_active() ? 2 * std::max(bf_w, bf_h) + kLeastCullMargin
+        live_renderer_active() ? 2 * std::max(shown_w, shown_h) + kLeastCullMargin
         : far ? static_cast<int>(
                     std::ceil(kFarCullMarginMapPixels * static_cast<double>(match_zoom()))
                 )
@@ -1667,9 +1705,9 @@ bool Runtime::draw_match_surface() {
                 );
     const auto on_battlefield = [&](int x, int y) {
         return x >= viewport.destination_x - cull_margin &&
-               x < viewport.destination_x + bf_w + cull_margin &&
+               x < viewport.destination_x + shown_w + cull_margin &&
                y >= viewport.destination_y - cull_margin &&
-               y < viewport.destination_y + bf_h + cull_margin;
+               y < viewport.destination_y + shown_h + cull_margin;
     };
     sync_dead_feature_draws();
     // The model of a weapon registry slot's shots, loaded on first use.
@@ -2063,6 +2101,20 @@ bool Runtime::draw_match_surface() {
             frame_draws_.probe_z = drawn.position.z;
         }
     };
+    // Photo mode keeps the player's camera on the match. A selection box
+    // drawn from that camera sits where the unit was before the photo camera
+    // moved. With Show selection on, the box uses the camera this frame
+    // draws, which is the photo camera, so it surrounds the unit on screen
+    // and in the photo. Every other frame keeps the match's camera, and makes
+    // no copy of the game.
+    std::optional<oa::Game> photo_selection_game;
+    const oa::Game* selection_game = &world_record.game;
+    if (photo_show_selection()) {
+        auto& photo_game = photo_selection_game.emplace(world_record.game);
+        photo_game.camera_x = static_cast<uint32_t>(renderer.camera_x);
+        photo_game.camera_y = static_cast<uint32_t>(renderer.camera_y);
+        selection_game = &photo_game;
+    }
     // The dots of a frame of dots, drawn over the fog, and the colour of a
     // selected unit's frame: the selection boxes' own.
     std::vector<FarViewDot> far_dots;
@@ -2104,13 +2156,20 @@ bool Runtime::draw_match_surface() {
             // A carried unit shows in its carrier's dot.
             if (model.unit->attach_parent != 0)
                 return;
-            const bool selected = !bare && (model.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+            const bool selected = show_boxes && (model.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+            // The seat is set only while cues are in effect, which is what
+            // leaves the square out for the marker.
+            const int seat = oa::present::colour_vision::shape_cues_active() &&
+                                     model.unit->owner_index < OA_PLAYER_COUNT
+                                 ? static_cast<int>(model.unit->owner_index)
+                                 : -1;
             far_dots.push_back(
                 {screen.x,
                  screen.y,
                  palette_rgb(oa::ui::hud::player_dot_color(world_record, model.unit->owner_index)),
                  selected,
-                 selected_frame}
+                 selected_frame,
+                 seat}
             );
             return;
         }
@@ -2120,10 +2179,10 @@ bool Runtime::draw_match_surface() {
         note_unit_drawn(unit_index, *shown.unit, plan.from_copies);
         // A selected unit's box is outlined before the unit draws, unless the
         // interface is not drawn.
-        if (!bare && (shown.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 &&
+        if (show_boxes && (shown.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 &&
             !shown.instance->model().objects.empty())
             oa::present::world_renderer::overlay_selection_box(
-                world_record.game,
+                *selection_game,
                 selection_raster,
                 &models.bridge.surface,
                 *shown.unit,
@@ -2432,8 +2491,14 @@ bool Runtime::draw_match_surface() {
         );
     }
     oa::present::world_renderer::BattlefieldDrawPlan draw_plan;
+    // The game counts the ground's draw rows from the camera, so a Full
+    // photo tile counts them from the whole photo's camera: a unit and a
+    // feature that overlap then draw in the order the whole photo draws them.
+    const int32_t order_camera_y = photo_tile_map_offset_.has_value()
+                                       ? renderer.camera_y - (*photo_tile_map_offset_)[1]
+                                       : renderer.camera_y;
     oa::present::world_renderer::plan_battlefield_draws(
-        feature_sites, unit_sites, renderer.camera_y, draw_plan
+        feature_sites, unit_sites, order_camera_y, draw_plan
     );
     const auto plan_feature = [&](uint32_t index) {
         auto& feature = features_to_draw[index];
@@ -2705,13 +2770,44 @@ bool Runtime::draw_match_surface() {
     if (!live_world && !covered)
         fog_pass(FogPasses::both);
     // The dots over the fog, as the minimap shows its units over its own.
-    if (dots)
+    if (dots) {
+        const int32_t picture_w = static_cast<int32_t>(world_surface.width);
+        const int32_t picture_h = static_cast<int32_t>(world_surface.height);
+        for (FarViewDot& dot : far_dots) {
+            if (dot.player < 0 || dot.player >= OA_PLAYER_COUNT)
+                continue;
+            // The picture is only part of the map. A unit whose centre is
+            // outside it is not drawn at the edge.
+            if (dot.x < 0 || dot.y < 0 || dot.x >= picture_w || dot.y >= picture_h) {
+                dot.framed = false;
+                continue;
+            }
+            const oa::ui::hud::CompactMarkerPlace place =
+                oa::ui::hud::compact_marker_place(picture_w, picture_h, dot.x, dot.y);
+            oa::ui::hud::stamp_compact_marker(
+                world_surface.rgb.data(),
+                picture_w,
+                picture_h,
+                dot.x,
+                dot.y,
+                dot.player,
+                dot.colour[0],
+                dot.colour[1],
+                dot.colour[2]
+            );
+            // The frame follows the marker after it moves in from the edge.
+            dot.x = place.left + oa::ui::hud::kCompactMarkerCentre;
+            dot.y = place.top + oa::ui::hud::kCompactMarkerCentre;
+        }
+        // The selected frame is drawn after the marker, so the marker does
+        // not cover it.
         draw_far_view_dots(
             world_surface.rgb.data(),
             static_cast<int32_t>(world_surface.width),
             static_cast<int32_t>(world_surface.height),
             far_dots
         );
+    }
     // Magnified scenes must carry their effects through the same camera shift
     // and sampling as their terrain, rather than becoming fixed opaque overlays.
     if (!card_world && !live_renderer_active() && scaling.method == SceneMethod::magnify) {
@@ -2814,6 +2910,78 @@ bool Runtime::draw_match_surface() {
     // label, message, board or overlay is painted over it.
     drawn_health_bars_.clear();
     if (bare) {
+        // Photo mode's health bars, and nothing else of the interface, over
+        // the processor's battlefield. A live frame draws its own bars after
+        // the card's picture replaces this one.
+        if (photo_show_health_bars() && !live_renderer_active()) {
+            paint_on(PaintLayer::battlefield);
+            const auto photo_bars = oa::ui::hud::health_bar_size(match_zoom());
+            for (const auto& photo_slot : match_->world().slots) {
+                if (photo_slot.unit_index == 0 || photo_slot.unit == nullptr ||
+                    photo_slot.record.type_index == 0 || photo_slot.unit->type == nullptr)
+                    continue;
+                try {
+                    if (photo_slot.owner_index != match_view_player() &&
+                        !match_->unit_shown(
+                            static_cast<uint8_t>(match_view_player()), photo_slot.unit_index
+                        ))
+                        continue;
+                } catch (const std::exception&) {
+                    continue;
+                }
+                const bool shown_elsewhere =
+                    between_ticks ||
+                    mirrored_pose(models, world_record, photo_slot.unit_index, moment).has_value();
+                const auto at =
+                    shown_elsewhere
+                        ? project_match_point(
+                              painted,
+                              oa::sim::match_runtime::fixed_words(
+                                  shown_unit_position(models, world_record, photo_slot.unit_index)
+                              )
+                          )
+                        : project_match_point(painted, photo_slot.unit->position);
+                const int column = at.x;
+                const int row = at.y + photo_bars.below_unit;
+                if (const auto& world = match_->state();
+                    !dots && oa::ui::hud::draws_health_bar(world, photo_slot.record)) {
+                    const auto* definition = oa::world_unit_def_of(&world, &photo_slot.record);
+                    oa::ui::hud::HealthBar bar{};
+                    if (definition != nullptr &&
+                        oa::ui::hud::unit_health_bar(
+                            world.game, photo_slot.record, *definition, column, row, bar, photo_bars
+                        )) {
+                        const auto fill = [this](const oa::Rect32& rect, uint8_t color) {
+                            fill_hud_rect(
+                                rect.x1,
+                                rect.y1,
+                                rect.x2 - rect.x1 + 1,
+                                rect.y2 - rect.y1 + 1,
+                                color
+                            );
+                        };
+                        fill(bar.trough, bar.trough_color);
+                        fill(bar.fill, bar.fill_color);
+                        drawn_health_bars_.push_back(bar);
+                        notch_health_bar(bar);
+                    }
+                }
+                if (!dots && photo_slot.record.owner_index < OA_PLAYER_COUNT) {
+                    const bool marked = (photo_slot.record.flags & OA_UNIT_FLAG_SELECTED) != 0 ||
+                                        photo_slot.record.id == hovered_match_unit_ ||
+                                        photo_slot.record.id == match_->state().game.cursor_unit_id;
+                    if (marked)
+                        stamp_shape_marker(
+                            at.x - 29,
+                            at.y - 19,
+                            static_cast<int>(photo_slot.record.owner_index),
+                            oa::ui::hud::player_dot_color(
+                                match_->state(), photo_slot.record.owner_index
+                            )
+                        );
+                }
+            }
+        }
         // A turned director frame is the rotated view's picture, drawn here
         // as the frame with the interface draws it below; one the card
         // cannot draw ends the frame, as there.
@@ -2882,7 +3050,20 @@ bool Runtime::draw_match_surface() {
                 fill(bar.trough, bar.trough_color);
                 fill(bar.fill, bar.fill_color);
                 drawn_health_bars_.push_back(bar);
+                notch_health_bar(bar);
             }
+        }
+        if (!dots && slot.record.owner_index < OA_PLAYER_COUNT) {
+            const bool marked = (slot.record.flags & OA_UNIT_FLAG_SELECTED) != 0 ||
+                                slot.record.id == hovered_match_unit_ ||
+                                slot.record.id == match_->state().game.cursor_unit_id;
+            if (marked)
+                stamp_shape_marker(
+                    screen.x - 29,
+                    screen.y - 19,
+                    static_cast<int>(slot.record.owner_index),
+                    oa::ui::hud::player_dot_color(match_->state(), slot.record.owner_index)
+                );
         }
         // The squad digit of the viewpoint player's own unit in a squad,
         // two rows below its bar, and the self-destruct count above it. The
@@ -3057,8 +3238,11 @@ void Runtime::compose_shown_match(renderer::Surface& frame) {
 
 bool Runtime::read_presented_world(renderer::Surface& world) {
     if (sdl_.renderer == nullptr || screen_ != Screen::match || !match_ || !match_use_layers_ ||
-        match_hud_cpu_.rgb.empty() || match_world_cpu_.rgb.empty() ||
-        (render_run_ && render_run_->device_lost))
+        match_world_cpu_.rgb.empty() || (render_run_ && render_run_->device_lost))
+        return false;
+    // Photo mode's battlefield has no HUD layer. Full classic can still be
+    // read back while the picture is held; every other empty HUD cannot.
+    if (match_hud_cpu_.rgb.empty() && !(photo_mode() && full_frame_drawn()))
         return false;
     const uint32_t bf_w = match_world_cpu_.width;
     const uint32_t bf_h = match_world_cpu_.height;

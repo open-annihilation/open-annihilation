@@ -498,6 +498,13 @@ bool TouchDispatchAccess::take_finger(Runtime& runtime, const SDL_Event& event, 
             claimed.down_ns = now;
             claim(runtime, claimed);
             recount(runtime);
+            // A finger the photo panel takes stays there: the recogniser would
+            // pan the battlefield under the control.
+            if (runtime.photo_mode() &&
+                runtime.offer_photo_pointer(ScreenInputKind::pointer_down, x, y)) {
+                claimed.panel = true;
+                break;
+            }
             if (claimed.target == TouchTarget::battlefield) {
                 // A building the pad started placing is the touch model's from now on.
                 if (dispatch.placement_by_pad)
@@ -525,6 +532,10 @@ bool TouchDispatchAccess::take_finger(Runtime& runtime, const SDL_Event& event, 
             const float slop = points_to_pixels(runtime, gestures::Thresholds{}.slop_points);
             if (std::hypot(x - claimed.start_x, y - claimed.start_y) > slop)
                 claimed.moved = true;
+            if (claimed.panel) {
+                std::ignore = runtime.offer_photo_pointer(ScreenInputKind::pointer_move, x, y);
+                break;
+            }
             if (claimed.target == TouchTarget::battlefield) {
                 battlefield_gestures(
                     runtime, dispatch.battlefield.finger(gestures::FingerPhase::move, sample)
@@ -547,7 +558,13 @@ bool TouchDispatchAccess::take_finger(Runtime& runtime, const SDL_Event& event, 
             auto& claimed = dispatch.fingers[*slot];
             claimed.x = x;
             claimed.y = y;
-            if (claimed.target == TouchTarget::battlefield) {
+            if (claimed.panel) {
+                // A lift releases the control under the finger. A cancel lets
+                // go off every control, so the system's gesture presses nothing.
+                std::ignore = runtime.offer_photo_pointer(
+                    ScreenInputKind::pointer_up, cancelled ? -1.0F : x, cancelled ? -1.0F : y
+                );
+            } else if (claimed.target == TouchTarget::battlefield) {
                 battlefield_gestures(runtime, dispatch.battlefield.finger(phase, sample));
             } else {
                 const auto batch = claimed.recogniser.finger(phase, sample);
@@ -694,6 +711,12 @@ gestures::Thresholds TouchDispatchAccess::thresholds(const Runtime& runtime, boo
             (seen.drag == settings::TouchDrag::automatic && runtime.touch_phone_class());
         result.one_finger_drag =
             scroll ? gestures::OneFingerDrag::scroll : gestures::OneFingerDrag::box;
+    }
+    // Photo mode pans with one finger whatever the drag setting says, and a
+    // two-finger twist turns the view. Twist stays off outside photo mode.
+    if (runtime.photo_mode()) {
+        result.one_finger_drag = gestures::OneFingerDrag::scroll;
+        result.twist_degrees = 8.0F;
     }
     return result;
 }
@@ -868,6 +891,12 @@ void TouchDispatchAccess::claim(Runtime& runtime, ClaimedFinger& finger) {
     const bool on_match = runtime.screen_ == Screen::match && runtime.match_;
     finger.press_x = finger.sent_x = x;
     finger.press_y = finger.sent_y = y;
+    // Photo mode draws no HUD to press. The panel takes a finger that lands
+    // on it, and every other finger pans the battlefield.
+    if (runtime.photo_mode()) {
+        finger.target = TouchTarget::battlefield;
+        return;
+    }
     const auto as_control = [&finger](const hud::ControlRect& control) {
         finger.target = TouchTarget::control;
         finger.control = control;
@@ -1149,7 +1178,7 @@ void Runtime::tick_touch() {
     // A finger resting on the battlefield keeps the pointer under it, so
     // the unit there stays the cursor's unit and the bottom bar's.
     if (dispatch.finger_point && !dispatch.placement_touch && !dispatch.box_active &&
-        !dispatch.scroll_active && dispatch.battlefield.fingers_down() == 1)
+        !dispatch.scroll_active && dispatch.battlefield.fingers_down() == 1 && !photo_mode())
         update_pointer((*dispatch.finger_point)[0], (*dispatch.finger_point)[1]);
     TouchDispatchAccess::refresh_hud(*this, now);
     // The phone's placed regions follow the frame just laid out (the open

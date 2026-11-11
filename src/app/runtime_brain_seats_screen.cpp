@@ -1080,6 +1080,14 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
 
+    /// Tells that the buttons draw the room's marker, not the kit's ring.
+    ///
+    /// A button that sits in the original screen's Tab order takes the
+    /// family's ring, and the tree follows that ring.
+    ///
+    /// @return false
+    [[nodiscard]] bool draws_kit_focus_ring() const override { return false; }
+
     /// Follows the view the buttons are placed on.
     ///
     /// @param placed_on what the screen is placed on
@@ -1179,6 +1187,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             card_pressed_ = false;
             if (focused_slot_ >= 0) {
                 focused_slot_ = -1;
+                focus_ring_ = false;
                 ++revision_;
             }
             return LayerAnswer::pass;
@@ -1336,7 +1345,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         shown_state.hovered = control_id(hovered_slot_);
         shown_state.pressed = control_id(pressed_slot_);
         shown_state.focused = control_id(focused_slot_);
-        shown_state.focus_shown = focused_slot_ >= 0;
+        shown_state.focus_shown = focus_ring_;
         return shown_state;
     }
 
@@ -1359,12 +1368,37 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         if (focused_slot_ >= 0 && !has_button(laid, focused_slot_)) {
             focused_slot_ = -1;
             pressed_slot_ = -1;
+            focus_ring_ = false;
             ++revision_;
         }
         if (focused_slot_ >= 0 && runtime_.frontend_focus() >= 0) {
             focused_slot_ = -1;
             pressed_slot_ = -1;
+            focus_ring_ = false;
             ++revision_;
+        }
+        // Once a button exists, the first one is focused with the ring hidden,
+        // unless the screen under this one already has the focus. That focus
+        // is not taken, and a later clear stays cleared.
+        if (laid.ok && !opened_focus_) {
+            opened_focus_ = true;
+            if (focused_slot_ < 0 && runtime_.frontend_focus() < 0) {
+                int32_t first = -1;
+                for (const Stop& stop : stops_of(laid)) {
+                    if (!stop.button)
+                        continue;
+                    first = stop.id;
+                    break;
+                }
+                if (first < 0 && !laid.buttons.empty())
+                    first = laid.buttons.front().slot;
+                if (first >= 0) {
+                    focused_slot_ = first;
+                    focus_ring_ = runtime_.oa_layer().always_show_focus();
+                    if (focus_ring_)
+                        ++revision_;
+                }
+            }
         }
         if (card_.open_slot() != mp::presence_card_no_slot && card_.open_slot() != menu_card_slot &&
             !has_button(laid, card_.open_slot()))
@@ -1967,7 +2001,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             room::draw_room_button(parts, art, look);
         }
         room::draw_room_notch(parts, art, notch, menu_.seat == button.slot, held_here);
-        if (focused_slot_ == button.slot)
+        if (focus_ring_ && focused_slot_ == button.slot)
             room::draw_room_focus(parts, art, button.campaign ? button.rect : notch);
     }
 
@@ -2177,6 +2211,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     LayerAnswer take_focus(int32_t slot) {
         focused_slot_ = slot;
         pressed_slot_ = -1;
+        focus_ring_ = true;
         if (runtime_.frontend_focus() != -1)
             runtime_.set_frontend_focus(-1);
         ++revision_;
@@ -2189,21 +2224,10 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     /// @return redraw
     LayerAnswer hand_focus(int32_t gadget) {
         focused_slot_ = -1;
+        focus_ring_ = false;
         runtime_.set_frontend_focus(gadget);
         ++revision_;
         return LayerAnswer::redraw;
-    }
-
-    /// Hands the focus to one stop.
-    ///
-    /// @param stop the stop
-    /// @return redraw, or none when a record cannot take it
-    LayerAnswer take_stop(const Stop& stop) {
-        if (stop.button)
-            return take_focus(stop.id);
-        if (stop.id > 0)
-            return hand_focus(stop.id);
-        return LayerAnswer::none;
     }
 
     /// The notch of the computer row above or below, when there is one.
@@ -2235,6 +2259,84 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         return found;
     }
 
+    /// The focusable record of a name, or 0.
+    ///
+    /// @param name the gadget's name
+    /// @return its index
+    [[nodiscard]] int32_t focusable_named(std::string_view name) const {
+        const auto& gadgets = runtime_.resources_.layout.gadgets;
+        for (std::size_t at = 1; at < gadgets.size(); ++at) {
+            if (!takes_focus(gadgets[at]))
+                continue;
+            if (Runtime::tdf_names_equal(gadgets[at].common.name, name))
+                return static_cast<int32_t>(at);
+        }
+        return 0;
+    }
+
+    /// How many player rows the setup is showing.
+    ///
+    /// @return the count, never past the stored slots
+    [[nodiscard]] int32_t shown_slot_count() const {
+        const entry::SkirmishSettings& settings = runtime_.skirmish_settings_;
+        return std::min(settings.slot_count, static_cast<int32_t>(settings.slots.size()));
+    }
+
+    /// The next stop after a skirmish brain: the next row's Player button,
+    /// or Select Map when no later row has one.
+    ///
+    /// @param slot the computer's slot
+    /// @return the record, or 0
+    [[nodiscard]] int32_t skirmish_tab_next(int32_t slot) const {
+        const int32_t slot_limit = shown_slot_count();
+        for (int32_t later = slot + 1; later < slot_limit; ++later) {
+            const int32_t player = focusable_named("Player" + std::to_string(later));
+            if (player > 0)
+                return player;
+        }
+        return focusable_named("SelectMap");
+    }
+
+    /// The computer seat Tab enters from the focused record, or -1.
+    ///
+    /// Forward enters from that seat's Energy. Back enters from the next
+    /// row's Player button, or from Select Map when no later row has one.
+    ///
+    /// @param laid the geometry
+    /// @param current the focused record
+    /// @param forward true for Tab
+    /// @return the slot
+    [[nodiscard]] int32_t
+    skirmish_tab_seat(const Geometry& laid, int32_t current, bool forward) const {
+        if (current <= 0)
+            return -1;
+        const auto& gadgets = runtime_.resources_.layout.gadgets;
+        if (static_cast<std::size_t>(current) >= gadgets.size())
+            return -1;
+        const std::string& current_name = gadgets[static_cast<std::size_t>(current)].common.name;
+        const entry::SkirmishSettings& settings = runtime_.skirmish_settings_;
+        const int32_t slot_limit = shown_slot_count();
+        for (const SeatButton& button : laid.buttons) {
+            if (button.campaign)
+                continue;
+            const int32_t slot = button.slot;
+            if (slot < 0 || slot >= slot_limit)
+                continue;
+            if (settings.slots[static_cast<std::size_t>(slot)].controller !=
+                entry::controller::computer)
+                continue;
+            if (forward) {
+                if (Runtime::tdf_names_equal(current_name, "Energy" + std::to_string(slot)))
+                    return slot;
+                continue;
+            }
+            const int32_t next = skirmish_tab_next(slot);
+            if (next > 0 && next == current)
+                return slot;
+        }
+        return -1;
+    }
+
     /// Answers one key, for the keyboard and for the pad actions that become keys.
     ///
     /// @param pressed the key
@@ -2245,38 +2347,53 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             return LayerAnswer::pass;
         const int32_t current = runtime_.frontend_focus();
         if (focused_slot_ < 0) {
-            if (pressed == kit::Key::tab || pressed == kit::Key::back_tab) {
-                for (const SeatButton& button : laid.buttons) {
-                    if (pressed == kit::Key::tab) {
-                        const int32_t before = record_before(laid.focusable, button.order_at);
-                        if (current == before && before > 0)
-                            return take_focus(button.slot);
-                    }
-                    if (pressed == kit::Key::back_tab) {
-                        const int32_t after = record_after(laid.focusable, button.order_at);
-                        if (current == after && after > 0)
-                            return take_focus(button.slot);
-                    }
+            // The campaign's brain sits between Mutators and Start. A
+            // skirmish brain sits after that computer's Energy.
+            if (campaign_screen()) {
+                if (pressed == kit::Key::tab && runtime_.mutator_button_has_focus()) {
+                    runtime_.release_mutator_button_focus();
+                    return take_focus(laid.buttons.front().slot);
                 }
+                if (pressed == kit::Key::back_tab) {
+                    const int32_t start = focusable_named("Start");
+                    if (start > 0 && current == start)
+                        return take_focus(laid.buttons.front().slot);
+                }
+            } else if (pressed == kit::Key::tab || pressed == kit::Key::back_tab) {
+                const int32_t slot = skirmish_tab_seat(laid, current, pressed == kit::Key::tab);
+                if (slot >= 0)
+                    return take_focus(slot);
             }
             return LayerAnswer::pass;
         }
+        // The ring is hidden: Tab and Shift+Tab move and show it. Every other
+        // key is the screen's, including Return, until a key shows the ring.
+        if (!focus_ring_ && pressed != kit::Key::tab && pressed != kit::Key::back_tab)
+            return LayerAnswer::pass;
         if (pressed == kit::Key::enter || pressed == kit::Key::space) {
             open_menu(focused_slot_);
+            if (pressed == kit::Key::enter)
+                focus_ring_ = false;
             return LayerAnswer::redraw;
         }
-        const std::vector<Stop> stops = stops_of(laid);
-        std::size_t at = stops.size();
-        for (std::size_t found = 0; found < stops.size(); ++found) {
-            if (stops[found].button && stops[found].id == focused_slot_)
-                at = found;
-        }
-        if ((pressed == kit::Key::tab || pressed == kit::Key::back_tab) && at < stops.size() &&
-            !stops.empty()) {
-            const std::size_t next = pressed == kit::Key::tab
-                                         ? (at + 1 < stops.size() ? at + 1 : 0)
-                                         : (at > 0 ? at - 1 : stops.size() - 1);
-            return take_stop(stops[next]);
+        if (pressed == kit::Key::tab || pressed == kit::Key::back_tab) {
+            if (campaign_screen()) {
+                if (pressed == kit::Key::tab) {
+                    const int32_t start = focusable_named("Start");
+                    return start > 0 ? hand_focus(start) : LayerAnswer::none;
+                }
+                focused_slot_ = -1;
+                focus_ring_ = false;
+                ++revision_;
+                runtime_.give_mutator_button_focus();
+                return LayerAnswer::redraw;
+            }
+            if (pressed == kit::Key::tab) {
+                const int32_t next = skirmish_tab_next(focused_slot_);
+                return next > 0 ? hand_focus(next) : LayerAnswer::none;
+            }
+            const int32_t energy = focusable_named("Energy" + std::to_string(focused_slot_));
+            return energy > 0 ? hand_focus(energy) : LayerAnswer::none;
         }
         const SeatButton* current_button = button_of(laid, focused_slot_);
         if (current_button == nullptr)
@@ -2457,6 +2574,8 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     int32_t pressed_slot_{-1}; ///< the notch a left press is held on; -1 for none
     int32_t right_pressed_slot_{-1}; ///< the button a right press is held on; -1 for none
     int32_t focused_slot_{-1};       ///< the notch the keyboard focus is on; -1 for none
+    bool focus_ring_{};              ///< the focus ring is drawn on that notch
+    bool opened_focus_{};            ///< the screen has placed its opening focus
     bool have_pointer_{};            ///< the pointer has been seen
     kit::Point pointer_layer_{};     ///< the pointer, in the layer's points
     bool card_pressed_{};            ///< a press started on the open card

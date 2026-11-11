@@ -679,6 +679,10 @@ void Runtime::reset_meteors() {
     environment::reset_meteors(meteor, match_->state(), host);
 }
 
+std::span<uint8_t> Runtime::meteor_state_bytes() noexcept {
+    return {reinterpret_cast<uint8_t*>(&saveload_state().meteor), sizeof(environment::MeteorState)};
+}
+
 void Runtime::step_meteors() {
     if (!match_)
         return;

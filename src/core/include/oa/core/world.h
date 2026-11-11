@@ -27,7 +27,8 @@ OA_CORE_BEGIN
  * capacity asks for them; the map tables (plots, sight grid, placed features)
  * belong to the map loader. Sides past the game state's table are bound by
  * the match, which owns them; the World only points at them. The accessors
- * never allocate. */
+ * never allocate. A table added here is listed in world_image.hpp, which a
+ * keyframe copies the world's tables by. */
 typedef struct World {
     Game game;
     Unit* units; /* unit_slot_count records; slot 0 is reserved */

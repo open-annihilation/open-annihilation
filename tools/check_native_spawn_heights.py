@@ -26,6 +26,7 @@ import shlex
 import struct
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -103,7 +104,7 @@ def run(native, game_dir, workdir):
         lines += [f"at {tick} hover m{index}", f"at {tick} console +{name}"]
     (workdir / "spawn.stage").write_text("\n".join(lines) + "\n")
     (workdir / "spawn.conf").write_text(
-        "open-annihilation-preferences 1\n"
+        "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
         f"\"Total Annihilation|SkirmishMap\" \"{MAP}\"\n")
     result = subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",

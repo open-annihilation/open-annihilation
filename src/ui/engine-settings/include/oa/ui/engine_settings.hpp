@@ -311,6 +311,18 @@ inline constexpr std::string_view file_type_oakeys = "open-annihilation.file-typ
 /// "on" or "off" (EngineSettings::file_type_oalaunch). Absent, or any text
 /// other than off, the game opens launch files.
 inline constexpr std::string_view file_type_oalaunch = "open-annihilation.file-types.oalaunch";
+/// "on" or "off" (EngineSettings::replays_record). Only the word off stops
+/// the game keeping the games it plays as replays; absent, or any other
+/// text, every game is recorded.
+inline constexpr std::string_view replays_record = "open-annihilation.replays.record";
+/// "30-days", "90-days", "1-year" or "forever" (EngineSettings::replays_keep).
+/// How long the replays the game recorded are kept; absent, or any other
+/// text, reads as "30-days".
+inline constexpr std::string_view replays_keep = "open-annihilation.replays.keep";
+/// "on" or "off" (EngineSettings::replays_open_files). Only the word off
+/// stops this copy opening .oademo and .tad files; absent, or any other
+/// text, it opens them.
+inline constexpr std::string_view replays_open_files = "open-annihilation.replays.open-files";
 /// The last mutator set a skirmish setup started a game with: the canonical
 /// loadout text, mutators in order with versions, package SHA-256s and
 /// options. Absent, or text that cannot be read as that loadout, means no
@@ -362,6 +374,12 @@ static_assert(update_channel.find('|') == std::string_view::npos);
 static_assert(update_channel.find('\\') == std::string_view::npos);
 static_assert(update_pinged.find('|') == std::string_view::npos);
 static_assert(update_pinged.find('\\') == std::string_view::npos);
+static_assert(replays_record.find('|') == std::string_view::npos);
+static_assert(replays_record.find('\\') == std::string_view::npos);
+static_assert(replays_keep.find('|') == std::string_view::npos);
+static_assert(replays_keep.find('\\') == std::string_view::npos);
+static_assert(replays_open_files.find('|') == std::string_view::npos);
+static_assert(replays_open_files.find('\\') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
@@ -392,6 +410,36 @@ static_assert(edge_scroll.find('|') == std::string_view::npos);
 static_assert(edge_scroll.find('\\') == std::string_view::npos);
 static_assert(move_overlays.find('|') == std::string_view::npos);
 static_assert(move_overlays.find('\\') == std::string_view::npos);
+/// "off", "protanopia", "deuteranopia", "tritanopia" or "achromatopsia"
+/// (EngineSettings::colour_vision). Absent means off.
+inline constexpr std::string_view colour_vision = "open-annihilation.access.colour-vision";
+/// 1 or 0 (EngineSettings::shape_cues). Absent means off. Achromatopsia stores 1.
+inline constexpr std::string_view shape_cues = "open-annihilation.access.shape-cues";
+/// "auto", "on" or "off" (EngineSettings::screen_reader). Absent means auto.
+inline constexpr std::string_view screen_reader = "open-annihilation.access.screen-reader";
+/// "off", "pages" or "all" (EngineSettings::speak_chat). Absent means all.
+inline constexpr std::string_view speak_chat = "open-annihilation.access.speak-chat";
+/// 1 or 0 (EngineSettings::speak_lobby). Absent means on. 0 is off.
+inline constexpr std::string_view speak_lobby = "open-annihilation.access.speak-lobby";
+/// 1 or 0 (EngineSettings::speak_ticker). Absent means off. Only 1 is on.
+inline constexpr std::string_view speak_ticker = "open-annihilation.access.speak-ticker";
+/// 1 or 0 (EngineSettings::always_show_focus). Absent means off.
+/// A whole number above 0 is on.
+inline constexpr std::string_view always_show_focus = "open-annihilation.access.always-show-focus";
+static_assert(colour_vision.find('|') == std::string_view::npos);
+static_assert(colour_vision.find('\\') == std::string_view::npos);
+static_assert(shape_cues.find('|') == std::string_view::npos);
+static_assert(shape_cues.find('\\') == std::string_view::npos);
+static_assert(screen_reader.find('|') == std::string_view::npos);
+static_assert(screen_reader.find('\\') == std::string_view::npos);
+static_assert(speak_chat.find('|') == std::string_view::npos);
+static_assert(speak_chat.find('\\') == std::string_view::npos);
+static_assert(speak_lobby.find('|') == std::string_view::npos);
+static_assert(speak_lobby.find('\\') == std::string_view::npos);
+static_assert(speak_ticker.find('|') == std::string_view::npos);
+static_assert(speak_ticker.find('\\') == std::string_view::npos);
+static_assert(always_show_focus.find('|') == std::string_view::npos);
+static_assert(always_show_focus.find('\\') == std::string_view::npos);
 static_assert(order_wheel.find('|') == std::string_view::npos);
 static_assert(order_wheel.find('\\') == std::string_view::npos);
 static_assert(access_slow_keys.find('|') == std::string_view::npos);
@@ -1277,6 +1325,24 @@ inline constexpr std::array<UpdateChannel, 2> update_channel_choices{
     UpdateChannel::testing,
 };
 
+/// How long the replays the game recorded are kept. The stored words are
+/// the durations' own: 30-days, 90-days, 1-year, forever. A replay the player
+/// marked Keep stays until the player deletes it, whatever this says.
+enum class ReplayKeep : uint8_t {
+    thirty_days, ///< 30 days, the default
+    ninety_days, ///< 90 days
+    one_year,    ///< a year
+    forever,     ///< until the player deletes them
+};
+
+/// The choices of Keep replays for, in the order the dialog offers them.
+inline constexpr std::array<ReplayKeep, 4> replay_keep_choices{
+    ReplayKeep::thirty_days,
+    ReplayKeep::ninety_days,
+    ReplayKeep::one_year,
+    ReplayKeep::forever,
+};
+
 /// Coloured weapon lighting's percent with Hardware acceleration Full where
 /// the preferences store none (default_effect_intensity).
 inline constexpr uint32_t default_weapon_lighting = 20;
@@ -1304,6 +1370,33 @@ enum class OrderWheel : uint8_t {
     off,         ///< a click and a drag do what they do today
     hold_right,  ///< holding the right button opens the wheel
     hold_middle, ///< holding the middle button opens the wheel
+};
+
+/// How this machine draws player colours. Off is the game's own set.
+/// The values match oa::present::colour_vision::Mode.
+enum class ColourVision : uint8_t {
+    off,           ///< the game's own colours
+    protanopia,    ///< red-weak
+    deuteranopia,  ///< green-weak
+    tritanopia,    ///< blue-weak
+    achromatopsia, ///< no colour; shape cues stay on
+};
+
+/// When the screen reader attaches. The values match
+/// oa::platform::screen_reader::Preference. Absent, and any text other than
+/// on and off, is automatic.
+enum class ScreenReaderMode : uint8_t {
+    automatic, ///< while the system says a screen reader is running
+    on,        ///< also with one the system does not report
+    off,       ///< never
+};
+
+/// Which chat lines are spoken. Absent, and any text other than off and
+/// pages, is all. The values match oa::platform::screen_reader::SpeakChat.
+enum class SpeakChat : uint8_t {
+    off,   ///< no chat, whispers or pages
+    pages, ///< pages only
+    all,   ///< chat, whispers and pages
 };
 
 /// The settings, as the dialog shows them and the game puts them in effect.
@@ -1564,6 +1657,19 @@ struct EngineSettings {
     /// The game opens launch files (.oalaunch), which start it in their
     /// battle room, as -c does.
     bool file_type_oalaunch{true};
+    /// The game keeps every game it plays as a replay: campaign missions,
+    /// skirmish, multiplayer and Boneyards battles. On unless the preference
+    /// is the word off. A change applies from the next game.
+    bool replays_record{true};
+    /// How long the recorded replays are kept. This only holds the choice;
+    /// what removes older replays reads it.
+    ReplayKeep replays_keep{ReplayKeep::thirty_days};
+    /// This copy opens .oademo files, and is offered for .tad files. On
+    /// unless the preference is the word off. Windows and Linux register
+    /// both when OK is pressed. On macOS the switch shows whether this copy
+    /// is the default opener of .oademo, and OK changes that only when the
+    /// switch moved. iOS and Android do not list the row.
+    bool replays_open_files{true};
     /// How many player rows the skirmish setup shows. The dialog's working
     /// copy of NumSkirmishPlayers: read_settings and write_settings leave it
     /// out, and OK stores it as that one count.
@@ -1595,6 +1701,26 @@ struct EngineSettings {
     /// lay themselves out, and the places the player gave them are kept for
     /// when it is on again. Absent in the preferences is off.
     bool move_overlays{false};
+    /// How this machine draws player colours. Off leaves the game's own.
+    /// Absent in the preferences is off.
+    ColourVision colour_vision{ColourVision::off};
+    /// A shape with each player colour. Choosing a colour-vision mode other
+    /// than Off turns it on. Achromatopsia keeps it on. Absent is off.
+    bool shape_cues{false};
+    /// When the game works with a screen reader. Automatic does while the
+    /// system says one is running. Absent is automatic.
+    ScreenReaderMode screen_reader{ScreenReaderMode::automatic};
+    /// Which chat lines are spoken. Absent is all.
+    SpeakChat speak_chat{SpeakChat::all};
+    /// A player joining or leaving the battle room, and a change of ready,
+    /// side, colour, team, map or option. Absent is on. The word 0 is off.
+    bool speak_lobby{true};
+    /// The ticker. It repeats, so it stays quiet until this is on. Only the
+    /// word 1 is on. Absent is off.
+    bool speak_ticker{false};
+    /// The focus ring is drawn on the first item when a screen opens.
+    /// A whole number above 0 is on. Absent is off.
+    bool always_show_focus{false};
 
     friend bool operator==(const EngineSettings&, const EngineSettings&) = default;
 };
@@ -1842,6 +1968,21 @@ void follow_acceleration_with_unset_effects(
     const oa::platform::preferences::Values& values, const Inputs& inputs, bool switch_alt
 );
 
+/// Reads Record my games, Keep replays for and Open replay files from the
+/// preferences, as read_settings reads them.
+///
+/// Other parts of the game write the record and keep keys straight into the
+/// preferences (the Library's Turn on recording among them), so the dialog
+/// reads them again each time it opens, not once at the game's start. Record
+/// my games and Open replay files are off only for the word off; Keep replays
+/// for reads its four words, and any other text, or none, gives 30 days.
+///
+/// @param values the preferences
+/// @param[in,out] settings the settings; only the three Replays fields change
+void read_replays_settings(
+    const oa::platform::preferences::Values& values, EngineSettings& settings
+);
+
 /// Writes the settings a player chose into the preferences.
 ///
 /// For each setting but switch_alt and skirmish_players (the setup stores
@@ -1886,6 +2027,52 @@ void write_settings(
     const EngineSettings& defaults,
     bool restored,
     std::string_view profile_id = {}
+);
+
+/// One access preference as the file held it when Settings opened.
+struct AccessPreference {
+    bool present{};   ///< the key was in the file
+    std::string text; ///< its text; empty when it was absent
+};
+
+/// The seven Accessibility preferences Settings writes, as the file held
+/// them when the dialog opened. Cancel puts these back. OK writes against
+/// them, so a live change does not leave a key the file did not have.
+struct AccessSnapshot {
+    AccessPreference colour_vision{};
+    AccessPreference shape_cues{};
+    AccessPreference screen_reader{};
+    AccessPreference speak_chat{};
+    AccessPreference speak_lobby{};
+    AccessPreference speak_ticker{};
+    AccessPreference always_show_focus{};
+};
+
+/// Reads the seven access keys as the file holds them now.
+///
+/// @param values the preferences
+/// @return one entry for each key, present when the key is there
+[[nodiscard]] AccessSnapshot
+capture_access_preferences(const oa::platform::preferences::Values& values);
+
+/// Puts the seven access keys back as a snapshot holds them. A key that was
+/// absent is erased. Every other key is left as it is.
+///
+/// @param[in,out] values the preferences
+/// @param snapshot the keys as the dialog opened
+void restore_access_preferences(
+    oa::platform::preferences::Values& values, const AccessSnapshot& snapshot
+);
+
+/// Writes the seven access keys from the settings the dialog shows, for a
+/// live change. A setting at its default has its key erased. Any other value
+/// is written in the word the readers of those keys expect. Achromatopsia
+/// writes shape cues as 1.
+///
+/// @param[in,out] values the preferences
+/// @param chosen the settings the dialog shows
+void store_access_preferences(
+    oa::platform::preferences::Values& values, const EngineSettings& chosen
 );
 
 /// Returns the folder the player picked, as the preferences remember it.
@@ -2079,6 +2266,8 @@ enum class Lock : uint8_t {
     main_menu,
     needs_full_acceleration, ///< Requires Full hardware acceleration.
     needs_full_3d,           ///< Allow Full 3D Mode is off.
+    /// Colour vision is Achromatopsia: shape cues stay on.
+    keeps_shapes,
 };
 
 /// The game the dialog opens over.
@@ -2143,6 +2332,9 @@ struct Locks {
     /// Welcome setup: locked while a game is running. SHOW AGAIN is chosen
     /// from the main menu.
     Lock welcome_setup{};
+    /// Shape cues: the dialog itself locks it keeps_shapes while it shows
+    /// Colour vision Achromatopsia.
+    Lock shape_cues{};
 };
 
 /// Returns the locks a game state puts on the settings.

@@ -19,6 +19,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs the executable directly.
@@ -110,7 +111,7 @@ def plant(folder):
 
 def fresh_preferences(path):
     """A preferences file with no remembered skirmish."""
-    path.write_text("open-annihilation-preferences 1\n", encoding="utf-8")
+    path.write_text("open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n", encoding="utf-8")
 
 
 def launch(native, game_dir, work, user, preferences, extra):

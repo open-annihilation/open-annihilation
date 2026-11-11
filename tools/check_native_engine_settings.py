@@ -46,6 +46,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -58,7 +59,11 @@ SEED = 1234567
 FRAME_RATE = 30
 
 # A preferences file's first line.
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 # 3.1c's own SwitchAlt, which Select groups without Alt sets.
 SWITCH_ALT_KEY = "Total Annihilation|SwitchAlt"
 # Every Open Annihilation setting's key with its default value, as a

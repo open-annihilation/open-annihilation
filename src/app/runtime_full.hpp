@@ -105,7 +105,56 @@ struct SceneView {
     int32_t camera_y{};
     /// The target the stages draw into; none for the frame's final target.
     card::TargetHandle target{};
+    /// Where a photo tile's draw sits in the whole photo, across, in the
+    /// same pixels the vertices are placed in: the photo's draw, before the
+    /// card multiplies by the target's factor. Zero while a frame or a whole
+    /// photo is drawn.
+    float strip_anchor_x{0.0F};
+    /// Where a photo tile's draw sits in the whole photo, down, in those
+    /// same pixels. Zero while a frame or a whole photo is drawn.
+    float strip_anchor_y{0.0F};
+    /// The tile's map column in the whole photo, in map pixels. A corner is
+    /// shifted by it before the conversion to float, so the vertex is the
+    /// whole photo's, and the draw origin is then subtracted. Zero while a
+    /// frame or a whole photo is drawn.
+    int32_t tile_map_x{0};
+    /// The tile's map row in the whole photo, in map pixels. Zero while a
+    /// frame or a whole photo is drawn.
+    int32_t tile_map_y{0};
+    /// The card multiplies a vertex by this when it draws into the target.
+    /// One for the window and for a target made at factor one. A photo
+    /// tile subtracts its draw origin as this many of the target's pixels.
+    uint32_t target_factor{1};
+    /// The card's renderer truncates a vertex times the target's factor
+    /// toward zero before it draws. SDL's software renderer does.
+    bool truncate_geometry{false};
 };
+
+/// The pixel a photo tile submits so a renderer that truncates
+/// `position * factor` toward zero draws the whole photo's pixel minus a
+/// whole number of the target's pixels.
+///
+/// `placed` is that whole-photo pixel with the tile's draw origin already
+/// subtracted, in the pixels the vertices are stored in. `draw_origin` is
+/// the origin on this axis, in those pixels. `factor` is the target's
+/// supersampling factor. The result is `placed` when that truncation
+/// already lands on the shifted pixel, and when there is nothing to subtract.
+///
+/// @param placed the vertex, in the target's pixels, draw origin subtracted
+/// @param draw_origin the tile's draw origin on this axis, in those pixels
+/// @param factor the target's supersampling factor, at least 1
+/// @return the pixel to submit
+[[nodiscard]] inline float
+truncated_tile_pixel(float placed, float draw_origin, float factor) noexcept {
+    if (!(factor > 0.0F) || draw_origin == 0.0F)
+        return placed;
+    const float whole = placed + draw_origin;
+    const int want = static_cast<int>(whole * factor) - static_cast<int>(draw_origin * factor);
+    const int got = static_cast<int>(placed * factor);
+    if (want == got)
+        return placed;
+    return static_cast<float>(want) / factor;
+}
 
 /// Returns the target pixels one map pixel covers in a view.
 ///
@@ -533,6 +582,12 @@ class ModelStage {
     /// @param palette the match's palette
     /// @param gamma channel multiplier; 1 applies the palette unchanged
     void set_palette(const Palette& palette, float gamma);
+
+    /// Forgets the cached model frames so the next frame takes new texels.
+    ///
+    /// The palette stays. The meshes go with the pages, because they keep
+    /// places into the pages that a new packing would not reuse.
+    void drop_frames();
 
     /// Destroys every page and target the stage made on an executor and
     /// forgets the meshes, as at a match's end or a device reset; the pages'

@@ -99,6 +99,10 @@ struct Context {
     /// added on the card; false when it was given none, or left them to the
     /// caller, which adds them to the picture itself.
     bool lights_drawn{};
+    /// Whether the last frame that succeeded ran the depth pass (depth of
+    /// field and haze by the camera depth the lights' surface keeps). False
+    /// when the frame asked for neither, or the card keeps no such depth.
+    bool depth_drawn{};
     /// A graphics device to draw on in place of one of the context's own,
     /// such as the one the game's window presents through; the context
     /// never destroys it. Set before the first frame; null opens one.
@@ -115,6 +119,27 @@ struct Context {
     /// models it keeps on the card (draws_models); false leaves every model
     /// to the frame's vertices, as on a card that has none of them yet.
     bool models_allowed{true};
+    /// A turned photo's tile is one piece of a larger picture. The picture
+    /// is tile_span pixels across, and this piece starts at tile_origin in
+    /// it. When that picture's viewport fits the card, the card draws the
+    /// picture's pixels, clipped to this piece, so a pixel lands where it
+    /// does in the picture drawn whole. When it does not, the projection is
+    /// offset onto this piece and the viewport is the piece. Zero span
+    /// draws the piece as its own picture, as every other frame does.
+    uint32_t tile_origin_x{};
+    uint32_t tile_origin_y{};
+    uint32_t tile_span_x{};
+    uint32_t tile_span_y{};
+    /// A check-only cap on a turned tile's viewport, in pixels. Zero leaves
+    /// the card's own largest viewport. It bounds only a tile of a larger
+    /// picture, not a picture drawn as itself.
+    uint32_t viewport_limit{};
+    /// How render() drew the last turned tile, for a check: true when the
+    /// projection was offset onto the tile, and the longer side of the
+    /// colour viewport it drew through, in pixels. Cleared by every frame
+    /// that is not a tile of a larger picture.
+    bool tile_shifted{false};
+    uint32_t tile_viewport_side{};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.
@@ -318,6 +343,52 @@ struct ModelDraws {
 /// @return true where render() adds the lights itself
 [[nodiscard]] bool draws_lights(const Context& context) noexcept;
 
+/// The samples a picture of this size is drawn with. A supersample of 0 means
+/// the picture does not fit, even at one sample a pixel.
+struct Sampling {
+    uint32_t supersample{1}; ///< samples along each axis of an enlarged target
+    uint32_t multisample{1}; ///< samples a pixel the card takes, before that
+};
+
+/// The supersample and multisample a picture of this size is drawn at, for
+/// the anti-aliasing asked for, on a card that does or does not multisample.
+/// The fitting is the one render() uses: the asked factor is halved until the
+/// enlarged target fits 4096 pixels a side, and a 2x2 of it is the card's
+/// multisampling where that was asked for and the samples still fit.
+///
+/// @param width the picture, in pixels
+/// @param height the picture, in pixels
+/// @param requested_supersample the anti-aliasing asked for: 1, 2, 4, 8 or 16
+/// @param device_multisamples true when the card multisamples and it is allowed
+/// @return the sampling; supersample 0 when the picture cannot be drawn
+[[nodiscard]] Sampling fitted_sampling(
+    uint32_t width, uint32_t height, uint32_t requested_supersample, bool device_multisamples
+) noexcept;
+
+/// Whether the card multisamples the formats render() draws, as the last
+/// query found. False before that query, and when multisampling is not allowed.
+///
+/// @param context the renderer's resources
+/// @return true when a frame may take the card's multisampling
+[[nodiscard]] bool device_multisamples(const Context& context) noexcept;
+
+/// Depth of field and haze for one frame, drawn after the lights from the
+/// camera depth the lights' surface keeps. Larger depth is nearer. A blur of
+/// 0 leaves that pixel sharp. A haze of 0 leaves its colour. The pass is not
+/// run when both are 0, so the picture stays the one the lights left.
+struct DepthCue {
+    float focus{};      ///< camera depth that stays sharp
+    float range{};      ///< camera-depth units that stay sharp around focus
+    float blur_scale{}; ///< pixels of blur per camera-depth unit past range
+    float max_blur{};   ///< widest blur, in the picture's pixels
+    float haze{};       ///< 0 to 1, how far the far end fades toward the colour
+    float haze_red{};   ///< the haze colour, 0 to 1
+    float haze_green{}; ///< the haze colour, 0 to 1
+    float haze_blue{};  ///< the haze colour, 0 to 1
+    float near_depth{}; ///< camera depth treated as near; farness is 0 there
+    float depth_span{}; ///< camera-depth units from near_depth to the far end
+};
+
 /// Render world triangles through a pixel-space affine projection without a window.
 /// Reuse shaders and buffers across frames, uploading the atlas only when its revision
 /// or dimensions change. Readback waits for completion before returning RGBA8 pixels.
@@ -358,6 +429,11 @@ struct ModelDraws {
 /// @param models optional units and features drawn from their types' models on the card,
 ///        each run before its vertex of the frame, the lights' surface included; only
 ///        where draws_models() says so
+/// @param depth optional depth of field and haze, drawn after the lights from the
+///        camera depth that surface keeps. Ignored when the card has no such depth
+///        (draws_lights is false). Context::depth_drawn says whether the frame ran it.
+///        A null cue, or a cue whose blur and haze are both zero, leaves the picture
+///        unchanged
 /// @return success; unavailable where SDL makes no device on Metal or Vulkan; or failed for
 ///         invalid input or GPU errors. With Context::keep_on_card, and lights the card adds
 ///         or none, the picture stays on the card: output_rgba is left empty, render()
@@ -381,7 +457,8 @@ Result render(
     const KeptGround* ground = nullptr,
     const std::function<void()>& while_drawing = {},
     const Lights* lights = nullptr,
-    const ModelDraws* models = nullptr
+    const ModelDraws* models = nullptr,
+    const DepthCue* depth = nullptr
 );
 
 /// Opens the graphics device render() draws on, where it is not yet open:
@@ -398,6 +475,22 @@ SDL_GPUDevice* device(Context& context);
 /// @param context the persistent GPU resources
 /// @return the device; null before one is open, or where SDL made none
 [[nodiscard]] SDL_GPUDevice* opened_device(const Context& context) noexcept;
+
+/// The viewport the card accepts: its longest side, and the corners a
+/// viewport may start and end at.
+struct ViewportBounds {
+    uint32_t limit{4096};    ///< the smaller of the card's widest and tallest viewport
+    float min_corner{-8192}; ///< the least coordinate a viewport may touch
+    float max_corner{8191};  ///< the greatest coordinate a viewport may touch
+};
+
+/// The viewport the card allows. A null device, or a card whose limit cannot
+/// be read, is the smallest a card must allow: 4096 pixels, from -8192 to
+/// 8191. The same card is read once.
+///
+/// @param device the graphics device render() draws on
+/// @return the viewport
+[[nodiscard]] ViewportBounds viewport_bounds(SDL_GPUDevice* device);
 
 /// What the processor painted over the turned view, for compose_overlay().
 struct Overlay {

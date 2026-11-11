@@ -1106,11 +1106,70 @@ void primary_clashes_as_pressed() {
     }
 }
 
+/// Replay keys clash only with an action that can answer during a replay.
+void replay_keys_clash_only_where_they_meet() {
+    const keys::KeyboardMap us = keys::KeyboardMap::us();
+    const keys::ResolveInput defaults = fresh(us);
+    const Resolved resolved = keys::resolve(defaults);
+    const std::vector<Clash> clashes = keys::find_clashes(resolved, defaults);
+    OA_CHECK(!clash_of(clashes, "watch.replay-forward", "order.load"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-pause", "order.cloak"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-bar", "panel.build-tab"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-next-marker", "build.page-next"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-previous-marker", "build.page-previous"));
+    OA_CHECK(!clash_of(clashes, "watch.replay-pause", "game.pause"));
+    OA_CHECK(!clash_of(clashes, "watch.next-player-view", "megamap.toggle"));
+    OA_CHECK(!clash_of(clashes, "watch.previous-player-view", "select.previous-primary"));
+    OA_CHECK(!clash_of(clashes, "watch.camera-mode", "order.capture"));
+    OA_CHECK(!clash_of(clashes, "watch.whole-view", "order.capture"));
+
+    keys::Layout home;
+    home.bindings.push_back(binding("watch.replay-back", {"Home"}, 1, 1));
+    keys::ResolveInput rebound = fresh(us);
+    rebound.chosen = &home;
+    const Resolved home_resolved = keys::resolve(rebound);
+    const std::vector<Clash> home_clashes = keys::find_clashes(home_resolved, rebound);
+    OA_CHECK(clash_of(home_clashes, "watch.replay-back", "camera.centre"));
+
+    keys::Layout shared;
+    shared.bindings.push_back(binding("watch.replay-forward", {"J"}, 2, 1));
+    keys::ResolveInput both = fresh(us);
+    both.chosen = &shared;
+    const Resolved both_resolved = keys::resolve(both);
+    const std::vector<Clash> both_clashes = keys::find_clashes(both_resolved, both);
+    OA_CHECK(clash_of(both_clashes, "watch.replay-forward", "watch.replay-back"));
+
+    keys::Layout same_view;
+    same_view.bindings.push_back(binding("watch.whole-view", {"C"}, 1, 1));
+    keys::ResolveInput view_keys = fresh(us);
+    view_keys.chosen = &same_view;
+    const Resolved view_resolved = keys::resolve(view_keys);
+    const std::vector<Clash> view_clashes = keys::find_clashes(view_resolved, view_keys);
+    OA_CHECK(clash_of(view_clashes, "watch.whole-view", "watch.camera-mode"));
+
+    keys::Layout bar_on_camera;
+    bar_on_camera.bindings.push_back(binding("watch.replay-bar", {"C"}, 3, 1));
+    keys::ResolveInput bar_keys = fresh(us);
+    bar_keys.chosen = &bar_on_camera;
+    const Resolved bar_resolved = keys::resolve(bar_keys);
+    const std::vector<Clash> bar_clashes = keys::find_clashes(bar_resolved, bar_keys);
+    OA_CHECK(clash_of(bar_clashes, "watch.replay-bar", "watch.camera-mode"));
+
+    keys::Layout map_on_tab;
+    map_on_tab.bindings.push_back(binding("megamap.toggle", {"Tab"}, 4, 1));
+    keys::ResolveInput map_keys = fresh(us);
+    map_keys.chosen = &map_on_tab;
+    const Resolved map_resolved = keys::resolve(map_keys);
+    const std::vector<Clash> map_clashes = keys::find_clashes(map_resolved, map_keys);
+    OA_CHECK(!clash_of(map_clashes, "megamap.toggle", "watch.next-player-view"));
+}
+
 } // namespace
 
 int main() {
     layers_conditions_and_same_key();
     oa_default_has_no_clash();
+    replay_keys_clash_only_where_they_meet();
     base_none_binds_only_fixed();
     chosen_layout();
     mod_letters();

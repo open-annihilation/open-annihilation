@@ -3,6 +3,7 @@
 
 // Bounded frame-time benchmark and headless runs over live skirmish and
 // campaign matches.
+#include "oa/app/hook_call.hpp"
 #include "oa/app/runtime.hpp"
 #include "renderer_effect_events.hpp"
 #include "engine_settings_state.hpp"
@@ -218,6 +219,18 @@ constexpr int32_t kVersionRoomBottom = 22;
 
 void Runtime::step_match_simulation() {
     const auto effect_capture = capture_match_effect_events();
+    // A played match asks the extension before its own tick (run_one_match_step).
+    // A headless match steps here, so it asks too: a skirmish recording arms on
+    // that call, and this function still runs the tick. A network match or a
+    // replay that takes the step is left to the extension.
+    HookError step_error;
+    const bool stepped = call_hook<&Extension::simulation_step>(extension_, step_error, *this);
+    if (step_error.caught) {
+        report_match_tick_error(step_error.message);
+        return;
+    }
+    if (stepped)
+        return;
     ++match_timing_.tick;
     match_->simulation().tick = match_timing_.tick;
     // A stage's lines timed for this tick run before it.
@@ -1199,6 +1212,33 @@ void Runtime::write_stage_snapshot(std::string_view stage) {
     rebuild_surface();
     path += "-" + std::string(stage) + ".ppm";
     write_ppm(path, surface_);
+}
+
+void Runtime::write_presented_snapshot(std::string_view stage) {
+    if (options_.snapshot.empty() || stage.empty() || sdl_.renderer == nullptr)
+        return;
+    // The notice is drawn over the picture, in the window's pixels. Reading
+    // the console's surface misses it. Draw the frame again and read the
+    // window, as the Library's checks do.
+    oa_layer().read_whole_window(true);
+    renderer::Surface presented;
+    renderer::Surface* const previous = capture_frame_;
+    capture_frame_ = &presented;
+    try {
+        render();
+    } catch (...) {
+        capture_frame_ = previous;
+        oa_layer().read_whole_window(false);
+        throw;
+    }
+    capture_frame_ = previous;
+    oa_layer().read_whole_window(false);
+    if (presented.rgb.empty())
+        return;
+    auto path = options_.snapshot;
+    path.replace_extension();
+    path += "-" + std::string(stage) + ".ppm";
+    write_ppm(path, presented);
 }
 
 std::string Runtime::start_headless_campaign_mission() {

@@ -57,6 +57,7 @@ import shlex
 import statistics
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -88,7 +89,11 @@ MOST_DRAWN_STEP_SHARE = 0.5
 FOLLOW_SCREEN_PIXELS = 1
 
 # A preferences file's first line, and the line that turns Smooth motion Off.
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 SMOOTH_MOTION_OFF = '"open-annihilation.smooth-motion" "0"'
 
 # The millisecond at which the steady clock's low 32 bits, and with them the

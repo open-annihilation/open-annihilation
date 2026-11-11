@@ -8,6 +8,7 @@
 #include "oa/boneyards/screens/matchmaking.hpp"
 
 #include "oa/boneyards/message_box.hpp"
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/screens/profile.hpp"
 #include "oa/boneyards/shown_text.hpp"
 
@@ -221,7 +222,7 @@ void matchmaking_offer_line(const MatchmakingChoices* choices, char* out, std::s
     copy_shown(game, sizeof game, type_word(choices->offer_game_type));
     std::snprintf(named, sizeof named, name_pattern, choices->offer_name, skill);
     std::snprintf(join, sizeof join, join_pattern, game);
-    std::snprintf(out, capacity, "%s\\n%s\\n%s", found, named, join);
+    std::snprintf(out, capacity, "%s\n%s\n%s", found, named, join);
 }
 
 const char* matchmaking_result_text(int32_t result) {
@@ -325,6 +326,7 @@ MatchmakingEffect matchmaking_apply_go(MatchmakingChoices* choices, const Matchm
         effect.launch_host = true;
     else
         effect.launch_join = true;
+    arm_after_battle(go->game_type);
     return effect;
 }
 
@@ -349,6 +351,7 @@ bool matchmaking_host_request(const MatchmakingGoNotice* go, HostGameRequest* ou
     out->skill = go->skill;
     out->players = matchmaking_players_radio(go->seats);
     out->commander_death = go->on_death;
+    arm_after_battle(go->game_type);
     return true;
 }
 

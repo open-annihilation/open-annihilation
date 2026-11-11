@@ -5,7 +5,8 @@
 // previous side and an open lock is read. The login prompt is shown for an
 // unset member, preselects the previous side, sends ALLEGIANCE and opens the
 // Main Frame only after the refreshed dossier names a side. A set side and a
-// guest skip it. Escape and CANCEL leave it up. EXIT leaves. The tab stays
+// guest skip it. The prompt opens on Choose and Tab stays inside it.
+// Escape and EXIT leave. The tab stays
 // enabled while ALLEGIANCE_LOCKED is 0 and shows a disabled side at 1.
 // In English and each language the Boneyards' words are translated into,
 // the box is the message-box picture's size, centred on the console, every
@@ -32,6 +33,7 @@
 #include "oa/boneyards/rover_replay.hpp"
 #include "oa/boneyards/rover_session.hpp"
 #include "oa/boneyards/screens/chat.hpp"
+#include "oa/boneyards/screens/login.hpp"
 #include "oa/boneyards/screens/profile.hpp"
 #include "oa/boneyards/shown_text.hpp"
 #include "oa/boneyards_test/installs.hpp"
@@ -279,12 +281,11 @@ void submit_member(StatusWidget* widget, MainFrame* frame) {
 }
 
 void submit_guest(StatusWidget* widget, MainFrame* frame) {
-    if (frame->active_screen == nullptr)
+    if (frame->active_screen == nullptr || widget->navigation == nullptr)
         return;
     type(widget, "commander");
-    Window* guest = window_find_named(frame->active_screen, "Guest Login", nullptr);
-    if (guest != nullptr)
-        click_window(widget, guest);
+    // Guest Login is drawn disabled. The check selects it on the dialog.
+    login_on_control(&widget->navigation->login, LoginControl::guest_radio);
     boneyards_status_widget_tick(widget);
     Window* login = window_find_named(frame->active_screen, "LOGIN", nullptr);
     if (login != nullptr)
@@ -443,15 +444,14 @@ void test_prompt_for_previous_core(Data* data) {
         words.find("Core") != std::string::npos && words.find("last sector") != std::string::npos,
         "the prompt names the last sector's Core side"
     );
-
-    press(opened.widget, key::escape);
-    boneyards_status_widget_tick(opened.widget);
-    check(
-        side_prompt_of(opened.frame) != nullptr &&
-            opened.widget->navigation->login.state == LoginState::planetary &&
-            opened.frame->console_screen == console_screen::login,
-        "Escape leaves the prompt up"
-    );
+    Window* choose_first = window_find_named(prompt, "Choose", nullptr);
+    check(opened.widget->desktop.focus == prompt, "the prompt keeps the keyboard on its root");
+    press(opened.widget, key::tab);
+    check(opened.widget->desktop.focus == choose_first, "the first Tab lands on Choose");
+    bool inside = false;
+    for (Window* cursor = opened.widget->desktop.focus; cursor != nullptr; cursor = cursor->parent)
+        inside = inside || cursor == prompt;
+    check(inside, "Tab stays inside the side prompt");
 
     Window* cancel = window_find_named(opened.frame->active_screen, "CANCEL", nullptr);
     check(cancel != nullptr, "the login CANCEL button");
@@ -541,6 +541,10 @@ void test_prompt_for_previous_arm(Data* data) {
             words.find("last sector") != std::string::npos,
         "the last sector's Arm side is named and selected"
     );
+    press(opened.widget, key::escape);
+    boneyards_status_widget_tick(opened.widget);
+    check(opened.widget->system.main_frame == nullptr, "Escape closes the side prompt");
+    opened.frame = nullptr;
     release_widget(&opened);
 }
 

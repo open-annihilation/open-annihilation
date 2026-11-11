@@ -362,6 +362,153 @@ void player_row_set_latency(PlayerRowIcons* row, int32_t frame);
 /// @param frame User_Icons frame
 void player_row_set_user_icon(PlayerRowIcons* row, int32_t frame);
 
+/// What a rank or latency icon is, for the words a screen reader speaks.
+enum class PlayerIconKind : uint8_t {
+    none,    ///< not one of those icons
+    rank,    ///< the rank picture
+    latency, ///< the latency picture
+};
+
+/// The rank or latency a player-row icon is showing.
+struct PlayerIconWords {
+    PlayerIconKind kind = PlayerIconKind::none;
+    /// Short rank title. Empty when the frame has none. Static storage.
+    const char* rank = "";
+    /// 1, 2 or 3 for a latency grade. 1 is the red square and 3 the green.
+    /// 0 when the frame is not one of those.
+    int32_t latency_grade = 0;
+};
+
+/// The words a latency grade speaks, before translation.
+///
+/// Grade 1 is the red square and speaks "Latency poor", grade 2 the amber
+/// square and "Latency fair", and grade 3 the green square and "Latency good".
+/// Any other grade speaks "Latency unknown".
+///
+/// @param grade the latency grade, or 0 when the frame is not a grade
+/// @return the catalogue key; never null
+const char* latency_grade_phrase(int32_t grade) noexcept;
+
+/// Reads the rank or latency a player-row icon is showing.
+///
+/// The picture itself is unchanged. A window that is not that row's rank or
+/// latency icon leaves `out` empty and returns false.
+///
+/// @param icon the icon window; may be null
+/// @param[out] out the rank or the latency grade; null is ignored
+/// @return true when `icon` is one of those icons
+bool player_icon_words(const Window* icon, PlayerIconWords* out);
+
+/// Who a chat line is speaking for, when a role tag is drawn in front of it.
+enum class ChatRole : uint8_t {
+    none,   ///< an ordinary line, no tag
+    system, ///< a status line
+    news,   ///< a news line
+    arm,    ///< an Arm name
+    core,   ///< a Core name
+};
+
+/// The role a chat font is, matched against the session's role fonts.
+///
+/// The comparison is the font handle at the moment the line is printed.
+/// A handle below zero, or one that matches none of the four, is none.
+/// When two roles share a handle, system wins, then news, then Arm, then Core.
+///
+/// @param font the line's font handle
+/// @param system the session's status font
+/// @param news the session's news font
+/// @param arm the session's Arm font
+/// @param core the session's Core font
+/// @return the role, or none
+[[nodiscard]] ChatRole chat_role_for_handles(
+    int32_t font, int32_t system, int32_t news, int32_t arm, int32_t core
+) noexcept;
+
+/// The English tag drawn before a line of that role.
+///
+/// The words are [SYS], [NEWS], [ARM] and [CORE]. None has no tag.
+///
+/// @param role the line's role
+/// @return the tag, or null for none
+[[nodiscard]] const char* chat_role_tag(ChatRole role) noexcept;
+
+/// Copies a chat line, and while cues are in effect puts its role tag in front.
+///
+/// The tag is the Boneyards catalogue's line for that role, in the player's
+/// language. The sections are SYS, NEWS, ARM and CORE. The game's own
+/// translation of those names is not used. With no catalogue line the English
+/// tag is used. A role of none, or cues off, copies the line alone. A null
+/// line is empty. The tag stands alone when the line is empty.
+///
+/// @param[out] out the line to print; null writes nothing
+/// @param capacity size of `out`, including the terminator
+/// @param text the line; null is empty
+/// @param role the line's role
+/// @param cues true while shape cues are in effect
+void write_role_line(char* out, std::size_t capacity, const char* text, ChatRole role, bool cues);
+
+/// Light palette entry a cue draws with, so the mark reads when colour does not.
+inline constexpr uint8_t kCueInk = 80;
+/// Dark palette entry a cue clears to. A latency bar's ground is this entry.
+inline constexpr uint8_t kCueGround = 93;
+/// Pixels on a side of a lock or mute mark.
+inline constexpr int32_t kNameMarkSide = 7;
+/// Columns a name moves right to leave room for its mark.
+inline constexpr int32_t kNameMarkRoom = 8;
+
+/// A mark drawn on a player name while shape cues are in effect.
+enum class NameMark : uint8_t {
+    none, ///< no mark
+    lock, ///< whispers are locked onto this name
+    mute, ///< the name is muzzled
+};
+
+/// Draws a lock or a mute mark into an indexed picture.
+///
+/// The picture is filled with `ground`, then the mark in `ink`. A lock is a
+/// shackle over a body. A mute mark is a cross. None, a null picture, or a
+/// non-positive size draws nothing.
+///
+/// @param pixels the picture; null draws nothing
+/// @param width the picture's width in pixels
+/// @param height the picture's height in pixels
+/// @param pitch bytes from one row to the next
+/// @param mark which mark
+/// @param ink the mark's colour
+/// @param ground the colour behind the mark
+void paint_name_mark(
+    uint8_t* pixels,
+    int32_t width,
+    int32_t height,
+    int32_t pitch,
+    NameMark mark,
+    uint8_t ink,
+    uint8_t ground
+) noexcept;
+
+/// Draws a latency grade as that many vertical bars.
+///
+/// Grades 1, 2 and 3 draw that many bars, from the left, on `ground`. Any
+/// other grade draws nothing and leaves the picture as it was. A null
+/// picture or a non-positive size draws nothing.
+///
+/// @param pixels the picture; null draws nothing
+/// @param width the picture's width in pixels
+/// @param height the picture's height in pixels
+/// @param pitch bytes from one row to the next
+/// @param grade the latency grade, 1 to 3
+/// @param ink the bars' colour
+/// @param ground the colour behind the bars
+void paint_latency_bars(
+    uint8_t* pixels,
+    int32_t width,
+    int32_t height,
+    int32_t pitch,
+    int grade,
+    uint8_t ink,
+    uint8_t ground
+) noexcept;
+
 inline constexpr int32_t kByRowHeight = 0x11;
 inline constexpr int32_t kByRowIconSize = 0xb;
 inline constexpr int32_t kByRowNameX = 0x11; // name label, past the row's icon

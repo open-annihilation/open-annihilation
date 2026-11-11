@@ -9,7 +9,10 @@ The host runs --check-boneyards-launch host under its replay and the joiner
 joiner waits on the game list until the host has hosted the battle room. Both play the battle through to the return to the Boneyards
 over TCP/IP on this machine. Each prints its lines with its side in front.
 The check passes when both exit with 0 after printing that they passed; a
-side that runs past --timeout seconds is stopped and fails it. Both copies
+side that runs past --timeout seconds is stopped and fails it. Each side also
+records its battle (--record-game), and the check passes only when that
+replay's meta.json names the battle as the Boneyards' own: the game kind, the
+battle's game id, its planet and its sector. Both copies
 use a DirectPlay port the check picks (--dplay-port), so other checks can run
 beside it.
 
@@ -19,6 +22,7 @@ not changed. The check then also requires each side to report no direct
 packet, and the relay to have forwarded a data frame from each overlay.
 """
 import argparse
+import json
 import os
 import signal
 import socket
@@ -26,10 +30,19 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
+from pathlib import Path
+_OA_TOOLS = Path(__file__).resolve().parents[4] / "tools"
+if str(_OA_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_OA_TOOLS))
+import native_offline  # noqa: E402
 
 HOSTED = "boneyards launch check: the battle room is hosted"
 PASSED = "boneyards launch check: passed"
+NOTICE = "boneyards launch check: after-battle notice shown"
 DIRECT = "boneyards launch check: direct packets "
+# The replay each side records of its battle, in the folder the side works in.
+RECORDED = "battle.oademo"
 # Frames each run may take at most; the check ends the run itself long before.
 FRAME_LIMIT = "400000"
 # Host and joiner identities. The address both dial is the host's overlay.
@@ -41,6 +54,24 @@ HOST_KEY = "aabbccdd"
 JOIN_KEY = "11223344"
 # The launch record, without the "launch " word, must fit Rover's record buffer.
 RECORD_LIMIT = 1024
+
+
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding='utf-8') if target.is_file() else 'open-annihilation-preferences 1\n'
+    if 'open-annihilation.update-check' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.update-check" "never"\n'
+    if 'open-annihilation.content-updates' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding='utf-8')
 
 
 def free_udp_port():
@@ -64,7 +95,11 @@ def side_command(args, role):
         "--boneyards-replay", os.path.join(args.replays, "bypacific_launch_%s.replay" % role),
         "--check-boneyards-launch", role,
         "--preferences-file", os.path.join(args.work, role, "%s.conf" % role),
+        "--record-game", os.path.join(args.work, role, RECORDED),
+        "--snapshot", os.path.join(args.work, role, "replays.ppm"),
     ]
+    if args.for_fun:
+        command.append("--boneyards-launch-for-fun")
     return command
 
 
@@ -73,9 +108,11 @@ class Side:
         self.role = role
         self.hosted = threading.Event()
         self.passed = False
+        self.notice = False
         self.direct = None
         directory = os.path.join(args.work, role)
         os.makedirs(directory, exist_ok=True)
+        _offline_preferences(os.path.join(directory, "%s.conf" % role))
         self.process = subprocess.Popen(
             side_command(args, role), cwd=directory, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, errors="replace")
@@ -90,6 +127,8 @@ class Side:
                 self.hosted.set()
             if line == PASSED:
                 self.passed = True
+            if line == NOTICE:
+                self.notice = True
             if line.startswith(DIRECT):
                 self.direct = line[len(DIRECT):]
 
@@ -104,6 +143,16 @@ class Side:
             code = None
         self.reader.join(timeout=5)
         return code
+
+
+def battle_facts(path):
+    """The game kind and the Boneyards' object of a replay's meta.json, or None without them."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            game = json.loads(archive.read("meta.json")).get("game", {})
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+        return None
+    return game.get("kind"), game.get("boneyards")
 
 
 def rewrite_replay(source, destination, overlay_ip, address, key, key_id, port):
@@ -209,6 +258,9 @@ def main():
     parser.add_argument("--work", required=True, help="directory the two runs work in")
     parser.add_argument("--timeout", type=float, default=600.0, help="seconds each side may run")
     parser.add_argument("--overlay", action="store_true", help="carry the battle through a relay")
+    parser.add_argument(
+        "--for-fun", action="store_true",
+        help="the host picks For Fun, so the return offers a share")
     parser.add_argument("--relay", default="", help="relay executable; required with --overlay")
     args = parser.parse_args()
     if args.overlay and not args.relay:
@@ -251,12 +303,57 @@ def main():
     ok = host.hosted.is_set()
     if not ok:
         print("the host never hosted the battle room", flush=True)
+    game_ids = set()
     for side, code in results:
         print("%s: exit %s%s" % (side.role, code, ", passed" if side.passed else ""), flush=True)
-        ok = ok and code == 0 and side.passed
+        # The host picks For Fun, so its return is the share prompt. The joiner
+        # reads the listed battle's type, which this replay can leave as a
+        # ladder game, so that side's picture keeps the ladder name.
+        if args.for_fun and side.role == "host":
+            notice_name = "replays-notice-share.ppm"
+        elif args.for_fun:
+            share = os.path.join(args.work, side.role, "replays-notice-share.ppm")
+            notice_name = (
+                "replays-notice-share.ppm" if os.path.isfile(share) else "replays-notice-ranked.ppm"
+            )
+        else:
+            notice_name = "replays-notice-ranked.ppm"
+        notice_picture = os.path.join(args.work, side.role, notice_name)
+        print(
+            "%s: after-battle notice %s, picture %s"
+            % (side.role, "shown" if side.notice else "missing", "yes" if os.path.isfile(notice_picture) else "no"),
+            flush=True,
+        )
+        ok = ok and code == 0 and side.passed and side.notice and os.path.isfile(notice_picture)
+        facts = battle_facts(os.path.join(args.work, side.role, RECORDED))
+        kind, battle = facts if facts is not None else (None, None)
+        named = (
+            kind == "boneyards"
+            and isinstance(battle, dict)
+            and all(
+                isinstance(battle.get(name), str) and battle.get(name)
+                for name in ("game_id", "planet", "sector")
+            )
+        )
+        print("%s: recorded %s" % (side.role, json.dumps({"kind": kind, "boneyards": battle})), flush=True)
+        ok = ok and named
+        if named:
+            game_ids.add(battle["game_id"])
+            if side.role == "host":
+                host_recording = os.path.join(args.work, side.role, RECORDED)
+                listed = os.path.join(os.path.dirname(args.work), "listed-battle.oademo")
+                # Written whole under another name, then moved into place: the
+                # replays check that reads it may run beside this one, and the
+                # overlay check writes the same file.
+                partial = "%s.%d.part" % (listed, os.getpid())
+                with open(host_recording, "rb") as source_file, open(partial, "wb") as listed_file:
+                    listed_file.write(source_file.read())
+                os.replace(partial, listed)
         if args.overlay:
             print("%s: direct packets %s" % (side.role, side.direct), flush=True)
             ok = ok and side.direct == "0"
+    # Both sides played the same battle.
+    ok = ok and len(game_ids) == 1
     if args.overlay:
         counts = forward_counts(relay.forwards) if relay.forwards else None
         print("relay forwards: %s" % (relay.forwards or "none"), flush=True)
