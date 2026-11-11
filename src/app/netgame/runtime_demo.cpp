@@ -377,6 +377,8 @@ void NetworkPlay::step_demo_frame() {
             slots[index].income = income.taken;
             slots[index].metal = income.metal;
             slots[index].energy = income.energy;
+            slots[index].metal_used = income.metal_used;
+            slots[index].energy_used = income.energy_used;
             slots[index].camera_seen = camera.seen;
             slots[index].camera_shared = camera.shared;
             slots[index].camera_x = camera.x;

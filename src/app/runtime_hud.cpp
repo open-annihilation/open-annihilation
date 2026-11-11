@@ -1091,6 +1091,15 @@ void Runtime::draw_resource_readout() {
     const bool replay = (current_extension_state() & extension_state::replay) != 0;
     Player shown = game.players[viewer];
     Player& player = replay ? shown : game.players[viewer];
+    // A recorded player settles no economy here: the replay's rates come from
+    // the recording's economy records, as its stats panel shows them.
+    if (replay && replay_shown_[viewer].income) {
+        const ReplayShownSlot& rates = replay_shown_[viewer];
+        shown.metal_produced = rates.metal;
+        shown.energy_produced = rates.energy;
+        shown.metal_requested = rates.metal_used;
+        shown.energy_requested = rates.energy_used;
+    }
     auto& readout = game.resource_readout;
     // The readout eases as often a second at any frame rate (take_readout_eases).
     for (uint32_t ease = take_readout_eases(); ease != 0; --ease)

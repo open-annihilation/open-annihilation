@@ -2471,15 +2471,19 @@ void economy_records_show_income_without_writing_the_player() {
     demo_income_for_display(&sample, &shown, record, 210);
     CHECK(shown.taken);
     CHECK(shown.energy == 100.0f && shown.metal == 10.0f);
+    CHECK(shown.energy_used == 50.0f && shown.metal_used == 5.0f);
     CHECK(std::memcmp(&untouched, &copy, sizeof untouched) == 0);
     Player world{};
     EconomySample followed{};
     EconomyRecord first{};
     first.energy_produced_total = 100.0f;
+    first.energy_requested_total = 40.0f;
     first.metal_produced_total = 10.0f;
+    first.metal_requested_total = 4.0f;
     demo_follow_economy(&followed, &world, first, 90);
     demo_follow_economy(&followed, &world, record, 210);
     CHECK(world.energy_produced == shown.energy && world.metal_produced == shown.metal);
+    CHECK(world.energy_requested == shown.energy_used && world.metal_requested == shown.metal_used);
 
     ShownCamera camera{};
     const uint8_t shared[] = {0xfc, 0x00, 0x01, 0xd0, 0x00};

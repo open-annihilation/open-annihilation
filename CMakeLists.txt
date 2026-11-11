@@ -2549,7 +2549,8 @@ if(OA_BUILD_PLATFORM)
         "${oa_replay_viewer_dir}/replay-viewer-640x480-de.ppm"
         "${oa_replay_viewer_dir}/replay-viewer-1280x720.ppm"
         "${oa_replay_viewer_dir}/replay-viewer-1920x1080.ppm"
-        "${oa_replay_viewer_dir}/replay-viewer-852x393-phone.ppm")
+        "${oa_replay_viewer_dir}/replay-viewer-852x393-phone.ppm"
+        "${oa_replay_viewer_dir}/replay-viewer-1280x720-player.ppm")
       set_tests_properties(replay-viewer-clean PROPERTIES FIXTURES_SETUP replay-viewer-clean)
       add_test(NAME native-replay-viewer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-replay-viewer

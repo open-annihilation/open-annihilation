@@ -370,7 +370,49 @@ void Runtime::keep_room_for_clock_line() {
         return;
     const auto laid_out = make_room_for_clock_line(match_layout_);
     if (laid_out.scale != match_layout_.scale || laid_out.left != match_layout_.left)
-        match_layout_ = laid_out;
+        match_layout_ = drop_replay_top_bar(laid_out);
+}
+
+bool Runtime::replay_top_bar_hidden() const {
+    // Only the playback bar's replay: a headless run draws its replay as it
+    // always has.
+    if (!match_ || replay_viewer_ == nullptr ||
+        (current_extension_state() & extension_state::replay) == 0)
+        return false;
+    return watched_player_ >= OA_PLAYER_COUNT || watched_sight_ != WatchedSight::player;
+}
+
+oa::ui::display_layout::MatchLayout
+Runtime::drop_replay_top_bar(const oa::ui::display_layout::MatchLayout& laid_out) const {
+    if (laid_out.phone || oa::ui::display_layout::placed_mode(laid_out) || !replay_top_bar_hidden())
+        return laid_out;
+    auto without = laid_out;
+    without.top = 0;
+    return without;
+}
+
+void Runtime::keep_replay_top_bar() {
+    namespace layout = oa::ui::display_layout;
+    if (!match_ || screen_ != Screen::match || photo_mode() || match_layout_.phone ||
+        layout::placed_mode(match_layout_))
+        return;
+    const bool hidden = replay_top_bar_hidden();
+    if (hidden == (match_layout_.top == 0))
+        return;
+    const int top_before = match_layout_.top;
+    apply_output_mode();
+    // The map stays under the same rows of the window: the view's top edge
+    // moves down the map as far as the battlefield's top edge moves down
+    // the window, and back up. A view on the map's top rows stays flush with
+    // them rather than show the rows past the map the bar covered.
+    const int moved = match_layout_.top - top_before;
+    const double zoom = match_zoom() > 0.0F ? static_cast<double>(match_zoom()) : 1.0;
+    const auto rows = static_cast<int32_t>(std::lround(static_cast<double>(moved) / zoom));
+    int32_t z = match_camera_z_ + rows;
+    if (rows < 0 && match_camera_z_ >= 0)
+        z = std::max(z, int32_t{0});
+    if (z != match_camera_z_)
+        set_camera_position(match_camera_x_, z, 0);
 }
 
 hud::ClockLinePlace Runtime::clock_line_place() const {

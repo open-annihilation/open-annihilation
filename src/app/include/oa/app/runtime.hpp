@@ -17202,6 +17202,30 @@ class Runtime final : public menu::Host,
     /// changed, as when the console's Clock is turned on or off.
     void keep_room_for_clock_line();
 
+    /// Tells whether a replay shows no top bar: while the playback bar's
+    /// replay shows every player or the whole map, rather than one player's
+    /// sight, which the top bar's resources would belong to.
+    ///
+    /// @return true while it is hidden; false outside a replay
+    [[nodiscard]] bool replay_top_bar_hidden() const;
+
+    /// Returns a layout without the top bar's rows while a replay hides it
+    /// (replay_top_bar_hidden): the battlefield reaches the canvas's top,
+    /// and the side column and the bottom bar stay. A phone's layout, and
+    /// any other while the bar shows, comes back as it is.
+    ///
+    /// @param laid_out the match layout of the canvas
+    /// @return the layout
+    [[nodiscard]] oa::ui::display_layout::MatchLayout
+    drop_replay_top_bar(const oa::ui::display_layout::MatchLayout& laid_out) const;
+
+    /// Lays the match out again where a replay's top bar is to show or hide
+    /// (replay_top_bar_hidden), moving the camera with the battlefield's top
+    /// edge so that the map stays under the same rows of the window. The
+    /// playback bar calls this each frame; photo mode and a phone, whose
+    /// resources are a placed region, are left as they are.
+    void keep_replay_top_bar();
+
     /// Takes a pointer event on ui.resource-panel's panel: a press on it
     /// starts a drag, moves follow it, the release ends it, and a watcher's
     /// double-click switches the view. In a replay the replay's stats panel

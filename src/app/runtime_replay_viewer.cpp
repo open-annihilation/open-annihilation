@@ -616,6 +616,8 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         if (pass_wanted() && !pass_started_ && !index_taken_)
             start_index_pass();
         read_playback();
+        // The top bar shows only with one player's sight.
+        runtime_.keep_replay_top_bar();
         if (reset_after_seek_ && !seek_armed_) {
             reset_after_seek_ = false;
             reset_watch();

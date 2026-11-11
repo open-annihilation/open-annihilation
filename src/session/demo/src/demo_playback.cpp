@@ -667,6 +667,10 @@ void demo_income_for_display(
             (record.metal_produced_total - sample->metal_produced_total) * per_settlement;
         shown->energy =
             (record.energy_produced_total - sample->energy_produced_total) * per_settlement;
+        shown->metal_used =
+            (record.metal_requested_total - sample->metal_requested_total) * per_settlement;
+        shown->energy_used =
+            (record.energy_requested_total - sample->energy_requested_total) * per_settlement;
         shown->taken = true;
     }
     sample->taken = true;

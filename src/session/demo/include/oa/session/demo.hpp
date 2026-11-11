@@ -186,17 +186,19 @@ void demo_follow_economy(
     EconomySample* sample, Player* player, const netgame::EconomyRecord& record, uint32_t tick
 ) noexcept;
 
-/// Income a player list shows. It is not a player's stored economy.
+/// Income a replay's stats and top bar show. It is not a player's stored economy.
 struct ShownIncome {
-    bool taken{};   ///< a rate has been computed from two records
-    float metal{};  ///< metal produced per settlement
-    float energy{}; ///< energy produced per settlement
+    bool taken{};        ///< a rate has been computed from two records
+    float metal{};       ///< metal produced per settlement
+    float energy{};      ///< energy produced per settlement
+    float metal_used{};  ///< metal requested per settlement
+    float energy_used{}; ///< energy requested per settlement
 };
 
 /// Gives the income figures an economy record implies, for display only.
 ///
-/// The arithmetic is demo_follow_economy's, on the produced totals. Nothing
-/// here is written into a player or the world. The first record only marks
+/// The arithmetic is demo_follow_economy's, on the produced and requested
+/// totals. Nothing here is written into a player or the world. The first record only marks
 /// the sample. A record at the same tick as the previous one, or an earlier
 /// tick, changes nothing.
 ///

@@ -236,9 +236,14 @@ says **Defeated 18:02** or **Left 21:40** once that moment has passed.
 Choosing that row shows the sight the match still holds for the seat. When
 the seat itself is gone, the row stays, the mark stays on it, and the view
 is the whole map: the match no longer holds that player's sight. The seat
-the replay is watched from is never listed. **Camera** is free, **Director** when the index has recorded
-a fight, that player's own camera when the recording already carries camera
-records, or one unit. **Director** follows one fight at a time, a little
+the replay is watched from is never listed. The top bar shows only while
+one player's view is chosen, with that player's stored metal and energy
+and the rates the recording gives; under every player or the whole map
+there is no bar, and the battlefield takes its rows, the map staying where
+it was on the screen, or flush with its top edge when the view was there.
+**Camera** is free, **Director** when the index has recorded a fight, that
+player's own camera when the recording already carries camera records, or
+one unit. **Director** follows one fight at a time, a little
 ahead of the moment on show. It stays with that fight while the fight is
 just ahead or no more than ten seconds past, and changes then only for a
 heavier fight. Either way it changes only once four seconds of the battle

@@ -57,7 +57,9 @@ and energy, a storage bar for each and both incomes:
   plus sign.
 
 In a replay the incomes are worked out from the recording's economy
-records. A player whose economy the recording has not given, as a
+records. A replay shows no top bar under every player or the whole map,
+and the clock line in the top bar goes with it; a window 1024 pixels wide
+or narrower keeps its lines on the battlefield. A player whose economy the recording has not given, as a
 computer's often is not, and a player who has left, show their name and
 square alone.
 

@@ -20,10 +20,12 @@ class Runtime;
 
 /// What the replay's stats panel and camera menu show for one slot. Not the world's.
 struct ReplayShownSlot {
-    bool economy{}; ///< an economy record of the slot's player has been played
-    bool income{};  ///< an income has been worked out from two of them
-    float metal{};  ///< metal produced per settlement, while `income` is set
-    float energy{}; ///< energy produced per settlement, while `income` is set
+    bool economy{};      ///< an economy record of the slot's player has been played
+    bool income{};       ///< an income has been worked out from two of them
+    float metal{};       ///< metal produced per settlement, while `income` is set
+    float energy{};      ///< energy produced per settlement, while `income` is set
+    float metal_used{};  ///< metal requested per settlement, while `income` is set
+    float energy_used{}; ///< energy requested per settlement, while `income` is set
     bool camera_seen{};
     bool camera_shared{};
     uint16_t camera_x{};

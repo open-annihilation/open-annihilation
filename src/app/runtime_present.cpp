@@ -206,6 +206,8 @@ void Runtime::apply_output_mode() {
         play_layout = oa::ui::display_layout::fit_side_column(play_layout, side_column_page_rows());
         // ui.resource-panel's clock line may need the chrome smaller.
         play_layout = make_room_for_clock_line(play_layout);
+        // A replay shows no top bar under every player or the whole map.
+        play_layout = drop_replay_top_bar(play_layout);
         if (photo_mode()) {
             photo_->layout = play_layout;
             match_layout_ = oa::ui::display_layout::make_battlefield_layout(width, height);

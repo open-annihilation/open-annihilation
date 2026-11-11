@@ -10,9 +10,11 @@
 // Follow a unit and, once the index holds a fight, Director. The bar lays out
 // no player list: the players' stats panel stands at the battlefield's top
 // right, at each size and on a phone, with every recorded player and no
-// watcher, each square in the View control's colour, and F4 hides it. A
-// second play switches view and camera, seeks nowhere after that, and must
-// digest the same as the straight play. Markers come from the recording's
+// watcher, each square in the View control's colour, and F4 hides it. The
+// top bar shows only with one player's sight, with that player's resources,
+// and the battlefield takes its rows under every player. A second play
+// switches view and camera, seeks nowhere after that, and must digest the
+// same as the straight play. Markers come from the recording's
 // index pass.
 
 #include "library_host.hpp"
@@ -376,6 +378,44 @@ void Runtime::check_replay_viewer() {
         }
         std::cout << "replay viewer: " << at << " stats panel " << int{rows.count} << " rows at "
                   << place.corner.x << ", " << place.corner.y << " scale " << place.scale << '\n';
+    };
+    // The top bar: none under every player or the whole map, the battlefield
+    // reaching the canvas's top; with one player's sight, the bar and that
+    // player's resources. A phone's resources are a placed region.
+    const auto check_top_bar = [&](bool one_player, std::string_view where) {
+        const std::string at(where);
+        if (layout::placed_mode(match_layout_)) {
+            bool readout = false;
+            for (uint8_t index = 0; index < match_layout_.placed_count; ++index)
+                readout =
+                    readout || match_layout_.placed[index].role == layout::RegionRole::readout;
+            require(readout == one_player, at + ": the phone's resources are not as the view asks");
+            return;
+        }
+        const HudStrip top_strip = match_hud_strips()[1];
+        if (!one_player) {
+            require(
+                match_layout_.top == 0 && match_layout_.battlefield_y() == 0 && top_strip.h == 0,
+                at + ": the top bar shows under every player"
+            );
+            return;
+        }
+        require(
+            match_layout_.top > 0 && top_strip.h == match_layout_.top && top_strip.w > 0,
+            at + ": the top bar is hidden with one player's sight"
+        );
+        const uint8_t viewed = match_view_player();
+        const oa::World& world = match_->state();
+        require(
+            viewed < OA_PLAYER_COUNT && world.game.players[viewed].in_use != 0,
+            at + ": the top bar shows no player's resources"
+        );
+        const oa::PlayerSetupInfo* info =
+            oa::world_player_info(&world, &world.game.players[viewed]);
+        require(
+            info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) == 0,
+            at + ": the top bar shows the watcher's resources"
+        );
     };
     const auto dismiss_welcome = [&] {
         if (LayerScreen* welcome = oa_layer().find("first-run")) {
@@ -801,6 +841,7 @@ void Runtime::check_replay_viewer() {
         step << window.width << 'x' << window.height;
         snapshot(step.str());
         check_stats_panel(step.str());
+        check_top_bar(false, step.str());
     }
     {
         // A phone: the panel keeps clear of MENU, the rail and the bar.
@@ -811,6 +852,7 @@ void Runtime::check_replay_viewer() {
         require(layout::placed_mode(match_layout_), "852x393 with touch controls is not a phone");
         snapshot("852x393-phone");
         check_stats_panel("852x393 phone");
+        check_top_bar(false, "852x393 phone");
         dispatch.forced = false;
         resize(CheckWindow{1280, 720});
         frames(2);
@@ -1065,6 +1107,10 @@ void Runtime::check_replay_viewer() {
             const std::string change = world_change(sample_world(), held);
             require(change.empty(), "a view switch changed the replay (" + change + ")");
         }
+        frames(1);
+        check_top_bar(true, "Tab");
+        check_stats_panel("Tab");
+        snapshot("1280x720-player");
         key(SDLK_Q);
         {
             const std::string change = world_change(sample_world(), held);
@@ -1072,6 +1118,8 @@ void Runtime::check_replay_viewer() {
                 change.empty(), "returning to every player changed the replay (" + change + ")"
             );
         }
+        frames(1);
+        check_top_bar(false, "Q");
     }
     key(SDLK_PAUSE);
     require(!playback().paused, "the replay stayed paused after the index");
