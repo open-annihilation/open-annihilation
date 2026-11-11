@@ -106,16 +106,10 @@ enum class CameraMode : uint8_t {
     director,      ///< the camera goes where the fighting is
 };
 
-/// One row of the player list. The first row is every player.
+/// One row of the view menu. The first row is every player.
 struct WatchRow {
     int slot{-1};       ///< the live slot, -1 for every player, or below -1 when the seat is gone
     std::string name{}; ///< the name the row shows
-    std::string side{}; ///< the side's name; empty for every player
-    int team{-1};       ///< the team number, or -1 for none
-    int32_t units{};    ///< units on the field
-    bool income{};      ///< metal and energy are a computed rate
-    float metal{};      ///< metal produced per settlement
-    float energy{};     ///< energy produced per settlement
     std::string departed{};                     ///< "Defeated 18:02" or "Left 21:40", or empty
     kit::Colour colour{kit::hud_colour::label}; ///< the player's colour
     bool eye{};                                 ///< this is the view on show
@@ -152,10 +146,8 @@ struct Model {
     bool pointer_over{};                 ///< the pointer is over the screen, so a hover may show
     int32_t pointer_x{};                 ///< the pointer's column, in the screen's points
     int32_t pointer_y{};                 ///< the pointer's row
-    std::vector<WatchRow> watch{};       ///< the player list, every player first
+    std::vector<WatchRow> watch{};       ///< the view menu's rows, every player first
     int viewed{};                        ///< which row is on show
-    bool list_folded{};                  ///< colour chips, from the kill-board key
-    int list_scroll{};                   ///< the first row on show
     bool view_open{};                    ///< the view menu is open
     bool camera_open{};                  ///< the camera menu is open
     CameraMode camera{CameraMode::free}; ///< how the camera follows
@@ -165,8 +157,6 @@ struct Model {
 
 /// Room the view and camera buttons keep for the menu mark, in points.
 inline constexpr int32_t menu_mark_points = 14;
-/// How many player rows the list shows before it scrolls.
-inline constexpr int32_t watch_visible_rows = 6;
 
 /// A control a point can press. `none` is no control.
 enum class Control : int32_t {
@@ -221,12 +211,6 @@ struct Layout {
     kit::Rect library{};                    ///< the end card's second button
     kit::Rect export_button{};              ///< the end card's third button
     std::vector<kit::Rect> marker_hits{};   ///< one hit area per marker, same order
-    kit::Rect players{};                    ///< the player list; empty when there are no rows
-    std::vector<kit::Rect> player_rows{};   ///< the rows on show
-    std::vector<kit::Rect> player_chips{};  ///< one chip per player, while the list is folded
-    std::vector<int> watch_indices{};       ///< the model's row for each row or chip on show
-    int list_scroll{};                      ///< the first row on show, clamped
-    bool list_folded{};                     ///< the list is colour chips
     kit::Rect view_menu{};                  ///< the view menu; empty while it is closed
     std::vector<kit::Rect> view_items{};    ///< one row per player
     kit::Rect camera_menu{};                ///< the camera menu; empty while it is closed
@@ -363,8 +347,7 @@ speed_caption(uint32_t asked_milli, uint32_t reached_milli, bool reached_lower, 
 /// The timeline is its own row across the bar. Under it, from the left: back,
 /// play, forward, the time, speed, the view button, the camera button, chat,
 /// keys and leave. A hidden bar still has its rectangles, so the lower edge
-/// stays put, and its view and camera buttons are not controls. The player
-/// list sits at the top right whether or not the bar is shown. The speed menu,
+/// stays put, and its view and camera buttons are not controls. The speed menu,
 /// the view menu, the camera menu, the shortcut card and the end card are
 /// placed only while the model asks for them. The end card sits above the bar.
 /// The time keeps the width `widths.time` needs. A measured view or camera
@@ -385,7 +368,7 @@ speed_caption(uint32_t asked_milli, uint32_t reached_milli, bool reached_lower, 
 ///
 /// A hidden bar has no bar control. A card's buttons come before the card's
 /// face. The view and camera buttons are returned only while the bar is shown.
-/// A player row is named by watch_index, not by this.
+/// A view menu row is named by view_menu_index, not by this.
 ///
 /// @param layout the layout
 /// @param at the point, in the same points
@@ -418,9 +401,11 @@ speed_caption(uint32_t asked_milli, uint32_t reached_milli, bool reached_lower, 
 
 /// Fills a display list with the controls that are on show, for automation.
 ///
-/// A hidden bar contributes no bar control. The view and camera buttons are
-/// controls while the bar is shown. Player rows are controls while the list
-/// has rows, even when the bar is hidden. Names start with "replay-viewer.".
+/// A hidden bar contributes no bar control. The view and camera buttons, and
+/// the rows of an open view or camera menu, are controls while the bar is
+/// shown. A view row's text is the player's name and, once they have gone,
+/// "Defeated 18:02" or "Left 21:40" after it. Names start with
+/// "replay-viewer.".
 ///
 /// @param layout the layout
 /// @param model what the bar shows
@@ -451,43 +436,12 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model);
 /// @return the caption, without the menu mark
 [[nodiscard]] std::string camera_button_caption(CameraMode mode);
 
-/// Writes metal and energy produced per settlement.
-///
-/// Metal has one decimal. Energy is the nearest whole number. A negative
-/// figure is shown as zero.
-///
-/// @param metal metal produced per settlement
-/// @param energy energy produced per settlement
-/// @return such as "+10.0 m / +100 e"
-[[nodiscard]] std::string income_caption(float metal, float energy);
-
-/// Writes a team's number.
-///
-/// @param team the team number
-/// @return such as "Team 1"
-[[nodiscard]] std::string team_caption(int team);
-
 /// Writes when a player was defeated or left.
 ///
 /// @param defeated true for defeated, false for left
 /// @param time the game time, such as "18:02"
 /// @return the line
 [[nodiscard]] std::string departed_caption(bool defeated, std::string_view time);
-
-/// Writes a player row's second line. The every-player row has none.
-///
-/// A departure comes first, so a narrow row keeps "Left 1:20" when the rest
-/// is cut. One unit uses the singular word.
-///
-/// @param row the row
-/// @return the line, or empty
-[[nodiscard]] std::string watch_detail(const WatchRow& row);
-
-/// The width an open list gives a row's detail line.
-///
-/// @param row the row's rectangle
-/// @return the width, in points
-[[nodiscard]] int32_t watch_detail_room(const kit::Rect& row) noexcept;
 
 /// The live slot for one recorded player.
 ///
@@ -503,13 +457,6 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model);
 /// @return the live slot, or -1 when none of those names one
 [[nodiscard]] int watch_slot(std::span<const int> numbers, int number, int slot_count) noexcept;
 
-/// Returns the player row a point presses.
-///
-/// @param layout the layout
-/// @param at the point
-/// @return the row's place in the model, or -1
-[[nodiscard]] int watch_index(const Layout& layout, kit::Point at);
-
 /// Returns the view-menu row a point presses.
 ///
 /// @param layout the layout
@@ -524,11 +471,11 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model);
 /// @return the row's place in `camera_modes`, or -1
 [[nodiscard]] int camera_menu_index(const Layout& layout, kit::Point at);
 
-/// Tells whether a point is on the player list or an open view or camera menu.
+/// Tells whether a point is on an open view or camera menu.
 ///
 /// @param layout the layout
 /// @param at the point
-/// @return true when a press there belongs to the list
+/// @return true when a press there belongs to a menu
 [[nodiscard]] bool over_watch_chrome(const Layout& layout, kit::Point at);
 
 } // namespace oa::ui::replay_viewer

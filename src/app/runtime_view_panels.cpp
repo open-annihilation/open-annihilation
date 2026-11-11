@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -33,6 +34,9 @@ namespace hud = oa::ui::hud;
 /// Palette index of the top bar line's labels, the wind's range and the
 /// time: a light grey.
 constexpr uint8_t kClockLineGrey = 0x55;
+/// Source pixels between a replay's stats panel and the overlays' area's top
+/// and right edges, and the playback bar under it.
+constexpr int32_t kReplayPanelMargin = 6;
 
 /// A wind generator's output, from the unit type the game's own wind
 /// generator names; kDefaultWindGenerator without it.
@@ -158,7 +162,98 @@ hud::ResourcePanelRows Runtime::resource_panel_rows_shown() const {
     return hud::resource_panel_rows(world, local_player_watches(), shared_views_);
 }
 
+Runtime::ReplayPanelPlace Runtime::replay_panel_place(const hud::ResourcePanelRows& rows) const {
+    ReplayPanelPlace place{};
+    if (rows.count == 0)
+        return place;
+    // The top right of the overlays' area, where the playback bar's Watching
+    // list was: clear of the touch controls' rail and MENU on a phone, and
+    // above the playback bar, whose photo button is in its row. The panel
+    // keeps the game font's whole steps, the HUD's at most, and takes a
+    // smaller step, then fewer rows, where it would reach the bar.
+    const auto area = overlay_area();
+    const int32_t floor = std::min(area.y + area.height, replay_bar_top());
+    for (int scale = hud_text_scale(); scale >= 1; --scale) {
+        const int32_t margin = kReplayPanelMargin * scale;
+        const int32_t width = hud::kResourcePanelWidth * scale;
+        const int32_t room = floor - area.y - margin * 2;
+        const int32_t fits = room / (hud::kResourcePanelRowHeight * scale);
+        if (width + margin * 2 > area.width && scale > 1)
+            continue;
+        if (fits < rows.count && scale > 1)
+            continue;
+        place.scale = scale;
+        place.rows = static_cast<uint8_t>(std::clamp<int32_t>(fits, 0, rows.count));
+        place.corner = {area.x + area.width - margin - width, area.y + margin};
+        break;
+    }
+    return place;
+}
+
+void Runtime::draw_replay_stats_panel() {
+    if (!match_ || replay_stats_hidden_ || photo_mode())
+        return;
+    auto rows = resource_panel_rows_shown();
+    const ReplayPanelPlace place = replay_panel_place(rows);
+    if (place.rows == 0)
+        return;
+    rows.count = place.rows;
+    // The ground under it is darkened as under the kills board, so its lines
+    // read over any ground and the battlefield still shows through.
+    shade_canvas_rect(
+        place.corner.x,
+        place.corner.y,
+        hud::kResourcePanelWidth * place.scale,
+        hud::kResourcePanelRowHeight * place.scale * rows.count,
+        hud::kBoardShadeLevel
+    );
+    // Its rows are laid out for the game's font.
+    const PanelText panel(*this);
+
+    struct Painter {
+        Runtime* runtime{};
+        ReplayPanelPlace place{};
+    } painter{this, place};
+
+    hud::ResourcePanelSink sink{};
+    sink.user = &painter;
+    sink.fill = [](void* user, int32_t x, int32_t y, int32_t width, int32_t height, uint8_t color) {
+        auto& paint = *static_cast<Painter*>(user);
+        const int scale = paint.place.scale;
+        const auto at = paint.runtime->canvas_paint(
+            paint.place.corner.x + x * scale, paint.place.corner.y + y * scale
+        );
+        paint.runtime->fill_hud_rect(at.x, at.y, width * scale, height * scale, color);
+    };
+    sink.text = [](void* user, int32_t x, int32_t y, const char* text, uint8_t color) {
+        auto& paint = *static_cast<Painter*>(user);
+        const int scale = paint.place.scale;
+        const auto at = paint.runtime->canvas_paint(
+            paint.place.corner.x + x * scale, paint.place.corner.y + y * scale
+        );
+        paint.runtime->draw_match_label(at.x, at.y, text, color, scale);
+    };
+    // The view control marks whose view is on show; the panel's rows are not
+    // lit, and the panel stays where it is put.
+    hud::ResourcePanel drawn = resource_panel_;
+    drawn.x = 0;
+    drawn.y = 0;
+    drawn.viewed_slot = 0;
+    drawn.locked_slot = 0;
+    hud::draw_resource_panel(match_->state(), drawn, rows, sink);
+    resource_panel_.flash = drawn.flash;
+}
+
+void Runtime::replay_toggle_stats_panel() {
+    replay_stats_hidden_ = !replay_stats_hidden_;
+}
+
 void Runtime::draw_resource_panel_overlay() {
+    // Every replay shows its players' stats, with the hack or without.
+    if (match_ && (current_extension_state() & extension_state::replay) != 0) {
+        draw_replay_stats_panel();
+        return;
+    }
     if (!match_ || !ui_rules().resource_panel.enabled || resource_panel_.hidden)
         return;
     // Its rows are laid out for the game's font.
@@ -175,15 +270,7 @@ void Runtime::draw_resource_panel_overlay() {
     sink.text = [](void* user, int32_t x, int32_t y, const char* text, uint8_t color) {
         static_cast<Runtime*>(user)->draw_hud_label(x, y, text, color);
     };
-    // The view control marks whose view a replay shows; its rows are not
-    // lit here.
-    hud::ResourcePanel drawn = resource_panel_;
-    if ((current_extension_state() & extension_state::replay) != 0) {
-        drawn.viewed_slot = 0;
-        drawn.locked_slot = 0;
-    }
-    hud::draw_resource_panel(world, drawn, rows, sink);
-    resource_panel_.flash = drawn.flash;
+    hud::draw_resource_panel(world, resource_panel_, rows, sink);
 }
 
 int Runtime::clock_line_sign_pull(
@@ -383,7 +470,45 @@ void Runtime::draw_clock_line(PaintLayer layer) {
     label(rows.tidal, lines.tidal);
 }
 
+bool Runtime::replay_stats_panel_pointer(const SDL_Event& event, float x, float y) {
+    if (!match_ || screen_ != Screen::match || replay_stats_hidden_ || photo_mode())
+        return false;
+    if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN)
+        return false;
+    auto rows = resource_panel_rows_shown();
+    const ReplayPanelPlace place = replay_panel_place(rows);
+    if (place.rows == 0)
+        return false;
+    rows.count = place.rows;
+    const float scale = static_cast<float>(place.scale);
+    const auto column =
+        static_cast<int32_t>(std::floor((x - static_cast<float>(place.corner.x)) / scale));
+    const auto row =
+        static_cast<int32_t>(std::floor((y - static_cast<float>(place.corner.y)) / scale));
+    hud::ResourcePanel at_origin{};
+    at_origin.x = 0;
+    at_origin.y = 0;
+    const auto hit = hud::resource_panel_hit(at_origin, rows, column, row);
+    if (!hit.inside)
+        return false;
+    // A double-click on a row is the watch actions: it shows the view of the
+    // player the row lists, as the view control does. Any press on the panel
+    // is the panel's, not the battlefield's under it.
+    for (const oa::ui::key_bindings::ActionEvent& fed : match_action_events()) {
+        if (fed.phase != oa::ui::key_bindings::Phase::double_press)
+            continue;
+        if ((fed.action == "watch.player-view" || fed.action == "watch.lock-view") &&
+            hit.row >= 0) {
+            replay_choose_panel_row(hit.row);
+            break;
+        }
+    }
+    return true;
+}
+
 bool Runtime::resource_panel_pointer(const SDL_Event& event, float x, float y) {
+    if (match_ && (current_extension_state() & extension_state::replay) != 0)
+        return replay_stats_panel_pointer(event, x, y);
     if (!match_ || screen_ != Screen::match || !ui_rules().resource_panel.enabled ||
         resource_panel_.hidden || resource_panel_.x < 0)
         return false;
@@ -420,12 +545,6 @@ bool Runtime::resource_panel_pointer(const SDL_Event& event, float x, float y) {
             continue;
         if (fed.action == "watch.player-view" || fed.action == "watch.lock-view")
             watch_row = true;
-    }
-    // In a replay a row shows the view of the player it lists, as the view
-    // control's row for that player does.
-    if (watch_row && (current_extension_state() & extension_state::replay) != 0 && hit.row >= 0) {
-        replay_choose_panel_row(hit.row);
-        return true;
     }
     if (watch_row) {
         const auto change = hud::resource_panel_view_switch(panel, rows, hit, watching);

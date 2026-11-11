@@ -122,10 +122,13 @@ uint8_t* Runtime::board_pixel(int canvas_x, int canvas_y) {
 void Runtime::shade_board_rect(int x0, int y0, int x1, int y1, int level) {
     const auto corner = board_canvas(x0, y0);
     const auto end = board_canvas(x1 + 1, y1 + 1);
-    const int width = end.x - corner.x;
-    const int height = end.y - corner.y;
+    shade_canvas_rect(corner.x, corner.y, end.x - corner.x, end.y - corner.y, level);
+}
+
+void Runtime::shade_canvas_rect(int left, int top, int width, int height, int level) {
     if (width <= 0 || height <= 0)
         return;
+    const oa::ui::display_layout::Point corner{left, top};
     // In the Full tier the card darkens or lights the battlefield under the
     // board; the board's foreground goes on the overlay canvas.
     const auto at = canvas_paint(corner.x, corner.y);

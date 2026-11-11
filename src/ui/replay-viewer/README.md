@@ -18,8 +18,7 @@ say what a press landed on.
   Seconds have two digits.
 - `lay_out(width, height, model, shown)` places the bar along the foot. From
   the left: Back 10 s, Play/Pause, Forward 10 s, the time, the timeline,
-  Speed, an empty slot for the view control, an empty slot for the camera
-  control, Chat, Keys and Leave. The two empty slots are not controls.
+  Speed, the view control, the camera control, Photo, Chat, Keys and Leave.
   640×480, 1280×720 and 1920×1080 each keep a timeline wider than 40 points.
   The time keeps the width the model's `widths.time` says its text needs.
   The speed button grows to its full caption ("16× · 9× now"). Where the row
@@ -35,7 +34,12 @@ say what a press landed on.
   back, which a playback key and a tap do. `toggle_pin` holds it on screen.
   The pin is not stored anywhere: a new `BarVisibility` starts unpinned.
 - `fill_controls` lists the controls automation can press. Names start with
-  `replay-viewer.`. A hidden bar lists none of its own controls.
+  `replay-viewer.`. A hidden bar lists none of its own controls. An open
+  view menu lists a row per player, `view-item.N`, whose text is the name
+  and, once the player has gone, "Defeated 18:02" or "Left 21:40".
+- The view menu draws each player's colour, name and departure. The bar
+  lays out no player list: the app draws the players' stats over the
+  battlefield's top right.
 - `draw` paints the bar in the kit's HUD colours. The watched part of the
   timeline is the lit green, a keyframed stretch is a lighter green, and the
   rest is dark. Commander deaths are diamonds in the player's colour. Pauses
@@ -61,7 +65,8 @@ is shown.
 - The bar's rectangle spans the window's width and ends on its bottom edge.
 - The row's rectangles sit inside the bar, in the order above, and do not
   overlap.
-- The view and camera rectangles have a width and are not controls.
+- The view and camera rectangles have a width, and are controls only while
+  the bar is shown.
 - A hidden bar still has its rectangles, so the lower edge does not move,
   and `hit_control` returns none for them.
 - `tick_at` of the timeline's first column is 0, and of its last column is
@@ -71,14 +76,16 @@ is shown.
 
 `ui-replay-viewer` (`tests/replay_viewer_test.cpp`) checks the layout at
 640×480, 1280×720 and 1920×1080, the marker hit areas, the time text
-`11:40 / 23:52`, and the hide and pin timing. It also measures the time and
+`11:40 / 23:52`, the hide and pin timing, the view menu's rows with no
+player list, and a departure's room beside the name in five languages. It also measures the time and
 the speed captions in five languages and requires them to fit on the
 battlefield the bar covers in a match at those three window sizes (512, 725
 and 832 points wide).
 
 ## Limitations
 
-The module does not switch the view, move the camera, or list the players.
-Those slots are empty on purpose. It does not decide which markers exist:
+The module does not switch the view or move the camera: the app does, from
+the view and camera menus. It does not draw the players' stats. It does
+not decide which markers exist:
 a recording's timeline is the app's to read. It does not play, pause, seek
 or change speed. The app does that when a control or a key asks.

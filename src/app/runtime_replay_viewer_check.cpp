@@ -7,9 +7,13 @@
 // and in German at 640x480. Each press is checked against the replay: pause,
 // seeks, markers, speed, a timeline drag, the pin, the shortcut card, the
 // controller and a tap. The camera modes are Free, Follow their camera,
-// Follow a unit and, once the index holds a fight, Director. A second play
-// switches view and camera, seeks nowhere after that, and must digest the
-// same as the straight play. Markers come from the recording's index pass.
+// Follow a unit and, once the index holds a fight, Director. The bar lays out
+// no player list: the players' stats panel stands at the battlefield's top
+// right, at each size and on a phone, with every recorded player and no
+// watcher, each square in the View control's colour, and F4 hides it. A
+// second play switches view and camera, seeks nowhere after that, and must
+// digest the same as the straight play. Markers come from the recording's
+// index pass.
 
 #include "library_host.hpp"
 #include "net_options.hpp"
@@ -18,6 +22,7 @@
 #include "oa_layer_check.hpp"
 #include "pad_state.hpp"
 #include "touch_dispatch.hpp"
+#include "touch_state.hpp"
 
 #include "oa/app/expansion_entry.hpp"
 #include "oa/app/frame_pacing.hpp"
@@ -32,6 +37,8 @@
 #include "oa/sim/unit_spawn/spawn.hpp"
 #include "oa/sim/unit_spawn/spawn_runtime.hpp"
 #include "oa/ui/first_run/first_run.hpp"
+#include "oa/ui/hud/resource_panel.hpp"
+#include "oa/ui/hud/shared_views.hpp"
 #include "oa/ui/library/export.hpp"
 #include "oa/ui/library/replays.hpp"
 #include "oa/ui/replay_viewer/replay_viewer.hpp"
@@ -245,6 +252,130 @@ void Runtime::check_replay_viewer() {
         capture_frame_ = nullptr;
         oa_layer().read_whole_window(false);
         write_ppm(step_snapshot(options_.snapshot, step), presented);
+    };
+    // The presented picture, as --snapshot writes it.
+    const auto capture = [this] {
+        oa_layer().read_whole_window(true);
+        renderer::Surface presented;
+        capture_frame_ = &presented;
+        render();
+        capture_frame_ = nullptr;
+        oa_layer().read_whole_window(false);
+        return presented;
+    };
+    // No player list, and the stats panel at the top right of the overlays'
+    // area, clear of the bar and the touch controls, listing every recorded
+    // player and no watcher, each square drawn in the colour the View control
+    // draws that player in.
+    const auto check_stats_panel = [&](std::string_view where) {
+        const std::string at(where);
+        for (int row = 0; row <= OA_PLAYER_COUNT; ++row) {
+            require(
+                !named("oa.replay-viewer.watch-row." + std::to_string(row)) &&
+                    !named("oa.replay-viewer.watch-chip." + std::to_string(row)),
+                at + ": the bar still lays out a player list"
+            );
+        }
+        require(!replay_stats_hidden_, at + ": the stats panel is hidden");
+        const oa::World& world = match_->state();
+        std::array<bool, OA_PLAYER_COUNT> playing{};
+        int playing_count = 0;
+        for (int slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            const oa::Player& player = world.game.players[slot];
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+            if (player.in_use == 0 || player.name[0] == '\0' || info == nullptr ||
+                (info->options & OA_SETUP_OPTION_WATCHER) != 0)
+                continue;
+            playing[static_cast<std::size_t>(slot)] = true;
+            ++playing_count;
+        }
+        const oa::ui::hud::ResourcePanelRows rows = resource_panel_rows_shown();
+        require(
+            rows.count == playing_count && playing_count >= 3,
+            at + ": the stats panel lists " + std::to_string(rows.count) + " of " +
+                std::to_string(playing_count) + " players"
+        );
+        std::array<bool, OA_PLAYER_COUNT> listed{};
+        for (uint8_t row = 0; row < rows.count; ++row) {
+            const uint8_t slot = rows.slots[row];
+            require(
+                slot < OA_PLAYER_COUNT && playing[slot] && !listed[slot],
+                at + ": the stats panel lists slot " + std::to_string(slot) + ", not a player"
+            );
+            listed[slot] = true;
+            const std::optional<std::array<uint8_t, 3>> view = replay_panel_row_view_colour(row);
+            require(
+                view.has_value() && *view == palette_rgb(rows.colours[row]),
+                at + ": stats row " + std::to_string(row) + " is not in the View control's colour"
+            );
+            const oa::PlayerSetupInfo* info =
+                oa::world_player_info(&world, &world.game.players[slot]);
+            require(
+                info != nullptr && rows.colours[row] == oa::ui::hud::player_dot_color(world, slot),
+                at + ": stats row " + std::to_string(row) + " is not in its minimap colour"
+            );
+        }
+        const ReplayPanelPlace place = replay_panel_place(rows);
+        require(place.rows == rows.count, at + ": the stats panel's rows do not fit");
+        const layout::Rect area = overlay_area();
+        const int32_t width = oa::ui::hud::kResourcePanelWidth * place.scale;
+        const int32_t height = oa::ui::hud::kResourcePanelRowHeight * place.scale * rows.count;
+        const int32_t right = place.corner.x + width;
+        const int32_t bottom = place.corner.y + height;
+        require(
+            place.corner.x >= area.x && place.corner.y >= area.y && right <= area.x + area.width &&
+                bottom <= area.y + area.height,
+            at + ": the stats panel leaves the overlays' area"
+        );
+        require(
+            area.x + area.width - right <= 8 * place.scale &&
+                place.corner.y - area.y <= 8 * place.scale,
+            at + ": the stats panel is not at the top right"
+        );
+        require(bottom <= replay_bar_top(), at + ": the stats panel reaches the playback bar");
+        if (const TouchState* touch = touch_state_if_made();
+            touch != nullptr && touch_controls_active() && touch->frame_ready) {
+            const auto clear_of = [&](const auto& rect) {
+                return rect.width <= 0 || rect.height <= 0 || rect.x >= right ||
+                       rect.x + rect.width <= place.corner.x || rect.y >= bottom ||
+                       rect.y + rect.height <= place.corner.y;
+            };
+            for (uint8_t index = 0; index < touch->frame.control_count; ++index)
+                require(
+                    clear_of(touch->frame.controls[index].rect),
+                    at + ": the stats panel covers a touch control"
+                );
+            require(
+                clear_of(touch->frame.minimap) && clear_of(touch->frame.resources) &&
+                    clear_of(touch->frame.status),
+                at + ": the stats panel covers the phone's minimap, resources or status"
+            );
+        }
+        // Each square, drawn where the panel stands, in the player's colour.
+        const renderer::Surface picture = capture();
+        require(
+            static_cast<int>(picture.width) == match_layout_.width &&
+                static_cast<int>(picture.height) == match_layout_.height,
+            at + ": the picture is not the match's canvas"
+        );
+        for (uint8_t row = 0; row < rows.count; ++row) {
+            const int32_t x =
+                place.corner.x + (oa::ui::hud::kResourcePanelSquareX + 4) * place.scale;
+            const int32_t y =
+                place.corner.y + (row * oa::ui::hud::kResourcePanelRowHeight + 5) * place.scale;
+            const std::size_t offset =
+                (static_cast<std::size_t>(y) * picture.width + static_cast<std::size_t>(x)) * 3U;
+            require(offset + 2 < picture.rgb.size(), at + ": a square is off the picture");
+            const std::array<uint8_t, 3> drawn{
+                picture.rgb[offset], picture.rgb[offset + 1], picture.rgb[offset + 2]
+            };
+            require(
+                drawn == palette_rgb(rows.colours[row]),
+                at + ": stats row " + std::to_string(row) + "'s square is not drawn in its colour"
+            );
+        }
+        std::cout << "replay viewer: " << at << " stats panel " << int{rows.count} << " rows at "
+                  << place.corner.x << ", " << place.corner.y << " scale " << place.scale << '\n';
     };
     const auto dismiss_welcome = [&] {
         if (LayerScreen* welcome = oa_layer().find("first-run")) {
@@ -669,6 +800,21 @@ void Runtime::check_replay_viewer() {
         std::ostringstream step;
         step << window.width << 'x' << window.height;
         snapshot(step.str());
+        check_stats_panel(step.str());
+    }
+    {
+        // A phone: the panel keeps clear of MENU, the rail and the bar.
+        auto& dispatch = touch_state().dispatch;
+        dispatch.forced = true;
+        resize(CheckWindow{852, 393});
+        frames(2);
+        require(layout::placed_mode(match_layout_), "852x393 with touch controls is not a phone");
+        snapshot("852x393-phone");
+        check_stats_panel("852x393 phone");
+        dispatch.forced = false;
+        resize(CheckWindow{1280, 720});
+        frames(2);
+        require(!layout::placed_mode(match_layout_), "the phone layout stayed");
     }
     require(
         file_bytes(preference_path_) == preferences_before,
@@ -1073,17 +1219,33 @@ void Runtime::check_replay_viewer() {
     );
     key(SDLK_F4);
     frames(1);
-    require(named("oa.replay-viewer.watch-chip.0").has_value(), "F4 did not fold the player list");
+    require(replay_stats_hidden_, "F4 did not hide the stats panel");
     key(SDLK_F4);
     frames(1);
-    require(named("oa.replay-viewer.watch-row.0").has_value(), "F4 did not open the player list");
+    require(!replay_stats_hidden_, "F4 did not show the stats panel again");
     {
-        // Each row is its own seat. Two computers of one side share a name.
-        // Tab reaches every one of them, and only the row on show has the eye.
+        // Each row of the View menu is its own seat. Two computers of one
+        // side share a name. Tab reaches every one of them, and only the row
+        // on show is marked.
+        const auto open_view_menu = [&] {
+            show_replay_bar();
+            frames(1);
+            if (!named("oa.replay-viewer.view-item.0"))
+                click_named("oa.replay-viewer.view");
+            require(named("oa.replay-viewer.view-item.0").has_value(), "View did not open");
+        };
+        const auto close_view_menu = [&] {
+            show_replay_bar();
+            frames(1);
+            if (named("oa.replay-viewer.view-item.0"))
+                click_named("oa.replay-viewer.view");
+            require(!named("oa.replay-viewer.view-item.0"), "View did not close");
+        };
         const auto row_at = [&](int index) {
-            return named("oa.replay-viewer.watch-row." + std::to_string(index));
+            return named("oa.replay-viewer.view-item." + std::to_string(index));
         };
         const auto eyes_of = [&] {
+            open_view_menu();
             int rows = 0;
             int eyes = 0;
             for (int index = 0; index < OA_PLAYER_COUNT + 1; ++index) {
@@ -1094,11 +1256,12 @@ void Runtime::check_replay_viewer() {
                 if (row->checked)
                     ++eyes;
             }
+            close_view_menu();
             return std::pair<int, int>{rows, eyes};
         };
         const auto counted = eyes_of();
-        require(counted.first >= 4, "the list has fewer than four rows");
-        require(counted.second == 1, "the open list does not have one eye");
+        require(counted.first >= 4, "the View menu has fewer than four rows");
+        require(counted.second == 1, "the View menu does not mark one row");
 
         struct Seen {
             std::string name;
@@ -1110,13 +1273,16 @@ void Runtime::check_replay_viewer() {
 
         std::vector<Seen> seen;
         for (int index = 0; index < counted.first; ++index) {
-            const std::string control = "oa.replay-viewer.watch-row." + std::to_string(index);
-            const AutomationControl before = require_named(control, "a watch row vanished");
+            const std::string control = "oa.replay-viewer.view-item." + std::to_string(index);
+            open_view_menu();
+            const AutomationControl before = require_named(control, "a View row vanished");
             click_named(control);
+            open_view_menu();
             const std::optional<AutomationControl> after = named(control);
-            require(after.has_value() && after->checked, "the clicked row is not the eye");
+            require(after.has_value() && after->checked, "the chosen row is not marked");
+            close_view_menu();
             const auto again = eyes_of();
-            require(again.second == 1, "a row click left more than one eye");
+            require(again.second == 1, "a row choice left more than one mark");
             const uint8_t slot = match_view_player();
             require(slot < OA_PLAYER_COUNT, "the view names no player");
             const oa::World& world = match_->state();
@@ -1431,16 +1597,20 @@ void Runtime::check_replay_viewer() {
         "the digest changed: " + digest_text(straight) + " then " + digest_text(again)
     );
     bool saw_left = false;
+    show_replay_bar();
+    frames(1);
+    if (!named("oa.replay-viewer.view-item.0"))
+        click_named("oa.replay-viewer.view");
     for (int row = 0; row < OA_PLAYER_COUNT + 1; ++row) {
-        const std::string index_text = std::to_string(row);
-        for (const char* kind : {"watch-row.", "watch-chip."}) {
-            const std::optional<AutomationControl> control =
-                named(std::string("oa.replay-viewer.") + kind + index_text);
-            if (control && control->text.find("Left") != std::string::npos)
-                saw_left = true;
-        }
+        const std::optional<AutomationControl> control =
+            named("oa.replay-viewer.view-item." + std::to_string(row));
+        if (control && control->text.find("Left") != std::string::npos)
+            saw_left = true;
     }
-    require(saw_left, "no row says the player left");
+    require(saw_left, "no View row says the player left");
+    show_replay_bar();
+    frames(1);
+    click_named("oa.replay-viewer.view");
 
     leave_match();
     load(Screen::main_menu);

@@ -38,10 +38,13 @@ slot order:
 - anyone else sees the players whose machines report sharing their map
   position with this machine.
 
-A replay lists the recording's playing players instead, every one, as the
-playback bar's **View** control lists them and in its order: the first
-slot included, and the seat the replay is watched from left out
-([replays](../../replays.md#playing-one)).
+A replay shows the panel whether this hack is on or not, at the
+battlefield's top right, where it stays, over ground darkened as under
+the kills board so that it reads on any map, and lists the recording's playing
+players instead, every one, as the playback bar's **View** control lists
+them and in its order: the first slot included, and the seat the replay is
+watched from left out ([replays](../../replays.md#playing-one)). F4 there
+hides or shows it.
 
 Each row shows the player's colour square, in the colour the minimap and
 the replay's **View** control draw that player in, the name, stored metal

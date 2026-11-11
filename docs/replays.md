@@ -230,12 +230,13 @@ and pause, the time, a timeline you can press or drag, and the speed. It
 hides after three seconds away from the battlefield's lower edge and comes
 back on a playback key. **B** pins it for this watch; the pin is not saved.
 **View** chooses whose sight you see: every player, the whole map, or one
-player's view. A player who was defeated or who left stays in the list for
-the whole replay, and the row says **Defeated 18:02** or **Left 21:40** once
-that moment has passed. Choosing that row shows the sight the match still
-holds for the seat. When the seat itself is gone, the row stays, the eye
-stays on it, and the view is the whole map: the match no longer holds that
-player's sight. **Camera** is free, **Director** when the index has recorded
+player's view. Its menu lists each player beside their colour. A player
+who was defeated or who left stays in it for the whole replay, and the row
+says **Defeated 18:02** or **Left 21:40** once that moment has passed.
+Choosing that row shows the sight the match still holds for the seat. When
+the seat itself is gone, the row stays, the mark stays on it, and the view
+is the whole map: the match no longer holds that player's sight. The seat
+the replay is watched from is never listed. **Camera** is free, **Director** when the index has recorded
 a fight, that player's own camera when the recording already carries camera
 records, or one unit. **Director** follows one fight at a time, a little
 ahead of the moment on show. It stays with that fight while the fight is
@@ -253,10 +254,19 @@ nearest fight of that minute, the one ahead when the two are equally far,
 rather than a start base. Before the first fight it shows a start base: the
 first commander's. It is not offered for a replay whose index has no fight. **Follow their camera** while every player is shown follows
 the first player who shared a camera. Double-click a unit to keep it in the middle until you pan; when
-that unit is gone the camera returns to free. The list at the top right
-names each player. On a 640×480 battlefield it starts folded, and **F4**
-folds it to colour chips or opens it. **Tab** and **Shift+Tab** move through
-the views, **Q** returns to every player, and **C** changes the camera.
+that unit is gone the camera returns to free. The players' stats stand at
+the battlefield's top right, over ground darkened as under the kills
+board, so they read on any map and the battlefield shows through: for each
+player
+the **View** menu lists, in its order, their colour, name, stored metal and
+energy with a bar for each, and both incomes, worked out from the
+recording. A player whose economy the recording never gave, as a
+computer's often is not, and a player who has left, show their colour and
+name alone. On a narrow window and a phone the stats take a smaller step,
+then fewer rows, rather than reach the bar or the touch controls. A
+double-click on a row shows that player's view, and **F4** hides or shows
+them. **Tab** and **Shift+Tab** move through the views, **Q** returns to
+every player, and **C** changes the camera.
 At the end, a card names the winner, the length and each player's kills and
 losses, and offers **Watch again**, **Back to the Library** and **Export…**.
 A damaged recording says so, with the time it failed.

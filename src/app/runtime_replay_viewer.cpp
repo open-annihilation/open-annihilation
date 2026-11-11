@@ -20,7 +20,6 @@
 #include "oa/core/player.h"
 #include "oa/core/world.h"
 #include "oa/data/input_actions/actions.hpp"
-#include "oa/data/defs/layout.hpp"
 #include "oa/formats/oademo/oademo.hpp"
 #include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/platform/files.hpp"
@@ -363,6 +362,7 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     /// @param runtime the runtime
     explicit ReplayViewerScreen(Runtime& runtime) : runtime_(runtime) {
         runtime_.replay_viewer_ = this;
+        runtime_.replay_stats_hidden_ = false;
         watched_path_ = runtime_.replay_recording_path_;
         handed_timeline_ = std::move(runtime_.replay_handed_timeline_);
         runtime_.replay_handed_timeline_.clear();
@@ -442,10 +442,6 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             return;
         points_width_ = points.x;
         points_height_ = points.y;
-        // 640×480's battlefield is 512 points wide. Until the player folds or
-        // opens the list, that width starts folded and a wider one starts open.
-        if (!list_fold_chosen_)
-            list_folded_ = points.x <= 512;
         refresh();
     }
 
@@ -516,12 +512,9 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
                 return LayerAnswer::pass;
             const int view_item = model_.view_open ? rv::view_menu_index(layout_, at) : -1;
             const int camera_item = model_.camera_open ? rv::camera_menu_index(layout_, at) : -1;
-            const int watch_row = rv::watch_index(layout_, at);
-            if (view_item >= 0 || camera_item >= 0 || watch_row >= 0 ||
-                rv::over_watch_chrome(layout_, at)) {
+            if (view_item >= 0 || camera_item >= 0 || rv::over_watch_chrome(layout_, at)) {
                 held_view_item_ = view_item;
                 held_camera_item_ = camera_item;
-                held_watch_ = watch_row;
                 held_ = rv::Control::none;
                 visibility_.show();
                 ++revision_;
@@ -547,22 +540,17 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             held_ = rv::Control::none;
             return LayerAnswer::none;
         }
-        if (held_view_item_ >= 0 || held_camera_item_ >= 0 || held_watch_ >= 0) {
+        if (held_view_item_ >= 0 || held_camera_item_ >= 0) {
             const int view_now = model_.view_open ? rv::view_menu_index(layout_, at) : -1;
             const int camera_now = model_.camera_open ? rv::camera_menu_index(layout_, at) : -1;
-            const int watch_now = rv::watch_index(layout_, at);
             const int view_was = held_view_item_;
             const int camera_was = held_camera_item_;
-            const int watch_was = held_watch_;
             held_view_item_ = -1;
             held_camera_item_ = -1;
-            held_watch_ = -1;
             if (view_was >= 0 && view_was == view_now)
                 choose_view_row(view_was);
             else if (camera_was >= 0 && camera_was == camera_now)
                 choose_camera_row(camera_was);
-            else if (watch_was >= 0 && watch_was == watch_now)
-                choose_watch_row(watch_was);
             refresh();
             ++revision_;
             return LayerAnswer::redraw;
@@ -589,24 +577,10 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
-    /// The wheel over the player list scrolls it. Anywhere else it goes on.
+    /// The wheel goes on to the match.
     ///
-    /// @param at the pointer, in the screen's points
-    /// @param notches how far the wheel turned; positive is away from the player
-    /// @return redraw when the list moved; otherwise pass
-    LayerAnswer wheel(kit::Point at, float notches) override {
-        if (runtime_.photo_mode())
-            return LayerAnswer::pass;
-        if (notches == 0.0F || !kit::contains(layout_.players, at))
-            return LayerAnswer::pass;
-        if (notches > 0.0F)
-            --list_scroll_;
-        else
-            ++list_scroll_;
-        refresh();
-        ++revision_;
-        return LayerAnswer::redraw;
-    }
+    /// @return pass
+    LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::pass; }
 
     /// The pad's own path handles a replay. The screen does not take the action.
     ///
@@ -731,8 +705,7 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     /// @return true while the landing rule is still holding the asked tick
     [[nodiscard]] bool photo_seek_pending() const { return seek_armed_; }
 
-    /// Shows the next or previous row of the player list, and scrolls the
-    /// list so that row is on show.
+    /// Shows the next or previous row of the view menu.
     ///
     /// @param delta +1 for the next row, -1 for the previous
     void step_player_view(int delta) {
@@ -752,24 +725,10 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         if (next >= count)
             next = 0;
         show_player(model_.watch[static_cast<std::size_t>(next)].slot);
-        keep_row_on_show(next);
-    }
-
-    /// Scrolls the open list so a row is among the rows it shows.
-    ///
-    /// @param row the row, counted from the every-player row
-    void keep_row_on_show(int row) {
-        if (row < list_scroll_)
-            list_scroll_ = row;
-        else if (row >= list_scroll_ + rv::watch_visible_rows)
-            list_scroll_ = row - rv::watch_visible_rows + 1;
     }
 
     /// Shows the whole map and every unit.
-    void show_whole_view() {
-        show_player(-1);
-        keep_row_on_show(0);
-    }
+    void show_whole_view() { show_player(-1); }
 
     /// Moves to the next camera mode the recording can offer.
     ///
@@ -808,13 +767,6 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         runtime_.stop_match_tracking();
         camera_mode_ = rv::CameraMode::free;
         model_.camera = camera_mode_;
-    }
-
-    /// Folds the player list to colour chips, or opens it.
-    void toggle_player_list() {
-        list_fold_chosen_ = true;
-        list_folded_ = !list_folded_;
-        model_.list_folded = list_folded_;
     }
 
     /// Shows every player and leaves the camera free. Tracking stops.
@@ -948,12 +900,38 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         return -1;
     }
 
+    /// The canvas row the bar starts on, shown or hidden.
+    ///
+    /// @param layout the match's layout the bar is placed on
+    /// @return the row; the battlefield's last row past it before the bar is laid out
+    [[nodiscard]] int32_t bar_top(const oa::ui::display_layout::MatchLayout& layout) const {
+        const int32_t top = layout.battlefield_y();
+        const int32_t height = layout.battlefield_height();
+        if (points_height_ <= 0 || height <= 0)
+            return top + height;
+        return top +
+               static_cast<int32_t>(static_cast<int64_t>(layout_.bar.y) * height / points_height_);
+    }
+
     /// The players the stats panel lists: the view control's, in its order,
     /// with the colours it draws them in.
     ///
     /// @return the seats; empty before the first refresh
     [[nodiscard]] const std::vector<oa::ui::hud::ResourcePanelSeat>& panel_seats() const {
         return panel_seats_;
+    }
+
+    /// The colour the view control draws the player of one stats panel row in.
+    ///
+    /// @param row the panel's row, from 0
+    /// @return the colour; none past the rows
+    [[nodiscard]] std::optional<kit::Colour> panel_row_view_colour(int row) const {
+        if (row < 0 || static_cast<std::size_t>(row) >= panel_rows_.size())
+            return std::nullopt;
+        const int watch = panel_rows_[static_cast<std::size_t>(row)];
+        if (watch < 0 || static_cast<std::size_t>(watch) >= model_.watch.size())
+            return std::nullopt;
+        return model_.watch[static_cast<std::size_t>(watch)].colour;
     }
 
     /// Shows the view of the stats panel's row, as the view control's row
@@ -1582,8 +1560,9 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         model_.finding = finding_;
         model_.finding_percent = finding_ ? finding_percent_ : 0;
         model_.widths = measure_widths();
-        // F4 folds the list. The resource panel takes that key when it is on,
-        // so the card lists whichever of the two is bound.
+        // F4 shows or hides the stats panel. The resource panel's action
+        // takes that key when the hack is on, so the card lists whichever of
+        // the two is bound, under the panel's name.
         std::vector<std::string> key_ids{
             "watch.replay-pause",
             "watch.replay-back",
@@ -1607,7 +1586,10 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         model_.key_chords.reserve(key_ids.size());
         for (const std::string& id : key_ids) {
             rv::KeyChord row;
-            if (const oa::data::input_actions::Action* action = oa::data::input_actions::find(id))
+            const bool panel_key = id == "game.kill-board" || id == "game.resource-panel";
+            const std::string named = panel_key ? "game.resource-panel" : id;
+            if (const oa::data::input_actions::Action* action =
+                    oa::data::input_actions::find(named))
                 row.action = std::string(action->words.name);
             row.chord = runtime_.bound_chords_text(id);
             model_.key_chords.push_back(std::move(row));
@@ -1980,11 +1962,6 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             director_started_ = false;
     }
 
-    /// Shows the player list's row.
-    ///
-    /// @param index the row in the model
-    void choose_watch_row(int index) { choose_view_row(index); }
-
     /// Shows the view menu's row.
     ///
     /// @param index the row
@@ -2033,24 +2010,6 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         );
     }
 
-    /// One live slot's side, team, units and income, while that slot is playing.
-    ///
-    /// @param world the match
-    /// @param player the slot
-    /// @param slot the slot's index
-    /// @param[out] row the list row
-    void fill_live(const oa::World& world, const oa::Player& player, int slot, rv::WatchRow& row) {
-        const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
-        if (info != nullptr && oa::data::defs::side_name(info->side) != nullptr)
-            row.side = oa::data::defs::side_name(info->side);
-        row.team = player.team == OA_PLAYER_NO_TEAM ? -1 : static_cast<int>(player.team);
-        row.units = static_cast<int32_t>(player.unit_count);
-        const ReplayShownSlot& shown = runtime_.replay_shown_[static_cast<std::size_t>(slot)];
-        row.income = shown.income;
-        row.metal = shown.metal;
-        row.energy = shown.energy;
-    }
-
     /// Adds one player to the stats panel's seats, as its view row shows them.
     ///
     /// @param slot the player's live slot
@@ -2075,10 +2034,10 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         panel_rows_.push_back(static_cast<int>(row));
     }
 
-    /// Rebuilds the player list. Once the index has arrived the rows are its
-    /// players for the whole replay. Before that, only a live computer or a
-    /// mirrored slot is listed. Side, team, units and income are taken only
-    /// while the slot is still playing. The colour stays.
+    /// Rebuilds the view menu's rows and the stats panel's seats. Once the
+    /// index has arrived the rows are its players for the whole replay.
+    /// Before that, only a live computer or a mirrored slot is listed. A
+    /// watcher is never listed. The colour stays.
     void fill_watch() {
         model_.watch.clear();
         panel_seats_.clear();
@@ -2107,13 +2066,9 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
                         live = &player;
                 }
                 const bool seated = live != nullptr;
-                const bool playing = seated && (live->status == OA_PLAYER_STATUS_COMPUTER ||
-                                                live->status == OA_PLAYER_STATUS_MIRRORED);
                 rv::WatchRow row;
                 row.slot = seated ? found : -2 - static_cast<int>(place);
                 row.name = card.name;
-                if (playing && world != nullptr)
-                    fill_live(*world, *live, found, row);
                 row.departed = departure_of(card.name, number);
                 const int colour = colour_of(match, card.name, number, found);
                 row.colour = ink_of(colour);
@@ -2139,7 +2094,6 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
                 rv::WatchRow row;
                 row.slot = slot;
                 row.name = name;
-                fill_live(world, player, slot, row);
                 row.departed = departure_of(name, -1);
                 const int colour = colour_of(match, name, -1, slot);
                 row.colour = ink_of(colour);
@@ -2163,14 +2117,6 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             model_.viewed = 0;
             runtime_.switch_watched_view(oa::ui::hud::ViewSwitch::own_view);
         }
-        const int rows = static_cast<int>(model_.watch.size());
-        const int furthest = std::max(rows - rv::watch_visible_rows, 0);
-        if (list_scroll_ > furthest)
-            list_scroll_ = furthest;
-        if (list_scroll_ < 0)
-            list_scroll_ = 0;
-        model_.list_scroll = list_scroll_;
-        model_.list_folded = list_folded_;
         model_.camera = camera_mode_;
         model_.offer_follow_camera = runtime_.replay_shares_camera_;
         model_.offer_director = director_offered();
@@ -2348,8 +2294,6 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     bool replay_paused_{true};
     bool seek_armed_{};
     bool reset_after_seek_{};
-    bool list_folded_{};
-    bool list_fold_chosen_{};
     rv::CameraMode camera_mode_{rv::CameraMode::free};
     bool director_started_{};
     uint32_t director_tick_{};
@@ -2357,8 +2301,6 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     replay_index::DirectorView director_view_{};
     std::vector<oademo::BattleEvent> battles_{};
     int viewed_slot_{-1};
-    int list_scroll_{};
-    int held_watch_{-1};
     int held_view_item_{-1};
     int held_camera_item_{-1};
     int seek_samples_{};
@@ -2541,9 +2483,11 @@ void Runtime::replay_release_unit_follow() {
         replay_viewer_->release_unit_follow();
 }
 
-void Runtime::replay_toggle_player_list() {
-    if (replay_viewer_ != nullptr)
-        replay_viewer_->toggle_player_list();
+int32_t Runtime::replay_bar_top() const {
+    const int32_t bottom = match_layout_.battlefield_y() + match_layout_.battlefield_height();
+    if (replay_viewer_ == nullptr)
+        return bottom;
+    return replay_viewer_->bar_top(match_layout_);
 }
 
 void Runtime::replay_reset_watch() {
@@ -2583,6 +2527,15 @@ std::vector<oa::ui::hud::ResourcePanelSeat> Runtime::replay_panel_seats() const 
     if (replay_viewer_ == nullptr)
         return {};
     return replay_viewer_->panel_seats();
+}
+
+std::optional<std::array<uint8_t, 3>> Runtime::replay_panel_row_view_colour(int row) const {
+    if (replay_viewer_ == nullptr)
+        return std::nullopt;
+    const std::optional<kit::Colour> colour = replay_viewer_->panel_row_view_colour(row);
+    if (!colour)
+        return std::nullopt;
+    return std::array<uint8_t, 3>{colour->r, colour->g, colour->b};
 }
 
 void Runtime::replay_choose_panel_row(int row) {

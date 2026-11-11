@@ -9784,8 +9784,14 @@ class Runtime final : public menu::Host,
     /// Leaves follow-a-unit and returns the camera to free.
     void replay_release_unit_follow();
 
-    /// Folds the player list to colour chips, or opens it.
-    void replay_toggle_player_list();
+    /// Shows or hides the replay's stats panel (F4 in a replay).
+    void replay_toggle_stats_panel();
+
+    /// The canvas row the replay's playback bar starts on, shown or hidden:
+    /// the bar keeps its place while it hides.
+    ///
+    /// @return the row; the battlefield's last row past it while no bar is up
+    [[nodiscard]] int32_t replay_bar_top() const;
 
     /// Shows every player again and leaves the camera free. Tracking stops.
     void replay_reset_watch();
@@ -9834,6 +9840,13 @@ class Runtime final : public menu::Host,
     ///
     /// @return the seats; empty while no replay bar is up
     [[nodiscard]] std::vector<oa::ui::hud::ResourcePanelSeat> replay_panel_seats() const;
+
+    /// The colour the replay's view control draws the player of one stats
+    /// panel row in, for the replay viewer's check.
+    ///
+    /// @param row the panel's row, from 0
+    /// @return red, green and blue; none past the rows or without a bar
+    [[nodiscard]] std::optional<std::array<uint8_t, 3>> replay_panel_row_view_colour(int row) const;
 
     /// Shows the view of one row of the replay's stats panel, as the view
     /// control does for that player.
@@ -15847,6 +15860,16 @@ class Runtime final : public menu::Host,
     /// @param level shade table row
     void shade_board_rect(int x0, int y0, int x1, int y1, int level);
 
+    /// Shades a canvas rectangle as the board's shade does: every canvas
+    /// pixel under it goes through the level's shade table row.
+    ///
+    /// @param left left canvas column
+    /// @param top top canvas row
+    /// @param width columns
+    /// @param height rows
+    /// @param level shade table row
+    void shade_canvas_rect(int left, int top, int width, int height, int level);
+
     /// Paints an 8-bit drawing over the paint target.
     ///
     /// `draw` paints a width x height patch into an 8-bit surface whose origin
@@ -17055,7 +17078,43 @@ class Runtime final : public menu::Host,
     /// @return the rows; requires a running match
     [[nodiscard]] oa::ui::hud::ResourcePanelRows resource_panel_rows_shown() const;
 
-    /// Draws ui.resource-panel's panel over the battlefield.
+    /// Where a replay's stats panel goes on the canvas.
+    struct ReplayPanelPlace {
+        oa::ui::display_layout::Point corner{}; ///< its top left, in canvas pixels
+        int scale{1};                           ///< canvas pixels per panel pixel
+        uint8_t rows{};                         ///< the rows that fit; 0 draws nothing
+    };
+
+    /// Places a replay's stats panel at the top right of the overlays' area
+    /// (overlay_area), a margin in from its top and right edges, at the HUD
+    /// text's scale or the largest smaller whole scale at which it fits the
+    /// area's width and every row stays above the playback bar
+    /// (replay_bar_top); at 1, the rows that fit.
+    ///
+    /// @param rows the panel's rows
+    /// @return the place; no rows without any
+    [[nodiscard]] ReplayPanelPlace
+    replay_panel_place(const oa::ui::hud::ResourcePanelRows& rows) const;
+
+    /// Draws a replay's stats panel, in every replay with ui.resource-panel
+    /// or without: the recording's playing players' colours, names, stored
+    /// resources, bars and incomes, where replay_panel_place puts it, over
+    /// the battlefield darkened under it as under the kills board, so that
+    /// it reads over any ground and the ground still shows. F4 hides it.
+    /// Photo mode does not show it.
+    void draw_replay_stats_panel();
+
+    /// Takes a press on a replay's stats panel: any press there is the
+    /// panel's, and a double-click on a row shows that player's view.
+    ///
+    /// @param event the pointer event
+    /// @param x pointer column on the canvas
+    /// @param y pointer row on the canvas
+    /// @return true when the panel took the event
+    bool replay_stats_panel_pointer(const SDL_Event& event, float x, float y);
+
+    /// Draws ui.resource-panel's panel over the battlefield, or in a replay
+    /// the replay's stats panel (draw_replay_stats_panel).
     void draw_resource_panel_overlay();
 
     /// Draws ui.resource-panel's clock, wind and tidal line on one layer.
@@ -17145,7 +17204,8 @@ class Runtime final : public menu::Host,
 
     /// Takes a pointer event on ui.resource-panel's panel: a press on it
     /// starts a drag, moves follow it, the release ends it, and a watcher's
-    /// double-click switches the view.
+    /// double-click switches the view. In a replay the replay's stats panel
+    /// takes it (replay_stats_panel_pointer).
     ///
     /// @param event the pointer event
     /// @param x pointer column on the canvas
@@ -23131,6 +23191,8 @@ class Runtime final : public menu::Host,
     bool replay_library_requested_ = false;
     /// Recorded chat is hidden while the playback bar's Chat control says so.
     bool replay_chat_hidden_ = false;
+    /// F4 has put the replay's stats panel away. A new playback bar shows it.
+    bool replay_stats_hidden_ = false;
     /// The playback bar, while it is on the OA layer. The screen clears this.
     ReplayViewerScreen* replay_viewer_ = nullptr;
     /// Display incomes and shared cameras for the player list. Not keyframed.

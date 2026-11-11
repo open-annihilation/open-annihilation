@@ -671,84 +671,6 @@ void draw_end(const kit::Canvas& canvas, const Layout& layout, const Model& mode
     draw_button(canvas, layout.export_button, shown("Export…"), false, model.can_export);
 }
 
-constexpr int32_t kListMargin = 8;
-constexpr int32_t kListHeader = 22;
-constexpr int32_t kListRow = 36;
-constexpr int32_t kChip = 16;
-constexpr int32_t kChipGap = 4;
-
-/// Places the player list at the top right.
-///
-/// @param[in,out] layout the layout
-/// @param model what the bar shows
-/// @param width the window's width
-/// @param compact the window is under 700 points tall
-/// @param left_limit the list's left edge, when the end card needs the space
-///     before it; 0 leaves the list at its own width
-void place_watch(
-    Layout& layout, const Model& model, int32_t width, bool compact, int32_t left_limit = 0
-) {
-    layout.list_folded = model.list_folded;
-    layout.watch_indices.clear();
-    layout.player_rows.clear();
-    layout.player_chips.clear();
-    if (model.watch.empty())
-        return;
-    const int32_t count = static_cast<int32_t>(model.watch.size());
-    // The 640×480 battlefield is 512 points wide. A 240-point list covers
-    // nearly half of it, so that width takes a narrower list. Beside an end
-    // card the list keeps at least that narrower width, or it is not shown.
-    int32_t list_w = width <= 512 ? 168 : (compact ? 240 : 280);
-    int32_t x = std::max(width - kListMargin - list_w, kListMargin);
-    if (left_limit > x) {
-        x = left_limit;
-        list_w = width - kListMargin - x;
-    }
-    if (list_w < 168) {
-        layout.players = {};
-        return;
-    }
-    if (model.list_folded) {
-        const int32_t stride = kChip + kChipGap;
-        const int32_t per = std::max((list_w - 16) / stride, int32_t{1});
-        const int32_t chip_rows = (count + per - 1) / per;
-        const int32_t list_h = kListHeader + chip_rows * stride + 8;
-        layout.players = {x, kListMargin, list_w, list_h};
-        layout.list_scroll = 0;
-        for (int32_t index = 0; index < count; ++index) {
-            const int32_t column = index % per;
-            const int32_t chip_row = index / per;
-            layout.player_chips.push_back(
-                {layout.players.x + 8 + column * stride,
-                 layout.players.y + kListHeader + chip_row * stride,
-                 kChip,
-                 kChip}
-            );
-            layout.watch_indices.push_back(index);
-        }
-        return;
-    }
-    const int32_t visible = std::min(count, watch_visible_rows);
-    const int32_t max_scroll = std::max(count - visible, int32_t{0});
-    int32_t scroll = model.list_scroll;
-    if (scroll < 0)
-        scroll = 0;
-    if (scroll > max_scroll)
-        scroll = max_scroll;
-    layout.list_scroll = scroll;
-    const int32_t list_h = kListHeader + visible * kListRow + 8;
-    layout.players = {x, kListMargin, list_w, list_h};
-    for (int32_t row = 0; row < visible; ++row) {
-        layout.player_rows.push_back(
-            {layout.players.x + 4,
-             layout.players.y + kListHeader + row * kListRow,
-             layout.players.width - 12,
-             kListRow - 2}
-        );
-        layout.watch_indices.push_back(scroll + row);
-    }
-}
-
 /// Places one menu above a button.
 ///
 /// @param[out] menu the menu's rectangle
@@ -839,116 +761,55 @@ void draw_swatch(const kit::Canvas& canvas, const kit::Rect& box, kit::Colour in
     kit::fill_corner_rect(canvas, box, 2, ink);
 }
 
-/// Draws the mark on the row whose view is on show.
-///
-/// @param canvas where it is drawn
-/// @param x the mark's left
-/// @param y the mark's top
-void draw_eye(const kit::Canvas& canvas, int32_t x, int32_t y) {
-    const kit::Colour sclera = kit::hud_colour::label;
-    const kit::Colour iris = kit::hud_colour::ink;
-    const kit::Colour pupil = kit::hud_colour::panel;
-    // An almond, about 12 by 6, that fits the row's right edge.
-    kit::fill_rect(canvas, {x + 3, y, 6, 1}, sclera);
-    kit::fill_rect(canvas, {x + 1, y + 1, 10, 1}, sclera);
-    kit::fill_rect(canvas, {x, y + 2, 12, 2}, sclera);
-    kit::fill_rect(canvas, {x + 1, y + 4, 10, 1}, sclera);
-    kit::fill_rect(canvas, {x + 3, y + 5, 6, 1}, sclera);
-    kit::fill_rect(canvas, {x + 4, y + 2, 4, 2}, iris);
-    kit::fill_rect(canvas, {x + 5, y + 2, 2, 2}, pupil);
-}
-
-/// Draws the player list.
+/// Draws the view menu: each player's colour, name and, once they have
+/// gone, when they went. The row on show is marked as the camera menu marks
+/// its own.
 ///
 /// @param canvas where it is drawn
 /// @param layout the layout
 /// @param model what the bar shows
-void draw_players(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
-    if (!live(layout.players) || model.watch.empty())
+void draw_view_menu(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
+    if (!live(layout.view_menu))
         return;
-    kit::fill_corner_rect(canvas, layout.players, 4, card_fill);
-    kit::outline_corner_rect(canvas, layout.players, 4, kit::hud_colour::edge);
-    kit::box_text(
-        canvas,
-        kit::FontRole::small,
-        shown(words::watching),
-        {layout.players.x + 8, layout.players.y + 2, layout.players.width - 16, kListHeader - 2},
-        kit::Align::left,
-        kit::hud_colour::quiet
-    );
-    if (layout.list_folded) {
-        for (std::size_t index = 0; index < layout.player_chips.size(); ++index) {
-            if (index >= layout.watch_indices.size())
-                break;
-            const int row_index = layout.watch_indices[index];
-            if (row_index < 0 || static_cast<std::size_t>(row_index) >= model.watch.size())
-                continue;
-            const WatchRow& row = model.watch[static_cast<std::size_t>(row_index)];
-            const kit::Rect& chip = layout.player_chips[index];
-            draw_swatch(canvas, chip, row.colour, row.slot < 0);
-            if (row.eye)
-                kit::outline_corner_rect(canvas, chip, 2, kit::hud_colour::ink);
-        }
-        return;
-    }
-    for (std::size_t index = 0; index < layout.player_rows.size(); ++index) {
-        if (index >= layout.watch_indices.size())
-            break;
-        const int row_index = layout.watch_indices[index];
-        if (row_index < 0 || static_cast<std::size_t>(row_index) >= model.watch.size())
-            continue;
-        const WatchRow& row = model.watch[static_cast<std::size_t>(row_index)];
-        const kit::Rect& box = layout.player_rows[index];
-        if (row.eye)
-            kit::outline_corner_rect(canvas, box, 3, kit::hud_colour::ink);
-        const kit::Rect swatch{box.x + 4, box.y + 4, 12, 12};
-        draw_swatch(canvas, swatch, row.colour, row.slot < 0);
+    kit::fill_corner_rect(canvas, layout.view_menu, 4, card_fill);
+    kit::outline_corner_rect(canvas, layout.view_menu, 4, kit::hud_colour::edge);
+    const kit::Measure measure = [&canvas](std::string_view line) {
+        return kit::measure_text(canvas, kit::FontRole::small, line);
+    };
+    for (std::size_t index = 0; index < layout.view_items.size() && index < model.watch.size();
+         ++index) {
+        const kit::Rect& item = layout.view_items[index];
+        const WatchRow& row = model.watch[index];
+        const bool current = static_cast<int>(index) == model.viewed;
+        if (current)
+            kit::fill_rect(
+                canvas, {item.x, item.y + item.height / 2 - 1, 6, 3}, kit::hud_colour::lit
+            );
+        const kit::Rect swatch{item.x + 10, item.y + (item.height - 12) / 2, 12, 12};
+        draw_swatch(canvas, swatch, row.colour, row.slot == -1);
         const int32_t text_x = swatch.x + swatch.width + 6;
-        const int32_t text_w = std::max(box.width - (text_x - box.x) - 16, int32_t{1});
-        kit::box_text(
-            canvas,
-            kit::FontRole::small,
-            row.name,
-            {text_x, box.y, text_w, 16},
-            kit::Align::left,
-            kit::hud_colour::label
-        );
-        if (row.eye)
-            draw_eye(canvas, box.x + box.width - 14, box.y + 4);
-        const std::string detail = watch_detail(row);
-        if (!detail.empty()) {
-            const int32_t detail_w = watch_detail_room(box);
-            const kit::Measure measure = [&canvas](std::string_view line) {
-                return kit::measure_text(canvas, kit::FontRole::small, line);
-            };
+        int32_t room = std::max(item.x + item.width - text_x - 4, int32_t{1});
+        if (!row.departed.empty()) {
+            const int32_t gone_w = std::min(measure(row.departed), room / 2);
             kit::box_text(
                 canvas,
                 kit::FontRole::small,
-                kit::fit(detail, detail_w, measure),
-                {text_x, box.y + 16, detail_w, 16},
-                kit::Align::left,
+                kit::fit(row.departed, gone_w, measure),
+                {item.x + item.width - 4 - gone_w, item.y, gone_w, item.height},
+                kit::Align::right,
                 kit::hud_colour::quiet
             );
+            room = std::max(room - gone_w - 8, int32_t{1});
         }
+        kit::box_text(
+            canvas,
+            kit::FontRole::small,
+            kit::fit(row.name, room, measure),
+            {text_x, item.y, room, item.height},
+            kit::Align::left,
+            current ? kit::hud_colour::lit : kit::hud_colour::label
+        );
     }
-    const int32_t count = static_cast<int32_t>(model.watch.size());
-    if (count <= watch_visible_rows)
-        return;
-    const int32_t track_h = std::max(layout.players.height - kListHeader - 10, int32_t{1});
-    const int32_t thumb = std::max(track_h * watch_visible_rows / count, int32_t{8});
-    const int32_t span = std::max(count - watch_visible_rows, int32_t{1});
-    const int32_t travel = std::max(track_h - thumb, int32_t{0});
-    const int32_t thumb_y = layout.players.y + kListHeader + travel * layout.list_scroll / span;
-    kit::fill_rect(
-        canvas,
-        {layout.players.x + layout.players.width - 6, layout.players.y + kListHeader, 2, track_h},
-        kit::hud_colour::quiet
-    );
-    kit::fill_rect(
-        canvas,
-        {layout.players.x + layout.players.width - 6, thumb_y, 2, thumb},
-        kit::hud_colour::label
-    );
 }
 
 /// Draws the view menu or the camera menu.
@@ -1355,45 +1216,17 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
         layout.library = {layout.watch_again.x + button_w + 8, button_y, button_w, button};
         layout.export_button = {layout.library.x + button_w + 8, button_y, button_w, button};
     }
-    place_watch(layout, model, safe_width, compact);
-    // The card keeps the width its captions need. On a 512-point battlefield
-    // a list that would run under it, chips included, is hidden. On a wider
-    // battlefield the card slides left of the list, and the list takes the
-    // room that remains, so a departed row stays on show.
-    const auto card_hits_list = [&] {
-        return live(layout.end) && live(layout.players) &&
-               layout.end.x < layout.players.x + layout.players.width &&
-               layout.end.x + layout.end.width > layout.players.x &&
-               layout.end.y < layout.players.y + layout.players.height &&
-               layout.players.y < layout.end.y + layout.end.height;
-    };
-    if (card_hits_list()) {
-        if (safe_width <= 512) {
-            layout.players = {};
-            layout.player_rows.clear();
-            layout.player_chips.clear();
-            layout.watch_indices.clear();
-        } else {
-            int32_t card_x = layout.players.x - kListMargin - layout.end.width;
-            if (card_x < kListMargin)
-                card_x = kListMargin;
-            const int32_t moved = card_x - layout.end.x;
-            layout.end.x += moved;
-            layout.watch_again.x += moved;
-            layout.library.x += moved;
-            layout.export_button.x += moved;
-            const int32_t left_limit = layout.end.x + layout.end.width + kListMargin;
-            if (layout.players.x < left_limit)
-                place_watch(layout, model, safe_width, compact, left_limit);
-        }
-    }
     if (shown && model.view_open) {
+        // Room for a swatch, a name and when the player went.
+        constexpr int32_t kViewMenuWidth = 240;
         place_menu(
             layout.view_menu,
             layout.view_items,
             layout.view,
             static_cast<int32_t>(model.watch.size()),
-            std::max(layout.view.width, int32_t{160}),
+            std::min(
+                std::max(layout.view.width, kViewMenuWidth), std::max(safe_width - 8, int32_t{1})
+            ),
             safe_width
         );
     }
@@ -1577,32 +1410,22 @@ void fill_controls(const Layout& layout, const Model& model, kit::DisplayList& l
             false
         );
     }
-    for (std::size_t index = 0; index < layout.watch_indices.size(); ++index) {
-        const int row_index = layout.watch_indices[index];
-        if (row_index < 0 || static_cast<std::size_t>(row_index) >= model.watch.size())
-            continue;
-        const WatchRow& row = model.watch[static_cast<std::size_t>(row_index)];
-        const bool chip = layout.list_folded;
-        const kit::Rect& rect = chip ? layout.player_chips[index] : layout.player_rows[index];
-        const std::string name = (chip ? std::string("watch-chip.") : std::string("watch-row.")) +
-                                 std::to_string(row_index);
-        std::string caption = row.name;
-        if (!row.departed.empty()) {
-            caption.push_back(' ');
-            caption += row.departed;
-        }
-        add_control(list, Control::view, rect, name, kit::ControlKind::button, caption, row.eye);
-    }
     if (layout.shown && model.view_open) {
         for (std::size_t index = 0; index < layout.view_items.size() && index < model.watch.size();
              ++index) {
+            const WatchRow& row = model.watch[index];
+            std::string caption = row.name;
+            if (!row.departed.empty()) {
+                caption.push_back(' ');
+                caption += row.departed;
+            }
             add_control(
                 list,
                 Control::view,
                 layout.view_items[index],
                 "view-item." + std::to_string(index),
                 kit::ControlKind::button,
-                model.watch[index].name,
+                std::move(caption),
                 static_cast<int>(index) == model.viewed
             );
         }
@@ -1787,18 +1610,12 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
     // The end card sits where the speed menu and the shortcut card open, so
     // those, and the hover, are drawn over it.
     draw_end(canvas, layout, model);
-    draw_players(canvas, layout, model);
     if (layout.shown) {
         draw_hover(canvas, layout, model);
         draw_speed_menu(canvas, layout, model);
         draw_keys(canvas, layout, model);
-        if (model.view_open) {
-            std::vector<std::string> captions;
-            captions.reserve(model.watch.size());
-            for (const WatchRow& row : model.watch)
-                captions.push_back(row.name);
-            draw_choice_menu(canvas, layout.view_menu, layout.view_items, captions, model.viewed);
-        }
+        if (model.view_open)
+            draw_view_menu(canvas, layout, model);
         if (model.camera_open) {
             std::vector<std::string> captions;
             captions.reserve(layout.camera_modes.size());
@@ -1816,25 +1633,6 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
 }
 
 namespace {
-
-/// A figure of zero or more, with one decimal.
-///
-/// @param value the figure
-/// @return such as "10.0"
-std::string one_decimal(float value) {
-    const double clamped = value > 0.f ? static_cast<double>(value) : 0.0;
-    const long tenths = std::lround(clamped * 10.0);
-    return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10);
-}
-
-/// A whole figure of zero or more.
-///
-/// @param value the figure
-/// @return such as "100"
-std::string whole_number(float value) {
-    const double clamped = value > 0.f ? static_cast<double>(value) : 0.0;
-    return std::to_string(std::lround(clamped));
-}
 
 /// The first rectangle that holds a point.
 ///
@@ -1870,17 +1668,6 @@ std::string camera_button_caption(CameraMode mode) {
     return shown(words::free_camera);
 }
 
-std::string income_caption(float metal, float energy) {
-    const std::string metal_text = one_decimal(metal);
-    const std::string energy_text = whole_number(energy);
-    return fill(shown(words::income_rate), {{"metal", metal_text}, {"energy", energy_text}});
-}
-
-std::string team_caption(int team) {
-    const std::string number = std::to_string(team);
-    return fill(shown(words::team_label), {{"team", number}});
-}
-
 std::string departed_caption(bool defeated, std::string_view time) {
     return fill(shown(defeated ? words::defeated_at : words::left_at), {{"time", time}});
 }
@@ -1901,45 +1688,6 @@ int watch_slot(std::span<const int> numbers, int number, int slot_count) noexcep
     return -1;
 }
 
-int32_t watch_detail_room(const kit::Rect& row) noexcept {
-    // The swatch sits 4 points in and is 12 wide, then 6 points of gap. The
-    // name keeps 16 for the eye; the detail uses that room as well.
-    const int32_t inset = 4 + 12 + 6;
-    return std::max(row.width - inset, int32_t{1});
-}
-
-std::string watch_detail(const WatchRow& row) {
-    // Every player has no side, no count and no departure. A seat that has
-    // gone still says how it went. The departure leads, so the end of a
-    // narrow row can be cut without losing "Left 1:20".
-    if (row.slot < 0 && row.side.empty() && row.units == 0 && row.departed.empty() && !row.income)
-        return {};
-    std::string line;
-    const auto append = [&line](const std::string& part) {
-        if (part.empty())
-            return;
-        if (!line.empty())
-            line += " · ";
-        line += part;
-    };
-    append(row.departed);
-    append(row.side);
-    if (row.team >= 0)
-        append(team_caption(row.team));
-    const std::string_view count_word = row.units == 1 ? words::unit_count : words::units_count;
-    append(fill(shown(count_word), {{"units", std::to_string(row.units)}}));
-    if (row.income)
-        append(income_caption(row.metal, row.energy));
-    return line;
-}
-
-int watch_index(const Layout& layout, kit::Point at) {
-    const int visual = index_in(layout.list_folded ? layout.player_chips : layout.player_rows, at);
-    if (visual < 0 || static_cast<std::size_t>(visual) >= layout.watch_indices.size())
-        return -1;
-    return layout.watch_indices[static_cast<std::size_t>(visual)];
-}
-
 int view_menu_index(const Layout& layout, kit::Point at) {
     return index_in(layout.view_items, at);
 }
@@ -1949,8 +1697,7 @@ int camera_menu_index(const Layout& layout, kit::Point at) {
 }
 
 bool over_watch_chrome(const Layout& layout, kit::Point at) {
-    return kit::contains(layout.players, at) || kit::contains(layout.view_menu, at) ||
-           kit::contains(layout.camera_menu, at);
+    return kit::contains(layout.view_menu, at) || kit::contains(layout.camera_menu, at);
 }
 
 } // namespace oa::ui::replay_viewer

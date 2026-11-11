@@ -27718,22 +27718,6 @@
 	it=Guarda di nuovo;
 	}
 
-[{units} units]
-	{
-	de={units} Einheiten;
-	fr={units} unités;
-	es={units} unidades;
-	it={units} unità;
-	}
-
-[{units} unit]
-	{
-	de={units} Einheit;
-	fr={units} unité;
-	es={units} unidad;
-	it={units} unità;
-	}
-
 [All players]
 	{
 	de=Alle Spieler;
@@ -27780,22 +27764,6 @@
 	fr=Parti {time};
 	es=Se fue {time};
 	it=Uscito {time};
-	}
-
-[Team {team}]
-	{
-	de=Team {team};
-	fr=Équipe {team};
-	es=Equipo {team};
-	it=Squadra {team};
-	}
-
-[+{metal} m / +{energy} e]
-	{
-	de=+{metal} M / +{energy} E;
-	fr=+{metal} m / +{energy} e;
-	es=+{metal} m / +{energy} e;
-	it=+{metal} m / +{energy} e;
 	}
 
 [Next player's view]

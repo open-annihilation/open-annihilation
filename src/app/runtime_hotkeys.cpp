@@ -533,7 +533,7 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (id == "game.kill-board" || id == "game.resource-panel") {
         if ((current_extension_state() & extension_state::replay) != 0) {
             if (action.phase == keys::Phase::pressed)
-                replay_toggle_player_list();
+                replay_toggle_stats_panel();
             return true;
         }
         if (resource_panel_f4_key())

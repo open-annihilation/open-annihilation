@@ -26,6 +26,16 @@ namespace viewer = oa::ui::replay_viewer;
 namespace kit = oa::ui::kit;
 namespace paint = oa::ui::paint;
 
+/// Tells whether a control is one of the player list's rows or chips, which
+/// the bar no longer lays out.
+///
+/// @param control the control
+/// @return true for a list row or chip
+bool player_list_control(const kit::Control& control) {
+    return control.name.find("watch-row") != std::string::npos ||
+           control.name.find("watch-chip") != std::string::npos;
+}
+
 /// Tells whether two rectangles share any point.
 ///
 /// @param left one rectangle
@@ -562,9 +572,9 @@ void check_caption_fit() {
     }
 }
 
-/// The end card stays clear of the player list, and its buttons stay inside
-/// the card, at the battlefield sizes and at the three windows.
-void check_end_card_clears_the_list() {
+/// The end card's buttons stay inside the card, at the battlefield sizes and
+/// at the three windows. No player list is laid out beside it.
+void check_end_card_buttons() {
     const int32_t sizes[][2] = {
         {512, 416}, {725, 416}, {832, 476}, {640, 480}, {1280, 720}, {1920, 1080}
     };
@@ -583,13 +593,17 @@ void check_end_card_clears_the_list() {
         OA_CHECK(kit::wholly_in(layout.watch_again, layout.end));
         OA_CHECK(kit::wholly_in(layout.library, layout.end));
         OA_CHECK(kit::wholly_in(layout.export_button, layout.end));
-        OA_CHECK(!overlaps(layout.end, layout.players));
+        kit::DisplayList list;
+        viewer::fill_controls(layout, model, list);
+        for (const kit::Control& control : list.controls)
+            OA_CHECK(!player_list_control(control));
     }
 }
 
-/// Ten players scroll, a folded list is chips, and the camera menu offers
-/// only the modes the recording can show.
-void check_player_list() {
+/// No player list: the view menu lists every player, with when they went,
+/// above the bar, and the camera menu offers only the modes the recording
+/// can show.
+void check_view_menu() {
     viewer::Model model;
     model.length = 42960;
     model.tick = 21000;
@@ -601,53 +615,44 @@ void check_player_list() {
         viewer::WatchRow row;
         row.slot = player;
         row.name = "Player " + std::to_string(player + 1);
-        row.side = player % 2 == 0 ? "Arm" : "Core";
-        row.team = player % 3 == 2 ? -1 : player % 3;
-        row.units = 4 + player;
-        row.income = true;
-        row.metal = 1.25f * static_cast<float>(player);
-        row.energy = 40.f * static_cast<float>(player);
         row.colour = {static_cast<uint8_t>(40 + player * 20), 80, 140, 255};
         if (player == 3)
             row.departed = viewer::departed_caption(true, "18:02");
         model.watch.push_back(row);
     }
-    OA_CHECK(viewer::income_caption(10.f, 100.f) == "+10.0 m / +100 e");
-    OA_CHECK(viewer::income_caption(-2.f, 0.4f) == "+0.0 m / +0 e");
     OA_CHECK(viewer::departed_caption(true, "18:02") == "Defeated 18:02");
     OA_CHECK(viewer::departed_caption(false, "21:40") == "Left 21:40");
-    const std::string armed = viewer::watch_detail(model.watch[1]);
-    OA_CHECK(armed.find("Arm") != std::string::npos);
-    OA_CHECK(armed.find("units") != std::string::npos);
-    OA_CHECK(viewer::watch_detail(model.watch[0]).empty());
-    const std::string no_team = viewer::watch_detail(model.watch[3]);
-    OA_CHECK(no_team.find("units") != std::string::npos);
-    OA_CHECK(no_team.find('-') == std::string::npos);
-    const viewer::Layout layout = viewer::lay_out(832, 476, model, true);
-    OA_CHECK(static_cast<int>(layout.player_rows.size()) == viewer::watch_visible_rows);
-    OA_CHECK(layout.list_scroll == 0);
-    OA_CHECK(viewer::watch_index(layout, centre(layout.player_rows[0])) == 0);
-    OA_CHECK(
-        viewer::watch_index(layout, centre(layout.player_rows.back())) ==
-        viewer::watch_visible_rows - 1
-    );
-    model.list_scroll = 100;
-    const viewer::Layout scrolled = viewer::lay_out(832, 476, model, true);
-    OA_CHECK(
-        scrolled.list_scroll == static_cast<int>(model.watch.size()) - viewer::watch_visible_rows
-    );
-    OA_CHECK(
-        viewer::watch_index(scrolled, centre(scrolled.player_rows.back())) ==
-        static_cast<int>(model.watch.size()) - 1
-    );
-    model.list_folded = true;
+    const viewer::Layout closed = viewer::lay_out(832, 476, model, true);
+    OA_CHECK(!kit::contains(closed.view_menu, centre(closed.view)));
+    OA_CHECK(closed.view_items.empty());
+    kit::DisplayList closed_list;
+    viewer::fill_controls(closed, model, closed_list);
+    for (const kit::Control& control : closed_list.controls)
+        OA_CHECK(!player_list_control(control));
+    model.view_open = true;
+    for (const int32_t width : {512, 725, 832}) {
+        const viewer::Layout open = viewer::lay_out(width, 476, model, true);
+        OA_CHECK(open.view_items.size() == model.watch.size());
+        OA_CHECK(open.view_menu.y >= 0);
+        OA_CHECK(open.view_menu.y + open.view_menu.height <= open.view.y);
+        OA_CHECK(open.view_menu.x >= 0 && open.view_menu.x + open.view_menu.width <= width);
+        OA_CHECK(viewer::view_menu_index(open, centre(open.view_items[4])) == 4);
+        OA_CHECK(viewer::over_watch_chrome(open, centre(open.view_items[0])));
+        kit::DisplayList list;
+        viewer::fill_controls(open, model, list);
+        bool saw_departed = false;
+        for (const kit::Control& control : list.controls) {
+            OA_CHECK(!player_list_control(control));
+            if (control.name == "replay-viewer.view-item.4")
+                saw_departed = control.text == "Player 4 Defeated 18:02";
+        }
+        OA_CHECK(saw_departed);
+    }
+    model.view_open = false;
     model.camera_open = true;
     model.offer_follow_camera = true;
     model.camera = viewer::CameraMode::follow_unit;
     const viewer::Layout folded = viewer::lay_out(832, 476, model, true);
-    OA_CHECK(folded.player_chips.size() == model.watch.size());
-    OA_CHECK(folded.player_rows.empty());
-    OA_CHECK(viewer::watch_index(folded, centre(folded.player_chips[4])) == 4);
     OA_CHECK(folded.camera_modes.size() == 2);
     OA_CHECK(folded.camera_modes[0] == viewer::CameraMode::free);
     OA_CHECK(folded.camera_modes[1] == viewer::CameraMode::follow_theirs);
@@ -678,24 +683,15 @@ void check_player_list() {
     model.offer_director = false;
     kit::DisplayList list;
     viewer::fill_controls(folded, model, list);
-    bool saw_chip = false;
     bool saw_camera = false;
-    for (const kit::Control& control : list.controls) {
-        saw_chip = saw_chip || control.name == "replay-viewer.watch-chip.10";
+    for (const kit::Control& control : list.controls)
         saw_camera = saw_camera || control.name == "replay-viewer.camera-item.1";
-    }
-    OA_CHECK(saw_chip && saw_camera);
+    OA_CHECK(saw_camera);
+    // A hidden bar lists no control of its own, and no player.
     const viewer::Layout hidden = viewer::lay_out(832, 476, model, false);
     kit::DisplayList hidden_list;
     viewer::fill_controls(hidden, model, hidden_list);
-    bool saw_row = false;
-    bool saw_button = false;
-    for (const kit::Control& control : hidden_list.controls) {
-        saw_row = saw_row || control.name == "replay-viewer.watch-chip.0";
-        saw_button = saw_button || control.name == "replay-viewer.view";
-    }
-    OA_CHECK(saw_row);
-    OA_CHECK(!saw_button);
+    OA_CHECK(hidden_list.controls.empty());
 }
 
 /// A recorded number maps to the seat that holds it.
@@ -715,11 +711,9 @@ void check_watch_slots() {
     OA_CHECK(viewer::watch_slot(std::span<const int>{}, 4, 9) == 4);
 }
 
-/// One unit has its own word, and a departure leads the detail.
-///
-/// A 512-point row cuts the end of a long line. "Left 1:20", "Gegangen 1:20"
-/// and "Defeated 18:02" stay, because they are written first.
-void check_watch_detail() {
+/// A departure on a view row keeps room beside the name in every language,
+/// in the narrowest menu: the 512-point battlefield's.
+void check_view_departure_fit() {
     const auto stack =
         oa::platform::text_font::FontStack::open(oa::platform::text_font::bundled_font_directory());
     OA_CHECK(stack != nullptr);
@@ -730,69 +724,47 @@ void check_watch_detail() {
     const kit::Measure measure = [&](std::string_view text) {
         return kit::text_width(fonts, kit::FontRole::small, text);
     };
-    viewer::WatchRow one;
-    one.slot = 0;
-    one.side = "Arm";
-    one.units = 1;
-    const std::string singular = viewer::watch_detail(one);
-    OA_CHECK(singular.find("1 unit") != std::string::npos);
-    OA_CHECK(singular.find("units") == std::string::npos);
-    viewer::WatchRow several = one;
-    several.units = 4;
-    OA_CHECK(viewer::watch_detail(several).find("4 units") != std::string::npos);
-
-    viewer::WatchRow gone;
-    gone.slot = 1;
-    gone.side = "Core";
-    gone.team = 1;
-    gone.units = 12;
-    gone.income = true;
-    gone.metal = 10.f;
-    gone.energy = 100.f;
-    gone.departed = "Left 1:20";
-    const std::string detail = viewer::watch_detail(gone);
-    const auto left = detail.find("Left 1:20");
-    const auto side = detail.find("Core");
-    const auto units = detail.find("12 units");
-    const auto income = detail.find("+10.0");
-    OA_CHECK(left == 0);
-    OA_CHECK(
-        side != std::string::npos && units != std::string::npos && income != std::string::npos
-    );
-    OA_CHECK(left < side && side < units && units < income);
-
     viewer::Model model;
     model.length = 2400;
     model.tick = 1800;
+    model.view_open = true;
+    viewer::WatchRow everyone;
+    everyone.name = "All players";
+    model.watch.push_back(everyone);
+    viewer::WatchRow gone;
+    gone.slot = 1;
+    gone.name = "Core";
+    gone.departed = "Left 1:20";
     model.watch.push_back(gone);
     const viewer::Layout open = viewer::lay_out(512, 416, model, true);
-    OA_CHECK(!open.player_rows.empty());
-    const int32_t room = viewer::watch_detail_room(open.player_rows[0]);
-    const char* leads[] = {"Left 1:20", "Gegangen 1:20", "Defeated 18:02"};
-    const std::string tail = " · Core · Team 1 · 12 units · +10.0 m / +100 e · +10.0 m / +100 e";
+    OA_CHECK(open.view_items.size() == 2);
+    if (open.view_items.size() != 2)
+        return;
+    // The swatch, then half the row for the departure.
+    const int32_t room = (open.view_items[1].width - 10 - 12 - 6 - 4) / 2;
+    const char* leads[] = {
+        "Left 21:40",
+        "Gegangen 21:40",
+        "Parti 21:40",
+        "Se fue 21:40",
+        "Uscito 21:40",
+        "Defeated 18:02",
+        "Besiegt 18:02",
+        "Vaincu 18:02",
+        "Derrotado 18:02",
+        "Sconfitto 18:02",
+    };
     for (const char* lead : leads) {
-        const std::string line = std::string(lead) + tail;
-        const std::string fitted = kit::fit(line, room, measure);
-        if (fitted.find(lead) != 0 || measure(fitted) > room) {
-            std::fprintf(
-                stderr,
-                "detail %s fitted as %s in %d\n",
-                lead,
-                fitted.c_str(),
-                static_cast<int>(room)
-            );
-        }
-        OA_CHECK(fitted.find(lead) == 0);
-        OA_CHECK(measure(fitted) <= room);
+        if (measure(lead) > room)
+            std::fprintf(stderr, "view row %s is %d in %d\n", lead, measure(lead), room);
+        OA_CHECK(measure(lead) <= room);
     }
 }
 
 /// The end card's three buttons and its export note, in the five languages.
 ///
 /// At 512, 725 and 832 points the buttons stay wide enough for each caption,
-/// and the note stays inside the card. A 512-point battlefield hides the
-/// list, chips included, while the card shows. A wider battlefield keeps the
-/// list clear of the card. At 1280 the list stays at its own width.
+/// and the note stays inside the card.
 void check_end_card_captions() {
     const auto stack =
         oa::platform::text_font::FontStack::open(oa::platform::text_font::bundled_font_directory());
@@ -836,109 +808,54 @@ void check_end_card_captions() {
     };
     const int32_t sizes[][2] = {{512, 416}, {725, 416}, {832, 476}};
     for (const int32_t (&size)[2] : sizes) {
-        for (const bool folded : {false, true}) {
-            viewer::Model model;
-            model.end_card = true;
-            model.list_folded = folded;
-            model.length = 1000;
-            model.tick = 1000;
-            for (int player = 0; player < 4; ++player) {
-                viewer::WatchRow row;
-                row.slot = player == 0 ? -1 : player - 1;
-                row.name = player == 0 ? "All players" : "Core";
-                model.watch.push_back(row);
+        viewer::Model model;
+        model.end_card = true;
+        model.length = 1000;
+        model.tick = 1000;
+        for (int player = 0; player < 4; ++player) {
+            viewer::WatchRow row;
+            row.slot = player == 0 ? -1 : player - 1;
+            row.name = player == 0 ? "All players" : "Core";
+            model.watch.push_back(row);
+        }
+        const viewer::Layout layout = viewer::lay_out(size[0], size[1], model, true);
+        const int32_t button = layout.watch_again.width;
+        OA_CHECK(button >= 144);
+        if (size[0] == 512)
+            OA_CHECK(button == 144);
+        OA_CHECK(layout.library.width == button);
+        OA_CHECK(layout.export_button.width == button);
+        OA_CHECK(kit::wholly_in(layout.watch_again, layout.end));
+        OA_CHECK(kit::wholly_in(layout.library, layout.end));
+        OA_CHECK(kit::wholly_in(layout.export_button, layout.end));
+        const int32_t note_room = layout.end.width - 32;
+        for (const Language& language : languages) {
+            const int32_t watch = measure(language.watch);
+            const int32_t library = measure(language.library);
+            const int32_t export_width = measure(language.export_caption);
+            const int32_t note = measure(language.note);
+            if (watch > button || library > button || export_width > button || note > note_room) {
+                std::fprintf(
+                    stderr,
+                    "end card %dx%d %s is %d, %s is %d, %s is %d, note %d in %d\n",
+                    static_cast<int>(size[0]),
+                    static_cast<int>(size[1]),
+                    language.watch,
+                    static_cast<int>(watch),
+                    language.library,
+                    static_cast<int>(library),
+                    language.export_caption,
+                    static_cast<int>(export_width),
+                    static_cast<int>(note),
+                    static_cast<int>(note_room)
+                );
             }
-            const viewer::Layout layout = viewer::lay_out(size[0], size[1], model, true);
-            const int32_t button = layout.watch_again.width;
-            OA_CHECK(button >= 144);
-            if (size[0] == 512)
-                OA_CHECK(button == 144);
-            OA_CHECK(layout.library.width == button);
-            OA_CHECK(layout.export_button.width == button);
-            OA_CHECK(kit::wholly_in(layout.watch_again, layout.end));
-            OA_CHECK(kit::wholly_in(layout.library, layout.end));
-            OA_CHECK(kit::wholly_in(layout.export_button, layout.end));
-            // A 512-point battlefield hides the list, chips included, while
-            // the card shows. A wider battlefield keeps the list, clear of
-            // the card, so a departed row stays on show.
-            const bool hidden = layout.players.width == 0 &&
-                                (folded ? layout.player_chips.empty() : layout.player_rows.empty());
-            if (size[0] <= 512) {
-                if (!hidden) {
-                    std::fprintf(
-                        stderr,
-                        "end card %dx%d folded %d left a list %d wide\n",
-                        static_cast<int>(size[0]),
-                        static_cast<int>(size[1]),
-                        folded ? 1 : 0,
-                        static_cast<int>(layout.players.width)
-                    );
-                }
-                OA_CHECK(hidden);
-            } else {
-                if (hidden || overlaps(layout.end, layout.players) || layout.players.width < 168) {
-                    std::fprintf(
-                        stderr,
-                        "end card %dx%d folded %d list %d wide, card x %d w %d\n",
-                        static_cast<int>(size[0]),
-                        static_cast<int>(size[1]),
-                        folded ? 1 : 0,
-                        static_cast<int>(layout.players.width),
-                        static_cast<int>(layout.end.x),
-                        static_cast<int>(layout.end.width)
-                    );
-                }
-                OA_CHECK(!hidden);
-                OA_CHECK(!overlaps(layout.end, layout.players));
-                OA_CHECK(layout.players.width >= 168);
-            }
-            const int32_t note_room = layout.end.width - 32;
-            for (const Language& language : languages) {
-                const int32_t watch = measure(language.watch);
-                const int32_t library = measure(language.library);
-                const int32_t export_width = measure(language.export_caption);
-                const int32_t note = measure(language.note);
-                if (watch > button || library > button || export_width > button ||
-                    note > note_room) {
-                    std::fprintf(
-                        stderr,
-                        "end card %dx%d %s is %d, %s is %d, %s is %d, note %d in %d\n",
-                        static_cast<int>(size[0]),
-                        static_cast<int>(size[1]),
-                        language.watch,
-                        static_cast<int>(watch),
-                        language.library,
-                        static_cast<int>(library),
-                        language.export_caption,
-                        static_cast<int>(export_width),
-                        static_cast<int>(note),
-                        static_cast<int>(note_room)
-                    );
-                }
-                OA_CHECK(watch <= button);
-                OA_CHECK(library <= button);
-                OA_CHECK(export_width <= button);
-                OA_CHECK(note <= note_room);
-            }
+            OA_CHECK(watch <= button);
+            OA_CHECK(library <= button);
+            OA_CHECK(export_width <= button);
+            OA_CHECK(note <= note_room);
         }
     }
-    viewer::Model wide;
-    wide.end_card = true;
-    wide.length = 1000;
-    wide.tick = 1000;
-    for (int player = 0; player < 4; ++player) {
-        viewer::WatchRow row;
-        row.slot = player == 0 ? -1 : player - 1;
-        row.name = player == 0 ? "All players" : "Core";
-        if (player == 2)
-            row.departed = "Left 1:20";
-        wide.watch.push_back(row);
-    }
-    const viewer::Layout kept = viewer::lay_out(1280, 720, wide, true);
-    OA_CHECK(kept.players.width > 0);
-    OA_CHECK(!kept.player_rows.empty());
-    OA_CHECK(!overlaps(kept.end, kept.players));
-    OA_CHECK(kept.watch_again.width >= 144);
 }
 
 } // namespace
@@ -960,11 +877,11 @@ int main() {
     check_export_disabled();
     check_wide_view_caption();
     check_caption_fit();
-    check_end_card_clears_the_list();
+    check_end_card_buttons();
     check_end_card_captions();
     check_watch_slots();
-    check_watch_detail();
-    check_player_list();
+    check_view_departure_fit();
+    check_view_menu();
 
     OA_CHECK(viewer::time_text(21000, 42960) == "11:40 / 23:52");
     OA_CHECK(viewer::time_text(0, 30) == "0:00 / 0:01");
