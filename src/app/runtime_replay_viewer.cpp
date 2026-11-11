@@ -12,6 +12,7 @@
 #include "oa_layer.hpp"
 #include "replay_index_pass.hpp"
 
+#include "oa/app/far_view.hpp"
 #include "oa/app/hook_call.hpp"
 #include "oa/app/replay_index.hpp"
 #include "oa/app/replay_watch.hpp"
@@ -22,9 +23,12 @@
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/formats/oademo/oademo.hpp"
 #include "oa/formats/oademo/timeline_index.hpp"
+#include "oa/formats/ota.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/sim/match_runtime.hpp"
+#include "oa/sim/unit_spawn/spawn.hpp"
 #include "oa/ui/hud/resource_panel.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 #include "oa/ui/library/export.hpp"
@@ -68,6 +72,15 @@ constexpr int32_t kStepTicks = 300;
 constexpr int32_t kLongStepTicks = 1800;
 /// How long the reached speed stays under the asked speed before the bar says so.
 constexpr uint32_t kBehindMs = 1000;
+/// How long a replay's opening view waits for the commander it opens on once
+/// a unit stands on the map, in game ticks: ten seconds. A recorded game's
+/// commanders reach the map a few seconds apart.
+constexpr uint32_t kOpeningTicks = 300;
+/// How long it waits at most while no unit stands on the map, as while
+/// commanders are still to be warped in: three minutes.
+constexpr uint32_t kOpeningMostTicks = 5400;
+/// PlayerSetupInfo.role's bit of the player who hosts the game.
+constexpr uint8_t kRoleHost = 0x01;
 
 /// One mark before pauses are paired. `flag` is a pause that began, or an alliance made.
 struct RawMarker {
@@ -618,6 +631,7 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         read_playback();
         // The top bar shows only with one player's sight.
         runtime_.keep_replay_top_bar();
+        place_opening();
         if (reset_after_seek_ && !seek_armed_) {
             reset_after_seek_ = false;
             reset_watch();
@@ -2124,6 +2138,195 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         model_.offer_director = director_offered();
     }
 
+    /// The slot of the player who hosted the recorded game: the first playing
+    /// slot whose setup carries the host's role, else the first recorded
+    /// player, which playback seats first.
+    ///
+    /// @param world the match
+    /// @return the slot, or -1 when no player is seated
+    [[nodiscard]] static int host_slot(const oa::World& world) {
+        int first = -1;
+        for (int slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            const oa::Player& player = world.game.players[slot];
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+            if (player.in_use == 0 || info == nullptr ||
+                (info->options & OA_SETUP_OPTION_WATCHER) != 0)
+                continue;
+            if ((info->role & kRoleHost) != 0)
+                return slot;
+            if (first < 0)
+                first = slot;
+        }
+        return first;
+    }
+
+    /// The middle of a player's start position on the map.
+    ///
+    /// @param world the match
+    /// @param slot the player's slot
+    /// @return the place; none when the map does not name it
+    [[nodiscard]] std::optional<std::array<int32_t, 2>>
+    start_of(const oa::World& world, int slot) const {
+        if (slot < 0 || slot >= OA_PLAYER_COUNT || !runtime_.selected_map_metadata_)
+            return std::nullopt;
+        int seated = 0;
+        for (const oa::Player& player : world.game.players) {
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+            if (player.in_use != 0 && info != nullptr &&
+                (info->options & OA_SETUP_OPTION_WATCHER) == 0)
+                ++seated;
+        }
+        const oa::formats::ota::Schema* schema =
+            oa::formats::ota::select_multiplayer_schema(*runtime_.selected_map_metadata_, seated);
+        if (schema == nullptr)
+            return std::nullopt;
+        std::vector<oa::sim::unit_spawn::StartMarker> markers;
+        markers.reserve(schema->start_positions.size());
+        for (const auto& position : schema->start_positions)
+            markers.push_back({1, position.index, position.x, position.z});
+        std::array<uint32_t, 3> place{};
+        const int32_t index = world.game.players[slot].start_position;
+        if (!oa::sim::unit_spawn::start_position(markers, index, place))
+            return std::nullopt;
+        return std::array<int32_t, 2>{
+            static_cast<int32_t>(place[0] >> 16), static_cast<int32_t>(place[2] >> 16)
+        };
+    }
+
+    /// Puts the middle of the picture as near a place as keeps the whole view
+    /// on the map, as View past the map's edge's Off holds a scroll: a place
+    /// near an edge shows the map flush to that edge, and a map smaller than
+    /// the view is centred in it. A player's own scroll may go further past
+    /// the edge, so the turned view's limits, the classic view's at this
+    /// zoom, hold the view as it is.
+    ///
+    /// @param centre_x the place across the map
+    /// @param centre_z the place down the map, on the row the picture draws
+    void place_on_map(int32_t centre_x, int32_t centre_z) {
+        int32_t x = centre_x - runtime_.visible_map_width() / 2;
+        int32_t z = centre_z - runtime_.visible_map_height() / 2;
+        const auto [map_width, map_height] = runtime_.shown_map_size();
+        const double zoom =
+            runtime_.match_zoom() > 0.0F ? static_cast<double>(runtime_.match_zoom()) : 1.0;
+        const double visible_x =
+            static_cast<double>(runtime_.match_layout_.battlefield_width()) / zoom;
+        const double visible_z =
+            static_cast<double>(runtime_.match_layout_.battlefield_height()) / zoom;
+        if (map_width > 0 && map_height > 0 && visible_x > 0.0 && visible_z > 0.0) {
+            const double on_map = oa::ui::engine_settings::past_map_edge_share(
+                oa::ui::engine_settings::ViewPastMapEdge::off
+            );
+            x = held_camera(x, visible_x, static_cast<double>(map_width), on_map, std::nullopt);
+            z = held_camera(z, visible_z, static_cast<double>(map_height), on_map, std::nullopt);
+        }
+        runtime_.set_camera_position(x, z, 0);
+    }
+
+    /// Tells whether a unit stands on the map. A unit the recording has made
+    /// but not yet placed, as a commander still to be warped in, waits at the
+    /// map's corner or just off it.
+    ///
+    /// @param match the match
+    /// @param id the unit's slot
+    /// @return true once it stands inside the map, off its corner
+    [[nodiscard]] bool on_map(const oa::sim::match_runtime::Match& match, uint16_t id) const {
+        if (!runtime_.match_unit_present(id))
+            return false;
+        const auto* unit = match.world().slots[id].unit;
+        if (unit == nullptr)
+            return false;
+        const oa::Game& game = match.state().game;
+        const int32_t x = static_cast<int32_t>(unit->position[0]) >> 16;
+        const int32_t z = static_cast<int32_t>(unit->position[2]) >> 16;
+        return x >= 0 && z >= 0 && x < game.map_pixel_width && z < game.map_pixel_height &&
+               (x != 0 || z != 0);
+    }
+
+    /// Opens a replay over the host's commander, or with one player's sight
+    /// on show, over that player's, once it stands on the map.
+    ///
+    /// A recorded game's commanders reach the map a few seconds apart, and a
+    /// commander to be warped in later. Until that commander stands on the
+    /// map, the view waits over the first commander that stood on the map,
+    /// else the first unit. Past kOpeningTicks after the first unit stood on
+    /// the map it stays there; past kOpeningMostTicks with none, it goes to
+    /// the player's start position, which a recording names only for the
+    /// players of the machine that recorded it. A seek, Watch from, a camera
+    /// mode other than Free, and a camera the player has moved since end it:
+    /// they keep their own place.
+    void place_opening() {
+        if (!opening_pending_ || runtime_.photo_mode())
+            return;
+        const auto end = [this] { opening_pending_ = false; };
+        if (camera_mode_ != rv::CameraMode::free || model_.skipping ||
+            model_.catch_up_percent >= 0 || seek_armed_ ||
+            runtime_.library_host().replay_jump_waiting(runtime_)) {
+            end();
+            return;
+        }
+        if (opening_placed_ && (runtime_.match_camera_x_ != opening_camera_x_ ||
+                                runtime_.match_camera_z_ != opening_camera_z_)) {
+            end();
+            return;
+        }
+        const oa::sim::match_runtime::Match* match = runtime_.running_match();
+        if (match == nullptr)
+            return;
+        const oa::World& world = match->state();
+        const uint32_t tick = world.game.tick;
+        const int target = viewed_slot_ >= 0 ? viewed_slot_ : host_slot(world);
+        const auto& slots = match->world().slots;
+        uint16_t commander = 0;
+        for (std::size_t index = 1; index < slots.size() && commander == 0; ++index) {
+            const auto id = static_cast<uint16_t>(index);
+            if (!on_map(*match, id))
+                continue;
+            if (opening_first_unit_ == 0) {
+                opening_first_unit_ = id;
+                opening_first_tick_ = tick;
+            }
+            const oa::Unit& unit = slots[index].record;
+            const bool leader = oa::sim::match_runtime::side_commander(world, unit);
+            if (leader && static_cast<int>(unit.owner_index) == target)
+                commander = id;
+            if (leader && opening_first_commander_ == 0)
+                opening_first_commander_ = id;
+        }
+        const auto keep = [this] {
+            opening_placed_ = true;
+            opening_camera_x_ = runtime_.match_camera_x_;
+            opening_camera_z_ = runtime_.match_camera_z_;
+        };
+        // The middle of the picture on the place the unit is drawn: on
+        // high ground that is above its ground point.
+        const auto centre_on = [&](uint16_t id) {
+            if (id == 0 || !on_map(*match, id))
+                return false;
+            const auto* unit = slots[id].unit;
+            const int32_t height = static_cast<int32_t>(unit->position[1]) >> 16;
+            place_on_map(
+                static_cast<int32_t>(unit->position[0]) >> 16,
+                (static_cast<int32_t>(unit->position[2]) >> 16) - height / 2
+            );
+            keep();
+            return true;
+        };
+        if (centre_on(commander)) {
+            end();
+            return;
+        }
+        if (centre_on(opening_first_commander_) || centre_on(opening_first_unit_)) {
+            if (tick > opening_first_tick_ + kOpeningTicks)
+                end();
+            return;
+        }
+        if (tick > kOpeningMostTicks) {
+            if (const std::optional<std::array<int32_t, 2>> start = start_of(world, target))
+                place_on_map((*start)[0], (*start)[1]);
+            end();
+        }
+    }
+
     /// Moves the camera for the mode on show. Free does not.
     ///
     /// A followed unit that has gone returns the camera to Free.
@@ -2296,6 +2499,13 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     bool replay_paused_{true};
     bool seek_armed_{};
     bool reset_after_seek_{};
+    bool opening_pending_{true};
+    bool opening_placed_{};
+    int32_t opening_camera_x_{};
+    int32_t opening_camera_z_{};
+    uint16_t opening_first_commander_{};
+    uint16_t opening_first_unit_{};
+    uint32_t opening_first_tick_{};
     rv::CameraMode camera_mode_{rv::CameraMode::free};
     bool director_started_{};
     uint32_t director_tick_{};

@@ -225,6 +225,20 @@ opener of `.oademo`.
 step the speed it is watched at, and **Pause** holds it.
 [Playback](#playback) says how a jump to another moment works.
 
+A replay opens with the host's commander in the middle of the picture,
+where it is drawn, on high ground or low, as near as keeps the whole
+view on the map: a commander near an edge is shown with the map flush to
+that edge, whatever View past the map's edge lets a scroll do. The host
+is the player whose setup says so, or else the recording's first player;
+with one player's view chosen first, the commander is that player's. A
+recorded game's commanders reach the map a few seconds apart, and a
+commander to be warped in later: until that commander stands on the map,
+the view waits over the first commander or unit that does, for up to ten
+seconds after it. With no unit on the map for three minutes, it goes to
+the player's start position. **Watch from**, **Watch again** and any
+other jump, a camera mode other than Free, and moving the camera
+yourself keep their own place.
+
 While a replay plays, a bar along the foot of the battlefield shows play
 and pause, the time, a timeline you can press or drag, and the speed. It
 hides after three seconds away from the battlefield's lower edge and comes

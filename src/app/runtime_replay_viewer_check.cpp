@@ -514,6 +514,245 @@ void Runtime::check_replay_viewer() {
     frames(2);
     dismiss_welcome();
 
+    // Leaves the recorded skirmish and waits for its file to settle.
+    const auto wait_recorded = [&](const fs::path& recorded) {
+        leave_match();
+        // leave_match drops the match and leaves the screen on it. The menu is
+        // loaded before the next frame, which would otherwise draw no match.
+        load(Screen::main_menu);
+        uint64_t last_size = 0;
+        int size_stable = 0;
+        for (int frame_index = 0; frame_index < 500 && size_stable < 5; ++frame_index) {
+            frames(1);
+            std::error_code size_failed;
+            const bool present = fs::is_regular_file(recorded, size_failed);
+            const uint64_t size = present && !size_failed
+                                      ? static_cast<uint64_t>(fs::file_size(recorded, size_failed))
+                                      : 0;
+            if (!size_failed && size > 0 && size == last_size && screen_ == Screen::main_menu &&
+                match_ == nullptr)
+                ++size_stable;
+            else
+                size_stable = 0;
+            last_size = size;
+        }
+        require(size_stable >= 5, "the skirmish was not recorded");
+        netgame_context().options.net_record.clear();
+    };
+    // Plays a recording through the extension, as Watch does, and pins the
+    // bar when asked.
+    const auto open_file = [&](const fs::path& file, bool pin) {
+        std::ifstream stream(file, std::ios::binary);
+        require(static_cast<bool>(stream), "the recording did not open");
+        const std::vector<uint8_t> bytes{
+            std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()
+        };
+        require(!bytes.empty(), "the recording is empty");
+        replay_recording_path_ = file;
+        const std::string name = oa::platform::path_to_utf8(file.filename());
+        const RecordingInput input{name.c_str(), bytes.data(), bytes.size(), true};
+        ReplayHooks hooks{};
+        RecordingInfo info{};
+        bool opened = false;
+        try {
+            opened = call_hook_or_raise<&Extension::open_recording>(
+                extension_, *this, input, hooks, info
+            );
+        } catch (const std::exception& open_error) {
+            throw std::runtime_error(
+                std::string("replay viewer check: the recording did not play: ") + open_error.what()
+            );
+        }
+        require(opened, "no extension played the recording");
+        for (int frame_index = 0; frame_index < 400; ++frame_index) {
+            frames(1);
+            if (screen_ == Screen::match && match_ != nullptr &&
+                (current_extension_state() & extension_state::replay) != 0) {
+                if (pin)
+                    require(replay_viewer_command("watch.replay-bar"), "the bar did not pin");
+                return;
+            }
+        }
+        require(false, "the replay did not start");
+    };
+
+    // The replay opens over the host's commander: the commander of the
+    // recording's player whose setup carries the host's role, else of its
+    // first player.
+    const auto host_commander = [&]() -> uint16_t {
+        const oa::World& world = match_->state();
+        int host = -1;
+        int first = -1;
+        for (int slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            const oa::Player& player = world.game.players[slot];
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+            if (player.in_use == 0 || info == nullptr ||
+                (info->options & OA_SETUP_OPTION_WATCHER) != 0)
+                continue;
+            if (first < 0)
+                first = slot;
+            if (host < 0 && (info->role & 0x01) != 0)
+                host = slot;
+        }
+        if (host < 0)
+            host = first;
+        const auto& unit_slots = match_->world().slots;
+        for (std::size_t index = 1; index < unit_slots.size(); ++index) {
+            const auto id = static_cast<uint16_t>(index);
+            if (!match_unit_present(id) || unit_slots[index].unit == nullptr)
+                continue;
+            // A commander still to be placed waits at the map's corner or
+            // just off it.
+            const auto* placed = unit_slots[index].unit;
+            const int32_t across = static_cast<int32_t>(placed->position[0]) >> 16;
+            const int32_t down = static_cast<int32_t>(placed->position[2]) >> 16;
+            if (across < 0 || down < 0 || across >= world.game.map_pixel_width ||
+                down >= world.game.map_pixel_height || (across == 0 && down == 0))
+                continue;
+            const oa::Unit& unit = unit_slots[index].record;
+            if (static_cast<int>(unit.owner_index) == host &&
+                oa::sim::match_runtime::side_commander(world, unit))
+                return id;
+        }
+        return 0;
+    };
+    const auto check_opening = [&](std::string_view where) {
+        const std::string at(where);
+        uint16_t commander = 0;
+        for (int frame_index = 0; frame_index < 400 && commander == 0; ++frame_index) {
+            frames(1);
+            commander = host_commander();
+        }
+        require(commander != 0, at + ": the host's commander never appeared");
+        frames(2);
+        const int32_t x = match_camera_x_;
+        const int32_t z = match_camera_z_;
+        // The middle of the picture is the place the commander is drawn, as
+        // near as keeps the whole view on the map: no row or column past it.
+        const auto* drawn = match_->world().slots[commander].unit;
+        const int32_t across = static_cast<int32_t>(drawn->position[0]) >> 16;
+        const int32_t down = (static_cast<int32_t>(drawn->position[2]) >> 16) -
+                             (static_cast<int32_t>(drawn->position[1]) >> 16) / 2;
+        const auto [map_width, map_height] = shown_map_size();
+        const int32_t view_width = visible_map_width();
+        const int32_t view_height = visible_map_height();
+        const auto on_map = [](int32_t start, int32_t view, int32_t map) {
+            return view >= map ? (map - view) / 2 : std::clamp(start, 0, map - view);
+        };
+        const int32_t want_x = on_map(across - view_width / 2, view_width, map_width);
+        const int32_t want_z = on_map(down - view_height / 2, view_height, map_height);
+        require(
+            std::abs(x - want_x) <= 1 && std::abs(z - want_z) <= 1,
+            at + ": the replay opened at " + std::to_string(x) + ", " + std::to_string(z) +
+                ", not over the host's commander at " + std::to_string(want_x) + ", " +
+                std::to_string(want_z)
+        );
+        require(
+            x >= 0 && z >= 0 && x + view_width <= map_width + 1 &&
+                z + view_height <= map_height + 1,
+            at + ": the opening view reaches past the map"
+        );
+        // In the picture, the battlefield's first column and row hold the map,
+        // not the black past it.
+        const renderer::Surface picture = capture();
+        const auto black_share =
+            [&](int32_t x0, int32_t y0, int32_t dx, int32_t dy, int32_t count) {
+                int32_t black = 0;
+                int32_t seen = 0;
+                for (int32_t step = 0; step < count; ++step) {
+                    const int32_t px = x0 + dx * step;
+                    const int32_t py = y0 + dy * step;
+                    if (px < 0 || py < 0 || px >= static_cast<int32_t>(picture.width) ||
+                        py >= static_cast<int32_t>(picture.height))
+                        continue;
+                    const std::size_t offset = (static_cast<std::size_t>(py) * picture.width +
+                                                static_cast<std::size_t>(px)) *
+                                               3U;
+                    ++seen;
+                    if (picture.rgb[offset] == 0 && picture.rgb[offset + 1] == 0 &&
+                        picture.rgb[offset + 2] == 0)
+                        ++black;
+                }
+                return seen == 0 ? 1.0 : static_cast<double>(black) / seen;
+            };
+        const int32_t left = match_layout_.battlefield_x();
+        const int32_t top = match_layout_.battlefield_y();
+        const int32_t rows = replay_bar_top() - top - 4;
+        const int32_t columns = match_layout_.battlefield_width() / 2;
+        require(
+            black_share(left + 1, top + 4, 0, 1, rows) < 0.25 &&
+                black_share(left + 4, top + 1, 1, 0, columns) < 0.25,
+            at + ": the opening picture shows the black past the map"
+        );
+        std::cout << "replay viewer: " << at << " opens over the host's commander, unit "
+                  << commander << " at " << across << ", " << down << ", camera " << x << ", " << z
+                  << '\n';
+    };
+    {
+        // Two players: the skirmish's own seat and a computer.
+        const fs::path two = recordings_folder(user_folder_, files_mod_id()) / "R08-opening.tad";
+        std::error_code two_made;
+        fs::create_directories(two.parent_path(), two_made);
+        require(!two_made, "the recordings folder was not made");
+        netgame_context().options.net_record = two;
+        exercise_click(menu::resource_name(menu::Button::single_player));
+        exercise_click(entry::resource_name(entry::Button::skirmish));
+        state_.player_count = 2;
+        require(map_player_capacity() >= 2, "the skirmish map lacks two start positions");
+        skirmish_settings_.slot_count = 2;
+        skirmish_settings_.slots[1].controller = entry::controller::computer;
+        exercise_click(skirmish::resource_name(skirmish::Button::start));
+        require(
+            screen_ == Screen::match && match_ != nullptr, "the two-player skirmish did not start"
+        );
+        // The host's commander starts at the map's top-left corner, before
+        // the first tick is recorded: the replay must open with the map flush
+        // to both edges.
+        uint16_t cornered = 0;
+        for (std::size_t index = 1; index < match_->world().slots.size() && cornered == 0;
+             ++index) {
+            const auto id = static_cast<uint16_t>(index);
+            const auto& slot = match_->world().slots[index];
+            if (match_unit_present(id) && slot.record.owner_index == 0 &&
+                oa::sim::match_runtime::side_commander(match_->state(), slot.record))
+                cornered = id;
+        }
+        require(cornered != 0, "the two-player skirmish has no commander of the host's");
+        {
+            constexpr uint32_t corner = 64;
+            match_->place_unit_at(
+                cornered,
+                static_cast<int32_t>(corner << 16),
+                static_cast<int32_t>(
+                    static_cast<uint32_t>(match_->map_height(corner << 16, corner << 16)) << 16
+                ),
+                static_cast<int32_t>(corner << 16),
+                1
+            );
+        }
+        const uint64_t two_start_ns = frame_pacing::steady_now_ns();
+        frame_run_clock_ns_ = two_start_ns;
+        match_timing_.previous_clock = oa::base::game_loop::scaled_clock(
+            static_cast<uint32_t>(two_start_ns / kNsPerMs), match_clock_scale()
+        );
+        match_timing_.remainder = 0.0F;
+        for (int frame_index = 0; frame_index < 2000 && match_ != nullptr; ++frame_index) {
+            frames(1);
+            if (match_->state().game.tick >= 150)
+                break;
+        }
+        require(
+            match_ != nullptr && match_->state().game.tick >= 150, "the two-player skirmish stopped"
+        );
+        wait_recorded(two);
+        open_file(two, false);
+        check_opening("two players, the host at the top-left corner");
+        leave_match();
+        load(Screen::main_menu);
+        wait_menu();
+        dismiss_welcome();
+    }
+
     const fs::path recorded = recordings_folder(user_folder_, files_mod_id()) / "R08-check.tad";
     std::error_code made;
     fs::create_directories(recorded.parent_path(), made);
@@ -687,65 +926,12 @@ void Runtime::check_replay_viewer() {
     require(fight_planted && fight_struck, "the recording has no fight for the Director");
     std::cout << "replay viewer: recorded " << recorded_tick << " ticks, fight at " << fight_x
               << ", " << fight_z << '\n';
-    leave_match();
-    // leave_match drops the match and leaves the screen on it. The menu is
-    // loaded before the next frame, which would otherwise draw no match.
-    load(Screen::main_menu);
-    uint64_t last_size = 0;
-    int size_stable = 0;
-    for (int frame_index = 0; frame_index < 500 && size_stable < 5; ++frame_index) {
-        frames(1);
-        std::error_code size_failed;
-        const bool present = fs::is_regular_file(recorded, size_failed);
-        const uint64_t size = present && !size_failed
-                                  ? static_cast<uint64_t>(fs::file_size(recorded, size_failed))
-                                  : 0;
-        if (!size_failed && size > 0 && size == last_size && screen_ == Screen::main_menu &&
-            match_ == nullptr)
-            ++size_stable;
-        else
-            size_stable = 0;
-        last_size = size;
-    }
-    require(size_stable >= 5, "the skirmish was not recorded");
-    netgame_context().options.net_record.clear();
+    wait_recorded(recorded);
 
-    const auto open_playback = [&](bool pin) {
-        std::ifstream stream(recorded, std::ios::binary);
-        require(static_cast<bool>(stream), "the recording did not open");
-        const std::vector<uint8_t> bytes{
-            std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()
-        };
-        require(!bytes.empty(), "the recording is empty");
-        replay_recording_path_ = recorded;
-        const std::string name = "R08-check.tad";
-        const RecordingInput input{name.c_str(), bytes.data(), bytes.size(), true};
-        ReplayHooks hooks{};
-        RecordingInfo info{};
-        bool opened = false;
-        try {
-            opened = call_hook_or_raise<&Extension::open_recording>(
-                extension_, *this, input, hooks, info
-            );
-        } catch (const std::exception& open_error) {
-            throw std::runtime_error(
-                std::string("replay viewer check: the recording did not play: ") + open_error.what()
-            );
-        }
-        require(opened, "no extension played the recording");
-        for (int frame_index = 0; frame_index < 400; ++frame_index) {
-            frames(1);
-            if (screen_ == Screen::match && match_ != nullptr &&
-                (current_extension_state() & extension_state::replay) != 0) {
-                if (pin)
-                    require(replay_viewer_command("watch.replay-bar"), "the bar did not pin");
-                return;
-            }
-        }
-        require(false, "the replay did not start");
-    };
+    const auto open_playback = [&](bool pin) { open_file(recorded, pin); };
 
     open_playback(false);
+    check_opening("three players");
     {
         bool saw_pass = false;
         bool preferences_at_pass = false;

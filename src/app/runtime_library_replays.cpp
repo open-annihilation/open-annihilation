@@ -5085,6 +5085,12 @@ bool Runtime::LibraryHost::read_game_chunk(
     }
 }
 
+bool Runtime::LibraryHost::replay_jump_waiting(const Runtime& runtime) {
+    if (replay_shelf().pending_seek.has_value())
+        return true;
+    return runtime.preference_values_.contains(std::string(replay_watch_from_preference));
+}
+
 ReplayShelf& Runtime::LibraryHost::replay_shelf() {
     if (!replays)
         replays.reset(new ReplayShelf());

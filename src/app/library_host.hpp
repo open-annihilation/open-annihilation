@@ -589,6 +589,14 @@ struct Runtime::LibraryHost {
     /// @return the shelf
     ReplayShelf& replay_shelf();
 
+    /// Tells whether a Watch from is still to jump into the replay on show:
+    /// one waiting for the replay to say where it is, or one a restart for
+    /// its content carries in the preferences.
+    ///
+    /// @param runtime the running app
+    /// @return true while the jump has not been asked for
+    [[nodiscard]] bool replay_jump_waiting(const Runtime& runtime);
+
     /// Returns Core Prime's list, made at its first use.
     ///
     /// @return the shelf
