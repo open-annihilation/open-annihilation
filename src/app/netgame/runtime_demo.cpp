@@ -373,6 +373,7 @@ void NetworkPlay::step_demo_frame() {
             const auto index = static_cast<std::size_t>(slot);
             const demo::ShownIncome& income = demo_->shown_income[index];
             const demo::ShownCamera& camera = demo_->shown_camera[index];
+            slots[index].economy = demo_->shown_samples[index].taken;
             slots[index].income = income.taken;
             slots[index].metal = income.metal;
             slots[index].energy = income.energy;

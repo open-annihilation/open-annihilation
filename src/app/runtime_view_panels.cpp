@@ -146,13 +146,25 @@ void Runtime::follow_shared_cameras() {
     );
 }
 
+hud::ResourcePanelRows Runtime::resource_panel_rows_shown() const {
+    const auto& world = match_->state();
+    // A replay lists the recording's playing players as its view control
+    // does: the first slot included, the watcher's seat left out, each in
+    // the colour the control draws it in.
+    if ((current_extension_state() & extension_state::replay) != 0) {
+        const auto seats = replay_panel_seats();
+        return hud::resource_panel_seat_rows(world, seats);
+    }
+    return hud::resource_panel_rows(world, local_player_watches(), shared_views_);
+}
+
 void Runtime::draw_resource_panel_overlay() {
     if (!match_ || !ui_rules().resource_panel.enabled || resource_panel_.hidden)
         return;
     // Its rows are laid out for the game's font.
     const PanelText panel(*this);
     const auto& world = match_->state();
-    const auto rows = hud::resource_panel_rows(world, local_player_watches(), shared_views_);
+    const auto rows = resource_panel_rows_shown();
     if (resource_panel_.x < 0)
         resource_panel_.x = oa::ui::display_layout::kSourceWidth - hud::kResourcePanelWidth;
     hud::ResourcePanelSink sink{};
@@ -163,7 +175,15 @@ void Runtime::draw_resource_panel_overlay() {
     sink.text = [](void* user, int32_t x, int32_t y, const char* text, uint8_t color) {
         static_cast<Runtime*>(user)->draw_hud_label(x, y, text, color);
     };
-    hud::draw_resource_panel(world, resource_panel_, rows, sink);
+    // The view control marks whose view a replay shows; its rows are not
+    // lit here.
+    hud::ResourcePanel drawn = resource_panel_;
+    if ((current_extension_state() & extension_state::replay) != 0) {
+        drawn.viewed_slot = 0;
+        drawn.locked_slot = 0;
+    }
+    hud::draw_resource_panel(world, drawn, rows, sink);
+    resource_panel_.flash = drawn.flash;
 }
 
 int Runtime::clock_line_sign_pull(
@@ -386,9 +406,8 @@ bool Runtime::resource_panel_pointer(const SDL_Event& event, float x, float y) {
     }
     if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN)
         return false;
-    const auto& world = match_->state();
     const bool watching = local_player_watches();
-    const auto rows = hud::resource_panel_rows(world, watching, shared_views_);
+    const auto rows = resource_panel_rows_shown();
     const auto hit = hud::resource_panel_hit(panel, rows, point.x, point.y);
     if (!hit.inside)
         return false;
@@ -401,6 +420,12 @@ bool Runtime::resource_panel_pointer(const SDL_Event& event, float x, float y) {
             continue;
         if (fed.action == "watch.player-view" || fed.action == "watch.lock-view")
             watch_row = true;
+    }
+    // In a replay a row shows the view of the player it lists, as the view
+    // control's row for that player does.
+    if (watch_row && (current_extension_state() & extension_state::replay) != 0 && hit.row >= 0) {
+        replay_choose_panel_row(hit.row);
+        return true;
     }
     if (watch_row) {
         const auto change = hud::resource_panel_view_switch(panel, rows, hit, watching);
@@ -421,7 +446,7 @@ bool Runtime::resource_panel_f4_key() {
     if (!match_ || !ui_rules().resource_panel.enabled)
         return false;
     const auto& world = match_->state();
-    const auto rows = hud::resource_panel_rows(world, local_player_watches(), shared_views_);
+    const auto rows = resource_panel_rows_shown();
     return hud::resource_panel_f4(
         resource_panel_,
         (world.game.graphics_flags & hud::kGraphicsBoardPinned) != 0,

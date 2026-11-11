@@ -38,14 +38,25 @@ slot order:
 - anyone else sees the players whose machines report sharing their map
   position with this machine.
 
-Each row shows the player's colour square, name, stored metal and energy,
-a storage bar for each and both incomes:
+A replay lists the recording's playing players instead, every one, as the
+playback bar's **View** control lists them and in its order: the first
+slot included, and the seat the replay is watched from left out
+([replays](../../replays.md#playing-one)).
+
+Each row shows the player's colour square, in the colour the minimap and
+the replay's **View** control draw that player in, the name, stored metal
+and energy, a storage bar for each and both incomes:
 
 - a stored amount is whole below 10000, thousands to one decimal with a K
   below 100000, and whole thousands with a K from there;
 - a bar fills its share of 100 pixels, truncated, and shows at most 99;
 - metal income has one decimal and energy income is whole, both with a
   plus sign.
+
+In a replay the incomes are worked out from the recording's economy
+records. A player whose economy the recording has not given, as a
+computer's often is not, and a player who has left, show their name and
+square alone.
 
 The panel's background is the player's choice (none, behind the text, or
 solid), set in the [options dialog](ui.options-dialog.md).
@@ -126,7 +137,10 @@ A row's number from 1 stands for the player slot of the same number,
 whatever player the row shows. A slot that is not playing leaves the view
 as it was but shows the whole map. Switching drops the selection and
 redraws the panels and the sight. For a player, double-clicks on the panel
-do nothing; view switching is for watchers and replays only.
+do nothing; view switching is for watchers and replays only. In a replay a
+double-click on a row shows the view of the player the row lists, as the
+**View** control does, and the panel has no row of the watcher's own: the
+control's **All players** returns to it.
 
 3.1c shows only the player's own resources and has no clock line or view
 switching.

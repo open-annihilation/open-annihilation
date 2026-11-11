@@ -9829,6 +9829,18 @@ class Runtime final : public menu::Host,
     /// @return the colour number, or -1 when the card has not named them
     [[nodiscard]] int replay_named_colour(std::string_view name) const;
 
+    /// The players the replay's stats panel lists: the recording's playing
+    /// players as the view control lists them, in its order and colours.
+    ///
+    /// @return the seats; empty while no replay bar is up
+    [[nodiscard]] std::vector<oa::ui::hud::ResourcePanelSeat> replay_panel_seats() const;
+
+    /// Shows the view of one row of the replay's stats panel, as the view
+    /// control does for that player.
+    ///
+    /// @param row the panel's row, from 0
+    void replay_choose_panel_row(int row);
+
     /// Runs --check-key-capture: capturing a chord, a clash, Escape held for
     /// a second, a refused Escape, Settings' chord, and a draft clash's card,
     /// over a paused skirmish. Writes key-capture-<w>x<h>.ppm and
@@ -17035,6 +17047,13 @@ class Runtime final : public menu::Host,
     /// Moves the camera onto the camera of the player a watcher locked onto
     /// (ui.resource-panel with ui.camera-sharing).
     void follow_shared_cameras();
+
+    /// The rows ui.resource-panel's panel lists: in a replay the recording's
+    /// playing players as the view control lists them
+    /// (hud::resource_panel_seat_rows), else hud::resource_panel_rows.
+    ///
+    /// @return the rows; requires a running match
+    [[nodiscard]] oa::ui::hud::ResourcePanelRows resource_panel_rows_shown() const;
 
     /// Draws ui.resource-panel's panel over the battlefield.
     void draw_resource_panel_overlay();

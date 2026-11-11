@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // What a replay's playback tells the engine about the watch: the slot it is
-// watched from, and each frame the income and shared cameras the playback
-// bar's player list shows (runtime_replay_viewer.cpp). Network play's
+// watched from, and each frame the economy and shared cameras the replay's
+// stats panel and camera menu show (runtime_replay_viewer.cpp). Network play's
 // playback calls these as a replay starts and after each frame it plays.
 // The header includes no other header of the engine's but oa/core/player.h,
 // for the number of slots.
@@ -18,11 +18,12 @@ namespace oa::app {
 
 class Runtime;
 
-/// Income and a shared camera the player list shows for one slot. Not the world's.
+/// What the replay's stats panel and camera menu show for one slot. Not the world's.
 struct ReplayShownSlot {
-    bool income{};
-    float metal{};
-    float energy{};
+    bool economy{}; ///< an economy record of the slot's player has been played
+    bool income{};  ///< an income has been worked out from two of them
+    float metal{};  ///< metal produced per settlement, while `income` is set
+    float energy{}; ///< energy produced per settlement, while `income` is set
     bool camera_seen{};
     bool camera_shared{};
     uint16_t camera_x{};
@@ -37,7 +38,8 @@ struct ReplayShownSlot {
 /// @param slot the watcher's slot; 0 when every slot belongs to a recorded player
 void seat_replay_watcher(Runtime& runtime, uint8_t slot);
 
-/// Copies what the player list shows. A playback calls this each frame.
+/// Copies what the stats panel and the camera menu show. A playback calls
+/// this each frame.
 ///
 /// @param runtime the running app
 /// @param slots one entry per live slot

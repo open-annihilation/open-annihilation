@@ -26,6 +26,7 @@
 #include "oa/platform/files.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/ui/hud/resource_panel.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 #include "oa/ui/library/export.hpp"
 #include "oa/ui/library/library.hpp"
@@ -945,6 +946,26 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             return -1;
         }
         return -1;
+    }
+
+    /// The players the stats panel lists: the view control's, in its order,
+    /// with the colours it draws them in.
+    ///
+    /// @return the seats; empty before the first refresh
+    [[nodiscard]] const std::vector<oa::ui::hud::ResourcePanelSeat>& panel_seats() const {
+        return panel_seats_;
+    }
+
+    /// Shows the view of the stats panel's row, as the view control's row
+    /// for that player does.
+    ///
+    /// @param row the panel's row, from 0
+    void choose_panel_row(int row) {
+        if (row < 0 || static_cast<std::size_t>(row) >= panel_rows_.size())
+            return;
+        choose_view_row(panel_rows_[static_cast<std::size_t>(row)]);
+        refresh();
+        ++revision_;
     }
 
     /// Stores what the background read found. Called on that thread, or inline.
@@ -2030,12 +2051,38 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         row.energy = shown.energy;
     }
 
+    /// Adds one player to the stats panel's seats, as its view row shows them.
+    ///
+    /// @param slot the player's live slot
+    /// @param colour the colour number the row is drawn in; negative is none
+    /// @param gone the seat has left the match
+    /// @param row the player's place in the view rows
+    void add_panel_seat(int slot, int colour, bool gone, std::size_t row) {
+        if (slot < 0 || slot >= OA_PLAYER_COUNT)
+            return;
+        const ReplayShownSlot& shown = runtime_.replay_shown_[static_cast<std::size_t>(slot)];
+        oa::ui::hud::ResourcePanelSeat seat;
+        seat.slot = static_cast<uint8_t>(slot);
+        // The palette index ink_of draws the row's colour in.
+        seat.colour = colour >= 0 ? oa::ui::hud::colour_dot_index(static_cast<uint8_t>(colour % 10))
+                                  : oa::ui::hud::kResourcePanelNameColor;
+        seat.economy = shown.economy;
+        seat.income = shown.income;
+        seat.metal_income = shown.metal;
+        seat.energy_income = shown.energy;
+        seat.gone = gone;
+        panel_seats_.push_back(seat);
+        panel_rows_.push_back(static_cast<int>(row));
+    }
+
     /// Rebuilds the player list. Once the index has arrived the rows are its
     /// players for the whole replay. Before that, only a live computer or a
     /// mirrored slot is listed. Side, team, units and income are taken only
     /// while the slot is still playing. The colour stays.
     void fill_watch() {
         model_.watch.clear();
+        panel_seats_.clear();
+        panel_rows_.clear();
         rv::WatchRow everyone;
         everyone.slot = -1;
         everyone.name = rv::view_button_caption(rv::Model{});
@@ -2068,7 +2115,10 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
                 if (playing && world != nullptr)
                     fill_live(*world, *live, found, row);
                 row.departed = departure_of(card.name, number);
-                row.colour = ink_of(colour_of(match, card.name, number, found));
+                const int colour = colour_of(match, card.name, number, found);
+                row.colour = ink_of(colour);
+                if (found >= 0)
+                    add_panel_seat(found, colour, !seated, model_.watch.size());
                 model_.watch.push_back(std::move(row));
             }
         } else if (match != nullptr) {
@@ -2091,7 +2141,9 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
                 row.name = name;
                 fill_live(world, player, slot, row);
                 row.departed = departure_of(name, -1);
-                row.colour = ink_of(colour_of(match, name, -1, slot));
+                const int colour = colour_of(match, name, -1, slot);
+                row.colour = ink_of(colour);
+                add_panel_seat(slot, colour, false, model_.watch.size());
                 model_.watch.push_back(std::move(row));
             }
         }
@@ -2324,6 +2376,8 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     rv::Control held_{rv::Control::none};
     std::optional<uint32_t> behind_since_{};
     std::vector<int> player_numbers_{};
+    std::vector<oa::ui::hud::ResourcePanelSeat> panel_seats_{};
+    std::vector<int> panel_rows_{};
     std::vector<int> remembered_colours_{};
     std::vector<int> player_colour_used_{};
     std::vector<BuiltIndex::MetaColour> meta_colours_{};
@@ -2523,6 +2577,17 @@ int Runtime::replay_finding_percent() const {
 
 int Runtime::replay_named_colour(std::string_view name) const {
     return replay_viewer_ == nullptr ? -1 : replay_viewer_->named_colour(name);
+}
+
+std::vector<oa::ui::hud::ResourcePanelSeat> Runtime::replay_panel_seats() const {
+    if (replay_viewer_ == nullptr)
+        return {};
+    return replay_viewer_->panel_seats();
+}
+
+void Runtime::replay_choose_panel_row(int row) {
+    if (replay_viewer_ != nullptr)
+        replay_viewer_->choose_panel_row(row);
 }
 
 void Runtime::release_replay_recording() {

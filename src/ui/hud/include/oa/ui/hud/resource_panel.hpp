@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 
 namespace oa::ui::hud {
@@ -74,11 +75,38 @@ struct ResourcePanel {
     uint8_t locked_slot{};
 };
 
-/// The players a panel lists, in slot order.
+/// What one row shows of its player's economy.
+struct ResourcePanelFigures {
+    float metal{};          ///< stored metal
+    float metal_storage{};  ///< metal storage
+    float metal_income{};   ///< metal produced per settlement
+    float energy{};         ///< stored energy
+    float energy_storage{}; ///< energy storage
+    float energy_income{};  ///< energy produced per settlement
+};
+
+/// The players a panel lists, in the order it lists them.
 struct ResourcePanelRows {
     std::array<uint8_t, OA_PLAYER_COUNT> slots{};
+    /// Each row's colour square: the palette index the player's colour is
+    /// drawn in on the minimap (player_dot_color).
+    std::array<uint8_t, OA_PLAYER_COUNT> colours{};
+    /// Each row's economy. A row with none shows its name and colour square
+    /// alone.
+    std::array<std::optional<ResourcePanelFigures>, OA_PLAYER_COUNT> figures{};
     uint8_t count{};
     bool own_view_row{}; ///< a last row returns a watcher to their own view
+};
+
+/// One player a replay's panel lists, as the replay's view control shows them.
+struct ResourcePanelSeat {
+    uint8_t slot{};        ///< the player's slot, 0 to 9
+    uint8_t colour{};      ///< palette index of the colour square
+    bool economy{};        ///< the recording has given the player's stored resources
+    bool income{};         ///< the recording's economy has given an income
+    float metal_income{};  ///< metal produced per settlement, while `income` is set
+    float energy_income{}; ///< energy produced per settlement, while `income` is set
+    bool gone{};           ///< the seat has left the match
 };
 
 /// Tells whether the local player watches: a watcher of a multiplayer game.
@@ -91,7 +119,8 @@ struct ResourcePanelRows {
 ///
 /// Slots 1 to 9 in order: a watcher lists every slot in use that has a
 /// name, its own included; anyone else lists the slots that share their map
-/// position with this machine.
+/// position with this machine. Each row's square is the slot's dot colour
+/// (player_dot_color) and its figures the slot's own.
 ///
 /// @param world players
 /// @param watching the local player watches (local_player_watches)
@@ -99,6 +128,18 @@ struct ResourcePanelRows {
 /// @return the rows
 [[nodiscard]] ResourcePanelRows
 resource_panel_rows(const World& world, bool watching, const SharedPlayerViews& shared) noexcept;
+
+/// Lists a replay's players: one row per seat, in the order given, at most
+/// OA_PLAYER_COUNT, with no own-view row. A seat whose stored resources the
+/// recording has not given, and a seat that has gone, show their name and
+/// colour square alone. The stored amounts and storage are the slot's; the
+/// incomes are the recording's where it has given one, else the slot's.
+///
+/// @param world players and their economies
+/// @param seats the replay's players, in the order its view control lists them
+/// @return the rows
+[[nodiscard]] ResourcePanelRows
+resource_panel_seat_rows(const World& world, std::span<const ResourcePanelSeat> seats) noexcept;
 
 /// Formats a stored amount: whole below 10000, thousands to one decimal
 /// with a K below 100000, whole thousands with a K from there.
@@ -138,8 +179,9 @@ struct ResourcePanelSink {
 [[nodiscard]] int32_t resource_panel_height(const ResourcePanelRows& rows) noexcept;
 
 /// Draws the panel: for each row the highlight of the viewed or locked-on
-/// player, the player's colour square, name, stored metal and energy, their
-/// bars and incomes; a watcher's last row returns to their own view.
+/// player, the player's colour square, name, and, while the row has its
+/// figures, the stored metal and energy, their bars and incomes; a watcher's
+/// last row returns to their own view.
 ///
 /// @param world players and their economies
 /// @param[in,out] panel place and highlights; the lock colour alternates
