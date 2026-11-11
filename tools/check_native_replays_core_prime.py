@@ -816,7 +816,16 @@ def main():
         return fail("the recorded game was not written")
 
     state = FeedState(source.read_bytes())
-    listed_battle = Path(args.work_dir).parent / "listed-battle.oademo"
+    # The Boneyards launch checks write listed-battle.oademo beside this
+    # folder and may run beside this check, so the file can appear or change
+    # between here and the share. The feed's answer and the battle the share
+    # lists must name the same game: both read one copy taken now.
+    listed_battle = work / "listed-battle.oademo"
+    listed_battle.unlink(missing_ok=True)
+    try:
+        shutil.copyfile(work.parent / "listed-battle.oademo", listed_battle)
+    except FileNotFoundError:
+        pass
     if listed_battle.is_file():
         state.lookup_game = recording_game_id(listed_battle)
     server = serve(state)

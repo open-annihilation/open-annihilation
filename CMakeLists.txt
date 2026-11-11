@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 cmake_minimum_required(VERSION 3.24)
-project(open_annihilation VERSION 0.9.0 LANGUAGES C CXX)
+project(open_annihilation VERSION 0.9.1 LANGUAGES C CXX)
 # The version's label. A build of a tree whose label is not empty is a
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
@@ -3331,6 +3331,7 @@ if(OA_BUILD_PLATFORM)
           "${oa_replays_core_prime_dir}/replays-content.facts"
           "${oa_replays_core_prime_dir}/core-prime-source.oademo"
           "${oa_replays_core_prime_dir}/core-prime-ridge.oademo"
+          "${oa_replays_core_prime_dir}/listed-battle.oademo"
           "${oa_replays_core_prime_dir}/ridge-reach.oamap"
           "${oa_replays_core_prime_dir}/ridge-reach-new.oamap"
           "${oa_replays_core_prime_dir}/ridge-wind.oamut"
