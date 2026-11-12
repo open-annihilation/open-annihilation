@@ -15,7 +15,8 @@
 // and the battlefield takes its rows under every player. A second play
 // switches view and camera, seeks nowhere after that, and must digest the
 // same as the straight play. Markers come from the recording's
-// index pass.
+// index pass. A skirmish's in-game menu offers Save Game; a replay's shows
+// it greyed, and no key, click or focus walk reaches it.
 
 #include "library_host.hpp"
 #include "net_options.hpp"
@@ -26,6 +27,7 @@
 #include "touch_dispatch.hpp"
 #include "touch_state.hpp"
 
+#include "oa/app/automation_host.hpp"
 #include "oa/app/expansion_entry.hpp"
 #include "oa/app/frame_pacing.hpp"
 #include "oa/app/hook_call.hpp"
@@ -34,6 +36,7 @@
 #include "oa/base/game_loop.hpp"
 #include "oa/core/player.h"
 #include "oa/core/world.h"
+#include "oa/data/defs/layout.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/sim/match_runtime.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
@@ -243,6 +246,20 @@ void Runtime::check_replay_viewer() {
         pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
         pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
         frames(1);
+    };
+    // A button of the in-game menu, as the automation endpoint lists it.
+    const auto menu_button = [this](std::string_view name) -> std::optional<AutomationControl> {
+        const AutomationHost automation = automation_host(*this);
+        std::vector<AutomationControl> controls;
+        automation.controls(automation.context, &controls);
+        for (const AutomationControl& control : controls)
+            if (control.name == name)
+                return control;
+        return std::nullopt;
+    };
+    const auto menu_shown = [this] {
+        return screen_ == Screen::match && match_paused_ && match_hud_ &&
+               match_hud_panel_ == oa::data::defs::gui_path("ARMOPT.GUI");
     };
     const auto snapshot = [this](std::string_view step) {
         if (options_.snapshot.empty())
@@ -744,9 +761,66 @@ void Runtime::check_replay_viewer() {
         require(
             match_ != nullptr && match_->state().game.tick >= 150, "the two-player skirmish stopped"
         );
+        // A skirmish's in-game menu offers Save Game.
+        show_match_pause_menu();
+        frames(1);
+        {
+            const std::optional<AutomationControl> save = menu_button("SAVEGAME");
+            require(
+                menu_shown() && save.has_value() && save->visible && save->enabled,
+                "the skirmish's in-game menu does not offer Save Game"
+            );
+        }
+        resume_match_pause();
+        frames(1);
+        std::cout << "replay viewer: the skirmish's in-game menu offers Save Game\n";
         wait_recorded(two);
         open_file(two, false);
         check_opening("two players, the host at the top-left corner");
+        // A replay cannot be saved: the in-game menu shows Save Game greyed,
+        // and no key, click or focus walk reaches it.
+        click_named("oa.replay-viewer.leave");
+        require(menu_shown(), "Leave did not open the in-game menu over the replay");
+        const auto save_greyed = [&](const std::string& after) {
+            const std::optional<AutomationControl> save = menu_button("SAVEGAME");
+            require(
+                save.has_value() && save->visible && !save->enabled,
+                after + ": the replay's in-game menu does not show Save Game greyed"
+            );
+            require(
+                menu_shown() && !save_dialog_open() && screen_ == Screen::match,
+                after + ": Save Game opened over a replay"
+            );
+            return *save;
+        };
+        const AutomationControl greyed = save_greyed("the menu");
+        snapshot("game-menu");
+        key(SDLK_S);
+        save_greyed("'s'");
+        const layout::Point on_save{
+            greyed.window_x + greyed.window_width / 2, greyed.window_y + greyed.window_height / 2
+        };
+        pointer_at(on_save, SDL_EVENT_MOUSE_MOTION, 0);
+        pointer_at(on_save, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
+        pointer_at(on_save, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
+        frames(1);
+        save_greyed("a click");
+        // Tab and Down walk the menu's buttons round and pass Save Game by.
+        for (const SDL_Keycode walk : {SDLK_TAB, SDLK_DOWN}) {
+            const std::string walked = walk == SDLK_TAB ? "Tab" : "Down";
+            bool reached_load = false;
+            for (int step = 0; step < 10; ++step) {
+                key(walk);
+                require(!save_greyed(walked).focused, walked + " focused the greyed Save Game");
+                const std::optional<AutomationControl> load = menu_button("LOADGAME");
+                reached_load = reached_load || (load.has_value() && load->focused);
+            }
+            require(reached_load, walked + " did not walk the replay's in-game menu");
+        }
+        key(SDLK_ESCAPE);
+        require(!menu_shown(), "Escape did not close the replay's in-game menu");
+        std::cout << "replay viewer: the replay's in-game menu shows Save Game greyed, and 's', a "
+                     "click, Tab and Down pass it by\n";
         leave_match();
         load(Screen::main_menu);
         wait_menu();

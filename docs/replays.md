@@ -1123,8 +1123,13 @@ through. While a jump is skipping, **+** and **-** still step the speed
 underneath, and the replay returns to it when the jump lands.
 
 **Pause** holds the playback, and so does the in-game menu. The time a pause
-holds is not played later. Above 4×, and while a jump skips, each unit sound
-plays at most once a second and speech is quiet. Music plays on.
+holds is not played later. A replay cannot be saved, so the in-game menu's
+**Save Game** is greyed while one plays, as the original game greys a button,
+and no click, key or focus reaches it; in a game it is as before. **Load
+Game** lists the saved games as in a game: **Cancel** goes back to the
+replay, and loading one leaves the replay for that game. Above 4×, and
+while a jump skips, each unit sound plays at most once a second and speech
+is quiet. Music plays on.
 
 A frame that cannot run every tick it was asked keeps the speed it did reach,
 so a slow machine does not fall behind without that being known. The ticks

@@ -2543,7 +2543,8 @@ if(OA_BUILD_PLATFORM)
         FIXTURES_REQUIRED key-editor-clean)
       # The playback bar over a short recorded skirmish, at 640x480, 1280x720
       # and 1920x1080, and the players' stats at the top right there and on a
-      # phone. Each run starts from a clean folder.
+      # phone; the in-game menu's Save Game, offered in the skirmish and
+      # greyed in its replay. Each run starts from a clean folder.
       set(oa_replay_viewer_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/replay-viewer")
       file(MAKE_DIRECTORY "${oa_replay_viewer_dir}")
       add_test(NAME replay-viewer-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
@@ -2554,7 +2555,8 @@ if(OA_BUILD_PLATFORM)
         "${oa_replay_viewer_dir}/replay-viewer-1280x720.ppm"
         "${oa_replay_viewer_dir}/replay-viewer-1920x1080.ppm"
         "${oa_replay_viewer_dir}/replay-viewer-852x393-phone.ppm"
-        "${oa_replay_viewer_dir}/replay-viewer-1280x720-player.ppm")
+        "${oa_replay_viewer_dir}/replay-viewer-1280x720-player.ppm"
+        "${oa_replay_viewer_dir}/replay-viewer-game-menu.ppm")
       set_tests_properties(replay-viewer-clean PROPERTIES FIXTURES_SETUP replay-viewer-clean)
       add_test(NAME native-replay-viewer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-replay-viewer

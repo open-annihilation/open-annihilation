@@ -118,7 +118,8 @@ void add_entry(
 
 void ingame_enter_options(Panel& panel, IngameContext& context) noexcept {
     const bool no_saved_games = is_multiplayer(context) || !context.saved_games_offered;
-    panel_set_grayed(panel, "SAVEGAME", no_saved_games);
+    // A replay plays a recording: there is no game of the player's to save.
+    panel_set_grayed(panel, "SAVEGAME", no_saved_games || context.replay);
     panel_set_grayed(panel, "LOADGAME", no_saved_games);
     if (context.session == SessionKind::multiplayer || context.session == SessionKind::skirmish)
         panel_set_text(panel, "MISSION", "Settings");
@@ -158,6 +159,10 @@ IngameAction ingame_on_options_click(Panel& panel, IngameContext& context) noexc
     for (const auto& route : routes) {
         if (!panel_selected_is(panel, route.name))
             continue;
+        // A greyed button takes no press, whatever selected it.
+        if (const Control* control = panel_control(panel, route.name);
+            control != nullptr && control->grayed != 0)
+            break;
         play(context, kOptionsSound);
         if (route.action == IngameAction::open_briefing && context.session != SessionKind::campaign)
             return IngameAction::open_game_settings;

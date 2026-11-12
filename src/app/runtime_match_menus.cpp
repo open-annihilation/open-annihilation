@@ -2146,6 +2146,7 @@ void Runtime::show_match_pause_menu() {
             campaign_mission_, (current_extension_state() & extension_state::multiplayer) != 0
         );
         session.ingame.saved_games_offered = offers_saved_games();
+        session.ingame.replay = (current_extension_state() & extension_state::replay) != 0;
         session.ingame.difficulty_names = difficulty_names();
         // A match with a return label names it in the exit menus.
         session.ingame.return_label = return_label_;

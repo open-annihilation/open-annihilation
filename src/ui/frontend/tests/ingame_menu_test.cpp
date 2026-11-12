@@ -75,6 +75,19 @@ OA_GAME_DATA_TEST(armopt_setup_by_session) {
     ingame_enter_options(without_dialog, no_dialog);
     OA_CHECK(panel_control(without_dialog, "SAVEGAME")->grayed == 1);
     OA_CHECK(panel_control(without_dialog, "LOADGAME")->grayed == 1);
+
+    // A replay cannot be saved; a saved game can still be loaded from it.
+    Panel replay;
+    load_panel(replay, "armopt.gui");
+    auto watching = make_context(calls, SessionKind::skirmish);
+    watching.replay = true;
+    ingame_enter_options(replay, watching);
+    OA_CHECK(panel_control(replay, "SAVEGAME")->grayed == 1);
+    OA_CHECK(panel_control(replay, "LOADGAME")->grayed == 0);
+    // A greyed button selected some other way still opens nothing.
+    replay.selected = panel_find(replay, "SAVEGAME");
+    OA_CHECK(ingame_on_options_click(replay, watching) == IngameAction::none);
+    OA_CHECK(replay.selected == kNoSelection);
 }
 
 OA_GAME_DATA_TEST(armopt_clicks_route_to_dialogs) {
