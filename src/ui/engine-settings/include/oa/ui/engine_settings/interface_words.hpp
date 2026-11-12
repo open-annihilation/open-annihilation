@@ -797,6 +797,7 @@ inline constexpr std::string_view interface_words[] = {
     "{version} ready",
     "·",
     "‹ DOWNLOADS",
+    "Remove…",
 };
 
 } // namespace oa::ui::engine_settings

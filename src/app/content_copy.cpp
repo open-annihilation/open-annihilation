@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
@@ -2313,7 +2314,106 @@ void count_up(uint32_t& count) noexcept {
         ++count;
 }
 
+/// The files of a bundle that differ, leaving out its stray archives.
+///
+/// @param bundle one bundle from the check
+/// @return files_differ less the strays
+[[nodiscard]] uint32_t table_files_differ(const ContentBundleCheck& bundle) noexcept {
+    const auto strays = static_cast<uint32_t>(
+        std::min<std::size_t>(bundle.strays.size(), std::numeric_limits<uint32_t>::max())
+    );
+    return bundle.files_differ > strays ? bundle.files_differ - strays : 0;
+}
+
 } // namespace
+
+std::string content_stray_line(const ContentBundleCheck& bundle, const ContentStrayArchive& stray) {
+    return replace_token(
+        replace_token(
+            replace_token(
+                replace_token(
+                    oa::data::languages::interface_text(
+                        "{file} in {folder}, {size} bytes, is not a file of {bundle}. The game "
+                        "does not read it."
+                    ),
+                    "{file}",
+                    stray.name
+                ),
+                "{folder}",
+                path_to_utf8(stray.folder)
+            ),
+            "{size}",
+            std::to_string(stray.size)
+        ),
+        "{bundle}",
+        oa::data::languages::interface_text(bundle.english_name)
+    );
+}
+
+bool archive_file_name(std::string_view name) noexcept {
+    const std::size_t dot = name.rfind('.');
+    if (dot == std::string_view::npos)
+        return false;
+    const std::string_view extension = name.substr(dot);
+    for (const std::string_view archive : {".hpi", ".ufo", ".ccx", ".gp3"}) {
+        if (extension.size() != archive.size())
+            continue;
+        bool same = true;
+        for (std::size_t at = 0; at < archive.size() && same; ++at)
+            same = std::tolower(static_cast<unsigned char>(extension[at])) == archive[at];
+        if (same)
+            return true;
+    }
+    return false;
+}
+
+std::vector<ContentStrayArchive>
+stray_archives(const fs::path& folder, const bundles::Bundle& bundle) {
+    std::vector<ContentStrayArchive> strays;
+    std::error_code failure;
+    fs::directory_iterator entries(folder, failure);
+    if (failure)
+        return strays;
+    for (const fs::directory_entry& entry : entries) {
+        std::error_code entry_failure;
+        if (!entry.is_regular_file(entry_failure) || entry_failure)
+            continue;
+        const std::string name = path_to_utf8(entry.path().filename());
+        if (!archive_file_name(name))
+            continue;
+        bool listed = false;
+        for (const bundles::ContentFile& file : bundle.files)
+            listed = listed || folded_equal(file.copy_name, name);
+        if (listed)
+            continue;
+        ContentStrayArchive stray;
+        stray.name = name;
+        stray.folder = folder;
+        const uintmax_t size = entry.file_size(entry_failure);
+        stray.size = entry_failure ? 0 : static_cast<uint64_t>(size);
+        strays.push_back(std::move(stray));
+    }
+    std::sort(strays.begin(), strays.end(), [](const auto& left, const auto& right) {
+        return left.name < right.name;
+    });
+    return strays;
+}
+
+bool played_content_differs(
+    const ContentCheck& check, std::string_view base_game, std::span<const std::string> expansions
+) noexcept {
+    for (const ContentBundleCheck& bundle : check.bundles) {
+        // Music changes no rules, so two games are not compared by it.
+        if (bundle.files_differ == 0 || bundle.id == "music")
+            continue;
+        if (bundle.id == base_game)
+            return true;
+        for (const std::string& expansion : expansions)
+            if (expansion == bundle.id)
+                return true;
+    }
+    return false;
+}
 
 bool content_notice_due(const ContentCheck& check) noexcept {
     for (const ContentBundleCheck& bundle : check.bundles) {
@@ -2344,10 +2444,14 @@ ContentNoticeCopy content_difference_notice(const ContentCheck& check) {
     for (const ContentBundleCheck& bundle : check.bundles) {
         if (bundle.files_differ == 0)
             continue;
-        copy.lines.push_back(
-            std::string(oa::data::languages::interface_text(bundle.english_name)) + " / " +
-            differ_count_line(bundle.files_differ, bundle.file_count)
-        );
+        const uint32_t table = table_files_differ(bundle);
+        if (table > 0)
+            copy.lines.push_back(
+                std::string(oa::data::languages::interface_text(bundle.english_name)) + " / " +
+                differ_count_line(table, bundle.file_count)
+            );
+        for (const ContentStrayArchive& stray : bundle.strays)
+            copy.lines.push_back(content_stray_line(bundle, stray));
     }
     copy.lines.push_back(
         std::string(
@@ -2375,6 +2479,8 @@ ContentNoticeCopy content_file_notice(const ContentCheck& check) {
                 std::string(oa::data::languages::interface_text(bundle.english_name)) + ": " +
                 file.copy_name
             );
+        for (const ContentStrayArchive& stray : bundle.strays)
+            copy.lines.push_back(content_stray_line(bundle, stray));
     }
     copy.ok = std::string(oa::data::languages::interface_text("OK"));
     return copy;
@@ -2389,6 +2495,20 @@ std::string content_tracks_line(uint32_t held, uint32_t total) {
 }
 
 std::string content_bundle_line(const ContentBundleCheck& bundle) {
+    // Archives the bundle does not list, and nothing else, are named.
+    if (bundle.files_differ > 0 && table_files_differ(bundle) == 0) {
+        if (bundle.strays.size() == 1)
+            return replace_token(
+                oa::data::languages::interface_text("{file} is not one of its files"),
+                "{file}",
+                bundle.strays.front().name
+            );
+        return replace_token(
+            oa::data::languages::interface_text("{count} archives are not its files"),
+            "{count}",
+            std::to_string(bundle.strays.size())
+        );
+    }
     if (bundle.files_differ > 0)
         return differ_count_line(bundle.files_differ, bundle.file_count);
     if (bundle.id == "music" && bundle.files_not_in_source > 0 &&
@@ -2620,6 +2740,11 @@ ContentCheck check_managed_content(
             if (!considered())
                 return check;
         }
+        // An archive the bundle does not list is not mounted, but it is not
+        // Total Annihilation's either: it is named, and the bundle differs.
+        reported.strays = stray_archives(folder, bundle);
+        for (std::size_t index = 0; index < reported.strays.size(); ++index)
+            count_up(reported.files_differ);
         // A record that cannot be stored is hashed again next start. This
         // start's answer stands either way.
         if (wrote) {

@@ -48,6 +48,7 @@
 #include "oa/platform/screen_reader/announce.hpp"
 #include "oa/platform/screen_reader/speech.hpp"
 #include "oa/platform/system.hpp"
+#include "oa/platform/trash.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/app/window_icon.hpp"
 #include "oa/sim/ground_orders/search_worker.hpp"
@@ -465,6 +466,7 @@ void lay_game_content(settings::Dialog& dialog, const fs::path& user_folder) {
     const bool look = !user_folder.empty();
     const std::string waiting = checking_line(0, 0);
     dialog.game_content.clear();
+    dialog.game_content_strays.clear();
     dialog.game_content.reserve(table.size());
     for (const auto& bundle : table) {
         settings::GameContentRow row;
@@ -480,8 +482,56 @@ void lay_game_content(settings::Dialog& dialog, const fs::path& user_folder) {
     }
 }
 
+/// Names the stray archives a check found, each on its own row.
+///
+/// @param[in,out] dialog the dialog
+/// @param check the check
+void paint_strays(settings::Dialog& dialog, const ContentCheck& check) {
+    dialog.game_content_strays.clear();
+    for (const ContentBundleCheck& bundle : check.bundles)
+        for (const ContentStrayArchive& stray : bundle.strays) {
+            settings::GameContentStray row;
+            row.line = content_stray_line(bundle, stray);
+            row.name = stray.name;
+            row.path = path_to_utf8(stray.folder / path_from_utf8(stray.name));
+            dialog.game_content_strays.push_back(std::move(row));
+        }
+}
+
+/// The question Remove… asks once before a stray archive goes.
+///
+/// @param stray the archive
+/// @return the question: Move to Trash, or Delete where the system has no
+///         trash, then Cancel
+kit::Question stray_removal_question(const settings::GameContentStray& stray) {
+    namespace languages = oa::data::languages;
+    const bool trash = oa::platform::system_has_trash();
+    kit::Question asked;
+    asked.title = std::string(languages::interface_text("Game content"));
+    asked.paragraphs.push_back({stray.line, false});
+    std::string sentence(
+        languages::interface_text(
+            trash ? "Move {file} to the trash?" : "Delete {file}? This system has no trash."
+        )
+    );
+    const std::size_t mark = sentence.find("{file}");
+    if (mark != std::string::npos)
+        sentence.replace(mark, std::string_view("{file}").size(), stray.name);
+    asked.paragraphs.push_back({sentence, false});
+    asked.buttons.push_back(
+        {std::string(languages::interface_text(trash ? "Move to Trash" : "Delete")), true, "remove"}
+    );
+    asked.buttons.push_back({std::string(languages::interface_text("Cancel")), false, "cancel"});
+    asked.primary_button = 0;
+    asked.cancel_button = 1;
+    asked.marked = 1;
+    asked.word = "content-stray";
+    return asked;
+}
+
 /// Writes a finished check onto the rows. `found` is not kept.
 void paint_check_result(settings::Dialog& dialog, const ContentCheck& check) {
+    paint_strays(dialog, check);
     for (settings::GameContentRow& row : dialog.game_content) {
         const ContentBundleCheck* found = nullptr;
         for (const ContentBundleCheck& checked : check.bundles) {
@@ -2416,14 +2466,41 @@ bool Runtime::refresh_game_content(settings::Dialog& dialog) {
     }
     if (apply) {
         const std::vector<settings::GameContentRow> saved = dialog.game_content;
+        const std::size_t strays = dialog.game_content_strays.size();
         paint_check_result(dialog, result);
-        return updates_moved || download_moved || content_rows_differ(saved, dialog.game_content);
+        // The run's own answer follows the check, so the presence record and
+        // the Boneyards entry see a stray archive the player has removed.
+        content_check_ = std::move(result);
+        return updates_moved || download_moved || strays != dialog.game_content_strays.size() ||
+               content_rows_differ(saved, dialog.game_content);
     }
     if (running) {
         paint_checking(dialog, done, total);
         return true;
     }
     return updates_moved || download_moved;
+}
+
+void Runtime::remove_stray_archive(const settings::GameContentStray& stray) {
+    const fs::path file = path_from_utf8(stray.path);
+    const oa::platform::TrashMove moved = oa::platform::move_to_trash(file);
+    if (moved.moved)
+        std::cerr << "open-annihilation: game content: moved " << stray.path
+                  << (moved.place == oa::platform::TrashPlace::trash ? " to the trash\n"
+                                                                     : " away (deleted)\n");
+    else
+        std::cerr << "open-annihilation: game content: " << stray.path
+                  << " could not be moved to the trash: " << moved.error << '\n';
+    std::cerr.flush();
+    settings::Dialog* dialog = engine_settings_dialog();
+    if (dialog == nullptr)
+        return;
+    if (!moved.moved)
+        std::ignore = settings::set_folder_notice(*dialog, moved.error);
+    if (content_copy_watch().active)
+        return;
+    paint_checking(*dialog, 0, 0);
+    request_content_check(user_folder_);
 }
 
 bool Runtime::take_engine_settings_action(settings::DialogAction action) {
@@ -2683,6 +2760,36 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         if (content_copy_watch().active)
             setup_request_cancel();
         return false;
+    case settings::DialogAction::remove_stray_archive: {
+        // One question, then the stray goes to the system's trash and the
+        // copy is checked again. Cancel leaves it where it is.
+        const int32_t pressed = dialog->stray_pressed;
+        dialog->stray_pressed = -1;
+        if (pressed < 0 || static_cast<std::size_t>(pressed) >= dialog->game_content_strays.size())
+            return false;
+        const settings::GameContentStray stray =
+            dialog->game_content_strays[static_cast<std::size_t>(pressed)];
+        kit::Question asked = stray_removal_question(stray);
+        Runtime* runtime = this;
+        QuestionScreen::Host host;
+        host.answer = [runtime, stray](int32_t button) {
+            if (button != 0)
+                return true;
+            runtime->remove_stray_archive(stray);
+            return true;
+        };
+        host.tick = [runtime]() {
+            return runtime->engine_settings_dialog() == nullptr || runtime->match_ != nullptr ||
+                   runtime->screen_ == Screen::match;
+        };
+        OaLayer& layer = oa_layer();
+        layer.push(
+            std::make_unique<QuestionScreen>(
+                layer, Screen::main_menu, std::move(asked), std::move(host)
+            )
+        );
+        return false;
+    }
     case settings::DialogAction::open_content_folder: {
         const fs::path folder = user_folder_ / std::string(managed_games_folder);
         const FolderOpening opening = open_player_folder(folder);
@@ -2981,23 +3088,10 @@ Runtime::PresenceAnnouncement Runtime::presence_announcement() const {
         if (expansion_id != oa::netgame::presence_uncompared_expansion)
             played.expansions.push_back(expansion_id);
     }
-    const ContentCheck& known = content_check();
-    for (const ContentBundleCheck& bundle : known.bundles) {
-        if (bundle.files_differ == 0 || bundle.id == oa::netgame::presence_uncompared_expansion)
-            continue;
-        if (bundle.id == played.base_game) {
-            played.differs_from_known = true;
-            break;
-        }
-        for (const std::string& expansion_id : played.expansions) {
-            if (expansion_id == bundle.id) {
-                played.differs_from_known = true;
-                break;
-            }
-        }
-        if (played.differs_from_known)
-            break;
-    }
+    // A file that is not a known hash, or a stray archive in a played
+    // bundle's folder, sets the flag.
+    played.differs_from_known =
+        played_content_differs(content_check(), played.base_game, played.expansions);
     return played;
 }
 

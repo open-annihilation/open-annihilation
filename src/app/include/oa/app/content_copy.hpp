@@ -827,6 +827,18 @@ struct ContentFileLeftOut {
     uint64_t size{};
 };
 
+/// An archive at the top of a copied bundle's folder that the bundle does
+/// not list: a .hpi, .ufo, .ccx or .gp3 file under any other name. The game
+/// does not mount it.
+struct ContentStrayArchive {
+    /// Its file name, as the folder spells it.
+    std::string name;
+    /// The folder it is in.
+    std::filesystem::path folder;
+    /// Its size in bytes.
+    uint64_t size{};
+};
+
 /// One copied bundle, after the start's check.
 struct ContentBundleCheck {
     /// The bundle id.
@@ -839,7 +851,8 @@ struct ContentBundleCheck {
     uint32_t file_count{};
     /// How many of those files differ: missing, or not a hash the table knows.
     /// A music file the source never held is not one of these, nor a file
-    /// left out for its size while it is still absent.
+    /// left out for its size while it is still absent. Each stray archive in
+    /// the bundle's folder counts here too.
     uint32_t files_differ{};
     /// Music files the source did not hold, and files left out for their
     /// size, while they are absent. Older records name none.
@@ -849,7 +862,27 @@ struct ContentBundleCheck {
     /// The files left out for their size and still absent, in the table's
     /// order. The source held each at a size the table does not give it.
     std::vector<ContentFileLeftOut> left_out;
+    /// The stray archives in the bundle's folder, in name order.
+    std::vector<ContentStrayArchive> strays;
 };
+
+/// Reports whether a file name is an archive's: .hpi, .ufo, .ccx or .gp3, in any case.
+///
+/// @param name the file name
+/// @return true for those four
+[[nodiscard]] bool archive_file_name(std::string_view name) noexcept;
+
+/// Lists the stray archives at the top of a bundle's folder.
+///
+/// Every regular file there whose name is an archive's (archive_file_name)
+/// and that the bundle does not list, compared without case, is one.
+///
+/// @param folder the bundle's folder
+/// @param bundle the bundle
+/// @return the strays, in name order; empty when the folder cannot be read
+[[nodiscard]] std::vector<ContentStrayArchive> stray_archives(
+    const std::filesystem::path& folder, const oa::data::content_bundles::Bundle& bundle
+);
 
 /// What a start knows about the managed copy.
 struct ContentCheck {
@@ -858,6 +891,21 @@ struct ContentCheck {
     /// Files read and hashed because their size or time was not the record's.
     uint32_t files_hashed{};
 };
+
+/// Reports whether a played base game or rule-changing expansion differs.
+///
+/// A bundle differs when a file of it is not a known hash or its folder
+/// holds a stray archive (ContentBundleCheck::files_differ). Music changes
+/// no rules and is not counted. A bundle the check did not see is not
+/// counted either.
+///
+/// @param check the start's check
+/// @param base_game the base game played
+/// @param expansions the expansions played
+/// @return true when one of them differs
+[[nodiscard]] bool played_content_differs(
+    const ContentCheck& check, std::string_view base_game, std::span<const std::string> expansions
+) noexcept;
 
 /// Reports whether any copied bundle differs.
 ///
@@ -927,9 +975,19 @@ struct ContentNoticeCopy {
 /// @return the line, in the language the interface shows
 [[nodiscard]] std::string content_tracks_line(uint32_t held, uint32_t total);
 
+/// One stray archive, named with its folder and its size.
+///
+/// @param bundle the bundle whose folder holds it
+/// @param stray the archive
+/// @return "{file} in {folder}, {size} bytes, is not a file of {bundle}.
+///         The game does not read it." in the language shown
+[[nodiscard]] std::string
+content_stray_line(const ContentBundleCheck& bundle, const ContentStrayArchive& stray);
+
 /// The line under a bundle's name in the content check.
 ///
-/// A bundle with differing files uses the file counts. Music the source
+/// A bundle whose only differences are stray archives names the one, or
+/// counts them. A bundle with differing files uses the file counts. Music the source
 /// left short, with nothing damaged, uses content_tracks_line. A bundle
 /// with a file left out for its size names it, with the size the source
 /// held it at and the size it should be, or names the files when several

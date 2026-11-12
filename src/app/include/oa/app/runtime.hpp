@@ -13199,6 +13199,13 @@ class Runtime final : public menu::Host,
     /// @return true when its rows changed, or while a copy or a check is running
     bool refresh_game_content(oa::ui::engine_settings::Dialog& dialog);
 
+    /// Moves a stray archive Game Content named to the system's trash, after
+    /// its question, and checks the copy again. A file that cannot be moved
+    /// stays, and the dialog says why.
+    ///
+    /// @param stray the archive
+    void remove_stray_archive(const oa::ui::engine_settings::GameContentStray& stray);
+
     /// Reads the catalogues into the available languages when they have changed.
     void note_catalogue_languages();
 

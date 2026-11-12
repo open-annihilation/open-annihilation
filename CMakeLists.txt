@@ -989,8 +989,10 @@ if(BUILD_TESTING)
   # totala4.hpi inside the first ten plain archives. Music and movies are
   # found in the bundle folders without regard to case.
   add_executable(oa-app-content-mount-test src/app/content_mount_test.cpp)
-  target_link_libraries(oa-app-content-mount-test PRIVATE oa-app-game-directory oa-formats-hpi
-    oa-audio oa-test-support oa-options)
+  target_link_libraries(oa-app-content-mount-test PRIVATE oa-app-game-directory oa-app-game-files
+    oa-formats-hpi oa-formats-tdf oa-base-sha256 oa-audio oa-test-support oa-options)
+  target_compile_definitions(oa-app-content-mount-test PRIVATE
+    OA_STOCK_FILES_FIXTURE="${CMAKE_SOURCE_DIR}/tests/data/stock-files")
   add_test(NAME app-content-mount COMMAND oa-app-content-mount-test)
   # A profile names installation archives: a file resolves from the mod's
   # archive, then the named archive, then the base archive, the same for a

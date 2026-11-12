@@ -18,7 +18,10 @@ compared by unit sync, and the battle room does not invent expansions for
 them. A player on an older Open Annihilation that does not name its content
 is not refused for that alone.
 
-The base games and expansions are the ones in [Game content](../game-content.md).
+A file that does not match includes an archive that lies in a base game's
+or an expansion's folder of Open Annihilation's own copy under a name that
+bundle does not list. The game does not read such an archive, and Game
+Content names it ([Game content](../game-content.md#only-the-bundles-own-archives)).
 
 ## A mod with more weapons or sides
 

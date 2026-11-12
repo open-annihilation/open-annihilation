@@ -358,27 +358,63 @@ bool empty_file(const LooseItem& item) {
 /// the folders over each other from the last to the first would leave it.
 /// One folder is listed as loose_listing() lists it.
 ///
+/// Takes the files a folder's list does not name out of its listing.
+///
+/// @param items the folder's listing
+/// @param names the files it may keep; null keeps every file
+/// @param[out] left_out receives each file taken out, when not null
+void keep_listed(
+    std::vector<LooseItem>& items,
+    const std::vector<std::string>* names,
+    std::vector<LooseItem>* left_out
+) {
+    if (names == nullptr)
+        return;
+    std::erase_if(items, [&](const LooseItem& item) {
+        if (item.directory)
+            return false;
+        for (const auto& name : *names)
+            if (same_archive_file_name(item.name, name))
+                return false;
+        if (left_out != nullptr)
+            left_out->push_back(item);
+        return true;
+    });
+}
+
 /// @param folders the folders, highest precedence first; a missing one adds nothing
 /// @param roots the folders are the store's layered folders, whose hidden
 ///        folder (hidden_at_top) is left out
+/// @param listed for each folder in order, the files it may keep; a null or
+///        missing entry keeps every file. A folder's directories are kept.
+/// @param[out] left_out receives each file a list took out, when not null
 /// @return the entries; empty when no folder exists
-std::vector<LooseItem>
-merged_listing(std::span<const std::filesystem::path> folders, bool roots = false) {
+std::vector<LooseItem> merged_listing(
+    std::span<const std::filesystem::path> folders,
+    bool roots = false,
+    std::span<const std::vector<std::string>* const> listed = {},
+    std::vector<LooseItem>* left_out = nullptr
+) {
+    const auto names_of = [&](std::size_t index) -> const std::vector<std::string>* {
+        return index < listed.size() ? listed[index] : nullptr;
+    };
     if (folders.size() == 1) {
         auto items = loose_listing(folders.front());
         if (roots)
             std::erase_if(items, [](const LooseItem& item) {
                 return hidden_at_top(normalized_path(item.name));
             });
+        keep_listed(items, names_of(0), left_out);
         return items;
     }
     std::unordered_map<std::string, LooseItem> merged;
     bool present = false;
-    for (auto folder = folders.rbegin(); folder != folders.rend(); ++folder) {
-        auto items = loose_listing(*folder);
+    for (std::size_t at = folders.size(); at-- > 0;) {
+        auto items = loose_listing(folders[at]);
         if (items.empty())
             continue;
         present = true;
+        keep_listed(items, names_of(at), left_out);
         for (auto& item : items) {
             if (dot_entry(item) || (roots && hidden_at_top(normalized_path(item.name))))
                 continue;
@@ -1989,7 +2025,30 @@ std::vector<DiscoveredArchive> AssetStore::discover(
                     break;
             }
         };
-    const auto folders = merged_listing(loose_roots_, true);
+    // A listed folder keeps only the files its list names, so a file it
+    // leaves out neither mounts nor takes another folder's archive's place.
+    std::vector<const std::vector<std::string>*> listed(loose_roots_.size(), nullptr);
+    for (const auto& folder : plan.listed_folders) {
+        std::error_code failure;
+        const auto wanted = std::filesystem::absolute(folder.folder, failure).lexically_normal();
+        for (std::size_t at = 0; at < loose_roots_.size(); ++at)
+            if (!failure && loose_roots_[at].lexically_normal() == wanted)
+                listed[at] = &folder.names;
+    }
+    std::vector<LooseItem> left_out;
+    const auto folders = merged_listing(loose_roots_, true, listed, &left_out);
+    for (const auto& item : left_out) {
+        const bool archive = same_archive_file_name(item.name, plan.revision_archive) ||
+                             match_host_pattern(item.name, plan.ccx_pattern) ||
+                             match_host_pattern(item.name, plan.ufo_pattern) ||
+                             match_host_pattern(item.name, plan.hpi_pattern) ||
+                             match_host_pattern(item.name, plan.disc_pattern) || named(item.name);
+        if (!archive)
+            continue;
+        DiscoveredArchive outcome{item.path, false, {}, false, false};
+        outcome.left_out = true;
+        report.push_back(std::move(outcome));
+    }
     // Each removable root is listed once: the installation archives are
     // sought there after the folders, and its disc scan below reads the same.
     std::vector<std::vector<LooseItem>> disc_listings;

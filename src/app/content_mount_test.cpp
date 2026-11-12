@@ -8,13 +8,18 @@
 // are found in the bundle folders, and a name's case does not matter.
 // Expansions with no mod report no mod folder. A mod folder is reported
 // on its own, including while an expansion is mounted with it. A copy that
-// stopped part way is not mounted, and what is missing is named.
+// stopped part way is not mounted, and what is missing is named. Only the
+// bundle table's archives are read from a bundle's folder: a stray archive
+// there, as in the 0.9.0 incident, is not mounted, and the content check
+// names it.
 
 #include "oa/app/content_copy.hpp"
 #include "oa/app/game_directory.hpp"
+#include "oa/base/sha256.hpp"
 #include "oa/audio/music_disc.hpp"
 #include "oa/data/content_bundles.hpp"
 #include "oa/formats/hpi.hpp"
+#include "oa/formats/tdf.hpp"
 #include "oa/test/check.hpp"
 #include "oa/test/scratch_directory.hpp"
 #include "oa/ui/engine_settings.hpp"
@@ -26,6 +31,8 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <string>
@@ -457,6 +464,228 @@ void check_case(const fs::path& scratch) {
     OA_CHECK(copied_content_bundles(user) == std::vector<std::string>{"totala"});
 }
 
+/// Reads one file of tests/data/stock-files.
+///
+/// @param relative its path under that folder
+/// @return its bytes
+[[nodiscard]] std::vector<uint8_t> fixture_bytes(std::string_view relative) {
+    const fs::path path = fs::path(OA_STOCK_FILES_FIXTURE) / path_from_utf8(relative);
+    std::ifstream in(path, std::ios::binary);
+    OA_CHECK(static_cast<bool>(in));
+    return std::vector<uint8_t>(
+        std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()
+    );
+}
+
+/// An archive of fixture files.
+///
+/// @param files each file's path in the archive, then the fixture it holds
+/// @return the archive's bytes
+[[nodiscard]] std::vector<uint8_t>
+fixture_archive(std::initializer_list<std::pair<std::string_view, std::string_view>> files) {
+    std::vector<oa::HpiWriteFile> written;
+    for (const auto& [inside, relative] : files)
+        written.push_back(oa::HpiWriteFile{std::string(inside), fixture_bytes(relative)});
+    return oa::write_hpi(written);
+}
+
+/// The key the unit sync knows a unit by: the hash of its whole FBI file.
+///
+/// @param bytes the FBI file
+/// @return its key
+[[nodiscard]] uint32_t fbi_key(const std::vector<uint8_t>& bytes) {
+    return oa::formats::tdf::buffer_hash(bytes.data(), static_cast<int32_t>(bytes.size()));
+}
+
+/// A bundle table that knows the files a test placed: each listed bundle of
+/// the built-in table, its files' sizes and SHA-256s read from the copy.
+struct KnownTable {
+    std::vector<std::vector<bundles::ContentFile>> files;
+    std::vector<std::vector<oa::base::sha256::Digest>> digests;
+    std::vector<bundles::Bundle> bundles;
+
+    KnownTable(const fs::path& user, std::initializer_list<std::string_view> ids) {
+        files.reserve(ids.size());
+        digests.reserve(ids.size());
+        for (const std::string_view id : ids) {
+            const bundles::Bundle* bundle = bundles::find_bundle(id);
+            OA_CHECK(bundle != nullptr);
+            if (bundle == nullptr)
+                continue;
+            auto& known_digests = digests.emplace_back();
+            known_digests.reserve(bundle->files.size());
+            auto& known_files = files.emplace_back();
+            for (const bundles::ContentFile& file : bundle->files) {
+                const fs::path placed =
+                    managed_folder(user, *bundle) / path_from_utf8(file.copy_name);
+                std::ifstream in(placed, std::ios::binary);
+                const std::vector<uint8_t> bytes{
+                    std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()
+                };
+                known_digests.push_back(oa::base::sha256::digest_of(bytes));
+                bundles::ContentFile known = file;
+                known.size = bytes.size();
+                known.sha256 = std::span<const oa::base::sha256::Digest>(&known_digests.back(), 1);
+                known_files.push_back(known);
+            }
+            bundles::Bundle copy = *bundle;
+            copy.files = known_files;
+            bundles.push_back(copy);
+        }
+    }
+};
+
+/// The 0.9.0 incident: a stray rev31.gp3 in a
+/// managed expansion folder. The composed folders list the expansions
+/// before the base game, and discovery merges them by name, the earlier
+/// folder's file winning, so the stray took the 3.1 patch archive's place:
+/// its ARMMEX.FBI replaced the patch's, and ARMYORK's weapon fell through to
+/// Battle Tactics' copy. Only the bundle table's archives are mounted now.
+void check_stray_patch_archive(const fs::path& scratch) {
+    const fs::path user = scratch / "stray-player";
+    const oa::platform::preferences::Values values;
+    const std::string_view content = "totala:campaign,core-contingency,battle-tactics";
+    fs::path base_folder;
+    fs::path tactics_folder;
+    for (const std::string_view id : {"totala", "campaign", "core-contingency", "battle-tactics"}) {
+        const bundles::Bundle* bundle = bundles::find_bundle(id);
+        OA_CHECK(bundle != nullptr);
+        if (bundle == nullptr)
+            return;
+        const fs::path folder = managed_folder(user, *bundle);
+        place_bundle(folder, *bundle, archive_bytes());
+        write_record(folder, *bundle);
+        if (id == "totala")
+            base_folder = folder;
+        if (id == "battle-tactics")
+            tactics_folder = folder;
+    }
+    write_bytes(
+        base_folder / "rev31.gp3",
+        fixture_archive(
+            {{"units/ARMMEX.FBI", "patch/units/ARMMEX.FBI"},
+             {"weapons/ARMYORK_weapon.tdf", "patch/weapons/ARMYORK_weapon.tdf"}}
+        )
+    );
+    write_bytes(
+        tactics_folder / "btdata.ccx",
+        fixture_archive(
+            {{"weapons/ARMYORK_weapon.tdf", "battle-tactics/weapons/ARMYORK_weapon.tdf"}}
+        )
+    );
+    const fs::path stray = tactics_folder / "rev31.gp3";
+    write_bytes(
+        stray,
+        fixture_archive(
+            {{"units/ARMMEX.FBI", "stray/units/ARMMEX.FBI"},
+             {"units/RGSTRAY.FBI", "stray/units/RGSTRAY.FBI"}}
+        )
+    );
+    const uint32_t stock_key = fbi_key(fixture_bytes("patch/units/ARMMEX.FBI"));
+    const uint32_t stray_key = fbi_key(fixture_bytes("stray/units/ARMMEX.FBI"));
+    OA_CHECK(stock_key != stray_key);
+
+    const std::optional<GameDirectory> composed = mount_of(user, content, values);
+    OA_CHECK(composed.has_value());
+    if (!composed)
+        return;
+    // The search folders, highest first: each expansion that is on, then
+    // the base game. Battle Tactics' folder comes before Games/totala.
+    OA_CHECK(composed->folders.size() == 4);
+    OA_CHECK(!composed->folders.empty() && composed->folders.back() == base_folder);
+    OA_CHECK(
+        std::find(composed->folders.begin(), composed->folders.end(), tactics_folder) !=
+        composed->folders.end()
+    );
+
+    // Before: discovery over those folders as 0.9.1 ran it, with no list of
+    // the bundles' archives. The stray is mounted first, as the revision
+    // archive, and the patch archive of the same name is not mounted at all.
+    {
+        oa::AssetStore before(composed->folders);
+        std::ignore = before.discover(discovery_plan_of(nullptr));
+        const auto mounted = before.mount_paths();
+        std::error_code failure;
+        OA_CHECK(!mounted.empty() && fs::equivalent(mounted.front(), stray, failure));
+        bool patch_mounted = false;
+        for (const fs::path& archive : mounted)
+            patch_mounted =
+                patch_mounted || fs::equivalent(archive, base_folder / "rev31.gp3", failure);
+        OA_CHECK(!patch_mounted);
+        const oa::AssetData unit = before.read("units/ARMMEX.FBI");
+        OA_CHECK(fbi_key(unit.bytes) == stray_key);
+        OA_CHECK(before.read_if_present("units/RGSTRAY.FBI").has_value());
+        const oa::AssetData weapon = before.read("weapons/ARMYORK_weapon.tdf");
+        OA_CHECK(fs::equivalent(weapon.source, tactics_folder / "btdata.ccx", failure));
+    }
+
+    // After: the composed mount reads only the archives the bundle table
+    // lists from each bundle's folder. The patch archive mounts first and
+    // serves the stock ARMMEX.FBI and its own ARMYORK weapon.
+    std::error_code failure;
+    for (const fs::path& archive : composed->archives)
+        OA_CHECK(!fs::equivalent(archive, stray, failure));
+    OA_CHECK(
+        !composed->archives.empty() &&
+        fs::equivalent(composed->archives.front(), base_folder / "rev31.gp3", failure)
+    );
+    oa::AssetStore after(composed->folders);
+    for (const fs::path& archive : composed->archives)
+        after.mount(archive);
+    OA_CHECK(fbi_key(after.read("units/ARMMEX.FBI").bytes) == stock_key);
+    OA_CHECK(!after.read_if_present("units/RGSTRAY.FBI").has_value());
+    const oa::AssetData weapon = after.read("weapons/ARMYORK_weapon.tdf");
+    OA_CHECK(fs::equivalent(weapon.source, base_folder / "rev31.gp3", failure));
+
+    // The content check names the stray, with its folder and size, against a
+    // table that knows every other file here: the stray alone differs.
+    KnownTable known(user, {"totala", "campaign", "core-contingency", "battle-tactics"});
+    const ContentCheck check = check_managed_content(user, known.bundles);
+    const ContentBundleCheck* tactics = nullptr;
+    uint32_t differ = 0;
+    for (const ContentBundleCheck& bundle : check.bundles) {
+        differ += bundle.files_differ;
+        if (bundle.id == "battle-tactics")
+            tactics = &bundle;
+    }
+    OA_CHECK(tactics != nullptr && differ == 1);
+    if (tactics == nullptr)
+        return;
+    OA_CHECK(
+        tactics->files_differ == 1 && tactics->differing.empty() && tactics->strays.size() == 1
+    );
+    if (tactics->strays.size() != 1)
+        return;
+    const ContentStrayArchive& found = tactics->strays.front();
+    OA_CHECK(found.name == "rev31.gp3" && found.folder == tactics_folder);
+    OA_CHECK(found.size == fs::file_size(stray));
+    OA_CHECK(content_bundle_line(*tactics) == "rev31.gp3 is not one of its files");
+    const std::string named = content_stray_line(*tactics, found);
+    OA_CHECK(
+        named == "rev31.gp3 in " + path_to_utf8(tactics_folder) + ", " +
+                     std::to_string(found.size) +
+                     " bytes, is not a file of Battle Tactics. The game does not read it."
+    );
+    OA_CHECK(content_notice_due(check));
+    bool listed = false;
+    for (const std::string& line : content_file_notice(check).lines)
+        listed = listed || line == named;
+    OA_CHECK(listed);
+
+    // The presence record's bundles say the files differ; a stray in a
+    // bundle that is not played does not.
+    const std::vector<std::string> played{"campaign", "core-contingency", "battle-tactics"};
+    OA_CHECK(played_content_differs(check, "totala", played));
+    const std::vector<std::string> without_tactics{"campaign", "core-contingency"};
+    OA_CHECK(!played_content_differs(check, "totala", without_tactics));
+
+    // With the stray gone, the copy is Total Annihilation's again.
+    fs::remove(stray);
+    const ContentCheck repaired = check_managed_content(user, known.bundles);
+    OA_CHECK(!content_notice_due(repaired));
+    OA_CHECK(!played_content_differs(repaired, "totala", played));
+}
+
 } // namespace
 
 int main() {
@@ -465,6 +694,7 @@ int main() {
         check_composed_mount(scratch);
         check_unfinished_copy(scratch);
         check_case(scratch);
+        check_stray_patch_archive(scratch);
     } catch (const std::exception& failure) {
         std::fprintf(stderr, "content mount: %s\n", failure.what());
         ++oa::test::failed_checks();

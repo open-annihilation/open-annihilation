@@ -1273,6 +1273,18 @@ installation is not used or changed.
 
 - **Check again** reads the copy on its own and the row shows "Checking…
   N%" until the result replaces it. The dialog stays open and keeps drawing.
+  The result is the one the presence record and the Boneyards entry read
+  until the next start.
+- Each stray archive the check found, a `.hpi`, `.ufo`, `.ccx` or `.gp3`
+  file in a bundle's folder that the bundle does not list, has a row of its
+  own, under the bundles: the file, its folder and its size, and
+  **Remove…**. The game does not read such a file
+  ([Game content](game-content.md#only-the-bundles-own-archives)).
+  **Remove…** asks once, "Move rev31.gp3 to the trash?", with **Move to
+  Trash** and **Cancel**. Move to Trash puts the file in the system's trash
+  and checks the copy again. A phone or a tablet has no trash, so it asks
+  "Delete rev31.gp3? This system has no trash." with **Delete**. A file
+  that cannot be moved stays, and the page says why.
 - **Copy again from…** asks for a folder or an installer and copies from
   it into the same folders. The bundle's row shows how far the copy has
   got, its bar, and Cancel. Cancel leaves the copy that was already there.

@@ -84,6 +84,36 @@ expansion that needs only 3.1c. Choosing the demo, or otherwise leaving
 nothing else. The Library offers it with the others. Its id, its name and
 the files it holds are in the [expansion standard](expansions/oaexp-standard.md).
 
+## Only the bundle's own archives
+
+From Open Annihilation's own copy, each base game and expansion mounts
+only the archives this page lists for it, from its own folder. Any other
+`.hpi`, `.ufo`, `.ccx` or `.gp3` file at the top of a bundle's folder is a
+stray archive: it is not mounted, so it can neither add units nor take the
+place of a listed archive of the same name. The log says so:
+`open-annihilation: not mounting <path>: it is not one of the files of the
+game or expansion in that folder`. Before 0.9.2 the folders were searched
+as one, an expansion's folder before the base game's, so a `rev31.gp3` left
+in an expansion's folder was mounted in place of the 3.1 update.
+
+The check every start runs, and **Check again** in Game Content, names each
+stray archive with its folder and its size: "rev31.gp3 in …, 3724679
+bytes, is not a file of Battle Tactics. The game does not read it." A stray
+archive counts as a file that differs: the content notice lists it, the
+bundle's row says "rev31.gp3 is not one of its files", and the presence
+record says the bundle differs from a known copy, as for a damaged file.
+Game Content offers **Remove…** beside it, which asks once and moves the
+file to the system's trash (on a phone or a tablet, which has no trash, it
+is deleted), then checks the copy again.
+
+A mod, a map pack, a mutator and the Boneyards keep their own ways of
+adding files. A mod folder layered over the game mounts every archive it
+holds, as before, and may replace the base game's archives on purpose.
+
+A game folder that is not Open Annihilation's own copy, an older setup
+pointing at a Total Annihilation folder or one named with `--game-dir`,
+still mounts what Total Annihilation itself would mount there.
+
 ## What a copy leaves out
 
 `totala3.hpi` is part of the installer and is not a file of any bundle.

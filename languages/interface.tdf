@@ -114,6 +114,30 @@
 	it=Chiuse;
 	}
 
+[Delete {file}? This system has no trash.]
+	{
+	de={file} löschen? Dieses System hat keinen Papierkorb.;
+	fr=Supprimer {file} ? Ce système n'a pas de corbeille.;
+	es=¿Borrar {file}? Este sistema no tiene papelera.;
+	it=Eliminare {file}? Questo sistema non ha un cestino.;
+	}
+
+[Move to Trash]
+	{
+	de=In den Papierkorb;
+	fr=Mettre à la corbeille;
+	es=Mover a la papelera;
+	it=Sposta nel cestino;
+	}
+
+[Move {file} to the trash?]
+	{
+	de={file} in den Papierkorb verschieben?;
+	fr=Mettre {file} à la corbeille ?;
+	es=¿Mover {file} a la papelera?;
+	it=Spostare {file} nel cestino?;
+	}
+
 [Opened]
 	{
 	de=Geöffnet;
@@ -360,6 +384,14 @@
 	fr=Rouge;
 	es=Rojo;
 	it=Rosso;
+	}
+
+[Remove…]
+	{
+	de=Entfernen…;
+	fr=Retirer…;
+	es=Quitar…;
+	it=Rimuovi…;
 	}
 
 [Saved games]
@@ -1200,6 +1232,30 @@
 	fr={colour}, joueur {number};
 	es={colour}, jugador {number};
 	it={colour}, giocatore {number};
+	}
+
+[{count} archives are not its files]
+	{
+	de={count} Archive gehören nicht zu seinen Dateien;
+	fr={count} archives ne font pas partie de ses fichiers;
+	es={count} archivos no son de los suyos;
+	it={count} archivi non sono suoi file;
+	}
+
+[{file} in {folder}, {size} bytes, is not a file of {bundle}. The game does not read it.]
+	{
+	de={file} in {folder}, {size} Bytes, ist keine Datei von {bundle}. Das Spiel liest sie nicht.;
+	fr={file} dans {folder}, {size} octets, n'est pas un fichier de {bundle}. Le jeu ne le lit pas.;
+	es={file} en {folder}, {size} bytes, no es un archivo de {bundle}. El juego no lo lee.;
+	it={file} in {folder}, {size} byte, non è un file di {bundle}. Il gioco non lo legge.;
+	}
+
+[{file} is not one of its files]
+	{
+	de={file} gehört nicht zu seinen Dateien;
+	fr={file} ne fait pas partie de ses fichiers;
+	es={file} no es uno de sus archivos;
+	it={file} non è uno dei suoi file;
 	}
 
 [{name}: {description} {context}. OK asks what to do.]

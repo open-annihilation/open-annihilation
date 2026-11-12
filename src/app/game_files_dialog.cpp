@@ -837,6 +837,7 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
             case settings::DialogAction::copy_content_again:
             case settings::DialogAction::open_content_folder:
             case settings::DialogAction::cancel_content_copy:
+            case settings::DialogAction::remove_stray_archive:
             case settings::DialogAction::check_updates:
             case settings::DialogAction::open_release:
             case settings::DialogAction::restart_update:

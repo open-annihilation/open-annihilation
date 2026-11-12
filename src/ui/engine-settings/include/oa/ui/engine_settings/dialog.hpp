@@ -722,6 +722,10 @@ enum class DialogAction : uint8_t {
     /// CANCEL on the bundle being copied: stop that copy. What was already
     /// in the managed folders stays. The dialog stays open.
     cancel_content_copy,
+    /// REMOVE… on a stray archive Game Content names: the host asks once
+    /// before it moves Dialog::stray_pressed's file to the system's trash,
+    /// then checks the copy again. The dialog stays open.
+    remove_stray_archive,
     /// CHECK NOW on Updates: look for a release now. The dialog stays open.
     /// Nothing is asked while the check is Never.
     check_updates,
@@ -918,6 +922,14 @@ struct AvailableLanguage {
 
 /// One bundle on Game Content. The host fills the words; the page shows them
 /// as they are, so a product name is not looked up again.
+/// One archive in a bundle's folder that the bundle does not list, as Game
+/// Content names it. The game does not read it.
+struct GameContentStray {
+    std::string line; ///< the sentence naming it, its folder and size, in the language shown
+    std::string name; ///< its file name
+    std::string path; ///< where it is, UTF-8
+};
+
 struct GameContentRow {
     std::string id;       ///< the bundle's id, a row word such as totala
     std::string name;     ///< the name shown, in the language shown
@@ -1455,6 +1467,13 @@ struct Dialog {
     /// it as the dialog opens and when CHECK AGAIN returns. Empty still shows
     /// the sentence and the three buttons.
     std::vector<GameContentRow> game_content;
+    /// The stray archives the last check found, each on its own row under
+    /// the bundles with REMOVE…, in the check's order. The host fills it
+    /// with the bundles.
+    std::vector<GameContentStray> game_content_strays;
+    /// The stray whose REMOVE… was pressed, as an index into
+    /// game_content_strays; -1 when none was.
+    int32_t stray_pressed{-1};
     /// Reset on Reset window positions was pressed, which reports
     /// DialogAction::changed: the host forgets the place of every window the
     /// player moved, at once, clears this and sets window_places_reset.

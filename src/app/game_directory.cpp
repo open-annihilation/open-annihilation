@@ -263,8 +263,14 @@ void take_mounted(const fs::path& root, const oa::AssetStore& probe, GameInstall
 // Runs the archive discovery on the installation's folders into `install`,
 // as its profile's layout names the archives. A named installation archive
 // that is missing or cannot be opened is also a profile error, so the folder
-// cannot be played.
-void discover_archives(const fs::path& root, GameInstall& install, const fs::path& profile_file) {
+// cannot be played. Each folder in `listed` mounts only the archives its
+// list names; any other archive there is left out and the log names it.
+void discover_archives(
+    const fs::path& root,
+    GameInstall& install,
+    const fs::path& profile_file,
+    std::vector<oa::ListedArchives> listed = {}
+) {
     // The game's discovery scan (AssetStore::discover) decides
     // both which archives are mounted and their lookup precedence: the
     // revision patch, then *.CCX, *.UFO, the installation archives the
@@ -280,9 +286,15 @@ void discover_archives(const fs::path& root, GameInstall& install, const fs::pat
     // the folder: discovery runs over both, as over one folder holding the
     // files of both. An empty file in an archive's place hides the archive
     // of its name on purpose (oamod-standard 4.1), so it is not skipped.
-    const auto plan = discovery_plan_of(install.profile.get());
+    auto plan = discovery_plan_of(install.profile.get());
+    plan.listed_folders = std::move(listed);
     oa::AssetStore probe(install.folders);
     for (const auto& outcome : probe.discover(plan)) {
+        if (outcome.left_out) {
+            std::cerr << "open-annihilation: not mounting " << path_to_utf8(outcome.path)
+                      << ": it is not one of the files of the game or expansion in that folder\n";
+            continue;
+        }
         if (outcome.mounted || outcome.already_mounted || outcome.hiding)
             continue;
         std::cerr << "open-annihilation: skipping archive " << path_to_utf8(outcome.path.filename())
@@ -406,6 +418,19 @@ void take_archive(const fs::path& root, const fs::path& archive, GameInstall& in
                user / std::string(oa::data::content_bundles::managed_expansions_folder),
                expansions_failure
            );
+}
+
+/// The files at the top of a bundle's folder that the bundle table lists.
+///
+/// @param bundle the bundle
+/// @return their names, as the table writes them
+[[nodiscard]] std::vector<std::string>
+bundle_archive_names(const oa::data::content_bundles::Bundle& bundle) {
+    std::vector<std::string> names;
+    for (const auto& file : bundle.files)
+        if (file.copy_name.find('/') == std::string_view::npos)
+            names.emplace_back(file.copy_name);
+    return names;
 }
 
 [[nodiscard]] fs::path
@@ -1159,6 +1184,9 @@ std::optional<GameDirectory> compose_managed_content(
         return std::nullopt;
 
     std::vector<fs::path> folders;
+    // Only the bundle table's archives are read from a bundle's folder; a
+    // mod folder keeps every archive it holds.
+    std::vector<oa::ListedArchives> listed;
     fs::path mod = chosen_mod_directory(request.mod_dir, request.base_game, values);
     std::error_code failure;
     if (!mod.empty() && !fs::is_directory(mod, failure))
@@ -1171,11 +1199,14 @@ std::optional<GameDirectory> compose_managed_content(
         if (bundle == nullptr)
             continue;
         const fs::path expansion = bundle_directory(request.user_folder, *bundle);
-        if (fs::is_directory(expansion, failure))
+        if (fs::is_directory(expansion, failure)) {
             folders.push_back(expansion);
+            listed.push_back({expansion, bundle_archive_names(*bundle)});
+        }
     }
     const fs::path installation = bundle_directory(request.user_folder, *base);
     folders.push_back(installation);
+    listed.push_back({installation, bundle_archive_names(*base)});
 
     ModChoice mod_choice{};
     mod_choice.folder = mod;
@@ -1196,7 +1227,7 @@ std::optional<GameDirectory> compose_managed_content(
     install.profile = std::move(resolved_profile.profile);
     install.profile_warnings = std::move(resolved_profile.warnings);
     fetch_evicted_archives(folders);
-    discover_archives(installation, install, resolved_profile.file);
+    discover_archives(installation, install, resolved_profile.file, std::move(listed));
     if (!install.profile_errors.empty()) {
         std::string message = "the mod profile cannot be used:";
         for (const std::string& line : install.profile_errors)

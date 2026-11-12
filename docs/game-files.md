@@ -163,7 +163,10 @@ macOS installer or disk image for older Macs, lists the bundles it holds and
 every file's SHA-256, and copies nothing. A start that was not given
 `--game-dir` then plays that managed copy. The folders, highest first, are
 the mod folder when a mod is playing, then each expansion that is on, then
-the base game. An expansion's folder is the expansion, not the mod.
+the base game. An expansion's folder is the expansion, not the mod. From
+a base game's or an expansion's folder only the archives the bundle table
+lists are mounted; any other archive there is a stray, which the check
+names ([Game content](game-content.md#only-the-bundles-own-archives)).
 `--game-dir` and `--archive` keep the scan of the named folder. A bundle
 the setup has just checked is not read again on that same start. The next
 start checks it as usual.

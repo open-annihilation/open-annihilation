@@ -684,6 +684,19 @@ struct DiscoveredArchive {
     // empty. An installation archive the plan names is never hiding: an
     // empty one is reported as failing to open.
     bool hiding = false;
+    // A file at the top of a listed folder (DiscoveryPlan::listed_folders)
+    // that its list does not name, matched by the revision archive's name or
+    // a group's pattern: it is not opened, mounts nothing and hides nothing
+    // of its name. `error` is empty.
+    bool left_out = false;
+};
+
+/// A folder of a store that may mount only the archives its list names.
+struct ListedArchives {
+    /// The folder, as the store was given it.
+    std::filesystem::path folder;
+    /// The file names it may mount, matched as same_archive_file_name matches them.
+    std::vector<std::string> names;
 };
 
 /// The archive groups discovery mounts, in mount order: the revision archive,
@@ -718,6 +731,12 @@ struct DiscoveryPlan {
     /// roots, as for an install without discs: archives of disc_pattern there
     /// that did not mount yet mount last.
     bool folders_as_disc{};
+    /// Folders of the store that mount only the archives their lists name.
+    /// Every other file at the top of such a folder is taken out before the
+    /// folders are merged by name, so it neither mounts nor takes the place
+    /// of another folder's archive of its name. A folder not listed mounts
+    /// what the groups find. Empty lists no folder.
+    std::vector<ListedArchives> listed_folders{};
 };
 
 /// Watches the resources and listings a store is asked for.
@@ -872,7 +891,9 @@ class AssetStore {
     /// listing, then on each removable root in order, and mounted in the
     /// list's order; one that none of them holds is reported with the error
     /// "installation archive 'NAME' is missing" and is not mounted. An empty
-    /// list leaves the groups in their usual order.
+    /// list leaves the groups in their usual order. A file a listed folder
+    /// leaves out (DiscoveryPlan::listed_folders) that a group's pattern or
+    /// the revision archive's name matches is reported first, as left_out.
     ///
     /// @param plan the archive names and patterns
     /// @param removable_roots roots of removable drives searched after the folders' groups

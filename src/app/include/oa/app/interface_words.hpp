@@ -576,6 +576,12 @@ inline constexpr std::string_view interface_words[] = {
     "{name} left",
     "battle room",
     "match",
+    "{file} in {folder}, {size} bytes, is not a file of {bundle}. The game does not read it.",
+    "{file} is not one of its files",
+    "{count} archives are not its files",
+    "Move {file} to the trash?",
+    "Delete {file}? This system has no trash.",
+    "Move to Trash",
 };
 
 } // namespace oa::app
