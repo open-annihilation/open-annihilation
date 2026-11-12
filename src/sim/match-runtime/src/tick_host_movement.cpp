@@ -253,9 +253,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                 const bool recover = sim::unit_movement::local_flow_recovery_due(
                     *flow_head, match.simulation_.tick, s.unit_index
                 );
-                const bool require_origin_exit =
-                    match.rules().setup.enhanced_mode.version ==
-                    static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version);
                 const bool completed_head =
                     flow_head->active && flow_head->goal_key == goal_key &&
                     sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head);
@@ -378,7 +375,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &context;
                     probe.allow_reverse = recover;
-                    probe.require_origin_exit = require_origin_exit;
                     if (completed_head || recent_completion)
                         probe.previous_head = flow_head;
                     if (match.enhanced_->local_flow_progress_snapshot_valid &&
