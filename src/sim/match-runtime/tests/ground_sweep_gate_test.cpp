@@ -497,8 +497,9 @@ void check_ground_footprint(runtime::Match& match, const oa::sim::unit_spawn::Sl
     CHECK(ground::static_flow_passable(classifier, body.cell[0], body.cell[1], match.spatial()));
 }
 
-/// A saved head near an origin boundary must survive until the real footprint exits in seven.
-void saved_head_waits_for_registered_origin_exit() {
+/// Preserves native head retirement inside its capture radius before the footprint exits.
+/// Cell-exiting target admission does not change this existing completion rule.
+void saved_head_keeps_native_early_retirement() {
     constexpr ground::RoutePoint requested{208, 96};
     constexpr std::array<int16_t, 2> origin{5, 5};
     for (uint32_t version = 0; version <= 7; ++version) {
@@ -547,27 +548,8 @@ void saved_head_waits_for_registered_origin_exit() {
         const auto* current = match.local_flow_head(mover.unit_index);
         if (version < 2) {
             CHECK(current == nullptr);
-        } else if (version < 7) {
-            CHECK(current && !current->active);
         } else {
-            CHECK(current && current->active && current->points == head.points);
-            bool exited = false;
-            for (uint32_t tick = 0; tick < 64 && !exited; ++tick) {
-                ++match.simulation().tick;
-                match.step_mirrored_movement(mover.unit_index);
-                check_ground_footprint(match, mover);
-                CHECK(
-                    state.navigation.goal == original_goal && mover.unit->primary == original_order
-                );
-                current = match.local_flow_head(mover.unit_index);
-                CHECK(current && current->active && current->points == head.points);
-                exited = state.geometry.cell != origin;
-            }
-            CHECK(exited);
-            ++match.simulation().tick;
-            match.step_mirrored_movement(mover.unit_index);
-            CHECK(!match.local_flow_head(mover.unit_index)->active);
-            check_ground_footprint(match, mover);
+            CHECK(current && !current->active);
         }
     }
 }
@@ -779,7 +761,7 @@ int main() {
         versioned_ground_sweep();
         clear_steps_and_progress_clock();
         excluded_drivers_keep_native_motion();
-        saved_head_waits_for_registered_origin_exit();
+        saved_head_keeps_native_early_retirement();
         owned_move_rounds_offset_corner();
         owned_move_rounds_mobile_offset_corner();
         saved_same_origin_heads_reach_owned_goal();
