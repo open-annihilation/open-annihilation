@@ -222,6 +222,22 @@ struct UnitSync {
     int32_t peer_count{};
 };
 
+/// What the host's finished unit sync found, and what the room has said of it.
+struct UnitSyncReport {
+    /// The host's finding: the units not alike on every machine, grouped by
+    /// the machines they differ on. No groups when every unit matches.
+    netgame::PresenceUnitSync found{};
+    /// The state of the sync the finding was made from; 0 before the first.
+    uint64_t state{};
+    /// The host pressed START once since this finding, so the next press
+    /// starts the battle anyway. A new finding clears it.
+    bool accepted{};
+    /// The finding the room's lines last named. No groups when none were written.
+    netgame::PresenceUnitSync told{};
+    /// The bytes of the host's unit-sync field a guest last read; 0 for none.
+    uint64_t heard{};
+};
+
 // A unit type as the lobby sees it (a projection of UnitDef).
 struct LobbyUnit {
     const char* name{};          // UnitDef.name
@@ -565,6 +581,8 @@ struct Lobby {
     /// Total Annihilation's (lobby_note_stock_files); 0 for none. Cleared
     /// once that player's files match, so a later difference is named again.
     uint32_t stock_files_told[kSlotCount]{};
+    /// The unit sync's finding and the room's lines about it.
+    UnitSyncReport unit_report{};
     /// Players who arrived while every seat was taken, earliest first.
     /// When a seat opens, the earliest is seated. A player who leaves
     /// before that is dropped. None until a player arrives with no seat free.
@@ -1835,16 +1853,77 @@ void unit_sync_mark_units(const UnitSync& sync, UnitDef* records, uint32_t count
 /// @return False for a client; true for a peer not waited on (defeated or computer) or once finished.
 [[nodiscard]] bool unit_sync_peer_complete(Lobby& lobby, uint32_t player_id) noexcept;
 
-/// Answers "+syncerr": the first peer's shortfall.
+/// Answers "+syncerr": the first peer's shortfall, or the units that differ.
 ///
 /// Unlike the checks above it does not skip defeated or computer peers.
+/// Once every peer has reported, a finding with units that differ
+/// (Lobby::unit_report) answers "N units differ" instead of "OK".
 ///
 /// @param lobby Lobby state.
 /// @param[out] out Buffer for a formatted shortfall.
 /// @param capacity Bytes available at out.
-/// @return The shortfall (out or a static message), "OK", or null for a client.
+/// @return The shortfall or the count (out or a static message), "OK", or
+///         null for a client.
 [[nodiscard]] const char*
 unit_sync_diagnostic(Lobby& lobby, char* out, std::size_t capacity) noexcept;
+
+/// The units the host's finished unit sync found not alike on every machine.
+///
+/// Every unit this machine can build (one that is not off by default or
+/// turned off by the host), and every unit a peer reported that this
+/// machine does not have, is compared across the machines: the host, and
+/// each peer still waited on. A peer that reports checksums is compared by
+/// them, any other by having the unit. Machines with the same copy form one
+/// group. The room's copy is the group with the most machines whose
+/// presence record says they play known files, then the most machines; the
+/// machines outside it are the ones the unit differs on. When no group
+/// leads, the unit differs on every machine of every group. Units are then
+/// grouped by those machines, in the order the host's table lists them,
+/// then the peers' own units. A unit is named by this machine's FBI
+/// UnitName, or by its key when this machine has none.
+///
+/// @param lobby Lobby state.
+/// @return The finding; no groups for a client, for a host with no unit
+///         table, before the sync has finished, or when every unit matches.
+[[nodiscard]] netgame::PresenceUnitSync unit_sync_differences(Lobby& lobby);
+
+/// The battle room's lines for a finding, in the language shown.
+///
+/// One line for each group: its units by name in the game and FBI
+/// UnitName ("Metal Extractor (ARMMEX)"), at most three named and the
+/// rest counted, then the machines they differ on, by each machine's
+/// player, and that they can't be built in this battle. A unit this
+/// machine has is named from its own table; a unit it has not is named by
+/// the UnitName the finding gives, and a unit known only by its key is
+/// counted.
+///
+/// @param lobby Lobby state.
+/// @param found The finding.
+/// @return One line for each group, each starting "*** ".
+[[nodiscard]] std::vector<std::string>
+unit_sync_lines(Lobby& lobby, const netgame::PresenceUnitSync& found);
+
+/// Follows the unit sync's finding, once a tick.
+///
+/// The host makes its finding once its sync has finished and no other hold
+/// keeps START grey (content, game files, mutators, limits, sides), and
+/// makes it again whenever the sync's state changes; a new finding clears
+/// the host's acceptance. A guest reads the host's unit-sync presence field.
+/// Each machine writes the finding's lines in the battle room, and in the
+/// log, once for each finding. A room whose units all match writes nothing.
+///
+/// @param lobby Lobby state.
+void lobby_note_unit_sync(Lobby& lobby);
+
+/// The host's press of START against the unit sync's finding.
+///
+/// With units that differ and no acceptance yet, the press accepts: the
+/// room says that the next press starts anyway, and this answers false.
+/// Every other press answers true. A guest's press answers true.
+///
+/// @param lobby Lobby state.
+/// @return True when START may start the battle.
+[[nodiscard]] bool lobby_unit_sync_take_start(Lobby& lobby);
 
 // ---------------------------------------------------------------------------
 // Setup and team rules of a mod profile (Lobby::rules)

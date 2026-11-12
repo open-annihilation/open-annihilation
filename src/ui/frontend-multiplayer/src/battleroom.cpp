@@ -1905,6 +1905,29 @@ void presence_refresh(Lobby& lobby) noexcept {
         if (host)
             append_room_mutator_part(lobby, composed, size);
         append_computer_presence(lobby, composed, size, sizeof composed);
+        // The host's unit sync, while it found units that differ: OA guests
+        // name them too. Only OA machines are sent the record.
+        if (host && !lobby.unit_report.found.groups.empty() &&
+            size + netgame::presence_field_header_bytes < sizeof composed) {
+            uint8_t value[netgame::presence_unit_sync_max_bytes];
+            const std::size_t room = std::min(
+                sizeof value, sizeof composed - size - netgame::presence_field_header_bytes
+            );
+            std::size_t value_size = 0;
+            std::size_t written = 0;
+            if (netgame::encode_presence_unit_sync(
+                    lobby.unit_report.found, value, room, &value_size
+                ) == netgame::WireError::ok &&
+                netgame::append_presence_field(
+                    composed,
+                    size,
+                    sizeof composed,
+                    netgame::PresenceTag::unit_sync,
+                    {value, value_size},
+                    &written
+                ) == netgame::WireError::ok)
+                size = written;
+        }
     }
     if (size == records.local_size && std::memcmp(composed, records.local, size) == 0) {
         if (host)
@@ -3785,6 +3808,13 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
             panel.selected = kNoControl;
             return action;
         }
+        // Units that differ between the machines: the first press says so,
+        // and the next starts anyway with those units unavailable.
+        if (!lobby_unit_sync_take_start(lobby)) {
+            play(lobby, "Multi");
+            panel.selected = kNoControl;
+            return action;
+        }
         if (seat_neutral_computer(lobby, panel)) {
             panel.selected = kNoControl;
             return action;
@@ -4050,6 +4080,7 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
     lobby_log_mutators_hold(lobby);
     lobby_note_sides_past_table(lobby);
     lobby_note_stock_files(lobby);
+    lobby_note_unit_sync(lobby);
     if ((game.gui_flags & 1U) != 0) {
         if (!lobby.rows_built)
             lobby_build_rows(lobby, panel);

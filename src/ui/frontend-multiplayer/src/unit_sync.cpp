@@ -4,13 +4,24 @@
 // Unit-content sync table behind the battleroom and the restriction panel.
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/netgame/player_slots.hpp"
+#include "oa/netgame/presence.hpp"
 #include "oa/netgame/records.hpp"
+#include "oa/netgame/unicode_chat.hpp"
+#include "oa/platform/log_files.hpp"
+#include "oa/ui/frontend_multiplayer/room_limits.hpp"
+#include "oa/ui/frontend_multiplayer/room_mutators.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace oa::ui::frontend_multiplayer {
 
@@ -636,7 +647,488 @@ const char* unit_sync_diagnostic(Lobby& lobby, char* out, std::size_t capacity) 
             return out;
         }
     }
+    if (const uint16_t differ = lobby.unit_report.found.total; differ > 0) {
+        std::snprintf(
+            out,
+            capacity,
+            differ == 1 ? "%d unit differs" : "%d units differ",
+            static_cast<int>(differ)
+        );
+        return out;
+    }
     return "OK";
+}
+
+namespace {
+
+/// The most units one line names; the rest of its group is counted.
+constexpr std::size_t kNamedUnits = 3;
+/// The tag of a unit a machine does not have, in a comparison.
+constexpr uint64_t kAbsent = 0x1'0000'0000ULL;
+/// The tag of a unit a machine has that does not report checksums.
+constexpr uint64_t kPresent = 0x2'0000'0000ULL;
+
+/// One machine of the comparison: the host or a peer still waited on.
+struct Machine {
+    uint32_t id{};              ///< its human's player id
+    bool known{};               ///< its presence record says it plays known files
+    const UnitSyncPeer* peer{}; ///< null for the host
+    bool checksums{};           ///< its copies are compared by checksum
+};
+
+/// One unit compared across the machines.
+struct Compared {
+    uint32_t key{};
+    std::string name{};            ///< this machine's FBI UnitName; empty when it has no such unit
+    std::vector<uint32_t> named{}; ///< the machines it differs on, sorted
+};
+
+/// The slot of a player id, or kNoSlot.
+int32_t slot_of(Lobby& lobby, uint32_t id) noexcept {
+    for (int32_t slot = 0; slot < kSlotCount; ++slot) {
+        const auto& player = slot_player(lobby, slot);
+        if (player.in_use != 0 && player.player_id == id)
+            return slot;
+    }
+    return kNoSlot;
+}
+
+/// FNV-1a over the words the finding is made from.
+void mix(uint64_t& hash, uint64_t word) noexcept {
+    for (int shift = 0; shift < 64; shift += 8) {
+        hash ^= (word >> shift) & 0xffU;
+        hash *= 0x100000001b3ULL;
+    }
+}
+
+/// The state of the host's sync: its records' verdicts and each peer's report.
+uint64_t sync_state(const UnitSync& sync) noexcept {
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (int32_t index = 0; index < sync.record_count; ++index) {
+        const auto& record = sync.records[index];
+        mix(hash, record.key);
+        mix(hash,
+            static_cast<uint64_t>(record.local) | static_cast<uint64_t>(record.remote) << 8U |
+                static_cast<uint64_t>(static_cast<uint16_t>(record.limit)) << 16U);
+    }
+    for (int32_t index = 0; index < sync.peer_count; ++index) {
+        const auto& peer = sync.peers[index];
+        mix(hash, peer.player_id);
+        mix(hash, static_cast<uint64_t>(peer.received) << 32U | peer.expected);
+        mix(hash, peer.acknowledged);
+    }
+    mix(hash, static_cast<uint64_t>(sync.peer_count));
+    return hash;
+}
+
+/// The machines that do not hold the room's copy of one unit.
+///
+/// @param machines every machine
+/// @param tags each machine's copy, in the same order
+/// @return the machines it differs on, sorted; empty when every copy is one
+std::vector<uint32_t>
+differing_machines(const std::vector<Machine>& machines, const std::vector<uint64_t>& tags) {
+    // A machine that only says it has the unit has any copy that is there.
+    std::vector<uint64_t> copies;
+    for (const uint64_t tag : tags)
+        if (tag != kAbsent && tag != kPresent &&
+            std::find(copies.begin(), copies.end(), tag) == copies.end())
+            copies.push_back(tag);
+    std::vector<uint64_t> resolved = tags;
+    for (uint64_t& tag : resolved)
+        if (tag == kPresent)
+            tag = copies.empty() ? kPresent : copies.front();
+    std::vector<uint64_t> groups;
+    for (const uint64_t tag : resolved)
+        if (std::find(groups.begin(), groups.end(), tag) == groups.end())
+            groups.push_back(tag);
+    if (groups.size() < 2)
+        return {};
+    // The room's copy: the most machines that play known files, then the most machines.
+    int64_t best_score = -1;
+    int best_count = 0;
+    for (const uint64_t group : groups) {
+        int64_t known = 0;
+        int64_t count = 0;
+        for (std::size_t at = 0; at < machines.size(); ++at)
+            if (resolved[at] == group) {
+                ++count;
+                known += machines[at].known ? 1 : 0;
+            }
+        const int64_t score = known * 64 + count;
+        if (score > best_score) {
+            best_score = score;
+            best_count = 1;
+        } else if (score == best_score) {
+            ++best_count;
+        }
+    }
+    std::vector<uint32_t> named;
+    for (std::size_t at = 0; at < machines.size(); ++at) {
+        int64_t known = 0;
+        int64_t count = 0;
+        for (std::size_t other = 0; other < machines.size(); ++other)
+            if (resolved[other] == resolved[at]) {
+                ++count;
+                known += machines[other].known ? 1 : 0;
+            }
+        // With no group in the lead every machine is named.
+        if (best_count > 1 || known * 64 + count != best_score)
+            named.push_back(machines[at].id);
+    }
+    std::sort(named.begin(), named.end());
+    return named;
+}
+
+/// This machine's unit of a key, or null.
+const LobbyUnit* unit_of_key(Lobby& lobby, uint32_t key) noexcept {
+    for (int32_t type = 1; type < lobby.unit_count; ++type)
+        if (lobby.units[type].fbi_hash == key)
+            return &lobby.units[type];
+    return nullptr;
+}
+
+/// This machine's unit of an FBI UnitName, matched without case, or null.
+const LobbyUnit* unit_of_name(Lobby& lobby, std::string_view name) noexcept {
+    for (int32_t type = 1; type < lobby.unit_count; ++type) {
+        const char* unit_name = lobby.units[type].unit_name;
+        if (unit_name == nullptr || std::strlen(unit_name) != name.size())
+            continue;
+        bool same = true;
+        for (std::size_t at = 0; at < name.size() && same; ++at)
+            same = std::tolower(static_cast<unsigned char>(unit_name[at])) ==
+                   std::tolower(static_cast<unsigned char>(name[at]));
+        if (same)
+            return &lobby.units[type];
+    }
+    return nullptr;
+}
+
+/// Fills one token of a sentence.
+std::string filled(std::string text, std::string_view token, std::string_view value) {
+    const auto mark = text.find(token);
+    if (mark != std::string::npos)
+        text.replace(mark, token.size(), value);
+    return text;
+}
+
+/// A player's name as the room shows it, read as UTF-8.
+std::string player_name(Lobby& lobby, uint32_t id) {
+    const int32_t slot = slot_of(lobby, id);
+    if (slot == kNoSlot)
+        return std::string(oa::data::languages::interface_text("a player who left"));
+    const auto& player = slot_player(lobby, slot);
+    return netgame::chat_utf8(
+        std::string_view(player.name, ::strnlen(player.name, sizeof player.name))
+    );
+}
+
+/// The units of one group, three at most by name and the rest counted.
+std::string unit_list(Lobby& lobby, const netgame::PresenceUnitGroup& group) {
+    namespace languages = oa::data::languages;
+    std::vector<std::string> names;
+    std::size_t unnamed = group.count > group.units.size() ? group.count - group.units.size() : 0;
+    for (const auto& unit : group.units) {
+        const LobbyUnit* mine =
+            unit.name.empty() ? unit_of_key(lobby, unit.key) : unit_of_name(lobby, unit.name);
+        const std::string code = mine != nullptr && mine->unit_name != nullptr
+                                     ? std::string(mine->unit_name)
+                                     : unit.name;
+        if (code.empty()) {
+            ++unnamed;
+            continue;
+        }
+        if (names.size() == kNamedUnits) {
+            ++unnamed;
+            continue;
+        }
+        const char* shown = mine != nullptr ? mine->name : nullptr;
+        names.push_back(
+            shown != nullptr && shown[0] != '\0' ? std::string(shown) + " (" + code + ")" : code
+        );
+    }
+    if (unnamed > 0)
+        names.push_back(
+            unnamed == 1 ? std::string(languages::interface_text("1 other unit"))
+                         : filled(
+                               std::string(languages::interface_text("{count} other units")),
+                               "{count}",
+                               std::to_string(unnamed)
+                           )
+        );
+    if (names.empty())
+        return {};
+    std::string list = names.front();
+    for (std::size_t at = 1; at < names.size(); ++at) {
+        if (at + 1 < names.size())
+            list += ", " + names[at];
+        else
+            list = filled(
+                filled(std::string(languages::interface_text("{list} and {last}")), "{list}", list),
+                "{last}",
+                names[at]
+            );
+    }
+    return list;
+}
+
+} // namespace
+
+netgame::PresenceUnitSync unit_sync_differences(Lobby& lobby) {
+    netgame::PresenceUnitSync found;
+    auto& sync = lobby.sync;
+    // A host that has not read its unit table compares nothing.
+    if (lobby.game == nullptr || lobby.units == nullptr || lobby.unit_count <= 1 || !sync.host ||
+        sync.finished || sync.peer_count == 0 || !unit_sync_complete(lobby))
+        return found;
+    std::vector<Machine> machines;
+    Machine host;
+    host.id = local_player(lobby).player_id;
+    host.known = netgame::presence_files_known(
+        {lobby.presence_records.local, lobby.presence_records.local_size}
+    );
+    host.checksums = true;
+    machines.push_back(host);
+    for (int32_t index = 0; index < sync.peer_count; ++index) {
+        const auto& peer = sync.peers[index];
+        if (!peer_waited_on(lobby, peer.player_id))
+            continue;
+        const auto* player = netgame::player_of_id(*lobby.game, peer.player_id);
+        if (player == nullptr)
+            continue;
+        const auto* info = player_info(lobby, *player);
+        Machine machine;
+        machine.id = peer.player_id;
+        machine.peer = &peer;
+        machine.checksums = info != nullptr && reports_checksums(*info);
+        const int32_t slot = slot_of(lobby, peer.player_id);
+        machine.known =
+            slot != kNoSlot && netgame::presence_files_known(lobby_presence_record(lobby, slot));
+        machines.push_back(machine);
+    }
+    if (machines.size() < 2)
+        return found;
+    std::vector<Compared> compared;
+    const auto compare = [&](uint32_t key, const LobbyUnit* mine) {
+        std::vector<uint64_t> tags;
+        tags.reserve(machines.size());
+        for (const Machine& machine : machines) {
+            if (machine.peer == nullptr) {
+                tags.push_back(
+                    mine != nullptr
+                        ? unit_sync_content_checksum(lobby, *const_cast<LobbyUnit*>(mine))
+                        : kAbsent
+                );
+                continue;
+            }
+            const uint32_t at = reported_index(*machine.peer, key);
+            if (at == machine.peer->received)
+                tags.push_back(kAbsent);
+            else
+                tags.push_back(machine.checksums ? machine.peer->checksums[at] : kPresent);
+        }
+        std::vector<uint32_t> named = differing_machines(machines, tags);
+        if (named.empty())
+            return;
+        Compared unit;
+        unit.key = key;
+        if (mine != nullptr && mine->unit_name != nullptr)
+            unit.name = mine->unit_name;
+        unit.named = std::move(named);
+        compared.push_back(std::move(unit));
+    };
+    for (int32_t type = 1; type < lobby.unit_count; ++type) {
+        const LobbyUnit& unit = lobby.units[type];
+        const auto* record = find(sync, unit.fbi_hash);
+        // A unit no one can build in this battle is not a difference.
+        if (record == nullptr || record->local == 0 || record->limit == 0)
+            continue;
+        compare(unit.fbi_hash, &unit);
+    }
+    for (const Machine& machine : machines) {
+        if (machine.peer == nullptr)
+            continue;
+        for (uint32_t at = 0; at < machine.peer->received; ++at) {
+            const uint32_t key = machine.peer->keys[at];
+            if (find(sync, key) != nullptr)
+                continue;
+            bool seen = false;
+            for (const Compared& unit : compared)
+                seen = seen || unit.key == key;
+            if (!seen)
+                compare(key, nullptr);
+        }
+    }
+    for (const Compared& unit : compared) {
+        auto group = std::find_if(found.groups.begin(), found.groups.end(), [&](const auto& held) {
+            return held.machines == unit.named;
+        });
+        if (group == found.groups.end()) {
+            if (found.groups.size() == netgame::presence_unit_sync_groups_max)
+                group = found.groups.end() - 1;
+            else {
+                found.groups.emplace_back();
+                group = found.groups.end() - 1;
+                group->machines = unit.named;
+                if (group->machines.size() > netgame::presence_unit_sync_groups_max)
+                    group->machines.resize(netgame::presence_unit_sync_groups_max);
+            }
+        }
+        if (group->count < 0xffff)
+            ++group->count;
+        netgame::PresenceUnit listed;
+        listed.name = unit.name;
+        listed.key = unit.name.empty() ? unit.key : 0;
+        group->units.push_back(std::move(listed));
+        if (found.total < 0xffff)
+            ++found.total;
+    }
+    return found;
+}
+
+std::vector<std::string> unit_sync_lines(Lobby& lobby, const netgame::PresenceUnitSync& found) {
+    namespace languages = oa::data::languages;
+    std::vector<std::string> lines;
+    for (const auto& group : found.groups) {
+        const std::string units = unit_list(lobby, group);
+        if (units.empty() || group.machines.empty())
+            continue;
+        const bool one = group.count == 1;
+        std::string line;
+        if (group.machines.size() == 1)
+            line = filled(
+                std::string(
+                    languages::interface_text(
+                        one ? "*** {units} differs on {player}'s machine and can't be built in "
+                              "this "
+                              "battle."
+                            : "*** {units} differ on {player}'s machine and can't be built in this "
+                              "battle."
+                    )
+                ),
+                "{player}",
+                player_name(lobby, group.machines.front())
+            );
+        else if (group.machines.size() == 2)
+            line = filled(
+                filled(
+                    std::string(
+                        languages::interface_text(
+                            one ? "*** {units} differs between {first}'s and {second}'s machines "
+                                  "and "
+                                  "can't be built in this battle."
+                                : "*** {units} differ between {first}'s and {second}'s machines "
+                                  "and "
+                                  "can't be built in this battle."
+                        )
+                    ),
+                    "{first}",
+                    player_name(lobby, group.machines[0])
+                ),
+                "{second}",
+                player_name(lobby, group.machines[1])
+            );
+        else
+            line = filled(
+                std::string(
+                    languages::interface_text(
+                        one ? "*** {units} differs between {count} players' machines and can't be "
+                              "built in this battle."
+                            : "*** {units} differ between {count} players' machines and can't be "
+                              "built in this battle."
+                    )
+                ),
+                "{count}",
+                std::to_string(group.machines.size())
+            );
+        lines.push_back(filled(std::move(line), "{units}", units));
+    }
+    return lines;
+}
+
+void lobby_note_unit_sync(Lobby& lobby) {
+    if (lobby.game == nullptr)
+        return;
+    auto& report = lobby.unit_report;
+    netgame::PresenceUnitSync now;
+    if (lobby.sync.host) {
+        // Another hold keeps START grey and says why; the units wait for it.
+        const bool settled = !lobby.sync.finished && lobby.sync.peer_count > 0 &&
+                             unit_sync_complete(lobby) && lobby_content_allows_start(lobby) &&
+                             lobby_stock_files_allow_start(lobby) &&
+                             lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
+                             lobby_sides_allow_start(lobby);
+        if (!settled) {
+            if (!report.found.groups.empty())
+                report.accepted = false;
+            report.found = {};
+            report.state = 0;
+            report.told = {};
+            return;
+        }
+        const uint64_t state = sync_state(lobby.sync);
+        if (state == report.state)
+            return;
+        report.state = state;
+        now = unit_sync_differences(lobby);
+        if (now != report.found)
+            report.accepted = false;
+        report.found = now;
+    } else {
+        const auto host = lobby_host_slot(lobby);
+        const auto record = host == kNoSlot
+                                ? std::span<const uint8_t>{}
+                                : lobby_presence_record(lobby, static_cast<int32_t>(host));
+        std::span<const uint8_t> value;
+        uint64_t heard = 0;
+        if (!record.empty() &&
+            netgame::find_presence_field(
+                record.data(), record.size(), netgame::PresenceTag::unit_sync, &value
+            )) {
+            heard = 0xcbf29ce484222325ULL;
+            for (const uint8_t byte : value)
+                mix(heard, byte);
+        }
+        if (heard == report.heard)
+            return;
+        report.heard = heard;
+        if (heard != 0)
+            if (auto read = netgame::presence_unit_sync(record))
+                now = std::move(*read);
+    }
+    if (now.groups.empty()) {
+        report.told = {};
+        return;
+    }
+    if (now == report.told)
+        return;
+    report.told = now;
+    for (std::string& line : unit_sync_lines(lobby, now)) {
+        oa::platform::log_files::write_line(
+            "multiplayer: unit sync: " + line.substr(line.rfind("*** ", 0) == 0 ? 4 : 0)
+        );
+        lobby_post_room_line(lobby, std::move(line));
+    }
+}
+
+bool lobby_unit_sync_take_start(Lobby& lobby) {
+    auto& report = lobby.unit_report;
+    if (!lobby.sync.host || report.found.groups.empty() || report.accepted)
+        return true;
+    report.accepted = true;
+    lobby_post_room_line(
+        lobby,
+        std::string(
+            oa::data::languages::interface_text(
+                "*** Press START again to start anyway. Those units stay unavailable in this "
+                "battle."
+            )
+        )
+    );
+    oa::platform::log_files::write_line(
+        "multiplayer: unit sync: START waits; the next press starts anyway"
+    );
+    return false;
 }
 
 } // namespace oa::ui::frontend_multiplayer

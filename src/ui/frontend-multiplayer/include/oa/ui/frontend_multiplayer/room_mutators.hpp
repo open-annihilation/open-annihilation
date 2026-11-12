@@ -196,6 +196,13 @@ void lobby_note_classic_room(Lobby& lobby) noexcept;
 /// @param player_slot The player the line names.
 void lobby_post_classic_line(Lobby& lobby, const char* words, int32_t player_slot) noexcept;
 
+/// Posts one line already in the language shown, split as
+/// lobby_post_classic_line splits its lines. The parts are not sent.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param line The line, UTF-8, every token filled.
+void lobby_post_room_line(Lobby& lobby, std::string line) noexcept;
+
 /// Tells whether a row's rules dot is on for mutators.
 ///
 /// The host's own row does not, and neither does a computer player. A 3.1c

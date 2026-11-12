@@ -4638,6 +4638,83 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         );
         std::cout << "net loopback check: unit sync over " << unit_count - 1 << " units took "
                   << host_units[altered].name << " away\n";
+        // The battle room names the unit on both machines, and the host's
+        // START waits until the host accepts. Neither machine plays a
+        // managed copy here, so neither says its files are known and the
+        // line names both machines.
+        const auto room_text = [](LoopbackSide& side) {
+            std::string said;
+            auto& game = *side.lobby->game;
+            for (auto at = static_cast<uint32_t>(mp::lobby_chat_tail(game));
+                 at != mp::lobby_chat_head(game);
+                 at = (at + 1U) % static_cast<uint32_t>(mp::kChatLines))
+                said += std::string(mp::lobby_chat_line(game, at)) + ' ';
+            return said;
+        };
+        const std::string unit_named = std::string(host_units[altered].name) + " (" +
+                                       std::string(host_units[altered].unit_name) + ")";
+        mp::lobby_note_unit_sync(*host.lobby);
+        const auto& found = host.lobby->unit_report.found;
+        require(
+            found.total == 1 && found.groups.size() == 1 && found.groups[0].units.size() == 1 &&
+                found.groups[0].units[0].name == host_units[altered].unit_name &&
+                std::find(
+                    found.groups[0].machines.begin(), found.groups[0].machines.end(), client_id
+                ) != found.groups[0].machines.end(),
+            "the host's unit sync did not name the unit with other files on the joiner's machine"
+        );
+        const std::string host_said = room_text(host);
+        require(
+            host_said.find(unit_named) != std::string::npos &&
+                host_said.find(client.nickname) != std::string::npos &&
+                host_said.find("can't be built in this battle") != std::string::npos,
+            "the host's battle room did not name the unit that differs"
+        );
+        // The host's record now carries the finding; only OA machines get it.
+        mp::presence_refresh(*host.lobby);
+        mp::presence_send_due(*host.lobby);
+        wait_until(
+            [&] {
+                drain(host);
+                drain(client);
+                mp::lobby_note_unit_sync(*client.lobby);
+                return !client.lobby->unit_report.told.groups.empty();
+            },
+            "the joiner was not told which unit differs"
+        );
+        const std::string joiner_said = room_text(client);
+        require(
+            joiner_said.find(unit_named) != std::string::npos &&
+                joiner_said.find(client.nickname) != std::string::npos,
+            "the joiner's battle room did not name the unit that differs"
+        );
+        std::cout << "net loopback check: the joiner read \""
+                  << joiner_said.substr(joiner_said.find("*** " + unit_named)) << "\"\n";
+        require(
+            !mp::lobby_unit_sync_take_start(*host.lobby) &&
+                room_text(host).find("Press START again to start anyway") != std::string::npos,
+            "the host's START started with a unit that differs"
+        );
+        require(
+            mp::lobby_unit_sync_take_start(*host.lobby),
+            "the host's second START did not start anyway"
+        );
+        std::cout << "net loopback check: START waited until the host accepted the unit that "
+                     "differs\n";
+        // The rest of the check plays on as before: the finding is dropped,
+        // and each machine's record goes back to what it was.
+        host.lobby->unit_report = {};
+        client.lobby->unit_report = {};
+        mp::presence_refresh(*host.lobby);
+        mp::presence_send_due(*host.lobby);
+        wait_until(
+            [&] {
+                drain(host);
+                drain(client);
+                return !oa::netgame::presence_unit_sync(presence_of(client, host_id)).has_value();
+            },
+            "the host's record kept the unit sync's finding"
+        );
         taken_away_key = host_units[altered].fbi_hash;
         synced_units = unit_count - 1;
         for (auto* side : {&host, &client}) {

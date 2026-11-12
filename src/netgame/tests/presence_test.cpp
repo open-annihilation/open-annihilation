@@ -1752,6 +1752,90 @@ void limits_round_trip() {
     CHECK(probed && probed->weapon_types == 256 && probed->sides == 5);
 }
 
+void the_unit_sync_field() {
+    start_case("the_unit_sync_field");
+    PresenceUnitSync sync;
+    sync.total = 3;
+    PresenceUnitGroup host;
+    host.machines = {0x145};
+    host.count = 2;
+    host.units = {PresenceUnit{"ARMMEX", 0}, PresenceUnit{"ARMYORK", 0}};
+    PresenceUnitGroup both;
+    both.machines = {0x13, 0x145};
+    both.count = 1;
+    both.units = {PresenceUnit{"", 0xf694e82a}};
+    sync.groups = {host, both};
+    uint8_t value[presence_unit_sync_max_bytes]{};
+    std::size_t size = 0;
+    CHECK(encode_presence_unit_sync(sync, value, sizeof value, &size) == WireError::ok);
+    // u16 total, u8 groups; u8 1, id, u16 2, u8 2, "ARMMEX", "ARMYORK"; u8 2, ids, u16 1, u8 1, 0 key.
+    CHECK(size == 3 + (1 + 4 + 3 + 7 + 8) + (1 + 8 + 3 + 5));
+    Raw raw;
+    raw.field(
+        static_cast<uint8_t>(PresenceTag::unit_sync), std::vector<uint8_t>(value, value + size)
+    );
+    raw.finish();
+    const auto read = presence_unit_sync(raw.bytes);
+    CHECK(read && *read == sync);
+
+    // A short room lists fewer units; each group keeps its count.
+    CHECK(encode_presence_unit_sync(sync, value, 3 + 8 + 7, &size) == WireError::ok);
+    Raw cut;
+    cut.field(
+        static_cast<uint8_t>(PresenceTag::unit_sync), std::vector<uint8_t>(value, value + size)
+    );
+    cut.finish();
+    const auto shortened = presence_unit_sync(cut.bytes);
+    CHECK(shortened && shortened->total == 3 && shortened->groups.size() == 1);
+    CHECK(shortened && shortened->groups[0].count == 2 && shortened->groups[0].units.size() == 1);
+    CHECK(encode_presence_unit_sync(sync, value, 4, &size) == WireError::buffer_too_small);
+
+    PresenceUnitSync bad = sync;
+    bad.groups[0].units[0].name = "ARM MEX";
+    CHECK(encode_presence_unit_sync(bad, value, sizeof value, &size) == WireError::bad_argument);
+    bad = sync;
+    bad.groups[0].machines.clear();
+    CHECK(encode_presence_unit_sync(bad, value, sizeof value, &size) == WireError::bad_argument);
+    CHECK(encode_presence_unit_sync({}, value, sizeof value, &size) == WireError::bad_argument);
+
+    const auto left_out = [](const std::vector<uint8_t>& field) {
+        Raw broken;
+        broken.field(static_cast<uint8_t>(PresenceTag::unit_sync), field);
+        broken.finish();
+        CHECK(!presence_unit_sync(broken.bytes));
+    };
+    left_out({1, 0});
+    left_out({1, 0, 0});
+    left_out({1, 0, 1, 1, 0x45, 1, 0, 0, 1, 0, 2, 0});
+    left_out({1, 0, 1, 1, 0x45, 1, 0, 0, 1, 0, 1, 1, ' '});
+    left_out({1, 0, 1, 1, 0x45, 1, 0, 0, 1, 0, 1, 2, 'A', 'B', 0});
+
+    // A record without the field reads as no finding, and every other field is kept.
+    Raw bare;
+    bare.finish();
+    CHECK(!presence_unit_sync(bare.bytes));
+}
+
+void the_files_flag() {
+    start_case("the_files_flag");
+    PresenceRecord record{};
+    record.bundles = PresenceBundles{"totala", {"core-contingency"}, true};
+    uint8_t bytes[256]{};
+    std::size_t written = 0;
+    CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
+    CHECK(presence_files_differ({bytes, written}));
+    CHECK(!presence_files_known({bytes, written}));
+    record.bundles->differs_from_known = false;
+    CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
+    CHECK(!presence_files_differ({bytes, written}));
+    CHECK(presence_files_known({bytes, written}));
+    // No bundles field says nothing either way.
+    record.bundles.reset();
+    CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
+    CHECK(!presence_files_differ({bytes, written}));
+    CHECK(!presence_files_known({bytes, written}));
+}
+
 } // namespace
 
 int main() {
@@ -1782,6 +1866,8 @@ int main() {
     computer_brains_refuse_a_broken_value();
     a_record_with_computer_brains_keeps_the_other_fields();
     limits_round_trip();
+    the_unit_sync_field();
+    the_files_flag();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

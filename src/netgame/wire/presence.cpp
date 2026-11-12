@@ -1367,9 +1367,149 @@ bool find_presence_field(
     return false;
 }
 
+namespace {
+
+/// Tells whether a unit's name is one the unit-sync field carries.
+///
+/// @param name the FBI UnitName
+/// @return true for 1 to 32 printable ascii bytes
+bool unit_name_ok(std::string_view name) noexcept {
+    if (name.empty() || name.size() > 32)
+        return false;
+    for (const char byte : name)
+        if (byte < 0x21 || byte > 0x7e)
+            return false;
+    return true;
+}
+
+} // namespace
+
+WireError encode_presence_unit_sync(
+    const PresenceUnitSync& sync, uint8_t* out, std::size_t capacity, std::size_t* written
+) {
+    if (out == nullptr || written == nullptr)
+        return WireError::bad_argument;
+    if (sync.groups.empty() || sync.groups.size() > presence_unit_sync_groups_max)
+        return WireError::bad_argument;
+    for (const auto& group : sync.groups) {
+        if (group.machines.empty() || group.machines.size() > presence_unit_sync_groups_max ||
+            group.units.size() > group.count)
+            return WireError::bad_argument;
+        for (const auto& unit : group.units)
+            if (!unit.name.empty() && !unit_name_ok(unit.name))
+                return WireError::bad_argument;
+    }
+    std::size_t used = 0;
+    if (capacity < 3)
+        return WireError::buffer_too_small;
+    put_u16(out, &used, sync.total);
+    const std::size_t group_count_at = used;
+    put_u8(out, &used, 0);
+    uint8_t groups = 0;
+    for (const auto& group : sync.groups) {
+        const std::size_t head = 1 + 4 * group.machines.size() + 3;
+        if (used + head > capacity)
+            break;
+        put_u8(out, &used, static_cast<uint8_t>(group.machines.size()));
+        for (const uint32_t machine : group.machines)
+            put_u32(out, &used, machine);
+        put_u16(out, &used, group.count);
+        const std::size_t listed_at = used;
+        put_u8(out, &used, 0);
+        uint8_t listed = 0;
+        for (const auto& unit : group.units) {
+            const std::size_t size = unit.name.empty() ? 5 : 1 + unit.name.size();
+            if (used + size > capacity || listed == 0xff)
+                break;
+            if (unit.name.empty()) {
+                put_u8(out, &used, 0);
+                put_u32(out, &used, unit.key);
+            } else {
+                put_string(out, &used, unit.name);
+            }
+            ++listed;
+        }
+        out[listed_at] = listed;
+        ++groups;
+    }
+    if (groups == 0)
+        return WireError::buffer_too_small;
+    out[group_count_at] = groups;
+    *written = used;
+    return WireError::ok;
+}
+
+std::optional<PresenceUnitSync> presence_unit_sync(std::span<const uint8_t> record) {
+    std::span<const uint8_t> value;
+    if (record.empty() ||
+        !find_presence_field(record.data(), record.size(), PresenceTag::unit_sync, &value))
+        return std::nullopt;
+    const uint8_t* cursor = value.data();
+    const uint8_t* const end = value.data() + value.size();
+    const auto take = [&](std::size_t bytes) {
+        if (static_cast<std::size_t>(end - cursor) < bytes)
+            return false;
+        return true;
+    };
+    PresenceUnitSync sync;
+    if (!take(3))
+        return std::nullopt;
+    sync.total = load_u16(cursor);
+    cursor += 2;
+    const uint8_t groups = *cursor++;
+    if (groups == 0 || groups > presence_unit_sync_groups_max)
+        return std::nullopt;
+    for (uint8_t group_at = 0; group_at < groups; ++group_at) {
+        PresenceUnitGroup group;
+        if (!take(1))
+            return std::nullopt;
+        const uint8_t machines = *cursor++;
+        if (machines == 0 || machines > presence_unit_sync_groups_max || !take(4U * machines + 3))
+            return std::nullopt;
+        for (uint8_t machine = 0; machine < machines; ++machine) {
+            group.machines.push_back(load_u32(cursor));
+            cursor += 4;
+        }
+        group.count = load_u16(cursor);
+        cursor += 2;
+        const uint8_t listed = *cursor++;
+        if (listed > group.count)
+            return std::nullopt;
+        for (uint8_t unit_at = 0; unit_at < listed; ++unit_at) {
+            if (!take(1))
+                return std::nullopt;
+            const uint8_t length = *cursor++;
+            PresenceUnit unit;
+            if (length == 0) {
+                if (!take(4))
+                    return std::nullopt;
+                unit.key = load_u32(cursor);
+                cursor += 4;
+            } else {
+                if (!take(length))
+                    return std::nullopt;
+                unit.name.assign(reinterpret_cast<const char*>(cursor), length);
+                cursor += length;
+                if (!unit_name_ok(unit.name))
+                    return std::nullopt;
+            }
+            group.units.push_back(std::move(unit));
+        }
+        sync.groups.push_back(std::move(group));
+    }
+    if (cursor != end)
+        return std::nullopt;
+    return sync;
+}
+
 bool presence_files_differ(std::span<const uint8_t> record) noexcept {
     BundleReading reading;
     return bundles_of(record, &reading) && reading.differs;
+}
+
+bool presence_files_known(std::span<const uint8_t> record) noexcept {
+    BundleReading reading;
+    return bundles_of(record, &reading) && !reading.differs;
 }
 
 PresenceContentMatch presence_content_match(

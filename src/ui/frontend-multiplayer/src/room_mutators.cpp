@@ -352,6 +352,12 @@ void lobby_post_classic_line(Lobby& lobby, const char* words, int32_t player_slo
     const auto mark = line.find("{player}");
     if (mark != std::string::npos)
         line.replace(mark, std::string_view("{player}").size(), who_utf8);
+    lobby_post_room_line(lobby, std::move(line));
+}
+
+void lobby_post_room_line(Lobby& lobby, std::string line) noexcept {
+    if (lobby.game == nullptr)
+        return;
     // The chat list draws one stored line on one row and clips the rest, so
     // a line wider than the list goes on in further "*** " lines, as the
     // room's mutator lines do. The measure reads the line as it is stored.

@@ -105,6 +105,19 @@ inline constexpr std::string_view interface_words[] = {
     "battle can start.",
     "*** Your game files differ from Total Annihilation's, so this battle cannot start. Leave it "
     "and repair them in Settings › Game Content.",
+    "*** {units} differs on {player}'s machine and can't be built in this battle.",
+    "*** {units} differ on {player}'s machine and can't be built in this battle.",
+    "*** {units} differs between {first}'s and {second}'s machines and can't be built in this "
+    "battle.",
+    "*** {units} differ between {first}'s and {second}'s machines and can't be built in this "
+    "battle.",
+    "*** {units} differs between {count} players' machines and can't be built in this battle.",
+    "*** {units} differ between {count} players' machines and can't be built in this battle.",
+    "1 other unit",
+    "{count} other units",
+    "{list} and {last}",
+    "a player who left",
+    "*** Press START again to start anyway. Those units stay unavailable in this battle.",
 };
 
 } // namespace oa::ui::frontend_multiplayer

@@ -41,6 +41,16 @@
 //        sides. A value that is not five bytes, or names fewer than 256
 //        weapon types or five sides, is left out. Absent: an OA build from
 //        before these limits.
+//   0x25 unit sync: only a host sends it, once its unit sync has finished
+//        and found units that are not alike on every machine. u16 how many
+//        units differ; u8 the number of groups, 1 to 10; then each group of
+//        units that differ on the same machines: u8 the number of machines,
+//        1 to 10, and that many u32 player ids (each machine's human), u16
+//        how many units of the group differ, u8 how many are listed, then
+//        each listed unit: u8 a length 1 to 32 and that many ascii bytes of
+//        its FBI UnitName, or a length 0 and the u32 key of a unit the host
+//        does not have. A value that breaks this rule is left out. Absent:
+//        every unit matches, or the sync has not finished.
 //   0x30 content: u8 flags, bit 0 the machine can fetch content (it has a
 //        downloads folder and at least one enabled registry whose downloads
 //        are on); bits 1 to 7 sent as 0 and ignored when read. Absent: the
@@ -165,6 +175,7 @@ enum class PresenceTag : uint8_t {
     view_hacks = 0x22,      ///< view hacks that are on
     developer = 0x23,       ///< Developer Mode and its overrides
     limits = 0x24,          ///< the most weapon types and sides this build plays
+    unit_sync = 0x25,       ///< the host's unit sync: the units that differ, by machine
     content = 0x30,         ///< whether the machine can fetch content
     bundles = 0x31,         ///< the base game and the rule-changing expansions
     language = 0x32,        ///< the language's name in English
@@ -560,6 +571,56 @@ presence_sim_hash(const uint8_t* record, std::size_t size) noexcept;
 [[nodiscard]] std::optional<PresenceLimits>
 presence_limits(const uint8_t* record, std::size_t size) noexcept;
 
+/// One unit the unit-sync field lists: its FBI UnitName, or, when the host
+/// has no unit of that key, the key alone.
+struct PresenceUnit {
+    std::string name{}; ///< the FBI UnitName, ascii 1 to 32; empty when only the key is known
+    uint32_t key{};     ///< the unit's key (its FBI hash) when `name` is empty; 0 otherwise
+    friend bool operator==(const PresenceUnit&, const PresenceUnit&) = default;
+};
+
+/// Units that differ on the same machines.
+struct PresenceUnitGroup {
+    std::vector<uint32_t> machines{};  ///< each machine's human player id, 1 to 10 of them
+    uint16_t count{};                  ///< how many units of the group differ, listed or not
+    std::vector<PresenceUnit> units{}; ///< the units listed, at most `count`
+    friend bool operator==(const PresenceUnitGroup&, const PresenceUnitGroup&) = default;
+};
+
+/// The unit-sync field, tag 0x25: what the host's finished unit sync found.
+struct PresenceUnitSync {
+    uint16_t total{};                        ///< how many units differ, listed or not
+    std::vector<PresenceUnitGroup> groups{}; ///< 1 to 10 groups
+    friend bool operator==(const PresenceUnitSync&, const PresenceUnitSync&) = default;
+};
+
+/// The most value bytes a host gives the unit-sync field.
+inline constexpr std::size_t presence_unit_sync_max_bytes = 256;
+/// The most groups and machines the unit-sync field names.
+inline constexpr std::size_t presence_unit_sync_groups_max = 10;
+
+/// Writes the unit-sync field's value.
+///
+/// Groups are written in order. Each keeps its count, and lists as many of
+/// its units as still fit in `capacity`; a group whose machines do not fit
+/// is left out, and the total still counts its units.
+///
+/// @param sync the field; at least one group, each with 1 to 10 machines
+/// @param[out] out storage for the value
+/// @param capacity bytes available at out
+/// @param[out] written bytes written
+/// @return ok; bad_argument for a field that breaks the rule; buffer_too_small
+///         when not even the first group's machines fit
+[[nodiscard]] WireError encode_presence_unit_sync(
+    const PresenceUnitSync& sync, uint8_t* out, std::size_t capacity, std::size_t* written
+);
+
+/// Reads the unit-sync field.
+///
+/// @param record the record, type byte first
+/// @return the field; nothing when it is absent or breaks its rule
+[[nodiscard]] std::optional<PresenceUnitSync> presence_unit_sync(std::span<const uint8_t> record);
+
 /// Reads a record's differs-from-known flag, without allocating.
 ///
 /// The flag is set when a file of the base game or of a rule-changing
@@ -569,6 +630,13 @@ presence_limits(const uint8_t* record, std::size_t size) noexcept;
 /// @param record the record, type byte first
 /// @return true when the bundles field is there, keeps its rule, and has the flag set
 [[nodiscard]] bool presence_files_differ(std::span<const uint8_t> record) noexcept;
+
+/// Tells whether a record says its machine plays known files, without allocating.
+///
+/// @param record the record, type byte first
+/// @return true when the bundles field is there, keeps its rule, and has
+///         the differs-from-known flag clear
+[[nodiscard]] bool presence_files_known(std::span<const uint8_t> record) noexcept;
 
 /// Compares the bundles fields of two records, without allocating.
 ///

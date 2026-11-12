@@ -66,12 +66,14 @@ if(BUILD_TESTING)
     oa-ui-frontend-multiplayer oa-netgame oa-data-languages)
   add_test(NAME ui-multiplayer-room-limits COMMAND oa-ui-frontend-multiplayer-room-limits-test)
   # A Boneyards battle refuses START while a player's game files differ, and
-  # names them.
+  # names them. A casual room names the units its unit sync found not alike,
+  # and the host's START waits for a second press.
   add_executable(oa-ui-frontend-multiplayer-stock-files-test tests/stock_files_test.cpp)
   target_link_libraries(oa-ui-frontend-multiplayer-stock-files-test PRIVATE
     oa-ui-frontend-multiplayer oa-data-languages)
   add_test(NAME ui-multiplayer-boneyards-battle-room
     COMMAND oa-ui-frontend-multiplayer-stock-files-test boneyards)
+  add_test(NAME ui-multiplayer-unit-sync COMMAND oa-ui-frontend-multiplayer-stock-files-test unit-sync)
   set_tests_properties(ui-multiplayer-room-limits PROPERTIES TIMEOUT 30)
   # GET MAP: every state and line over hand-made records, packs and offers;
   # with --data, the battle room's side over the installed GUI files: what a

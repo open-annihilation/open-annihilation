@@ -10,6 +10,14 @@
 
 
 
+[*** Press START again to start anyway. Those units stay unavailable in this battle.]
+	{
+	de=*** Drücke START noch einmal, um trotzdem zu beginnen. Diese Einheiten bleiben in dieser Schlacht nicht verfügbar.;
+	fr=*** Appuie encore sur START pour commencer quand même. Ces unités restent indisponibles dans cette bataille.;
+	es=*** Pulsa START otra vez para empezar de todos modos. Esas unidades siguen sin estar disponibles en esta batalla.;
+	it=*** Premi di nuovo START per iniziare comunque. Quelle unità restano non disponibili in questa battaglia.;
+	}
+
 [*** Your game files differ from Total Annihilation's, so this battle cannot start. Leave it and repair them in Settings › Game Content.]
 	{
 	de=*** Deine Spieldateien weichen von Total Annihilation ab, darum kann diese Schlacht nicht beginnen. Verlasse sie und repariere sie unter Einstellungen › Spielinhalt.;
@@ -24,6 +32,62 @@
 	fr=*** Les fichiers de jeu de {player} diffèrent de ceux de Total Annihilation. Ils doivent être réparés avant que cette bataille puisse commencer.;
 	es=*** Los archivos del juego de {player} difieren de los de Total Annihilation. Hay que repararlos antes de que esta batalla pueda empezar.;
 	it=*** I file di gioco di {player} differiscono da quelli di Total Annihilation. Vanno riparati prima che questa battaglia possa iniziare.;
+	}
+
+[*** {units} differ between {count} players' machines and can't be built in this battle.]
+	{
+	de=*** {units} weichen zwischen den Rechnern von {count} Spielern ab und können in dieser Schlacht nicht gebaut werden.;
+	fr=*** {units} diffèrent entre les machines de {count} joueurs et ne peuvent pas être construits dans cette bataille.;
+	es=*** {units} son distintos entre las máquinas de {count} jugadores y no se pueden construir en esta batalla.;
+	it=*** {units} sono diversi tra le macchine di {count} giocatori e non si possono costruire in questa battaglia.;
+	}
+
+[*** {units} differ between {first}'s and {second}'s machines and can't be built in this battle.]
+	{
+	de=*** {units} weichen zwischen den Rechnern von {first} und {second} ab und können in dieser Schlacht nicht gebaut werden.;
+	fr=*** {units} diffèrent entre les machines de {first} et de {second} et ne peuvent pas être construits dans cette bataille.;
+	es=*** {units} son distintos entre las máquinas de {first} y de {second} y no se pueden construir en esta batalla.;
+	it=*** {units} sono diversi tra le macchine di {first} e di {second} e non si possono costruire in questa battaglia.;
+	}
+
+[*** {units} differ on {player}'s machine and can't be built in this battle.]
+	{
+	de=*** {units} weichen auf dem Rechner von {player} ab und können in dieser Schlacht nicht gebaut werden.;
+	fr=*** {units} diffèrent sur la machine de {player} et ne peuvent pas être construits dans cette bataille.;
+	es=*** {units} son distintos en la máquina de {player} y no se pueden construir en esta batalla.;
+	it=*** {units} sono diversi sulla macchina di {player} e non si possono costruire in questa battaglia.;
+	}
+
+[*** {units} differs between {count} players' machines and can't be built in this battle.]
+	{
+	de=*** {units} weicht zwischen den Rechnern von {count} Spielern ab und kann in dieser Schlacht nicht gebaut werden.;
+	fr=*** {units} diffère entre les machines de {count} joueurs et ne peut pas être construit dans cette bataille.;
+	es=*** {units} es distinto entre las máquinas de {count} jugadores y no se puede construir en esta batalla.;
+	it=*** {units} è diverso tra le macchine di {count} giocatori e non si può costruire in questa battaglia.;
+	}
+
+[*** {units} differs between {first}'s and {second}'s machines and can't be built in this battle.]
+	{
+	de=*** {units} weicht zwischen den Rechnern von {first} und {second} ab und kann in dieser Schlacht nicht gebaut werden.;
+	fr=*** {units} diffère entre les machines de {first} et de {second} et ne peut pas être construit dans cette bataille.;
+	es=*** {units} es distinto entre las máquinas de {first} y de {second} y no se puede construir en esta batalla.;
+	it=*** {units} è diverso tra le macchine di {first} e di {second} e non si può costruire in questa battaglia.;
+	}
+
+[*** {units} differs on {player}'s machine and can't be built in this battle.]
+	{
+	de=*** {units} weicht auf dem Rechner von {player} ab und kann in dieser Schlacht nicht gebaut werden.;
+	fr=*** {units} diffère sur la machine de {player} et ne peut pas être construit dans cette bataille.;
+	es=*** {units} es distinto en la máquina de {player} y no se puede construir en esta batalla.;
+	it=*** {units} è diverso sulla macchina di {player} e non si può costruire in questa battaglia.;
+	}
+
+[1 other unit]
+	{
+	de=1 weitere Einheit;
+	fr=1 autre unité;
+	es=1 unidad más;
+	it=1 altra unità;
 	}
 
 [A double press]
@@ -568,6 +632,14 @@
 	fr=Jaune;
 	es=Amarillo;
 	it=Giallo;
+	}
+
+[a player who left]
+	{
+	de=ein Spieler, der gegangen ist;
+	fr=un joueur parti;
+	es=un jugador que se fue;
+	it=un giocatore uscito;
 	}
 
 [always]
@@ -1266,6 +1338,14 @@
 	it={count} archivi non sono suoi file;
 	}
 
+[{count} other units]
+	{
+	de={count} weitere Einheiten;
+	fr={count} autres unités;
+	es={count} unidades más;
+	it={count} altre unità;
+	}
+
 [{file} in {folder} does not match Total Annihilation's, so the Boneyards cannot be entered. Copy the game again from your own install or CD to enter.]
 	{
 	de={file} in {folder} stimmt nicht mit der Datei von Total Annihilation überein, darum kann The Boneyards nicht betreten werden. Kopiere das Spiel erneut von deiner eigenen Installation oder CD, um hineinzugehen.;
@@ -1320,6 +1400,14 @@
 	fr={file} ne fait pas partie de ses fichiers;
 	es={file} no es uno de sus archivos;
 	it={file} non è uno dei suoi file;
+	}
+
+[{list} and {last}]
+	{
+	de={list} und {last};
+	fr={list} et {last};
+	es={list} y {last};
+	it={list} e {last};
 	}
 
 [{name}: {description} {context}. OK asks what to do.]
