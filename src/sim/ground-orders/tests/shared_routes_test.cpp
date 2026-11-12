@@ -95,6 +95,31 @@ void finish(FlowCache& cache, Grid& grid, uint32_t revision = 0, uint32_t first_
         cache.advance(tick, revision, grid.sampler());
 }
 
+// The ordered per-plot implementation before footprint coalescing. Keep this
+// independent of the new rectangle classifier so it remains a useful oracle.
+bool ordered_static_flow_passable(
+    const oa::sim::spatial_state::CellClassifier& movement,
+    int32_t x,
+    int32_t z,
+    const oa::sim::spatial_state::World& world
+) {
+    if (x < 0 || z < 0 || movement.footprint_x <= 0 || movement.footprint_z <= 0 ||
+        uint64_t{static_cast<uint32_t>(x)} + static_cast<uint32_t>(movement.footprint_x) >=
+            world.terrain_width ||
+        uint64_t{static_cast<uint32_t>(z)} + static_cast<uint32_t>(movement.footprint_z) >=
+            world.terrain_height)
+        return false;
+    auto classifier = movement;
+    classifier.occupancy_before_tick = 0;
+    for (int32_t row = 0; row < classifier.footprint_z; ++row)
+        for (int32_t column = 0; column < classifier.footprint_x; ++column)
+            if (oa::sim::spatial_state::classify_movement_plot(
+                    classifier, x + column, z + row, world
+                ) == 0)
+                return false;
+    return true;
+}
+
 void static_sampler_matches_full_classifier_passability() {
     namespace spatial = oa::sim::spatial_state;
     spatial::World world;
@@ -116,17 +141,200 @@ void static_sampler_matches_full_classifier_passability() {
             plot.blocking_feature = variant == 1 && i % 17 == 0;
             plot.ground = variant == 3 && i % 19 == 0 ? 1 : variant == 4 && i % 23 == 0 ? 2 : 0;
         }
-        for (int16_t width = 1; width <= 4; ++width)
-            for (int16_t depth = 1; depth <= 4; ++depth) {
+        for (int16_t width = 1; width <= 8; ++width)
+            for (int16_t depth = 1; depth <= 8; ++depth) {
                 movement.footprint_x = width;
                 movement.footprint_z = depth;
                 for (int32_t z = -1; z <= 16; ++z)
-                    for (int32_t x = -1; x <= 16; ++x)
+                    for (int32_t x = -1; x <= 16; ++x) {
+                        CHECK(
+                            static_flow_passable(movement, x, z, world) ==
+                            ordered_static_flow_passable(movement, x, z, world)
+                        );
                         CHECK(
                             static_flow_passable(movement, x, z, world) ==
                             (spatial::classify_movement_cell(movement, x, z, world) != 0)
                         );
+                    }
             }
+    }
+    // A slow first plot (class1) must not hide a later blocked plot (class0).
+    for (auto& plot : world.plots) {
+        plot = {};
+        plot.low_height = plot.high_height = 20;
+    }
+    movement.footprint_x = movement.footprint_z = 2;
+    world.plots[2 * 16 + 2].high_height = 24;
+    CHECK(spatial::classify_movement_plot(movement, 2, 2, world) == 1);
+    CHECK(static_flow_passable(movement, 2, 2, world));
+    world.plots[2 * 16 + 3].blocking_feature = true;
+    CHECK(!ordered_static_flow_passable(movement, 2, 2, world));
+    CHECK(!static_flow_passable(movement, 2, 2, world));
+}
+
+/// Uses the real spatial classifier behind the same knowledge-first boundary as
+/// the match sampler, recording each externally visible sampler call in order.
+struct SpatialFlowSampler {
+    oa::sim::spatial_state::World world;
+    std::array<oa::sim::spatial_state::Unit, 3> units{};
+    oa::sim::spatial_state::CellClassifier movement;
+    std::array<uint16_t, 32 * 32> sight{};
+    bool ordered{};
+    uint64_t static_calls{}, unknown_calls{};
+    std::vector<std::array<int64_t, 5>> trace;
+
+    SpatialFlowSampler(int16_t footprint, bool old)
+        : movement{footprint, footprint, 10, -10, 6, 3, 8, 4, 99}, ordered(old) {
+        world.terrain_width = world.terrain_height = 64;
+        world.sea_level = 20;
+        world.units = units;
+        world.plots.resize(64 * 64);
+        units[1].object_present = true;
+        units[2].object_present = false;
+        sight.fill(1);
+        for (uint32_t z = 0; z < 64; ++z)
+            for (uint32_t x = 0; x < 64; ++x) {
+                auto& plot = world.plots[z * 64 + x];
+                plot.low_height = 20;
+                plot.high_height = static_cast<uint8_t>(20 + ((x + z) % 17 == 0 ? 4 : 0));
+                plot.blocking_feature = x == 32 && (z < 20 || z > 42);
+                if (x == 20 && z == 20)
+                    plot.ground = 1; // A mobile remains passable at static tick0.
+                if (x == 30 && z == 10)
+                    plot.ground = 2;
+            }
+        for (uint32_t z = 0; z < 8; ++z)
+            for (uint32_t x = 0; x < 8; ++x)
+                sight[z * 32 + x] = 0;
+        world.plots[4 * 64 + 4].blocking_feature = true; // Hidden, never queried.
+    }
+
+    FlowSampler sampler() {
+        return {this, [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) {
+                    auto& self = *static_cast<SpatialFlowSampler*>(p);
+                    uint8_t result = 0;
+                    if (klass == 0 && player == 0 && x >= 0 && z >= 0 && x < 64 && z < 64) {
+                        const auto sx = (self.movement.footprint_x >> 2) + (x >> 1);
+                        const auto sz = (self.movement.footprint_z >> 2) + (z >> 1);
+                        if (sx < 32 && sz < 32) {
+                            if ((self.sight[static_cast<size_t>(sz) * 32 + sx] & 1) == 0) {
+                                ++self.unknown_calls;
+                                result = 2;
+                            } else {
+                                ++self.static_calls;
+                                result = self.ordered
+                                             ? ordered_static_flow_passable(
+                                                   self.movement, x, z, self.world
+                                               )
+                                             : static_flow_passable(
+                                                   self.movement, x, z, self.world
+                                               );
+                            }
+                        }
+                    }
+                    self.trace.push_back({klass, player, x, z, result});
+                    return result;
+                }};
+    }
+
+    void clear_observations() {
+        trace.clear();
+        static_calls = unknown_calls = 0;
+    }
+};
+
+/// Coalescing must not change callers, budgets, persisted frontiers or guides.
+void spatial_sampler_coalescing_preserves_cache_and_resume() {
+    for (int16_t footprint = 1; footprint <= 8; ++footprint) {
+        SpatialFlowSampler old(footprint, true), fresh(footprint, false), resumed(footprint, false);
+        for (auto* sampler : {&old, &fresh, &resumed}) {
+            const auto callback = sampler->sampler();
+            CHECK(callback.cell(callback.context, 0, 0, 4, 4) == 2);
+            CHECK(sampler->static_calls == 0 && sampler->unknown_calls == 1);
+            sampler->clear_observations();
+        }
+        for (const auto preset :
+             {FlowPreset::original, FlowPreset::large_regions, FlowPreset::fine_regions}) {
+            constexpr uint32_t quota = 4096;
+            FlowCache before(64, 64, {1, 1024, 256, quota}, preset);
+            FlowCache after(64, 64, {1, 1024, 256, quota}, preset);
+            FlowCache loaded(64, 64, {1, 1024, 256, quota}, preset);
+            const auto ctx = FlowContext{0, 0, 0, 0, uint32_t(footprint), uint32_t(footprint)};
+            const auto unit = unit_at(8, 8, footprint);
+            const auto goal = circle(48, 48);
+            bool has_load = false, ready = false, exhausted = false;
+            uint64_t route_probes = 0;
+            const auto equal_state = [&] {
+                CHECK(std::equal(
+                    before.state_bytes().begin(), before.state_bytes().end(),
+                    after.state_bytes().begin()
+                ));
+                if (has_load)
+                    CHECK(std::equal(
+                        after.state_bytes().begin(), after.state_bytes().end(),
+                        loaded.state_bytes().begin()
+                    ));
+                CHECK(old.trace == fresh.trace);
+                CHECK(old.static_calls == fresh.static_calls);
+                CHECK(old.unknown_calls == fresh.unknown_calls);
+                if (has_load) {
+                    CHECK(fresh.trace == resumed.trace);
+                    CHECK(fresh.static_calls == resumed.static_calls);
+                    CHECK(fresh.unknown_calls == resumed.unknown_calls);
+                }
+                old.clear_observations();
+                fresh.clear_observations();
+                resumed.clear_observations();
+            };
+            const auto route = [&] {
+                std::array<RoutePoint, navigation_capacity> a{}, b{}, c{};
+                uint32_t ac{}, bc{}, cc{};
+                const auto ar = before.route(ctx, unit, goal, a, ac, old.sampler());
+                const auto br = after.route(ctx, unit, goal, b, bc, fresh.sampler());
+                CHECK(ar == br && ac == bc && a == b);
+                if (has_load) {
+                    const auto cr = loaded.route(ctx, unit, goal, c, cc, resumed.sampler());
+                    CHECK(br == cr && bc == cc && b == c);
+                }
+                ready |= br == FlowResult::ready;
+                route_probes += fresh.trace.size();
+                equal_state();
+                return br;
+            };
+            (void)route();
+            (void)route();
+            for (uint32_t tick = 1; tick <= 40; ++tick) {
+                before.advance(tick, 0, old.sampler());
+                after.advance(tick, 0, fresh.sampler());
+                if (has_load)
+                    loaded.advance(tick, 0, resumed.sampler());
+                equal_state();
+                (void)route();
+                if (tick == 1) {
+                    CHECK(loaded.restore(after.state_bytes()));
+                    has_load = true;
+                    equal_state();
+                }
+            }
+            CHECK(ready);
+            // Repeated extraction spends the same finite sampler quota. Parent
+            // traversal credits may consume quota without invoking the sampler.
+            route_probes = 0;
+            for (uint32_t i = 0; i < 256; ++i) {
+                const auto prior = after.counters();
+                // route() compares full saved counters and every query origin.
+                const auto result = route();
+                exhausted |= result == FlowResult::pending;
+                CHECK(after.counters().requests == prior.requests + 1);
+            }
+            CHECK(route_probes <= quota);
+            CHECK(exhausted);
+            before.advance(41, 0, old.sampler());
+            after.advance(41, 0, fresh.sampler());
+            loaded.advance(41, 0, resumed.sampler());
+            equal_state();
+            CHECK(route() == FlowResult::ready);
+        }
     }
 }
 
@@ -2257,6 +2465,7 @@ int main() {
     own_destination_can_cross_a_region_split();
     multiple_fields_clear_with_a_separate_byte_budget();
     static_sampler_matches_full_classifier_passability();
+    spatial_sampler_coalescing_preserves_cache_and_resume();
     small_output_and_extraction_budget_are_bounded();
     long_shortcut_cannot_starve_a_small_budget_prefix();
     malformed_frontiers_are_rejected();
