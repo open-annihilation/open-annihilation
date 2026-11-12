@@ -40,6 +40,7 @@ struct GroundIndexBuild {
     uint64_t previous_attempts{};
     uint32_t reasons{};
     bool was_valid{}, completed{};
+    bool constructors_parallel{}; ///< independently timed world/card dispatch, allowing overlap
     uint64_t bounds_nanoseconds{}, world_nanoseconds{}, card_nanoseconds{}, total_nanoseconds{};
 };
 

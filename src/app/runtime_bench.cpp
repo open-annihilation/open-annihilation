@@ -82,7 +82,7 @@ void print_index_builds(std::size_t frame, const renderer_live_scene::GroundInde
         std::printf(
             "bench: GROUND_INDEX_BUILD_FRAME %zu ordinal %zu previous_attempts %llu "
             "was_valid %u completed %u reason_mask %u old_revision %llu revision %llu "
-            "old_vertices %zu vertices %zu old_card %u card %u "
+            "old_vertices %zu vertices %zu old_card %u card %u parallel %u "
             "old_axes %016llx,%016llx,%016llx,%016llx "
             "axes %016llx,%016llx,%016llx,%016llx "
             "old_fp %llx,%llx,%llx fp %llx,%llx,%llx "
@@ -99,6 +99,7 @@ void print_index_builds(std::size_t frame, const renderer_live_scene::GroundInde
             key.vertices,
             unsigned(old.card),
             unsigned(key.card),
+            unsigned(build.constructors_parallel),
             word(old.card_axes[0]),
             word(old.card_axes[1]),
             word(old.card_axes[2]),

@@ -82,7 +82,7 @@ MATERIAL_KINDS = ("surface", "scenery", "effect", "light", "shadow")
 RENDERER_FAMILIES = ("GROUND_INDEX", "POSE", "MATERIAL")
 
 
-def build_record(**changes):
+def build_record(parallel=None, **changes):
     """Return a first cache build over eight triangles, with independently rounded phase times."""
     values = dict(frame=1, ordinal=0, previous_attempts=0, was_valid=0, completed=1,
                   reason_mask=125, old_revision=0, revision=41, old_vertices=0, vertices=24,
@@ -91,10 +91,11 @@ def build_record(**changes):
                   old_fp="0,0,0", fp="37f,1f80,0", bounds_ms="0.100", world_ms="0.200",
                   card_ms="0.300", wall_ms="0.600")
     values.update(changes)
+    values["parallel_field"] = "" if parallel is None else f" parallel {parallel}"
     return ("bench: GROUND_INDEX_BUILD_FRAME {frame} ordinal {ordinal} "
             "previous_attempts {previous_attempts} was_valid {was_valid} completed {completed} "
             "reason_mask {reason_mask} old_revision {old_revision} revision {revision} "
-            "old_vertices {old_vertices} vertices {vertices} old_card {old_card} card {card} "
+            "old_vertices {old_vertices} vertices {vertices} old_card {old_card} card {card}{parallel_field} "
             "old_axes {old_axes} axes {axes} old_fp {old_fp} fp {fp} "
             "bounds_ms {bounds_ms} world_ms {world_ms} card_ms {card_ms} wall_ms {wall_ms}").format(
                 **values)
@@ -447,6 +448,53 @@ class NativeBenchReceiptTest(unittest.TestCase):
         self.assertEqual(bench.check_lines(result_for(rounded), True), rounded.splitlines())
         missing_first = text.replace(build_record(frame=0, revision=40) + "\n", "")
         self.assert_rejected(result_for(missing_first), bench.check_lines, True)
+
+    def test_ground_build_serial_marker_preserves_phase_partition(self):
+        """Both absent and explicit serial markers require additive constructor spans."""
+        for parallel in (None, 0):
+            with self.subTest(parallel=parallel):
+                text = renderer_transcript().replace(build_record(), build_record(parallel=parallel))
+                self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+                changed = text.replace(build_record(parallel=parallel), build_record(
+                    parallel=parallel, world_ms="0.400", card_ms="0.400"))
+                self.assert_rejected(result_for(changed), bench.check_lines, True,
+                                     message="BUILD subspans do not partition wall time")
+
+    def test_ground_build_parallel_marker_allows_overlap_and_dispatch_overhead(self):
+        """Independent constructor clocks fit inside the total, with its rounding tolerance."""
+        for world, card in (("0.400", "0.300"), ("0.300", "0.400"),
+                            ("0.502", "0.300")):
+            with self.subTest(world=world, card=card):
+                text = renderer_transcript().replace(build_record(), build_record(
+                    parallel=1, world_ms=world, card_ms=card))
+                self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+        text = renderer_transcript().replace(build_record(), build_record(parallel=1))
+        malformed = (dict(world_ms="0.503"), dict(card_ms="0.503"),
+                     dict(card=0, reason_mask=77,
+                          axes="0000000000000000,0000000000000000,0000000000000000,0000000000000000"),
+                     dict(ordinal=1), dict(reason_mask=61), dict(vertices=25))
+        for changes in malformed:
+            with self.subTest(changes=changes):
+                changed = text.replace(build_record(parallel=1), build_record(parallel=1, **changes))
+                self.assert_rejected(result_for(changed), bench.check_lines, True)
+
+    def test_ground_build_parallel_marker_and_spans_are_strict(self):
+        """Malformed markers and nonfinite or negative spans never weaken record validation."""
+        text = renderer_transcript()
+        for parallel in ("", -1, 2, "01", "1.0", "1 parallel 1"):
+            with self.subTest(parallel=parallel):
+                changed = text.replace(build_record(), build_record(parallel=parallel))
+                self.assert_rejected(result_for(changed), bench.check_lines, True)
+        moved = build_record().replace("bounds_ms", "parallel 1 bounds_ms")
+        self.assert_rejected(result_for(text.replace(build_record(), moved)), bench.check_lines, True)
+        overflow = "9" * 400
+        for field in ("bounds_ms", "world_ms", "card_ms", "wall_ms"):
+            for value in ("-0.100", "nan", "inf", "1..0", overflow):
+                with self.subTest(field=field, value=value):
+                    changed = text.replace(build_record(), build_record(parallel=1, **{field: value}))
+                    self.assert_rejected(result_for(changed), bench.check_lines, True,
+                                         message="BUILD spans are not finite nonnegative times"
+                                         if value == overflow else None)
 
     def test_ground_build_empty_uncached_incomplete_and_zero_phase_records_are_valid(self):
         """Successful empty/uncached indices and incomplete bounds attempts remain distinct."""

@@ -123,13 +123,15 @@ MATERIAL_FRAME = re.compile(r"^bench: MATERIAL_FRAME (\d+) (\S+) insertions (\d+
 HEX_AXES = r"[0-9a-f]{16}(?:,[0-9a-f]{16}){3}"
 HEX_CONTROL = r"[0-9a-f]{1,16}(?:,[0-9a-f]{1,16}){2}"
 INDEX_BUILD_CAPACITY = 8
+# Three phase clocks and their wall are independently rounded to three places.
+INDEX_BUILD_ROUNDING_MS = 0.0021
 INDEX_BUILD = re.compile(
     r"^bench: GROUND_INDEX_BUILD_FRAME (?P<frame>\d+) ordinal (?P<ordinal>\d+) "
     r"previous_attempts (?P<previous_attempts>\d+) was_valid (?P<was_valid>[01]) "
     r"completed (?P<completed>[01]) reason_mask (?P<reasons>\d+) "
     r"old_revision (?P<old_revision>\d+) revision (?P<revision>\d+) "
     r"old_vertices (?P<old_vertices>\d+) vertices (?P<vertices>\d+) "
-    r"old_card (?P<old_card>[01]) card (?P<card>[01]) "
+    r"old_card (?P<old_card>[01]) card (?P<card>[01])(?: parallel (?P<parallel>[01]))? "
     rf"old_axes (?P<old_axes>{HEX_AXES}) axes (?P<axes>{HEX_AXES}) "
     rf"old_fp (?P<old_fp>{HEX_CONTROL}) fp (?P<fp>{HEX_CONTROL}) "
     r"bounds_ms (?P<bounds>\d+(?:\.\d+)?) world_ms (?P<world>\d+(?:\.\d+)?) "
@@ -342,8 +344,17 @@ def check_renderer_records(result, lines, frames, timers):
             require(int(row["reasons"]) == expected and expected != 0, "BUILD reason mask disagrees with keys")
             require(not int(row["was_valid"]) or int(row["previous_attempts"]) != 0,
                     "valid cache has no previous attempt")
-            phases = sum(float(row[name]) for name in ("bounds", "world", "card_ms"))
-            require(abs(phases - float(row["wall"])) <= 0.0021, "BUILD subspans do not partition wall time")
+            bounds, world, card_ms, wall = (float(row[name]) for name in
+                                            ("bounds", "world", "card_ms", "wall"))
+            require(all(0 <= value < float("inf") for value in (bounds, world, card_ms, wall)),
+                    "BUILD spans are not finite nonnegative times")
+            if row["parallel"] == "1":
+                require(row["card"] == "1", "parallel BUILD has no card constructor")
+                require(bounds + max(world, card_ms) <= wall + INDEX_BUILD_ROUNDING_MS,
+                        "parallel BUILD spans exceed wall time")
+            else:
+                require(abs(bounds + world + card_ms - wall) <= INDEX_BUILD_ROUNDING_MS,
+                        "BUILD subspans do not partition wall time")
             records.append(row)
             cursor += 1
         dropped = 0
