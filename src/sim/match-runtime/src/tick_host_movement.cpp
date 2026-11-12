@@ -57,29 +57,6 @@ sim::ground_orders::RoutePoint local_flow_point(const sim::unit_movement::Unit& 
     };
 }
 
-/// Requires departure only for a head whose target exits its original origin.
-/// Saved same-origin legs retain their original reached-point retirement.
-/// @param unit current native footprint origin and dimensions
-/// @param head fixed whole-world origin recorded when the local leg was created
-/// @return whether the leg may complete under its origin-departure requirement
-bool local_flow_completion_origin_satisfied(
-    const sim::unit_movement::Unit& unit, const sim::unit_movement::LocalFlowHead& head
-) noexcept {
-    constexpr int32_t cell_width = 16, half_cell = cell_width / 2;
-    bool target_exits = false, actual_exited = false;
-    for (unsigned axis = 0; axis < 2; ++axis) {
-        const auto origin = [&](int16_t coordinate) {
-            const int32_t biased =
-                int32_t(coordinate) - (int32_t(unit.footprint[axis]) - 1) * half_cell;
-            return biased / cell_width - (biased % cell_width < 0 ? 1 : 0);
-        };
-        const auto start = origin(head.points[0][axis]);
-        target_exits |= origin(head.points[1][axis]) != start;
-        actual_exited |= unit.cell[axis] != start;
-    }
-    return !target_exits || actual_exited;
-}
-
 } // namespace
 
 sim::air::AirHost TickHost::air_host() {
@@ -281,9 +258,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                     static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version);
                 const bool completed_head =
                     flow_head->active && flow_head->goal_key == goal_key &&
-                    sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head) &&
-                    (!require_origin_exit ||
-                     local_flow_completion_origin_satisfied(g.geometry, *flow_head));
+                    sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head);
                 // One tick on the original route can separate two local choices.
                 const bool recent_completion = flow_head->goal_key == goal_key &&
                                                sim::unit_movement::local_flow_completed_last_tick(
