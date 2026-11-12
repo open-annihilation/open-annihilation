@@ -755,6 +755,7 @@ struct Runtime::LibraryHost {
     /// replay to the game and keeps what the Library shows for its return;
     /// KEEP and KEPT mark the replays in the index and save it; OPEN FOLDER
     /// shows the replay's folder; TURN ON RECORDING turns the setting on;
+    /// DELETE REPLAY asks its question, whose Delete calls delete_replays;
     /// EXPORT… opens the dialog, and EXPORT, CHOOSE… and the chooser's rows
     /// write the files or list a folder.
     ///
@@ -762,6 +763,17 @@ struct Runtime::LibraryHost {
     /// @param result what the screen asked for
     /// @return true when the Library closes: WATCH started the replay
     bool replay_action(Runtime& runtime, const oa::ui::library::ScreenResult& result);
+
+    /// Moves replays to the system's trash, where there is one, and takes
+    /// them out of the list, the index and the marks. A file the trash
+    /// refuses stays, and the card says so.
+    ///
+    /// @param runtime the runtime
+    /// @param folder the Recordings folder
+    /// @param paths the replays, relative to it
+    void delete_replays(
+        Runtime& runtime, const std::filesystem::path& folder, const std::vector<std::string>& paths
+    );
 
     /// Opens Export on one replay, for the viewer's end card as well as the
     /// Library. An empty path opens the dialog with nothing selected.

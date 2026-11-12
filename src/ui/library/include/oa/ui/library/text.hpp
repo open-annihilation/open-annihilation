@@ -1009,10 +1009,21 @@ inline constexpr std::string_view action_turn_on_recording = "Turn on recording"
 inline constexpr std::string_view action_open_replay_file = "Open a replay file…";
 /// Delete on the card. The word Delete is the Delete key, so this one is its own.
 inline constexpr std::string_view action_delete_replay = "Delete replay";
-/// The confirm beside Delete, for the one replay the card shows.
-inline constexpr std::string_view action_delete_it = "Delete it";
-/// The confirm beside Delete, when several replays are marked.
-inline constexpr std::string_view action_delete_them = "Delete them";
+/// The delete question's title for the one replay the card shows.
+inline constexpr std::string_view replay_delete_title = "Delete this replay?";
+/// The delete question's title when several replays are marked. `{count}` is how many.
+inline constexpr std::string_view replay_delete_title_many = "Delete these {count} replays?";
+/// The delete question's line where the system has a trash.
+inline constexpr std::string_view replay_delete_to_trash = "It goes to the system's trash.";
+inline constexpr std::string_view replay_delete_to_trash_many = "They go to the system's trash.";
+/// The delete question's line where the system has no trash.
+inline constexpr std::string_view replay_delete_for_good =
+    "It is deleted and cannot be undone. This system has no trash.";
+inline constexpr std::string_view replay_delete_for_good_many =
+    "They are deleted and cannot be undone. This system has no trash.";
+/// The delete question's button that deletes several replays; one replay's
+/// is action_delete_replay.
+inline constexpr std::string_view action_delete_replays = "Delete replays";
 /// The card while several replays are marked: Keep acts on all of them.
 inline constexpr std::string_view replays_marked = "{count} replays selected";
 /// The card on a damaged replay, above the reason.

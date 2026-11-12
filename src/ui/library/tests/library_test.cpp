@@ -6634,15 +6634,57 @@ void test_replays() {
         const std::vector<lib::ReplayFact> exported = lib::replay_facts(library, downloaded);
         OA_CHECK(!exported.empty() && exported.back().value == "Exported replays are kept");
     }
-    // Delete asks beside the button. Choosing another replay takes the confirm away.
+    // Delete asks a question and adds no button to the card. The question
+    // names the replay, or how many are marked, says where they go, and
+    // offers Cancel, marked and answering Escape, then Delete in the danger
+    // look.
     lib::select_replay(library, "default/coast.oademo");
-    library.replays.delete_armed = true;
     buttons = lib::replay_buttons(library);
-    OA_CHECK(buttons.size() == 6 && buttons[4].action == lib::Action::confirm_delete_replays);
-    OA_CHECK(buttons[4].danger && buttons[4].text == "Delete it");
+    OA_CHECK(buttons.size() == 5 && buttons[3].action == lib::Action::delete_replays);
+    {
+        const oa::ui::kit::Question one = lib::delete_replays_question(library, true);
+        OA_CHECK_TEXT(one.title, "Delete this replay?");
+        OA_CHECK(
+            one.lead.rfind(lib::replay_title(replay_at(library, "default/coast.oademo")), 0) == 0
+        );
+        OA_CHECK(one.paragraphs.size() == 1);
+        if (!one.paragraphs.empty())
+            OA_CHECK_TEXT(one.paragraphs[0].text, "It goes to the system's trash.");
+        OA_CHECK(one.buttons.size() == 2);
+        if (one.buttons.size() == 2) {
+            OA_CHECK(one.buttons[0].id == lib::delete_replays_cancel_id);
+            OA_CHECK_TEXT(one.buttons[0].caption, "Cancel");
+            OA_CHECK(!one.buttons[0].danger && !one.buttons[0].accent);
+            OA_CHECK(one.buttons[1].id == lib::delete_replays_button_id);
+            OA_CHECK_TEXT(one.buttons[1].caption, "Delete replay");
+            OA_CHECK(one.buttons[1].danger && !one.buttons[1].accent);
+        }
+        OA_CHECK(one.cancel_button == 0 && one.marked == 0 && one.primary_button == 1);
+        const oa::ui::kit::Question gone = lib::delete_replays_question(library, false);
+        OA_CHECK(!gone.paragraphs.empty());
+        if (!gone.paragraphs.empty())
+            OA_CHECK_TEXT(
+                gone.paragraphs[0].text,
+                "It is deleted and cannot be undone. This system has no trash."
+            );
+    }
     lib::select_replay(library, "ridge/twin.oademo", lib::ReplayPick::toggle);
-    library.replays.delete_armed = true;
-    OA_CHECK(lib::replay_buttons(library)[4].text == "Delete them");
+    {
+        const oa::ui::kit::Question two = lib::delete_replays_question(library, true);
+        OA_CHECK_TEXT(two.title, "Delete these 2 replays?");
+        OA_CHECK(two.lead.empty());
+        OA_CHECK(!two.paragraphs.empty() && two.buttons.size() == 2);
+        if (!two.paragraphs.empty() && two.buttons.size() == 2) {
+            OA_CHECK_TEXT(two.paragraphs[0].text, "They go to the system's trash.");
+            OA_CHECK_TEXT(two.buttons[1].caption, "Delete replays");
+        }
+        const oa::ui::kit::Question gone = lib::delete_replays_question(library, false);
+        if (!gone.paragraphs.empty())
+            OA_CHECK_TEXT(
+                gone.paragraphs[0].text,
+                "They are deleted and cannot be undone. This system has no trash."
+            );
+    }
     library.replays.delete_failure =
         "This replay could not be moved to the trash. the folder is read-only";
     OA_CHECK(
@@ -6650,7 +6692,6 @@ void test_replays() {
             .find("could not be moved to the trash") != std::string::npos
     );
     lib::select_replay(library, "default/show-down.oademo");
-    OA_CHECK(!library.replays.delete_armed);
     OA_CHECK(library.replays.delete_failure.empty());
     lib::Library forever = library;
     forever.inputs.replays.keep_forever = true;

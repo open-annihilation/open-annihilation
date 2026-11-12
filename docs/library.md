@@ -472,12 +472,17 @@ are marked the card says how many. The buttons are:
 - **Keep**, or **Kept** while every marked replay is kept: keeps them, or
   stops keeping them. A replay you keep is kept until you delete it. An
   imported replay is kept already, as its card says, and has no Keep.
-- **Delete replay**, drawn as a danger. The first press does not delete: a
-  confirm button appears beside it, **Delete it**, or **Delete them** when
-  several are marked. That press moves each marked file to the system's
-  trash, or deletes it where the system has none, and takes the row out of
-  the list. Choosing another
-  replay takes the confirm away. If the trash refuses, the file stays and
+- **Delete replay**, drawn as a danger. The press does not delete: a
+  question over the Library asks **Delete this replay?**, naming the
+  replay, its day, time and length, or **Delete these 3 replays?** when
+  several are marked, and says where they go: **It goes to the system's
+  trash.**, or, where the system has none, that it is deleted and cannot be
+  undone. **Cancel** is marked at first, and Escape and Enter answer it, so
+  Enter deletes only once Tab or an arrow has marked **Delete replay**
+  (**Delete replays** for several), drawn as a danger, which Y also
+  answers. That button moves each marked file to the system's trash, or
+  deletes it where the system has none, and takes the row out of the list.
+  If the trash refuses, the file stays and
   the card says so, with the system's reason, or how many stayed when
   several were marked. A mark shared with another copy of that recording
   stays, and names the copy that is left.

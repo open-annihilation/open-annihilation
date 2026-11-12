@@ -45,13 +45,16 @@
 //    damaged does not write a new file, and the next start leaves the
 //    exported replays. The move runs off the main thread; the check waits
 //    until it has finished.
-// 8. Delete, confirmed beside the button, moves marked replays to the trash
-//    and takes their rows out of the list and the index. Deleting one copy
-//    of a kept recording leaves the other kept. A kept file whose bytes
-//    changed reads Kept. A delete the trash refuses leaves the file and says
-//    so on the card. A kept.json cut in half is set aside, its whole marks
-//    are kept, and pressing Keep on another replay and considering again
-//    leaves the earlier kept replays, the ones whose marks were cut off too.
+// 8. Delete replay asks a question over the Library, which names the replay
+//    or how many are marked and says where they go; Cancel, Escape and Enter
+//    on its marked Cancel keep them, and its Delete moves the marked replays
+//    to the trash and takes their rows out of the list and the index.
+//    Deleting one copy of a kept recording leaves the other kept. A kept
+//    file whose bytes changed reads Kept. A delete the trash refuses leaves
+//    the file and says so on the card. A kept.json cut in half is set
+//    aside, its whole marks are kept, and pressing Keep on another replay
+//    and considering again leaves the earlier kept replays, the ones whose
+//    marks were cut off too.
 // 9. A campaign replay is titled by its mission name, with trailing spaces
 //    trimmed. The stored name stays as the file has it, and the map's file
 //    name stays searchable. On a build that can start a process, the pass's
@@ -864,6 +867,42 @@ void Runtime::check_library_replays() {
         SDL_SetModState(SDL_KMOD_NONE);
         run_frame(running);
         require(running, "a frame ended the run");
+    };
+    // A key pressed and let go, then a frame.
+    const auto press_key = [&](SDL_Keycode code) {
+        for (const bool down : {true, false}) {
+            SDL_Event event{};
+            event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            event.key.windowID = SDL_GetWindowID(sdl_.window);
+            event.key.key = code;
+            event.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
+            event.key.down = down;
+            bool going = true;
+            dispatch_event(event, going);
+            require(going, "a key ended the run");
+        }
+        run_frame(running);
+        require(running, "a frame ended the run");
+    };
+    // Delete replay asks its question over the Library: the card gains no
+    // button, and the question's text and buttons are what a screen reader
+    // reads.
+    const auto delete_asks = [&](std::string_view title) {
+        click_named("oa.library.action.delete");
+        const std::optional<AutomationControl> body = named("oa.prompt.body");
+        require(
+            body.has_value() && body->text.find(title) != std::string::npos &&
+                body->text.find("trash") != std::string::npos,
+            "Delete replay did not ask \"" + std::string(title) + "\" with where the replays go"
+        );
+        const std::optional<AutomationControl> cancel = named("oa.prompt.cancel");
+        const std::optional<AutomationControl> confirm = named("oa.prompt.delete");
+        require(
+            cancel.has_value() && cancel->text == "Cancel" && cancel->enabled &&
+                confirm.has_value() && confirm->text.rfind("Delete replay", 0) == 0 &&
+                confirm->enabled,
+            "the delete question does not offer Cancel and Delete"
+        );
     };
     // Pictures of the list that predate the index pass: every row is already
     // read, with nothing to show, and the footer is the count.
@@ -2617,13 +2656,13 @@ void Runtime::check_library_replays() {
         const std::vector<uint8_t> cut_marks(whole_marks.data(), whole_marks.data() + export_cut);
         click_named("oa.library.filter.this-month");
         click_named(row_of("default/hold-delete.oademo"));
-        click_named("oa.library.action.delete");
+        delete_asks("Delete this replay?");
         require(still_there(hold_delete), "Delete removed a replay before it was confirmed");
         // The shelf still holds the marks it read while the file was whole.
         // Drop it, then cut the file, so Delete is what finds the damage.
         host.replays.reset();
         write_bytes(export_marks, std::span<const uint8_t>(cut_marks.data(), cut_marks.size()));
-        click_named("oa.library.action.delete-confirm");
+        click_named("oa.prompt.delete");
         require(!still_there(hold_delete), "the confirmed delete left the replay");
         fs::path export_aside = export_marks;
         export_aside += ".damaged";
@@ -2657,7 +2696,8 @@ void Runtime::check_library_replays() {
                      "exported replays stayed\n";
     }
 
-    // Delete, confirmed beside the button, for two marked replays.
+    // Delete's question, for two marked replays: Cancel, Escape and Enter on
+    // the marked Cancel keep them; its Delete moves them.
     open_replays();
     click_named("oa.library.filter.this-month");
     click_named("oa.library.replays.kind");
@@ -2665,17 +2705,38 @@ void Runtime::check_library_replays() {
     click_named(row_of("default/filler-1.oademo"));
     click_named(row_of("default/filler-2.oademo"), SDL_KMOD_CTRL);
     require(host.model.replays.marked.size() == 2, "Ctrl did not mark a second replay to delete");
-    click_named("oa.library.action.delete");
+    const auto both_kept = [&](std::string_view after) {
+        require(
+            !named("oa.prompt.body").has_value(),
+            std::string(after) + " did not close the delete question"
+        );
+        require(
+            still_there(filler_one) && still_there(filler_two) &&
+                host.model.replays.marked.size() == 2,
+            std::string(after) + " deleted a replay"
+        );
+    };
+    delete_asks("Delete these 2 replays?");
     require(
-        still_there(filler_one) && still_there(filler_two),
-        "Delete removed a replay before it was confirmed"
+        named("oa.prompt.delete")->text == "Delete replays",
+        "the delete question's button does not say Delete replays"
     );
     {
-        const std::optional<AutomationControl> confirm = named("oa.library.action.delete-confirm");
-        require(confirm && confirm->text == "Delete them", "Delete did not ask beside the button");
-        snapshot("delete-confirm", true);
+        const std::optional<AutomationControl> cancel = named("oa.prompt.cancel");
+        require(cancel && cancel->focused, "the delete question does not mark Cancel at first");
     }
-    click_named("oa.library.action.delete-confirm");
+    snapshot("delete-question", true);
+    click_named("oa.prompt.cancel");
+    both_kept("Cancel");
+    delete_asks("Delete these 2 replays?");
+    press_key(SDLK_ESCAPE);
+    both_kept("Escape");
+    delete_asks("Delete these 2 replays?");
+    press_key(SDLK_RETURN);
+    both_kept("Enter on the marked Cancel");
+    std::cout << "library replays: Cancel, Escape and Enter on Cancel kept the replays\n";
+    delete_asks("Delete these 2 replays?");
+    click_named("oa.prompt.delete");
     require(
         !still_there(filler_one) && !still_there(filler_two), "the confirmed delete left a file"
     );
@@ -2713,8 +2774,8 @@ void Runtime::check_library_replays() {
         );
     }
     click_named(row_of("default/copy-a.oademo"));
-    click_named("oa.library.action.delete");
-    click_named("oa.library.action.delete-confirm");
+    delete_asks("Delete this replay?");
+    click_named("oa.prompt.delete");
     require(!still_there(copy_a), "deleting one copy left its file");
     require(still_there(copy_b), "deleting one copy removed the other");
     {
@@ -2756,8 +2817,8 @@ void Runtime::check_library_replays() {
     open_replays();
     click_named("oa.library.filter.this-month");
     click_named(row_of("locked/stuck.oademo"));
-    click_named("oa.library.action.delete");
-    click_named("oa.library.action.delete-confirm");
+    delete_asks("Delete this replay?");
+    click_named("oa.prompt.delete");
     require(still_there(stuck_file), "a refused delete removed the file");
     require(
         host.model.replays.delete_failure.find("could not be moved to the trash") !=

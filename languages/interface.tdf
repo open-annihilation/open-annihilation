@@ -28070,20 +28070,60 @@
 	it=Elimina il replay;
 	}
 
-[Delete it]
+[Delete this replay?]
 	{
-	de=Löschen;
-	fr=Le supprimer;
-	es=Borrarla;
-	it=Eliminalo;
+	de=Dieses Replay löschen?;
+	fr=Supprimer ce replay ?;
+	es=¿Borrar esta repetición?;
+	it=Eliminare questo replay?;
 	}
 
-[Delete them]
+[Delete these {count} replays?]
 	{
-	de=Löschen;
-	fr=Les supprimer;
-	es=Borrarlas;
-	it=Eliminali;
+	de=Diese {count} Replays löschen?;
+	fr=Supprimer ces {count} replays ?;
+	es=¿Borrar estas {count} repeticiones?;
+	it=Eliminare questi {count} replay?;
+	}
+
+[It goes to the system's trash.]
+	{
+	de=Es kommt in den Papierkorb des Systems.;
+	fr=Il va dans la corbeille du système.;
+	es=Va a la papelera del sistema.;
+	it=Va nel cestino del sistema.;
+	}
+
+[They go to the system's trash.]
+	{
+	de=Sie kommen in den Papierkorb des Systems.;
+	fr=Ils vont dans la corbeille du système.;
+	es=Van a la papelera del sistema.;
+	it=Vanno nel cestino del sistema.;
+	}
+
+[It is deleted and cannot be undone. This system has no trash.]
+	{
+	de=Es wird gelöscht und lässt sich nicht wiederherstellen. Dieses System hat keinen Papierkorb.;
+	fr=Il est supprimé, sans retour possible. Ce système n'a pas de corbeille.;
+	es=Se elimina y no se puede deshacer. Este sistema no tiene papelera.;
+	it=Viene eliminato e non si può annullare. Questo sistema non ha un cestino.;
+	}
+
+[They are deleted and cannot be undone. This system has no trash.]
+	{
+	de=Sie werden gelöscht und lassen sich nicht wiederherstellen. Dieses System hat keinen Papierkorb.;
+	fr=Ils sont supprimés, sans retour possible. Ce système n'a pas de corbeille.;
+	es=Se eliminan y no se puede deshacer. Este sistema no tiene papelera.;
+	it=Vengono eliminati e non si può annullare. Questo sistema non ha un cestino.;
+	}
+
+[Delete replays]
+	{
+	de=Replays löschen;
+	fr=Supprimer les replays;
+	es=Borrar las repeticiones;
+	it=Elimina i replay;
 	}
 
 [{count} replays selected]

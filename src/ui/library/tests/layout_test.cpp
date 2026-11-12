@@ -398,7 +398,7 @@ bool designed_name(const std::string& name) {
         "action\\.(get|update|update-all|cancel|retry|roll-back|play-now|switch-off|"
         "check-with-mod|use-by-default|use|edit-keys|uninstall|open-folder|homepage|watch|keep|"
         "turn-on-recording|open-replay-file|download|browse-core-prime|export|delete|"
-        "delete-confirm|sign-in|sign-out|share|open-shared)|"
+        "sign-in|sign-out|share|open-shared)|"
         "replays\\.(kind|sort|status|planet)(\\.[a-z0-9-]+)?|"
         "replays\\.source\\.(computer|core-prime)|"
         "replays\\.sign-in\\.secure|"
@@ -7298,17 +7298,21 @@ void replays_section_lays_out() {
         OA_CHECK(
             export_replay != nullptr && export_replay->enabled && export_replay->text == "Export…"
         );
-        // Delete armed and not: every button of the card stays inside the dialog.
-        library.replays.delete_armed = true;
-        list = laid_out(library, state, frame);
-        OA_EXPECT_NONE(fixture::outside_window(list, window), on + " delete");
-        OA_EXPECT_NONE(meeting_controls(list), on + " delete");
-        OA_CHECK(fixture::named(list, "library.action.export") != nullptr);
-        OA_CHECK(fixture::named(list, "library.action.delete") != nullptr);
-        OA_CHECK(fixture::named(list, "library.action.delete-confirm") != nullptr);
-        OA_CHECK(fixture::named(list, "library.action.open-folder") != nullptr);
-        library.replays.delete_armed = false;
-        list = laid_out(library, state, frame);
+        // Delete hands the marked replays to the host, which asks; the card
+        // gains no button, and every button stays inside the dialog.
+        {
+            const lib::ScreenResult asked = click(library, state, list, "library.action.delete");
+            OA_CHECK(
+                asked.action == lib::Action::delete_replays &&
+                asked.replays == std::vector<std::string>{"default/coast.oademo"}
+            );
+            list = laid_out(library, state, frame);
+            OA_EXPECT_NONE(fixture::outside_window(list, window), on + " delete");
+            OA_EXPECT_NONE(meeting_controls(list), on + " delete");
+            OA_CHECK(fixture::named(list, "library.action.delete") != nullptr);
+            OA_CHECK(fixture::named(list, "library.action.open-folder") != nullptr);
+            OA_CHECK(lib::replay_buttons(library).size() == 5);
+        }
         lib::ScreenResult result = click(library, state, list, "library.action.watch");
         OA_CHECK(
             result.action == lib::Action::watch_replay && result.replay == "default/coast.oademo"

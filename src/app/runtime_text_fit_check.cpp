@@ -1268,11 +1268,46 @@ void Runtime::check_text_fit() {
             host.state.details_scroll = scroll;
             look(scroll == 0 ? "card" : "card-foot", true);
         }
-        // Delete armed: the confirm sits with the other buttons, in every language.
-        host.model.replays.delete_armed = true;
+        // Delete's question over the card, for one replay and for two, with
+        // the trash and without, in every language.
         host.state.details_scroll = 0;
-        look("card-delete", true);
-        host.model.replays.delete_armed = false;
+        for (const bool trash : {true, false}) {
+            for (const bool two : {false, true}) {
+                if (two) {
+                    // The next row the list shows marks a second replay.
+                    const std::vector<library::ReplayRow>& rows =
+                        library::shown_replay_rows(host.model);
+                    for (const std::size_t at : host.model.replays.visible) {
+                        if (at < rows.size() &&
+                            rows[at].replay.path != host.model.replays.selected) {
+                            library::select_replay(
+                                host.model, rows[at].replay.path, library::ReplayPick::toggle
+                            );
+                            break;
+                        }
+                    }
+                }
+                require(
+                    host.model.replays.marked.size() == (two ? 2U : 1U),
+                    "library/replays/delete: the replays are not marked"
+                );
+                oa_layer().push(
+                    std::make_unique<QuestionScreen>(
+                        oa_layer(),
+                        Screen::main_menu,
+                        library::delete_replays_question(host.model, trash),
+                        QuestionScreen::Host{}
+                    )
+                );
+                paint_held(
+                    std::string("library/replays/delete-") + (two ? "two" : "one") +
+                    (trash ? "-trash" : "-no-trash")
+                );
+                if (LayerScreen* question = oa_layer().find(QuestionScreen::screen_name))
+                    oa_layer().close(question);
+            }
+            library::select_replay(host.model, "default/2026-11-04 1432 Comet Catcher.oademo");
+        }
         host.state.replay_page = false;
         host.state.details_scroll = 0;
         // Both menus, the sort on the longest German word.

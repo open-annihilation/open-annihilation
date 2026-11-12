@@ -6104,6 +6104,37 @@ void Runtime::LibraryHost::pump_replay_fetch(Runtime& runtime) {
     static_cast<void>(start_replay_watch(runtime, watch_at, pending.from));
 }
 
+void Runtime::LibraryHost::delete_replays(
+    Runtime& runtime, const fs::path& folder, const std::vector<std::string>& paths
+) {
+    ReplayShelf* shelf = replays ? replays.get() : nullptr;
+    StoredBatch batch = open_batch(shelf, folder);
+    bool changed = false;
+    std::size_t stayed = 0;
+    std::string reason;
+    for (const std::string& relative : paths) {
+        const replay_data::Replay replay = replay_for(shelf, batch, relative);
+        const TrashOutcome outcome =
+            try_move(runtime.replay_trash_left_, folder, relative, runtime.replay_trash_refusal_);
+        if (!outcome.gone) {
+            ++stayed;
+            if (reason.empty())
+                reason = outcome.error;
+            continue;
+        }
+        changed = true;
+        note_moved(batch, shelf, replay);
+    }
+    if (changed || batch.kept_dirty || batch.exported_dirty || batch.index_dirty)
+        commit_batch(batch, shelf, folder);
+    if (!changed && stayed == 0)
+        return;
+    fill_replay_inputs(runtime, model.inputs);
+    library::update_replays(model);
+    model.replays.delete_failure = trash_failure_note(stayed, reason);
+    ++model_revision;
+}
+
 bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::ScreenResult& result) {
     if (!result.action)
         return false;
@@ -6218,37 +6249,33 @@ bool Runtime::LibraryHost::replay_action(Runtime& runtime, const library::Screen
     }
 #endif
         return false;
-    case library::Action::delete_replays:
-        // The first press only shows the confirm button. It deletes nothing.
-        return false;
-    case library::Action::confirm_delete_replays: {
-        ReplayShelf* shelf = replays ? replays.get() : nullptr;
-        StoredBatch batch = open_batch(shelf, folder);
-        bool changed = false;
-        std::size_t stayed = 0;
-        std::string reason;
-        for (const std::string& relative : result.replays) {
-            const replay_data::Replay replay = replay_for(shelf, batch, relative);
-            const TrashOutcome outcome = try_move(
-                runtime.replay_trash_left_, folder, relative, runtime.replay_trash_refusal_
-            );
-            if (!outcome.gone) {
-                ++stayed;
-                if (reason.empty())
-                    reason = outcome.error;
-                continue;
-            }
-            changed = true;
-            note_moved(batch, shelf, replay);
-        }
-        if (changed || batch.kept_dirty || batch.exported_dirty || batch.index_dirty)
-            commit_batch(batch, shelf, folder);
-        if (!changed && stayed == 0)
+    case library::Action::delete_replays: {
+        // The press asks first. The question's Delete moves the replays it
+        // asked about to the trash; Cancel, Escape and a question that goes
+        // with the main menu move nothing.
+        if (result.replays.empty())
             return false;
-        fill_replay_inputs(runtime, model.inputs);
-        library::update_replays(model);
-        model.replays.delete_failure = trash_failure_note(stayed, reason);
-        ++model_revision;
+        oa::ui::kit::Question asked =
+            library::delete_replays_question(model, platform::system_has_trash());
+        int32_t delete_button = -1;
+        for (std::size_t place = 0; place < asked.buttons.size(); ++place)
+            if (asked.buttons[place].id == library::delete_replays_button_id)
+                delete_button = static_cast<int32_t>(place);
+        QuestionScreen::Host answers;
+        // The host outlives the question: it is the runtime's Library.
+        answers.answer =
+            [this, &runtime, folder, delete_button, paths = result.replays](int32_t button) {
+                if (button == delete_button)
+                    delete_replays(runtime, folder, paths);
+                return true;
+            };
+        answers.tick = [&runtime] { return runtime.screen_ != Screen::main_menu; };
+        OaLayer& layer = runtime.oa_layer();
+        layer.push(
+            std::make_unique<QuestionScreen>(
+                layer, Screen::main_menu, std::move(asked), std::move(answers)
+            )
+        );
         return false;
     }
     case library::Action::export_replays:

@@ -841,11 +841,8 @@ struct ReplayView {
     std::string refused_path{}; ///< the replay the refusal is about
     /// The selection of the list that is not shown, so the switch can return to it.
     std::optional<std::string> other_selected{};
-    /// Delete was pressed and waits for the confirm button beside it.
-    /// Choosing another replay clears it. Nothing is deleted until that button.
-    bool delete_armed{false};
     /// Why a Delete just failed, already in the player's language. The card
-    /// shows it until another replay is chosen or Delete is armed again.
+    /// shows it until another replay is chosen or Delete is pressed again.
     std::string delete_failure{};
 };
 
@@ -2239,12 +2236,10 @@ enum class Action : uint8_t {
     /// OPEN A REPLAY FILE… in the empty Replays section, and under the
     /// Imported filter while it shows none. The host opens the file dialog.
     open_replay_file,
-    /// DELETE on the card. The first press only asks, with a confirm button
-    /// beside it. Nothing is deleted.
+    /// DELETE on the card. `ScreenResult::replays` names every marked
+    /// replay. The host asks delete_replays_question, and its Delete moves
+    /// each file to the system's trash. The press itself deletes nothing.
     delete_replays,
-    /// The confirm button beside DELETE. `ScreenResult::replays` names every
-    /// marked replay. The host moves each file to the system's trash.
-    confirm_delete_replays,
     /// EXPORT… on the card. `ScreenResult::replays` names every marked replay.
     /// The host opens the Export dialog.
     export_replays,
@@ -2306,7 +2301,7 @@ struct ActionButton {
     /// The button's words. A fixed action's are the text.hpp word, looked
     /// up. TURN ON names the expansion, so the words are owned here.
     std::string text{};
-    /// Drawn in the danger look: Delete, and the confirm beside it.
+    /// Drawn in the danger look: a replay's Delete replay.
     bool danger{};
 };
 

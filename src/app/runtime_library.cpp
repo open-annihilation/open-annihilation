@@ -4467,7 +4467,6 @@ struct Runtime::LibraryScreen final : LayerScreen {
         case library::Action::turn_on_recording:
         case library::Action::open_replay_file:
         case library::Action::delete_replays:
-        case library::Action::confirm_delete_replays:
         case library::Action::export_replays:
         case library::Action::choose_export_folder:
         case library::Action::run_export:

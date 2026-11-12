@@ -473,8 +473,6 @@ std::string_view action_text(Action action, const TextHooks& text) {
         return shown(text, words::action_open_replay_file);
     case Action::delete_replays:
         return shown(text, words::action_delete_replay);
-    case Action::confirm_delete_replays:
-        return shown(text, words::action_delete_it);
     case Action::export_replays:
         return shown(text, words::action_export);
     case Action::choose_export_folder:

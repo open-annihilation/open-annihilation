@@ -487,8 +487,12 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
   starts where the replay was left, and not beside Check for updates, or
   while the replay's packages are being fetched (the button then reads Cancel);
   Export…; Keep, Kept while every marked replay is kept, and no Keep at all
-  while every marked replay is imported; Delete replay, and Delete it or
-  Delete them once it is armed; Open folder), `refuse_replay` (the game's refusal,
+  while every marked replay is imported; Delete replay; Open folder),
+  `delete_replays_question` (the question Delete replay asks: "Delete this
+  replay?" with the replay's name, day, time and length, or "Delete these
+  {count} replays?", then where they go, the system's trash or deleted for
+  good where there is none; Cancel, marked and answering Escape, and Delete
+  replay or Delete replays in the danger look), `refuse_replay` (the game's refusal,
   shown while that replay is selected).
 - `replay_empty` says what the section shows with no row: no replays yet and
   that games are kept 30 days, 90 days, a year, or until deleted, or that

@@ -367,8 +367,10 @@ on Core Prime** is on a listed battle's card whether or not the player is
 signed in. **Share my own recording** waits until they are. The card does
 the upload.
 
-**Delete replay** on the card, confirmed by the button beside it, moves that
-replay's file to the system's trash and takes it out of the list. If the
+**Delete replay** on the card asks first, in a question over the Library:
+**Delete this replay?**, with where it goes. Its **Delete replay** moves that
+replay's file to the system's trash, or deletes it where the system has
+none, and takes it out of the list; **Cancel** and Escape keep it. If the
 trash refuses, the file stays and the card says so. At start,
 replays older than **Keep replays for** go the same way, except one you
 keep (even when its bytes have changed) and one you imported, downloaded or

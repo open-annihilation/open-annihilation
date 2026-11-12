@@ -269,8 +269,6 @@ std::string_view action_word(Action action) {
         return "open-replay-file";
     case Action::delete_replays:
         return "delete";
-    case Action::confirm_delete_replays:
-        return "delete-confirm";
     case Action::export_replays:
         return "export";
     case Action::choose_export_folder:

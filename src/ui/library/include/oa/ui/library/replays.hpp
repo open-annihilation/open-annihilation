@@ -8,6 +8,7 @@
 // each replay's local day and time and the day today.
 #pragma once
 
+#include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/library/library.hpp"
 
 #include <cstddef>
@@ -374,14 +375,13 @@ struct ReplayButton {
     Action action{Action::watch_replay}; ///< what it asks for
     bool enabled{};                      ///< it takes a press
     std::string text{};                  ///< its words, looked up
-    /// Drawn in the danger look: Delete replay, and the confirm beside it.
+    /// Drawn in the danger look: Delete replay.
     bool danger{};
 };
 
 /// Lists the details card's buttons: Watch, then Watch from when a Watch was
 /// left part way, then Export…, then Keep (Kept when every marked replay is
-/// kept), then Delete replay, then the confirm beside it once Delete has been
-/// pressed, then Open folder.
+/// kept), then Delete replay, then Open folder.
 ///
 /// Watch is off for a damaged replay and during a game. When the replay
 /// needs content, its words are Get … and watch, Turn on and watch, or
@@ -389,13 +389,33 @@ struct ReplayButton {
 /// catalogue or the registry could not be reached. Export… opens the
 /// dialog for every marked replay. Keep acts on every marked replay, and is
 /// left out when every marked replay was imported, which is kept already.
-/// Delete asks, and the confirm beside it is what moves the marked files to
-/// the trash. Choosing another replay takes the confirm away. Open folder
-/// shows the folder the replay is in.
+/// Delete asks first, in delete_replays_question, whose Delete moves the
+/// marked files to the trash. Open folder shows the folder the replay is in.
 ///
 /// @param library the Library
 /// @return the buttons, in the order shown; none while no replay is selected
 [[nodiscard]] std::vector<ReplayButton> replay_buttons(const Library& library);
+
+/// The delete question's buttons' ids: automation names them
+/// prompt.cancel and prompt.delete.
+inline constexpr std::string_view delete_replays_cancel_id = "cancel";
+inline constexpr std::string_view delete_replays_button_id = "delete";
+
+/// Makes the question Delete replay asks before anything is deleted.
+///
+/// One marked replay: "Delete this replay?", with the replay's name, day,
+/// time and length under the header, then "It goes to the system's trash."
+/// where the system has a trash, or "It is deleted and cannot be undone.
+/// This system has no trash." Several: "Delete these {count} replays?" and
+/// the same lines for them. Then Cancel (`cancel`), marked at first, which
+/// Enter, Escape and N answer, and Delete replay, or Delete replays for
+/// several (`delete`), in the danger look, which Y answers, as Enter does
+/// once the keys have marked it. Its word is the kit's default.
+///
+/// @param library the Library, whose marked replays it asks about
+/// @param trash the system has a trash, so a deleted replay can be put back
+/// @return the question
+[[nodiscard]] oa::ui::kit::Question delete_replays_question(const Library& library, bool trash);
 
 /// Tells whether every marked replay was imported, so that Keep has nothing
 /// to do.

@@ -1501,16 +1501,9 @@ ScreenResult activate(
         if (action == Action::delete_replays) {
             if (library.replays.marked.empty())
                 return {};
-            // The first press only asks. The confirm button beside it deletes.
-            library.replays.delete_armed = true;
+            // The host asks before anything is deleted.
             library.replays.delete_failure.clear();
-            return redrawn();
-        }
-        if (action == Action::confirm_delete_replays) {
-            if (!library.replays.delete_armed || library.replays.marked.empty())
-                return {};
             result.replays = library.replays.marked;
-            library.replays.delete_armed = false;
             return result;
         }
         if (library.selected)

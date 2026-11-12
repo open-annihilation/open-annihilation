@@ -350,10 +350,8 @@ void keep_replay_selection(Library& library, const std::optional<std::string>& s
         view.marked.push_back(*view.selected);
     if (view.anchor && !shows(library, *view.anchor))
         view.anchor.reset();
-    if (view.selected != selected_before) {
-        view.delete_armed = false;
+    if (view.selected != selected_before)
         view.delete_failure.clear();
-    }
 }
 
 /// Recomputes Core Prime's visible rows from its filter and the search.
@@ -451,7 +449,6 @@ void set_replay_source(Library& library, ReplaySource source) {
     std::swap(view.selected, view.other_selected);
     view.marked.clear();
     view.anchor.reset();
-    view.delete_armed = false;
     view.delete_failure.clear();
     if (source == ReplaySource::core_prime && library.inputs.replays.core_rows.empty())
         library.inputs.replays.core_loading = true;
@@ -541,7 +538,6 @@ void set_replay_sort(Library& library, ReplaySort sort) {
 }
 
 void select_replay(Library& library, std::string_view path, ReplayPick pick) {
-    library.replays.delete_armed = false;
     library.replays.delete_failure.clear();
     update_replays(library);
     ReplayView& view = library.replays;
@@ -578,7 +574,6 @@ void select_replay(Library& library, std::string_view path, ReplayPick pick) {
 }
 
 void move_replay_selection(Library& library, int delta) {
-    library.replays.delete_armed = false;
     library.replays.delete_failure.clear();
     update_replays(library);
     const ReplayView& view = library.replays;
@@ -1507,17 +1502,6 @@ std::vector<ReplayButton> replay_buttons(const Library& library) {
          std::string(shown(library.text, words::action_delete_replay)),
          true}
     );
-    if (library.replays.delete_armed) {
-        const bool several = library.replays.marked.size() > 1;
-        buttons.push_back(
-            {Action::confirm_delete_replays,
-             !library.replays.marked.empty(),
-             std::string(
-                 shown(library.text, several ? words::action_delete_them : words::action_delete_it)
-             ),
-             true}
-        );
-    }
     buttons.push_back(
         {Action::open_replay_folder,
          true,
@@ -1558,6 +1542,50 @@ std::vector<ReplayButton> replay_buttons(const Library& library) {
         {Action::share_replay, true, std::string(shown(library.text, words::action_share))}
     );
     return buttons;
+}
+
+oa::ui::kit::Question delete_replays_question(const Library& library, bool trash) {
+    const std::size_t count = library.replays.marked.size();
+    const bool several = count > 1;
+    oa::ui::kit::Question question;
+    question.title =
+        several
+            ? filled(
+                  library.text, words::replay_delete_title_many, {{"count", std::to_string(count)}}
+              )
+            : std::string(shown(library.text, words::replay_delete_title));
+    if (!several && count == 1) {
+        if (const ReplayRow* row = find_replay(library, library.replays.marked.front())) {
+            const std::string when = replay_when_line(library, *row);
+            question.lead = replay_title(*row);
+            if (!when.empty())
+                question.lead += " · " + when;
+        }
+    }
+    std::string_view line = words::replay_delete_to_trash;
+    if (several)
+        line = trash ? words::replay_delete_to_trash_many : words::replay_delete_for_good_many;
+    else if (!trash)
+        line = words::replay_delete_for_good;
+    question.paragraphs.push_back({std::string(shown(library.text, line)), false});
+    question.buttons.push_back(
+        {std::string(shown(library.text, words::action_cancel)),
+         false,
+         std::string(delete_replays_cancel_id)}
+    );
+    oa::ui::kit::QuestionButton remove{
+        std::string(shown(
+            library.text, several ? words::action_delete_replays : words::action_delete_replay
+        )),
+        false,
+        std::string(delete_replays_button_id)
+    };
+    remove.danger = true;
+    question.buttons.push_back(std::move(remove));
+    question.cancel_button = 0;
+    question.primary_button = 1;
+    question.marked = 0;
+    return question;
 }
 
 ReplayEmpty replay_empty(const Library& library) {
