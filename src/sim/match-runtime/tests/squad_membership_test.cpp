@@ -29,6 +29,7 @@ namespace persist = oa::data::persist;
 constexpr uint32_t legacy_version = 4;
 constexpr uint32_t indexed_version = oa::data::enhanced_mode::battle_flow_version;
 constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
+constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
 constexpr uint32_t no_squad = 0xffffffffu;
 constexpr uint32_t fixed_one = 65536;
 constexpr std::array<uint32_t, 8> groups = {0, 1, 2, 3, 4, 6, 9, 100};
@@ -396,7 +397,7 @@ int run_case(std::string_view name, Function function) {
 /// Runs actual-match vector, lifecycle, load-seam and canonical continuation checks.
 int main() {
     int failures = 0;
-    for (const auto version : {indexed_version, distributed_version}) {
+    for (const auto version : {indexed_version, distributed_version, following_version}) {
         std::cout << "Enhanced squad membership: version=" << version << '\n';
         failures += run_case("same and cross squad", [version] {
             same_group_and_cross_group_moves_keep_vector_order(version);

@@ -29,6 +29,7 @@ namespace ground = oa::sim::ground_orders;
 namespace ai = oa::sim::ai;
 
 constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
+constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
 constexpr uint8_t computer = 1, enemy = 0;
 constexpr uint32_t strike_squad = static_cast<uint32_t>(ai::Squad::land_strike);
 constexpr int32_t pixel = 65536;
@@ -230,8 +231,8 @@ struct Battle {
 };
 
 /// Keeps a refresh's owned order, navigation and weapon binding without new tick work.
-void unchanged_builtin_attack_keeps_live_work() {
-    Battle battle;
+void unchanged_builtin_attack_keeps_live_work(uint32_t version) {
+    Battle battle(version);
     auto* order = battle.unit().primary;
     auto* goal = battle.movement().navigation.goal;
     const auto navigation = battle.movement().navigation;
@@ -257,8 +258,8 @@ void unchanged_builtin_attack_keeps_live_work() {
 }
 
 /// Keeps the actual worker, its remaining budget and every native search field.
-void a_pending_native_search_survives_the_refresh() {
-    Battle battle(distributed_version, true);
+void a_pending_native_search_survives_the_refresh(uint32_t version) {
+    Battle battle(version, true);
     ground::SearchRecord before{};
     for (uint32_t tick = 0; tick < 120; ++tick) {
         before = runtime::MatchTickAccess::active_path_search(battle.match());
@@ -302,7 +303,7 @@ void older_presets_replace_the_attack() {
 }
 
 /// Replaces interrupted attacks instead of retaining a failed or terminal goal.
-void interrupted_orders_replace_the_attack() {
+void interrupted_orders_replace_the_attack(uint32_t version) {
     for (const auto event :
          {cancel_event,
           target_lost_event,
@@ -310,14 +311,14 @@ void interrupted_orders_replace_the_attack() {
           ground::arrived_event,
           ground::path_failed_event,
           ground::goal_replaced_event}) {
-        Battle battle;
+        Battle battle(version);
         auto* order = battle.unit().primary;
         order->raised_events |= event;
         battle.refresh();
         CHECK(battle.unit().primary != order);
         CHECK(battle.movement().navigation.goal == nullptr);
     }
-    Battle battle;
+    Battle battle(version);
     auto* order = battle.unit().primary;
     order->phase = 4;
     battle.refresh();
@@ -325,9 +326,9 @@ void interrupted_orders_replace_the_attack() {
 }
 
 /// Replaces an attack when a tail, a point or a different target changes the command.
-void changed_commands_replace_the_attack() {
+void changed_commands_replace_the_attack(uint32_t version) {
     {
-        Battle battle;
+        Battle battle(version);
         auto* order = battle.unit().primary;
         CHECK(!battle.match().order_refused(
             battle.match().issue_patrol(battle.actor, {80 * pixel, 0, 144 * pixel}, true)
@@ -337,7 +338,7 @@ void changed_commands_replace_the_attack() {
         CHECK(battle.unit().primary != order && battle.unit().primary->next == nullptr);
     }
     {
-        Battle battle;
+        Battle battle(version);
         CHECK(
             battle.match().issue_attack_command(battle.actor, battle.replacement, false, nullptr)
         );
@@ -347,7 +348,7 @@ void changed_commands_replace_the_attack() {
         CHECK(head_record(battle.match(), battle.actor).target == battle.target);
     }
     {
-        Battle battle;
+        Battle battle(version);
         const ground::Point point{200 * pixel, 0, 112 * pixel};
         CHECK(battle.match().issue_attack_ground(battle.actor, point, false) != nullptr);
         const auto ground_command = head_record(battle.match(), battle.actor);
@@ -359,7 +360,7 @@ void changed_commands_replace_the_attack() {
         CHECK(head_record(battle.match(), battle.actor).target == battle.target);
     }
     {
-        Battle battle;
+        Battle battle(version);
 
         struct Request {
             uint16_t actor{}, target{};
@@ -391,7 +392,7 @@ void changed_commands_replace_the_attack() {
         CHECK(battle.match().fault() == nullptr);
     }
     {
-        Battle battle;
+        Battle battle(version);
         const ground::Point ignored_point{200 * pixel, 0, 112 * pixel};
         CHECK(
             battle.match().issue_attack_command(battle.actor, battle.target, false, &ignored_point)
@@ -406,9 +407,9 @@ void changed_commands_replace_the_attack() {
 }
 
 /// Rejects dying bindings and targets with no health before the native refresh.
-void dying_targets_get_replaced() {
+void dying_targets_get_replaced(uint32_t version) {
     for (const bool death_pending : {false, true}) {
-        Battle battle;
+        Battle battle(version);
         auto* order = battle.unit().primary;
         auto& target = battle.match().spawn_slot(battle.target).record;
         if (death_pending)
@@ -435,8 +436,8 @@ struct CustomSeat {
 };
 
 /// Leaves player commands and a custom controller's commands on the normal path.
-void manual_and_custom_commands_replace_the_attack() {
-    Battle battle;
+void manual_and_custom_commands_replace_the_attack(uint32_t version) {
+    Battle battle(version);
     auto* previous = battle.unit().primary;
     CHECK(battle.match().issue_attack_command(battle.actor, battle.target, false, nullptr));
     CHECK(battle.unit().primary != previous);
@@ -452,8 +453,8 @@ void manual_and_custom_commands_replace_the_attack() {
 }
 
 /// Continues an actual restored order and its restored owned goal on AI refresh.
-void restored_orders_continue_without_a_new_schema() {
-    Battle battle;
+void restored_orders_continue_without_a_new_schema(uint32_t version) {
+    Battle battle(version);
     saved_game::ScopedBank bank;
     data::persist::bank_open_account(bank.get(), "Units");
     const auto count = saved_game::write_orders(
@@ -473,8 +474,8 @@ void restored_orders_continue_without_a_new_schema() {
 }
 
 /// Replaces a sole saved automatic attack carrying its original movement leash.
-void leashed_attacks_take_the_explicit_ai_command() {
-    Battle battle;
+void leashed_attacks_take_the_explicit_ai_command(uint32_t version) {
+    Battle battle(version);
 
     struct Saved {
         data::persist::SavedOrder order{};
@@ -510,19 +511,22 @@ void leashed_attacks_take_the_explicit_ai_command() {
 
 int main() {
     try {
-        unchanged_builtin_attack_keeps_live_work();
-        a_pending_native_search_survives_the_refresh();
         older_presets_replace_the_attack();
-        interrupted_orders_replace_the_attack();
-        changed_commands_replace_the_attack();
-        dying_targets_get_replaced();
-        manual_and_custom_commands_replace_the_attack();
-        restored_orders_continue_without_a_new_schema();
-        leashed_attacks_take_the_explicit_ai_command();
+        for (const auto version : {distributed_version, following_version}) {
+            std::cout << "Enhanced attack retention: version=" << version << '\n';
+            unchanged_builtin_attack_keeps_live_work(version);
+            a_pending_native_search_survives_the_refresh(version);
+            interrupted_orders_replace_the_attack(version);
+            changed_commands_replace_the_attack(version);
+            dying_targets_get_replaced(version);
+            manual_and_custom_commands_replace_the_attack(version);
+            restored_orders_continue_without_a_new_schema(version);
+            leashed_attacks_take_the_explicit_ai_command(version);
+        }
     } catch (const std::exception& error) {
         std::cerr << "Enhanced attack retention: " << error.what() << '\n';
         return 1;
     }
-    std::cout << "Enhanced attack retention: 9 groups passed\n";
+    std::cout << "Enhanced attack retention: 17 groups passed\n";
     return 0;
 }

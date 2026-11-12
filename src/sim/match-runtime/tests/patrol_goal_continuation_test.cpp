@@ -32,6 +32,7 @@ namespace movement = oa::sim::unit_movement;
 constexpr int32_t pixel = 65536;
 constexpr uint32_t battle_version = oa::data::enhanced_mode::battle_flow_version;
 constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
+constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
 constexpr uint32_t legacy_version = 4;
 constexpr uint32_t map_height = 24;
 constexpr uint8_t land_height = 60;
@@ -290,7 +291,8 @@ uint32_t refresh(Scene& scene, uint32_t events = 0) {
 }
 
 void unchanged_goal_keeps_native_navigation() {
-    for (const uint32_t version : {0u, 1u, 2u, 3u, 4u, 5u, battle_version, distributed_version}) {
+    for (const uint32_t version :
+         {0u, 1u, 2u, 3u, 4u, 5u, battle_version, distributed_version, following_version}) {
         Scene scene({version});
         scene.begin();
         scene.match().simulation().tick = 120;
@@ -439,7 +441,8 @@ void search_seed_observations_do_not_restart_an_unchanged_patrol() {
           ground::search_seed_unresolved_flag,
           ground::search_goal_contact_flag | ground::search_seed_unresolved_flag})
         for (const bool pending : {false, true})
-            for (const auto version : {legacy_version, battle_version, distributed_version}) {
+            for (const auto version :
+                 {legacy_version, battle_version, distributed_version, following_version}) {
                 Scene scene({version});
                 scene.begin();
                 scene.match().simulation().tick = 120;
@@ -542,7 +545,8 @@ void new_leg_and_cancellation_keep_normal_order_lifecycle(uint32_t version) {
 }
 
 void a_real_pending_search_survives_only_the_continued_refresh() {
-    for (const auto version : {battle_version, distributed_version, legacy_version}) {
+    for (const auto version :
+         {battle_version, distributed_version, legacy_version, following_version}) {
         // Its FP2 neck has native legal origins at z=5..7, between the
         // stride-four shared-field anchors. The fine native search must
         // therefore handle this connected route instead of a coarse field.
@@ -580,7 +584,7 @@ void a_real_pending_search_survives_only_the_continued_refresh() {
                               ground::goal_replaced_event | cancel_event)) == 0
         );
         const auto worker_budget = scene.match().path_search_worker().budget();
-        if (version == distributed_version) {
+        if (oa::data::enhanced_mode::uses_distributed_battle_flow(version)) {
             // This long route makes real heuristic progress before the cap.
             // Its partial guide must retain the Goal without inventing the
             // contact/unreachable observations of a complete legacy walk.
@@ -627,7 +631,7 @@ void a_real_pending_search_survives_only_the_continued_refresh() {
         }
         if (version >= battle_version)
             CHECK(published);
-        if (version == distributed_version && published) {
+        if (oa::data::enhanced_mode::uses_distributed_battle_flow(version) && published) {
             CHECK(scene.movement().navigation.goal == before.goal);
             CHECK(scene.unit().unit->primary == before.goal->order);
             CHECK(!ground::goal_contains_unit(*before.goal, scene.movement().geometry));
@@ -664,7 +668,8 @@ void check_native_footprint(Scene& scene) {
 }
 
 void native_choke_crossing_and_arrival_keep_the_patrol_loop() {
-    for (const auto version : {legacy_version, battle_version, distributed_version}) {
+    for (const auto version :
+         {legacy_version, battle_version, distributed_version, following_version}) {
         Scene scene({version, Driver::local, true});
         auto* initial_order = &scene.patrol();
         bool crossed{}, rotated{}, next_leg{};
@@ -749,7 +754,7 @@ int main() {
         search_seed_observations_do_not_restart_an_unchanged_patrol);
     run("real pending path search", a_real_pending_search_survives_only_the_continued_refresh);
     run("native choke and patrol arrival", native_choke_crossing_and_arrival_keep_the_patrol_loop);
-    for (const auto version : {battle_version, distributed_version}) {
+    for (const auto version : {battle_version, distributed_version, following_version}) {
         std::cout << "Patrol continuation: version=" << version << '\n';
         run("real 1800 tick patrol",
             [version] { real_patrol_polling_preserves_one_goal_for_1800_ticks(version); });

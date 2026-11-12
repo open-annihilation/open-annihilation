@@ -24,6 +24,7 @@ namespace ground = oa::sim::ground_orders;
 namespace ai = oa::sim::ai;
 
 constexpr uint32_t distributed = oa::data::enhanced_mode::distributed_battle_flow_version;
+constexpr uint32_t following = oa::data::enhanced_mode::following_flow_version;
 constexpr uint8_t owner = 1;
 constexpr int32_t pixel = 65536;
 constexpr uint32_t rally_interval = 150;
@@ -215,8 +216,8 @@ struct Rally {
 };
 
 /// Checks the complete native patrol queue and navigation, not just its head kind.
-void an_active_two_leg_patrol_survives_while_idle_members_rally() {
-    Rally battle;
+void an_active_two_leg_patrol_survives_while_idle_members_rally(uint32_t version) {
+    Rally battle(version);
     auto* head = battle.unit().primary;
     auto* tail = head->next;
     CHECK(tail != nullptr && tail->next == nullptr);
@@ -245,8 +246,8 @@ void an_active_two_leg_patrol_survives_while_idle_members_rally() {
 }
 
 /// Keeps a native patrol's owned goal while its idle wait has selected phase one.
-void a_native_phase_one_patrol_wait_survives_the_rally() {
-    Rally battle;
+void a_native_phase_one_patrol_wait_survives_the_rally(uint32_t version) {
+    Rally battle(version);
     battle.rally().next_tick = battle.match().simulation().tick + 100000;
     bool waiting = false;
     for (uint32_t ticks = 0; ticks < 90; ++ticks) {
@@ -292,9 +293,9 @@ void a_native_phase_one_patrol_wait_survives_the_rally() {
 }
 
 /// Retains the other supported active ground marches through the same real rally.
-void move_and_repair_patrol_continue() {
+void move_and_repair_patrol_continue(uint32_t version) {
     for (const auto march : {March::move, March::repair_patrol}) {
-        Rally battle(distributed, march);
+        Rally battle(version, march);
         auto* head = battle.unit().primary;
         const auto navigation = battle.movement().navigation;
         battle.refresh();
@@ -306,8 +307,8 @@ void move_and_repair_patrol_continue() {
 }
 
 /// Keeps the actual fine-search worker, owned goal, cursor and remaining credits.
-void a_pending_native_search_survives_the_rally() {
-    Rally battle(distributed, March::patrol, true);
+void a_pending_native_search_survives_the_rally(uint32_t version) {
+    Rally battle(version, March::patrol, true);
     ground::SearchRecord before{};
     for (uint32_t tick = 0; tick < 120; ++tick) {
         before = runtime::MatchTickAccess::active_path_search(battle.match());
@@ -352,13 +353,13 @@ void older_presets_keep_their_rally_replacement() {
 }
 
 /// Replaces interrupted, completed, absent or mismatched goal bindings normally.
-void terminal_or_unowned_work_does_not_block_a_rally() {
+void terminal_or_unowned_work_does_not_block_a_rally(uint32_t version) {
     for (const auto event :
          {cancel_event,
           ground::arrived_event,
           ground::path_failed_event,
           ground::goal_replaced_event}) {
-        Rally battle;
+        Rally battle(version);
         auto* head = battle.unit().primary;
         head->raised_events |= event;
         battle.refresh();
@@ -366,21 +367,21 @@ void terminal_or_unowned_work_does_not_block_a_rally() {
         CHECK(battle.unit().primary->kind == ground::move_ground_kind);
     }
     {
-        Rally battle;
+        Rally battle(version);
         auto* head = battle.unit().primary;
         battle.movement().navigation.goal = nullptr;
         battle.refresh();
         CHECK(battle.unit().primary != head);
     }
     {
-        Rally battle;
+        Rally battle(version);
         auto* head = battle.unit().primary;
         const_cast<ground::Goal*>(battle.movement().navigation.goal)->order = head->next;
         battle.refresh();
         CHECK(battle.unit().primary != head);
     }
     {
-        Rally battle;
+        Rally battle(version);
         auto* head = battle.unit().primary;
         head->kind = ground::standby_kind;
         battle.refresh();
@@ -404,9 +405,9 @@ struct CustomSeat {
 };
 
 /// Keeps explicit moves, queued moves and custom controllers on their native paths.
-void manual_queued_and_custom_commands_keep_their_semantics() {
+void manual_queued_and_custom_commands_keep_their_semantics(uint32_t version) {
     {
-        Rally battle;
+        Rally battle(version);
         auto* head = battle.unit().primary;
         CHECK(!battle.match().order_refused(
             battle.match().issue_ground_move(battle.actor, {96 * pixel, 0, 96 * pixel}, false)
@@ -414,7 +415,7 @@ void manual_queued_and_custom_commands_keep_their_semantics() {
         CHECK(battle.unit().primary != head && battle.unit().primary->next == nullptr);
     }
     {
-        Rally battle;
+        Rally battle(version);
         auto* head = battle.unit().primary;
         auto* tail = head->next;
         auto& appended =
@@ -445,7 +446,7 @@ void manual_queued_and_custom_commands_keep_their_semantics() {
         }
     }
     {
-        Rally battle;
+        Rally battle(version);
         auto* head = battle.unit().primary;
         CustomSeat seat{battle.actor};
         runtime::SeatHooks hooks;
@@ -459,8 +460,8 @@ void manual_queued_and_custom_commands_keep_their_semantics() {
 }
 
 /// Retains both restored patrol legs and their restored owned head goal.
-void restored_patrol_queues_continue_after_the_rally() {
-    Rally battle;
+void restored_patrol_queues_continue_after_the_rally(uint32_t version) {
+    Rally battle(version);
     saved_game::ScopedBank bank;
     data::persist::bank_open_account(bank.get(), "Units");
     const auto count = saved_game::write_orders(
@@ -484,15 +485,18 @@ void restored_patrol_queues_continue_after_the_rally() {
 
 int main() {
     try {
-        an_active_two_leg_patrol_survives_while_idle_members_rally();
-        a_native_phase_one_patrol_wait_survives_the_rally();
-        move_and_repair_patrol_continue();
-        a_pending_native_search_survives_the_rally();
         older_presets_keep_their_rally_replacement();
-        terminal_or_unowned_work_does_not_block_a_rally();
-        manual_queued_and_custom_commands_keep_their_semantics();
-        restored_patrol_queues_continue_after_the_rally();
-        std::cout << "Enhanced rally retention: eight groups passed\n";
+        for (const auto version : {distributed, following}) {
+            std::cout << "Enhanced rally retention: version=" << version << '\n';
+            an_active_two_leg_patrol_survives_while_idle_members_rally(version);
+            a_native_phase_one_patrol_wait_survives_the_rally(version);
+            move_and_repair_patrol_continue(version);
+            a_pending_native_search_survives_the_rally(version);
+            terminal_or_unowned_work_does_not_block_a_rally(version);
+            manual_queued_and_custom_commands_keep_their_semantics(version);
+            restored_patrol_queues_continue_after_the_rally(version);
+        }
+        std::cout << "Enhanced rally retention: 15 groups passed\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Enhanced rally retention: " << error.what() << '\n';

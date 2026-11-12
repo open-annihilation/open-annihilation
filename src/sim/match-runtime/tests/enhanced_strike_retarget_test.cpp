@@ -31,6 +31,7 @@ constexpr uint8_t computer_player = 1;
 constexpr uint8_t enemy_player = 0;
 constexpr uint32_t retarget_version = oa::data::enhanced_mode::battle_flow_version;
 constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
+constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
 constexpr uint32_t strike_refresh_ticks = 300;
 constexpr uint32_t retarget_interval_ticks = 6;
 constexpr uint32_t target_loss_tick = 55;
@@ -440,7 +441,8 @@ void live_target_does_not_add_command_refreshes(uint32_t version) {
     battle.fixture.run(1);
     battle.check_attack(
         battle.target,
-        version == distributed_version ? battle.initial_issue_tick : battle.regular_refresh_tick
+        oa::data::enhanced_mode::uses_distributed_battle_flow(version) ? battle.initial_issue_tick
+                                                                       : battle.regular_refresh_tick
     );
     const auto next_refresh = battle.regular_refresh_tick + strike_refresh_ticks;
     CHECK(battle.strike().next_tick == next_refresh);
@@ -1113,7 +1115,7 @@ int main() {
     failures += run_case(
         "earlier pending-target selection", earlier_presets_keep_the_pending_target_selection
     );
-    for (const auto version : {retarget_version, distributed_version}) {
+    for (const auto version : {retarget_version, distributed_version, following_version}) {
         std::cout << "Enhanced strike retarget: version=" << version << '\n';
         failures += run_case("dead target", [version] {
             dead_target_refreshes_the_squad_before_the_regular_deadline(version);
