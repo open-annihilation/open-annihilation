@@ -3568,7 +3568,270 @@ void parallel_ground_indices_readback() {
     }
 }
 
-/// Four-thread strategic-marker bands preserve every pixel of the serial draw.
+/// Reject malformed marker packets and runs before opening any graphics device.
+void marker_packet_validation() {
+    Scene scene;
+    std::array<MarkerInstance, 1> packets{};
+    std::vector<MarkerRun> runs{{0, 0, 1}};
+    ModelDraws models;
+    models.markers = packets;
+    models.marker_runs = runs;
+    models.marker_uv = {0.5F, 0.5F};
+    const auto rejected = [&] {
+        scene.pixels.assign(4, 255);
+        const auto result = render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            small_target,
+            small_target,
+            scene.projection,
+            scene.pixels,
+            scene.error,
+            1,
+            nullptr,
+            nullptr,
+            nullptr,
+            {},
+            nullptr,
+            &models
+        );
+        OA_CHECK(result == Result::failed && scene.pixels.empty() && !scene.error.empty());
+        OA_CHECK(opened_device(scene.context) == nullptr);
+    };
+    const float infinity = std::numeric_limits<float>::infinity();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    for (std::size_t corner = 0; corner < 4; ++corner)
+        for (std::size_t axis = 0; axis < 3; ++axis)
+            for (float invalid : {nan, infinity, -infinity, 32769.0F, -32769.0F}) {
+                packets[0].corners[corner][axis] = invalid;
+                rejected();
+                packets[0].corners[corner][axis] = 0;
+            }
+    for (float invalid : {nan, infinity, -0.25F, 1.25F}) {
+        packets[0].brightness = invalid;
+        rejected();
+        packets[0].brightness = 1;
+        for (auto& channel : packets[0].color) {
+            channel = invalid;
+            rejected();
+            channel = 1;
+        }
+        for (auto& channel : models.marker_uv) {
+            channel = invalid;
+            rejected();
+            channel = 0.5F;
+        }
+    }
+    models.marker_runs = {};
+    rejected();
+    models.marker_runs = runs;
+    models.markers = {};
+    rejected();
+    models.markers = packets;
+    for (const auto run :
+         {MarkerRun{scene.vertices.size() + 3, 0, 1},
+          MarkerRun{1, 0, 1},
+          MarkerRun{0, 1, 1},
+          MarkerRun{0, 0, 0},
+          MarkerRun{0, 0, std::numeric_limits<uint32_t>::max()}}) {
+        runs[0] = run;
+        rejected();
+    }
+    std::array<MarkerInstance, 2> two_packets{};
+    models.markers = two_packets;
+    for (const auto& invalid :
+         {std::array{MarkerRun{0, 0, 1}, MarkerRun{0, 0, 1}},
+          std::array{MarkerRun{0, 1, 1}, MarkerRun{0, 0, 1}},
+          std::array{MarkerRun{3, 0, 1}, MarkerRun{0, 1, 1}}}) {
+        models.marker_runs = invalid;
+        rejected();
+    }
+    // The span owns its advertised elements; validation must reject the
+    // virtual six-vertex budget without reading an invented overlong span.
+    std::vector<MarkerInstance> over_limit(largest_vertex_count / 6 + 1);
+    runs = {{0, 0, static_cast<uint32_t>(over_limit.size())}};
+    models.marker_runs = runs;
+    models.markers = over_limit;
+    rejected();
+}
+
+/// Compact corners preserve all pixels through both fragment stages and retained frames.
+void compact_marker_readback() {
+    constexpr uint32_t size = 64;
+    const std::vector<uint8_t> atlas{40, 70, 100, 255, 255, 255, 255, 255};
+    std::array<MarkerInstance, 4> packets;
+    const auto packet =
+        [](float x, float z, float height, float brightness, std::array<float, 3> color) {
+            return MarkerInstance{
+                {{{x, height, z},
+                  {x + 11.25F, height, z},
+                  {x + 11.25F, height, z + 10.5F},
+                  {x, height, z + 10.5F}}},
+                brightness,
+                color
+            };
+        };
+    packets[0] = packet(-1.75F, 5.25F, 4, 1, {1, 0.3F, 0.05F});
+    packets[1] = packet(22.5F, 20.75F, 7, 0.375F, {0.1F, 0.7F, 1});
+    packets[2] = packet(3.25F, 9.5F, 4, 0.75F, {0.3F, 1, 0.2F});
+    packets[3] = packet(52.5F, 60.25F, 3, 0, {1, 0, 1});
+    std::vector<MarkerRun> runs{{6, 0, 2}, {9, 2, 2}};
+    std::vector<Vertex> ordinary{
+        {0, 0, 0, 0.25F, 0.5F},
+        {64, 0, 0, 0.25F, 0.5F},
+        {64, 0, 64, 0.25F, 0.5F},
+        {0, 0, 0, 0.25F, 0.5F},
+        {64, 0, 64, 0.25F, 0.5F},
+        {0, 0, 64, 0.25F, 0.5F},
+        {3, 4, 9, 0.25F, 0.5F},
+        {15, 4, 9, 0.25F, 0.5F},
+        {3, 4, 21, 0.25F, 0.5F}
+    };
+    const auto expanded = [&] {
+        std::vector<Vertex> vertices;
+        std::size_t from{};
+        constexpr std::array<std::size_t, 6> fan{0, 1, 2, 0, 2, 3};
+        for (const auto& run : runs) {
+            vertices.insert(
+                vertices.end(),
+                ordinary.begin() + static_cast<std::ptrdiff_t>(from),
+                ordinary.begin() + static_cast<std::ptrdiff_t>(run.vertex)
+            );
+            from = run.vertex;
+            for (uint32_t at = 0; at < run.instance_count; ++at) {
+                const auto& instance = packets[run.first_instance + at];
+                for (const auto corner : fan) {
+                    const auto& point = instance.corners[corner];
+                    Vertex vertex{point[0], point[1], point[2], 0.75F, 0.5F, instance.brightness};
+                    vertex.red = instance.color[0];
+                    vertex.green = instance.color[1];
+                    vertex.blue = instance.color[2];
+                    vertices.push_back(vertex);
+                }
+            }
+        }
+        vertices.insert(
+            vertices.end(), ordinary.begin() + static_cast<std::ptrdiff_t>(from), ordinary.end()
+        );
+        return vertices;
+    };
+    ModelDraws models;
+    models.markers = packets;
+    models.marker_runs = runs;
+    models.marker_uv = {0.75F, 0.5F};
+    using oa::app::renderer_effects::Source;
+    const std::array<Source, 1> sources{{{16, 22, 11, 18, 8, 1, 0.6F, 0.2F, 1.5F, 1, 0, 0}}};
+    const Lights lights{sources, {true, true, false}, 2.5};
+    WaterEffects water{1, 1, 1, 1, 8, 0.37F, 1};
+    water.wind.strength = 1;
+    std::array<Context, 2> contexts;
+    std::array<std::vector<uint8_t>, 2> pixels;
+    std::string error;
+    const auto frame = [&](bool compact,
+                           const Lights* illumination,
+                           uint32_t aa,
+                           const std::array<float, 12>& projection,
+                           bool keep,
+                           bool wet) {
+        auto& context = contexts[compact ? 1 : 0];
+        context.keep_on_card = keep;
+        const auto reference = expanded();
+        const auto result = render(
+            context,
+            compact ? std::span<const Vertex>(ordinary) : std::span<const Vertex>(reference),
+            atlas,
+            2,
+            1,
+            1,
+            size,
+            size,
+            projection,
+            pixels[compact ? 1 : 0],
+            error,
+            aa,
+            nullptr,
+            wet ? &water : nullptr,
+            nullptr,
+            {},
+            illumination,
+            compact ? &models : nullptr
+        );
+        OA_CHECK(result == Result::success);
+        if (result != Result::success)
+            std::fprintf(stderr, "compact marker GPU: %s\n", error.c_str());
+        return result == Result::success;
+    };
+    bool lit_difference = false, wet_difference = false;
+    for (const uint32_t aa : {1U, 4U}) {
+        auto projection = classic_projection;
+        projection[3] = 0.37F;
+        projection[7] = 0.61F;
+        std::vector<uint8_t> dry_plain;
+        for (bool wet : {false, true}) {
+            for (std::size_t vertex = 0; vertex < 6; ++vertex) {
+                ordinary[vertex].terrain_size = wet ? -2 : 0;
+                ordinary[vertex].terrain_x = wet ? 2 : 0;
+                ordinary[vertex].terrain_y = wet ? 1 : 0;
+            }
+            std::vector<uint8_t> plain;
+            for (const Lights* illumination : {static_cast<const Lights*>(nullptr), &lights}) {
+                for (bool compact : {false, true})
+                    if (!frame(compact, illumination, aa, projection, false, wet))
+                        return;
+                OA_CHECK(draws_markers(contexts[1]));
+                OA_CHECK(pixels[0].size() == size * size * channels && pixels[0] == pixels[1]);
+                if (illumination) {
+                    OA_CHECK(contexts[0].lights_drawn && contexts[1].lights_drawn);
+                    lit_difference |= pixels[0] != plain;
+                } else {
+                    plain = pixels[0];
+                }
+                std::vector<uint8_t> expected;
+                for (int held = 0; held < 2; ++held) {
+                    for (auto& corner : packets[1].corners)
+                        corner[0] += 0.25F;
+                    if (!frame(false, illumination, aa, projection, false, wet))
+                        return;
+                    expected = pixels[0];
+                    if (!frame(true, illumination, aa, projection, true, wet))
+                        return;
+                    OA_CHECK(contexts[1].kept_on_card && pixels[1].empty());
+                }
+                OA_CHECK(read_picture(contexts[1], pixels[1], error) == Result::success);
+                OA_CHECK(pixels[1] == expected);
+                for (auto& corner : packets[1].corners)
+                    corner[0] -= 0.5F;
+            }
+            if (wet)
+                wet_difference |= plain != dry_plain;
+            else
+                dry_plain = plain;
+        }
+    }
+    OA_CHECK(lit_difference && wet_difference);
+    // A second affine camera proves the packet corners reach the turned view unchanged.
+    auto turned = classic_projection;
+    OA_CHECK(
+        oa::app::renderer_live_camera::projection({20, -53, true}, {24, 4, 28, 32, 32, 1}, turned)
+    );
+    for (bool compact : {false, true})
+        if (!frame(compact, &lights, 4, turned, false, true))
+            return;
+    OA_CHECK(pixels[0] == pixels[1] && draws_markers(contexts[1]));
+    ordinary.clear();
+    runs = {{0, 0, static_cast<uint32_t>(packets.size())}};
+    models.marker_runs = runs;
+    for (bool compact : {false, true})
+        if (!frame(compact, nullptr, 1, classic_projection, false, false))
+            return;
+    OA_CHECK(pixels[0] == pixels[1] && !pixels[1].empty());
+}
+
+/// Serial, four-thread and compact strategic markers preserve every owner-coloured pixel.
 void strategic_marker_bands_readback() {
     namespace live_scene = oa::app::renderer_live_scene;
     constexpr uint32_t columns = 200, rows = 100, spacing = 8;
@@ -3607,12 +3870,20 @@ void strategic_marker_bands_readback() {
     inputs.owner_colors[0] = {255, 96, 0};
     inputs.owner_colors[1] = {0, 160, 255};
     oa::platform::job_pool::Pool pool(4);
-    live_scene::Scene serial, parallel;
-    std::array<Context, 2> contexts;
-    std::array<std::vector<uint8_t>, 2> pixels;
+    std::array<live_scene::Scene, 3> scenes;
+    std::array<Context, 3> contexts;
+    std::array<std::vector<uint8_t>, 3> pixels;
+    const uint32_t sight_width = width / 32, sight_height = height / 32;
+    std::vector<uint16_t> coverage(sight_width * sight_height, 1);
+    std::vector<uint16_t> mapped(coverage.size(), 1);
+    inputs.sight.coverage = coverage;
+    inputs.sight.player_bits = mapped;
+    inputs.sight.width = static_cast<int32_t>(sight_width);
+    inputs.sight.height = static_cast<int32_t>(sight_height);
+    inputs.sight.mapped_bits = 1;
     std::vector<uint8_t> first;
     std::string error;
-    bool used_bands = false;
+    bool used_bands = false, used_packets = false;
     for (uint32_t frame = 0; frame < 6; ++frame) {
         for (uint32_t index = 0; index < population; ++index) {
             auto& unit = units[index];
@@ -3631,9 +3902,15 @@ void strategic_marker_bands_readback() {
             palette[oa::palette_entry_bytes] += 11;
             inputs.owner_colors[0] = {180, 240, 80};
         }
-        for (std::size_t version = 0; version < 2; ++version) {
+        inputs.sight.line_of_sight = inputs.sight.mapping = frame == 4;
+        for (std::size_t cell = 0; cell < coverage.size(); ++cell) {
+            coverage[cell] = frame == 4 && cell % 3 != 0 ? 0 : 1;
+            mapped[cell] = frame == 4 && cell % 7 == 0 ? 0 : 1;
+        }
+        for (std::size_t version = 0; version < scenes.size(); ++version) {
             inputs.pool = version == 0 ? nullptr : &pool;
-            auto& scene = version == 0 ? serial : parallel;
+            inputs.markers_on_card = version == 2;
+            auto& scene = scenes[version];
             const bool built = live_scene::build(inputs, scene, error);
             OA_CHECK(built);
             if (!built) {
@@ -3647,7 +3924,24 @@ void strategic_marker_bands_readback() {
                 );
                 used_bands |= !scene.passes.marker_bands.empty();
             }
-            OA_CHECK(scene.model_count == population && scene.unit_ranges.size() == population);
+            const auto models = live_scene::card_draws(scene.card_types, scene.cards);
+            OA_CHECK(scene.model_count > 0 && scene.model_count <= population);
+            if (version == 2) {
+                OA_CHECK(models.markers.size() == scene.model_count && !models.marker_runs.empty());
+                OA_CHECK(
+                    scene.unit_ranges.empty() && scene.cards.units.size() == models.markers.size()
+                );
+                OA_CHECK(
+                    std::all_of(
+                        scene.cards.units.begin(), scene.cards.units.end(), [](const auto& unit) {
+                            return unit.marker && unit.unit_id != 0 && unit.index_count == 6;
+                        }
+                    )
+                );
+                used_packets |= !models.markers.empty();
+            } else {
+                OA_CHECK(scene.unit_ranges.size() == scene.model_count);
+            }
             const auto result = render(
                 contexts[version],
                 scene.vertices,
@@ -3663,7 +3957,10 @@ void strategic_marker_bands_readback() {
                 1,
                 &scene.atlas_update,
                 &inputs.water,
-                &scene.card_ground
+                &scene.card_ground,
+                {},
+                nullptr,
+                &models
             );
             OA_CHECK(result == Result::success);
             if (result != Result::success) {
@@ -3672,11 +3969,16 @@ void strategic_marker_bands_readback() {
             }
         }
         OA_CHECK(pixels[0].size() == width * height * channels);
-        OA_CHECK(pixels[0] == pixels[1]);
+        OA_CHECK(pixels[0] == pixels[1] && pixels[0] == pixels[2]);
+        OA_CHECK(draws_markers(contexts[2]));
+        if (frame == 4)
+            OA_CHECK(scenes[0].model_count < population);
+        else
+            OA_CHECK(scenes[0].model_count == population);
         if (frame == 0)
             first = pixels[0];
     }
-    OA_CHECK(used_bands && pixels[0] != first);
+    OA_CHECK(used_bands && used_packets && pixels[0] != first);
 }
 
 /// A synthetic twenty-thousand-unit scene reaches the real GPU, with one
@@ -3851,6 +4153,7 @@ void large_marker_scene_readback() {
 int main() {
     invalid_input();
     model_origin_validation();
+    marker_packet_validation();
     if (oa::test::check_exit_status() != 0)
         return oa::test::check_exit_status();
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -3877,6 +4180,7 @@ int main() {
         parallel_ground_indices_readback();
         large_marker_scene_readback();
         strategic_marker_bands_readback();
+        compact_marker_readback();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();
