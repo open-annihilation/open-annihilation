@@ -1914,7 +1914,7 @@ void presence_refresh(Lobby& lobby) noexcept {
                 sizeof value, sizeof composed - size - netgame::presence_field_header_bytes
             );
             std::size_t value_size = 0;
-            std::size_t written = 0;
+            std::size_t with_units = 0;
             if (netgame::encode_presence_unit_sync(
                     lobby.unit_report.found, value, room, &value_size
                 ) == netgame::WireError::ok &&
@@ -1924,9 +1924,9 @@ void presence_refresh(Lobby& lobby) noexcept {
                     sizeof composed,
                     netgame::PresenceTag::unit_sync,
                     {value, value_size},
-                    &written
+                    &with_units
                 ) == netgame::WireError::ok)
-                size = written;
+                size = with_units;
         }
     }
     if (size == records.local_size && std::memcmp(composed, records.local, size) == 0) {
