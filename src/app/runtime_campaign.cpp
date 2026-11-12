@@ -1059,8 +1059,63 @@ Runtime::ComputerProfileFile Runtime::computer_profile_file() {
     return file;
 }
 
-std::string Runtime::read_computer_profile() {
-    return computer_profile_file().text;
+namespace {
+
+/// The profile lines `report_computer_profile_faults` logs, and the path they name.
+struct ProfileFaults {
+    const std::string* path{};        ///< the profile's path
+    std::vector<std::string> lines{}; ///< one log line per weight or limit line without a number
+};
+
+/// Adds the log line of one profile line that gives no number.
+///
+/// @param context the ProfileFaults being filled
+/// @param line a line of the profile
+void note_profile_fault(void* context, const oa::sim::ai::ProfileLine& line) noexcept {
+    if (!oa::sim::ai::computer_profile_line_lacks_number(line))
+        return;
+    auto& faults = *static_cast<ProfileFaults*>(context);
+    try {
+        std::string written;
+        for (uint32_t index = 0; index < line.count; ++index) {
+            if (index != 0)
+                written += ' ';
+            written += line.words[index];
+        }
+        std::string command(line.words[0]);
+        std::transform(command.begin(), command.end(), command.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        const std::string name(line.words[1]);
+        faults.lines.push_back(
+            "open-annihilation: computer players: " + *faults.path + " line " +
+            std::to_string(line.number) + " \"" + written + "\" has no number after " + name +
+            (command == "weight" ? ", so the weight of " + name + " is multiplied by 0"
+                                 : ", so " + name + " is limited to 0") +
+            ", as in 3.1c"
+        );
+    } catch (const std::exception&) {
+        // A line that cannot be written out is left unlogged; the profile applies all the same.
+    }
+}
+
+} // namespace
+
+void Runtime::report_computer_profile_faults(const ComputerProfileFile& file) {
+    if (!match_ || file.text.empty())
+        return;
+    const auto& players = match_->state().game.players;
+    const bool computer =
+        std::any_of(std::begin(players), std::end(players), [](const oa::Player& player) {
+            return player.in_use != 0 && player.status == OA_PLAYER_STATUS_COMPUTER;
+        });
+    if (!computer)
+        return;
+    ProfileFaults faults;
+    faults.path = &file.path;
+    oa::sim::ai::computer_profile_lines(file.text, note_profile_fault, &faults);
+    for (const std::string& line : faults.lines)
+        report_data_fault(line);
 }
 
 void Runtime::clear_brain_start_notes() {
@@ -1181,8 +1236,11 @@ void Runtime::configure_computer_players() {
         lists.push_back(static_cast<uint16_t>(count));
         lists.insert(lists.end(), ids, ids + count);
     }
-    const auto profile = read_computer_profile();
-    if (!oa::sim::ai::configure_match_computer_players(*match_, profile, lists, campaign_mission_))
+    const ComputerProfileFile profile = computer_profile_file();
+    report_computer_profile_faults(profile);
+    if (!oa::sim::ai::configure_match_computer_players(
+            *match_, profile.text, lists, campaign_mission_
+        ))
         throw std::runtime_error("cannot store the computer players' profile and build lists");
     take_pending_brain_seats();
 }
@@ -1195,7 +1253,11 @@ void Runtime::store_brain_game_facts() {
 }
 
 void Runtime::reload_computer_profiles() {
-    if (!match_ || oa::sim::ai::reload_match_computer_profiles(*match_, read_computer_profile()))
+    if (!match_)
+        return;
+    const ComputerProfileFile profile = computer_profile_file();
+    report_computer_profile_faults(profile);
+    if (oa::sim::ai::reload_match_computer_profiles(*match_, profile.text))
         return;
     status_ = "ReloadAIProfiles: cannot store the computer players' profile";
     std::cerr << "open-annihilation: " << status_ << '\n';

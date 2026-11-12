@@ -454,6 +454,22 @@ void computer_profile_lines(
     std::string_view text, void (*visit)(void* context, const ProfileLine& line), void* context
 ) noexcept;
 
+/// Tells whether a `weight` or `limit` line names something but gives no
+/// number for it.
+///
+/// The number is the third word, read as the player reads it: `std::strtod`
+/// for a weight, `std::strtol` base 10 for a limit. A third word that is
+/// missing, or that those read nothing from, still applies as 0: a weight
+/// factor of 0, or a limit of 0, for the unit or category the second word
+/// names. A name written with a space in it reads so: `Limit ARM DECOM 4`
+/// limits the category ARM to 0, which is every Arm type that no line of the
+/// profile names on its own. A line of the command alone names nothing.
+///
+/// @param line a line `computer_profile_lines` visits
+/// @return true for a weight or limit line with a name and no number
+/// @quirk The line still applies, as in 3.1c; this only tells it apart.
+[[nodiscard]] bool computer_profile_line_lacks_number(const ProfileLine& line) noexcept;
+
 /// Applies a "weight <unit or category> <percent>" line to one player.
 ///
 /// Scales the weight of every unlocked matching type; a unit name matches exactly and

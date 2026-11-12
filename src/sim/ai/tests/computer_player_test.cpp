@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -950,6 +951,25 @@ void test_profile_reload() {
     computer_players_release(&state);
 }
 
+/// Collects the numbers of the profile lines that give no number.
+///
+/// @param context the line numbers, a std::vector<uint32_t>
+/// @param line a line of the profile
+void collect_lines_without_number(void* context, const ProfileLine& line) noexcept {
+    if (computer_profile_line_lacks_number(line))
+        static_cast<std::vector<uint32_t>*>(context)->push_back(line.number);
+}
+
+/// Returns the numbers of a profile's weight and limit lines that give no number.
+///
+/// @param text the profile
+/// @return their line numbers, from 1
+std::vector<uint32_t> lines_without_number(std::string_view text) {
+    std::vector<uint32_t> lines;
+    computer_profile_lines(text, collect_lines_without_number, &lines);
+    return lines;
+}
+
 /// Reads a text file of the installed game.
 ///
 /// @param assets the installed game's store
@@ -978,6 +998,11 @@ void test_installed_data(const oa::AssetStore& assets) {
     check(k.limits[ARMMEX] >= 0, "the installed limit applied");
     check(k.weight_percent[ARMPW] < 100, "the installed ARM weight applied");
     computer_players_release(&state);
+    // Core Contingency's ai/Krogoth.txt, when installed, writes ARMDECOM as "ARM DECOM"
+    // in each of its three plans.
+    const auto krogoth = read_text(assets, "ai/krogoth.txt");
+    if (!krogoth.empty())
+        check(lines_without_number(krogoth).size() >= 3, "ai/krogoth.txt lines told");
 }
 
 // --- ai.* rules -------------------------------------------------------------
@@ -1033,6 +1058,74 @@ void test_profile_leading_lines() {
     check(state.players[1].knowledge.limits[ARMMEX] == 6, "leading: the game's difficulty plan");
     check(state.players[2].knowledge.limits[ARMMEX] == 9, "leading: the player's own plan");
     computer_players_release(&state);
+}
+
+// A weight or limit line with a name and no number is told apart; one with a
+// number, a line of the command alone and every other line are not.
+void test_profile_lines_without_number() {
+    const auto lines = lines_without_number(
+        "Weight ARM 0.2\n"
+        "Limit ARM DECOM 4\n"
+        "Limit CORFORT O\n"
+        "Limit ARMSABO\n"
+        "weight ARMLLT x2\n"
+        "limit ARMLAB 4\n"
+        "Limit\n"
+        "weight ARMSOLAR .5\n"
+        "limit CORMEX -1\n"
+        "plan hard\n"
+        "// Limit ARM DECOM\n"
+    );
+    check(lines == std::vector<uint32_t>{2, 3, 4, 5}, "lines without a number");
+}
+
+// A limit line whose unit name holds a space, as "Limit ARM DECOM 4" in Core
+// Contingency's ai/Krogoth.txt, limits the category of its first word to 0, as
+// 3.1c reads it: every Arm type no line names on its own, the extractor and the
+// solar collector among them. With no metal income only a type's metal value
+// scores, and the commander, whose one type with a metal value is now limited to
+// 0, picks nothing on every pass, where the same profile without that line
+// picks the extractor.
+void test_split_name_limits_a_side() {
+    for (const bool split : {false, true}) {
+        Fake fake;
+        fake.player(1, OA_PLAYER_STATUS_COMPUTER, 10, 30);
+        auto& p = fake.world.game.players[1];
+        p.metal_produced = 0.0F;
+        p.energy_produced = 200.0F;
+        using Strength = std::array<uint8_t, 3>; // priority, metal value, energy value
+        const auto value = [&fake](uint16_t type, Strength strength) {
+            std::memcpy(fake.strength[type], strength.data(), strength.size());
+        };
+        value(ARMMEX, {100, 99, 0});
+        value(ARMSOLAR, {100, 0, 98});
+        value(ARMLAB, {100, 0, 0});
+        value(CORMEX, {100, 0, 0});
+        auto host = host_for(fake);
+        ComputerPlayers state{};
+        describe_catalog(state);
+        const char* profile = split ? "Limit ARM DECOM 4\nLimit ARMLAB 4\n" : "Limit ARMLAB 4\n";
+        check(computer_players_configure(&state, profile, kBuildLists), "split: configure");
+        check(computer_players_initialize(&state, host), "split: initialize");
+        const auto& k = state.players[1].knowledge;
+        fake.spawn(10, 1, ARMCOM, 100, 100, 0);
+        if (split) {
+            check(
+                k.limits[ARMMEX] == 0 && k.limits[ARMSOLAR] == 0 && k.limits[ARMCOM] == 0,
+                "split: the Arm types no line names are limited to 0"
+            );
+            check(k.limits[ARMLAB] == 4, "split: a type named on its own keeps its limit");
+            check(k.limits[CORMEX] == unlimited, "split: the other side is untouched");
+            check(lines_without_number(profile) == std::vector<uint32_t>{1}, "split: line told");
+            for (int pass = 0; pass < 3; ++pass)
+                check(computer_pick_build(&state, host, 1, 10) == 0, "split: the commander idles");
+        } else {
+            check(k.limits[ARMMEX] == unlimited, "whole: the extractor is not limited");
+            check(lines_without_number(profile).empty(), "whole: no line told");
+            check(computer_pick_build(&state, host, 1, 10) == ARMMEX, "whole: extractor picked");
+        }
+        computer_players_release(&state);
+    }
 }
 
 // ai.difficulty-names: the plan keyword, the report label and the menu label a
@@ -1511,6 +1604,8 @@ int main(int argc, char** argv) {
     test_campaign_downloadables();
     test_profile_reload();
     test_profile_leading_lines();
+    test_profile_lines_without_number();
+    test_split_name_limits_a_side();
     test_sighted_weight();
     test_siege();
     test_difficulty_names();

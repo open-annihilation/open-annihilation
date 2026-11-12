@@ -11075,18 +11075,22 @@ class Runtime final : public menu::Host,
     /// Reads the computer players' profile: the session's, else ai/default.txt.
     ///
     /// The path is the one whose bytes were kept. A session path that is
-    /// missing, empty or too large falls through to ai/default.txt, as
-    /// `read_computer_profile` always has.
+    /// missing, empty or too large falls through to ai/default.txt. With
+    /// neither file, the computer players take only their types' own
+    /// directives.
     ///
     /// @return the path and the bytes; both empty when neither file exists
     ComputerProfileFile computer_profile_file();
 
-    /// Reads the computer players' profile text.
+    /// Logs each weight or limit line of the profile that gives no number
+    /// (`computer_profile_line_lacks_number`), once a run, when the match has
+    /// a computer player. The line still applies as 0, as in 3.1c: a name
+    /// written with a space, such as `Limit ARM DECOM 4` in Core
+    /// Contingency's ai/Krogoth.txt, limits a whole side to 0, and that side's
+    /// computer players build nothing that no line names on its own.
     ///
-    /// @return `computer_profile_file()`'s text; empty when neither file
-    ///     exists, and the computer players then take only their types' own
-    ///     directives
-    std::string read_computer_profile();
+    /// @param file the profile the computer players read
+    void report_computer_profile_faults(const ComputerProfileFile& file);
 
     /// Configures the computer players before the mission's units exist, as mission state set-up
     /// does.

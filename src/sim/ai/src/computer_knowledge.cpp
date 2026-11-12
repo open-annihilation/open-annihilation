@@ -806,6 +806,22 @@ void computer_profile_lines(
     }
 }
 
+bool computer_profile_line_lacks_number(const ProfileLine& line) noexcept {
+    if (line.words == nullptr || line.count < 2)
+        return false;
+    const char* command = line.words[0];
+    const bool weight = equal_nocase(command, "weight");
+    if (!weight && !equal_nocase(command, "limit"))
+        return false;
+    const char* number = line.count > 2 ? line.words[2] : "";
+    char* read_end = nullptr;
+    if (weight)
+        (void)std::strtod(number, &read_end);
+    else
+        (void)std::strtol(number, &read_end, 10);
+    return read_end == number;
+}
+
 int32_t truncate_to_int32(double value) noexcept {
     if (!std::isfinite(value) || value >= 2147483648.0 || value < -2147483648.0)
         return static_cast<int32_t>(0x80000000u);
