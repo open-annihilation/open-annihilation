@@ -3839,6 +3839,8 @@ void compact_marker_readback() {
         if (!frame(compact, nullptr, 1, classic_projection, false, false))
             return;
     OA_CHECK(pixels[0] == pixels[1] && !pixels[1].empty());
+    const auto marker_upload_bytes = model_upload_bytes(contexts[1]);
+    OA_CHECK(marker_upload_bytes >= models.markers.size() * sizeof(MarkerInstance));
     // A marker-only frame must not inspect retained ordinary-model arrays.
     // Every span owns its advertised storage, including the over-limit
     // instance array and the malformed, nonmultiple position/texture spans.
@@ -3868,6 +3870,7 @@ void compact_marker_readback() {
             if (!frame(compact, &lights, aa, classic_projection, false, false))
                 return;
         OA_CHECK(pixels[0] == pixels[1] && !pixels[1].empty() && draws_markers(contexts[1]));
+        OA_CHECK(model_upload_bytes(contexts[1]) == marker_upload_bytes);
     }
 }
 
