@@ -5316,15 +5316,37 @@ void strategic_unit_marker_visibility_controls() {
     auto& in = fixture.inputs;
     in.clip_width = in.clip_height = 128;
     in.unit_marker_pixels = 5;
-    in.dot_frame = 1;
     OA_CHECK(camera::projection({}, {16, 0, 16, 64, 64, 1}, in.clip_projection));
     oa::Unit unit{};
     unit.id = 7;
-    const std::array<uint32_t, 1> generations{3};
-    in.dot_generations = generations;
-    live::DotRenderPacket packet;
-    in.dot_capture = &packet;
     fixture.draws.unit_markers = {{&unit, {16 * fixed, 0, 16 * fixed}}};
+    const auto check_marker = [&](bool drawable, float brightness) {
+        OA_CHECK(fixture.scene.unit_ranges.size() == (drawable ? 1U : 0U));
+        if (!drawable || fixture.scene.unit_ranges.size() != 1)
+            return;
+        const auto& range = fixture.scene.unit_ranges[0];
+        OA_CHECK(range.unit_id == unit.id && range.vertex_count == 6);
+        const auto& vertices = fixture.scene.vertices;
+        const bool bounded = range.first_vertex <= vertices.size() &&
+                             range.vertex_count <= vertices.size() - range.first_vertex;
+        OA_CHECK(bounded);
+        if (!bounded)
+            return;
+        for (std::size_t corner = 0; corner < range.vertex_count; ++corner) {
+            const auto& vertex = vertices[range.first_vertex + corner];
+            OA_CHECK(
+                std::bit_cast<uint32_t>(vertex.brightness) == std::bit_cast<uint32_t>(brightness)
+            );
+            for (std::size_t row = 0; row < 2; ++row) {
+                const auto at = row * 4;
+                const float projected =
+                    in.clip_projection[at] * vertex.x + in.clip_projection[at + 1] * vertex.height +
+                    in.clip_projection[at + 2] * vertex.z + in.clip_projection[at + 3];
+                const auto edge = row == 0 ? in.clip_width : in.clip_height;
+                OA_CHECK(std::isfinite(projected) && projected >= 0 && projected <= edge);
+            }
+        }
+    };
     for (const auto& visibility : cases)
         for (const bool dithered : {false, true}) {
             in.sight.mapping = visibility.mapping;
@@ -5333,33 +5355,35 @@ void strategic_unit_marker_visibility_controls() {
             fixture.mapped[0] = visibility.mapped;
             fixture.coverage[0] = visibility.coverage;
             OA_CHECK(live::build(in, fixture.scene, fixture.error));
-            OA_CHECK(packet.ready && packet.markers.size() == 1);
-            if (!packet.ready || packet.markers.size() != 1)
-                continue;
-            const auto& marker = packet.markers[0];
-            OA_CHECK(marker.drawable == visibility.drawable);
-            if (marker.drawable) {
-                const float expected = visibility.grey ? (dithered ? 0.5F : 0.35F) : 1.0F;
-                OA_CHECK(
-                    std::bit_cast<uint32_t>(marker.brightness) == std::bit_cast<uint32_t>(expected)
-                );
-            }
+            const float expected = visibility.grey ? (dithered ? 0.5F : 0.35F) : 1.0F;
+            check_marker(visibility.drawable, expected);
         }
     in.sight.mapping = in.sight.line_of_sight = false;
     in.sight.player_bits = {};
     in.sight.coverage = {};
-    // An elevated unit's painted fog point can lie beyond either grid edge.
+    // Empty sight grids do not restrict a view with both controls off;
+    // an elevated unit's painted fog point can lie beyond either grid edge.
     for (const oa::FixedVec3 position :
-         {oa::FixedVec3{-8 * fixed, 0, 16 * fixed},
+         {oa::FixedVec3{16 * fixed, 0, 16 * fixed},
+          oa::FixedVec3{-8 * fixed, 0, 16 * fixed},
           oa::FixedVec3{16 * fixed, 96 * fixed, 16 * fixed},
           oa::FixedVec3{48 * fixed, 0, 16 * fixed}}) {
         fixture.draws.unit_markers[0].shown_position = position;
+        // Keep the marker inside the viewport while its fog point moves.
+        OA_CHECK(
+            camera::projection(
+                {},
+                {static_cast<float>(position.x) / fixed,
+                 static_cast<float>(position.y) / fixed,
+                 static_cast<float>(position.z) / fixed,
+                 64,
+                 64,
+                 1},
+                in.clip_projection
+            )
+        );
         OA_CHECK(live::build(in, fixture.scene, fixture.error));
-        OA_CHECK(packet.ready && packet.markers.size() == 1);
-        if (packet.ready && packet.markers.size() == 1) {
-            OA_CHECK(packet.markers[0].drawable);
-            OA_CHECK(std::bit_cast<uint32_t>(packet.markers[0].brightness) == 0x3f800000U);
-        }
+        check_marker(true, 1.0F);
     }
 }
 
