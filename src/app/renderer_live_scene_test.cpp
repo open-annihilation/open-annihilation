@@ -3724,6 +3724,36 @@ struct GroundIndexThreadsFixture {
         OA_CHECK(same_frame(fixture.scene, ordinary));
     }
 
+    /// Keeps serial phases additive and bounds concurrent constructor walls by the total.
+    /// @param parallel the four-thread scene may construct both indices concurrently
+    void check_constructor_times(bool parallel) const {
+        const auto check = [](const live::Scene& scene, bool concurrent) {
+            const auto& work = scene.passes.ground_indices;
+            OA_CHECK(work.builds == 1 && work.diagnostics.size == 1);
+            OA_CHECK(work.diagnostics.dropped == 0);
+            if (work.diagnostics.size != 1)
+                return;
+            const auto& record = work.diagnostics.records[0];
+            OA_CHECK(record.completed);
+            OA_CHECK(record.total_nanoseconds == work.build_nanoseconds);
+            OA_CHECK(record.world_nanoseconds <= record.total_nanoseconds);
+            OA_CHECK(record.card_nanoseconds <= record.total_nanoseconds);
+            OA_CHECK(
+                record.bounds_nanoseconds +
+                    std::max(record.world_nanoseconds, record.card_nanoseconds) <=
+                record.total_nanoseconds
+            );
+            if (!concurrent)
+                OA_CHECK(
+                    record.bounds_nanoseconds + record.world_nanoseconds +
+                        record.card_nanoseconds ==
+                    record.total_nanoseconds
+                );
+        };
+        check(ordinary, false);
+        check(fixture.scene, parallel);
+    }
+
     /// Requires the same owned bounds, bucket order and restored scalar layout.
     void check_indices() const {
         const auto& actual = fixture.scene;
@@ -3831,6 +3861,7 @@ void ground_index_bounds_on_threads() {
     OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
     OA_CHECK(fixture.scene.ground_index_cache.attempts == 1);
     pair.check_indices();
+    pair.check_constructor_times(false);
     sprite.on_map = false;
     for (uint32_t frame = 0; frame < 2; ++frame) {
         fixture.scene.ground_index_cache.valid = false;
@@ -3839,6 +3870,7 @@ void ground_index_bounds_on_threads() {
         OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
         OA_CHECK(fixture.scene.passes.ground_indices.diagnostics.size == 1);
         pair.check_indices();
+        pair.check_constructor_times(true);
     }
     pair.build();
     OA_CHECK(fixture.scene.passes.ground_indices.hits == 1);
@@ -3887,6 +3919,7 @@ void ground_index_bounds_on_threads() {
     OA_CHECK(same_frame(fixture.scene, pair.ordinary));
     OA_CHECK(fixture.scene.passes.ground_indices.builds == 1);
     pair.check_indices();
+    pair.check_constructor_times(true);
     // A nonfinite point in a later bounds band leaves the bundle invalid
     // and listed. The actual sprite query must not retry that same failure.
     constexpr std::size_t broken_vertex = 3 * 16384 + 1;
@@ -3952,10 +3985,31 @@ void ground_index_bounds_on_threads() {
                 OA_CHECK(same_frame(fixture.scene, pair.ordinary));
                 OA_CHECK(fixture.scene.ground_index_cache.key.float_control == expected_control);
                 pair.check_indices();
+                pair.check_constructor_times(true);
             }
         }
         OA_CHECK(std::fesetenv(&original) == 0);
     }
+    // A null pool preserves the serial phase sum while producing the
+    // same bounds, buckets, layout and picture as both constructor jobs.
+    fixture.scene.ground_index_cache.valid = pair.ordinary.ground_index_cache.valid = false;
+    in.pool = nullptr;
+    OA_CHECK(live::build(in, pair.ordinary, fixture.error));
+    OA_CHECK(fixture.error.empty());
+    in.pool = &pair.four;
+    OA_CHECK(live::build(in, fixture.scene, fixture.error));
+    OA_CHECK(fixture.error.empty());
+    OA_CHECK(same_frame(fixture.scene, pair.ordinary));
+    pair.check_indices();
+    pair.check_constructor_times(true);
+    // A card parallel to world height has no ground-plane card index;
+    // even a free multi-thread pool retains the serial constructor path.
+    in.view_direction = {0, 0, 1};
+    pair.build();
+    OA_CHECK(!fixture.scene.ground_index_cache.key.card);
+    OA_CHECK(fixture.scene.ground_index_memory[1].bounds.empty());
+    pair.check_indices();
+    pair.check_constructor_times(false);
     timers::reset(false);
 }
 
