@@ -277,23 +277,25 @@ void Runtime::check_engine_feed() {
         for (int frame = 0; frame < 8; ++frame)
             idle_tick();
         require(count_target(server, feed_target) == feeds, "a check ran inside the hour");
+        const uint64_t before = update_snapshot().generation;
         pass_an_hour();
         const auto deadline = deadline_from(std::chrono::seconds{30});
-        while (count_target(server, feed_target) == feeds) {
+        while (update_snapshot().generation == before ||
+               update_snapshot().state == update::CheckState::checking) {
             require(
-                std::chrono::steady_clock::now() < deadline, "the hour did not run another check"
+                std::chrono::steady_clock::now() < deadline, "the hour's check did not finish"
             );
             idle_tick();
         }
+        require(
+            update_snapshot().state == update::CheckState::offered,
+            "the hour's check did not offer a release (" + update_snapshot().failure + ")"
+        );
         require(count_target(server, feed_target) == feeds + 1, "the hour ran more than one check");
         require(
             count_target(server, signature_target) == signatures + 1,
             "the hour did not fetch the signature"
         );
-        while (update_snapshot().state == update::CheckState::checking) {
-            require(std::chrono::steady_clock::now() < deadline, "the hour's check did not finish");
-            idle_tick();
-        }
         std::cout << "engine-feed: 3\n";
         std::cout.flush();
     }
