@@ -3573,6 +3573,7 @@ void ground_index_build_diagnostics() {
     if (first_work.diagnostics.size == 1) {
         const auto& record = first_work.diagnostics.records[0];
         OA_CHECK(!record.was_valid && record.completed && record.previous_attempts == 0);
+        OA_CHECK(!record.constructors_parallel);
         OA_CHECK(record.before == live::GroundIndexKey{});
         OA_CHECK(record.requested == fixture.scene.ground_index_cache.key);
         OA_CHECK(record.requested.revision != 0 && record.requested.vertices != 0);
@@ -3590,6 +3591,7 @@ void ground_index_build_diagnostics() {
             OA_CHECK(global.records[0].before == record.before);
             OA_CHECK(global.records[0].requested == record.requested);
             OA_CHECK(global.records[0].total_nanoseconds == record.total_nanoseconds);
+            OA_CHECK(global.records[0].constructors_parallel == record.constructors_parallel);
         }
     }
     const auto first_key = fixture.scene.ground_index_cache.key;
@@ -3729,26 +3731,33 @@ struct GroundIndexThreadsFixture {
     void check_constructor_times(bool parallel) const {
         const auto check = [](const live::Scene& scene, bool concurrent) {
             const auto& work = scene.passes.ground_indices;
-            OA_CHECK(work.builds == 1 && work.diagnostics.size == 1);
+            OA_CHECK(work.builds != 0 && work.diagnostics.size == work.builds);
             OA_CHECK(work.diagnostics.dropped == 0);
-            if (work.diagnostics.size != 1)
-                return;
-            const auto& record = work.diagnostics.records[0];
-            OA_CHECK(record.completed);
-            OA_CHECK(record.total_nanoseconds == work.build_nanoseconds);
-            OA_CHECK(record.world_nanoseconds <= record.total_nanoseconds);
-            OA_CHECK(record.card_nanoseconds <= record.total_nanoseconds);
-            OA_CHECK(
-                record.bounds_nanoseconds +
-                    std::max(record.world_nanoseconds, record.card_nanoseconds) <=
-                record.total_nanoseconds
-            );
-            if (!concurrent)
+            uint64_t total{};
+            bool dispatched = false;
+            for (std::size_t index = 0; index < work.diagnostics.size; ++index) {
+                const auto& record = work.diagnostics.records[index];
+                OA_CHECK(record.completed);
+                dispatched |= record.constructors_parallel;
+                OA_CHECK(record.world_nanoseconds <= record.total_nanoseconds);
+                OA_CHECK(record.card_nanoseconds <= record.total_nanoseconds);
                 OA_CHECK(
-                    record.bounds_nanoseconds + record.world_nanoseconds +
-                        record.card_nanoseconds ==
+                    record.bounds_nanoseconds +
+                        std::max(record.world_nanoseconds, record.card_nanoseconds) <=
                     record.total_nanoseconds
                 );
+                if (!record.constructors_parallel)
+                    OA_CHECK(
+                        record.bounds_nanoseconds + record.world_nanoseconds +
+                            record.card_nanoseconds ==
+                        record.total_nanoseconds
+                    );
+                total += record.total_nanoseconds;
+            }
+            // A first real query may reject the prepared caller's FP key
+            // and rebuild serially on its actual sprite worker.
+            OA_CHECK(dispatched == concurrent);
+            OA_CHECK(total == work.build_nanoseconds);
         };
         check(ordinary, false);
         check(fixture.scene, parallel);

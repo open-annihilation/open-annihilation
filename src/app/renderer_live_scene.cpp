@@ -7124,7 +7124,8 @@ void list_ground(
             if (!diagnostic)
                 return;
             const auto now = bench_timers::now_ns();
-            *phase += now - phase_started;
+            if (phase != nullptr)
+                *phase += now - phase_started;
             phase = following;
             phase_started = now;
         }
@@ -7135,7 +7136,8 @@ void list_ground(
                 work.build_nanoseconds += ended - began;
                 if (diagnostic) {
                     diagnostic->total_nanoseconds = ended - began;
-                    *phase += ended - phase_started;
+                    if (phase != nullptr)
+                        *phase += ended - phase_started;
                 }
             }
         }
@@ -7258,11 +7260,52 @@ void list_ground(
             diagnostic->completed = true;
         return;
     }
-    build_time.next(diagnostic ? &diagnostic->world_nanoseconds : nullptr);
-    indices.world.emplace(world_axes, scene.ground_index_memory[0], reach);
-    build_time.next(diagnostic ? &diagnostic->card_nanoseconds : nullptr);
-    if (card_axes != nullptr)
-        indices.card.emplace(*card_axes, scene.ground_index_memory[1], reach);
+    if (pool != nullptr && pool->threads() > 1 && card_axes != nullptr) {
+        // Each constructor reads its completed bounds and writes only its
+        // own retained buffers. Keep each index's triangle order unchanged.
+        // Their diagnostic walls overlap; the inclusive total includes the
+        // dispatch and join and must not sum those two durations.
+        build_time.next(nullptr);
+        if (diagnostic)
+            diagnostic->constructors_parallel = true;
+        std::array<std::exception_ptr, 2> failures{};
+        std::array<uint64_t, 2> elapsed{};
+        const auto constructor_control = base::float_precision::save_float_control();
+        platform::job_pool::run_bands(pool, 2, [&](uint32_t index) noexcept {
+            struct RestoreControl {
+                base::float_precision::FloatControl previous;
+
+                ~RestoreControl() { base::float_precision::restore_float_control(previous); }
+            } restore{base::float_precision::save_float_control()};
+            base::float_precision::restore_float_control(constructor_control);
+            const uint64_t started = diagnostic ? bench_timers::now_ns() : 0;
+            try {
+                if (index == 0)
+                    indices.world.emplace(world_axes, scene.ground_index_memory[0], reach);
+                else
+                    indices.card.emplace(*card_axes, scene.ground_index_memory[1], reach);
+            } catch (...) {
+                failures[index] = std::current_exception();
+            }
+            if (diagnostic)
+                elapsed[index] = bench_timers::now_ns() - started;
+        });
+        if (diagnostic) {
+            diagnostic->world_nanoseconds += elapsed[0];
+            diagnostic->card_nanoseconds += elapsed[1];
+        }
+        // Neither index is published while a job can still write it. A
+        // failed world constructor keeps precedence over a failed card's.
+        for (const auto& failure : failures)
+            if (failure)
+                std::rethrow_exception(failure);
+    } else {
+        build_time.next(diagnostic ? &diagnostic->world_nanoseconds : nullptr);
+        indices.world.emplace(world_axes, scene.ground_index_memory[0], reach);
+        build_time.next(diagnostic ? &diagnostic->card_nanoseconds : nullptr);
+        if (card_axes != nullptr)
+            indices.card.emplace(*card_axes, scene.ground_index_memory[1], reach);
+    }
     cache.key = key;
     cache.layouts[0] = indices.world->layout();
     if (indices.card)
