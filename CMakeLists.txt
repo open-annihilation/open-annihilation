@@ -1942,8 +1942,10 @@ if(OA_BUILD_PLATFORM)
       # the Full tier the dot and the line of sites down to its zoom floor of
       # a sixth, a marker's label whose shadow, outline and letter edges the
       # card draws as asked, the build preview drawn by the card, the
-      # megamap at the floor too, and the chat line with what of it lies
-      # beside its backdrop the card's (check_visual_rule_overlays).
+      # megamap at the floor too, the card drawing none of the battlefield
+      # under it and, once it closes, the battlefield as it was before it
+      # opened, and the chat line with what of it lies beside its backdrop
+      # the card's (check_visual_rule_overlays).
       set(oa_render_visual_check_dir
         "${CMAKE_CURRENT_BINARY_DIR}/native-checks/render-tiers-visual-rules")
       file(MAKE_DIRECTORY "${oa_render_visual_check_dir}")

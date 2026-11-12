@@ -498,9 +498,9 @@ bool Runtime::megamap_wheel(float amount, float x, float y) {
     return true;
 }
 
-void Runtime::draw_megamap() {
+bool Runtime::draw_megamap() {
     if (!megamap_open_ || !megamap_on() || !selected_tnt_)
-        return;
+        return false;
     prepare_megamap();
     auto& state = megamap_;
     auto& world = match_->state();
@@ -509,7 +509,7 @@ void Runtime::draw_megamap() {
     // until the overlays' area changes, as a resized window changes it.
     const auto layout = current_megamap_layout();
     if (layout.width <= 0)
-        return;
+        return false;
     if (!megamap_terrain_fits(layout))
         build_megamap_terrain(layout);
     // The bars, across the battlefield around the picture, then the terrain
@@ -720,6 +720,10 @@ void Runtime::draw_megamap() {
         fill_hud_rect(left, top, 1, bottom - top + 1, marks);
         fill_hud_rect(right, top, 1, bottom - top + 1, marks);
     }
+    // The bars and the map's rows, each cut to the layer, leave none of it
+    // uncovered where the layer is the battlefield's size.
+    return target.width == static_cast<uint32_t>(std::max(0, battlefield_w)) &&
+           target.height == static_cast<uint32_t>(std::max(0, battlefield_h));
 }
 
 void Runtime::draw_megamap_ring(int32_t x, int32_t y, int32_t radius, uint8_t color) {

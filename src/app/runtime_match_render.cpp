@@ -3096,8 +3096,10 @@ bool Runtime::draw_match_surface() {
         paint_origin_ = {};
         return false;
     }
-    // ui.megamap draws over the battlefield in its place.
-    draw_megamap();
+    // ui.megamap draws over the battlefield in its place; where it covers
+    // the canvas whole, the card draws none of the battlefield under it.
+    if (draw_megamap() && card_world && !directed)
+        note_full_world_covered();
     paint_on(PaintLayer::hud);
     {
         // The bars' text keeps to the game fonts' size at most; the chat

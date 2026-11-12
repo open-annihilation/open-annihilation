@@ -14525,13 +14525,21 @@ class Runtime final : public menu::Host,
     /// the Full tier's overlay canvas (full_frame_drawn), and the camera and
     /// zoom the frame is planned at, which the card's frame draws from; a
     /// canvas frame lets go of the quads the painters asked for in the
-    /// frame before.
+    /// frame before, and starts with its battlefield not covered
+    /// (note_full_world_covered).
     ///
     /// @param canvas true when the card draws the world and the layer is the canvas
     /// @param camera_x map pixel at the view's left edge; below 0 left of the map
     /// @param camera_y map pixel at the view's top edge; below 0 above the map
     /// @param zoom screen pixels per map pixel
     void note_full_canvas(bool canvas, int32_t camera_x, int32_t camera_y, float zoom);
+
+    /// Notes that a canvas frame's painters covered the whole battlefield
+    /// on the overlay canvas with pixels of their own, as the open megamap
+    /// covers it, so that the card draws none of the battlefield under
+    /// them and the overlay alone is laid there (present_full_match_layers).
+    /// Nothing for a frame that is not a canvas frame.
+    void note_full_world_covered() noexcept;
 
     /// Notes where a canvas frame's overlay canvas holds its pixels once it
     /// is cleared to the key colour, so that a painter after the fog that
@@ -17358,7 +17366,11 @@ class Runtime final : public menu::Host,
     /// what the viewer has mapped and sees, the units' icons, the selected
     /// units' rings and a drag box being drawn. It draws no rectangle for the
     /// main view.
-    void draw_megamap();
+    ///
+    /// @return true when it drew, the bars and the map covering every pixel
+    ///         of the battlefield; false when the megamap is closed or has
+    ///         no picture
+    bool draw_megamap();
 
     /// Draws a ring on the megamap.
     ///

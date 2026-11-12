@@ -163,6 +163,7 @@ void Runtime::note_full_canvas(bool canvas, int32_t camera_x, int32_t camera_y, 
     if (!full_)
         return;
     full_->canvas_drawn = canvas;
+    full_->world_covered = false;
     if (!canvas)
         return;
     full_->frame_camera_x = camera_x;
@@ -170,6 +171,11 @@ void Runtime::note_full_canvas(bool canvas, int32_t camera_x, int32_t camera_y, 
     full_->frame_zoom = zoom;
     full_->canvas_pixels = nullptr;
     full_->world_quads.clear();
+}
+
+void Runtime::note_full_world_covered() noexcept {
+    if (full_ && full_->canvas_drawn)
+        full_->world_covered = true;
 }
 
 void Runtime::note_full_canvas_pixels(const uint8_t* pixels) noexcept {
