@@ -13,6 +13,7 @@
 #include "oa/ui/kit/looks.hpp"
 #include "oa/ui/kit/state_colours.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -80,6 +81,51 @@ void draw_state_icon(const Canvas& canvas, const Rect& rect, StateIcon icon, Col
 /// @param icon which icon
 /// @param ink the colour of the strokes
 void draw_tag_icon(const Canvas& canvas, const Rect& rect, TagIcon icon, Colour ink);
+
+/// An icon a button shows in place of its word, as the replay bar's do.
+enum class ToolIcon : uint8_t {
+    back_ten,    ///< an arrow turning anticlockwise round "10": back ten seconds
+    play,        ///< a filled triangle pointing right
+    pause,       ///< two filled upright bars
+    forward_ten, ///< an arrow turning clockwise round "10": forward ten seconds
+    camera,      ///< a camera, its lens and its viewfinder: photo mode
+    chat,        ///< a speech bubble with two lines of text: chat on show
+    chat_hidden, ///< the speech bubble, empty and struck through: chat hidden
+    keyboard,    ///< a keyboard, a row of keys over a space bar: the shortcut card
+    leave,       ///< an arrow leaving through a door's frame
+};
+
+/// Every tool icon, in the order ToolIcon declares them.
+inline constexpr std::array all_tool_icons{
+    ToolIcon::back_ten,
+    ToolIcon::play,
+    ToolIcon::pause,
+    ToolIcon::forward_ten,
+    ToolIcon::camera,
+    ToolIcon::chat,
+    ToolIcon::chat_hidden,
+    ToolIcon::keyboard,
+    ToolIcon::leave,
+};
+
+/// Draws a tool icon, filling a square of the rectangle's shorter side,
+/// centred in it.
+///
+/// The icons are drawn as the tag icons are: strokes on a design of 24
+/// units, each 2.5 units wide with round ends, worked out at the canvas's
+/// own pixels and drawn through blend_coverage, so a 2x drawing is not a
+/// doubled 1x drawing and 150% keeps its partial edges. Play, pause and
+/// the turning arrows' heads are shapes filled inside their strokes, so
+/// their corners are as round as a stroke's end. The "10" of the turning
+/// arrows is 2 units wide, so it stays open at 18 points. A rectangle more
+/// than 1024 pixels on a side draws nothing, and so does an undrawable
+/// canvas. Pixels the icon does not cover are left as they are.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle, in points
+/// @param icon which icon
+/// @param ink the colour
+void draw_tool_icon(const Canvas& canvas, const Rect& rect, ToolIcon icon, Colour ink);
 
 /// The app icon drawn as the small maker's mark on a Library row or a
 /// registry card. The spans point at pixels kept elsewhere for as long as

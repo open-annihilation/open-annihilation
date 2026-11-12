@@ -219,6 +219,7 @@ struct Layout {
     bool shown{true};          ///< the bar itself is on show; a card may show without it
     bool export_enabled{true}; ///< a press on Export opens the dialog
     SpeedForm speed_form{SpeedForm::full}; ///< how much of the speed caption the button holds
+    int32_t glyph{20}; ///< the side of the square an icon button's mark fills, in points
 };
 
 /// How long the bar has been waiting to hide, and whether it is pinned.

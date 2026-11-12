@@ -248,7 +248,16 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   the mark's size, and otherwise that same kind of shape: a rounded plate
   with the letters in the lock colour. `draw_tag_icon` draws a tag icon
   the same way, strokes 2.5 units wide on the 24-unit square, sampled at
-  the canvas's own pixels. `paint` draws a display list. The
+  the canvas's own pixels. `draw_tool_icon` draws a tool icon
+  (`ToolIcon`, every one in `all_tool_icons`), the mark a button wears in
+  place of its word, as the replay bar's do: an arrow turning back or
+  forward round "10", play, pause, a camera, a speech bubble with two
+  lines, that bubble empty and struck through, a keyboard, and an arrow
+  leaving through a door's frame. They are drawn as the tag icons are,
+  with strokes of the same width; play, pause and the turning arrows'
+  heads are shapes filled inside their strokes, so their corners are as
+  round as a stroke's end, and the "10" is 2 units wide so that it stays
+  open at 18 points. `paint` draws a display list. The
   OA button (`draw_oa_button`, `OaButtonLook`) may wear the kit's attention
   dot, as the main menu's does while updates wait: a disc
   `oa_button_dot_side` (7) points across in the warning token
@@ -1027,7 +1036,11 @@ coach mark sits, and that every first-run component draws at Compact,
 Regular and Large, on the crisp form and at 150%, with its states differing.
 
 `ui-kit-tag-icons` checks the eight tag ids, each icon at 8, 12, 20, 28
-and 40 points at 1x, 2x, 3x and 150%, a badge's picture, tag, letters and
+and 40 points at 1x, 2x, 3x and 150%, each tool icon at 12, 16, 18, 20
+and 40 points the same way and each a drawing of its own at 18 and 20,
+the turning arrows mirrored, play and pause filled, a hidden chat's bubble
+struck through, a tool icon in the middle square of a wide rectangle,
+a badge's picture, tag, letters and
 blank, a row, pill, nav entry and question with nothing new pinned to the
 pixels from before the change, a byline's colour, a drag handle in each
 state, and a question that grows by two item lines and names them.

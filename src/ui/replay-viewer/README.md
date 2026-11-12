@@ -40,7 +40,16 @@ say what a press landed on.
 - The view menu draws each player's colour, name and departure. The bar
   lays out no player list: the app draws the players' stats over the
   battlefield's top right.
-- `draw` paints the bar in the kit's HUD colours. The watched part of the
+- `draw` paints the bar in the kit's HUD colours. Each icon button wears
+  the kit's tool icon (`kit::draw_tool_icon`) in a square at its middle,
+  18 points on a compact bar and 20 on the others (`Layout::glyph`), in
+  the label colour, or the ink on a lit button: Back 10 s an arrow turning
+  back round "10", Forward 10 s the same arrow turning forward, Play a
+  filled triangle and Pause two filled bars, Photo a camera, Chat a speech
+  bubble with two lines while chat is shown and the bubble struck through
+  while it is hidden, Keys a keyboard, and Leave an arrow out through a
+  door's frame. The icons are worked out at the canvas's own pixels, so
+  they are as sharp at 2x, at 150% and on a phone as at 1x. The watched part of the
   timeline is the lit green, a keyframed stretch is a lighter green, and the
   rest is dark. Commander deaths are diamonds in the player's colour. Pauses
   are gaps. Chat is a short tick. The end is a flag. A pointer on a marker
@@ -75,7 +84,9 @@ is shown.
 ## Tests
 
 `ui-replay-viewer` (`tests/replay_viewer_test.cpp`) checks the layout at
-640×480, 1280×720 and 1920×1080, the marker hit areas, the time text
+640×480, 1280×720 and 1920×1080, each icon button's mark in its square
+there and on an 852×393 phone, in the button's ink, with play turning to
+pause and chat shown to chat hidden, the marker hit areas, the time text
 `11:40 / 23:52`, the hide and pin timing, the view menu's rows with no
 player list, and a departure's room beside the name in five languages. It also measures the time and
 the speed captions in five languages and requires them to fit on the

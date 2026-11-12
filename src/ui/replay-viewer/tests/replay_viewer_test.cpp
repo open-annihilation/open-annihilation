@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -315,7 +316,7 @@ bool pixel_is(const paint::Canvas& pixels, int x, int y, kit::Colour ink) {
 /// @param rect the button
 /// @param ink the fill
 void expect_button(const paint::Canvas& pixels, const kit::Rect& rect, kit::Colour ink) {
-    constexpr int32_t kInset = 5;
+    constexpr int32_t kInset = 3;
     OA_CHECK(rect.width > kInset * 2);
     OA_CHECK(rect.height > kInset * 2);
     const kit::Point samples[] = {
@@ -402,6 +403,93 @@ void check_draw(int width, int height) {
     expect_card(pixels, layout.keys_card);
     // The shortcut card is on top, and a press on it is the card's.
     OA_CHECK(viewer::hit_control(layout, centre(layout.keys_card)) == viewer::Control::keys_card);
+}
+
+/// Requires an icon button's mark to sit in its square at the button's
+/// middle, drawn in the ink, with the face round it untouched.
+///
+/// @param pixels the canvas
+/// @param rect the button
+/// @param side the mark's square
+/// @param face the button's fill
+/// @param ink the mark's colour
+void expect_mark(
+    const paint::Canvas& pixels,
+    const kit::Rect& rect,
+    int32_t side,
+    kit::Colour face,
+    kit::Colour ink
+) {
+    const kit::Rect square{
+        rect.x + (rect.width - side) / 2, rect.y + (rect.height - side) / 2, side, side
+    };
+    // Clear of the edge's hairline and its rounded corners.
+    constexpr int32_t kEdge = 3;
+    bool inked = false;
+    for (int32_t y = rect.y + kEdge; y < rect.y + rect.height - kEdge; ++y) {
+        for (int32_t x = rect.x + kEdge; x < rect.x + rect.width - kEdge; ++x) {
+            if (kit::contains(square, {x, y}))
+                inked = inked || pixel_is(pixels, x, y, ink);
+            else
+                OA_CHECK(pixel_is(pixels, x, y, face));
+        }
+    }
+    OA_CHECK(inked);
+}
+
+/// Draws the bar at one size and checks each icon button's mark: 18 points
+/// on a compact bar and 20 on the others, in the button's ink, inside its
+/// square. Play turns to pause, and chat shown to chat hidden.
+///
+/// @param width the canvas width
+/// @param height the canvas height
+void check_marks(int width, int height) {
+    kit::Colour face = kit::hud_colour::panel;
+    face.a = 255;
+    const auto draw_bar = [width, height](const viewer::Model& model) {
+        const viewer::Layout layout = viewer::lay_out(width, height, model, true);
+        paint::Canvas pixels = paint::make_canvas(width, height);
+        paint::Painter painter(pixels);
+        kit::Canvas canvas;
+        canvas.smooth.painter = &painter;
+        canvas.smooth.scale_percent = 100;
+        viewer::draw(canvas, layout, model);
+        return std::pair{layout, pixels};
+    };
+    viewer::Model model;
+    model.tick = 300;
+    model.length = 3000;
+    model.paused = true;
+    model.chat_shown = true;
+    const auto [layout, paused] = draw_bar(model);
+    OA_CHECK(layout.glyph == (height < 700 ? 18 : 20));
+    const int32_t side = layout.glyph;
+    expect_mark(paused, layout.back, side, face, kit::hud_colour::label);
+    expect_mark(paused, layout.play, side, face, kit::hud_colour::label);
+    expect_mark(paused, layout.forward, side, face, kit::hud_colour::label);
+    expect_mark(paused, layout.photo, side, face, kit::hud_colour::label);
+    expect_mark(paused, layout.chat, side, kit::hud_colour::lit, kit::hud_colour::ink);
+    expect_mark(paused, layout.keys, side, face, kit::hud_colour::label);
+    expect_mark(paused, layout.leave, side, face, kit::hud_colour::label);
+    model.paused = false;
+    model.chat_shown = false;
+    model.keys_open = true;
+    const auto [same, playing] = draw_bar(model);
+    expect_mark(playing, same.play, side, kit::hud_colour::lit, kit::hud_colour::ink);
+    expect_mark(playing, same.chat, side, face, kit::hud_colour::label);
+    expect_mark(playing, same.keys, side, kit::hud_colour::lit, kit::hud_colour::ink);
+    const auto differs =
+        [](const paint::Canvas& first, const paint::Canvas& second, const kit::Rect& rect) {
+            for (int32_t y = rect.y; y < rect.y + rect.height; ++y)
+                for (int32_t x = rect.x; x < rect.x + rect.width; ++x)
+                    if (!(paint::pixel_at(first, x, y) == paint::pixel_at(second, x, y)))
+                        return true;
+            return false;
+        };
+    OA_CHECK(differs(paused, playing, layout.play));
+    OA_CHECK(differs(paused, playing, layout.chat));
+    OA_CHECK(!differs(paused, playing, layout.back));
+    OA_CHECK(!differs(paused, playing, layout.leave));
 }
 
 /// The buttons a player hears are named from the catalogue.
@@ -872,6 +960,10 @@ int main() {
     check_draw(640, 480);
     check_draw(1280, 720);
     check_draw(1920, 1080);
+    check_marks(640, 480);
+    check_marks(1280, 720);
+    check_marks(1920, 1080);
+    check_marks(852, 393);
     check_names();
     check_chat_caption();
     check_export_disabled();

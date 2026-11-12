@@ -12,7 +12,8 @@ target_link_libraries(oa-ui-replay-viewer PUBLIC oa-ui-kit PRIVATE oa-data-langu
 if(BUILD_TESTING)
   # The bar at 640x480, 1280x720 and 1920x1080, marker hit areas, the time
   # text, the hide and pin timing, and a drawing of the bar and both cards
-  # whose buttons and cards are filled across their whole rectangles.
+  # whose buttons and cards are filled across their whole rectangles, with
+  # each icon button's mark in its square.
   add_executable(oa-ui-replay-viewer-test tests/replay_viewer_test.cpp)
   target_link_libraries(
     oa-ui-replay-viewer-test PRIVATE oa-ui-replay-viewer oa-ui-paint oa-test-support

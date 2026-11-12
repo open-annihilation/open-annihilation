@@ -1384,6 +1384,348 @@ std::vector<uint8_t> sample_maker(int32_t columns, int32_t rows, Covers covers) 
     return coverage;
 }
 
+// ---- Tool icons ----
+//
+// The icons a button shows in place of its word. Drawn as the tag icons are,
+// from strokes 2.5 units wide on the 24-unit square, and from convex shapes
+// filled inside their strokes, so a filled shape's corners are as round as a
+// stroke's end.
+
+/// One part of a tool icon: strokes of one width, and a convex shape filled
+/// inside them.
+struct IconPart {
+    std::span<const IconStroke> strokes{}; ///< the strokes, in quarter units
+    int64_t half_width{kStrokeHalf};       ///< half their width, in quarter units
+    std::span<const IconPoint> fill{};     ///< a convex shape's corners in turn; empty fills none
+};
+
+/// Half the width of the "10" in the turning arrows: 2 units wide, so the
+/// zero stays open at 18 points.
+constexpr int64_t kNumeralHalf = 4;
+
+/// Mirrors strokes across the square's upright middle.
+///
+/// @param strokes the strokes
+/// @return the mirrored strokes
+template <std::size_t Count>
+constexpr std::array<IconStroke, Count>
+mirrored(const std::array<IconStroke, Count>& strokes) noexcept {
+    std::array<IconStroke, Count> out{};
+    for (std::size_t index = 0; index < Count; ++index)
+        out[index] = {
+            {kIconGrid - strokes[index].from.x, strokes[index].from.y},
+            {kIconGrid - strokes[index].to.x, strokes[index].to.y},
+        };
+    return out;
+}
+
+/// Mirrors corners across the square's upright middle.
+///
+/// @param corners the corners
+/// @return the mirrored corners
+template <std::size_t Count>
+constexpr std::array<IconPoint, Count>
+mirrored(const std::array<IconPoint, Count>& corners) noexcept {
+    std::array<IconPoint, Count> out{};
+    for (std::size_t index = 0; index < Count; ++index)
+        out[index] = {kIconGrid - corners[index].x, corners[index].y};
+    return out;
+}
+
+/// The strokes round a convex shape, the last corner joined to the first.
+///
+/// @param corners the shape's corners in turn
+/// @return one stroke an edge
+template <std::size_t Count>
+constexpr std::array<IconStroke, Count>
+outline_of(const std::array<IconPoint, Count>& corners) noexcept {
+    std::array<IconStroke, Count> out{};
+    for (std::size_t index = 0; index < Count; ++index)
+        out[index] = {corners[index], corners[(index + 1) % Count]};
+    return out;
+}
+
+/// The turning arrow back: a ring of radius 9 units about (12, 13), from
+/// its top clockwise round to its upper left, the gap left for the head.
+constexpr std::array<IconStroke, 24> kTurnBackStrokes{{
+    {{48, 16}, {56, 17}}, {{56, 17}, {63, 19}}, {{63, 19}, {70, 23}}, {{70, 23}, {75, 28}},
+    {{75, 28}, {80, 35}}, {{80, 35}, {83, 42}}, {{83, 42}, {84, 50}}, {{84, 50}, {84, 57}},
+    {{84, 57}, {82, 65}}, {{82, 65}, {78, 72}}, {{78, 72}, {73, 78}}, {{73, 78}, {67, 82}},
+    {{67, 82}, {60, 86}}, {{60, 86}, {53, 88}}, {{53, 88}, {45, 88}}, {{45, 88}, {38, 86}},
+    {{38, 86}, {31, 83}}, {{31, 83}, {24, 79}}, {{24, 79}, {19, 73}}, {{19, 73}, {15, 67}},
+    {{15, 67}, {13, 59}}, {{13, 59}, {12, 52}}, {{12, 52}, {13, 44}}, {{13, 44}, {15, 37}},
+}};
+/// The turning arrow's head: a triangle at the ring's top pointing left.
+constexpr std::array<IconPoint, 3> kTurnBackHead{{{40, 16}, {54, 7}, {54, 25}}};
+constexpr std::array<IconStroke, 3> kTurnBackHeadStrokes = outline_of(kTurnBackHead);
+/// The turning arrow forward: the arrow back mirrored.
+constexpr std::array<IconStroke, 24> kTurnForwardStrokes = mirrored(kTurnBackStrokes);
+constexpr std::array<IconPoint, 3> kTurnForwardHead = mirrored(kTurnBackHead);
+constexpr std::array<IconStroke, 3> kTurnForwardHeadStrokes = outline_of(kTurnForwardHead);
+/// The "10" inside the ring, 6 units high: the one's stem and flag, then
+/// the zero, an upright octagon.
+constexpr std::array<IconStroke, 10> kTenStrokes{{
+    {{38, 40}, {38, 64}},
+    {{33, 44}, {38, 40}},
+    {{51, 43}, {54, 40}},
+    {{54, 40}, {60, 40}},
+    {{60, 40}, {63, 43}},
+    {{63, 43}, {63, 61}},
+    {{63, 61}, {60, 64}},
+    {{60, 64}, {54, 64}},
+    {{54, 64}, {51, 61}},
+    {{51, 61}, {51, 43}},
+}};
+/// Play: a triangle pointing right, a little left of the middle so it
+/// looks centred.
+constexpr std::array<IconPoint, 3> kPlayShape{{{30, 22}, {72, 48}, {30, 74}}};
+constexpr std::array<IconStroke, 3> kPlayStrokes = outline_of(kPlayShape);
+/// Pause: two upright bars, 4.5 units wide and 3.5 apart.
+constexpr std::array<IconPoint, 4> kPauseLeft{{{30, 22}, {38, 22}, {38, 74}, {30, 74}}};
+constexpr std::array<IconPoint, 4> kPauseRight{{{58, 22}, {66, 22}, {66, 74}, {58, 74}}};
+constexpr std::array<IconStroke, 4> kPauseLeftStrokes = outline_of(kPauseLeft);
+constexpr std::array<IconStroke, 4> kPauseRightStrokes = outline_of(kPauseRight);
+/// The camera: its body with the viewfinder's hump, then a sixteen-sided
+/// lens of radius 3.5 units.
+constexpr std::array<IconPoint, 8> kCameraBody{{
+    {10, 30},
+    {30, 30},
+    {36, 18},
+    {60, 18},
+    {66, 30},
+    {86, 30},
+    {86, 78},
+    {10, 78},
+}};
+constexpr std::array<IconPoint, 16> kCameraLens{{
+    {62, 54},
+    {61, 59},
+    {58, 64},
+    {53, 67},
+    {48, 68},
+    {43, 67},
+    {38, 64},
+    {35, 59},
+    {34, 54},
+    {35, 49},
+    {38, 44},
+    {43, 41},
+    {48, 40},
+    {53, 41},
+    {58, 44},
+    {61, 49},
+}};
+constexpr std::array<IconStroke, 8> kCameraBodyStrokes = outline_of(kCameraBody);
+constexpr std::array<IconStroke, 16> kCameraLensStrokes = outline_of(kCameraLens);
+/// The speech bubble, its tail at the lower left.
+constexpr std::array<IconPoint, 7> kBubble{{
+    {12, 16},
+    {84, 16},
+    {84, 64},
+    {40, 64},
+    {22, 80},
+    {22, 64},
+    {12, 64},
+}};
+constexpr std::array<IconStroke, 7> kBubbleStrokes = outline_of(kBubble);
+/// Two lines of text in the bubble.
+constexpr std::array<IconStroke, 2> kBubbleLines{{
+    {{30, 32}, {66, 32}},
+    {{30, 48}, {54, 48}},
+}};
+/// The stroke through the bubble while chat is hidden.
+constexpr std::array<IconStroke, 1> kBubbleStruck{{{{10, 10}, {86, 86}}}};
+/// The keyboard: its case, four keys, and the space bar.
+constexpr std::array<IconStroke, 9> kKeyboardStrokes{{
+    {{8, 22}, {88, 22}},
+    {{88, 22}, {88, 74}},
+    {{88, 74}, {8, 74}},
+    {{8, 74}, {8, 22}},
+    {{24, 38}, {24, 38}},
+    {{40, 38}, {40, 38}},
+    {{56, 38}, {56, 38}},
+    {{72, 38}, {72, 38}},
+    {{30, 58}, {66, 58}},
+}};
+/// Leave: a door's frame open to the right, and an arrow out through it.
+constexpr std::array<IconStroke, 6> kLeaveStrokes{{
+    {{40, 12}, {12, 12}},
+    {{12, 12}, {12, 84}},
+    {{12, 84}, {40, 84}},
+    {{38, 48}, {84, 48}},
+    {{66, 30}, {84, 48}},
+    {{84, 48}, {66, 66}},
+}};
+
+constexpr std::array<IconPart, 3> kBackTenParts{{
+    {kTurnBackStrokes},
+    {kTurnBackHeadStrokes, kStrokeHalf, kTurnBackHead},
+    {kTenStrokes, kNumeralHalf},
+}};
+constexpr std::array<IconPart, 3> kForwardTenParts{{
+    {kTurnForwardStrokes},
+    {kTurnForwardHeadStrokes, kStrokeHalf, kTurnForwardHead},
+    {kTenStrokes, kNumeralHalf},
+}};
+constexpr std::array<IconPart, 1> kPlayParts{{{kPlayStrokes, kStrokeHalf, kPlayShape}}};
+constexpr std::array<IconPart, 2> kPauseParts{{
+    {kPauseLeftStrokes, kStrokeHalf, kPauseLeft},
+    {kPauseRightStrokes, kStrokeHalf, kPauseRight},
+}};
+constexpr std::array<IconPart, 2> kCameraParts{{{kCameraBodyStrokes}, {kCameraLensStrokes}}};
+constexpr std::array<IconPart, 2> kChatParts{{{kBubbleStrokes}, {kBubbleLines}}};
+constexpr std::array<IconPart, 2> kChatHiddenParts{{{kBubbleStrokes}, {kBubbleStruck}}};
+constexpr std::array<IconPart, 1> kKeyboardParts{{{kKeyboardStrokes}}};
+constexpr std::array<IconPart, 1> kLeaveParts{{{kLeaveStrokes}}};
+
+/// Returns a tool icon's parts.
+///
+/// @param icon the icon
+/// @return its parts
+constexpr std::span<const IconPart> tool_parts(ToolIcon icon) noexcept {
+    switch (icon) {
+    case ToolIcon::back_ten:
+        return kBackTenParts;
+    case ToolIcon::play:
+        return kPlayParts;
+    case ToolIcon::pause:
+        return kPauseParts;
+    case ToolIcon::forward_ten:
+        return kForwardTenParts;
+    case ToolIcon::camera:
+        return kCameraParts;
+    case ToolIcon::chat:
+        return kChatParts;
+    case ToolIcon::chat_hidden:
+        return kChatHiddenParts;
+    case ToolIcon::keyboard:
+        return kKeyboardParts;
+    case ToolIcon::leave:
+        return kLeaveParts;
+    }
+    return {};
+}
+
+/// Reports whether every tool icon's strokes and shapes stay inside the
+/// square, round ends included.
+///
+/// @return true when every end and corner is its half width inside the square
+constexpr bool tool_parts_fit() noexcept {
+    const auto fits = [](IconPoint point, int64_t half) {
+        return point.x >= half && point.x <= kIconGrid - half && point.y >= half &&
+               point.y <= kIconGrid - half;
+    };
+    for (const ToolIcon icon : all_tool_icons) {
+        for (const IconPart& part : tool_parts(icon)) {
+            for (const IconStroke& stroke : part.strokes) {
+                if (!fits(stroke.from, part.half_width) || !fits(stroke.to, part.half_width))
+                    return false;
+            }
+            for (const IconPoint corner : part.fill) {
+                if (!fits(corner, 0))
+                    return false;
+            }
+        }
+    }
+    return true;
+}
+
+static_assert(tool_parts_fit(), "every tool icon stays inside its square");
+
+/// Tells whether a sample lies in a convex shape, edges included.
+///
+/// @param point the sample
+/// @param corners the shape's corners in turn, at least three
+/// @return true when the sample is inside
+bool in_convex(IconPoint point, std::span<const IconPoint> corners) noexcept {
+    if (corners.size() < 3)
+        return false;
+    int64_t turn = 0;
+    for (std::size_t index = 0; index < corners.size(); ++index) {
+        const int64_t cross =
+            cross_at(corners[index], corners[(index + 1) % corners.size()], point);
+        if (cross == 0)
+            continue;
+        if (turn == 0)
+            turn = cross;
+        else if ((cross > 0) != (turn > 0))
+            return false;
+    }
+    return true;
+}
+
+/// One part of a tool icon, scaled to the samples of one square.
+struct ScaledPart {
+    std::vector<IconStroke> strokes; ///< the strokes, in eighths of a pixel
+    int64_t half_width{};            ///< half their width, in eighths of a pixel
+    std::vector<IconPoint> fill;     ///< the filled shape's corners, in eighths of a pixel
+};
+
+/// Returns how much of each pixel a tool icon covers.
+///
+/// The same sampling as a tag icon: each pixel counts which of its 16
+/// samples lie within half a part's width of one of its strokes, or inside
+/// its shape. Every machine draws the same pixels.
+///
+/// @param icon the icon
+/// @param columns the rectangle's pixels across, at most kMostIconPixels
+/// @param rows the rectangle's pixels down, at most kMostIconPixels
+/// @return columns times rows bytes, rows top to bottom: 0 uncovered to 255 covered
+std::vector<uint8_t> tool_icon_coverage(ToolIcon icon, int32_t columns, int32_t rows) {
+    std::vector<uint8_t> coverage(
+        static_cast<std::size_t>(std::max(columns, 0)) * static_cast<std::size_t>(std::max(rows, 0))
+    );
+    const int32_t side = std::min(columns, rows);
+    if (side <= 0)
+        return coverage;
+    const int32_t origin_x = (columns - side) / 2;
+    const int32_t origin_y = (rows - side) / 2;
+    const DesignScale scale{2 * kIconSamples * side};
+    const auto scaled_point = [&scale](IconPoint point) {
+        return IconPoint{scale.scaled(point.x), scale.scaled(point.y)};
+    };
+    std::vector<ScaledPart> parts;
+    for (const IconPart& part : tool_parts(icon)) {
+        ScaledPart scaled;
+        scaled.half_width = scale.scaled(part.half_width);
+        for (const IconStroke& stroke : part.strokes)
+            scaled.strokes.push_back({scaled_point(stroke.from), scaled_point(stroke.to)});
+        for (const IconPoint corner : part.fill)
+            scaled.fill.push_back(scaled_point(corner));
+        parts.push_back(std::move(scaled));
+    }
+    const auto covers = [&parts](IconPoint sample) {
+        for (const ScaledPart& part : parts) {
+            if (in_convex(sample, part.fill))
+                return true;
+            for (const IconStroke& stroke : part.strokes)
+                if (near_stroke(sample, stroke, part.half_width))
+                    return true;
+        }
+        return false;
+    };
+    constexpr int64_t samples = kIconSamples * kIconSamples;
+    for (int32_t row = 0; row < side; ++row) {
+        for (int32_t column = 0; column < side; ++column) {
+            int64_t inside = 0;
+            for (int64_t down = 0; down < kIconSamples; ++down) {
+                for (int64_t across = 0; across < kIconSamples; ++across) {
+                    if (covers(
+                            {2 * kIconSamples * column + 2 * across + 1,
+                             2 * kIconSamples * row + 2 * down + 1}
+                        ))
+                        ++inside;
+                }
+            }
+            const std::size_t at =
+                static_cast<std::size_t>(origin_y + row) * static_cast<std::size_t>(columns) +
+                static_cast<std::size_t>(origin_x + column);
+            coverage[at] = static_cast<uint8_t>((inside * 255 + samples / 2) / samples);
+        }
+    }
+    return coverage;
+}
+
 /// Draws the OA badge or the bone in their own colours. `ink` is not used.
 /// The badge is the app icon when one has been given, from the copy kept
 /// for a mark this small, and the drawn plate otherwise.
@@ -1473,6 +1815,15 @@ void draw_tag_icon(const Canvas& canvas, const Rect& rect, TagIcon icon, Colour 
     if (pixels.x <= 0 || pixels.y <= 0 || pixels.x > kMostIconPixels || pixels.y > kMostIconPixels)
         return;
     blend_coverage(canvas, rect, stroke_coverage(tag_strokes(icon), pixels.x, pixels.y), ink);
+}
+
+void draw_tool_icon(const Canvas& canvas, const Rect& rect, ToolIcon icon, Colour ink) {
+    if (!drawable(canvas))
+        return;
+    const Point pixels = covered_pixels(canvas, rect);
+    if (pixels.x <= 0 || pixels.y <= 0 || pixels.x > kMostIconPixels || pixels.y > kMostIconPixels)
+        return;
+    blend_coverage(canvas, rect, tool_icon_coverage(icon, pixels.x, pixels.y), ink);
 }
 
 void draw_focus_ring(const Canvas& canvas, const Rect& control, bool around) {

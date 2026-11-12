@@ -7,6 +7,7 @@
 #include "oa/ui/replay_viewer/replay_viewer.hpp"
 
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/kit/theme.hpp"
 
@@ -159,132 +160,6 @@ void fill_flag(const kit::Canvas& canvas, kit::Point at, kit::Colour ink) {
     kit::fill_rect(canvas, {at.x + 1, at.y - 12, 7, 5}, ink);
 }
 
-/// A mark drawn on a button, in place of a word.
-enum class Glyph : uint8_t {
-    back,    ///< back ten seconds
-    play,    ///< play
-    pause,   ///< pause
-    forward, ///< forward ten seconds
-    chat,    ///< recorded chat
-    keys,    ///< the shortcut card
-    leave,   ///< the in-game menu
-    photo,   ///< photo mode
-};
-
-/// Fills a triangle one row at a time. The point is the right or the left end.
-///
-/// @param canvas where it is drawn
-/// @param left the triangle's left column
-/// @param top its top row
-/// @param width its width
-/// @param height its height
-/// @param point_right the point is on the right
-/// @param ink its colour
-void fill_triangle(
-    const kit::Canvas& canvas,
-    int32_t left,
-    int32_t top,
-    int32_t width,
-    int32_t height,
-    bool point_right,
-    kit::Colour ink
-) {
-    if (width <= 0 || height <= 0)
-        return;
-    const int32_t mid = std::max(height / 2, int32_t{1});
-    for (int32_t row = 0; row < height; ++row) {
-        const int32_t from_mid = row < mid ? mid - row : row - mid;
-        const int32_t span = std::max(width - (width * from_mid) / mid, int32_t{1});
-        const int32_t column = point_right ? left : left + width - span;
-        kit::fill_rect(canvas, {column, top + row, span, 1}, ink);
-    }
-}
-
-/// Draws a turning arrow: a ring with a gap, and an arrow head in the gap.
-/// Forward is the mirror of back. Neither is a bar with a triangle.
-///
-/// @param canvas where it is drawn
-/// @param left the mark's left column
-/// @param top its top row
-/// @param forward the arrow turns the other way
-/// @param ink its colour
-void fill_turning_arrow(
-    const kit::Canvas& canvas, int32_t left, int32_t top, bool forward, kit::Colour ink
-) {
-    constexpr int32_t kBox = 12;
-    for (int32_t row = 0; row < kBox; ++row) {
-        for (int32_t column = 0; column < kBox; ++column) {
-            const int32_t x = forward ? (kBox - 1 - column) : column;
-            const int32_t dx = x - 5;
-            const int32_t dy = row - 6;
-            const int32_t dist2 = dx * dx + dy * dy;
-            const bool ring = dist2 >= 10 && dist2 <= 25;
-            const bool gap = x <= 3 && row <= 4;
-            if (ring && !gap)
-                kit::fill_rect(canvas, {left + column, top + row, 1, 1}, ink);
-        }
-    }
-    const int32_t tip = forward ? left + 8 : left + 0;
-    fill_triangle(canvas, tip, top, 4, 5, !forward, ink);
-}
-
-/// Draws one transport or tool mark, centred, and clear of the button's edge.
-///
-/// @param canvas where it is drawn
-/// @param rect the button
-/// @param glyph which mark
-/// @param ink its colour
-void draw_glyph(const kit::Canvas& canvas, const kit::Rect& rect, Glyph glyph, kit::Colour ink) {
-    constexpr int32_t kGlyph = 12;
-    const int32_t left = rect.x + (rect.width - kGlyph) / 2;
-    const int32_t top = rect.y + (rect.height - kGlyph) / 2;
-    switch (glyph) {
-    case Glyph::back:
-        fill_turning_arrow(canvas, left, top, false, ink);
-        break;
-    case Glyph::play:
-        fill_triangle(canvas, left + 1, top, kGlyph - 2, kGlyph, true, ink);
-        break;
-    case Glyph::pause:
-        kit::fill_rect(canvas, {left + 2, top + 1, 3, kGlyph - 2}, ink);
-        kit::fill_rect(canvas, {left + 7, top + 1, 3, kGlyph - 2}, ink);
-        break;
-    case Glyph::forward:
-        fill_turning_arrow(canvas, left, top, true, ink);
-        break;
-    case Glyph::chat:
-        kit::fill_rect(canvas, {left + 1, top + 1, 10, 7}, ink);
-        kit::fill_rect(canvas, {left + 3, top + 8, 3, 2}, ink);
-        kit::fill_rect(canvas, {left + 2, top + 10, 2, 1}, ink);
-        break;
-    case Glyph::keys:
-        for (int32_t row = 0; row < 2; ++row) {
-            for (int32_t column = 0; column < 2; ++column)
-                kit::fill_rect(canvas, {left + 1 + column * 6, top + 1 + row * 6, 4, 4}, ink);
-        }
-        break;
-    case Glyph::leave:
-        kit::fill_rect(canvas, {left + 1, top + 1, 7, 1}, ink);
-        kit::fill_rect(canvas, {left + 1, top + 1, 1, kGlyph - 2}, ink);
-        kit::fill_rect(canvas, {left + 7, top + 1, 1, kGlyph - 2}, ink);
-        kit::fill_rect(canvas, {left + 1, top + kGlyph - 2, 7, 1}, ink);
-        kit::fill_rect(canvas, {left + 8, top + 5, 3, 2}, ink);
-        break;
-    case Glyph::photo:
-        // A camera: the body outline, the viewfinder bump, and the lens ring.
-        kit::fill_rect(canvas, {left + 1, top + 4, 10, 1}, ink);
-        kit::fill_rect(canvas, {left + 1, top + 9, 10, 1}, ink);
-        kit::fill_rect(canvas, {left + 1, top + 4, 1, 6}, ink);
-        kit::fill_rect(canvas, {left + 10, top + 4, 1, 6}, ink);
-        kit::fill_rect(canvas, {left + 3, top + 2, 4, 2}, ink);
-        kit::fill_rect(canvas, {left + 4, top + 6, 4, 1}, ink);
-        kit::fill_rect(canvas, {left + 4, top + 8, 4, 1}, ink);
-        kit::fill_rect(canvas, {left + 4, top + 6, 1, 3}, ink);
-        kit::fill_rect(canvas, {left + 7, top + 6, 1, 3}, ink);
-        break;
-    }
-}
-
 /// Draws a button's face: the whole rectangle, with a small corner radius.
 ///
 /// @param canvas where it is drawn
@@ -322,16 +197,24 @@ void draw_button(
     kit::box_text(canvas, kit::FontRole::small, text, rect, kit::Align::centre, ink);
 }
 
-/// Draws one button and its mark.
+/// Draws one button and its mark, the kit's tool icon in a square of
+/// `side` points at the button's middle.
 ///
 /// @param canvas where it is drawn
 /// @param rect the button
-/// @param glyph which mark
+/// @param icon which mark
+/// @param side the mark's square, in points
 /// @param lit the button is on
-void draw_icon_button(const kit::Canvas& canvas, const kit::Rect& rect, Glyph glyph, bool lit) {
+void draw_icon_button(
+    const kit::Canvas& canvas, const kit::Rect& rect, kit::ToolIcon icon, int32_t side, bool lit
+) {
     const kit::Colour ink = lit ? kit::hud_colour::ink : kit::hud_colour::label;
     draw_face(canvas, rect, lit, true);
-    draw_glyph(canvas, rect, glyph, ink);
+    const int32_t square = std::min({side, rect.width, rect.height});
+    const kit::Rect mark{
+        rect.x + (rect.width - square) / 2, rect.y + (rect.height - square) / 2, square, square
+    };
+    kit::draw_tool_icon(canvas, mark, icon, ink);
 }
 
 /// The English pattern a marker's hover uses.
@@ -1015,6 +898,8 @@ Layout lay_out(int32_t width, int32_t height, const Model& model, bool shown) {
     layout.export_enabled = model.can_export;
     const bool compact = height < 700;
     const int32_t icon = compact ? 26 : 30;
+    // The icon buttons' marks: the "10" in Back and Forward stays open at 18.
+    layout.glyph = compact ? 18 : 20;
     const int32_t play_w = compact ? 30 : 36;
     const int32_t play_h = compact ? 28 : 34;
     int32_t view_w = compact ? 96 : 128;
@@ -1554,11 +1439,15 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
         kit::fill_rect(
             canvas, {layout.bar.x, layout.bar.y, layout.bar.width, 1}, kit::hud_colour::edge
         );
-        draw_icon_button(canvas, layout.back, Glyph::back, false);
+        draw_icon_button(canvas, layout.back, kit::ToolIcon::back_ten, layout.glyph, false);
         draw_icon_button(
-            canvas, layout.play, model.paused ? Glyph::play : Glyph::pause, !model.paused
+            canvas,
+            layout.play,
+            model.paused ? kit::ToolIcon::play : kit::ToolIcon::pause,
+            layout.glyph,
+            !model.paused
         );
-        draw_icon_button(canvas, layout.forward, Glyph::forward, false);
+        draw_icon_button(canvas, layout.forward, kit::ToolIcon::forward_ten, layout.glyph, false);
         kit::box_text(
             canvas,
             kit::FontRole::small,
@@ -1576,10 +1465,18 @@ void draw(const kit::Canvas& canvas, const Layout& layout, const Model& model) {
         draw_menu_button(
             canvas, layout.camera, camera_button_caption(model.camera), model.camera_open
         );
-        draw_icon_button(canvas, layout.photo, Glyph::photo, false);
-        draw_icon_button(canvas, layout.chat, Glyph::chat, model.chat_shown);
-        draw_icon_button(canvas, layout.keys, Glyph::keys, model.keys_open);
-        draw_icon_button(canvas, layout.leave, Glyph::leave, false);
+        draw_icon_button(canvas, layout.photo, kit::ToolIcon::camera, layout.glyph, false);
+        draw_icon_button(
+            canvas,
+            layout.chat,
+            model.chat_shown ? kit::ToolIcon::chat : kit::ToolIcon::chat_hidden,
+            layout.glyph,
+            model.chat_shown
+        );
+        draw_icon_button(
+            canvas, layout.keys, kit::ToolIcon::keyboard, layout.glyph, model.keys_open
+        );
+        draw_icon_button(canvas, layout.leave, kit::ToolIcon::leave, layout.glyph, false);
         if (model.finding) {
             const std::string line = finding_caption(model.finding_percent);
             const kit::Rect tip{

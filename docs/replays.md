@@ -240,7 +240,14 @@ other jump, a camera mode other than Free, and moving the camera
 yourself keep their own place.
 
 While a replay plays, a bar along the foot of the battlefield shows play
-and pause, the time, a timeline you can press or drag, and the speed. It
+and pause, the time, a timeline you can press or drag, and the speed. Its
+icon buttons are, from the left: an arrow turning back round "10" (back ten
+seconds), play or pause, the same arrow turning forward (forward ten
+seconds), and, after **View** and **Camera**, a camera (photo mode), a
+speech bubble (the recorded chat, struck through while it is hidden), a
+keyboard (the shortcut card) and an arrow out through a door (the game
+menu). They are drawn at the screen's own pixels, as sharp at every
+interface size and on a phone. It
 hides after three seconds away from the battlefield's lower edge and comes
 back on a playback key. **B** pins it for this watch; the pin is not saved.
 **View** chooses whose sight you see: every player, the whole map, or one

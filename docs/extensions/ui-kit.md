@@ -477,8 +477,10 @@ kit::DisplayList lay_out_screen(void*, const kit::Frame& frame) {
   are in [controls.hpp][controls] (list rows, chips, fields, tabs, cards,
   hover cards, links, the package badge and the drag handle),
   [components.hpp][components] (buttons, switches,
-  level strips, sliders, drop-downs, the lock, the focus ring, and
-  `draw_tag_icon` for the eight catalogue tag icons),
+  level strips, sliders, drop-downs, the lock, the focus ring,
+  `draw_tag_icon` for the eight catalogue tag icons, and `draw_tool_icon`
+  for the marks a button wears in place of its word, as the replay bar's
+  do),
   [components_more.hpp][components_more] (the progress bar, drawn amber
   while paused, a question's item lines and its parts, and the update
   pill),
