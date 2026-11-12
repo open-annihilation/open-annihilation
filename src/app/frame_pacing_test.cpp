@@ -12,9 +12,11 @@
 // a frame's real time; and the "+stats" overlay's figures, its frame
 // history, its grades of each time and its table.
 #include "oa/app/frame_pacing.hpp"
+#include "display_frame_pacing.hpp"
 
 #include "oa/base/game_loop.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -119,7 +121,9 @@ LoopRun run_loop(
     uint64_t work_ns,
     uint64_t slow_work_ns,
     bool oversleep = false,
-    uint64_t start_ns = kClockStart
+    uint64_t start_ns = kClockStart,
+    oa::app::frame_pacing::FrameCadence cadence =
+        oa::app::frame_pacing::FrameCadence::restart_after_late
 ) {
     LoopRun run;
     oa::app::frame_pacing::FramePacer pacer{};
@@ -166,7 +170,7 @@ LoopRun run_loop(
         previous_alpha = alpha;
         run.shown.push_back(static_cast<double>(timing.tick) - 1.0 + static_cast<double>(alpha));
         now += owed > 0 ? slow_work_ns : work_ns;
-        now += oa::app::frame_pacing::end_paced_frame(pacer, now, frames_per_second);
+        now += oa::app::frame_pacing::end_paced_frame(pacer, now, frames_per_second, cadence);
         if (oversleep)
             now += oversleep_ns(run.frames);
         ++run.frames;
@@ -519,6 +523,191 @@ void test_pacer_edges() {
     // Due times count from the run's start without drift.
     CHECK(oa::app::frame_pacing::paced_frame_due(0, 120, 120) == kNanosecondsPerSecond);
     CHECK(oa::app::frame_pacing::paced_frame_due(7, 3, 120) == 7 + 25'000'000);
+}
+
+/// Compares the complete schedule without relying on a struct's padding.
+bool same_pacer(
+    const oa::app::frame_pacing::FramePacer& a, const oa::app::frame_pacing::FramePacer& b
+) {
+    return a.run_start_ns == b.run_start_ns && a.frames_in_run == b.frames_in_run &&
+           a.frame_start_ns == b.frame_start_ns && a.frames_per_second == b.frames_per_second &&
+           a.started == b.started;
+}
+
+void test_display_cadence_gate() {
+    namespace pacing = oa::app::frame_pacing;
+    for (const bool enhanced : {false, true})
+        for (const bool sync : {false, true}) {
+            const auto cadence = pacing::display_frame_cadence(enhanced, sync);
+            CHECK((cadence == pacing::FrameCadence::keep_display_phase) == (enhanced && sync));
+            if (enhanced && sync)
+                continue;
+            pacing::FramePacer original{}, selected{};
+            uint64_t now = kClockStart;
+            // Rate changes, an early wake, a missed deadline and a long
+            // stall retain every field and wait of the ordinary schedule.
+            for (uint32_t frame = 0; frame < 100; ++frame) {
+                const uint32_t rate = std::array{0U, 30U, 60U, 120U, 144U}[frame % 5];
+                CHECK(
+                    pacing::begin_paced_frame(original, now) ==
+                    pacing::begin_paced_frame(selected, now)
+                );
+                const auto work = std::array<uint64_t, 5>{0, 1, 8, 23, 1000}[frame % 5] *
+                                  kNanosecondsPerMillisecond;
+                now += work;
+                const auto expected = pacing::end_paced_frame(original, now, rate);
+                const auto actual = pacing::end_paced_frame(selected, now, rate, cadence);
+                CHECK(actual == expected && same_pacer(original, selected));
+                now += frame % 3 == 0 ? actual / 2 : actual;
+            }
+            for (const float hz :
+                 {0.0F, -60.0F, 0.5F, 24.0F, 30.0F, 59.94F, 60.0F, 144.0F, 5000.0F})
+                CHECK(pacing::vsync_frame_cap(hz, cadence) == pacing::vsync_frame_cap(hz));
+        }
+    const auto display = pacing::FrameCadence::keep_display_phase;
+    CHECK(pacing::vsync_frame_cap(60.0F, display) == 60);
+    CHECK(pacing::vsync_frame_cap(59.94F, display) == 60);
+    // This is an integer production target. Vertical sync still limits
+    // actual presentation to a fractional display's own refresh rate.
+    CHECK(pacing::capped_frame_rate(120, pacing::vsync_frame_cap(59.94F, display)) == 60);
+    CHECK(pacing::vsync_frame_cap(120.0F, display) == 120);
+    CHECK(pacing::vsync_frame_cap(24.0F, display) == 30);
+    CHECK(pacing::vsync_frame_cap(0.0F, display) == 0);
+    CHECK(pacing::vsync_frame_cap(std::numeric_limits<float>::quiet_NaN(), display) == 0);
+    CHECK(
+        pacing::vsync_frame_cap(std::numeric_limits<float>::infinity(), display) ==
+        pacing::kHighestVsyncCap
+    );
+}
+
+void test_display_deadlines_after_uneven_work() {
+    namespace pacing = oa::app::frame_pacing;
+
+    struct Trace {
+        std::vector<uint64_t> starts{}, times{}, waits{};
+        uint64_t elapsed{};
+    };
+
+    const auto run = [](pacing::FrameCadence cadence) {
+        pacing::FramePacer pacer{};
+        Trace trace;
+        uint64_t now = kClockStart;
+        for (uint32_t frame = 0; frame < 600; ++frame) {
+            trace.starts.push_back(now - kClockStart);
+            trace.times.push_back(pacing::begin_paced_frame(pacer, now) - kClockStart);
+            now += (frame % 2 == 0 ? 23 : 8) * kNanosecondsPerMillisecond;
+            const auto wait = pacing::end_paced_frame(pacer, now, 60, cadence);
+            trace.waits.push_back(wait);
+            now += wait;
+        }
+        trace.elapsed = now - kClockStart;
+        return trace;
+    };
+    const auto ordinary = run(pacing::FrameCadence::restart_after_late);
+    const auto display = run(pacing::FrameCadence::keep_display_phase);
+    // Six hundred actual clock-driven frames occupy ten seconds. The
+    // ordinary schedule discards each overrun and takes almost twelve.
+    CHECK(display.elapsed == 10 * kNanosecondsPerSecond);
+    CHECK(ordinary.elapsed == 300 * (23 * kNanosecondsPerMillisecond + 16'666'666));
+    CHECK(display.starts.size() == 600 && display.times.size() == 600);
+    CHECK(display.starts[1] == 23 * kNanosecondsPerMillisecond);
+    CHECK(display.starts[2] == 33'333'333);
+    CHECK(display.starts[3] == 56'333'333);
+    CHECK(display.waits[0] == 0 && display.waits[1] == 2'333'333);
+    CHECK(ordinary.waits[1] == 8'666'666);
+    for (std::size_t frame = 0; frame < display.times.size(); ++frame) {
+        CHECK(display.times[frame] == frame * kNanosecondsPerSecond / 60);
+        CHECK(display.starts[frame] >= display.times[frame]);
+        CHECK(display.starts[frame] - display.times[frame] < kNanosecondsPerSecond / 60);
+    }
+}
+
+void test_display_deadline_boundaries() {
+    namespace pacing = oa::app::frame_pacing;
+    constexpr auto display = pacing::FrameCadence::keep_display_phase;
+    constexpr uint64_t period = kNanosecondsPerSecond / 60;
+    for (const auto late : {uint64_t{0}, period - 1, period, 1000 * kNanosecondsPerMillisecond}) {
+        pacing::FramePacer pacer{};
+        (void)pacing::begin_paced_frame(pacer, kClockStart);
+        const auto finished = kClockStart + period + late;
+        CHECK(pacing::end_paced_frame(pacer, finished, 60, display) == 0);
+        if (late < period) {
+            CHECK(pacer.run_start_ns == kClockStart && pacer.frames_in_run == 1);
+            CHECK(pacing::begin_paced_frame(pacer, finished) == kClockStart + period);
+        } else {
+            CHECK(pacer.run_start_ns == finished && pacer.frames_in_run == 0);
+            CHECK(pacing::begin_paced_frame(pacer, finished) == finished);
+        }
+    }
+    pacing::FramePacer pacer{};
+    (void)pacing::begin_paced_frame(pacer, kClockStart);
+    auto wait = pacing::end_paced_frame(pacer, kClockStart + 1000, 60, display);
+    const auto early = kClockStart + wait / 2;
+    CHECK(pacing::begin_paced_frame(pacer, early) == early);
+    CHECK(pacer.run_start_ns == early && pacer.frames_in_run == 0);
+    // Changing rate keeps the ordinary change-of-rate origin.
+    auto original = pacer;
+    CHECK(
+        pacing::end_paced_frame(pacer, early + 1000, 120, display) ==
+        pacing::end_paced_frame(original, early + 1000, 120)
+    );
+    CHECK(same_pacer(pacer, original));
+    // Returning after loss of focus starts from the actual new time.
+    const auto returned = early + 3 * kNanosecondsPerSecond;
+    CHECK(pacing::begin_paced_frame(pacer, returned) == returned);
+    CHECK(pacer.run_start_ns == returned && pacer.frames_in_run == 0);
+    for (const auto rate : {0U, 30U}) {
+        original = pacer;
+        CHECK(
+            pacing::end_paced_frame(pacer, returned + 1000, rate, display) ==
+            pacing::end_paced_frame(original, returned + 1000, rate)
+        );
+        CHECK(same_pacer(pacer, original));
+    }
+    // Even a nearly full period of debt allows only one immediate
+    // successor: a zero-work successor then waits for the next deadline.
+    pacer = {};
+    (void)pacing::begin_paced_frame(pacer, kClockStart);
+    const auto almost_two_periods = kClockStart + 2 * period - 1;
+    CHECK(pacing::end_paced_frame(pacer, almost_two_periods, 60, display) == 0);
+    (void)pacing::begin_paced_frame(pacer, almost_two_periods);
+    CHECK(pacing::end_paced_frame(pacer, almost_two_periods, 60, display) == 2);
+}
+
+void test_display_cadence_keeps_thirty_ticks() {
+    namespace pacing = oa::app::frame_pacing;
+    for (const bool oversleep : {false, true}) {
+        const auto run = run_loop(
+            60,
+            oa::base::game_loop::normal_game_speed,
+            8 * kNanosecondsPerMillisecond,
+            23 * kNanosecondsPerMillisecond,
+            oversleep,
+            kClockStart,
+            pacing::FrameCadence::keep_display_phase
+        );
+        CHECK(run.frames >= 599 && run.frames <= 601);
+        CHECK(run.ticks >= 299 && run.ticks <= 301);
+        CHECK(run.ticks == run.clock_units_spanned);
+        CHECK(run.alpha_in_range && run.alpha_steady_between_ticks);
+        for (const auto ticks : run.ticks_run)
+            CHECK(ticks <= 1);
+        constexpr uint64_t turn = (uint64_t{1} << 32U) * kNanosecondsPerMillisecond;
+        const auto wrapped = run_loop(
+            60,
+            oa::base::game_loop::normal_game_speed,
+            8 * kNanosecondsPerMillisecond,
+            23 * kNanosecondsPerMillisecond,
+            oversleep,
+            turn - 2 * kNanosecondsPerSecond,
+            pacing::FrameCadence::keep_display_phase
+        );
+        CHECK(wrapped.frames >= 599 && wrapped.frames <= 601);
+        CHECK(wrapped.ticks + 1 >= run.ticks && wrapped.ticks <= run.ticks);
+        CHECK(wrapped.alpha_in_range && wrapped.alpha_steady_between_ticks);
+        for (const auto ticks : wrapped.ticks_run)
+            CHECK(ticks <= 1);
+    }
 }
 
 void test_frame_rate_choice() {
@@ -1270,6 +1459,10 @@ int main() {
     test_paced_frames_across_the_clock_turn();
     test_late_frame_at_the_tick_rate();
     test_late_frame_is_not_followed_by_a_burst();
+    test_display_cadence_gate();
+    test_display_deadlines_after_uneven_work();
+    test_display_deadline_boundaries();
+    test_display_cadence_keeps_thirty_ticks();
     test_pacer_edges();
     test_frame_rate_choice();
     test_vertical_sync_cap();

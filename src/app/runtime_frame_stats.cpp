@@ -9,6 +9,7 @@
 #include "oa/app/runtime.hpp"
 #include "device_state.hpp"
 #include "frame_stats_panel.hpp"
+#include "display_frame_pacing.hpp"
 #include "full_presentation.hpp"
 #include "graphics_report.hpp"
 #include "match_clock.hpp"
@@ -299,11 +300,15 @@ void Runtime::pace_next_frame(bool& running) {
                             PadAccess::input_held(*this);
     activity.unattended = options_.unattended;
     paced_frames_per_second_ = paced_frame_rate(options_.max_frames_per_second, activity);
-    // While the renderer waits for the display, the loop keeps just below
-    // the display's rate, so that each present finds the display ready.
+    const bool enhanced =
+        screen_ == Screen::match && match_ && match_->rules().setup.enhanced_mode.enabled;
+    const auto cadence = frame_pacing::display_frame_cadence(enhanced, vertical_sync_in_effect_);
+    // Vertical sync bounds presentation. Enhanced matches keep the full
+    // display rate; the ordinary cadence stays just below it.
     if (vertical_sync_in_effect_)
-        paced_frames_per_second_ =
-            capped_frame_rate(paced_frames_per_second_, vsync_frame_cap(display_refresh_rate()));
+        paced_frames_per_second_ = capped_frame_rate(
+            paced_frames_per_second_, vsync_frame_cap(display_refresh_rate(), cadence)
+        );
     const bool idle = !activity.match_advancing && !activity.camera_moving &&
                       !activity.input_recent && !activity.unattended;
     // A remote-controlled run, and a run that asked to keep going while the
@@ -313,7 +318,8 @@ void Runtime::pace_next_frame(bool& running) {
     const bool stay_awake = options_.remote_controlled || keep_running_while_inactive_;
     frame_wait_ =
         idle && sdl_.window != nullptr && !stay_awake ? FrameWait::idle : FrameWait::precise;
-    const uint64_t wait = end_paced_frame(frame_pacer_, frame_clock_ns(), paced_frames_per_second_);
+    const uint64_t wait =
+        end_paced_frame(frame_pacer_, frame_clock_ns(), paced_frames_per_second_, cadence);
     if (wait == 0)
         return;
     if (frame_wait_ == FrameWait::idle) {

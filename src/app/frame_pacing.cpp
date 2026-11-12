@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/app/frame_pacing.hpp"
+#include "display_frame_pacing.hpp"
 
 #include "oa/ui/hud/camera_scroll.hpp"
 
@@ -375,6 +376,36 @@ uint64_t end_paced_frame(FramePacer& pacer, uint64_t now_ns, uint32_t frames_per
     return due - now_ns;
 }
 
+uint64_t end_paced_frame(
+    FramePacer& pacer, uint64_t now_ns, uint32_t frames_per_second, FrameCadence cadence
+) noexcept {
+    if (cadence == FrameCadence::restart_after_late || frames_per_second == 0 ||
+        frames_per_second == kTicksPerSecond)
+        return end_paced_frame(pacer, now_ns, frames_per_second);
+    if (frames_per_second != pacer.frames_per_second || !pacer.started) {
+        pacer.frames_per_second = frames_per_second;
+        pacer.run_start_ns = pacer.started ? pacer.frame_start_ns : now_ns;
+        pacer.frames_in_run = 0;
+    }
+    if (pacer.frames_in_run >= kFramesPerRunLimit) {
+        pacer.run_start_ns =
+            paced_frame_due(pacer.run_start_ns, pacer.frames_in_run, frames_per_second);
+        pacer.frames_in_run = 0;
+    }
+    ++pacer.frames_in_run;
+    const uint64_t due =
+        paced_frame_due(pacer.run_start_ns, pacer.frames_in_run, frames_per_second);
+    if (due <= now_ns) {
+        const uint64_t period = kNanosecondsPerSecond / frames_per_second;
+        if (now_ns - due >= period) {
+            pacer.run_start_ns = now_ns;
+            pacer.frames_in_run = 0;
+        }
+        return 0;
+    }
+    return due - now_ns;
+}
+
 uint32_t paced_frame_rate(uint32_t max_frames_per_second, const FrameActivity& activity) noexcept {
     if (activity.match_advancing || activity.camera_moving || activity.input_recent ||
         activity.unattended)
@@ -393,6 +424,15 @@ uint32_t vsync_frame_cap(float display_hz) noexcept {
     const float bounded = std::min(display_hz, static_cast<float>(kHighestVsyncCap + 1));
     const auto below = static_cast<uint32_t>(std::ceil(bounded)) - 1U;
     return std::max(below, kTicksPerSecond);
+}
+
+uint32_t vsync_frame_cap(float display_hz, FrameCadence cadence) noexcept {
+    if (cadence == FrameCadence::restart_after_late)
+        return vsync_frame_cap(display_hz);
+    if (!(display_hz > 0.0F))
+        return 0;
+    const float bounded = std::min(display_hz, static_cast<float>(kHighestVsyncCap));
+    return std::max(static_cast<uint32_t>(std::ceil(bounded)), kTicksPerSecond);
 }
 
 uint32_t capped_frame_rate(uint32_t frames_per_second, uint32_t cap) noexcept {
