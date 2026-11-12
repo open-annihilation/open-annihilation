@@ -11,7 +11,8 @@
 // stopped part way is not mounted, and what is missing is named. Only the
 // bundle table's archives are read from a bundle's folder: a stray archive
 // there, as in the 0.9.0 incident, is not mounted, and the content check
-// names it.
+// names it. A folder that is not Open Annihilation's copy is checked by the
+// bundle hashes.
 
 #include "oa/app/content_copy.hpp"
 #include "oa/app/game_directory.hpp"
@@ -679,11 +680,50 @@ void check_stray_patch_archive(const fs::path& scratch) {
     const std::vector<std::string> without_tactics{"campaign", "core-contingency"};
     OA_CHECK(!played_content_differs(check, "totala", without_tactics));
 
+    // The Boneyards entry is refused, naming the file, and Repair removes it.
+    const StockFilesRefusal refusal = stock_files_refusal(check, user, "boneyards");
+    OA_CHECK(refusal.refused && refusal.stray && refusal.file == "rev31.gp3");
+    OA_CHECK(refusal.folder == tactics_folder && refusal.size == found.size);
+    OA_CHECK(
+        refusal.sentence == "rev31.gp3 in " + path_to_utf8(tactics_folder) +
+                                " is not one of Total Annihilation's files, so the Boneyards "
+                                "cannot be entered. Remove it to enter."
+    );
+
     // With the stray gone, the copy is Total Annihilation's again.
     fs::remove(stray);
     const ContentCheck repaired = check_managed_content(user, known.bundles);
     OA_CHECK(!content_notice_due(repaired));
     OA_CHECK(!played_content_differs(repaired, "totala", played));
+    OA_CHECK(!stock_files_refusal(repaired, user, "boneyards").refused);
+}
+
+/// A game folder that is not Open Annihilation's own copy: an archive the
+/// bundle table names must be that file, and any other archive is a stray.
+void check_unmanaged_folder(const fs::path& scratch) {
+    const fs::path folder = scratch / "old-install";
+    write_bytes(folder / "rev31.gp3", archive_bytes());
+    write_bytes(folder / "readme.txt", std::vector<uint8_t>{'r'});
+    // rev31.gp3 at another size than the table's differs; it is not hashed.
+    ContentCheck check = check_game_folder(folder);
+    OA_CHECK(check.bundles.size() == 1);
+    if (check.bundles.size() != 1)
+        return;
+    OA_CHECK(check.bundles[0].differing.size() == 1 && check.bundles[0].strays.empty());
+    OA_CHECK(check.bundles[0].differing[0].copy_name == "rev31.gp3");
+    write_bytes(folder / "Cometctr.ufo", archive_bytes());
+    check = check_game_folder(folder);
+    OA_CHECK(check.bundles[0].strays.size() == 1 && check.bundles[0].files_differ == 2);
+    OA_CHECK(!check.bundles[0].strays.empty() && check.bundles[0].strays[0].name == "Cometctr.ufo");
+    const StockFilesRefusal refusal = stock_files_refusal(check, scratch, {});
+    OA_CHECK(refusal.refused && refusal.stray && refusal.file == "Cometctr.ufo");
+    // The first finding is enough for the entry.
+    const ContentCheck first = check_game_folder(folder, true);
+    OA_CHECK(first.bundles.size() == 1 && first.bundles[0].files_differ == 1);
+    // A folder with no archive at all holds nothing that is not known.
+    const fs::path empty = scratch / "empty-install";
+    fs::create_directories(empty);
+    OA_CHECK(!stock_files_refusal(check_game_folder(empty), scratch, {}).refused);
 }
 
 } // namespace
@@ -695,6 +735,7 @@ int main() {
         check_unfinished_copy(scratch);
         check_case(scratch);
         check_stray_patch_archive(scratch);
+        check_unmanaged_folder(scratch);
     } catch (const std::exception& failure) {
         std::fprintf(stderr, "content mount: %s\n", failure.what());
         ++oa::test::failed_checks();

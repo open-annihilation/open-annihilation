@@ -127,7 +127,7 @@ the plate's ENTER at the default place; and the same with the place
 ## What ENTER does
 
 ENTER, on the strip or the plate, the B key and starting with `-y` do not
-open the Boneyards at once. The game first makes sure of four things, in
+open the Boneyards at once. The game first makes sure of five things, in
 this order, and only then shows the update screen and opens the
 Boneyards. A player never lands in a half-installed or out-of-date
 Boneyards.
@@ -162,7 +162,8 @@ Boneyards.
    first, then the install-ID question.
    [What entering the Boneyards turns on](../settings.md#what-entering-the-boneyards-turns-on)
    names these settings.
-2. **The latest Open Annihilation.** The game asks the update feed for the
+2. **Total Annihilation's own files** ([below](#the-game-files)).
+3. **The latest Open Annihilation.** The game asks the update feed for the
    player's channel and waits for its answer; it does not go on without
    one.
    - When a newer release is out, it asks "Open Annihilation {version} is
@@ -178,8 +179,8 @@ Boneyards.
      not answer within half a minute, the game says "Open Annihilation
      could not check for updates." with **Try again**, which asks the feed
      again and waits, and **Cancel**.
-3. **The mod**, when one is on (below).
-4. **The latest Boneyards.** The game asks each catalogue once more for its
+4. **The mod**, when one is on (below).
+5. **The latest Boneyards.** The game asks each catalogue once more for its
    current list and waits for the answer. The expansion's `.oa-content`
    record names the package it was installed from, the whole `.oaexp`'s
    SHA-256 and its release. The package is downloaded and installed only
@@ -248,6 +249,60 @@ copy that no added registry lists stops with the catalogue's message. It
 starts no update check of its own either, unless it named a feed
 (`--update-feed`), as the checks do with a feed on the same machine. A
 check never contacts a live server.
+
+### The game files
+
+The Boneyards plays only Total Annihilation's own files, and refuses the
+others outright. Entering is refused while a file of the base game, or of
+an expansion that changes the rules, is not a copy the game knows, or while
+a stray archive lies in one of those bundles' folders
+([Game content](../game-content.md#only-the-bundles-own-archives)). Music
+changes no rules and is not counted. The Boneyards expansion's own files
+are left to its update below, but a stray archive in its folder counts. The
+question names the file and its folder:
+
+- a stray archive: "rev31.gp3 in …/Expansions/totala/battle-tactics is not
+  one of Total Annihilation's files, so the Boneyards cannot be entered.
+  Remove it to enter.";
+- a file that is not a known copy: "totala1.hpi in …/Games/totala does not
+  match Total Annihilation's, so the Boneyards cannot be entered. Copy the
+  game again from your own install or CD to enter.";
+- a game folder that is not Open Annihilation's own copy, checked as the
+  player enters by the bundle hashes: "Cometctr.ufo in … is not one of Total
+  Annihilation's files. The Boneyards plays only Open Annihilation's own
+  copy of the game: copy it from your own install or CD to enter."
+
+**Repair…** stays on the main menu and opens Settings at Game Content,
+where the stray archive has its **Remove…** and **Copy again from…** copies
+the game from the player's own install or CD
+([Settings](../settings.md#game-content)). Retail files are never
+downloaded. **Cancel** stays on the main menu. Once the files match,
+ENTER goes in.
+
+`-y`, and a run with nobody to answer, asks nothing: Open Annihilation's
+own copy with such a file stops the entry with the same sentence in the log
+(`open-annihilation: entry: stopped: ...`). A game folder that is not that
+copy is not checked on such a run, nor by the game's own checks
+(`--headless-check` and the Boneyards' check options), which play an
+install as it is.
+
+`native-boneyards-entry-files` enters as a player, over a game folder that
+is not the copy and holds archives no bundle lists. The entry stops before
+anything is fetched, the question names the first such archive, and Repair…
+opens Settings at Game Content. Its line is `boneyards entry check: files:
+Cometctr.ufo refused the entry, the question named it, and Repair opened
+Game Content`. The other entry checks link their game folder without such
+archives.
+
+A battle the Boneyards launches, from the Main Frame, QuickPlay or the
+Locator, is refused the same way, as the mod is: the console's message names
+the file, "rev31.gp3 in … is not Total Annihilation's own. The Boneyards
+launches and reports games only on Total Annihilation's own files. Leave the
+Boneyards and repair it in Settings › Game Content.", and the client leaves
+that battle. A game is not reported on such files either. In the battle room
+of a Boneyards battle, **START** is refused while any player's presence says
+their files differ, and the room names that player
+([Content in the battle room](../multiplayer/content.md#battles-that-count-for-a-ladder)).
 
 ### The mod
 

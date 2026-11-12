@@ -282,6 +282,8 @@ void online_launch_fill_boneyards(
     // The picker stays locked and the room starts with no mutators, whether
     // or not the server locked the room's other options.
     block.bar_mutators = 1;
+    // Every Boneyards battle counts for its ladder: non-stock files refuse START.
+    block.stock_files = 1;
     block.max_units = launch.maxunits;
     block.energy = launch.energy;
     block.metal = launch.metal;
@@ -333,8 +335,9 @@ void on_boneyards_launch(
     nl::LaunchBlock& block = api::launch_block();
     if (launch != nullptr)
         online_launch_fill_boneyards(block, *launch, player_name);
-    // A launch with no reply still plays with no mutators.
+    // A launch with no reply still plays with no mutators, and counts.
     block.bar_mutators = 1;
+    block.stock_files = 1;
     api::apply_launch();
     if (g_launch.exit_prompt != nullptr)
         exit_prompt_launch_applied(*g_launch.exit_prompt);

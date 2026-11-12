@@ -17,7 +17,7 @@ if(TARGET oa-boneyards-console-app)
       oa-boneyards-tunnel
       oa-netgame-frontend oa-boneyards-reporter oa-ui-frontend-multiplayer oa-ui-frontend-state
       oa-ui-screen-registry oa-core-types oa-data-mod-profile
-    PRIVATE oa-data-replays oa-options)
+    PRIVATE oa-data-languages oa-data-replays oa-options)
   add_library(oa-boneyards-extension-options STATIC boneyards_options.cpp)
   add_library(oa::boneyards::extension_options ALIAS oa-boneyards-extension-options)
   target_include_directories(oa-boneyards-extension-options PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -236,6 +236,17 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
       --game-dir "${oa_boneyards_game_dir}" --mode install-id
       --work "${oa_boneyards_checks}/boneyards-entry-install-id")
     set_tests_properties(native-boneyards-entry-install-id PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
+    # A player's entry over a game folder that is not Open Annihilation's own
+    # copy and holds an archive no bundle lists: refused before anything is
+    # fetched, the archive named, and Repair opens Settings at Game Content.
+    add_test(NAME native-boneyards-entry-files COMMAND ${Python3_EXECUTABLE}
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_entry.py"
+      --game "$<TARGET_FILE:oa-game>" --tool "$<TARGET_FILE:oa-tool>"
+      --game-dir "${oa_boneyards_game_dir}" --mode files
+      --work "${oa_boneyards_checks}/boneyards-entry-files")
+    set_tests_properties(native-boneyards-entry-files PROPERTIES
       TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
     # The way in on a mod's main menu, with two made-up mods the check

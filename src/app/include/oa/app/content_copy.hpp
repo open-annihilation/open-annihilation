@@ -907,6 +907,57 @@ struct ContentCheck {
     const ContentCheck& check, std::string_view base_game, std::span<const std::string> expansions
 ) noexcept;
 
+/// Why a game that counts for a ladder cannot be played with these files.
+///
+/// The Boneyards refuses non-stock files outright: an archive at the top of
+/// a bundle's folder that the bundle does not list (a stray), and a file of
+/// the base game or of a rule-changing expansion that is not a known hash.
+/// Music changes no rules and is not counted.
+struct StockFilesRefusal {
+    bool refused{};                 ///< a stray archive is there, or a file differs
+    bool stray{};                   ///< `file` is a stray archive, which Remove… takes away
+    std::string file{};             ///< the file named: a stray's name, or a differing file's
+    std::filesystem::path folder{}; ///< the folder it is in
+    uint64_t size{};                ///< a stray's size in bytes; 0 for a differing file
+    std::string bundle_name{};      ///< the bundle's name, in English as the table writes it
+    /// What the player reads, in the language shown: the file, its folder,
+    /// and that the Boneyards cannot be entered until it is repaired.
+    std::string sentence{};
+};
+
+/// Finds the first file that keeps this machine out of a ranked game.
+///
+/// Strays come first, in the table's order of their bundles, then the
+/// first file of a bundle that is not a known hash. A bundle's own files
+/// whose id is `repaired_id` are left out (the entry installs that package
+/// itself), but its strays still count.
+///
+/// @param check the start's check, or check_game_folder's
+/// @param user_folder the player's folder, which holds the managed copy
+/// @param repaired_id the bundle the caller repairs itself; empty for none
+/// @return the refusal; `refused` is false when every file is known
+[[nodiscard]] StockFilesRefusal stock_files_refusal(
+    const ContentCheck& check,
+    const std::filesystem::path& user_folder,
+    std::string_view repaired_id = {}
+);
+
+/// Checks a game folder that is not Open Annihilation's own copy.
+///
+/// What is known there is read from the bundle hashes. Every archive at the
+/// folder's top (.hpi, .ufo, .ccx, .gp3) whose name the bundle table lists
+/// must have that file's size and a SHA-256 the table knows; it is named in
+/// `differing` when it does not. Any other archive at the top is a stray.
+/// The result is one bundle, the base game, which holds every finding.
+/// Nothing is written. The check stops early, once it has named one file,
+/// when `first_only` is set: a stray or a size is found before any hashing.
+///
+/// @param folder the game folder
+/// @param first_only stop at the first finding
+/// @return the check
+[[nodiscard]] ContentCheck
+check_game_folder(const std::filesystem::path& folder, bool first_only = false);
+
 /// Reports whether any copied bundle differs.
 ///
 /// @param check the start's check

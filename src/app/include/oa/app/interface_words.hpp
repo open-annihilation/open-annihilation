@@ -582,6 +582,18 @@ inline constexpr std::string_view interface_words[] = {
     "Move {file} to the trash?",
     "Delete {file}? This system has no trash.",
     "Move to Trash",
+    "Repair…",
+    "{file} in {folder} is not one of Total Annihilation's files, so the Boneyards cannot be "
+    "entered. Remove it to enter.",
+    "{file} in {folder} does not match Total Annihilation's, so the Boneyards cannot be entered. "
+    "Copy the game again from your own install or CD to enter.",
+    "{file} in {folder} is not one of Total Annihilation's files. The Boneyards plays only Open "
+    "Annihilation's own copy of the game: copy it from your own install or CD to enter.",
+    "{file} in {folder} does not match Total Annihilation's. The Boneyards plays only Open "
+    "Annihilation's own copy of the game: copy it from your own install or CD to enter.",
+    "{file} in {folder} is not Total Annihilation's own. The Boneyards launches and reports games "
+    "only on Total Annihilation's own files. Leave the Boneyards and repair it in Settings › Game "
+    "Content.",
 };
 
 } // namespace oa::app

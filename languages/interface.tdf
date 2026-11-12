@@ -10,6 +10,22 @@
 
 
 
+[*** Your game files differ from Total Annihilation's, so this battle cannot start. Leave it and repair them in Settings › Game Content.]
+	{
+	de=*** Deine Spieldateien weichen von Total Annihilation ab, darum kann diese Schlacht nicht beginnen. Verlasse sie und repariere sie unter Einstellungen › Spielinhalt.;
+	fr=*** Tes fichiers de jeu diffèrent de ceux de Total Annihilation, donc cette bataille ne peut pas commencer. Quitte-la et répare-les dans Réglages › Contenu du jeu.;
+	es=*** Tus archivos del juego difieren de los de Total Annihilation, así que esta batalla no puede empezar. Sal de ella y repáralos en Ajustes › Contenido del juego.;
+	it=*** I tuoi file di gioco differiscono da quelli di Total Annihilation, quindi questa battaglia non può iniziare. Esci e riparali in Impostazioni › Contenuto del gioco.;
+	}
+
+[*** {player}'s game files differ from Total Annihilation's; they must repair them before this battle can start.]
+	{
+	de=*** Die Spieldateien von {player} weichen von Total Annihilation ab. Sie müssen repariert werden, bevor diese Schlacht beginnen kann.;
+	fr=*** Les fichiers de jeu de {player} diffèrent de ceux de Total Annihilation. Ils doivent être réparés avant que cette bataille puisse commencer.;
+	es=*** Los archivos del juego de {player} difieren de los de Total Annihilation. Hay que repararlos antes de que esta batalla pueda empezar.;
+	it=*** I file di gioco di {player} differiscono da quelli di Total Annihilation. Vanno riparati prima che questa battaglia possa iniziare.;
+	}
+
 [A double press]
 	{
 	de=Ein Doppeldruck;
@@ -392,6 +408,14 @@
 	fr=Retirer…;
 	es=Quitar…;
 	it=Rimuovi…;
+	}
+
+[Repair…]
+	{
+	de=Reparieren…;
+	fr=Réparer…;
+	es=Reparar…;
+	it=Ripara…;
 	}
 
 [Saved games]
@@ -1240,6 +1264,46 @@
 	fr={count} archives ne font pas partie de ses fichiers;
 	es={count} archivos no son de los suyos;
 	it={count} archivi non sono suoi file;
+	}
+
+[{file} in {folder} does not match Total Annihilation's, so the Boneyards cannot be entered. Copy the game again from your own install or CD to enter.]
+	{
+	de={file} in {folder} stimmt nicht mit der Datei von Total Annihilation überein, darum kann The Boneyards nicht betreten werden. Kopiere das Spiel erneut von deiner eigenen Installation oder CD, um hineinzugehen.;
+	fr={file} dans {folder} ne correspond pas à celui de Total Annihilation, donc on ne peut pas entrer dans The Boneyards. Copie à nouveau le jeu depuis ta propre installation ou ton CD pour entrer.;
+	es={file} en {folder} no coincide con el de Total Annihilation, así que no se puede entrar en The Boneyards. Copia el juego otra vez desde tu propia instalación o CD para entrar.;
+	it={file} in {folder} non corrisponde a quello di Total Annihilation, quindi non si può entrare in The Boneyards. Copia di nuovo il gioco dalla tua installazione o dal CD per entrare.;
+	}
+
+[{file} in {folder} does not match Total Annihilation's. The Boneyards plays only Open Annihilation's own copy of the game: copy it from your own install or CD to enter.]
+	{
+	de={file} in {folder} stimmt nicht mit der Datei von Total Annihilation überein. The Boneyards spielt nur mit der eigenen Kopie des Spiels von Open Annihilation: Kopiere es von deiner eigenen Installation oder CD, um hineinzugehen.;
+	fr={file} dans {folder} ne correspond pas à celui de Total Annihilation. The Boneyards ne joue qu'avec la copie du jeu propre à Open Annihilation : copie-le depuis ta propre installation ou ton CD pour entrer.;
+	es={file} en {folder} no coincide con el de Total Annihilation. The Boneyards solo juega con la copia del juego propia de Open Annihilation: cópialo desde tu propia instalación o CD para entrar.;
+	it={file} in {folder} non corrisponde a quello di Total Annihilation. The Boneyards gioca solo con la copia del gioco di Open Annihilation: copialo dalla tua installazione o dal CD per entrare.;
+	}
+
+[{file} in {folder} is not Total Annihilation's own. The Boneyards launches and reports games only on Total Annihilation's own files. Leave the Boneyards and repair it in Settings › Game Content.]
+	{
+	de={file} in {folder} gehört nicht zu Total Annihilation. The Boneyards startet und meldet Partien nur mit den eigenen Dateien von Total Annihilation. Verlasse The Boneyards und repariere es unter Einstellungen › Spielinhalt.;
+	fr={file} dans {folder} n'appartient pas à Total Annihilation. The Boneyards ne lance et ne déclare des parties qu'avec les fichiers propres à Total Annihilation. Quitte The Boneyards et répare-le dans Réglages › Contenu du jeu.;
+	es={file} en {folder} no es propio de Total Annihilation. The Boneyards solo inicia y registra partidas con los archivos propios de Total Annihilation. Sal de The Boneyards y repáralo en Ajustes › Contenido del juego.;
+	it={file} in {folder} non è di Total Annihilation. The Boneyards avvia e registra le partite solo con i file di Total Annihilation. Esci da The Boneyards e riparalo in Impostazioni › Contenuto del gioco.;
+	}
+
+[{file} in {folder} is not one of Total Annihilation's files, so the Boneyards cannot be entered. Remove it to enter.]
+	{
+	de={file} in {folder} ist keine Datei von Total Annihilation, darum kann The Boneyards nicht betreten werden. Entferne sie, um hineinzugehen.;
+	fr={file} dans {folder} n'est pas un fichier de Total Annihilation, donc on ne peut pas entrer dans The Boneyards. Retire-le pour entrer.;
+	es={file} en {folder} no es un archivo de Total Annihilation, así que no se puede entrar en The Boneyards. Quítalo para entrar.;
+	it={file} in {folder} non è un file di Total Annihilation, quindi non si può entrare in The Boneyards. Rimuovilo per entrare.;
+	}
+
+[{file} in {folder} is not one of Total Annihilation's files. The Boneyards plays only Open Annihilation's own copy of the game: copy it from your own install or CD to enter.]
+	{
+	de={file} in {folder} ist keine Datei von Total Annihilation. The Boneyards spielt nur mit der eigenen Kopie des Spiels von Open Annihilation: Kopiere es von deiner eigenen Installation oder CD, um hineinzugehen.;
+	fr={file} dans {folder} n'est pas un fichier de Total Annihilation. The Boneyards ne joue qu'avec la copie du jeu propre à Open Annihilation : copie-le depuis ta propre installation ou ton CD pour entrer.;
+	es={file} en {folder} no es un archivo de Total Annihilation. The Boneyards solo juega con la copia del juego propia de Open Annihilation: cópialo desde tu propia instalación o CD para entrar.;
+	it={file} in {folder} non è un file di Total Annihilation. The Boneyards gioca solo con la copia del gioco di Open Annihilation: copialo dalla tua installazione o dal CD per entrare.;
 	}
 
 [{file} in {folder}, {size} bytes, is not a file of {bundle}. The game does not read it.]

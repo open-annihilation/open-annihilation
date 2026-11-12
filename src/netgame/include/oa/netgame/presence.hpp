@@ -560,6 +560,16 @@ presence_sim_hash(const uint8_t* record, std::size_t size) noexcept;
 [[nodiscard]] std::optional<PresenceLimits>
 presence_limits(const uint8_t* record, std::size_t size) noexcept;
 
+/// Reads a record's differs-from-known flag, without allocating.
+///
+/// The flag is set when a file of the base game or of a rule-changing
+/// expansion the machine plays is not a known hash, or a stray archive lies
+/// in such a bundle's folder.
+///
+/// @param record the record, type byte first
+/// @return true when the bundles field is there, keeps its rule, and has the flag set
+[[nodiscard]] bool presence_files_differ(std::span<const uint8_t> record) noexcept;
+
 /// Compares the bundles fields of two records, without allocating.
 ///
 /// Music is ignored, and the expansions are a set. Either side's

@@ -3074,6 +3074,56 @@ bool Runtime::managed_content_mounted() const noexcept {
     return options_.managed_content;
 }
 
+StockFilesRefusal
+Runtime::entry_files_refusal(std::string_view repaired_id, bool check_folder) const {
+    if (managed_content_mounted())
+        return stock_files_refusal(content_check_, user_folder_, repaired_id);
+    if (!check_folder)
+        return {};
+    // A folder that is not Open Annihilation's own copy: what is known there
+    // is read from the bundle hashes, and the way back is to copy the game.
+    StockFilesRefusal refusal =
+        stock_files_refusal(check_game_folder(options_.game_dir, true), user_folder_, {});
+    if (!refusal.refused)
+        return refusal;
+    refusal.folder = options_.game_dir;
+    std::string sentence(
+        oa::data::languages::interface_text(
+            refusal.stray
+                ? "{file} in {folder} is not one of Total Annihilation's files. The Boneyards "
+                  "plays only Open Annihilation's own copy of the game: copy it from your own "
+                  "install or CD to enter."
+                : "{file} in {folder} does not match Total Annihilation's. The Boneyards plays "
+                  "only Open Annihilation's own copy of the game: copy it from your own install "
+                  "or CD to enter."
+        )
+    );
+    for (const auto& [token, value] :
+         {std::pair<std::string_view, std::string>{"{file}", refusal.file},
+          std::pair<std::string_view, std::string>{"{folder}", path_to_utf8(refusal.folder)}}) {
+        const std::size_t mark = sentence.find(token);
+        if (mark != std::string::npos)
+            sentence.replace(mark, token.size(), value);
+    }
+    refusal.stray = false;
+    refusal.sentence = std::move(sentence);
+    return refusal;
+}
+
+void Runtime::open_game_content_repair() {
+    // The question that asked is still on the layer while its answer runs,
+    // and Settings goes over the main menu once it has gone.
+    game_content_repair_due_ = true;
+}
+
+void Runtime::open_due_game_content_repair() {
+    if (!game_content_repair_due_ || screen_ != Screen::main_menu || entry_question_up())
+        return;
+    game_content_repair_due_ = false;
+    engine_settings_state().last_page = settings::Page::game_content;
+    open_engine_settings_from_menu();
+}
+
 Runtime::PresenceAnnouncement Runtime::presence_announcement() const {
     PresenceAnnouncement played;
     played.language = std::string(shown_language().english_name);

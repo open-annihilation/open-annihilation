@@ -31,7 +31,11 @@ void note_report_refusal() noexcept {
     if (g_report_notice_shown)
         return;
     g_report_notice_shown = true;
-    boneyards_console_show_notice(boneyards_data_refusal_message());
+    // A refusal that names a file says so; any other is the mod's sentence.
+    const DataVerdict verdict = boneyards_current_data_verdict();
+    boneyards_console_show_notice(
+        verdict.message != nullptr ? verdict.message : boneyards_data_refusal_message()
+    );
 }
 
 /// Returns the launch block's options while a launch is active (reporter::Hooks::online_options).

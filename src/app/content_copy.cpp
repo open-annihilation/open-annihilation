@@ -2415,6 +2415,131 @@ bool played_content_differs(
     return false;
 }
 
+StockFilesRefusal stock_files_refusal(
+    const ContentCheck& check, const fs::path& user_folder, std::string_view repaired_id
+) {
+    namespace languages = oa::data::languages;
+    StockFilesRefusal refusal;
+    const auto named = [&](std::string_view pattern) {
+        refusal.sentence = replace_token(
+            replace_token(languages::interface_text(pattern), "{file}", refusal.file),
+            "{folder}",
+            path_to_utf8(refusal.folder)
+        );
+    };
+    for (const ContentBundleCheck& bundle : check.bundles) {
+        if (bundle.id == "music" || bundle.strays.empty())
+            continue;
+        const ContentStrayArchive& stray = bundle.strays.front();
+        refusal.refused = true;
+        refusal.stray = true;
+        refusal.file = stray.name;
+        refusal.folder = stray.folder;
+        refusal.size = stray.size;
+        refusal.bundle_name = bundle.english_name;
+        named(
+            "{file} in {folder} is not one of Total Annihilation's files, so the Boneyards "
+            "cannot be entered. Remove it to enter."
+        );
+        return refusal;
+    }
+    for (const ContentBundleCheck& bundle : check.bundles) {
+        if (bundle.id == "music" || bundle.id == repaired_id || bundle.differing.empty())
+            continue;
+        refusal.refused = true;
+        refusal.file = bundle.differing.front().copy_name;
+        refusal.bundle_name = bundle.english_name;
+        const bundles::Bundle* known = bundles::find_bundle(bundle.id);
+        refusal.folder = known != nullptr ? bundle_folder(user_folder, *known) : user_folder;
+        named(
+            "{file} in {folder} does not match Total Annihilation's, so the Boneyards cannot "
+            "be entered. Copy the game again from your own install or CD to enter."
+        );
+        return refusal;
+    }
+    return refusal;
+}
+
+ContentCheck check_game_folder(const fs::path& folder, bool first_only) {
+    ContentCheck check;
+    const bundles::Bundle* base = bundles::find_bundle("totala");
+    if (base == nullptr)
+        return check;
+    ContentBundleCheck reported;
+    reported.id = std::string(base->id);
+    reported.english_name = std::string(base->english_name);
+    reported.kind = base->kind;
+    reported.file_count = narrow_count(base->files.size());
+    // The table's files at a bundle folder's top, of any bundle, by name.
+    const auto table_file = [](std::string_view name) -> const bundles::ContentFile* {
+        for (const bundles::Bundle& bundle : bundles::bundles())
+            for (const bundles::ContentFile& file : bundle.files)
+                if (file.copy_name.find('/') == std::string_view::npos &&
+                    folded_equal(file.copy_name, name))
+                    return &file;
+        return nullptr;
+    };
+
+    struct Named {
+        fs::path path;
+        std::string name;
+        const bundles::ContentFile* file;
+    };
+
+    std::vector<Named> to_hash;
+    std::error_code failure;
+    std::vector<fs::directory_entry> entries;
+    for (const fs::directory_entry& entry : fs::directory_iterator(folder, failure))
+        entries.push_back(entry);
+    std::sort(entries.begin(), entries.end(), [](const auto& left, const auto& right) {
+        return left.path().filename() < right.path().filename();
+    });
+    for (const fs::directory_entry& entry : entries) {
+        std::error_code entry_failure;
+        if (!entry.is_regular_file(entry_failure) || entry_failure)
+            continue;
+        const std::string name = path_to_utf8(entry.path().filename());
+        if (!archive_file_name(name))
+            continue;
+        const uintmax_t size = entry.file_size(entry_failure);
+        const bundles::ContentFile* file = table_file(name);
+        if (file == nullptr) {
+            ContentStrayArchive stray;
+            stray.name = name;
+            stray.folder = folder;
+            stray.size = entry_failure ? 0 : static_cast<uint64_t>(size);
+            reported.strays.push_back(std::move(stray));
+            count_up(reported.files_differ);
+            if (first_only)
+                break;
+            continue;
+        }
+        if (entry_failure || static_cast<uint64_t>(size) != file->size) {
+            reported.differing.push_back(ContentFileDifference{name});
+            count_up(reported.files_differ);
+            if (first_only)
+                break;
+            continue;
+        }
+        to_hash.push_back(Named{entry.path(), name, file});
+    }
+    if (!first_only || reported.files_differ == 0)
+        for (const Named& named : to_hash) {
+            oa::base::sha256::Digest digest{};
+            uint64_t hashed_size = 0;
+            int64_t hashed_time = 0;
+            if (hash_whole_file(named.path, digest, hashed_size, hashed_time, nullptr) &&
+                bundles::known_hash(*named.file, digest))
+                continue;
+            reported.differing.push_back(ContentFileDifference{named.name});
+            count_up(reported.files_differ);
+            if (first_only)
+                break;
+        }
+    check.bundles.push_back(std::move(reported));
+    return check;
+}
+
 bool content_notice_due(const ContentCheck& check) noexcept {
     for (const ContentBundleCheck& bundle : check.bundles) {
         if (bundle.files_differ > 0)

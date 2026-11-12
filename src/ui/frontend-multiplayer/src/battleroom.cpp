@@ -3293,8 +3293,8 @@ void lobby_enter_battleroom(Lobby& lobby, Panel& panel) noexcept {
         panel,
         "START",
         !(host && lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
-          lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
-          lobby_sides_allow_start(lobby) && synced)
+          lobby_stock_files_allow_start(lobby) && lobby_mutators_allow_start(lobby) &&
+          lobby_limits_allow_start(lobby) && lobby_sides_allow_start(lobby) && synced)
     );
     panel_set_grayed(panel, "RESTRICTIONS", false);
     panel_set_text(panel, "METALTEXT", "0");
@@ -3778,8 +3778,8 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
         const bool mutators_allow = lobby_mutators_allow_start(lobby);
         const bool limits_allow = lobby_limits_allow_start(lobby);
         const bool sides_allow = lobby_sides_allow_start(lobby);
-        if (!lobby_content_allows_start(lobby) || !mutators_allow || !limits_allow ||
-            !sides_allow) {
+        if (!lobby_content_allows_start(lobby) || !lobby_stock_files_allow_start(lobby) ||
+            !mutators_allow || !limits_allow || !sides_allow) {
             if (!mutators_allow)
                 lobby_note_refused_start(lobby_mutators_block(lobby));
             panel.selected = kNoControl;
@@ -4049,6 +4049,7 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
     presence_send_due(lobby);
     lobby_log_mutators_hold(lobby);
     lobby_note_sides_past_table(lobby);
+    lobby_note_stock_files(lobby);
     if ((game.gui_flags & 1U) != 0) {
         if (!lobby.rows_built)
             lobby_build_rows(lobby, panel);
@@ -4093,8 +4094,8 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
                 const bool synced = unit_sync_complete(lobby);
                 const bool ready =
                     lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
-                    lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
-                    lobby_sides_allow_start(lobby);
+                    lobby_stock_files_allow_start(lobby) && lobby_mutators_allow_start(lobby) &&
+                    lobby_limits_allow_start(lobby) && lobby_sides_allow_start(lobby);
                 const auto tick = now(lobby);
                 panel_set_grayed(panel, "SYNCHING", true);
                 if (lobby.start_frame > 0 && lobby_clock_passed(tick, lobby.start_frame_tick)) {

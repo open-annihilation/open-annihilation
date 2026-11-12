@@ -2151,6 +2151,9 @@ DataFacts played_data_facts(void*) {
                 facts.mod_folder = true;
         }
         facts.mutator_count = active_mutator_count(runtime);
+        const StockFileProblem files = stock_file_problem(runtime);
+        facts.stock_file = files.file;
+        facts.stock_folder = files.folder;
     } catch (const std::exception&) {
         facts = DataFacts{};
         facts.unreadable = true;

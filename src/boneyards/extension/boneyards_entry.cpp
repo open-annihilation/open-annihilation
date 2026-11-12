@@ -125,6 +125,8 @@ bool g_printed_open = false;
 bool g_printed_stayed = false;
 bool g_printed_failed = false;
 bool g_printed_mod = false;
+// The game files question was printed this entry.
+bool g_printed_files = false;
 bool g_printed_services = false;
 
 /// The services sentence last printed. Cleared once that step is left, so
@@ -528,6 +530,13 @@ void drive(Runtime& runtime, console::StatusWidget* widget) {
         std::cout.flush();
         return;
     }
+    if (status.step == ExpansionEntryStep::files_asking && !g_printed_files) {
+        g_printed_files = true;
+        std::cout << "entry flow: refused for the game files, offering Repair\n"
+                  << status.notice << '\n';
+        std::cout.flush();
+        return;
+    }
     if (status.step == ExpansionEntryStep::asking && !g_printed_ask) {
         g_printed_ask = true;
         std::cout << "entry flow: asking to update\n" << status.notice << '\n';
@@ -601,6 +610,7 @@ void on_request(console::StatusWidget* widget) {
     g_printed_stayed = false;
     g_printed_failed = false;
     g_printed_mod = false;
+    g_printed_files = false;
     g_printed_services = false;
     g_services_notice.clear();
     g_printed_retry = false;
@@ -907,6 +917,7 @@ void boneyards_entry_install(Runtime& runtime) {
     g_printed_stayed = false;
     g_printed_failed = false;
     g_printed_mod = false;
+    g_printed_files = false;
     g_printed_services = false;
     g_services_notice.clear();
     g_printed_retry = false;

@@ -30,6 +30,12 @@
 # the Boneyards open the same way. The answered halves speak MCP on
 # 127.0.0.1. Nothing is fetched from anywhere else.
 #
+# files: a player enters over a game folder that is not Open Annihilation's
+# own copy and holds an archive no bundle lists. The entry is refused before
+# anything is fetched: the question names the archive, Repair opens Settings
+# at Game Content over the main menu, and the Boneyards do not open. The checks' other game
+# trees leave such archives out.
+#
 # Nothing is fetched from a live server. Each run wipes its own work folder.
 
 import argparse
@@ -85,6 +91,9 @@ UPDATE_NOTE = (
     "version."
 )
 OPENED = "entry flow: boneyards open"
+REPAIR = "oa.expansion-files.repair"
+REFUSED_FILES = "entry flow: refused for the game files, offering Repair"
+COPY_AGAIN = "oa.settings.content-copy.copy-again"
 RESTARTED = "entry: the new package is put in use by starting again"
 IN_USE = "entry check: the Boneyards opened with the expansion in use"
 READ_FROM = "are read from the installed expansion"
@@ -238,6 +247,30 @@ def game_index(root):
             key = (relative / name).as_posix().lower()
             index.setdefault(key, Path(dirpath) / name)
     return index
+
+
+def stray_archives(repo, game_dir):
+    """The archives at an install's top that no bundle lists, lower case.
+
+    The Boneyards refuses an entry over a game folder that holds one, as a
+    GOG install does with its extra maps, so the checks' game tree leaves
+    them out.
+    """
+    text = (repo / "src/data/content-bundles/src/bundle_table.inc").read_text(encoding="utf-8")
+    listed = set()
+    for line in text.splitlines():
+        mark = 'ContentFile{"'
+        at = line.find(mark)
+        if at >= 0:
+            rest = line[at + len(mark) :]
+            listed.add(rest[: rest.index('"')].lower())
+    strays = set()
+    for entry in Path(game_dir).iterdir():
+        name = entry.name.lower()
+        archive = name.endswith((".hpi", ".ufo", ".ccx", ".gp3"))
+        if entry.is_file() and archive and name not in listed:
+            strays.add(name)
+    return strays
 
 
 def bundle_names(repo):
@@ -601,7 +634,11 @@ class Fixture:
         )
         self.folder = user / "Expansions" / "totala" / "boneyards"
         self.game_tree = work / "game"
-        link_tree(arguments.game_dir, self.game_tree, {"by.ccx", "boneyards"})
+        link_tree(
+            arguments.game_dir,
+            self.game_tree,
+            {"by.ccx", "boneyards"} | stray_archives(self.repo, arguments.game_dir),
+        )
 
     def publish(self, revision, release):
         """Packs and lists one package; returns its SHA-256."""
@@ -1120,6 +1157,118 @@ def run_facing(arguments, game_tree, run_dir, user, data, tmp, prefs, extra, ans
     return output
 
 
+def run_files(arguments, game_tree, run_dir, user, data, tmp, prefs, extra):
+    """One entry a player makes over MCP, refused for the game files: Repair."""
+    command = [
+        arguments.game,
+        "--game-dir",
+        str(game_tree),
+        "--skip-intro",
+        "--mute",
+        "--mcp-http",
+        "--user-folder",
+        str(user),
+        "--data-dir",
+        str(data),
+        "--preferences-file",
+        str(prefs),
+        *extra,
+    ]
+    log_path = run_dir / "game.log"
+    log_handle = log_path.open("w", encoding="utf-8")
+    process = subprocess.Popen(
+        command,
+        cwd=str(run_dir),
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        env=game_env(tmp),
+    )
+    output = ""
+    player = None
+    try:
+        player = Player(run_dir)
+        player.call("ui.wait", {"screen": "main_menu", "timeout_ms": 120000}, 150)
+        player.call("ui.key", {"chord": "B", "phase": "tap"}, 30)
+        try:
+            player.call("ui.wait", {"control": REPAIR, "timeout_ms": 90000}, 120)
+        except RuntimeError:
+            player.call("ui.key", {"chord": "B", "phase": "tap"}, 30)
+            player.call("ui.wait", {"control": REPAIR, "timeout_ms": 30000}, 60)
+        player.call("ui.click", {"name": REPAIR}, 30)
+        # Game Content's own buttons are listed only while its page is open;
+        # they may lie below the fold, so they are looked for, not waited on.
+        deadline = time.monotonic() + 30
+        while COPY_AGAIN not in player.call("ui.tree", {}, 30)["content"][0]["text"]:
+            if time.monotonic() > deadline:
+                raise RuntimeError("Repair did not open Settings at Game Content")
+            time.sleep(0.5)
+        output = stop_player(process, run_dir, log_path, player)
+    except (
+        RuntimeError,
+        OSError,
+        http.client.HTTPException,
+        json.JSONDecodeError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        output = stop_player(process, run_dir, log_path, player)
+        sys.stdout.write(output)
+        sys.stdout.flush()
+        print(f"boneyards entry check: {error}", file=sys.stderr)
+        return None
+    finally:
+        log_handle.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+    sys.stdout.write(output)
+    sys.stdout.flush()
+    if process.returncode not in (0, None):
+        print(f"boneyards entry check: the game exited {process.returncode}", file=sys.stderr)
+        return None
+    return output
+
+
+def check_files(fixture):
+    """A stray archive refuses the entry, names itself, and Repair opens Game Content."""
+    fixture.publish(1, 1)
+    tree = fixture.work / "stray-game"
+    link_tree(fixture.arguments.game_dir, tree, {"by.ccx", "boneyards"})
+    # One stray of the check's own, whatever the install holds beside it.
+    found = [e for e in fixture.arguments.game_dir.iterdir() if e.name.lower() == "afark.ufo"]
+    source = found[0] if found else None
+    if source is None:
+        return fail("files: the install has no AFark.ufo to copy as a stray archive")
+    shutil.copy2(source, tree / "rgstray.ufo")
+    strays = stray_archives(fixture.repo, tree)
+    reset_fetched()
+    user, data, tmp, prefs, install = prepare_run(fixture, "files")
+    extra = feed_arguments(fixture, install)
+    output = run_files(
+        fixture.arguments, tree, fixture.work / "files", user, data, tmp, prefs, extra
+    )
+    if output is None:
+        return fail("files: the game did not finish")
+    if REFUSED_FILES not in output:
+        return fail("files: the entry was not refused for the game files")
+    named = re.search(
+        r"entry: stopped: (\S+) in .* is not one of Total Annihilation's files", output
+    )
+    if named is None or named.group(1).lower() not in strays:
+        return fail("files: the question did not name a stray archive")
+    if "copy it from your own install or CD to enter" not in output:
+        return fail("files: the question did not say how to repair it")
+    if OPENED in output:
+        return fail("files: the Boneyards opened")
+    if fetched_count() != 0:
+        return fail(f"files: the package was fetched {fetched_count()} times")
+    print(
+        f"boneyards entry check: files: {named.group(1)} refused the entry, the question named "
+        "it, and Repair opened Game Content"
+    )
+    return 0
+
+
 def wait_sentence(player, process, log_path, sentence, timeout):
     """Waits until the log holds sentence and Turn on is on the screen."""
     deadline = time.monotonic() + timeout
@@ -1362,7 +1511,9 @@ def main():
     parser.add_argument("--game", required=True)
     parser.add_argument("--tool", required=True)
     parser.add_argument("--game-dir", required=True, type=Path)
-    parser.add_argument("--mode", required=True, choices=("install", "update", "install-id"))
+    parser.add_argument(
+        "--mode", required=True, choices=("install", "update", "install-id", "files")
+    )
     parser.add_argument("--work", required=True, type=Path)
     arguments = parser.parse_args()
     if arguments.work.exists():
@@ -1375,6 +1526,8 @@ def main():
             return check_install(fixture)
         if arguments.mode == "install-id":
             return check_install_id(fixture)
+        if arguments.mode == "files":
+            return check_files(fixture)
         return check_update(fixture)
     except (RuntimeError, json.JSONDecodeError) as error:
         return fail(str(error))

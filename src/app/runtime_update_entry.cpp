@@ -274,6 +274,7 @@ struct Runtime::EntryState {
         command_ask,  ///< a notice that the command line named the mod
         leave_ask,    ///< a question about switching a remembered mod on
         restarting,   ///< the run is ending for the update or the new package
+        files_ask,    ///< the game files are not Total Annihilation's; Repair is offered
     };
 
     Phase phase{Phase::idle};          ///< where it is
@@ -1114,6 +1115,21 @@ struct EntryDriver {
         if (named.decision == ServicesDecision::note)
             note_question(services_sentence(current.ask, named.wording, registry_name));
         if (!facing_player()) {
+            // A quiet run asks nothing, but Open Annihilation's own copy is
+            // still refused when its files are not Total Annihilation's.
+            const StockFilesRefusal refusal =
+                runtime.managed_content_mounted()
+                    ? stock_files_refusal(
+                          runtime.content_check_, runtime.user_folder_, current.ask.key
+                      )
+                    : StockFilesRefusal{};
+            if (refusal.refused) {
+                current.files_known = true;
+                current.mismatched_file = refusal.file;
+                current.stopped = true;
+                fail(refusal.sentence);
+                return;
+            }
             current.phase = Runtime::EntryState::Phase::update_wait;
             return;
         }
@@ -1137,22 +1153,43 @@ struct EntryDriver {
         }
         current.services_on = true;
         current.files_known = true;
-        for (const ContentBundleCheck& bundle : runtime.content_check_.bundles) {
-            if (bundle.id == current.ask.key)
-                continue;
-            if (bundle.files_differ == 0)
-                continue;
-            std::string name;
-            if (!bundle.differing.empty())
-                name = bundle.differing[0].copy_name;
-            if (name.empty())
-                name = bundle.english_name;
-            current.mismatched_file = name;
+        // The Boneyards plays only Total Annihilation's own files. A stray
+        // archive or a file that is not a known hash stops the entry, and
+        // Repair opens Game Content where it is put right.
+        const StockFilesRefusal refusal =
+            runtime.entry_files_refusal(current.ask.key, !current.ask.own_check);
+        if (refusal.refused) {
+            current.mismatched_file = refusal.file;
             current.stopped = true;
-            fail(name + " does not match. Restore it from the Settings page.");
+            current.phase = Runtime::EntryState::Phase::files_ask;
+            current.handling_check = false;
+            std::cerr << "open-annihilation: entry: stopped: " << refusal.sentence << '\n';
+            std::cerr.flush();
+            show_pair(
+                "expansion-files",
+                refusal.sentence,
+                std::string(oa::data::languages::interface_text("Repair…")),
+                current.ask.cancel_label,
+                "repair",
+                "cancel"
+            );
             return;
         }
         current.phase = Runtime::EntryState::Phase::update_wait;
+    }
+
+    /// Applies Repair or Cancel on the game files' question. Either stays on
+    /// the menu; Repair opens Settings at Game Content, where a stray is
+    /// removed and the game copied again.
+    ///
+    /// @param repair true for Repair…
+    void apply_files_answer(bool repair) const {
+        Runtime::EntryState& current = state();
+        if (current.phase != Runtime::EntryState::Phase::files_ask)
+            return;
+        stay();
+        if (repair)
+            runtime.open_game_content_repair();
     }
 
     /// Applies Turn on or Cancel.
@@ -1870,6 +1907,9 @@ struct EntryDriver {
         case Runtime::EntryState::Phase::mod_ask:
             status.step = ExpansionEntryStep::mod_asking;
             break;
+        case Runtime::EntryState::Phase::files_ask:
+            status.step = ExpansionEntryStep::files_asking;
+            break;
         case Runtime::EntryState::Phase::mod_restart:
         case Runtime::EntryState::Phase::restarting:
             status.step = ExpansionEntryStep::restarting;
@@ -1899,6 +1939,7 @@ struct EntryDriver {
         case Runtime::EntryState::Phase::services_ask:
         case Runtime::EntryState::Phase::update_ask:
         case Runtime::EntryState::Phase::retry_ask:
+        case Runtime::EntryState::Phase::files_ask:
             publish(status);
             return;
         default:
@@ -1951,6 +1992,7 @@ bool Runtime::entry_question_tick(Runtime* runtime) {
     case EntryState::Phase::services_ask:
     case EntryState::Phase::update_ask:
     case EntryState::Phase::retry_ask:
+    case EntryState::Phase::files_ask:
     case EntryState::Phase::progress:
     case EntryState::Phase::fetch_wait:
         current.phase = EntryState::Phase::stayed;
@@ -1994,6 +2036,9 @@ bool Runtime::entry_update_answered(Runtime* runtime, int32_t button) {
         break;
     case EntryState::Phase::services_ask:
         driver.apply_services_answer(button == 0);
+        break;
+    case EntryState::Phase::files_ask:
+        driver.apply_files_answer(button == 0);
         break;
     case EntryState::Phase::retry_ask:
         driver.apply_retry(button == 0);
@@ -2051,6 +2096,10 @@ void Runtime::expansion_entry_show_on_screen(bool on_screen) {
     entry_->ask.report_on_screen = on_screen;
 }
 
+bool Runtime::entry_question_up() const noexcept {
+    return entry_ != nullptr && entry_->question != nullptr;
+}
+
 bool Runtime::expansion_entry_busy() const noexcept {
     if (entry_ == nullptr)
         return false;
@@ -2066,6 +2115,7 @@ bool Runtime::expansion_entry_busy() const noexcept {
     case EntryState::Phase::mod_ask:
     case EntryState::Phase::command_ask:
     case EntryState::Phase::leave_ask:
+    case EntryState::Phase::files_ask:
         return true;
     default:
         return false;
@@ -2167,6 +2217,19 @@ bool expansion_mod_question_open(const Runtime& runtime) {
 
 void answer_expansion_mod_question(Runtime& runtime, bool switch_off) {
     runtime.answer_expansion_mod_question(switch_off);
+}
+
+StockFileProblem stock_file_problem(const Runtime& runtime) {
+    StockFileProblem problem;
+    if (!runtime.managed_content_mounted())
+        return problem;
+    const StockFilesRefusal refusal =
+        stock_files_refusal(runtime.content_check_, runtime.user_folder_, {});
+    if (!refusal.refused)
+        return problem;
+    problem.file = refusal.file;
+    problem.folder = oa::platform::path_to_utf8(refusal.folder);
+    return problem;
 }
 
 ActiveMod active_mod(const Runtime& runtime) {

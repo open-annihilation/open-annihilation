@@ -8546,6 +8546,9 @@ class Runtime final : public menu::Host,
     /// The mod an extension's entry reads and switches (expansion_entry.hpp).
     friend ActiveMod active_mod(const Runtime& runtime);
 
+    /// The file a Boneyards launch is refused for (expansion_entry.hpp).
+    friend StockFileProblem stock_file_problem(const Runtime& runtime);
+
     /// Stores one preference under its own key, with no mod prefix (expansion_entry.hpp).
     friend void
     keep_expansion_preference(Runtime& runtime, std::string_view key, std::string_view value);
@@ -10705,6 +10708,35 @@ class Runtime final : public menu::Host,
     ///
     /// @return true when the managed copy is mounted
     [[nodiscard]] bool managed_content_mounted() const noexcept;
+
+    /// Finds the first file that keeps this machine out of the Boneyards.
+    ///
+    /// Open Annihilation's own copy is read from the start's check, kept up
+    /// to date by Settings › Game Content. A game folder that is not that
+    /// copy is checked now (check_game_folder), stopping at the first file
+    /// it names, and its sentence says to copy the game into Open
+    /// Annihilation's own copy.
+    ///
+    /// @param repaired_id the expansion the entry installs itself; empty for none
+    /// @param check_folder false leaves a folder that is not the copy
+    ///        unchecked: the game's own checks play installs as they are
+    /// @return the refusal; `refused` is false when every file is known
+    [[nodiscard]] StockFilesRefusal
+    entry_files_refusal(std::string_view repaired_id, bool check_folder) const;
+
+    /// Opens Settings at Game Content over the main menu, where a stray
+    /// archive is removed and the game copied again, once the question that
+    /// asked has gone. The Boneyards entry's Repair… opens it.
+    void open_game_content_repair();
+
+    /// Opens what open_game_content_repair asked for, on a frame of the main
+    /// menu with no entry question up.
+    void open_due_game_content_repair();
+
+    /// Reports whether the expansion entry shows a question.
+    ///
+    /// @return true while one is on the layer
+    [[nodiscard]] bool entry_question_up() const noexcept;
 
     /// Turns one expansion on or off and stores the choice when it changes.
     ///
@@ -24352,6 +24384,8 @@ class Runtime final : public menu::Host,
     /// OK or Escape closed the content notice for this start. The next start
     /// shows it again while files differ. Leaving the main menu does not.
     bool content_notice_closed_{};
+    /// Repair… asked for Settings at Game Content (open_game_content_repair).
+    bool game_content_repair_due_{};
     /// Frames in a row the main menu has shown as itself while the notice waits.
     uint32_t content_notice_frames_{};
     /// Old replays were considered for this start, or none are due.

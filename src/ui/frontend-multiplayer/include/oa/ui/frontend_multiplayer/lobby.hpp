@@ -561,6 +561,10 @@ struct Lobby {
     /// Set once this host has posted the newer-build line for the player in
     /// this slot. A later record from that player does not post it again.
     bool limits_older_refused[kSlotCount]{};
+    /// The player in each slot whose game files the room has named as not
+    /// Total Annihilation's (lobby_note_stock_files); 0 for none. Cleared
+    /// once that player's files match, so a later difference is named again.
+    uint32_t stock_files_told[kSlotCount]{};
     /// Players who arrived while every seat was taken, earliest first.
     /// When a seat opens, the earliest is seated. A player who leaves
     /// before that is dropped. None until a player arrives with no seat free.
@@ -1562,6 +1566,47 @@ struct RowBadgeState {
 /// @param lobby Lobby state.
 /// @return True when sides do not refuse the start.
 [[nodiscard]] bool lobby_sides_allow_start(Lobby& lobby) noexcept;
+
+/// Tells whether this battle counts for a ladder: the active launch block's
+/// stock_files is set. Only a Boneyards launch sets it.
+///
+/// @param lobby Lobby state and its launch link.
+/// @return True while such a launch is active.
+[[nodiscard]] bool lobby_stock_files_room(const Lobby& lobby) noexcept;
+
+/// The first seat whose machine's presence record says its game files differ
+/// from Total Annihilation's (netgame::presence_files_differ), in a room that
+/// counts for a ladder. This machine's own player counts too; a computer
+/// player is its machine's. kNoSlot when no seat does, or the room does not
+/// count.
+///
+/// @param lobby Lobby state.
+/// @return The slot, or kNoSlot.
+[[nodiscard]] int32_t lobby_stock_files_block(Lobby& lobby) noexcept;
+
+/// START's gate for game files in a room that counts for a ladder.
+///
+/// @param lobby Lobby state.
+/// @return False while lobby_stock_files_block names a seat.
+[[nodiscard]] bool lobby_stock_files_allow_start(Lobby& lobby) noexcept;
+
+/// Writes, once for each player until their files match, the battle room's
+/// line that names a player whose game files differ, in a room that counts
+/// for a ladder. Every machine writes it. On that player's own machine the
+/// line says what to do instead.
+///
+/// @param lobby Lobby state.
+void lobby_note_stock_files(Lobby& lobby) noexcept;
+
+/// The line naming another player whose game files differ, with {player}.
+///
+/// @return The English words, looked up in the interface catalogue.
+[[nodiscard]] const char* lobby_stock_files_line() noexcept;
+
+/// The line this machine's own player reads when their game files differ.
+///
+/// @return The English words, looked up in the interface catalogue.
+[[nodiscard]] const char* lobby_stock_files_own_line() noexcept;
 
 /// Posts the host's line for each playing seat on a side the game does not have.
 ///

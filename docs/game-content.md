@@ -112,7 +112,16 @@ holds, as before, and may replace the base game's archives on purpose.
 
 A game folder that is not Open Annihilation's own copy, an older setup
 pointing at a Total Annihilation folder or one named with `--game-dir`,
-still mounts what Total Annihilation itself would mount there.
+still mounts what Total Annihilation itself would mount there. What is
+known there is read from the bundle hashes: an archive at the folder's top
+whose name this page lists must be that file, at its size and with a
+SHA-256 the game knows, and any other archive is a stray. Nothing offline,
+in a skirmish or in a casual battle room is refused for it. Entering the
+Boneyards is: such a folder is checked when a player enters, and the way
+back is to copy the game into Open Annihilation's own copy. A GOG install
+holds extra maps (`Cometctr.ufo`, `Evadrivd.ufo`, `Mndsmars.ufo`,
+`floggen.ufo`) and `Example.ufo`, which are not bundle files, so it does
+not pass as it is; its copy does.
 
 ## What a copy leaves out
 

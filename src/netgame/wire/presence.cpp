@@ -1367,6 +1367,11 @@ bool find_presence_field(
     return false;
 }
 
+bool presence_files_differ(std::span<const uint8_t> record) noexcept {
+    BundleReading reading;
+    return bundles_of(record, &reading) && reading.differs;
+}
+
 PresenceContentMatch presence_content_match(
     std::span<const uint8_t> first_record, std::span<const uint8_t> second_record
 ) noexcept {

@@ -1678,6 +1678,7 @@ void Runtime::idle_tick() {
     start_waiting_menu_hum();
     // Content that differs is told with the language notice, and queues first.
     tell_content_difference();
+    open_due_game_content_repair();
     tell_missing_language();
     consider_replay_retention();
     tell_mod_installs();

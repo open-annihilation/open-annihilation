@@ -101,6 +101,10 @@ inline constexpr std::string_view interface_words[] = {
     "{name}: {problem}",
     "{registry}: downloads off.",
     "{pack} {version} · {size} from {registry}",
+    "*** {player}'s game files differ from Total Annihilation's; they must repair them before this "
+    "battle can start.",
+    "*** Your game files differ from Total Annihilation's, so this battle cannot start. Leave it "
+    "and repair them in Settings › Game Content.",
 };
 
 } // namespace oa::ui::frontend_multiplayer

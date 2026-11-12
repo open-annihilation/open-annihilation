@@ -60,6 +60,7 @@ enum class ExpansionEntryStep : uint8_t {
     waiting,         ///< a check or a download is still running
     asking,          ///< the update question is waiting for an answer
     mod_asking,      ///< a question about switching a mod off is waiting
+    files_asking,    ///< the game files are not Total Annihilation's; Repair is offered
     stayed,          ///< the player stayed on the menu
     failed,          ///< the entry stopped, and the notice says why
     services_asking, ///< the question about the online features is waiting
@@ -286,6 +287,22 @@ struct ActiveMod {
     /// The mod folder, as UTF-8. Empty when no mod is playing.
     std::string folder{};
 };
+
+/// A file of Open Annihilation's own copy that is not Total Annihilation's.
+struct StockFileProblem {
+    std::string file{};   ///< the file's name; empty when every file is known
+    std::string folder{}; ///< the folder it is in, as UTF-8
+};
+
+/// Reads the first file of the played copy that keeps a battle out of the
+/// Boneyards: a stray archive in a bundle's folder, or a file of the base
+/// game or a rule-changing expansion that is not a known hash. Only Open
+/// Annihilation's own copy is read here; a game folder that is not that
+/// copy was checked when the player entered.
+///
+/// @param runtime the running game
+/// @return the file; empty when every file is known
+[[nodiscard]] StockFileProblem stock_file_problem(const Runtime& runtime);
 
 /// Reads the mod a run is playing.
 ///
