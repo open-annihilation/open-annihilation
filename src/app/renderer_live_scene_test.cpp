@@ -86,6 +86,34 @@ struct Fixture {
     }
 };
 
+/// Discards optional coordinates so retained terrain queries read their original vertices.
+/// @param scene the scene whose coordinate cache is discarded
+void discard_ground_points(live::Scene& scene) {
+    scene.ground_points_revision = 0;
+    scene.ground_points.clear();
+}
+
+/// Requires every published coordinate to preserve the source vertex's exact bits.
+/// @param scene the scene whose published coordinate cache is checked
+void check_ground_points(const live::Scene& scene) {
+    if (scene.ground_points_revision == 0)
+        return;
+    const bool cut = scene.cut_source != 0 && scene.ground_points_revision == scene.cut_revision;
+    const auto& vertices = cut ? scene.cut_ground : scene.ground_vertices;
+    OA_CHECK(
+        scene.ground_points_revision == (cut ? scene.cut_revision : scene.kept_ground_revision)
+    );
+    OA_CHECK(scene.ground_points.size() == vertices.size());
+    for (std::size_t index = 0; index < std::min(scene.ground_points.size(), vertices.size());
+         ++index) {
+        const auto& point = scene.ground_points[index];
+        const auto& vertex = vertices[index];
+        OA_CHECK(std::bit_cast<uint32_t>(point.x) == std::bit_cast<uint32_t>(vertex.x));
+        OA_CHECK(std::bit_cast<uint32_t>(point.z) == std::bit_cast<uint32_t>(vertex.z));
+        OA_CHECK(std::bit_cast<uint32_t>(point.height) == std::bit_cast<uint32_t>(vertex.height));
+    }
+}
+
 /// Deferred image metadata preserves geometry, materials, detail decisions
 /// and emitted-face picking bounds on both model drawing paths.
 void check_deferred_image_draw(const live::Inputs& inputs, oa::present::model::ModelState& state) {
@@ -3421,6 +3449,7 @@ void ground_index_reuse() {
     OA_CHECK(!fixture.scene.cut_ground.empty());
     if (!fixture.scene.cut_ground.empty()) {
         const auto before = fixture.scene.ground_index_cache;
+        discard_ground_points(fixture.scene);
         fixture.scene.cut_ground[0].x = std::numeric_limits<float>::quiet_NaN();
         std::ignore = live::build(fixture.inputs, fixture.scene, fixture.error);
         OA_CHECK(!fixture.scene.ground_index_cache.valid);
@@ -3686,10 +3715,10 @@ struct GroundIndexThreadsFixture {
     oa::platform::job_pool::Pool one{1}, four{4};
 
     /// Presents the whole map in a small target without reducing its ground detail.
-    GroundIndexThreadsFixture() {
-        constexpr uint32_t tiles = 96;
-        constexpr int32_t pixels = static_cast<int32_t>(tiles) * tile_edge;
-        constexpr int32_t center = pixels / 2;
+    /// @param tiles the map's width and height in terrain tiles
+    explicit GroundIndexThreadsFixture(uint32_t tiles = 96) {
+        const int32_t pixels = static_cast<int32_t>(tiles) * tile_edge;
+        const int32_t center = pixels / 2;
         auto& map = fixture.map;
         map.attribute_width = map.attribute_height = tiles * 2;
         map.tile_width = map.tile_height = tiles;
@@ -3703,7 +3732,7 @@ struct GroundIndexThreadsFixture {
         in.right = in.bottom = pixels;
         in.clip_width = in.clip_height = 128;
         in.detail_scale = 1;
-        constexpr float scale = 128.0F / pixels;
+        const float scale = 128.0F / pixels;
         in.clip_projection = {scale, 0, 0, 0, 0, -0.5F * scale, scale, 0, 0, 1, 0, 0};
         in.view_direction = {0.25F, 1, 0.5F};
         art.width = art.height = 8;
@@ -3717,6 +3746,7 @@ struct GroundIndexThreadsFixture {
 
     /// Compares complete rendered frames on one and four drawing threads.
     void build() {
+        discard_ground_points(ordinary);
         fixture.inputs.pool = &one;
         OA_CHECK(live::build(fixture.inputs, ordinary, fixture.error));
         OA_CHECK(fixture.error.empty());
@@ -3724,6 +3754,9 @@ struct GroundIndexThreadsFixture {
         OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
         OA_CHECK(fixture.error.empty());
         OA_CHECK(same_frame(fixture.scene, ordinary));
+        if (fixture.scene.ground_points_revision == fixture.scene.ground_revision &&
+            fixture.scene.ground_points.size() == fixture.scene.terrain_vertex_count)
+            check_ground_points(fixture.scene);
     }
 
     /// Keeps serial phases additive and bounds concurrent constructor walls by the total.
@@ -3811,6 +3844,135 @@ struct GroundIndexThreadsFixture {
         }
     }
 };
+
+/// Compact coordinates retain exact queries across ownership, fallback and ground generations.
+void ground_points_preserve_queries() {
+    namespace timers = oa::app::bench_timers;
+    timers::reset(true);
+    GroundIndexThreadsFixture pair{4};
+    auto& fixture = pair.fixture;
+    auto& scene = fixture.scene;
+    auto& in = fixture.inputs;
+    const auto compare = [&] {
+        scene.ground_index_cache.valid = pair.ordinary.ground_index_cache.valid = false;
+        pair.build();
+        pair.check_indices();
+        OA_CHECK(scene.passes.ground_indices.builds == 1);
+    };
+    const auto publish = [&](bool remembered) {
+        fixture.draws.sprites[0].surface_effect = false;
+        for (uint32_t frame = 0; frame < 3; ++frame)
+            pair.build();
+        fixture.draws.sprites[0].surface_effect = true;
+        compare();
+        if (remembered) {
+            OA_CHECK(scene.ground_points_revision != 0);
+            OA_CHECK(scene.ground_points_revision == scene.ground_index_cache.key.revision);
+            check_ground_points(scene);
+        }
+    };
+    publish(true);
+    const auto points = scene.ground_points;
+    const auto revision = scene.ground_points_revision;
+    OA_CHECK(!points.empty() && points.size() == scene.terrain_vertex_count);
+    if (points.empty()) {
+        timers::reset(false);
+        return;
+    }
+    const auto restore = [&] {
+        scene.ground_points = points;
+        scene.ground_points_revision = revision;
+    };
+    // Poisoned optional data must remain unread when any selection key is
+    // absent or stale. Every reference query reads original retained vertices.
+    for (uint32_t fallback = 0; fallback < 4; ++fallback) {
+        restore();
+        scene.ground_points[0].x = std::numeric_limits<float>::quiet_NaN();
+        if (fallback == 0)
+            scene.ground_points_revision = 0;
+        else if (fallback == 1)
+            ++scene.ground_points_revision;
+        else if (fallback == 2)
+            scene.ground_points.pop_back();
+        else
+            scene.ground_points.clear();
+        compare();
+    }
+    restore();
+    auto copied = scene;
+    OA_CHECK(copied.ground_points.data() != scene.ground_points.data());
+    copied.ground_points[0].x = std::numeric_limits<float>::quiet_NaN();
+    OA_CHECK(
+        std::bit_cast<uint32_t>(scene.ground_points[0].x) == std::bit_cast<uint32_t>(points[0].x)
+    );
+    copied.ground_points[0] = points[0];
+    const auto* owned = copied.ground_points.data();
+    auto moved = std::move(copied);
+    OA_CHECK(moved.ground_points.data() == owned);
+    scene = std::move(moved);
+    compare();
+    // The selected payload's nonfinite point cannot leave an older valid
+    // bundle published, even when its original GPU vertex is still finite.
+    const auto attempts = scene.ground_index_cache.attempts;
+    scene.ground_points[0].x = std::numeric_limits<float>::quiet_NaN();
+    scene.ground_index_cache.valid = false;
+    in.pool = &pair.four;
+    OA_CHECK(live::build(in, scene, fixture.error));
+    OA_CHECK(!scene.ground_index_cache.valid);
+    OA_CHECK(scene.ground_index_cache.attempts == attempts + 1);
+    const auto& diagnostics = scene.passes.ground_indices.diagnostics;
+    OA_CHECK(diagnostics.size == 1 && diagnostics.dropped == 0);
+    if (diagnostics.size == 1)
+        OA_CHECK(!diagnostics.records[0].completed);
+    restore();
+    compare();
+    // Matching source and compact signed zeros preserve the bounds' raw
+    // bits, including the ordered min/max choice among equal corners.
+    bool signed_zero = false;
+    for (std::size_t index = 0; index < points.size(); ++index) {
+        if (points[index].x != 0)
+            continue;
+        for (auto* current : {&scene, &pair.ordinary}) {
+            current->ground_vertices[index].x = -0.0F;
+            current->listed_ground_revision = 0;
+        }
+        scene.ground_points[index].x = -0.0F;
+        compare();
+        OA_CHECK(std::bit_cast<uint32_t>(scene.ground_points[index].x) == uint32_t{0x80000000});
+        for (auto* current : {&scene, &pair.ordinary}) {
+            current->ground_vertices[index].x = points[index].x;
+            current->listed_ground_revision = 0;
+        }
+        restore();
+        compare();
+        signed_zero = true;
+        break;
+    }
+    OA_CHECK(signed_zero);
+    // Editing the same map object replaces its generation. Foundation
+    // cuts and later uncut ground must each match the original query path.
+    fixture.map.attributes[3].height = 12;
+    publish(true);
+    OA_CHECK(scene.ground_points_revision != revision);
+    oa::Unit building{};
+    building.flags = OA_UNIT_FLAG_BUILDING;
+    building.footprint_x = building.footprint_z = 2;
+    building.position = {64 * 65536, 8 * 65536, 64 * 65536};
+    fixture.draws.models.resize(1);
+    fixture.draws.models[0].model.unit = &building;
+    fixture.draws.models[0].plan.linked.drawn = true;
+    publish(true);
+    OA_CHECK(scene.cut_source != 0);
+    const auto cut = scene.ground_points_revision;
+    building.position.x += cell_edge * 65536;
+    publish(true);
+    OA_CHECK(scene.ground_points_revision != cut);
+    fixture.draws.models.clear();
+    publish(false);
+    in.clip_projection[3] += 1;
+    publish(false);
+    timers::reset(false);
+}
 
 /// Cold bounds workers preserve actual demand, material replay and exact index contents.
 void ground_index_bounds_on_threads() {
@@ -3940,6 +4102,8 @@ void ground_index_bounds_on_threads() {
         const auto other_x = pair.ordinary.ground_vertices[broken_vertex].x;
         const auto before = fixture.scene.ground_index_cache.attempts;
         const auto other_before = pair.ordinary.ground_index_cache.attempts;
+        discard_ground_points(fixture.scene);
+        discard_ground_points(pair.ordinary);
         fixture.scene.ground_vertices[broken_vertex].x = std::numeric_limits<float>::quiet_NaN();
         pair.ordinary.ground_vertices[broken_vertex].x = std::numeric_limits<float>::quiet_NaN();
         fixture.scene.ground_index_cache.valid = pair.ordinary.ground_index_cache.valid = false;
@@ -4083,6 +4247,7 @@ void ground_index_bounds_revision_reuse() {
     if (effect_first < fixture.scene.vertices.size()) {
         const auto old_height = fixture.scene.vertices[effect_first].height;
         for (auto* scene : {&fixture.scene, &pair.ordinary}) {
+            discard_ground_points(*scene);
             for (auto& vertex : scene->ground_vertices)
                 vertex.height += 4;
             scene->listed_ground_revision = 0;
@@ -4098,6 +4263,7 @@ void ground_index_bounds_revision_reuse() {
     for (const bool along_z : {false, true}) {
         const auto old = pair.ordinary.ground_index_memory[0].bounds[0];
         for (auto* scene : {&fixture.scene, &pair.ordinary}) {
+            discard_ground_points(*scene);
             if (along_z)
                 scene->ground_vertices[0].z -= 4 * cell_edge;
             else
@@ -4697,6 +4863,7 @@ void ground_drawn_ahead_on_threads() {
         for (std::size_t scene = 0; scene < scenes.size(); ++scene) {
             moving.inputs.pool = pools[scene].get();
             OA_CHECK(live::build(moving.inputs, scenes[scene], moving.error));
+            check_ground_points(scenes[scene]);
         }
         for (std::size_t scene = 1; scene < scenes.size(); ++scene)
             OA_CHECK(same_frame(scenes[0], scenes[scene]));
@@ -8476,6 +8643,7 @@ int main() {
     ground_index_reuse();
     ground_index_build_diagnostics();
     ground_index_build_record_storage();
+    ground_points_preserve_queries();
     ground_index_bounds_on_threads();
     ground_index_bounds_revision_reuse();
     passes_on_threads();
