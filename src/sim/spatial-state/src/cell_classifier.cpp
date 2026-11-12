@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/spatial_state/cell_classifier.hpp"
+#include "oa/sim/spatial_state/movement_footprint.hpp"
 #include <bit>
+#include <limits>
 
 namespace oa::sim::spatial_state {
 namespace {
@@ -69,6 +71,21 @@ uint8_t classify_rectangle(
 }
 
 } // namespace
+
+uint8_t classify_movement_footprint(
+    const CellClassifier& movement, int32_t x, int32_t z, const World& world
+) noexcept {
+    if (x < 0 || z < 0 || movement.footprint_x <= 0 || movement.footprint_z <= 0 ||
+        world.terrain_width > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
+        world.terrain_height > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
+        uint64_t{static_cast<uint32_t>(x)} + static_cast<uint32_t>(movement.footprint_x) >=
+            world.terrain_width ||
+        uint64_t{static_cast<uint32_t>(z)} + static_cast<uint32_t>(movement.footprint_z) >=
+            world.terrain_height ||
+        uint64_t{world.terrain_width} * world.terrain_height != world.plots.size())
+        return 0;
+    return classify_rectangle(movement, x, z, movement.footprint_x, movement.footprint_z, world);
+}
 
 uint8_t
 classify_movement_cell(const CellClassifier& movement, int32_t x, int32_t z, const World& world) {
