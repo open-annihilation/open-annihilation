@@ -92,8 +92,8 @@ void configure_ground(Fixture& fixture, const Case& input) {
             input.obstacle == Obstacle::terrain && index == 6 * 16 + 6 ? uint8_t{0} : land_height;
         if (input.offset_corner) {
             const auto land = [](int32_t x, int32_t z) {
-                return (x >= 2 && x <= 10 && z >= 4 && z <= 8) ||
-                       (x >= 6 && x <= 10 && z >= 4 && z <= 13) ||
+                return (x >= 2 && x <= 9 && z >= 5 && z <= 7) ||
+                       (x >= 7 && x <= 9 && z >= 5 && z <= 13) ||
                        (x >= 10 && x <= 13 && z >= 10 && z <= 13);
             };
             const auto x = int32_t(index % 16), z = int32_t(index / 16);
