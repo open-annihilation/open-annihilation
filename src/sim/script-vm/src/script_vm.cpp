@@ -492,6 +492,23 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
         auto top = [&](int32_t depth = 0) -> uint32_t& {
             return context.slots[static_cast<std::size_t>(context.sp - depth)];
         };
+        // A value below the top that the stack may lack, which then reads 0.
+        auto operand = [&](int32_t depth) -> uint32_t {
+            return depth <= context.sp ? top(depth) : 0U;
+        };
+        auto note_piece =
+            [&](ErrorCode code, uint32_t piece, uint32_t axis, int32_t takes, int32_t held) {
+                note_piece_fault(
+                    {code,
+                     index,
+                     pc,
+                     op,
+                     piece,
+                     axis,
+                     static_cast<uint32_t>(takes),
+                     static_cast<uint32_t>(held)}
+                );
+            };
 
         switch (op) {
         case opcode::ignored_piece_op: {
@@ -559,40 +576,55 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 );
             const auto piece = program_->code[pc + 1];
             const auto axis = program_->code[pc + 2];
-            if (!valid_piece(piece))
-                return fail(ErrorCode::invalid_piece, "piece index is out of range");
-            if (!valid_axis(axis))
-                return fail(ErrorCode::invalid_axis, "piece axis is outside 0..2");
             const int32_t pop_count =
                 (op == opcode::move || op == opcode::turn || op == opcode::spin) ? 2 : 1;
-            if (!need_stack(pop_count))
-                return fail(ErrorCode::stack_underflow, "piece transform lacks stack operands");
+            const int32_t held = std::min(pop_count, context.sp + 1);
+            // A piece or axis outside the script skips the transform, and the
+            // script goes on (PieceFault).
+            if (!valid_piece(piece) || !valid_axis(axis)) {
+                note_piece(
+                    valid_piece(piece) ? ErrorCode::invalid_axis : ErrorCode::invalid_piece,
+                    piece,
+                    axis,
+                    pop_count,
+                    held
+                );
+                context.sp -= held;
+                context.pc += 3;
+                break;
+            }
             if (time_scale_ == 0 && op != opcode::move_now && op != opcode::turn_now)
                 return fail(
                     ErrorCode::invalid_time_scale, "piece transform divides by a zero time scale"
                 );
+            // The values the transform takes, the top one first; one the
+            // stack lacks reads 0.
+            const uint32_t first = operand(0);
+            const uint32_t second = pop_count == 2 ? operand(1) : 0U;
             auto unsafe_scale = [&](uint32_t value) {
                 return time_scale_ == -1 && as_signed(value) == std::numeric_limits<int32_t>::min();
             };
-            if ((op == opcode::move || op == opcode::turn) && unsafe_scale(top(1)))
+            if ((op == opcode::move || op == opcode::turn) && unsafe_scale(second))
                 return fail(
                     ErrorCode::signed_divide_overflow, "piece speed scaling would overflow"
                 );
-            if (op == opcode::spin && (unsafe_scale(top()) || unsafe_scale(top(1))))
+            if (op == opcode::spin && (unsafe_scale(first) || unsafe_scale(second)))
                 return fail(ErrorCode::signed_divide_overflow, "spin scaling would overflow");
-            if (op == opcode::stop_spin && unsafe_scale(top()))
+            if (op == opcode::stop_spin && unsafe_scale(first))
                 return fail(
                     ErrorCode::signed_divide_overflow, "spin deceleration scaling would overflow"
                 );
+            if (held < pop_count)
+                note_piece(ErrorCode::stack_underflow, piece, axis, pop_count, held);
             auto negate = [](int32_t value) { return as_signed(0U - as_unsigned(value)); };
 
             auto& motion = motion_at(piece, axis);
+            context.sp -= held;
             if (op == opcode::move) {
-                const auto target = as_signed(top());
-                auto speed = as_signed(top(1)) / time_scale_;
+                const auto target = as_signed(first);
+                auto speed = as_signed(second) / time_scale_;
                 motion.move_target = target;
                 motion.move_speed = speed;
-                context.sp -= 2;
                 const auto current = host_->piece_position(piece, axis);
                 if (target < current)
                     speed = negate(speed);
@@ -600,12 +632,11 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 piece_active_[piece] = 1;
                 motions_active_ = true;
             } else if (op == opcode::turn) {
-                const auto target = top() & unit::angle_mask;
-                auto speed = as_signed(top(1)) / time_scale_;
+                const auto target = first & unit::angle_mask;
+                auto speed = as_signed(second) / time_scale_;
                 motion.turn_target = target;
                 motion.turn_speed = speed;
                 motion.spin_acceleration = 0;
-                context.sp -= 2;
                 const auto current = host_->piece_angle(piece, axis);
                 const auto difference = as_signed(target - as_unsigned(current));
                 if (difference == 0) {
@@ -622,31 +653,27 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 motions_active_ = true;
             } else if (op == opcode::spin) {
                 motion.turn_target = unit::continuous_spin_target;
-                motion.spin_target_speed = as_signed(top()) / time_scale_;
-                motion.spin_acceleration = as_signed(top(1)) / time_scale_;
+                motion.spin_target_speed = as_signed(first) / time_scale_;
+                motion.spin_acceleration = as_signed(second) / time_scale_;
                 if (motion.spin_acceleration == 0)
                     motion.turn_speed = motion.spin_target_speed;
-                context.sp -= 2;
                 piece_active_[piece] = 1;
                 motions_active_ = true;
             } else if (op == opcode::stop_spin) {
                 motion.spin_target_speed = 0;
-                motion.spin_acceleration = negate(as_signed(top()) / time_scale_);
+                motion.spin_acceleration = negate(as_signed(first) / time_scale_);
                 if (motion.spin_acceleration == 0)
                     motion.turn_speed = 0;
-                --context.sp;
             } else if (op == opcode::move_now) {
-                const auto value = as_signed(top());
+                const auto value = as_signed(first);
                 motion.move_target = value;
                 motion.move_speed = 0;
-                --context.sp;
                 host_->set_piece_position(piece, axis, value);
             } else {
-                const auto value = top() & unit::angle_mask;
+                const auto value = first & unit::angle_mask;
                 motion.turn_target = value;
                 motion.turn_speed = 0;
                 motion.spin_acceleration = 0;
-                --context.sp;
                 host_->set_piece_angle(piece, axis, value);
             }
             context.pc += 3;
@@ -658,13 +685,20 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(ErrorCode::truncated_instruction, "WAIT lacks piece/axis operands");
             const auto piece = program_->code[pc + 1];
             const auto axis = program_->code[pc + 2];
-            if (!valid_piece(piece))
-                return fail(ErrorCode::invalid_piece, "WAIT piece index is out of range");
-            if (!valid_axis(axis))
-                return fail(ErrorCode::invalid_axis, "WAIT axis is outside 0..2");
+            context.pc += 3;
+            // A wait on a piece or axis outside the script waits on nothing.
+            if (!valid_piece(piece) || !valid_axis(axis)) {
+                note_piece(
+                    valid_piece(piece) ? ErrorCode::invalid_axis : ErrorCode::invalid_piece,
+                    piece,
+                    axis,
+                    0,
+                    0
+                );
+                break;
+            }
             context.wait_piece = piece;
             context.wait_axis = axis;
-            context.pc += 3;
             context.state = op == opcode::wait_turn ? ContextState::waiting_for_turn
                                                     : ContextState::waiting_for_move;
             break;
@@ -682,15 +716,15 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                     ErrorCode::truncated_instruction, "piece flag opcode lacks a piece operand"
                 );
             const auto piece = program_->code[pc + 1];
+            context.pc += 2;
             if (!valid_piece(piece))
-                return fail(ErrorCode::invalid_piece, "piece index is out of range");
-            if (op == opcode::show || op == opcode::hide)
+                note_piece(ErrorCode::invalid_piece, piece, 0, 0, 0);
+            else if (op == opcode::show || op == opcode::hide)
                 host_->set_piece_visible(piece, op == opcode::show);
             else if (op == opcode::cache || op == opcode::dont_cache)
                 host_->set_piece_cached(piece, op == opcode::cache);
             else
                 host_->set_piece_shaded(piece, op == opcode::shade);
-            context.pc += 2;
             break;
         }
         case opcode::emit_sfx:
@@ -699,18 +733,21 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(ErrorCode::missing_host, "piece effect opcode requires a Host");
             if (!need_words(2))
                 return fail(ErrorCode::truncated_instruction, "piece effect lacks a piece operand");
-            if (!need_stack(1))
-                return fail(ErrorCode::stack_underflow, "piece effect requires one value");
             const auto piece = program_->code[pc + 1];
-            if (!valid_piece(piece))
-                return fail(ErrorCode::invalid_piece, "piece index is out of range");
-            const auto value = as_signed(top());
-            --context.sp;
+            const int32_t held = std::min(1, context.sp + 1);
+            const auto value = as_signed(operand(0));
+            context.sp -= held;
+            context.pc += 2;
+            if (!valid_piece(piece)) {
+                note_piece(ErrorCode::invalid_piece, piece, 0, 1, held);
+                break;
+            }
+            if (held < 1)
+                note_piece(ErrorCode::stack_underflow, piece, 0, 1, held);
             if (op == opcode::emit_sfx)
                 host_->emit_sfx(piece, value);
             else
                 host_->explode(piece, value);
-            context.pc += 2;
             break;
         }
         case opcode::get_unit_value:
@@ -1331,6 +1368,15 @@ bool Vm::set_static(std::size_t index, int32_t value) noexcept {
         return false;
     statics_[index] = as_unsigned(value);
     return true;
+}
+
+void Vm::note_piece_fault(const PieceFault& fault) {
+    if (piece_faults_noted_ == piece_faults_.size())
+        return;
+    for (std::size_t index = 0; index < piece_faults_noted_; ++index)
+        if (piece_faults_[index].pc == fault.pc)
+            return;
+    piece_faults_[piece_faults_noted_++] = fault;
 }
 
 int32_t Vm::turn_speed(uint32_t piece, uint32_t axis) const noexcept {

@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/match_runtime/script.hpp"
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
+#include <vector>
 using namespace oa::sim::match_runtime;
 #define CHECK(x)                                                                                   \
     do {                                                                                           \
@@ -40,6 +43,17 @@ struct UnusedVmHost : oa::sim::script_vm::Host {
     RET(uint32_t, carrier_unit_id, ())
     RET(uint32_t, random_bounded, (uint32_t))
 #undef RET
+};
+
+// A host for scripts that only move pieces: it keeps each write.
+struct PieceHost : UnusedVmHost {
+    std::vector<std::array<int32_t, 3>> writes;
+
+    int32_t piece_position(uint32_t, uint32_t) const override { return 0; }
+
+    void set_piece_position(uint32_t piece, uint32_t axis, int32_t value) override {
+        writes.push_back({static_cast<int32_t>(piece), static_cast<int32_t>(axis), value});
+    }
 };
 
 struct Values : UnitValueHost {
@@ -214,6 +228,68 @@ int main() {
     // An instance without a program finds no fixed function.
     ScriptInstance empty(nullptr, prepare_type_script(nullptr), vmhost, 30);
     CHECK(empty.find(ScriptFunction::create) == -1);
+    // TAUIP's Hellfire moves a piece in Create with no value pushed. The
+    // script goes on as in 3.1c, and the match keeps the fault once for the
+    // type's script, however many of its units run it and however often.
+    auto hellfire = std::make_shared<oa::formats::cob::CobProgram>();
+    hellfire->code = {
+        opcode::push_constant,
+        static_cast<uint32_t>(-81920),
+        opcode::move_now,
+        0,
+        0,
+        opcode::move_now,
+        1,
+        0,
+        opcode::push_constant,
+        3000,
+        opcode::pop_static,
+        0,
+        opcode::return_,
+        opcode::move_now,
+        1,
+        1,
+        opcode::return_,
+    };
+    hellfire->entry_points = {0, 13};
+    hellfire->scripts = {{"Create", 0}, {"Other", 13}};
+    hellfire->piece_names = {"Flare1", "Flare2"};
+    hellfire->header.static_variable_count = 1;
+    const auto hellfire_shared = prepare_type_script(hellfire);
+    PieceHost piece_host;
+    ScriptFaultLog piece_log;
+    ScriptInstance first_unit(hellfire, hellfire_shared, piece_host, 30, nullptr, &piece_log);
+    ScriptInstance second_unit(hellfire, hellfire_shared, piece_host, 30, nullptr, &piece_log);
+    CHECK(first_unit.call_no_arguments(ScriptFunction::create, true));
+    CHECK(second_unit.call_no_arguments(ScriptFunction::create, true));
+    CHECK(first_unit.vm().active_count() == 0 && first_unit.vm().static_value(0) == 3000);
+    CHECK(second_unit.vm().active_count() == 0 && second_unit.vm().static_value(0) == 3000);
+    CHECK(
+        piece_host.writes ==
+        (std::vector<std::array<int32_t, 3>>{{0, 0, -81920}, {1, 0, 0}, {0, 0, -81920}, {1, 0, 0}})
+    );
+    // Each unit handed its fault over; the log kept the first.
+    CHECK(first_unit.vm().piece_faults().empty() && second_unit.vm().piece_faults().empty());
+    auto piece_notes = piece_log.pending();
+    CHECK(piece_notes.size() == 1);
+    CHECK(piece_notes[0].program == hellfire.get() && piece_notes[0].script == 0);
+    CHECK(
+        piece_notes[0].fault.code == ErrorCode::stack_underflow && piece_notes[0].fault.pc == 5 &&
+        piece_notes[0].fault.opcode == opcode::move_now && piece_notes[0].fault.piece == 1 &&
+        piece_notes[0].fault.axis == 0 && piece_notes[0].fault.takes == 1 &&
+        piece_notes[0].fault.held == 0
+    );
+    piece_log.clear();
+    CHECK(piece_log.pending().empty());
+    CHECK(
+        first_unit.call_no_arguments(ScriptFunction::create, true) && piece_log.pending().empty()
+    );
+    // Another script of the type is kept once too.
+    CHECK(first_unit.call("Other", {}, true) && second_unit.call("Other", {}, true));
+    piece_notes = piece_log.pending();
+    CHECK(piece_notes.size() == 1 && piece_notes[0].script == 1 && piece_notes[0].fault.pc == 13);
+    CHECK(script_at(*hellfire, 12) == 0 && script_at(*hellfire, 16) == 1);
+    CHECK(script_at(*hellfire, 0) == 0 && script_at(*queries, 4) == 0);
     oa::sim::unit_spawn::LegacyWorld world(2);
     world.types()[1].simulation.maximum_health = 100;
     world.load_types();

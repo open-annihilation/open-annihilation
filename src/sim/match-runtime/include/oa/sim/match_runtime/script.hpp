@@ -11,8 +11,10 @@
 #include "oa/formats/cob.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string_view>
 
 namespace oa::sim::match_runtime {
@@ -74,6 +76,65 @@ struct SharedScriptProgram {
 [[nodiscard]] SharedScriptProgram
 prepare_type_script(const std::shared_ptr<const formats::cob::CobProgram>& program);
 
+/// A faulty piece instruction a unit script ran past (script_vm::PieceFault),
+/// with the program and script it is in.
+struct ScriptFaultNote {
+    /// The unit type's loaded COB program.
+    const formats::cob::CobProgram* program{};
+    /// The COB index of the script whose code holds it (script_at), or -1.
+    int32_t script{-1};
+    /// What the instruction got wrong, and where.
+    sim::script_vm::PieceFault fault{};
+};
+
+/// The faulty piece instructions a match's unit scripts ran past, each kept
+/// the first time a unit of a program meets one in a script, for the log.
+///
+/// A mod's own data errors are logged once: units of one type share a
+/// program, and every later fault in the same script of it is dropped. Only
+/// a unit's first run of an instruction reaches the log at all
+/// (script_vm::Vm::piece_faults), so a script that repeats one costs nothing
+/// here. The first `capacity` scripts with a fault are kept; the faults of
+/// any after them are not logged.
+class ScriptFaultLog {
+  public:
+
+    /// Scripts with a fault one match keeps.
+    static constexpr std::size_t capacity = 64;
+
+    /// Keeps a fault unless one is kept for the same script of the program.
+    ///
+    /// @param program the unit's loaded COB program
+    /// @param fault what the instruction got wrong, and where
+    void note(const formats::cob::CobProgram& program, const sim::script_vm::PieceFault& fault);
+
+    /// Returns the faults kept that clear has not forgotten.
+    ///
+    /// @return the faults, oldest first
+    [[nodiscard]] std::span<const ScriptFaultNote> pending() const noexcept {
+        return std::span<const ScriptFaultNote>(notes_).subspan(cleared_, kept_ - cleared_);
+    }
+
+    /// Forgets the pending faults; their scripts stay noted, so later faults
+    /// there are dropped.
+    void clear() noexcept { cleared_ = kept_; }
+
+  private:
+
+    // The faults kept: the first kept_, those from cleared_ on pending.
+    std::array<ScriptFaultNote, capacity> notes_{};
+    std::size_t kept_ = 0;
+    std::size_t cleared_ = 0;
+};
+
+/// Finds the script whose code holds a word: the one whose entry point is the
+/// highest at or below it.
+///
+/// @param program loaded COB program
+/// @param word index of a code word
+/// @return the script's COB index, or -1 when every entry point is past the word
+[[nodiscard]] int32_t script_at(const formats::cob::CobProgram& program, uint32_t word) noexcept;
+
 // COB scheduler ownership and the named-call wrappers. Host is a real
 // model/world adapter, never an internal successful no-op implementation.
 // An interpreter error, other than a start that finds no free context, is
@@ -99,12 +160,16 @@ class ScriptInstance {
     ///     simulation frequency.
     /// @param fault Where interpreter errors are noted, or null to drop them;
     ///     must outlive the instance.
+    /// @param piece_faults Where the faulty piece instructions the script runs
+    ///     past are kept for the log, or null to drop them; must outlive the
+    ///     instance.
     ScriptInstance(
         std::shared_ptr<const formats::cob::CobProgram> program,
         const SharedScriptProgram& shared,
         sim::script_vm::Host& host,
         int32_t clock_scale,
-        MatchFault* fault = nullptr
+        MatchFault* fault = nullptr,
+        ScriptFaultLog* piece_faults = nullptr
     );
     /// Starts the first script with this exact name without writing any
     /// locals.
@@ -269,6 +334,17 @@ class ScriptInstance {
     /// @param detail The interpreter's message or the script's name.
     void note(std::string_view what, std::string_view detail) noexcept;
 
+    /// Hands the faulty piece instructions the interpreter noted to the
+    /// match's log, when there is one, and clears them. Nothing is noted
+    /// unless the script ran one for the first time.
+    void pass_piece_faults() {
+        if (!vm_.piece_faults().empty())
+            log_piece_faults();
+    }
+
+    /// Hands the interpreter's piece faults to the log and clears them.
+    void log_piece_faults();
+
     /// Starts a script without writing any locals.
     ///
     /// @param index COB script index, or -1 for a missing script.
@@ -327,6 +403,7 @@ class ScriptInstance {
     std::shared_ptr<const formats::cob::CobProgram> program_;
     sim::script_vm::Vm vm_;
     MatchFault* fault_{};
+    ScriptFaultLog* piece_faults_{};
     /// The COB index of each engine function's exact name, or -1 when the
     /// program has none. Copied from the program's shared indices.
     std::array<int32_t, sim::unit_script::script_function_count> function_index_{};

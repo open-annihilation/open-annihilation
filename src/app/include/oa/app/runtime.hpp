@@ -1880,6 +1880,11 @@ class Runtime final : public menu::Host,
     /// @param line what is wrong, without a newline
     void report_data_fault(const std::string& line);
 
+    /// Logs the faulty piece instructions the match's unit scripts ran past
+    /// since the last call, each unit type's script once
+    /// (Match::script_faults); the scripts went on as in 3.1c.
+    void report_script_faults();
+
     /// Returns the report call_hook_or_report takes for report_hook_error.
     ///
     /// @return a callable taking the hook's name and the message

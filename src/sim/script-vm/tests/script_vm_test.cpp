@@ -3,6 +3,7 @@
 
 #include "oa/sim/script_vm.hpp"
 
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -11,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace vm = oa::sim::script_vm;
@@ -1319,6 +1321,153 @@ void unsupported_stops_only_its_context() {
     require(machine.tick(0).ok(), "the stopped context faulted again");
 }
 
+// A piece instruction with a bad operand runs on, as 3.1c does: TAUIP's
+// Hellfire moves a piece in Create with no value pushed. A value the stack
+// lacks reads 0, an instruction whose piece or axis is outside the script is
+// skipped, and the script goes on in the same tick. Each faulty instruction
+// is noted once per machine, the first limit::piece_faults of them, so
+// running one again costs no more than a sound one.
+void piece_faults_run_on() {
+    MockHost host;
+    host.positions[1][0] = 77;
+    const std::vector<uint32_t> code{
+        vm::opcode::push_constant,
+        5,
+        vm::opcode::move_now,
+        0,
+        2, // piece 0 z = 5
+        vm::opcode::move_now,
+        1,
+        0, // no value: piece 1 x = 0
+        vm::opcode::push_constant,
+        3000,
+        vm::opcode::pop_static,
+        0, // the script goes on
+        vm::opcode::turn,
+        7,
+        1, // piece 7 of 2: skipped
+        vm::opcode::push_constant,
+        9,
+        vm::opcode::push_constant,
+        8,
+        vm::opcode::turn,
+        0,
+        5, // axis 5: skipped, takes both
+        vm::opcode::wait_turn,
+        9,
+        0, // waits on nothing
+        vm::opcode::push_constant,
+        1,
+        vm::opcode::explode,
+        4, // piece 4: skipped
+        vm::opcode::hide,
+        3, // piece 3: skipped
+        vm::opcode::explode,
+        1, // no value: type 0
+        vm::opcode::return_,
+    };
+
+    struct Expected {
+        vm::ErrorCode code;
+        uint32_t pc, opcode, piece, axis, takes, held;
+    };
+
+    const std::array<Expected, 7> expected{{
+        {vm::ErrorCode::stack_underflow, 5, vm::opcode::move_now, 1, 0, 1, 0},
+        {vm::ErrorCode::invalid_piece, 12, vm::opcode::turn, 7, 1, 2, 0},
+        {vm::ErrorCode::invalid_axis, 19, vm::opcode::turn, 0, 5, 2, 2},
+        {vm::ErrorCode::invalid_piece, 22, vm::opcode::wait_turn, 9, 0, 0, 0},
+        {vm::ErrorCode::invalid_piece, 27, vm::opcode::explode, 4, 0, 1, 1},
+        {vm::ErrorCode::invalid_piece, 29, vm::opcode::hide, 3, 0, 0, 0},
+        {vm::ErrorCode::stack_underflow, 31, vm::opcode::explode, 1, 0, 1, 0},
+    }};
+    const auto require_noted = [&](const vm::Vm& machine, std::size_t from, std::size_t count) {
+        const auto noted = machine.piece_faults();
+        require(noted.size() == count, "the faulty piece instructions were not each noted");
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto& fault = noted[i];
+            const auto& want = expected[from + i];
+            require(
+                fault.code == want.code && fault.context == 0 && fault.pc == want.pc &&
+                    fault.opcode == want.opcode && fault.piece == want.piece &&
+                    fault.axis == want.axis && fault.takes == want.takes && fault.held == want.held,
+                "piece fault " + std::to_string(from + i) + " was noted wrong"
+            );
+        }
+    };
+    vm::Vm machine(owning_program(code, {0}, 1, 2), host, 1);
+    require(machine.start(0).ok(), "faulty piece script did not start");
+    const auto first = machine.tick(0);
+    require(first.ok(), "a faulty piece instruction stopped the tick");
+    require(
+        machine.active_count() == 0 && machine.static_value(0) == 3000,
+        "the script did not go on past its faulty piece instructions"
+    );
+    require(
+        host.positions[0][2] == 5 && host.positions[1][0] == 0,
+        "MOVE_NOW without its value did not read 0"
+    );
+    require(
+        host.explosions == std::vector<std::pair<uint32_t, int32_t>>{{1, 0}} &&
+            host.visibility.empty() && host.angles == decltype(host.angles){},
+        "a skipped piece instruction reached the host, or EXPLODE did not read 0"
+    );
+    // Seven faulty instructions ran; the first four are noted.
+    require_noted(machine, 0, vm::limit::piece_faults);
+    // Run again and again: nothing more is noted, and every run takes the
+    // instructions the first did.
+    machine.clear_piece_faults();
+    for (int run = 0; run < 1000; ++run) {
+        require(machine.start(0).ok(), "faulty piece script did not start again");
+        const auto again = machine.tick(0);
+        require(
+            again.ok() && again.instructions == first.instructions && machine.active_count() == 0,
+            "a faulty piece instruction cost more on a later run"
+        );
+    }
+    require(machine.piece_faults().empty(), "a faulty piece instruction was noted twice");
+    // A script that starts at the wait notes it and the three after it.
+    vm::Vm later(owning_program(code, {22}, 1, 2), host, 1);
+    require(later.start(0).ok() && later.tick(0).ok(), "the later faults stopped the tick");
+    require_noted(later, 3, 4);
+}
+
+// A context a save left at a piece instruction without its value, as a match
+// before PieceFault left a Hellfire's Create, runs on from it once restored.
+void saved_context_at_a_piece_fault_runs_on() {
+    MockHost host;
+    host.positions[1][0] = 77;
+    const std::vector<uint32_t> code{
+        vm::opcode::push_constant,
+        100,
+        vm::opcode::sleep,
+        vm::opcode::move_now,
+        1,
+        0,
+        vm::opcode::push_constant,
+        3000,
+        vm::opcode::pop_static,
+        0,
+        vm::opcode::return_,
+    };
+    vm::Vm source(owning_program(code, {0}, 1, 2), host, 1000);
+    require(source.start(0).ok() && source.tick(0).ok(), "the saved script did not start");
+    auto saved = source.export_state(0);
+    require(saved.ok(), "the script did not save");
+    auto& context = saved.state->contexts[0];
+    require(context.stack_pointer == -1, "the saved script held values");
+    context.execution_state = static_cast<uint32_t>(vm::ContextState::active);
+    context.program_counter = 3;
+    vm::Vm restored(owning_program(code, {0}, 1, 2), host, 1000);
+    require(!restored.import_state(*saved.state).has_value(), "the save did not restore");
+    require(restored.tick(1).ok(), "the restored context stopped at its piece fault");
+    require(
+        restored.active_count() == 0 && restored.static_value(0) == 3000 &&
+            host.positions[1][0] == 0 && restored.piece_faults().size() == 1,
+        "the restored context did not run on past its piece fault"
+    );
+}
+
 void faults_do_not_consume_operands() {
     auto machine = make_vm({
         vm::opcode::push_constant,
@@ -1607,6 +1756,8 @@ int main() {
         unsupported_is_side_effect_free_at_fault();
         unsupported_stops_only_its_context();
         faults_do_not_consume_operands();
+        piece_faults_run_on();
+        saved_context_at_a_piece_fault_runs_on();
         synchronous_local_query();
         script_name_lookup();
         instruction_budget_stops_infinite_loop();

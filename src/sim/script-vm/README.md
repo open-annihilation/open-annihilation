@@ -64,6 +64,21 @@ unsupported instruction returns `unsupported_opcode` without changing state
 for that instruction; in a tick it stops its context, and the tick goes on
 with the other contexts and the pieces' motion.
 
+A piece instruction with a bad operand runs on, as in the game
+(`PieceFault`). 3.1c checks neither the piece, the axis nor the stack of its
+piece transforms (MOVE, TURN, SPIN, STOP_SPIN, MOVE_NOW, TURN_NOW), their
+waits, the piece flags and the piece effects: it indexes its piece tables
+with whatever it is given, and a pop from an empty stack reads the word below
+the stack, the context's return callback (zero for a script started without
+one), and lowers the stack pointer past the bottom. Here an instruction whose
+piece or axis lies outside the script is skipped, taking the values it would
+have taken that the stack holds, and a value the stack lacks reads 0 and
+leaves the stack empty; the script goes on either way. TAUIP's Hellfire, for
+one, moves a piece in Create with no value pushed. Each such instruction is
+noted the first time a VM runs it (`Vm::piece_faults`), for the match to log
+once per unit type and script; running it again costs what a sound
+instruction does.
+
 Implemented: immediate/local/static push, allocation, local/static/discard
 pop, wrapping 32-bit add/subtract/multiply, checked signed divide,
 AND/OR/XOR/NOT, signed comparisons, logical operations, shared-host random,

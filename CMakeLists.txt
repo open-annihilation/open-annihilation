@@ -1206,6 +1206,13 @@ if(BUILD_TESTING)
   add_executable(oa-app-sticky-edge-test src/app/sticky_edge_test.cpp src/app/sticky_edge.cpp)
   target_link_libraries(oa-app-sticky-edge-test PRIVATE oa-app-headers oa-test-support oa-options)
   add_test(NAME app-sticky-edge COMMAND oa-app-sticky-edge-test)
+  # The log line for a faulty piece instruction a unit script ran past:
+  # the unit type, its script file, the script, the instruction and the
+  # piece, and what the engine did instead.
+  add_executable(oa-app-script-faults-test src/app/script_faults_test.cpp src/app/script_faults.cpp)
+  target_link_libraries(oa-app-script-faults-test PRIVATE oa-app-headers oa-sim-match-runtime
+    oa-test-support oa-options)
+  add_test(NAME app-script-faults COMMAND oa-app-script-faults-test)
   # A middle click's pan: its states, the dead zone and the top speed, and
   # the setting off leaving a press alone.
   add_executable(oa-app-middle-pan-test src/app/middle_pan_test.cpp src/app/middle_pan.cpp)
@@ -1376,7 +1383,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_order_panel.cpp
   src/app/runtime_match_render.cpp src/app/runtime_messages.cpp src/app/runtime_seat_chat.cpp
   src/app/runtime_pointer.cpp
-  src/app/sticky_edge.cpp
+  src/app/sticky_edge.cpp src/app/script_faults.cpp
   src/app/runtime_present.cpp src/app/runtime_display.cpp
   src/app/runtime_accelerated.cpp src/app/runtime_render_tier.cpp src/app/runtime_tier_watch.cpp
   src/app/runtime_full.cpp src/app/runtime_full_sprites.cpp src/app/runtime_full_overlays.cpp

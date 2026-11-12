@@ -108,6 +108,9 @@ inline constexpr std::size_t stack_slots = 4096;
 // lets a script visit all 65536 slots with a few hundred instructions each
 // and still stops one that never sleeps.
 inline constexpr std::size_t instructions_per_tick = std::size_t{1} << 24;
+// Faulty piece instructions one VM notes (Vm::piece_faults); the ones past
+// these run as the others do, unnoted.
+inline constexpr std::size_t piece_faults = 4;
 } // namespace limit
 
 namespace unit {
@@ -344,6 +347,39 @@ struct Error {
     std::string message;
 };
 
+/// A piece instruction a script gave a piece or axis outside its tables, or
+/// fewer stack values than the instruction takes.
+///
+/// 3.1c checks none of them. It indexes its piece tables with whatever piece
+/// and axis it is given, and a pop from an empty stack reads the word below
+/// the stack, the context's return callback, which is zero for a script
+/// started without one, and lowers the stack pointer past the stack's bottom.
+/// The VM runs on as the game does, without the stray reads and writes: an
+/// instruction whose piece or axis is outside the script is skipped, taking
+/// the values it would have taken that the stack holds, and a value the stack
+/// lacks reads 0 and leaves the stack empty. These are the piece transforms
+/// (MOVE, TURN, SPIN, STOP_SPIN, MOVE_NOW, TURN_NOW), the waits on them, the
+/// piece flags (SHOW, HIDE, CACHE, DONT_CACHE, SHADE, DONT_SHADE) and the
+/// piece effects (EMIT_SFX, EXPLODE).
+struct PieceFault {
+    /// invalid_piece, invalid_axis or stack_underflow
+    ErrorCode code = ErrorCode::none;
+    /// The context that ran it.
+    std::size_t context = context_count;
+    /// The instruction's first word.
+    uint32_t pc = 0;
+    /// Its opcode, as the VM dispatches it (opcode::move and the rest).
+    uint32_t opcode = 0;
+    /// Its piece operand.
+    uint32_t piece = 0;
+    /// Its axis operand; 0 for an instruction without one.
+    uint32_t axis = 0;
+    /// The values it takes from the stack.
+    uint32_t takes = 0;
+    /// Of those, the values the stack held.
+    uint32_t held = 0;
+};
+
 struct StartResult {
     std::size_t context = context_count;
     std::optional<Error> error;
@@ -575,6 +611,24 @@ class Vm {
     /// @return the turn per tick, or 0 when the piece or axis is outside the script
     [[nodiscard]] int32_t turn_speed(uint32_t piece, uint32_t axis) const noexcept;
 
+    /// Returns the faulty piece instructions this VM ran past (PieceFault) and
+    /// has not cleared.
+    ///
+    /// Each instruction is noted the first time this VM runs it, at most
+    /// limit::piece_faults of them; running it again notes nothing, so a
+    /// script that repeats one costs no more than a sound instruction. The
+    /// notes are for the log: no tick, save or digest reads them.
+    ///
+    /// @return the notes, oldest first
+    [[nodiscard]] std::span<const PieceFault> piece_faults() const noexcept {
+        return std::span<const PieceFault>(piece_faults_)
+            .subspan(piece_faults_cleared_, piece_faults_noted_ - piece_faults_cleared_);
+    }
+
+    /// Forgets the noted piece faults; their instructions stay noted, so
+    /// running them again notes nothing.
+    void clear_piece_faults() noexcept { piece_faults_cleared_ = piece_faults_noted_; }
+
   private:
 
     struct StoredContext {
@@ -615,6 +669,17 @@ class Vm {
     std::vector<AxisMotion> motions_;
     std::vector<uint8_t> piece_active_;
     bool motions_active_ = false;
+    // The faulty piece instructions noted: the first piece_faults_noted_,
+    // those from piece_faults_cleared_ on not yet cleared.
+    std::array<PieceFault, limit::piece_faults> piece_faults_{};
+    std::size_t piece_faults_noted_ = 0;
+    std::size_t piece_faults_cleared_ = 0;
+
+    /// Notes a faulty piece instruction, unless its word is noted already or
+    /// limit::piece_faults are.
+    ///
+    /// @param fault what the instruction got wrong
+    void note_piece_fault(const PieceFault& fault);
 
     /// Claims the lowest free context for a script.
     ///

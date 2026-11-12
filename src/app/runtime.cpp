@@ -15,6 +15,7 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/hook_call.hpp"
 #include "oa/app/package_install/inbox.hpp"
+#include "oa/app/script_faults.hpp"
 #include "match_clock.hpp"
 #include "oa/sim/scenario/outcome.hpp"
 #include "graphics_report.hpp"
@@ -1881,6 +1882,7 @@ bool Runtime::run_one_match_step() {
         give_held_play_orders();
         match_->tick();
     }
+    report_script_faults();
     // A fault the step's tick noted, here or in the extension, ends
     // the frame's steps, as an error the tick threw did.
     if (const char* fault = match_->fault()) {
@@ -2144,6 +2146,27 @@ void Runtime::report_match_tick_error(std::string_view message) {
 void Runtime::report_data_fault(const std::string& line) {
     if (reported_data_faults_.insert(line).second)
         std::cerr << line << '\n';
+}
+
+void Runtime::report_script_faults() {
+    if (!match_)
+        return;
+    const auto faults = match_->script_faults();
+    if (faults.empty())
+        return;
+    for (const auto& note : faults) {
+        // The first type that loaded the program names it.
+        const auto type = std::find_if(
+            loaded_commander_types_.begin(),
+            loaded_commander_types_.end(),
+            [&](const auto& loaded) { return loaded.script.get() == note.program; }
+        );
+        if (type == loaded_commander_types_.end())
+            report_data_fault(oa::app::script_fault_line("a unit", "its script", note));
+        else
+            report_data_fault(oa::app::script_fault_line(type->unit_name, type->script_path, note));
+    }
+    match_->clear_script_faults();
 }
 
 void Runtime::report_hook_error(const char* hook, const char* message) noexcept {

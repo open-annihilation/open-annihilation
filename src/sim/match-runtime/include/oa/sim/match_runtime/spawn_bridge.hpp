@@ -130,6 +130,13 @@ class SpawnBridge final : public sim::unit_spawn::Host {
     ///     (disabled type, exhausted limit, no free slot) or a spawn fault,
     ///     which is noted.
     sim::unit_spawn::Slot* create(const sim::unit_spawn::Request& request);
+
+    /// Returns the faulty piece instructions the unit scripts ran past, each
+    /// kept once per program and script (ScriptFaultLog).
+    ///
+    /// @return the match's log of them
+    [[nodiscard]] ScriptFaultLog& script_faults() noexcept { return script_faults_; }
+
     /// Gives a unit slot the model instance, and script interpreter, its type calls for, as unit
     /// creation does but without running Create or touching the world.
     ///
@@ -336,6 +343,7 @@ class SpawnBridge final : public sim::unit_spawn::Host {
     SharedRandom& random_;
     int32_t clock_scale_;
     MatchFault& fault_;
+    ScriptFaultLog script_faults_;
     sim::unit_spawn::Slot* active_{};
     std::vector<SlotRuntime> runtime_;
     SlotRuntime spare_runtime_; // what runtime() gives for a slot outside the pool

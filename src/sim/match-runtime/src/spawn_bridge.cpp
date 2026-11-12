@@ -279,7 +279,8 @@ sim::unit_spawn::AssetHandle SpawnBridge::create_scripted_model(
         random_,
         clock_scale_,
         script_for(loaded.script.get()),
-        &fault_
+        &fault_,
+        &script_faults_
     );
     ++state.instance_generation;
     return reinterpret_cast<sim::unit_spawn::AssetHandle>(state.instance.get());

@@ -91,7 +91,8 @@ UnitInstance::UnitInstance(
     SharedRandom& random,
     int32_t scale,
     const SharedScriptProgram* type_script,
-    MatchFault* fault
+    MatchFault* fault,
+    ScriptFaultLog* piece_faults
 )
     : slot_(slot), world_(state), model_(construct_model(loaded, slot)),
       host_(model_, slot, pool, state, values, effects, random), fault_(fault) {
@@ -109,8 +110,9 @@ UnitInstance::UnitInstance(
         if (type_script == nullptr)
             note("unit type has no prepared script program");
         else {
-            script_ =
-                std::make_unique<ScriptInstance>(loaded.script, *type_script, host_, scale, fault);
+            script_ = std::make_unique<ScriptInstance>(
+                loaded.script, *type_script, host_, scale, fault, piece_faults
+            );
             // Engine callers reach this interpreter through the World's script table.
             oa::sim::unit_script::unit_script_attach(
                 &world_, &slot_.record, &script_->vm(), *loaded.script

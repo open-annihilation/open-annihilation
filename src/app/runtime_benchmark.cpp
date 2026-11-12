@@ -236,6 +236,7 @@ void Runtime::step_match_simulation() {
     // A stage's lines timed for this tick run before it.
     run_due_stage_lines();
     tick_or_raise(*match_);
+    report_script_faults();
     observe_match_effect_tick();
 }
 

@@ -578,6 +578,25 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Forgets the noted fault, so the next one is noted.
     void clear_fault() noexcept { fault_.clear(); }
 
+    /// Returns the faulty piece instructions the unit scripts ran past since
+    /// the last clear_script_faults, each kept once per unit type and script.
+    ///
+    /// A piece instruction with a piece or axis outside its script, or with
+    /// values missing from the stack, is no fault of the match: the script
+    /// goes on as in 3.1c (script_vm::PieceFault), and the instruction is
+    /// kept for the log (ScriptFaultLog).
+    ///
+    /// @return the faults, oldest first
+    [[nodiscard]] std::span<const ScriptFaultNote> script_faults() const noexcept {
+        return bridge_ ? bridge_->script_faults().pending() : std::span<const ScriptFaultNote>{};
+    }
+
+    /// Forgets the faults script_faults returned; their scripts stay noted.
+    void clear_script_faults() noexcept {
+        if (bridge_)
+            bridge_->script_faults().clear();
+    }
+
     /// Tells whether an issue call refused its order.
     ///
     /// An order for a slot that holds no unit, or a move for a unit that

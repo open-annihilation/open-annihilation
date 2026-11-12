@@ -168,6 +168,9 @@ class UnitInstance {
     ///     but no prepared one is noted and starts no script.
     /// @param fault Where refusals and interpreter errors are noted, or null
     ///     to drop them; must outlive the instance.
+    /// @param piece_faults Where the faulty piece instructions the script runs
+    ///     past are kept for the log, or null to drop them; must outlive the
+    ///     instance.
     UnitInstance(
         const sim::unit_spawn::LoadedType& loaded,
         sim::unit_spawn::Slot& slot,
@@ -178,7 +181,8 @@ class UnitInstance {
         SharedRandom& random,
         int32_t clock_scale,
         const SharedScriptProgram* type_script,
-        MatchFault* fault = nullptr
+        MatchFault* fault = nullptr,
+        ScriptFaultLog* piece_faults = nullptr
     );
     /// Removes the interpreter from the world's script table.
     ~UnitInstance();
