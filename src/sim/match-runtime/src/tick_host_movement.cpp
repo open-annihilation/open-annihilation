@@ -57,6 +57,24 @@ sim::ground_orders::RoutePoint local_flow_point(const sim::unit_movement::Unit& 
     };
 }
 
+/// Tests whether an active head has vacated its original registered footprint origin.
+/// @param unit current native footprint origin and dimensions
+/// @param head fixed whole-world origin recorded when the local leg was created
+/// @return whether either actual origin coordinate differs from the leg's start
+bool local_flow_left_start_origin(
+    const sim::unit_movement::Unit& unit, const sim::unit_movement::LocalFlowHead& head
+) noexcept {
+    constexpr int32_t cell_width = 16, half_cell = cell_width / 2;
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        const int32_t biased =
+            int32_t(head.points[0][axis]) - (int32_t(unit.footprint[axis]) - 1) * half_cell;
+        const int32_t origin = biased / cell_width - (biased % cell_width < 0 ? 1 : 0);
+        if (origin != unit.cell[axis])
+            return true;
+    }
+    return false;
+}
+
 } // namespace
 
 sim::air::AirHost TickHost::air_host() {
@@ -253,9 +271,13 @@ void TickHost::movement_tick(oa::Unit& record) {
                 const bool recover = sim::unit_movement::local_flow_recovery_due(
                     *flow_head, match.simulation_.tick, s.unit_index
                 );
+                const bool require_origin_exit =
+                    match.rules().setup.enhanced_mode.version ==
+                    static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version);
                 const bool completed_head =
                     flow_head->active && flow_head->goal_key == goal_key &&
-                    sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head);
+                    sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head) &&
+                    (!require_origin_exit || local_flow_left_start_origin(g.geometry, *flow_head));
                 // One tick on the original route can separate two local choices.
                 const bool recent_completion = flow_head->goal_key == goal_key &&
                                                sim::unit_movement::local_flow_completed_last_tick(
@@ -375,6 +397,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &context;
                     probe.allow_reverse = recover;
+                    probe.require_origin_exit = require_origin_exit;
                     if (completed_head || recent_completion)
                         probe.previous_head = flow_head;
                     if (match.enhanced_->local_flow_progress_snapshot_valid &&

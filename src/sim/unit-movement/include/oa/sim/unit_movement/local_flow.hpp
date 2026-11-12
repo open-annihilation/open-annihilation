@@ -51,6 +51,8 @@ struct LocalFlowProbe {
     /// Whether a mature, stationary retry may voluntarily yield its traffic priority.
     /// The caller schedules this from the existing retry phase and actual motion age.
     bool recovery_yield{};
+    /// Whether a detour must target a different registered footprint origin.
+    bool require_origin_exit{};
 };
 
 /// A temporary steering target; the original mission and route remain unchanged.
