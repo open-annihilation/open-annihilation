@@ -210,31 +210,30 @@ struct SpatialFlowSampler {
     }
 
     FlowSampler sampler() {
-        return {this, [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) {
-                    auto& self = *static_cast<SpatialFlowSampler*>(p);
-                    uint8_t result = 0;
-                    if (klass == 0 && player == 0 && x >= 0 && z >= 0 && x < 64 && z < 64) {
-                        const auto sx = (self.movement.footprint_x >> 2) + (x >> 1);
-                        const auto sz = (self.movement.footprint_z >> 2) + (z >> 1);
-                        if (sx < 32 && sz < 32) {
-                            if ((self.sight[static_cast<size_t>(sz) * 32 + sx] & 1) == 0) {
-                                ++self.unknown_calls;
-                                result = 2;
-                            } else {
-                                ++self.static_calls;
-                                result = self.ordered
-                                             ? ordered_static_flow_passable(
-                                                   self.movement, x, z, self.world
-                                               )
-                                             : static_flow_passable(
-                                                   self.movement, x, z, self.world
-                                               );
-                            }
+        return {
+            this, [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) {
+                auto& self = *static_cast<SpatialFlowSampler*>(p);
+                uint8_t result = 0;
+                if (klass == 0 && player == 0 && x >= 0 && z >= 0 && x < 64 && z < 64) {
+                    const auto sx = (self.movement.footprint_x >> 2) + (x >> 1);
+                    const auto sz = (self.movement.footprint_z >> 2) + (z >> 1);
+                    if (sx < 32 && sz < 32) {
+                        if ((self.sight[static_cast<size_t>(sz) * 32 + sx] & 1) == 0) {
+                            ++self.unknown_calls;
+                            result = 2;
+                        } else {
+                            ++self.static_calls;
+                            result =
+                                self.ordered
+                                    ? ordered_static_flow_passable(self.movement, x, z, self.world)
+                                    : static_flow_passable(self.movement, x, z, self.world);
                         }
                     }
-                    self.trace.push_back({klass, player, x, z, result});
-                    return result;
-                }};
+                }
+                self.trace.push_back({klass, player, x, z, result});
+                return result;
+            }
+        };
     }
 
     void clear_observations() {
@@ -265,15 +264,21 @@ void spatial_sampler_coalescing_preserves_cache_and_resume() {
             bool has_load = false, ready = false, exhausted = false;
             uint64_t route_probes = 0;
             const auto equal_state = [&] {
-                CHECK(std::equal(
-                    before.state_bytes().begin(), before.state_bytes().end(),
-                    after.state_bytes().begin()
-                ));
+                CHECK(
+                    std::equal(
+                        before.state_bytes().begin(),
+                        before.state_bytes().end(),
+                        after.state_bytes().begin()
+                    )
+                );
                 if (has_load)
-                    CHECK(std::equal(
-                        after.state_bytes().begin(), after.state_bytes().end(),
-                        loaded.state_bytes().begin()
-                    ));
+                    CHECK(
+                        std::equal(
+                            after.state_bytes().begin(),
+                            after.state_bytes().end(),
+                            loaded.state_bytes().begin()
+                        )
+                    );
                 CHECK(old.trace == fresh.trace);
                 CHECK(old.static_calls == fresh.static_calls);
                 CHECK(old.unknown_calls == fresh.unknown_calls);
