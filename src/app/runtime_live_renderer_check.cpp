@@ -11,6 +11,7 @@
 #include "renderer_effect_sources.hpp"
 #include "renderer_live_scene.hpp"
 #include "renderer_live_camera.hpp"
+#include "renderer_marker_policy.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 #include "oa/present/model/shadow_fade.hpp"
 #include "renderer_water.hpp"
@@ -75,6 +76,39 @@ constexpr int unavailable_exit = 77;
 } // namespace
 
 int Runtime::check_live_renderer() {
+    // Check the actual production gate independently of the check-only
+    // headless override, without changing the running match's rules.
+    {
+        using oa::data::match_rules::MatchRules;
+        MatchRules rules{};
+        rules.setup.enhanced_mode.enabled = true;
+        MarkerFramePolicy frame{true, true};
+        for (int32_t version = 0; version <= 8; ++version) {
+            rules.setup.enhanced_mode.version = version;
+            require(
+                compact_marker_frame(rules, frame) == (version == 7),
+                "the compact marker production rules gate is wrong"
+            );
+        }
+        rules.setup.enhanced_mode.version = 7;
+        rules.setup.enhanced_mode.enabled = false;
+        require(!compact_marker_frame(rules, frame), "disabled Enhanced Mode selected markers");
+        rules.setup.enhanced_mode.enabled = true;
+        for (const auto excluded : std::array<MarkerFramePolicy, 6>{
+                 {{false, true},
+                  {true, false},
+                  {true, true, true},
+                  {true, true, false, true},
+                  {true, true, false, false, true},
+                  {true, true, false, false, false, true}}
+             })
+            require(!compact_marker_frame(rules, excluded), "an excluded frame selected markers");
+        frame.headless = frame.explicit_check = true;
+        rules.setup.enhanced_mode.enabled = false;
+        require(compact_marker_frame(rules, frame), "the dedicated headless check is excluded");
+        frame.directed = true;
+        require(!compact_marker_frame(rules, frame), "the check bypassed a director exclusion");
+    }
     // SDL's GPU backend needs the native video driver, but no window or
     // visible renderer is created by this check.
     require(SDL_InitSubSystem(SDL_INIT_VIDEO), "could not initialize windowless video");
@@ -790,6 +824,110 @@ int Runtime::check_live_renderer() {
         require(darkened != 0, "the shadows cast on the card darkened nothing");
         require(!lighter, "the shadows cast on the card lightened the picture");
     }
+    // These are real Runtime frames, not direct Scene fixtures. The check's
+    // explicit headless gate exercises the optional packet path while the
+    // match keeps its original rules and simulation clock.
+    const auto check_markers = [&](uint16_t centre,
+                                   uint16_t hidden = 0,
+                                   bool require_visible = true) {
+        const auto tick_kept = match_timing_.tick;
+        using oa::ui::engine_settings::ZoomedOutAfter;
+        using oa::ui::engine_settings::ZoomedOutUnits;
+        auto& settings = engine_settings_->current;
+        const auto units_kept = settings.zoomed_out_units;
+        const auto after_kept = settings.zoomed_out_after;
+        const auto zoom_kept = match_zoom_;
+        const auto target_kept = match_zoom_target_;
+        const auto view_kept = match_view_place();
+        settings.zoomed_out_units = ZoomedOutUnits::dots;
+        settings.zoomed_out_after = ZoomedOutAfter::normal_size;
+        match_zoom_ = match_zoom_target_ = 0.25F;
+        center_camera_on_unit(centre);
+        const auto dense_picks = [&] {
+            std::vector<int32_t> found = bounds_and_picks();
+            for (int32_t y = match_layout_.top;
+                 y < match_layout_.top + match_layout_.battlefield_height();
+                 y += 7)
+                for (int32_t x = match_layout_.left;
+                     x < match_layout_.left + match_layout_.battlefield_width();
+                     x += 7)
+                    found.push_back(live_unit_under(static_cast<float>(x), static_cast<float>(y)));
+            for (const auto& slot : match_->world().slots)
+                if (const auto bounds = live_unit_bounds(slot.unit_index))
+                    for (int32_t y = bounds->y1 - 2; y <= bounds->y2 + 2; ++y)
+                        for (int32_t x = bounds->x1 - 2; x <= bounds->x2 + 2; ++x)
+                            for (const float half : {0.0F, 0.5F})
+                                found.push_back(live_unit_under(float(x) + half, float(y) + half));
+            return found;
+        };
+        set_live_markers_on_card(true);
+        const auto compact = snapshot(false);
+        const auto marker_count = live_renderer_marker_count();
+        const auto compact_picks = dense_picks();
+        if (live_markers_on_card()) {
+            require(
+                !require_visible || marker_count != 0,
+                "the eligible Runtime frame emitted no compact markers"
+            );
+            if (hidden != 0)
+                require(!live_unit_bounds(hidden), "a hidden unit entered compact picking");
+            for (const auto& slot : match_->world().slots)
+                if (slot.unit_index != 0 && slot.record.type_index == 0)
+                    require(
+                        !live_unit_bounds(slot.unit_index), "an empty slot entered compact picking"
+                    );
+            set_live_markers_on_card(false);
+            const auto scalar = snapshot(false);
+            require(live_renderer_marker_count() == 0, "disabled marker resources emitted packets");
+            require(scalar.rgb == compact.rgb, "compact Runtime markers changed the picture");
+            require(
+                dense_picks() == compact_picks, "compact Runtime markers changed picks or bounds"
+            );
+            set_live_markers_on_card(true);
+            require(
+                snapshot(false).rgb == compact.rgb,
+                "re-enabling compact markers changed the picture"
+            );
+            require(
+                live_renderer_marker_count() == marker_count,
+                "re-enabled markers changed membership"
+            );
+            if (marker_count != 0) {
+                fail_live_markers_once();
+                require(
+                    snapshot(false).rgb == compact.rgb,
+                    "optional marker failure changed the fallback picture"
+                );
+                require(
+                    live_renderer_marker_count() == 0,
+                    "optional marker failure did not rebuild ordinary triangles"
+                );
+                require(
+                    dense_picks() == compact_picks,
+                    "optional marker failure changed picks or bounds"
+                );
+            }
+            set_live_markers_on_card(true);
+            require(
+                snapshot(false).rgb == compact.rgb, "compact markers did not recover after fallback"
+            );
+            require(
+                live_renderer_marker_count() == marker_count, "recovered marker membership changed"
+            );
+            std::cout << "live renderer check: " << marker_count
+                      << " compact Runtime markers match ordinary pixels, dense and half-pixel "
+                         "picks and bounds"
+                      << (marker_count != 0 ? ", including resource fallback\n" : "\n");
+        }
+        settings.zoomed_out_units = units_kept;
+        settings.zoomed_out_after = after_kept;
+        match_zoom_ = zoom_kept;
+        match_zoom_target_ = target_kept;
+        place_match_view(view_kept[0], view_kept[1]);
+        snapshot(false);
+        require(match_timing_.tick == tick_kept, "compact marker checks advanced simulation");
+    };
+    check_markers(commander);
     std::optional<oa::sim::ground_orders::Point> destination;
     std::optional<oa::sim::ground_orders::Point> destination_hit;
     std::array<float, 2> destination_pixel{};
@@ -1360,6 +1498,8 @@ int Runtime::check_live_renderer() {
     snapshot();
     if (!match_->unit_shown(match_view_player(), enemy))
         require(!live_unit_bounds(enemy), "an enemy under fog entered live picking geometry");
+    if (!match_->unit_shown(match_view_player(), enemy))
+        check_markers(commander, enemy);
     enter_console_check_line("+nowisee");
     require(
         match_->unit_shown(match_view_player(), enemy),
@@ -1367,6 +1507,7 @@ int Runtime::check_live_renderer() {
     );
     snapshot();
     const auto enemy_bounds = live_unit_bounds(enemy);
+    check_markers(enemy);
     require(enemy_bounds.has_value(), "a visible enemy has no live bounds");
     std::optional<std::array<float, 2>> enemy_pixel;
     for (int y = enemy_bounds->y1; y <= enemy_bounds->y2 && !enemy_pixel; ++y)
@@ -1869,6 +2010,7 @@ int Runtime::check_live_renderer() {
     wreck_unit->unit->object_present = true;
     wreck_unit->unit->health = 1;
     wreck_unit->unit->previous_health_percent = 0;
+    const auto wreck_slot = wreck_unit->unit_index;
     (void)collect_match_effect_sources();
     const auto wreck_count_before = match_->wrecks().size();
     const float wreck_x = static_cast<float>(wreck_request.position[0]) / 65536.0F;
@@ -1890,6 +2032,7 @@ int Runtime::check_live_renderer() {
                     std::any_of(sources.begin(), sources.end(), is_new_wreck);
     }
     require(hot_wreck, "the destroyed tank produced no hot wreck source");
+    check_markers(commander, wreck_slot, false);
     center_camera_on_unit(commander);
     inspect_effect_views("wreck-effects", renderer_effect_sources::Kind::wreck);
     const auto sources_before_cooling = collect_match_effect_sources();

@@ -232,6 +232,10 @@ void clear_cards(ModelCards& cards) noexcept {
     cards.indices.clear();
     cards.runs.clear();
     cards.units.clear();
+    cards.markers.clear();
+    cards.marker_runs.clear();
+    cards.marker_uv = {};
+    cards.marker_first_index = 0;
     cards.vertices = 0;
     cards.casts.clear();
     cards.cast_indices.clear();
@@ -257,7 +261,11 @@ void mark_cards(ModelCards& cards) noexcept {
         cards.cast_indices.size(),
         cards.cast_runs.size(),
         cards.cast_depths,
-        cards.vertices
+        cards.vertices,
+        cards.markers.size(),
+        cards.marker_runs.size(),
+        cards.marker_first_index,
+        cards.marker_uv
     };
     cards.draw_instance = -1;
 }
@@ -275,6 +283,14 @@ void unmark_cards(ModelCards& cards) noexcept {
     cards.cast_runs.resize(mark.cast_runs);
     cards.cast_depths = mark.cast_depths;
     cards.vertices = mark.vertices;
+    cards.markers.resize(mark.markers);
+    cards.marker_runs.resize(mark.marker_runs);
+    cards.marker_first_index = mark.marker_first_index;
+    cards.marker_uv = mark.marker_uv;
+    if (!cards.marker_runs.empty()) {
+        auto& run = cards.marker_runs.back();
+        run.instance_count = static_cast<uint32_t>(mark.markers - run.first_instance);
+    }
     cards.draw_instance = -1;
     // A material retry may have discarded a range that a lookup named.
     forget_poses(cards);
@@ -392,6 +408,10 @@ int64_t card_positions(
 CardCorner card_corner(
     const CardTypes& types, const ModelCards& cards, const CardUnit& unit, uint32_t index
 ) noexcept {
+    if (unit.marker) {
+        const auto& point = cards.markers[unit.instance].corners[index];
+        return {point[0], point[1], point[2], cards.marker_uv[0], cards.marker_uv[1]};
+    }
     const auto& instance = cards.instances[unit.instance];
     const std::size_t record = (std::size_t{instance.corners} + (index & corner_mask)) * 2;
     const uint32_t place = types.records[record];
@@ -422,7 +442,14 @@ renderer_live_gpu::Vertex card_vertex(
     vertex.z = corner.z;
     vertex.u = corner.u;
     vertex.v = corner.v;
-    vertex.brightness = cards.instances[unit.instance].brightness;
+    if (unit.marker) {
+        const auto& marker = cards.markers[unit.instance];
+        vertex.brightness = marker.brightness;
+        vertex.red = marker.color[0];
+        vertex.green = marker.color[1];
+        vertex.blue = marker.color[2];
+    } else
+        vertex.brightness = cards.instances[unit.instance].brightness;
     return vertex;
 }
 
@@ -442,6 +469,9 @@ renderer_live_gpu::ModelDraws card_draws(const CardTypes& types, const ModelCard
     draws.shadow_map = cards.shadow_map;
     draws.shadow_vertex = cards.shadow_vertex;
     draws.shadow_ground = cards.shadow_ground;
+    draws.markers = cards.markers;
+    draws.marker_runs = cards.marker_runs;
+    draws.marker_uv = cards.marker_uv;
     return draws;
 }
 

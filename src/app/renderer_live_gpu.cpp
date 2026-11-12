@@ -495,6 +495,9 @@ struct ModelResources {
     /// The models' vertex stage and the surface's fragment stage, drawn as
     /// the surface's pipeline draws; null where the card draws no surface.
     SDL_GPUGraphicsPipeline* surface_pipeline{};
+    SDL_GPUShader* marker_vertex{};
+    SDL_GPUGraphicsPipeline* marker_pipeline{};
+    SDL_GPUGraphicsPipeline* marker_surface_pipeline{};
     SDL_GPUBuffer* corners{}; ///< every type's triangle corners
     SDL_GPUBuffer* frame{};   ///< the camera's rows, then the frame's draws
     SDL_GPUBuffer* indices{}; ///< the frame's triangle corners drawn
@@ -513,6 +516,7 @@ struct ModelResources {
     uint32_t corner_bytes{};
     uint32_t frame_bytes{};
     uint32_t index_bytes{};
+    uint32_t marker_word{}; ///< first marker word in frame, including its header
     /// The units' shadows, released before the rest.
     ShadowResources shadows;
 
@@ -524,11 +528,14 @@ struct ModelResources {
     ~ModelResources() {
         if (!device)
             return;
-        for (SDL_GPUGraphicsPipeline* made : {pipeline, surface_pipeline})
+        for (SDL_GPUGraphicsPipeline* made :
+             {pipeline, surface_pipeline, marker_pipeline, marker_surface_pipeline})
             if (made)
                 SDL_ReleaseGPUGraphicsPipeline(device, made);
         if (vertex_shader)
             SDL_ReleaseGPUShader(device, vertex_shader);
+        if (marker_vertex)
+            SDL_ReleaseGPUShader(device, marker_vertex);
         for (SDL_GPUBuffer* made : {corners, frame, indices})
             if (made)
                 SDL_ReleaseGPUBuffer(device, made);
@@ -839,6 +846,50 @@ bool make_model_pipelines(
     return true;
 }
 
+/// Makes optional marker pipelines using the scene's unchanged fragment stages.
+bool make_marker_pipelines(
+    ModelResources& models,
+    SDL_GPUDevice* device,
+    const SDL_GPUGraphicsPipelineCreateInfo& scene,
+    SDL_GPUShader* surface_shader
+) {
+    for (SDL_GPUGraphicsPipeline** made :
+         {&models.marker_pipeline, &models.marker_surface_pipeline}) {
+        if (*made)
+            SDL_ReleaseGPUGraphicsPipeline(device, *made);
+        *made = nullptr;
+    }
+    if (!models.marker_vertex) {
+        SDL_GPUShaderCreateInfo stage{};
+        stage_code(device, stage, live_marker_vertex_spirv, live_marker_vertex_msl);
+        stage.stage = SDL_GPU_SHADERSTAGE_VERTEX;
+        stage.num_storage_buffers = 1;
+        stage.num_uniform_buffers = 2;
+        models.marker_vertex = SDL_CreateGPUShader(device, &stage);
+        if (!models.marker_vertex)
+            return false;
+    }
+    auto info = scene;
+    info.vertex_shader = models.marker_vertex;
+    info.vertex_input_state = SDL_GPUVertexInputState{};
+    models.marker_pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
+    if (!models.marker_pipeline)
+        return false;
+    if (surface_shader) {
+        SDL_GPUColorTargetDescription target{};
+        target.format = light_surface_format;
+        info.fragment_shader = surface_shader;
+        info.target_info.color_target_descriptions = &target;
+        info.target_info.num_color_targets = 1;
+        info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        info.multisample_state = SDL_GPUMultisampleState{};
+        models.marker_surface_pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
+        if (!models.marker_surface_pipeline)
+            return false;
+    }
+    return true;
+}
+
 /// Makes what the units' shadows need for a map of the texels a frame's
 /// shadows ask for: the casts' stages and pipeline, once, and the map and
 /// its depth, made larger, a step at a time, when the frame needs more.
@@ -1068,7 +1119,8 @@ bool prepare_models(
     const uint32_t instance_words = uint32_t(draws.instances.size()) * model_instance_words;
     models.frame_bytes = words(
         model_frame_header_words + instance_words + draws.positions.size() +
-        draws.piece_frames.size() + draws.textures.size() + draws.casts.size() * shadow_cast_words
+        draws.piece_frames.size() + draws.textures.size() + draws.casts.size() * shadow_cast_words +
+        draws.markers.size() * 16
     );
     models.index_bytes = uint32_t(draws.indices.size_bytes() + draws.cast_indices.size_bytes());
     if (!draws.casts.empty() && !prepare_shadows(models.shadows, draws.shadow_map))
@@ -1099,7 +1151,8 @@ bool prepare_models(
     auto* upload = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, models.upload, true));
     if (!upload)
         return false;
-    std::memcpy(upload, draws.corners.data() + models.corner_from, models.corner_bytes);
+    if (models.corner_bytes != 0)
+        std::memcpy(upload, draws.corners.data() + models.corner_from, models.corner_bytes);
     auto* frame = reinterpret_cast<uint32_t*>(upload + models.corner_bytes);
     // The camera's horizontal, vertical, depth and viewport rows.
     constexpr std::size_t camera_rows = 16;
@@ -1131,11 +1184,14 @@ bool prepare_models(
         };
         at = std::copy(record.begin(), record.end(), at);
     }
-    std::memcpy(at, draws.positions.data(), draws.positions.size_bytes());
+    if (!draws.positions.empty())
+        std::memcpy(at, draws.positions.data(), draws.positions.size_bytes());
     at += draws.positions.size();
-    std::memcpy(at, draws.piece_frames.data(), draws.piece_frames.size_bytes());
+    if (!draws.piece_frames.empty())
+        std::memcpy(at, draws.piece_frames.data(), draws.piece_frames.size_bytes());
     at += draws.piece_frames.size();
-    std::memcpy(at, draws.textures.data(), draws.textures.size_bytes());
+    if (!draws.textures.empty())
+        std::memcpy(at, draws.textures.data(), draws.textures.size_bytes());
     at += draws.textures.size();
     for (const auto& cast : draws.casts) {
         const std::array<uint32_t, shadow_cast_words> record{
@@ -1151,16 +1207,21 @@ bool prepare_models(
         };
         at = std::copy(record.begin(), record.end(), at);
     }
-    std::memcpy(
-        upload + models.corner_bytes + models.frame_bytes,
-        draws.indices.data(),
-        draws.indices.size_bytes()
-    );
-    std::memcpy(
-        upload + models.corner_bytes + models.frame_bytes + draws.indices.size_bytes(),
-        draws.cast_indices.data(),
-        draws.cast_indices.size_bytes()
-    );
+    models.marker_word = static_cast<uint32_t>(at - frame);
+    if (!draws.markers.empty())
+        std::memcpy(at, draws.markers.data(), draws.markers.size_bytes());
+    if (!draws.indices.empty())
+        std::memcpy(
+            upload + models.corner_bytes + models.frame_bytes,
+            draws.indices.data(),
+            draws.indices.size_bytes()
+        );
+    if (!draws.cast_indices.empty())
+        std::memcpy(
+            upload + models.corner_bytes + models.frame_bytes + draws.indices.size_bytes(),
+            draws.cast_indices.data(),
+            draws.cast_indices.size_bytes()
+        );
     SDL_UnmapGPUTransferBuffer(device, models.upload);
     return true;
 }
@@ -1212,6 +1273,8 @@ void draw_frame_and_models(
     const ModelResources* models,
     SDL_GPUGraphicsPipeline* model_pipeline,
     std::span<const ModelRun> runs,
+    SDL_GPUGraphicsPipeline* marker_pipeline,
+    std::span<const MarkerRun> marker_runs,
     const std::function<void()>& shadows = {},
     std::size_t shadow_vertex = 0
 ) {
@@ -1231,9 +1294,19 @@ void draw_frame_and_models(
         draw_vertices(std::max(shadow_vertex, ground_count) - ground_count);
         shadows();
     }
+    std::size_t next_marker = 0;
+    const auto draw_marker = [&](const MarkerRun& run) {
+        draw_vertices(run.vertex - ground_count);
+        SDL_BindGPUGraphicsPipeline(pass, marker_pipeline);
+        SDL_GPUBuffer* storage = models->frame;
+        SDL_BindGPUVertexStorageBuffers(pass, 0, &storage, 1);
+        SDL_DrawGPUPrimitives(pass, run.instance_count * 6, 1, run.first_instance * 6, 0);
+    };
     for (const auto& run : runs) {
         if (!models || run.index_count == 0)
             continue;
+        while (next_marker < marker_runs.size() && marker_runs[next_marker].vertex < run.vertex)
+            draw_marker(marker_runs[next_marker++]);
         draw_vertices(run.vertex - ground_count);
         SDL_BindGPUGraphicsPipeline(pass, model_pipeline);
         const std::array<SDL_GPUBuffer*, 2> storage{models->corners, models->frame};
@@ -1249,6 +1322,8 @@ void draw_frame_and_models(
             0
         );
     }
+    while (next_marker < marker_runs.size())
+        draw_marker(marker_runs[next_marker++]);
     draw_vertices(frame_count);
 }
 
@@ -1272,7 +1347,8 @@ bool draw_light_surface(
     SDL_GPUBuffer* frame_vertices,
     std::size_t frame_count,
     const ModelResources* models,
-    std::span<const ModelRun> runs
+    std::span<const ModelRun> runs,
+    std::span<const MarkerRun> marker_runs
 ) {
     SDL_GPUColorTargetInfo target{};
     target.texture = lights.surface;
@@ -1307,7 +1383,9 @@ bool draw_light_surface(
         ground_count,
         models && models->surface_pipeline ? models : nullptr,
         models ? models->surface_pipeline : nullptr,
-        runs
+        runs,
+        models ? models->marker_surface_pipeline : nullptr,
+        marker_runs
     );
     SDL_EndGPURenderPass(pass);
     return true;
@@ -1566,6 +1644,55 @@ vertices_valid(std::span<const Vertex> vertices, uint32_t texture_width, uint32_
     return all_valid;
 }
 
+/// Validates every compact corner and its shared ordinary marker attributes.
+bool valid_markers(const ModelDraws& draws, std::size_t ground, std::size_t vertices) {
+    if (draws.markers.size() > (max_vertices - vertices) / vertices_per_triangle / 2)
+        return false;
+    if (draws.markers.empty())
+        return draws.marker_runs.empty();
+    const auto within = [](float value, float low, float high) -> uint32_t {
+        return static_cast<uint32_t>(value >= low) & static_cast<uint32_t>(value <= high);
+    };
+    uint32_t valid = within(draws.marker_uv[0], 0, 1) & within(draws.marker_uv[1], 0, 1);
+    for (const auto& marker : draws.markers) {
+        for (const auto& corner : marker.corners)
+            for (const float coordinate : corner)
+                valid &= within(coordinate, -coordinate_limit, coordinate_limit);
+        valid &= within(marker.brightness, 0, 1);
+        for (const float channel : marker.color)
+            valid &= within(channel, 0, 1);
+    }
+    std::size_t previous = ground;
+    std::size_t next_instance = 0;
+    for (const auto& run : draws.marker_runs) {
+        if (run.vertex < previous || run.vertex > vertices || run.vertex % 3 != 0 ||
+            run.instance_count == 0 || run.first_instance != next_instance ||
+            run.first_instance > draws.markers.size() ||
+            run.instance_count > draws.markers.size() - run.first_instance)
+            return false;
+        previous = run.vertex;
+        next_instance += run.instance_count;
+    }
+    return valid != 0 && next_instance == draws.markers.size();
+}
+
+/// Bounds the total upload before its byte counts are narrowed to SDL's words.
+bool model_upload_fits(const ModelDraws& draws) noexcept {
+    constexpr std::size_t largest_words = std::numeric_limits<uint32_t>::max() / sizeof(uint32_t);
+    std::size_t words = model_frame_header_words;
+    const auto add = [&](std::size_t count, std::size_t words_each = 1) {
+        if (count > (largest_words - words) / words_each)
+            return false;
+        words += count * words_each;
+        return true;
+    };
+    return add(draws.corners.size()) && add(draws.instances.size(), model_instance_words) &&
+           add(draws.positions.size()) && add(draws.piece_frames.size()) &&
+           add(draws.textures.size()) && add(draws.casts.size(), shadow_cast_words) &&
+           add(draws.markers.size(), sizeof(MarkerInstance) / sizeof(uint32_t)) &&
+           add(draws.indices.size()) && add(draws.cast_indices.size());
+}
+
 } // namespace
 
 struct Context::State {
@@ -1668,6 +1795,18 @@ bool draws_models(const Context& context) noexcept {
            context.state->resources.device != nullptr;
 }
 
+bool draws_markers(const Context& context) noexcept {
+    return context.markers_allowed && !context.device_unavailable && context.state &&
+           context.state->models.marker_pipeline != nullptr;
+}
+
+std::size_t model_upload_bytes(const Context& context) noexcept {
+    if (!context.state)
+        return 0;
+    const auto& models = context.state->models;
+    return std::size_t{models.corner_bytes} + models.frame_bytes + models.index_bytes;
+}
+
 bool draws_lights(const Context& context) noexcept {
     return context.lights_allowed && context.state && context.state->resources.device != nullptr &&
            context.state->lights.surface_pipeline != nullptr;
@@ -1697,8 +1836,19 @@ Result render(
     error.clear();
     context.kept_on_card = false;
     context.state->picture = nullptr;
+    const bool marked = models && !models->markers.empty();
+    // A marker-only frame may retain large type/pose arrays from its last
+    // detailed view. No model run reads them: neither validate, size nor
+    // upload them for this frame, just as a frame with no draws did before.
+    ModelDraws marker_only;
+    if (marked && models->runs.empty() && models->casts.empty()) {
+        marker_only.markers = models->markers;
+        marker_only.marker_runs = models->marker_runs;
+        marker_only.marker_uv = models->marker_uv;
+        models = &marker_only;
+    }
     if (!valid_dimensions(texture_width, texture_height) ||
-        !valid_dimensions(output_width, output_height) || vertices.empty() ||
+        !valid_dimensions(output_width, output_height) || (vertices.empty() && !marked) ||
         vertices.size() > max_vertices || vertices.size() % vertices_per_triangle != 0 ||
         texture_rgba.size() != size_t(texture_width) * texture_height * channels ||
         requested_supersample == 0 || requested_supersample > max_supersample ||
@@ -1792,12 +1942,24 @@ Result render(
     // The model draws, where there are any, and only where the card may
     // draw them.
     const bool modelled = models && (!models->runs.empty() || !models->casts.empty());
+    if ((modelled || marked) && !model_upload_fits(*models)) {
+        validating.stop();
+        error = "Live GPU model upload exceeds its buffer size";
+        return Result::failed;
+    }
     if (modelled &&
         (!context.models_allowed || !valid_model_draws(*models, ground_count, vertices.size()))) {
         validating.stop();
         error = "Invalid live GPU model draws";
         return Result::failed;
     }
+    if (models && ((!context.markers_allowed && marked) ||
+                   !valid_markers(*models, ground_count, vertices.size()))) {
+        validating.stop();
+        error = "Invalid live GPU marker draws";
+        return Result::failed;
+    }
+    const bool card_uploads = modelled || marked;
     validating.stop();
     if (frame_valid == 0) {
         error = "Invalid live GPU vertex coordinates";
@@ -1922,6 +2084,15 @@ Result render(
                 state.models, resources.device, pipeline_info, state.lights.surface_shader
             ))
             return fail("Create live GPU model pipelines");
+        if (context.markers_allowed &&
+            !make_marker_pipelines(
+                state.models, resources.device, pipeline_info, state.lights.surface_shader
+            ))
+            context.markers_allowed = false;
+    }
+    if (marked && !draws_markers(context)) {
+        context.markers_allowed = false;
+        return fail("Create live GPU marker pipelines");
     }
     const auto frame_vertices = vertices.subspan(ground_count);
     const auto vertex_bytes = uint32_t(frame_vertices.size_bytes());
@@ -2129,7 +2300,7 @@ Result render(
     bench_timers::Span uploading(bench_timers::Stage::gpu_upload);
     // The model draws, which read the camera's rows from their own buffer.
     auto& models_held = state.models;
-    if (modelled) {
+    if (card_uploads) {
         const std::array camera_rows{
             projection[0],
             projection[1],
@@ -2148,8 +2319,11 @@ Result render(
             float(supersample),
             float(samples)
         };
-        if (!models_held.pipeline || !prepare_models(models_held, *models, camera_rows))
+        if (!models_held.pipeline || !prepare_models(models_held, *models, camera_rows)) {
+            if (marked)
+                context.markers_allowed = false;
             return fail("Create live GPU model resources");
+        }
     }
     // The upload holds the frame's vertices, then the kept ground when it
     // has changed, then the atlas rows that have, then the frame's own rows,
@@ -2273,7 +2447,7 @@ Result render(
     }
     if (lit)
         upload_lights(lights_held, copy);
-    if (modelled)
+    if (card_uploads)
         upload_models(models_held, *models, copy);
     SDL_EndGPUCopyPass(copy);
     // The units' shadows cast into their map, which the scene lays on its
@@ -2351,6 +2525,15 @@ Result render(
     }
     SDL_PushGPUVertexUniformData(resources.command, 0, camera.data(), sizeof(camera));
     SDL_PushGPUFragmentUniformData(resources.command, 0, camera.data(), sizeof(camera));
+    if (marked) {
+        const std::array<uint32_t, 4> marker{
+            models_held.marker_word,
+            std::bit_cast<uint32_t>(models->marker_uv[0]),
+            std::bit_cast<uint32_t>(models->marker_uv[1]),
+            0
+        };
+        SDL_PushGPUVertexUniformData(resources.command, 1, marker.data(), sizeof(marker));
+    }
     if (shadowed) {
         // The map's left and top and its texels a map pixel; the samples a
         // pixel and the frame's texels across and down.
@@ -2388,6 +2571,8 @@ Result render(
         SDL_DrawGPUPrimitives(pass, uint32_t(ground_count), 1, 0, 0);
     }
     const std::span<const ModelRun> runs = modelled ? models->runs : std::span<const ModelRun>{};
+    const std::span<const MarkerRun> marker_runs =
+        marked ? models->marker_runs : std::span<const MarkerRun>{};
     std::function<void()> lay;
     if (shadowed)
         lay = [&] {
@@ -2405,9 +2590,11 @@ Result render(
         resources.vertices,
         frame_vertices.size(),
         ground_count,
-        modelled ? &models_held : nullptr,
+        card_uploads ? &models_held : nullptr,
         models_held.pipeline,
         runs,
+        models_held.marker_pipeline,
+        marker_runs,
         lay,
         shadowed ? models->shadow_vertex : 0
     );
@@ -2423,8 +2610,9 @@ Result render(
                    ground_count,
                    resources.vertices,
                    frame_vertices.size(),
-                   modelled ? &models_held : nullptr,
-                   runs
+                   card_uploads ? &models_held : nullptr,
+                   runs,
+                   marker_runs
                ))
         return fail("Begin live GPU lights' surface");
     if (supersample > 1) {

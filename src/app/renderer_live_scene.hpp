@@ -719,6 +719,9 @@ struct Inputs {
     /// a building, lit by nanolathe particles, or of a model the card cannot
     /// hold stays in the vertices.
     bool models_on_card{};
+    /// Draw explicit strategic markers from their exact four CPU corners.
+    /// False retains the ordinary vertices and picking ranges.
+    bool markers_on_card{};
 };
 
 /// Rebuilds live terrain, visible models and GAF cutouts from a frame's plan.

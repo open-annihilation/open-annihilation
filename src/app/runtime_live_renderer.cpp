@@ -4,6 +4,7 @@
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
 #include "unit_bounds.hpp"
+#include "renderer_marker_policy.hpp"
 #include "oa/app/camera_inversion.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "bench_timers.hpp"
@@ -115,6 +116,7 @@ struct Runtime::LiveRenderer {
     bool orbiting{};
     bool failed{};
     bool unavailable{};
+    bool marker_failure_once{}; ///< a dedicated native check's optional-resource failure
     const void* match{};
 
     /// The camera of the last frame drawn, turned or classic: a frame that
@@ -547,7 +549,28 @@ std::size_t Runtime::live_renderer_emissive_vertex_count() const noexcept {
 }
 
 std::size_t Runtime::live_renderer_card_model_count() const noexcept {
-    return live_renderer_ ? live_renderer_->scene.cards.units.size() : 0;
+    if (!live_renderer_)
+        return 0;
+    const auto& cards = live_renderer_->scene.cards;
+    return cards.units.size() - std::min(cards.units.size(), cards.markers.size());
+}
+
+std::size_t Runtime::live_renderer_marker_count() const noexcept {
+    return live_renderer_ ? live_renderer_->scene.cards.markers.size() : 0;
+}
+
+bool Runtime::live_markers_on_card() const noexcept {
+    return live_models_on_card() && renderer_live_gpu::draws_markers(live_renderer_->gpu);
+}
+
+void Runtime::set_live_markers_on_card(bool allowed) noexcept {
+    if (live_renderer_)
+        live_renderer_->gpu.markers_allowed = allowed;
+}
+
+void Runtime::fail_live_markers_once() noexcept {
+    if (options_.check_live_renderer && live_renderer_)
+        live_renderer_->marker_failure_once = true;
 }
 
 bool Runtime::live_models_on_card() const noexcept {
@@ -879,6 +902,16 @@ bool Runtime::render_live_match_surface() {
         // it adds the lights too: the processor's lights find their
         // surfaces among the frame's own triangles.
         inputs.models_on_card = live_models_on_card();
+        inputs.markers_on_card = compact_marker_frame(
+            match_->rules(),
+            {frame_draws_.units_as_dots,
+             live_markers_on_card(),
+             options_.debug_order_lines,
+             director_ != nullptr,
+             turned_overlay_checked_,
+             options_.headless_check,
+             options_.check_live_renderer}
+        );
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
@@ -937,25 +970,30 @@ bool Runtime::render_live_match_surface() {
         Span building(Stage::scene_build);
         // A frame a check draws again on the card takes the scene drawn
         // last, unchanged, so that the frames after it are as they would be.
-        const bool built = turned_overlay_checked_
-                               ? live.scene_built
-                               : renderer_live_scene::build(inputs, live.scene, error);
+        bool built = turned_overlay_checked_
+                         ? live.scene_built
+                         : renderer_live_scene::build(inputs, live.scene, error);
         live.scene_built = built;
         building.stop();
-        bench_timers::note_scene(
-            {static_cast<double>(live.scene.vertices.size()),
-             static_cast<double>(live.scene.terrain_vertex_count),
-             static_cast<double>(live.scene.model_count),
-             static_cast<double>(live.scene.sprite_count),
-             static_cast<double>(live.scene.particle_count),
-             static_cast<double>(live.scene.nano_particle_count),
-             static_cast<double>(live.scene.shadow_count),
-             static_cast<double>(inputs.right - inputs.left) / terrain_cell_edge *
-                 static_cast<double>(inputs.bottom - inputs.top) / terrain_cell_edge,
-             bench_timers::timers.last.supersample,
-             static_cast<double>(live.scene.cards.units.size())},
-            live.scene.ground_revision
-        );
+        const auto note_scene = [&] {
+            bench_timers::note_scene(
+                {static_cast<double>(
+                     live.scene.vertices.size() + live.scene.cards.markers.size() * 6
+                 ),
+                 static_cast<double>(live.scene.terrain_vertex_count),
+                 static_cast<double>(live.scene.model_count),
+                 static_cast<double>(live.scene.sprite_count),
+                 static_cast<double>(live.scene.particle_count),
+                 static_cast<double>(live.scene.nano_particle_count),
+                 static_cast<double>(live.scene.shadow_count),
+                 static_cast<double>(inputs.right - inputs.left) / terrain_cell_edge *
+                     static_cast<double>(inputs.bottom - inputs.top) / terrain_cell_edge,
+                 bench_timers::timers.last.supersample,
+                 static_cast<double>(live_renderer_card_model_count())},
+                live.scene.ground_revision
+            );
+        };
+        note_scene();
         // Picking reads only the frame's triangles, so a frame that draws
         // rebuilds it while the card draws them.
         const auto rebuild_picking = [this] {
@@ -985,31 +1023,52 @@ bool Runtime::render_live_match_surface() {
              render_run_->host->presenting_on_card() &&
              sdl_.renderer == render_run_->host->renderer()) ||
             turned_overlay_checked_;
-        const auto model_draws =
-            renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
-        Span drawing(Stage::gpu_total);
-        const auto result = built ? renderer_live_gpu::render(
-                                        live.gpu,
-                                        live.scene.vertices,
-                                        live.scene.texture_rgba,
-                                        live.scene.texture_width,
-                                        live.scene.texture_height,
-                                        live.scene.texture_revision,
-                                        match_world_cpu_.width,
-                                        match_world_cpu_.height,
-                                        live.projection,
-                                        live.rgba,
-                                        error,
-                                        static_cast<uint32_t>(engine_settings().anti_aliasing),
-                                        &live.scene.atlas_update,
-                                        &inputs.water,
-                                        &ground,
-                                        rebuild_picking,
-                                        &card_lights,
-                                        &model_draws
-                                    )
-                                  : renderer_live_gpu::Result::failed;
-        drawing.stop();
+        const auto draw = [&] {
+            if (live.marker_failure_once && inputs.markers_on_card) {
+                live.marker_failure_once = false;
+                live.gpu.markers_allowed = false;
+                error = "the native check rejected optional marker resources";
+                return renderer_live_gpu::Result::failed;
+            }
+            const auto model_draws =
+                renderer_live_scene::card_draws(live.scene.card_types, live.scene.cards);
+            const Span drawing(Stage::gpu_total);
+            return built ? renderer_live_gpu::render(
+                               live.gpu,
+                               live.scene.vertices,
+                               live.scene.texture_rgba,
+                               live.scene.texture_width,
+                               live.scene.texture_height,
+                               live.scene.texture_revision,
+                               match_world_cpu_.width,
+                               match_world_cpu_.height,
+                               live.projection,
+                               live.rgba,
+                               error,
+                               static_cast<uint32_t>(engine_settings().anti_aliasing),
+                               &live.scene.atlas_update,
+                               &inputs.water,
+                               &ground,
+                               rebuild_picking,
+                               &card_lights,
+                               &model_draws
+                           )
+                         : renderer_live_gpu::Result::failed;
+        };
+        auto result = draw();
+        // Optional marker resources can fail independently of the ordinary
+        // pipeline. Rebuild the same frame's triangles without another tick.
+        if (result != renderer_live_gpu::Result::success && inputs.markers_on_card &&
+            !live.gpu.markers_allowed) {
+            inputs.markers_on_card = false;
+            {
+                const Span rebuilding(Stage::scene_build);
+                built = renderer_live_scene::build(inputs, live.scene, error);
+            }
+            live.scene_built = built;
+            note_scene();
+            result = draw();
+        }
         bench_timers::note_supersample(live.gpu.actual_supersample);
         const auto& last = live.drawn;
         const bool at_last =

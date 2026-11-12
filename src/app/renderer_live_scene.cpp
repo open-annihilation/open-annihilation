@@ -5416,6 +5416,74 @@ void budget_unit_detail(const Inputs& in, Scene& scene, std::size_t rest) {
     }
 }
 
+/// Counts a card draw against the same logical triangle budget as vertices.
+/// @param[in,out] pass the pass receiving its geometry
+/// @param count its logical vertices
+void count_on_card(Pass& pass, std::size_t count) {
+    auto& list = pass.list;
+    const std::size_t held = list.vertices.size() + list.cards.vertices + count;
+    list.peak = std::max(list.peak, held);
+    if (held > maximum_vertices - std::min(maximum_vertices, pass.listed_before))
+        throw GeometryFull();
+    list.cards.vertices += count;
+}
+
+/// Lists the same billboard corners on the card with its picking metadata.
+void marker_on_card(
+    const Inputs& in, Pass& pass, const std::array<Vertex, 4>& corners, uint16_t unit
+) {
+    count_on_card(pass, 6);
+    auto& cards = pass.list.cards;
+    const std::array uv{corners[0].u, corners[0].v};
+    if (cards.markers.empty()) {
+        cards.marker_uv = uv;
+        cards.marker_first_index = static_cast<uint32_t>(cards.indices.size());
+        constexpr std::array<uint32_t, 6> fan{0, 1, 2, 0, 2, 3};
+        cards.indices.insert(cards.indices.end(), fan.begin(), fan.end());
+    }
+    if (cards.marker_uv != uv)
+        throw std::runtime_error("Strategic marker material changed within one list");
+    renderer_live_gpu::MarkerInstance marker{};
+    std::array<std::array<float, 3>, 4> points{};
+    constexpr float none = std::numeric_limits<float>::infinity();
+    std::array<float, 4> bounds{none, none, -none, -none};
+    const auto& m = in.clip_projection;
+    for (std::size_t index = 0; index < corners.size(); ++index) {
+        const auto& corner = corners[index];
+        marker.corners[index] = {corner.x, corner.height, corner.z};
+        const auto point = points[index] = {
+            m[0] * corner.x + m[1] * corner.height + m[2] * corner.z + m[3],
+            m[4] * corner.x + m[5] * corner.height + m[6] * corner.z + m[7],
+            m[8] * corner.x + m[9] * corner.height + m[10] * corner.z + m[11]
+        };
+        bounds[0] = std::min(bounds[0], point[0]);
+        bounds[1] = std::min(bounds[1], point[1]);
+        bounds[2] = std::max(bounds[2], point[0]);
+        bounds[3] = std::max(bounds[3], point[1]);
+    }
+    marker.brightness = corners[0].brightness;
+    marker.color = {corners[0].red, corners[0].green, corners[0].blue};
+    const auto instance = static_cast<uint32_t>(cards.markers.size());
+    cards.markers.push_back(marker);
+    const auto vertex = pass.list.vertices.size();
+    if (cards.marker_runs.empty() || cards.marker_runs.back().vertex != vertex)
+        cards.marker_runs.push_back({vertex, instance, 0});
+    ++cards.marker_runs.back().instance_count;
+    auto& drawn = cards.units.emplace_back();
+    drawn.unit_id = unit;
+    drawn.vertex = vertex;
+    drawn.instance = instance;
+    drawn.first_index = cards.marker_first_index;
+    drawn.index_count = 6;
+    drawn.left = bounds[0];
+    drawn.top = bounds[1];
+    drawn.right = bounds[2];
+    drawn.bottom = bounds[3];
+    drawn.bounded = renderer_live_camera::triangle_hit_bounded({points[0], points[1], points[2]}) &&
+                    renderer_live_camera::triangle_hit_bounded({points[0], points[2], points[3]});
+    drawn.marker = true;
+}
+
 /// Draws a fixed-pixel billboard through the ordinary triangle stream, so
 /// the same visible surface supplies unit picking and HUD bounds.
 void unit_marker(
@@ -5424,7 +5492,8 @@ void unit_marker(
     const UnitDetail& detail,
     const Unit& unit,
     std::optional<AtlasRect>& white_material,
-    const PaletteBytes& white_palette
+    const PaletteBytes& white_palette,
+    bool strategic = false
 ) {
     const auto& across = pass.scene.unit_marker_across;
     const auto& down = pass.scene.unit_marker_down;
@@ -5461,8 +5530,12 @@ void unit_marker(
     };
     const auto first = pass.list.vertices.size();
     const std::array corners{corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)};
-    polygon(pass, corners);
-    pass.list.unit_ranges.push_back({unit.id, first, 6});
+    if (strategic && in.markers_on_card)
+        marker_on_card(in, pass, corners, unit.id);
+    else {
+        polygon(pass, corners);
+        pass.list.unit_ranges.push_back({unit.id, first, 6});
+    }
     ++pass.list.drawn;
 }
 
@@ -5472,20 +5545,6 @@ struct ModelMaterials {
     std::array<std::optional<AtlasRect>, 256>& colors;
     std::unordered_map<const Sprite*, AtlasRect>& textures;
 };
-
-/// Counts the vertices a model drawn on the card would have listed against
-/// the frame's geometry budget, as listing() counts them.
-///
-/// @param[in,out] pass the models pass
-/// @param count the vertices
-void count_on_card(Pass& pass, std::size_t count) {
-    auto& list = pass.list;
-    const std::size_t held = list.vertices.size() + list.cards.vertices + count;
-    list.peak = std::max(list.peak, held);
-    if (held > maximum_vertices - std::min(maximum_vertices, pass.listed_before))
-        throw GeometryFull();
-    list.cards.vertices += count;
-}
 
 /// Returns where a type's textures for a team start in the frame's model
 /// draws, made unfound the first time the frame draws the type for it.
@@ -6061,7 +6120,7 @@ void strategic_marker(
         z
     };
     detail.brightness = brightness_at(in.sight, x, fog_z);
-    unit_marker(in, pass, detail, *unit, white_material, white_palette);
+    unit_marker(in, pass, detail, *unit, white_material, white_palette, true);
     return;
 }
 
@@ -8469,6 +8528,39 @@ void write_frame_materials(const Inputs& in, Scene& scene) {
     }
 }
 
+/// Joins a marker band's owned packets and picks in the original band order.
+void append_marker_cards(ModelCards& into, const ModelCards& from, std::size_t vertex) {
+    if (from.markers.empty())
+        return;
+    if (into.markers.empty()) {
+        into.marker_uv = from.marker_uv;
+        into.marker_first_index = static_cast<uint32_t>(into.indices.size());
+        constexpr std::array<uint32_t, 6> fan{0, 1, 2, 0, 2, 3};
+        into.indices.insert(into.indices.end(), fan.begin(), fan.end());
+    }
+    if (into.marker_uv != from.marker_uv)
+        throw std::runtime_error("Strategic marker bands use different white materials");
+    const auto first = static_cast<uint32_t>(into.markers.size());
+    into.markers.insert(into.markers.end(), from.markers.begin(), from.markers.end());
+    for (auto run : from.marker_runs) {
+        run.vertex += vertex;
+        run.first_instance += first;
+        if (!into.marker_runs.empty() && into.marker_runs.back().vertex == run.vertex &&
+            into.marker_runs.back().first_instance + into.marker_runs.back().instance_count ==
+                run.first_instance)
+            into.marker_runs.back().instance_count += run.instance_count;
+        else
+            into.marker_runs.push_back(run);
+    }
+    for (auto unit : from.units) {
+        unit.vertex += vertex;
+        unit.instance += first;
+        unit.first_index = into.marker_first_index;
+        into.units.push_back(unit);
+    }
+    into.vertices += from.vertices;
+}
+
 /// Builds what the frame draws after its terrain: the cards laid on the
 /// ground, the units' shadows, the foundations, the models, the
 /// projectiles, the standing cards and the particles, each pass listing
@@ -8995,6 +9087,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
                     );
                 }
             );
+            listed += passes.marker_bands[band].cards.vertices;
         }
     };
     const auto take_effects = [&] {
@@ -9082,6 +9175,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         shadows += passes.shadows[band].drawn;
     }
     join(passes.models.vertices);
+    auto& on_card = passes.models.cards;
     for (auto range : passes.models.unit_ranges) {
         range.first_vertex += models_first;
         scene.unit_ranges.push_back(range);
@@ -9094,11 +9188,13 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             range.first_vertex += first;
             scene.unit_ranges.push_back(range);
         }
+        append_marker_cards(on_card, band.cards, first - models_first);
         markers_drawn += band.drawn;
     }
     // The models drawn on the card, among the models' vertices.
-    auto& on_card = passes.models.cards;
     for (auto& run : on_card.runs)
+        run.vertex += models_first;
+    for (auto& run : on_card.marker_runs)
         run.vertex += models_first;
     for (auto& unit : on_card.units)
         unit.vertex += models_first;
@@ -9349,12 +9445,12 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                     scene.vertices.insert(
                         scene.vertices.end(), scene.detail_water.begin(), scene.detail_water.end()
                     );
-                    if (scene.vertices.size() + scene.cards.vertices > maximum_vertices)
-                        throw GeometryFull();
                 } else {
                     water_surface(inputs, scene);
                     water_disturbances(inputs, scene);
                 }
+                if (scene.vertices.size() + scene.cards.vertices > maximum_vertices)
+                    throw GeometryFull();
                 // Every other material this frame draws was packed into the
                 // emptied atlas, so their area is what they need.
                 if (emptied)

@@ -115,6 +115,9 @@ struct Context {
     /// models it keeps on the card (draws_models); false leaves every model
     /// to the frame's vertices, as on a card that has none of them yet.
     bool models_allowed{true};
+    /// Whether render() may draw strategic markers from their exact four corners.
+    /// False retains the caller's ordinary triangle path.
+    bool markers_allowed{true};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.
@@ -195,6 +198,24 @@ struct ModelRun {
     uint32_t first_instance{}; ///< the instance its indices count from
 };
 
+/// One strategic marker's already rounded world corners and constant colour.
+/// The ordinary triangle fan is corners 0,1,2,0,2,3; no billboard arithmetic
+/// is repeated by the card. UV and the remaining Vertex fields are shared.
+struct MarkerInstance {
+    std::array<std::array<float, 3>, 4> corners{}; ///< x, height and z, in fan order
+    float brightness{1};
+    std::array<float, 3> color{1, 1, 1}; ///< RGB modulation in [0,1]
+};
+
+static_assert(sizeof(MarkerInstance) == 16 * sizeof(float));
+
+/// Consecutive marker instances drawn before one ordinary scene vertex.
+struct MarkerRun {
+    std::size_t vertex{};
+    uint32_t first_instance{};
+    uint32_t instance_count{};
+};
+
 /// The low bits of a ModelDraws index that name a triangle corner of its
 /// instance's type; the bits above name the instance, from its run's first.
 inline constexpr uint32_t model_corner_bits = 16;
@@ -262,7 +283,8 @@ struct ShadowMap {
 /// the card takes its posed vertex, adds its instance's origin, and finds
 /// its texture in the atlas; every other attribute is a model's in the frame's
 /// vertices: the instance's brightness, full opacity, no emission or terrain
-/// and no colour modulation.
+/// and no colour modulation. Compact strategic markers instead retain their
+/// exact four world corners, brightness and owner colour in one packet.
 struct ModelDraws {
     /// Every type's triangle corners, two words each: the vertex (its low 16
     /// bits) and the piece (its high 16 bits); the texture the corner's
@@ -302,6 +324,13 @@ struct ModelDraws {
     ShadowMap shadow_map{};
     std::size_t shadow_vertex{}; ///< the frame's vertex the shadows are laid before
     std::size_t shadow_ground{}; ///< the frame's first vertices, the ground they lie on
+    std::span<const MarkerInstance> markers{}; ///< owned exact world-space quadrilaterals
+    /// Runs cover every marker once, in instance order, at nondecreasing
+    /// triangle-aligned frame vertices, after all model runs at an equal
+    /// vertex. Each marker counts as six vertices
+    /// toward the same geometry limit as the ordinary triangle path.
+    std::span<const MarkerRun> marker_runs{};
+    std::array<float, 2> marker_uv{}; ///< the shared ordinary white material's centre
 };
 
 /// Whether render() draws model draws on the card: once a frame has made
@@ -311,6 +340,16 @@ struct ModelDraws {
 /// @param context the renderer's resources
 /// @return true where render() takes ModelDraws
 [[nodiscard]] bool draws_models(const Context& context) noexcept;
+
+/// Whether the already opened renderer can draw compact strategic markers.
+/// @param context the renderer's resources
+/// @return true after its optional marker pipelines have been made
+[[nodiscard]] bool draws_markers(const Context& context) noexcept;
+
+/// Returns the bytes staged for the last prepared model/marker upload.
+/// @param context the renderer's existing resources
+/// @return corner, frame and index bytes; zero before the first such upload
+[[nodiscard]] std::size_t model_upload_bytes(const Context& context) noexcept;
 
 /// Whether render() adds the lights it is given on the card: once a frame has
 /// made its device and found the formats the lights take, unless
@@ -326,8 +365,8 @@ struct ModelDraws {
 /// or dimensions change. Readback waits for completion before returning RGBA8 pixels.
 /// Failure clears output_rgba and reports its cause; the caller chooses a fallback.
 /// @param[in,out] context persistent GPU resources; SDL video must be initialized
-/// @param vertices nonempty triangle list within +/-32768 world units; UVs, brightness
-///        opacity and emission channels in [0,1]
+/// @param vertices triangle list within +/-32768 world units; nonempty unless models
+///        contains compact markers. UVs, brightness, opacity and emission in [0,1]
 /// @param texture_rgba packed source RGBA8 pixels; filtered terrain owns a 64x64
 ///        rectangle: colour and grey 32x64 chains side by side. Each chain stacks
 ///        square mip levels 32,16,8,4,2,1 at row offsets 0,32,48,56,60,62.
@@ -360,7 +399,9 @@ struct ModelDraws {
 ///        whether they were
 /// @param models optional units and features drawn from their types' models on the card,
 ///        each run before its vertex of the frame, the lights' surface included; only
-///        where draws_models() says so
+///        where draws_models() says so. Compact marker runs require draws_markers().
+///        With no model runs or casts, unused model arrays are ignored, including
+///        on marker-only frames; they are neither validated nor uploaded.
 /// @return success; unavailable where SDL makes no device on Metal or Vulkan; or failed for
 ///         invalid input or GPU errors. With Context::keep_on_card, and lights the card adds
 ///         or none, the picture stays on the card: output_rgba is left empty, render()

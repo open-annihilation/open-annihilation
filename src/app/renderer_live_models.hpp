@@ -112,6 +112,7 @@ struct CardUnit {
     /// triangle's; false where one is a sliver, which the pick tests
     /// wherever the pointer is.
     bool bounded{true};
+    bool marker{}; ///< instance names ModelCards::markers rather than a model
 };
 
 /// The sizes of a frame's model draws as a draw began, which a draw that
@@ -128,6 +129,10 @@ struct CardMark {
     std::size_t cast_runs{};
     uint32_t cast_depths{};
     std::size_t vertices{};
+    std::size_t markers{};
+    std::size_t marker_runs{};
+    uint32_t marker_first_index{};
+    std::array<float, 2> marker_uv{};
 };
 
 /// A posed vertex range shared by instances of one type within a frame.
@@ -166,6 +171,10 @@ struct ModelCards {
     std::vector<uint32_t> indices{};
     std::vector<renderer_live_gpu::ModelRun> runs{};
     std::vector<CardUnit> units{};
+    std::vector<renderer_live_gpu::MarkerInstance> markers{};
+    std::vector<renderer_live_gpu::MarkerRun> marker_runs{};
+    std::array<float, 2> marker_uv{};
+    uint32_t marker_first_index{}; ///< shared six-corner fan in indices
     /// The vertices the frame's vertices would hold for the triangles drawn
     /// here, which the geometry budget counts as if they were.
     std::size_t vertices{};

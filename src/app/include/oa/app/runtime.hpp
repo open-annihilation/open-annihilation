@@ -8547,6 +8547,15 @@ class Runtime final : public menu::Host,
     /// Returns how many models the graphics card drew from their types' models
     /// in the last live frame, the frame's vertices holding none of them.
     [[nodiscard]] std::size_t live_renderer_card_model_count() const noexcept;
+    /// Returns the compact strategic markers in the last live frame, for checks.
+    [[nodiscard]] std::size_t live_renderer_marker_count() const noexcept;
+    /// Returns whether opened optional resources can draw compact markers.
+    [[nodiscard]] bool live_markers_on_card() const noexcept;
+    /// Selects the optional marker resources for the dedicated native check.
+    /// @param allowed whether freshly built frames may use them
+    void set_live_markers_on_card(bool allowed) noexcept;
+    /// Makes the dedicated native check exercise the same-frame CPU fallback.
+    void fail_live_markers_once() noexcept;
     /// Returns whether the live frames draw the models the card can from
     /// their types' models: once the card has drawn a frame and adds the
     /// lights itself, unless set_live_models_on_card(false) said not to.
