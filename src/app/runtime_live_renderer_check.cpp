@@ -86,8 +86,7 @@ int Runtime::check_live_renderer() {
         for (int32_t version = 0; version <= 9; ++version) {
             rules.setup.enhanced_mode.version = version;
             require(
-                compact_marker_frame(rules, frame) ==
-                    oa::data::enhanced_mode::uses_distributed_battle_flow(version),
+                compact_marker_frame(rules, frame) == (version == 7 || version == 8),
                 "the compact marker production rules gate is wrong"
             );
         }

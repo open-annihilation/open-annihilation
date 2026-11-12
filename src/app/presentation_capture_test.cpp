@@ -422,10 +422,9 @@ void test_capture_policy() {
             rules.setup.enhanced_mode.enabled = enabled;
             rules.setup.enhanced_mode.version = version;
             CHECK(app::unit_pose_capture(rules, false) == app::UnitPoseCapture::full);
-            const auto expected =
-                enabled && oa::data::enhanced_mode::uses_distributed_battle_flow(version)
-                    ? app::UnitPoseCapture::root
-                    : app::UnitPoseCapture::full;
+            const auto expected = enabled && (version == 7 || version == 8)
+                                      ? app::UnitPoseCapture::root
+                                      : app::UnitPoseCapture::full;
             CHECK(app::unit_pose_capture(rules, true) == expected);
         }
 }

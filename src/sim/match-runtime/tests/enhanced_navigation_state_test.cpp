@@ -274,7 +274,7 @@ void fine_routes_are_selected_only_for_known_fine_presets() {
     CHECK(bytes_of(fine_routes) == fine_bytes);
 }
 
-/// Following preserves fine BUILDING bytes and saved continuation from seven.
+/// Following preserves unfinished fine bytes and saved continuation from seven.
 void following_keeps_fine_navigation_continuation() {
     Fixture previous(options_for(oa::data::enhanced_mode::distributed_battle_flow_version));
     Fixture following(options_for(oa::data::enhanced_mode::following_flow_version));
@@ -356,6 +356,73 @@ void configure_movement_class(
     }
     CHECK(fixture.match->fault() == nullptr);
     CHECK(fixture.match->movement_map(1) != nullptr);
+}
+
+/// Continues a real half-built fine frontier after seven-to-following restore.
+void following_restores_a_building_fine_frontier() {
+    constexpr uint32_t side = 128, saved_tick = 121;
+    Fixture previous(options_for(oa::data::enhanced_mode::distributed_battle_flow_version));
+    Fixture following(options_for(oa::data::enhanced_mode::following_flow_version));
+    for (auto* fixture : {&previous, &following}) {
+        const uint32_t version = fixture->match->rules().setup.enhanced_mode.version;
+        fixture->match.reset();
+        fixture->map.attribute_width = fixture->map.attribute_height = side;
+        fixture->map.attributes.resize(size_t(side) * side);
+        fixture->terrain_values.resize(size_t(side) * side);
+        fixture->collision_plots.resize(size_t(side) * side);
+        fixture->altitude_cells.resize(size_t(side / 2) * (side / 2));
+        configure_movement_class(*fixture, 1, 1, version);
+        fixture->match->simulation().tick = saved_tick;
+    }
+    routes::FlowCache cache(side, side, fixture_route_limits(7), routes::FlowPreset::fine_regions);
+    const routes::FlowSampler sampler{
+        nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
+            return x >= 0 && z >= 0 && x < int32_t(side) && z < int32_t(side) ? 1 : 0;
+        }
+    };
+    oa::Unit unit{};
+    unit.cell_x = unit.cell_z = 1;
+    unit.position.x = unit.position.z = 24 << 16;
+    routes::Goal goal{};
+    goal.cell = {112, 112};
+    const routes::FlowContext context{1, 0, 0, 0, 1, 1};
+    std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+    uint32_t count{};
+    cache.advance(saved_tick - 1, 0, sampler);
+    CHECK(cache.route(context, unit, goal, points, count, sampler) == routes::FlowResult::fallback);
+    CHECK(cache.route(context, unit, goal, points, count, sampler) == routes::FlowResult::pending);
+    cache.advance(saved_tick, 0, sampler);
+    const auto saved = cache.state_bytes();
+    constexpr size_t first_field = 128 + 64 * 48;
+    const auto word = [](std::span<const uint8_t> bytes, size_t at) {
+        CHECK(at + 4 <= bytes.size());
+        return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 | uint32_t(bytes[at + 2]) << 16 |
+               uint32_t(bytes[at + 3]) << 24;
+    };
+    CHECK(word(saved, 4) == 3);
+    CHECK(word(saved, first_field) == 2);
+    CHECK(word(saved, first_field + 56) > 0);
+    CHECK(word(saved, first_field + 56) < word(saved, first_field + 60));
+    for (auto* fixture : {&previous, &following}) {
+        const auto& shared = table(*fixture->match, "shared-routes");
+        CHECK(shared.restore(shared.context, saved));
+        CHECK(bytes_of(shared) == std::vector<uint8_t>(saved.begin(), saved.end()));
+    }
+    for (uint32_t tick = saved_tick + 1; tick <= saved_tick + 2; ++tick) {
+        for (auto* fixture : {&previous, &following}) {
+            fixture->match->simulation().tick = tick;
+            fixture->match->advance_path_search();
+        }
+        for (const auto* name : navigation_tables)
+            CHECK(
+                bytes_of(table(*previous.match, name)) == bytes_of(table(*following.match, name))
+            );
+        CHECK(previous.match->random_state() == following.match->random_state());
+        CHECK(previous.match->lcg_state() == following.match->lcg_state());
+    }
+    const auto completed = bytes_of(table(*following.match, "shared-routes"));
+    CHECK(word(completed, first_field) == 3);
+    CHECK(word(completed, first_field + 56) == word(completed, first_field + 60));
 }
 
 /// Fine storage can hold the battle's working set without increasing expansion work.
@@ -1432,6 +1499,7 @@ int main() {
         different_presets_refuse_each_others_routes();
         fine_routes_are_selected_only_for_known_fine_presets();
         following_keeps_fine_navigation_continuation();
+        following_restores_a_building_fine_frontier();
         shared_field_storage_is_bounded_per_preset();
         shared_poll_progresses_without_legacy_credit();
         shared_poll_progresses_without_legacy_credit(
