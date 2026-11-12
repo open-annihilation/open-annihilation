@@ -3657,6 +3657,16 @@ void marker_packet_validation() {
     models.marker_runs = runs;
     models.markers = over_limit;
     rejected();
+    // Active ordinary-model runs still validate their arrays when marker
+    // runs share the frame; only completely unused arrays may be ignored.
+    const std::array<ModelRun, 1> active_runs{{{0, 0, 3, 0}}};
+    const std::array<float, 1> invalid_positions{nan};
+    runs = {{0, 0, 1}};
+    models.marker_runs = runs;
+    models.markers = packets;
+    models.runs = active_runs;
+    models.positions = invalid_positions;
+    rejected();
 }
 
 /// Compact corners preserve all pixels through both fragment stages and retained frames.
@@ -3829,6 +3839,36 @@ void compact_marker_readback() {
         if (!frame(compact, nullptr, 1, classic_projection, false, false))
             return;
     OA_CHECK(pixels[0] == pixels[1] && !pixels[1].empty());
+    // A marker-only frame must not inspect retained ordinary-model arrays.
+    // Every span owns its advertised storage, including the over-limit
+    // instance array and the malformed, nonmultiple position/texture spans.
+    const uint32_t stale = std::numeric_limits<uint32_t>::max();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const std::array<uint32_t, 3> stale_corners{stale, stale, stale};
+    const std::array<uint32_t, 1> stale_indices{stale};
+    const std::array<uint32_t, 1> stale_pieces{stale};
+    const std::array<float, 2> stale_positions{nan, -32769};
+    const std::array<float, 2> stale_textures{nan, -1};
+    const std::array<ModelRun, 1> stale_cast_runs{{{0, stale, stale, stale}}};
+    const std::vector<ModelInstance> stale_instances(largest_model_instance_count + 1);
+    models.corners = stale_corners;
+    models.corners_revision = std::numeric_limits<uint64_t>::max();
+    models.instances = stale_instances;
+    models.positions = stale_positions;
+    models.piece_frames = stale_pieces;
+    models.textures = stale_textures;
+    models.indices = stale_indices;
+    models.cast_indices = stale_indices;
+    models.cast_runs = stale_cast_runs;
+    models.shadow_vertex = models.shadow_ground = std::numeric_limits<std::size_t>::max();
+    models.shadow_map = {nan, nan, nan, stale, stale};
+    OA_CHECK(models.runs.empty() && models.casts.empty() && !models.markers.empty());
+    for (const uint32_t aa : {1U, 4U}) {
+        for (bool compact : {false, true})
+            if (!frame(compact, &lights, aa, classic_projection, false, false))
+                return;
+        OA_CHECK(pixels[0] == pixels[1] && !pixels[1].empty() && draws_markers(contexts[1]));
+    }
 }
 
 /// Serial, four-thread and compact strategic markers preserve every owner-coloured pixel.
