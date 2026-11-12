@@ -20,6 +20,8 @@ runs on. Each stage is written once, in Vulkan's GLSL, in src/app/shaders/:
   live_overlay_fragment.glsl  what the processor painted over the turned
                               view added to the picture, and the display
                               gamma
+  live_marker_vertex.glsl     strategic markers' CPU-placed corners, drawn
+                              through the scene's camera and fragment stages
   live_model_vertex.glsl      the models the card keeps: a unit's triangle
                               corner from its type's, for the scene's and
                               the surface's fragment stages
@@ -56,6 +58,7 @@ skipped.
 """
 import argparse
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -74,6 +77,7 @@ STAGES = (
     ("live_surface_fragment", "frag"),
     ("live_lights_fragment", "frag"),
     ("live_overlay_fragment", "frag"),
+    ("live_marker_vertex", "vert"),
     ("live_model_vertex", "vert"),
     ("live_shadow_cast_vertex", "vert"),
     ("live_shadow_cast_fragment", "frag"),
@@ -112,6 +116,48 @@ def tool_versions():
     return lines
 
 
+def marker_msl_bindings(data):
+    """Places the marker's storage buffer after its two Metal uniforms.
+
+    SDL uses descriptor sets to separate SPIR-V uniforms and storage, but
+    Metal buffer slots share one index. Only the temporary input for MSL
+    changes; the committed SPIR-V keeps its original resource bindings.
+
+    @param data the marker stage's validated SPIR-V
+    @return SPIR-V with the frame storage buffer at Metal buffer slot two
+    """
+    words = list(struct.unpack(f"<{len(data) // 4}I", data))
+    instructions = []
+    at = 5  # SPIR-V's five-word module header
+    while at < len(words):
+        count = words[at] >> 16
+        if count == 0 or count > len(words) - at:
+            raise RuntimeError("live_marker_vertex: invalid SPIR-V instruction")
+        instructions.append(at)
+        at += count
+    frame = []
+    for at in instructions:
+        if words[at] & 0xffff == 5:  # OpName: target, then a nul-terminated name
+            count = words[at] >> 16
+            name = struct.pack(f"<{count - 2}I", *words[at + 2:at + count])
+            if name.split(b"\0", 1)[0] == b"frame":
+                frame.append(words[at + 1])
+    if len(frame) != 1:
+        raise RuntimeError("live_marker_vertex: expected one named frame storage buffer")
+    places = {}
+    for at in instructions:
+        if words[at] & 0xffff == 71 and words[at + 1] == frame[0]:  # OpDecorate
+            decoration = words[at + 2]
+            if decoration in (33, 34):  # Binding, DescriptorSet
+                if decoration in places or words[at] >> 16 != 4:
+                    raise RuntimeError("live_marker_vertex: duplicate or invalid frame binding")
+                places[decoration] = at + 3
+    if set(places) != {33, 34} or any(words[place] != 0 for place in places.values()):
+        raise RuntimeError("live_marker_vertex: expected frame at set zero, binding zero")
+    words[places[33]] = 2
+    return struct.pack(f"<{len(words)}I", *words)
+
+
 def compile_stage(name, stage, scratch):
     """Compiles one stage into its two forms.
 
@@ -130,6 +176,10 @@ def compile_stage(name, stage, scratch):
         ["spirv-cross", str(spirv), "--msl", "--msl-version", MSL_VERSION,
          "--msl-decoration-binding", "--output", str(msl)],
     ):
+        if name == "live_marker_vertex" and command[0] == "spirv-cross":
+            metal_spirv = scratch / f"{name}.msl.spv"
+            metal_spirv.write_bytes(marker_msl_bindings(spirv.read_bytes()))
+            command[1] = str(metal_spirv)
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"{' '.join(command)}:\n{result.stdout}{result.stderr}")
