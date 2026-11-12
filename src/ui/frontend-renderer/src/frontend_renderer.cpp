@@ -25,6 +25,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <unordered_map>
@@ -190,7 +191,22 @@ sequence_for(const formats::gaf::Archive& archive, std::string_view name) {
 struct ResolvedSprite {
     const formats::gaf::Sequence* sequence = nullptr;
     std::size_t base_frame = 0;
+    // The art the sequence was sought in, or found in.
+    SpriteArchive archive = SpriteArchive::screen;
 };
+
+[[nodiscard]] const formats::gaf::Archive&
+archive_of(const ScreenResources& resources, SpriteArchive archive) {
+    switch (archive) {
+    case SpriteArchive::shared:
+        return resources.shared_sprites;
+    case SpriteArchive::global:
+        return resources.global_sprites;
+    case SpriteArchive::screen:
+        break;
+    }
+    return resources.sprites;
+}
 
 [[nodiscard]] ResolvedSprite resolve_button_sprite(
     const ScreenResources& resources,
@@ -199,18 +215,17 @@ struct ResolvedSprite {
 ) {
     if (presentation != nullptr && presentation->sprite.has_value()) {
         const auto& override = *presentation->sprite;
-        const formats::gaf::Archive* archive = &resources.sprites;
-        if (override.archive == SpriteArchive::shared)
-            archive = &resources.shared_sprites;
-        else if (override.archive == SpriteArchive::global)
-            archive = &resources.global_sprites;
-        return {sequence_for(*archive, override.sequence), 0};
+        return {
+            sequence_for(archive_of(resources, override.archive), override.sequence),
+            0,
+            override.archive
+        };
     }
     if (const auto* named = sequence_for(resources.sprites, gadget.common.name)) {
-        return {named, 0};
+        return {named, 0, SpriteArchive::screen};
     }
     if (const auto* named = sequence_for(resources.shared_sprites, gadget.common.name)) {
-        return {named, 0};
+        return {named, 0, SpriteArchive::shared};
     }
     const auto* fields = std::get_if<ui::gui_layout::ButtonFields>(&gadget.fields);
     // A checkbox is filled as a bevel, with no BUTTONS0 frame. A hold button
@@ -237,9 +252,12 @@ struct ResolvedSprite {
     // The default art is commongui.gaf's: the shared archive of a frontend
     // screen, the screen's own archive of an in-game panel, which holds
     // commongui.gaf with the side's interface art shared.
+    auto fallback_archive = SpriteArchive::shared;
     const auto* fallback = sequence_for(resources.shared_sprites, fallback_name);
-    if (fallback == nullptr || fallback->frames.empty())
+    if (fallback == nullptr || fallback->frames.empty()) {
+        fallback_archive = SpriteArchive::screen;
         fallback = sequence_for(resources.sprites, fallback_name);
+    }
     if (fallback == nullptr || fallback->frames.empty())
         return {};
     std::size_t best = 0;
@@ -257,7 +275,38 @@ struct ResolvedSprite {
             best_difference = difference;
         }
     }
-    return {fallback, best};
+    return {fallback, best, fallback_archive};
+}
+
+// Notes a picture a record is drawn without, when the caller asked for them.
+void note_fault(
+    std::vector<DrawFault>* faults,
+    const ScreenResources& resources,
+    DrawFaultKind kind,
+    const ui::gui_layout::Gadget& gadget,
+    const ResolvedSprite& binding,
+    std::string_view sequence_name,
+    std::size_t frame,
+    std::string error = {}
+) {
+    if (faults == nullptr)
+        return;
+    DrawFault fault;
+    fault.kind = kind;
+    fault.gadget = gadget.common.name;
+    fault.archive = binding.archive;
+    fault.sequence = std::string(sequence_name);
+    fault.frame = frame;
+    if (binding.sequence != nullptr) {
+        const auto& sequences = archive_of(resources, binding.archive).sequences;
+        if (binding.sequence >= sequences.data() &&
+            binding.sequence < sequences.data() + sequences.size())
+            fault.sequence_index = static_cast<std::size_t>(binding.sequence - sequences.data());
+        fault.sequence = binding.sequence->name;
+        fault.frames = binding.sequence->frames.size();
+    }
+    fault.error = std::move(error);
+    faults->push_back(std::move(fault));
 }
 
 // The light-table row a gadget's authored colour names, or null when the
@@ -1483,13 +1532,33 @@ bool from_mod_folder(
     return archive && in_mod_folder(*archive, mod_folder);
 }
 
+std::string describe_draw_fault(const DrawFault& fault, std::string_view file) {
+    const std::string in_file = file.empty() ? std::string() : " in " + std::string(file);
+    switch (fault.kind) {
+    case DrawFaultKind::missing_sequence:
+        return fault.gadget + " asks for GAF sequence " + fault.sequence +
+               ", which the screen's art lacks; drawn without it";
+    case DrawFaultKind::undecodable_frame:
+        return fault.gadget + ": frame index " + std::to_string(fault.frame) + " of GAF sequence " +
+               fault.sequence + in_file + " cannot be decoded (" + fault.error +
+               "); drawn without it";
+    case DrawFaultKind::missing_frame:
+        break;
+    }
+    return fault.gadget + " asks for frame index " + std::to_string(fault.frame) +
+           " of GAF sequence " + fault.sequence + in_file + ", which has " +
+           std::to_string(fault.frames) + (fault.frames == 1 ? " frame" : " frames") +
+           "; drawn without it";
+}
+
 Surface render_screen(
     const ScreenResources& resources,
     std::span<const ButtonPresentation> presentation,
-    std::span<const ListPresentation> lists
+    std::span<const ListPresentation> lists,
+    std::vector<DrawFault>* faults
 ) {
     Surface result;
-    render_screen_into(result, resources, presentation, lists);
+    render_screen_into(result, resources, presentation, lists, faults);
     return result;
 }
 
@@ -1497,7 +1566,8 @@ void render_screen_into(
     Surface& result,
     const ScreenResources& resources,
     std::span<const ButtonPresentation> presentation,
-    std::span<const ListPresentation> lists
+    std::span<const ListPresentation> lists,
+    std::vector<DrawFault>* faults
 ) {
     // The background is copied into the surface's own memory, which keeps
     // its size from one screen to the next.
@@ -1573,19 +1643,51 @@ void render_screen_into(
             continue;
         }
         // A hot surface given an image and frame at run time (the setup rows'
-        // colour and allegiance) shows that frame over its rectangle.
+        // colour and allegiance) shows that frame over its rectangle, and
+        // nothing when the art lacks the sequence or the frame.
         if (gadget.common.type == ui::gui_layout::GadgetType::hot_surface && state != nullptr &&
             state->sprite.has_value() && state->gaf_frame.has_value()) {
             const auto binding = resolve_button_sprite(resources, gadget, state);
-            if (binding.sequence == nullptr)
-                throw std::runtime_error("runtime image sprite sequence is missing");
             const auto frame_index = *state->gaf_frame;
-            if (frame_index >= binding.sequence->frames.size())
-                throw std::runtime_error("runtime image frame index is out of range");
+            if (binding.sequence == nullptr) {
+                note_fault(
+                    faults,
+                    resources,
+                    DrawFaultKind::missing_sequence,
+                    gadget,
+                    binding,
+                    state->sprite->sequence,
+                    frame_index
+                );
+                continue;
+            }
+            if (frame_index >= binding.sequence->frames.size()) {
+                note_fault(
+                    faults,
+                    resources,
+                    DrawFaultKind::missing_frame,
+                    gadget,
+                    binding,
+                    {},
+                    frame_index
+                );
+                continue;
+            }
             formats::gaf::RenderResult rendered;
             const auto pixels = frame_pixels(binding.sequence->frames[frame_index], rendered);
-            if (!pixels)
-                throw std::runtime_error("cannot render runtime image: " + rendered.error->message);
+            if (!pixels) {
+                note_fault(
+                    faults,
+                    resources,
+                    DrawFaultKind::undecodable_frame,
+                    gadget,
+                    binding,
+                    {},
+                    frame_index,
+                    rendered.error->message
+                );
+                continue;
+            }
             blit_stretched(
                 result,
                 *pixels,
@@ -1644,16 +1746,32 @@ void render_screen_into(
                     grayed_frame_offset, sequence->frames.size() - 1U - binding.base_frame
                 );
             }
+            const auto frame_count = sequence->frames.size();
             const auto index = binding.base_frame + relative_frame;
-            if (index >= sequence->frames.size()) {
-                throw std::runtime_error("resolved GAF frame index is out of range");
-            }
+            // 3.1c's frame lookup finds nothing past the sequence's last
+            // frame, and the button is then drawn without a picture, its
+            // caption alone: a mod's picture of one frame shows what lies
+            // under it while a press on it is held. A frame that cannot be
+            // decoded is drawn the same way.
             formats::gaf::RenderResult rendered;
-            const auto pixels = frame_pixels(sequence->frames[index], rendered);
-            if (!pixels) {
-                throw std::runtime_error(
-                    "cannot render MAINMENU.GAF sequence '" + sequence->name +
-                    "': " + rendered.error->message
+            std::optional<FramePixels> pixels;
+            if (binding.base_frame < frame_count &&
+                relative_frame < frame_count - binding.base_frame) {
+                pixels = frame_pixels(sequence->frames[index], rendered);
+                if (!pixels)
+                    note_fault(
+                        faults,
+                        resources,
+                        DrawFaultKind::undecodable_frame,
+                        gadget,
+                        binding,
+                        {},
+                        index,
+                        rendered.error->message
+                    );
+            } else {
+                note_fault(
+                    faults, resources, DrawFaultKind::missing_frame, gadget, binding, {}, index
                 );
             }
             // A grayed-out button is grayed and darkened too, except one that
@@ -1680,7 +1798,7 @@ void render_screen_into(
                         grayed_shade_row
                     );
                 // A button without a caption darkens its frame as it draws it.
-                if (grayed_shade->usable() &&
+                if (pixels && grayed_shade->usable() &&
                     (button_fields == nullptr || button_fields->text.empty())) {
                     blit_grayed(
                         result,
@@ -1696,11 +1814,14 @@ void render_screen_into(
             }
             // The frame keeps its own size at the gadget's corner, however
             // the authored rectangle differs: NEWGAME's 160x160 side emblems
-            // fill their frames from 132x106 Side0 and 129x104 Side1.
-            blit(result, *pixels, gadget.common.x, gadget.common.y, active_palette, light_row);
+            // fill their frames from 132x106 Side0 and 129x104 Side1. A button
+            // drawn without its frame keeps its own rectangle.
             auto resolved_gadget = gadget;
-            resolved_gadget.common.width = static_cast<int16_t>(pixels->width);
-            resolved_gadget.common.height = static_cast<int16_t>(pixels->height);
+            if (pixels) {
+                blit(result, *pixels, gadget.common.x, gadget.common.y, active_palette, light_row);
+                resolved_gadget.common.width = static_cast<int16_t>(pixels->width);
+                resolved_gadget.common.height = static_cast<int16_t>(pixels->height);
+            }
             draw_button_text(
                 result,
                 resolved_gadget,

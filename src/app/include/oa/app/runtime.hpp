@@ -15709,6 +15709,23 @@ class Runtime final : public menu::Host,
     /// @return the frame, or nullopt for a gadget without status or art
     [[nodiscard]] std::optional<std::size_t> match_status_frame(std::size_t index) const;
 
+    /// Returns the GAF file a picture of the side column's page shown was
+    /// read from: the page's own anims/<page>.GAF, commongui.gaf, the side's
+    /// interface GAF or a download button's anims/<name>_gadget.gaf.
+    ///
+    /// @param fault a picture the page was drawn without
+    /// @return the file's path, as the page read it; empty when it is not known
+    [[nodiscard]] std::string match_hud_fault_file(const renderer::DrawFault& fault) const;
+
+    /// Logs, the first time the run meets each, the pictures the side
+    /// column's page shown was drawn without (report_data_fault): its GUI
+    /// file, the unit whose own page it is, the record, the sequence, its GAF
+    /// file and the frames. A mod's art that lacks a frame its page asks for
+    /// is the mod's to fix; the page is drawn on without it.
+    ///
+    /// @param faults the faults the page's last draw handed back
+    void report_match_hud_faults(std::span<const renderer::DrawFault> faults);
+
     /// Returns how the match HUD draws one of its buttons.
     ///
     /// A greyed button is drawn greyed, never hidden: an order the selection
@@ -18523,6 +18540,25 @@ class Runtime final : public menu::Host,
     /// picture again. Prints "gadget art per match check: passed".
     /// Throws std::runtime_error on a failure.
     void check_gadget_art_per_match();
+
+    /// Plays a skirmish with a unit whose page's picture has one frame, and
+    /// presses the picture.
+    ///
+    /// Needs --mod-dir on a folder that holds none of the three files this
+    /// check writes: units/OAFRAME.FBI, a kbot of the Peewee's model that
+    /// builds nothing; its page guis/OAFRAME1.GUI, with the ORDERS and BUILD
+    /// tabs and a picture button OAFRAMEPIC; and anims/OAFRAME1.GAF, whose
+    /// OAFRAMEPIC sequence holds a single frame. The unit is placed beside the
+    /// commander and selected, and BUILD shows its page. The picture draws
+    /// its frame; pressed and held over three frames, twice, it is drawn
+    /// without a picture, the panel under it showing, since a pressed button
+    /// asks for the frame after its own and 3.1c's frame lookup finds none
+    /// past a sequence's last. Let go, it draws its frame again. The fault is
+    /// logged once, naming the page, the unit and the GAF file. The check
+    /// removes what it wrote. Prints "picture frames check: passed". Throws
+    /// std::runtime_error on a failure, as an older build's draw of the
+    /// pressed picture threw.
+    void check_picture_frames();
 
     /// Places a finished structure of the local player's on the first free site in the rings of
     /// cells around a unit.

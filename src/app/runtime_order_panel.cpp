@@ -469,6 +469,68 @@ Runtime::match_gadget_state(const oa::ui::gui_layout::Gadget& gadget) const {
     return index < match_hud_states_.size() ? &match_hud_states_[index] : nullptr;
 }
 
+std::string Runtime::match_hud_fault_file(const renderer::DrawFault& fault) const {
+    if (!match_hud_ || !match_hud_art_)
+        return {};
+    const auto& art = *match_hud_art_;
+    if (fault.archive == renderer::SpriteArchive::shared)
+        return art.read_panel;
+    if (fault.archive != renderer::SpriteArchive::screen)
+        return {};
+    // The page's art is its own GAF's sequences, then commongui.gaf's, then
+    // the side's interface GAF's, then a download button's own
+    // (load_match_hud_layout).
+    const std::size_t own = art.page_sequences;
+    const std::size_t common = own + art.common_sequences;
+    const std::size_t side = common + match_hud_->shared_sprites.sequences.size();
+    if (fault.sequence_index < own)
+        return "anims/" + oa::data::defs::file_stem(match_hud_panel_) + ".GAF";
+    if (fault.sequence_index < common)
+        return "anims/commongui.gaf";
+    if (fault.sequence_index < side)
+        return art.read_panel;
+    for (const auto& gadget : match_hud_->layout.gadgets)
+        if (gadget.common.gaf_file && gadget.common.name == fault.gadget)
+            return "anims/" + gadget.common.name + "_gadget.gaf";
+    return {};
+}
+
+void Runtime::report_match_hud_faults(std::span<const renderer::DrawFault> faults) {
+    if (faults.empty())
+        return;
+    std::string where = "match HUD " + match_hud_panel_;
+    // The unit whose own page this is: its file is named for the unit, and
+    // its page number follows the name.
+    if (match_ && match_hud_side_page_ == hud::SidePage::unit) {
+        const oa::World& world = match_->state();
+        const auto state = hud::order_panel_load(world.game);
+        if (state.unit_type != 0 && state.unit_type < world.unit_def_count) {
+            const auto& definition = world.unit_defs[state.unit_type];
+            const std::string unit(
+                definition.unit_name, strnlen(definition.unit_name, sizeof definition.unit_name)
+            );
+            const std::string name(
+                definition.name, strnlen(definition.name, sizeof definition.name)
+            );
+            const std::string stem = oa::data::defs::file_stem(match_hud_panel_);
+            const bool own_page =
+                !unit.empty() && stem.size() > unit.size() &&
+                ascii_iequals(std::string_view(stem).substr(0, unit.size()), unit) &&
+                std::all_of(
+                    stem.begin() + static_cast<std::ptrdiff_t>(unit.size()),
+                    stem.end(),
+                    [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; }
+                );
+            if (own_page)
+                where += " (unit " + unit + (name.empty() ? "" : ", " + name) + ")";
+        }
+    }
+    for (const auto& fault : faults)
+        report_data_fault(
+            where + ": " + renderer::describe_draw_fault(fault, match_hud_fault_file(fault))
+        );
+}
+
 std::optional<std::size_t> Runtime::match_status_frame(std::size_t index) const {
     if (!match_hud_ || index >= match_hud_->layout.gadgets.size())
         return std::nullopt;

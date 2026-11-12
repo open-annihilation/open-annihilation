@@ -1625,7 +1625,10 @@ bool Runtime::open_unit_info() {
     auto& panel = *unit_info_panel_;
     auto buttons = unit_info_button_presentations(panel.screen->layout.gadgets);
     try {
-        panel.frame = renderer::render_screen(*panel.screen, buttons);
+        std::vector<renderer::DrawFault> faults;
+        panel.frame = renderer::render_screen(*panel.screen, buttons, {}, &faults);
+        for (const auto& fault : faults)
+            report_data_fault("unit info panel: " + renderer::describe_draw_fault(fault));
     } catch (const std::exception& error) {
         std::cerr << "unit info panel: " << error.what() << '\n';
         panel.frame = {};

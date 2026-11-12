@@ -38,6 +38,15 @@ so, copied and handed on.
 draws it the same way into a surface the caller keeps, whose memory is used
 again, as the match's side panel and the menus are drawn on every frame.
 
+A record whose picture cannot be drawn is drawn without it, never stopping the
+draw: a button whose frame lies past its GAF sequence's last, as a pressed
+button whose sequence has one frame asks for, shows its caption alone over
+what lies under it, as 3.1c's frame lookup finds nothing there; a frame that
+cannot be decoded is drawn the same way, and a picture set at run time whose
+sequence or frame is missing shows nothing. Each draw hands these back as
+`DrawFault`s when the caller asks for them, and `describe_draw_fault` words
+one for a log; the game logs each once, as a mod's data fault.
+
 `FrontendX` remains the active display palette. As in the game's screen setup,
 `guipal` indices used by GUI primitives are mapped into that active PCX palette
 with the nearest-color rule. Normal GAF pixels use the active PCX palette

@@ -412,6 +412,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-mod-limits` | Opens Settings on Engine Limits at the menu and in a two-slot skirmish and checks the weapon-type and side rows. |
 | `--check-side-data-per-match` | Plays skirmishes and checks each match reads side data again when `gamedata/sidedata.tdf` has changed. |
 | `--check-gadget-art-per-match` | Plays three skirmishes and checks a download button's picture appears only in the match whose mod folder holds it. |
+| `--check-picture-frames` | Plays a skirmish with a unit whose page's picture has one frame, presses the picture and checks the match plays on, the button drawn without a picture while held and the fault logged once. |
 | `--check-factory-orders` | Gives a Kbot Lab a move and checks the unit it builds carries it out. |
 | `--check-factory-departure` | Has each factory with a platform build a unit and checks the unit is drawn over the platform as it leaves, at every row of a small scroll. |
 | `--check-unit-speech` | Selects and orders the commander and checks what it says. |

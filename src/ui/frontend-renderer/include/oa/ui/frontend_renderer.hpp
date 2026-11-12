@@ -288,6 +288,45 @@ enum class MainMenuLayout : uint8_t { with_overlay, base_game };
 [[nodiscard]] std::optional<std::string>
 translated_stage_caption(const ui::gui_layout::ButtonFields& button, std::size_t stage);
 
+/// Why a screen was drawn without a picture one of its records asks for.
+enum class DrawFaultKind : uint8_t {
+    /// A picture set at run time names a GAF sequence the screen's art lacks.
+    missing_sequence,
+    /// The frame asked for lies past the sequence's last.
+    missing_frame,
+    /// The frame is in the sequence but cannot be decoded.
+    undecodable_frame,
+};
+
+/// A picture render_screen drew a record without.
+///
+/// A screen's art comes from its GUI file's GAFs, which a mod may make: a
+/// button pressed whose sequence has one frame asks for a second that is not
+/// there. 3.1c's frame lookup finds nothing past a sequence's last frame, and
+/// the button is drawn without a picture, its caption alone. render_screen
+/// draws such a record the same way and hands the fault back, for the caller
+/// to log once.
+struct DrawFault {
+    DrawFaultKind kind = DrawFaultKind::missing_frame;
+    std::string gadget;                            ///< the record's name
+    SpriteArchive archive = SpriteArchive::screen; ///< the art the sequence was sought in
+    /// The sequence's place in that archive's sequences; 0 for a missing one.
+    std::size_t sequence_index = 0;
+    std::string sequence;   ///< the sequence's name
+    std::size_t frame = 0;  ///< the frame asked for, counted from 0
+    std::size_t frames = 0; ///< the frames the sequence holds; 0 for a missing one
+    std::string error;      ///< why an undecodable frame cannot be decoded
+};
+
+/// Says in one line what a screen was drawn without, for a log.
+///
+/// @param fault the fault
+/// @param file the GAF file the sequence was read from, named after it;
+///        empty names none
+/// @return the line, such as "PICTURE asks for frame index 1 of GAF sequence
+///         PICTURE in anims/UNIT1.GAF, which has 1 frame; drawn without it"
+[[nodiscard]] std::string describe_draw_fault(const DrawFault& fault, std::string_view file = {});
+
 /// Draws a screen: background, gadgets, list rows and captions.
 ///
 /// A button given a quick key in its presentation underlines it, as a
@@ -299,19 +338,25 @@ translated_stage_caption(const ui::gui_layout::ButtonFields& button, std::size_t
 /// inside the panel's root (the layout's first record); a label, a list or a
 /// text box holding the focus shows none.
 ///
+/// A record whose picture cannot be drawn (DrawFault) is drawn without it: a
+/// button shows its caption over what lies under it, and a picture set at run
+/// time shows nothing.
+///
 /// @param resources Resources from load_screen().
 /// @param presentation Runtime button states by gadget name; empty for the authored state.
 /// @param lists Runtime rows of type-2 gadgets by name.
+/// @param[out] faults when not null, a fault is added for each picture the
+///        screen was drawn without, in the order of the records
 /// @return The RGB image at the background's size.
-/// @throws std::runtime_error when the background or a runtime image is
-///         inconsistent, or a resolved GAF frame cannot be drawn.
+/// @throws std::runtime_error when the background is inconsistent.
 /// @quirk The focus outline is lit round the focused record even when the
 ///        record is not shown: a panel whose handler hides its first button
 ///        after the panel loaded rings the empty place, as 3.1c does.
 [[nodiscard]] Surface render_screen(
     const ScreenResources& resources,
     std::span<const ButtonPresentation> presentation = {},
-    std::span<const ListPresentation> lists = {}
+    std::span<const ListPresentation> lists = {},
+    std::vector<DrawFault>* faults = nullptr
 );
 
 /// Draws a screen as render_screen draws it, into a surface whose memory is
@@ -322,12 +367,15 @@ translated_stage_caption(const ui::gui_layout::ButtonFields& button, std::size_t
 /// @param resources Resources from load_screen().
 /// @param presentation Runtime button states by gadget name; empty for the authored state.
 /// @param lists Runtime rows of type-2 gadgets by name.
+/// @param[out] faults when not null, a fault is added for each picture the
+///        screen was drawn without, as render_screen adds them
 /// @throws std::runtime_error as render_screen throws
 void render_screen_into(
     Surface& target,
     const ScreenResources& resources,
     std::span<const ButtonPresentation> presentation = {},
-    std::span<const ListPresentation> lists = {}
+    std::span<const ListPresentation> lists = {},
+    std::vector<DrawFault>* faults = nullptr
 );
 
 // 100 sparks. They walk 8-bit FrontendX pixels whose low nibble is >= 0xD

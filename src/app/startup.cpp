@@ -351,6 +351,7 @@ void check_game_files_options(Options& options) {
         {options.check_replay_loadout, "--check-replay-loadout"},
         {options.check_side_data_per_match, "--check-side-data-per-match"},
         {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
+        {options.check_picture_frames, "--check-picture-frames"},
         {options.check_download_builds, "--check-download-builds"},
         {options.check_stockpile_builds, "--check-stockpile-builds"},
         {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -721,6 +722,7 @@ void check_director_options(Options& options) {
         {options.check_replay_loadout, "--check-replay-loadout"},
         {options.check_side_data_per_match, "--check-side-data-per-match"},
         {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
+        {options.check_picture_frames, "--check-picture-frames"},
         {options.check_download_builds, "--check-download-builds"},
         {options.check_stockpile_builds, "--check-stockpile-builds"},
         {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -853,6 +855,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_replay_loadout, "--check-replay-loadout"},
             {options.check_side_data_per_match, "--check-side-data-per-match"},
             {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
+            {options.check_picture_frames, "--check-picture-frames"},
             {options.check_download_builds, "--check-download-builds"},
             {options.check_stockpile_builds, "--check-stockpile-builds"},
             {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -1151,6 +1154,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-replay-loadout", &Options::check_replay_loadout},
     {"--check-side-data-per-match", &Options::check_side_data_per_match},
     {"--check-gadget-art-per-match", &Options::check_gadget_art_per_match},
+    {"--check-picture-frames", &Options::check_picture_frames},
     {"--check-download-builds", &Options::check_download_builds},
     {"--check-stockpile-builds", &Options::check_stockpile_builds},
     {"--check-unit-page-memory", &Options::check_unit_page_memory},
@@ -1910,7 +1914,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-unit-speech] [--check-mutator-layer] [--check-mutator-verdicts] "
                      "[--check-replay-loadout] "
                      "[--check-side-data-per-match] "
-                     "[--check-gadget-art-per-match] "
+                     "[--check-gadget-art-per-match] [--check-picture-frames] "
                      "[--check-download-builds] [--check-stockpile-builds] "
                      "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
                      "[--check-unit-pages whole|scaled:TYPE,...] "
@@ -2300,7 +2304,7 @@ void write_startup_line(std::string_view text) {
         result.check_key_editor || result.check_replay_viewer || result.check_key_capture ||
         result.check_key_share || result.check_key_views || result.check_keys_overlay ||
         result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
-        result.check_mutator_picker || result.check_brain_picker ||
+        result.check_mutator_picker || result.check_brain_picker || result.check_picture_frames ||
         result.check_brain_seat_buttons || result.check_brain_campaign ||
         result.check_mutator_prompts || result.check_map_pack_lists ||
         result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||

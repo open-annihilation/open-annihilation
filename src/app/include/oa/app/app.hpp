@@ -563,6 +563,10 @@ struct Options {
     // Plays three skirmishes over a --mod-dir folder and checks a download
     // button's picture appears only in the match whose folder holds its art.
     bool check_gadget_art_per_match = false;
+    // Plays a skirmish over a --mod-dir folder with a unit whose page's
+    // picture has one frame, presses the picture and checks the match plays
+    // on with the button drawn without it and the fault logged once.
+    bool check_picture_frames = false;
     // Opens a download page through the SDL presenter and builds a download
     // unit from it.
     bool check_download_builds = false;

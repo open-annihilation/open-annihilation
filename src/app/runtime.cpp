@@ -1038,6 +1038,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_picture_frames) {
+            check_picture_frames();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_download_builds) {
             check_download_builds();
             flush_preferences();
@@ -2551,7 +2556,17 @@ void Runtime::rebuild_surface() {
     }
     if (screen_ == Screen::load_game)
         present_load_game_panel(lists);
-    renderer::render_screen_into(surface_, resources_, presentation, lists);
+    // A picture the screen's art lacks is drawn as none, and logged once.
+    std::vector<renderer::DrawFault> faults;
+    renderer::render_screen_into(surface_, resources_, presentation, lists, &faults);
+    if (!faults.empty()) {
+        // The screen, and the GUI file it was laid out from.
+        std::string where = std::string(screen_label(screen_)) + " screen";
+        if (!menu_gui_stems_.empty())
+            where += " (" + menu_gui_stems_.front() + ".gui)";
+        for (const auto& fault : faults)
+            report_data_fault(where + ": " + renderer::describe_draw_fault(fault));
+    }
     // Colour cells of the skirmish and every other screen drawn this way.
     // The battle room is stamped on its own draw. With cues off the pass
     // draws nothing.

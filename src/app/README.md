@@ -3555,6 +3555,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   button is linked with no picture, then draws the picture after the mod
   folder gains its GAF, then has no picture once that file is gone. A GAF
   the previous match could not read is read again.
+- `runtime_picture_frames_check.cpp`: `--check-picture-frames`
+  (`native-picture-frames`): a unit written into the mod folder whose page's
+  picture has one frame. Pressed and held, the picture asks for the frame
+  after its own and is drawn without a picture, the match playing on; the
+  fault is logged once (`report_match_hud_faults`), naming the page, the
+  unit and the GAF.
 - `runtime_match_menus.cpp` also registers the load-game overlay
   (`register_load_game_screens`).
 - The Open Annihilation settings ([oa/ui/engine_settings.hpp](../ui/engine-settings/README.md)):

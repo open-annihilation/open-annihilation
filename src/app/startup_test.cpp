@@ -448,6 +448,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-replay-loadout", &Options::check_replay_loadout, {}},
         {"--check-side-data-per-match", &Options::check_side_data_per_match, {}},
         {"--check-gadget-art-per-match", &Options::check_gadget_art_per_match, {}},
+        {"--check-picture-frames", &Options::check_picture_frames, {}},
         {"--check-download-builds", &Options::check_download_builds, {}},
         {"--check-stockpile-builds", &Options::check_stockpile_builds, {}},
         {"--check-unit-page-memory", &Options::check_unit_page_memory, {}},

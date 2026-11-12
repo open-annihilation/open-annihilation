@@ -2704,7 +2704,12 @@ renderer::Surface render(Resources& res) {
         grayed.clear();
         compose_layout(res, buttons, lists, grayed, sprites);
         try {
-            auto surface = renderer::render_screen(res.screen, buttons, lists);
+            // A picture the art lacks draws the panel again without the art
+            // the renderer is told of, and then as authored.
+            std::vector<renderer::DrawFault> faults;
+            auto surface = renderer::render_screen(res.screen, buttons, lists, &faults);
+            if (!faults.empty())
+                continue;
             gray_buttons(surface, res, grayed, buttons);
             return surface;
         } catch (const std::exception&) {

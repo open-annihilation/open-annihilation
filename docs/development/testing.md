@@ -437,6 +437,14 @@ has no picture, then the picture after the check copies build-page art into
 `anims/<unit>_gadget.gaf` in that folder, then no picture once that file is
 removed. The check removes what it wrote.
 
+`native-picture-frames` (`--check-picture-frames`) needs `--mod-dir` on an
+empty folder. It writes a unit there, a page for it and the page's GAF,
+whose picture has a single frame, and plays a skirmish with that unit
+beside the commander. Pressed, the picture asks for a frame the GAF does
+not have: the button is drawn without a picture while the press is held,
+as 3.1c draws it, the match plays on and the fault is logged once, naming
+the page, the unit and the GAF. The check removes what it wrote.
+
 ### The demo's installer
 
 `OA_DEMO_INSTALLER` names the installer of the Total Annihilation demo (1997):

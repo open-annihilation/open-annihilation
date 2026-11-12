@@ -1546,6 +1546,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_recorded_mutators_check.cpp
   src/app/runtime_side_data_check.cpp
   src/app/runtime_gadget_art_check.cpp
+  src/app/runtime_picture_frames_check.cpp
   src/app/runtime_build_page_check.cpp
   src/app/runtime_language_check.cpp src/app/runtime_language_switch_check.cpp
   src/app/runtime_language_registry_check.cpp
@@ -2342,6 +2343,21 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-gadget-art-per-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_gadget_art_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # A unit's page whose picture has one frame, pressed: drawn without a
+      # picture while held, the match playing on and the fault logged once.
+      # The scratch mod folder starts empty; the check writes the unit, its
+      # page and the page's GAF there, and removes them.
+      set(oa_picture_frames_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/picture-frames")
+      file(MAKE_DIRECTORY "${oa_picture_frames_dir}")
+      file(MAKE_DIRECTORY "${oa_picture_frames_dir}/mod")
+      add_test(NAME native-picture-frames COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-picture-frames
+        --mod-dir "${oa_picture_frames_dir}/mod"
+        --preferences-file "${oa_picture_frames_dir}/picture-frames.conf")
+      set_tests_properties(native-picture-frames PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_picture_frames_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "picture frames check: passed")
       # SINGLE.GUI when a side has a campaign, and when a folder hides every
       # campaign file with an empty file of the same name. New Campaign stays
       # shown and is greyed only when neither side has a campaign; Any Mission

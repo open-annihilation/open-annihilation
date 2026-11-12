@@ -1359,7 +1359,10 @@ void Runtime::compose_match_hud() {
         std::vector<renderer::ListPresentation> lists;
         present_team_panel(buttons, lists);
         const auto hud_start = std::chrono::steady_clock::now();
-        renderer::render_screen_into(hud, *match_hud_, buttons, lists);
+        // A picture the page's art lacks is drawn as none, and logged once.
+        std::vector<renderer::DrawFault> faults;
+        renderer::render_screen_into(hud, *match_hud_, buttons, lists, &faults);
+        report_match_hud_faults(faults);
         const auto& panel_palette = match_hud_->background.palette ? *match_hud_->background.palette
                                                                    : match_hud_->gui_palette;
         stamp_colour_cell_markers(hud, match_hud_->layout, panel_palette, false);
