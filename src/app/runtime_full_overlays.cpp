@@ -35,6 +35,11 @@ constexpr float blend_opacity_whole = 256.0F;
 constexpr double channel_whole = 255.0;
 /// The most quads a pixel's count of them holds.
 constexpr int most_counted_quads = 255;
+/// The levels a channel holds.
+constexpr std::size_t channel_levels = 256;
+/// The pixels from which a quad shades the canvas through a table of each
+/// channel's levels: fewer cost less shaded one by one than the table.
+constexpr int64_t table_shaded_pixels = 256;
 
 /// Gives a channel's level with a quad's colour drawn over it, as the card
 /// draws the quad by its blend.
@@ -102,20 +107,32 @@ void cover_canvas_paint(
     const int64_t right = std::min<int64_t>(int64_t{quad.x} + quad.width, columns);
     const int64_t bottom = std::min<int64_t>(int64_t{quad.y} + quad.height, rows);
     const auto alpha = static_cast<double>(quad.colour.alpha);
-    for (int64_t y = top; y < bottom; ++y)
-        for (int64_t x = left; x < right; ++x) {
-            uint8_t* pixel = canvas.rgb.data() + static_cast<std::size_t>(y * columns + x) * 3U;
+    if (left >= right || top >= bottom)
+        return;
+    // A channel's level shown over a level under the quad.
+    const auto shown = [&](uint8_t under, std::size_t channel) {
+        return static_cast<uint8_t>(std::lround(
+            std::clamp(blended_level(under, colour[channel], alpha, quad.blend), 0.0, channel_whole)
+        ));
+    };
+    // A quad of many pixels shades each channel through a table of its
+    // levels, the same levels the pixel-by-pixel shading gives.
+    const bool tabled = (right - left) * (bottom - top) >= table_shaded_pixels;
+    std::array<std::array<uint8_t, channel_levels>, 3> table{};
+    if (tabled)
+        for (std::size_t channel = 0; channel < 3; ++channel)
+            for (std::size_t level = 0; level < channel_levels; ++level)
+                table[channel][level] = shown(static_cast<uint8_t>(level), channel);
+    for (int64_t y = top; y < bottom; ++y) {
+        uint8_t* pixel = canvas.rgb.data() + static_cast<std::size_t>(y * columns + left) * 3U;
+        for (int64_t x = left; x < right; ++x, pixel += 3) {
             if (std::equal(key.begin(), key.end(), pixel))
                 continue;
             for (std::size_t channel = 0; channel < 3; ++channel)
-                pixel[channel] = static_cast<uint8_t>(std::lround(
-                    std::clamp(
-                        blended_level(pixel[channel], colour[channel], alpha, quad.blend),
-                        0.0,
-                        channel_whole
-                    )
-                ));
+                pixel[channel] =
+                    tabled ? table[channel][pixel[channel]] : shown(pixel[channel], channel);
         }
+    }
 }
 
 } // namespace
