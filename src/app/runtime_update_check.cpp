@@ -282,9 +282,7 @@ void Runtime::check_engine_feed() {
         const auto deadline = deadline_from(std::chrono::seconds{30});
         while (update_snapshot().generation == before ||
                update_snapshot().state == update::CheckState::checking) {
-            require(
-                std::chrono::steady_clock::now() < deadline, "the hour's check did not finish"
-            );
+            require(std::chrono::steady_clock::now() < deadline, "the hour's check did not finish");
             idle_tick();
         }
         require(
