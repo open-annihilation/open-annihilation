@@ -256,7 +256,14 @@ who was defeated or who left stays in it for the whole replay, and the row
 says **Defeated 18:02** or **Left 21:40** once that moment has passed.
 Choosing that row shows the sight the match still holds for the seat. When
 the seat itself is gone, the row stays, the mark stays on it, and the view
-is the whole map: the match no longer holds that player's sight. The seat
+is the whole map: the match no longer holds that player's sight. Choosing
+one player's view, from the menu, with **Tab** or by a double-click on the
+stats, moves the camera onto their commander when none of their units is in
+the picture, to the place a replay opens on, held on the map. With one of
+their units in the picture, or no commander of theirs on the map (destroyed,
+still to be warped in, or a side with none), the camera stays where it is,
+and so does a **Follow** or **Director** camera. Every player and the whole
+map never move it. The seat
 the replay is watched from is never listed. The top bar shows only while
 one player's view is chosen, with that player's stored metal and energy
 and the rates the recording gives; under every player or the whole map

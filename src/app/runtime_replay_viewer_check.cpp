@@ -16,7 +16,10 @@
 // switches view and camera, seeks nowhere after that, and must digest the
 // same as the straight play. Markers come from the recording's
 // index pass. A skirmish's in-game menu offers Save Game; a replay's shows
-// it greyed, and no key, click or focus walk reaches it.
+// it greyed, and no key, click or focus walk reaches it. Choosing a player
+// whose units are all out of the picture moves the camera onto their
+// commander; choosing one with a unit in the picture, or every player,
+// leaves it.
 
 #include "library_host.hpp"
 #include "net_options.hpp"
@@ -705,6 +708,198 @@ void Runtime::check_replay_viewer() {
                   << commander << " at " << across << ", " << down << ", camera " << x << ", " << z
                   << '\n';
     };
+    // Choosing one player's view moves the camera onto their commander only
+    // when none of their units stands in the picture, to the place the
+    // replay opens on; with one of theirs in the picture it stays, and every
+    // player never moves it.
+    const auto check_switch_camera = [&] {
+        const auto camera = [this] {
+            return std::array<int32_t, 2>{match_camera_x_, match_camera_z_};
+        };
+        // A unit standing on the map, off the corner a unit still to be
+        // placed waits at, and where it is drawn.
+        const auto drawn_of = [this](std::size_t index) -> std::optional<std::array<int32_t, 2>> {
+            const auto id = static_cast<uint16_t>(index);
+            const auto& unit_slots = match_->world().slots;
+            if (!match_unit_present(id) || unit_slots[index].unit == nullptr)
+                return std::nullopt;
+            const auto* placed = unit_slots[index].unit;
+            const int32_t across = static_cast<int32_t>(placed->position[0]) >> 16;
+            const int32_t down = static_cast<int32_t>(placed->position[2]) >> 16;
+            const oa::Game& game = match_->state().game;
+            if (across < 0 || down < 0 || across >= game.map_pixel_width ||
+                down >= game.map_pixel_height || (across == 0 && down == 0))
+                return std::nullopt;
+            return std::array<int32_t, 2>{
+                across, down - (static_cast<int32_t>(placed->position[1]) >> 16) / 2
+            };
+        };
+        const auto in_picture = [&](int slot) {
+            const auto [left, top] = camera();
+            const auto& unit_slots = match_->world().slots;
+            for (std::size_t index = 1; index < unit_slots.size(); ++index) {
+                if (static_cast<int>(unit_slots[index].record.owner_index) != slot)
+                    continue;
+                const auto drawn = drawn_of(index);
+                if (drawn && (*drawn)[0] >= left && (*drawn)[0] < left + visible_map_width() &&
+                    (*drawn)[1] >= top && (*drawn)[1] < top + visible_map_height())
+                    return true;
+            }
+            return false;
+        };
+        const auto commander_of = [&](int slot) -> uint16_t {
+            const auto& unit_slots = match_->world().slots;
+            for (std::size_t index = 1; index < unit_slots.size(); ++index) {
+                const oa::Unit& unit = unit_slots[index].record;
+                if (static_cast<int>(unit.owner_index) == slot && drawn_of(index) &&
+                    oa::sim::match_runtime::side_commander(match_->state(), unit))
+                    return static_cast<uint16_t>(index);
+            }
+            return 0;
+        };
+        // The camera the opening would take over a unit: its drawn place in
+        // the middle of the picture, held on the map.
+        const auto framing_of = [&](uint16_t id) {
+            const std::array<int32_t, 2> drawn = *drawn_of(id);
+            const auto [map_width, map_height] = shown_map_size();
+            const auto held = [](int32_t start, int32_t view, int32_t map) {
+                return view >= map ? (map - view) / 2 : std::clamp(start, 0, map - view);
+            };
+            return std::array<int32_t, 2>{
+                held(drawn[0] - visible_map_width() / 2, visible_map_width(), map_width),
+                held(drawn[1] - visible_map_height() / 2, visible_map_height(), map_height)
+            };
+        };
+        // Opens the View menu and returns the row of a slot: the row whose
+        // name is that player's, or every player's for -1. The frames that
+        // open it run before the camera is read.
+        const auto view_row = [&](int slot) {
+            show_replay_bar();
+            frames(1);
+            if (!named("oa.replay-viewer.view-item.0"))
+                click_named("oa.replay-viewer.view");
+            if (slot < 0)
+                return std::string("oa.replay-viewer.view-item.0");
+            const char* const held = match_->state().game.players[slot].name;
+            const std::string name(
+                held, ::strnlen(held, sizeof(match_->state().game.players[slot].name))
+            );
+            for (int index = 1; index <= OA_PLAYER_COUNT; ++index) {
+                const std::string row = "oa.replay-viewer.view-item." + std::to_string(index);
+                const std::optional<AutomationControl> found = named(row);
+                if (found && found->text.rfind(name, 0) == 0)
+                    return row;
+            }
+            require(false, "the View menu has no row for slot " + std::to_string(slot));
+            return std::string();
+        };
+        // Presses the row and requires the view it shows.
+        const auto press_row = [&](const std::string& row, int slot) {
+            click_named(row);
+            frames(1);
+            require(
+                slot < 0 ? watched_player_ >= OA_PLAYER_COUNT
+                         : watched_player_ == static_cast<uint8_t>(slot),
+                "the View row did not show slot " + std::to_string(slot)
+            );
+        };
+        // A camera that stays keeps the map under the same rows of the window:
+        // the top bar one player's view shows moves the view down the map by
+        // its height, and back up, or leaves it flush with the map's top rows.
+        const auto choose_and_stay = [&](int slot, const std::string& what) {
+            const std::string row = view_row(slot);
+            const std::array<int32_t, 2> before = camera();
+            const int top_before = match_layout_.top;
+            press_row(row, slot);
+            const double zoom = match_zoom() > 0.0F ? static_cast<double>(match_zoom()) : 1.0;
+            const auto rows = static_cast<int32_t>(
+                std::lround(static_cast<double>(match_layout_.top - top_before) / zoom)
+            );
+            int32_t kept_z = before[1] + rows;
+            if (rows < 0 && before[1] >= 0)
+                kept_z = std::max(kept_z, int32_t{0});
+            const std::array<int32_t, 2> now = camera();
+            require(
+                now[0] == before[0] && (now[1] == before[1] || now[1] == kept_z),
+                what + " moved the camera from " + std::to_string(before[0]) + ", " +
+                    std::to_string(before[1]) + " to " + std::to_string(now[0]) + ", " +
+                    std::to_string(now[1])
+            );
+        };
+        // The host, whose commander the replay opened on, and the other player.
+        const uint16_t host_unit = host_commander();
+        require(host_unit != 0, "the host's commander is not on the map");
+        const int host = static_cast<int>(match_->world().slots[host_unit].record.owner_index);
+        int other = -1;
+        for (int slot = 0; slot < OA_PLAYER_COUNT && other < 0; ++slot) {
+            const oa::Player& player = match_->state().game.players[slot];
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&match_->state(), &player);
+            if (slot != host && player.in_use != 0 && info != nullptr &&
+                (info->options & OA_SETUP_OPTION_WATCHER) == 0)
+                other = slot;
+        }
+        require(other >= 0, "the replay seats no second player");
+        uint16_t far_commander = 0;
+        for (int frame_index = 0; frame_index < 400 && far_commander == 0; ++frame_index) {
+            far_commander = commander_of(other);
+            if (far_commander == 0)
+                frames(1);
+        }
+        require(far_commander != 0, "the computer's commander never stood on the map");
+        // A window whose picture is smaller than the map, over the host's
+        // commander, where the replay opened.
+        int window_width = 0;
+        int window_height = 0;
+        SDL_GetWindowSize(sdl_.window, &window_width, &window_height);
+        resize(CheckWindow{640, 480});
+        frames(2);
+        {
+            const auto [map_width, map_height] = shown_map_size();
+            require(
+                visible_map_width() < map_width && visible_map_height() < map_height,
+                "the 640x480 picture holds the whole map"
+            );
+        }
+        // Not centred on the commander, so that a move onto it shows.
+        const std::array<int32_t, 2> over_host = framing_of(host_unit);
+        const std::array<int32_t, 2> host_drawn = *drawn_of(host_unit);
+        set_camera_position(
+            (over_host[0] + host_drawn[0]) / 2, (over_host[1] + host_drawn[1]) / 2, 0
+        );
+        frames(1);
+        require(camera() != framing_of(host_unit), "the picture over the host is centred on it");
+        require(in_picture(host), "the picture over the host holds none of the host's units");
+        require(!in_picture(other), "the picture over the host holds the computer's units");
+        // The host's units are in the picture: the camera stays.
+        choose_and_stay(host, "choosing the host, in the picture,");
+        const std::array<int32_t, 2> opened = camera();
+        // None of the computer's units is in the picture: the camera goes to
+        // its commander. The commander may take a step in the frame the press
+        // runs, so the place is read after it, and a few pixels either way
+        // are the step.
+        constexpr int32_t kStep = 6;
+        require(!in_picture(other), "the host's picture holds the computer's units");
+        press_row(view_row(other), other);
+        const std::array<int32_t, 2> moved = camera();
+        const std::array<int32_t, 2> want = framing_of(far_commander);
+        require(
+            moved != opened && std::abs(moved[0] - want[0]) <= kStep &&
+                std::abs(moved[1] - want[1]) <= kStep,
+            "choosing a player out of the picture put the camera at " + std::to_string(moved[0]) +
+                ", " + std::to_string(moved[1]) + ", not over their commander at " +
+                std::to_string(want[0]) + ", " + std::to_string(want[1])
+        );
+        require(in_picture(other), "the camera did not bring the computer's units into view");
+        // Every player never moves it, and the computer again, its units in
+        // the picture now, leaves it.
+        choose_and_stay(-1, "choosing every player");
+        choose_and_stay(other, "choosing the computer, in the picture,");
+        std::cout << "replay viewer: choosing the computer's view moved the camera from "
+                  << opened[0] << ", " << opened[1] << " onto its commander at " << moved[0] << ", "
+                  << moved[1] << "; a player in the picture and every player kept it\n";
+        resize(CheckWindow{window_width, window_height});
+        frames(1);
+    };
     {
         // Two players: the skirmish's own seat and a computer.
         const fs::path two = recordings_folder(user_folder_, files_mod_id()) / "R08-opening.tad";
@@ -821,6 +1016,7 @@ void Runtime::check_replay_viewer() {
         require(!menu_shown(), "Escape did not close the replay's in-game menu");
         std::cout << "replay viewer: the replay's in-game menu shows Save Game greyed, and 's', a "
                      "click, Tab and Down pass it by\n";
+        check_switch_camera();
         leave_match();
         load(Screen::main_menu);
         wait_menu();

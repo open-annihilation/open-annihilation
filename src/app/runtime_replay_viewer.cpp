@@ -1956,6 +1956,53 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
         runtime_.resource_panel_.viewed_slot = static_cast<uint8_t>(slot);
         runtime_.switch_watched_view(oa::ui::hud::ViewSwitch::view_player);
         viewed_slot_ = slot;
+        frame_chosen_player(slot);
+    }
+
+    /// Moves the camera onto a player's commander as that player's view is
+    /// chosen, when none of their units stands in the picture on show: the
+    /// middle of the picture where the commander is drawn, held on the map,
+    /// as the replay opens. A unit of theirs in the picture leaves the camera
+    /// where it is, and so does a player with no commander on the map: one
+    /// destroyed, one still to be warped in, or a side with none. A camera
+    /// that follows (their camera, a unit or the Director) keeps its own
+    /// place.
+    ///
+    /// @param slot the player's slot
+    void frame_chosen_player(int slot) {
+        if (camera_mode_ != rv::CameraMode::free || runtime_.photo_mode())
+            return;
+        const oa::sim::match_runtime::Match* match = runtime_.running_match();
+        if (match == nullptr)
+            return;
+        const oa::World& world = match->state();
+        const auto& slots = match->world().slots;
+        const int32_t left = runtime_.match_camera_x_;
+        const int32_t top = runtime_.match_camera_z_;
+        const int32_t width = runtime_.visible_map_width();
+        const int32_t height = runtime_.visible_map_height();
+        uint16_t commander = 0;
+        for (std::size_t index = 1; index < slots.size(); ++index) {
+            const auto id = static_cast<uint16_t>(index);
+            const oa::Unit& unit = slots[index].record;
+            if (static_cast<int>(unit.owner_index) != slot || !on_map(*match, id))
+                continue;
+            const std::array<int32_t, 2> drawn = drawn_place(*slots[index].unit);
+            if (drawn[0] >= left && drawn[0] < left + width && drawn[1] >= top &&
+                drawn[1] < top + height)
+                return;
+            if (commander == 0 && oa::sim::match_runtime::side_commander(world, unit))
+                commander = id;
+        }
+        if (commander == 0)
+            return;
+        // Placed in the picture the player's view shows: with the top bar
+        // that view brings, so the whole view is on the map.
+        runtime_.keep_replay_top_bar();
+        const std::array<int32_t, 2> drawn = drawn_place(*slots[commander].unit);
+        place_on_map(drawn[0], drawn[1]);
+        // The opening's wait is over: the player chose where to look.
+        opening_pending_ = false;
     }
 
     /// Follows one offered camera mode. Follow a unit is not offered here.
@@ -2242,6 +2289,20 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
                (x != 0 || z != 0);
     }
 
+    /// The place on the map a unit is drawn: on high ground that is above
+    /// its ground point, by half its height.
+    ///
+    /// @param unit the unit's runtime state
+    /// @return across and down the map
+    [[nodiscard]] static std::array<int32_t, 2>
+    drawn_place(const oa::sim::simulation_state::Unit& unit) {
+        const int32_t height = static_cast<int32_t>(unit.position[1]) >> 16;
+        return {
+            static_cast<int32_t>(unit.position[0]) >> 16,
+            (static_cast<int32_t>(unit.position[2]) >> 16) - height / 2
+        };
+    }
+
     /// Opens a replay over the host's commander, or with one player's sight
     /// on show, over that player's, once it stands on the map.
     ///
@@ -2297,17 +2358,12 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
             opening_camera_x_ = runtime_.match_camera_x_;
             opening_camera_z_ = runtime_.match_camera_z_;
         };
-        // The middle of the picture on the place the unit is drawn: on
-        // high ground that is above its ground point.
+        // The middle of the picture on the place the unit is drawn.
         const auto centre_on = [&](uint16_t id) {
             if (id == 0 || !on_map(*match, id))
                 return false;
-            const auto* unit = slots[id].unit;
-            const int32_t height = static_cast<int32_t>(unit->position[1]) >> 16;
-            place_on_map(
-                static_cast<int32_t>(unit->position[0]) >> 16,
-                (static_cast<int32_t>(unit->position[2]) >> 16) - height / 2
-            );
+            const std::array<int32_t, 2> drawn = drawn_place(*slots[id].unit);
+            place_on_map(drawn[0], drawn[1]);
             keep();
             return true;
         };

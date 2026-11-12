@@ -2544,7 +2544,8 @@ if(OA_BUILD_PLATFORM)
       # The playback bar over a short recorded skirmish, at 640x480, 1280x720
       # and 1920x1080, and the players' stats at the top right there and on a
       # phone; the in-game menu's Save Game, offered in the skirmish and
-      # greyed in its replay. Each run starts from a clean folder.
+      # greyed in its replay; the camera a player's view moves onto their
+      # commander. Each run starts from a clean folder.
       set(oa_replay_viewer_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/replay-viewer")
       file(MAKE_DIRECTORY "${oa_replay_viewer_dir}")
       add_test(NAME replay-viewer-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
