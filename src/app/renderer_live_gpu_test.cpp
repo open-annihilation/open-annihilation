@@ -3526,7 +3526,18 @@ void parallel_ground_indices_readback() {
         for (std::size_t index = 0; index < scenes.size(); ++index) {
             in.pool = index == 0 ? nullptr : &pool;
             auto& scene = scenes[index];
+            if (index == 0 && frame >= 3) {
+                // The reference reads the original GPU-sized vertices;
+                // the other scene keeps only its compact query coordinates.
+                scene.ground_points_revision = 0;
+                scene.ground_points.clear();
+            }
             OA_CHECK(live::build(in, scene, error));
+            if (index == 1 && frame >= 3) {
+                OA_CHECK(scene.ground_points_revision == scene.ground_revision);
+                OA_CHECK(scene.ground_points.size() == scene.terrain_vertex_count);
+                OA_CHECK(!scene.ground_points.empty());
+            }
             OA_CHECK(error.empty());
             if (frame >= 2)
                 OA_CHECK(scene.terrain_vertex_count >= 3 * 32'768);

@@ -299,6 +299,13 @@ struct GroundIndexLayout {
     std::array<std::size_t, 2> listed_reach{};
 };
 
+/// Exact world coordinates of one rendered ground vertex, without its GPU attributes.
+struct GroundCoordinate {
+    float x{}, z{}, height{};
+};
+
+static_assert(sizeof(GroundCoordinate) == 3 * sizeof(float));
+
 /// Restores an index only while its retained geometry and query axes match.
 struct GroundIndexCache {
     GroundIndexKey key{};
@@ -567,6 +574,10 @@ struct Scene {
     /// effect cards' axes.
     std::array<GroundIndexMemory, 2> ground_index_memory{};
     GroundIndexCache ground_index_cache{};
+    /// Coordinates copied while one final kept ground is produced, never lazily
+    /// from a retained vertex arena. A zero revision selects the original vertices.
+    std::vector<GroundCoordinate> ground_points{};
+    uint64_t ground_points_revision{};
     /// What the last frame's ground was drawn from.
     GroundSource ground_source{};
     /// The ground of the last frame drawn from the same as the frame before

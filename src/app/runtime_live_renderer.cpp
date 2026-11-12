@@ -33,6 +33,7 @@
 #include <iostream>
 #include <limits>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
@@ -970,10 +971,32 @@ bool Runtime::render_live_match_surface() {
         Span building(Stage::scene_build);
         // A frame a check draws again on the card takes the scene drawn
         // last, unchanged, so that the frames after it are as they would be.
+        uint64_t checked_kept_revision{}, checked_ahead_revision{};
+        if (options_.check_live_renderer) {
+            checked_kept_revision = live.scene.kept_ground_revision;
+            if (live.scene.ground_ahead.placed)
+                checked_ahead_revision = live.scene.ground_ahead.revision;
+        }
         bool built = turned_overlay_checked_
                          ? live.scene_built
                          : renderer_live_scene::build(inputs, live.scene, error);
         live.scene_built = built;
+        // The windowless native check must reach a real hot kept-ground
+        // producer, rather than accepting a compact path only in fixtures.
+        // An ahead takeover and a first cut may legitimately use vertices.
+        if (options_.check_live_renderer && built && !turned_overlay_checked_ &&
+            live.scene.ground_kept && live.scene.terrain_vertex_count != 0 &&
+            live.scene.kept_ground_revision != checked_kept_revision &&
+            live.scene.kept_ground_revision != checked_ahead_revision &&
+            live.scene.ground_revision == live.scene.kept_ground_revision) {
+            if (live.scene.ground_points_revision != live.scene.ground_revision ||
+                live.scene.ground_points.size() != live.scene.terrain_vertex_count)
+                throw std::runtime_error(
+                    "live renderer check: fresh kept ground has no coordinates"
+                );
+            std::cout << "live renderer check: compact ground " << live.scene.ground_points.size()
+                      << " points, revision " << live.scene.ground_points_revision << '\n';
+        }
         building.stop();
         const auto note_scene = [&] {
             bench_timers::note_scene(

@@ -2107,6 +2107,35 @@ uint64_t new_ground_revision() {
     return ++last;
 }
 
+/// Keeps exact coordinate bits while their newly generated ground is still hot.
+/// A failed optional allocation leaves every query on its original vertex span.
+void remember_ground_points(Scene& scene, std::span<const Vertex> ground, uint64_t revision) {
+    scene.ground_points_revision = 0;
+    auto& points = scene.ground_points;
+    if (revision == 0 || ground.size() > maximum_vertices)
+        return;
+    try {
+        // Grow from empty rather than retaining a geometric capacity beyond
+        // the frame's vertex budget; there is only one coordinate cache.
+        if (ground.size() > points.capacity())
+            std::vector<GroundCoordinate>().swap(points);
+        points.resize(ground.size());
+    } catch (const std::bad_alloc&) {
+        std::vector<GroundCoordinate>().swap(points);
+        return;
+    }
+    if (points.capacity() > maximum_vertices) {
+        std::vector<GroundCoordinate>().swap(points);
+        return;
+    }
+    for (std::size_t index = 0; index < ground.size(); ++index) {
+        std::memcpy(&points[index].x, &ground[index].x, sizeof(float));
+        std::memcpy(&points[index].z, &ground[index].z, sizeof(float));
+        std::memcpy(&points[index].height, &ground[index].height, sizeof(float));
+    }
+    scene.ground_points_revision = revision;
+}
+
 /// Tells whether every tile the kept ground draws would come out of the
 /// atlas where it did: still packed in its square, no smaller than the plan
 /// lets it keep, from the map's art as it is now.
@@ -3393,6 +3422,7 @@ void take_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
     source.clip_height = ahead.source.clip_height;
     source.picture_margin = ahead.source.picture_margin;
     if (ahead.placed && ground_ahead_holds(in, scene, plan)) {
+        scene.ground_points_revision = 0;
         std::swap(scene.ground_vertices, ahead.vertices);
         scene.ground_tiles = std::move(ahead.tiles);
         scene.ground_kept = true;
@@ -3427,6 +3457,7 @@ void take_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
     }
     scene.ground_pass = ++scene.terrain_passes;
     scene.ground_kept = false;
+    scene.ground_points_revision = 0;
     scene.ground_revision = new_ground_revision();
     auto drawn = pack_ground_tiles(
         in, scene, plan, ahead.bands, true, ahead.packed_late, scene.ground_vertices
@@ -3435,6 +3466,7 @@ void take_ground_ahead(const Inputs& in, Scene& scene, const TerrainPlan& plan) 
     scene.ground_kept = true;
     scene.kept_ground_revision = scene.ground_revision;
     scene.terrain_vertex_count = scene.ground_vertices.size();
+    remember_ground_points(scene, scene.ground_vertices, scene.ground_revision);
 }
 
 /// Emits the frame's ground (draw_ground), or takes a kept ground: the kept
@@ -3548,6 +3580,7 @@ bool terrain(
     // too and so cannot give back.
     const bool first_of_move = moving && scene.ground_kept && source.picture_margin == 0;
     scene.ground_kept = false;
+    scene.ground_points_revision = 0;
     scene.ground_revision = new_ground_revision();
     float margin = 0;
     std::optional<TerrainCrop> widened;
@@ -3578,6 +3611,7 @@ bool terrain(
     scene.ground_kept = true;
     scene.kept_ground_revision = scene.ground_revision;
     scene.terrain_vertex_count = scene.ground_vertices.size();
+    remember_ground_points(scene, scene.ground_vertices, scene.ground_revision);
     return true;
 }
 
@@ -7035,6 +7069,32 @@ ground_index_key(uint64_t revision, std::size_t vertices, const GroundIndex::Axe
     return key;
 }
 
+/// A query reads compact coordinates only for the exact retained generation.
+struct GroundCoordinates {
+    std::span<const Vertex> vertices{};
+    std::span<const GroundCoordinate> points{};
+
+    [[nodiscard]] std::size_t size() const { return vertices.size(); }
+
+    [[nodiscard]] GroundCoordinate operator[](std::size_t index) const {
+        if (!points.empty())
+            return points[index];
+        const auto& vertex = vertices[index];
+        return {vertex.x, vertex.z, vertex.height};
+    }
+};
+
+GroundCoordinates
+ground_coordinates(const Scene& scene, std::span<const Vertex> ground, uint64_t revision) {
+    const bool remembered = revision != 0 && revision == scene.ground_points_revision &&
+                            ground.size() == scene.ground_points.size();
+    return {
+        ground,
+        remembered ? std::span<const GroundCoordinate>(scene.ground_points)
+                   : std::span<const GroundCoordinate>{}
+    };
+}
+
 /// Lists the frame's ground triangles along world x and z and along the
 /// cards' axes, reading each ground vertex once.
 ///
@@ -7057,6 +7117,7 @@ void list_ground(
     if (card_axes != nullptr)
         indices.card_axes = *card_axes;
     const std::size_t triangles = ground.size() / 3;
+    const auto coordinates = ground_coordinates(scene, ground, indices.revision);
     const auto control = base::float_precision::save_float_control();
     const auto key = ground_index_key(indices.revision, ground.size(), card_axes);
     auto& cache = scene.ground_index_cache;
@@ -7171,7 +7232,7 @@ void list_ground(
             std::array<float, 4> world{none, -none, none, -none};
             std::array<double, 4> card{none, -none, none, -none};
             for (std::size_t corner = 0; corner < 3; ++corner) {
-                const auto& vertex = ground[triangle * 3 + corner];
+                const auto vertex = coordinates[triangle * 3 + corner];
                 if (!std::isfinite(vertex.x) || !std::isfinite(vertex.z) ||
                     !std::isfinite(vertex.height))
                     return BoundSummary{0, false, false};
@@ -7323,7 +7384,7 @@ void list_ground(
 /// @param z its world z, in map pixels
 /// @return the height there, or nothing when the triangle does not hold the point
 std::optional<float>
-ground_on_triangle(std::span<const Vertex> ground, std::size_t first, float x, float z) {
+ground_on_triangle(GroundCoordinates ground, std::size_t first, float x, float z) {
     const auto& a = ground[first];
     const auto& b = ground[first + 1];
     const auto& c = ground[first + 2];
@@ -7352,7 +7413,7 @@ ground_on_triangle(std::span<const Vertex> ground, std::size_t first, float x, f
 /// @param z its world z, in map pixels
 /// @return the ground's height there, or nothing off the ground
 std::optional<float>
-rendered_ground(std::span<const Vertex> ground, GroundIndices& indices, float x, float z) {
+rendered_ground(GroundCoordinates ground, GroundIndices& indices, float x, float z) {
     std::optional<float> result;
     const auto test = [&](std::size_t first) {
         const auto height = ground_on_triangle(ground, first, x, z);
@@ -7466,7 +7527,8 @@ float surface_effect_lift(
         list_ground(scene, ground_triangles, facing ? &axes : nullptr, listed);
     }
     auto& indices = *used;
-    const auto ground = rendered_ground(ground_triangles, indices, x, z);
+    const auto coordinates = ground_coordinates(scene, ground_triangles, indices.revision);
+    const auto ground = rendered_ground(coordinates, indices, x, z);
     if (!ground || height > *ground + ground_near_distance)
         return 0;
     int32_t left = frame.width, top = frame.height, right_pixel{}, bottom{};
@@ -7497,7 +7559,7 @@ float surface_effect_lift(
         GroundPolygon local{};
         local.count = 3;
         for (std::size_t corner = 0; corner < local.count; ++corner) {
-            const auto& vertex = ground_triangles[first + corner];
+            const auto vertex = coordinates[first + corner];
             const float dx = vertex.x - x;
             const float dz = vertex.z - z;
             local.points[corner] = {
@@ -8816,6 +8878,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         // The cut is kept for the frames after; until the passes are in it
         // is kept for none.
         scene.cut_source = 0;
+        scene.ground_points_revision = 0;
         list_bands(in, std::span(passes.ground).first(ground_bands), scene.cut_ground);
         for (std::size_t band = 0; band < ground_bands; ++band)
             ground_cut |= passes.ground[band].cut;
@@ -9099,6 +9162,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             scene.cut_plots = std::move(plots.plots);
             scene.cut_source = source;
             scene.cut_revision = scene.ground_revision;
+            remember_ground_points(scene, scene.cut_ground, scene.cut_revision);
         }
         times.foundations += pass_clock(timing) - start;
     }
