@@ -12,7 +12,7 @@ seconds, the camera turned. The run must print, in order, INITIAL, WARMUP,
 MEASURING, a SEC line for each second, SHOT, RESULT, the five MEASURE
 spreads with the tick's mean, a STAGE line for every stage timer under its
 name, COUNTS, GROUND, ATLAS, the SLOW lines of the slowest 1% of frames, a
-FRAME line for every frame (the view asks for the frame log) and DONE;
+FRAME and SIM_FRAME line for every frame (the view asks for the frame log) and DONE;
 every spread must be in order (least, median, 95th and 99th percentiles,
 slowest 1%, most), the frame rates must agree with the frames and seconds,
 the slowest 1% must be as many frames as the span's 1% and as slow as its
@@ -99,6 +99,16 @@ FRAME = re.compile(
     rf"^bench: FRAME (\d+) frame {NUMBER} work {NUMBER} draw {NUMBER} ground ([01]) "
     rf"terrain_packs (\d+) atlas_resets (\d+) atlas_rows (\d+) materials (\d+) "
     rf"stages((?: {NUMBER}){{{len(STAGES)}}})$")
+SIM_FRAME = re.compile(
+    rf"^bench: SIM_FRAME (?P<frame>\d+) sim_ms (?P<sim>{NUMBER}) "
+    r"tick_before (?P<before>\d+) tick_after (?P<after>\d+) ticks (?P<ticks>\d+) "
+    rf"steps (?P<steps>\d+) max_step_ms (?P<maximum>{NUMBER}) "
+    r"max_step_tick (?P<slowest>\d+)$")
+UINT32_MASK = (1 << 32) - 1
+# A sum and its maximum are independently rounded to three decimal places.
+SIM_ROUNDING_MS = 0.0011
+# The frame mean is rounded to two places, the SIM_FRAME samples to three.
+SIM_MEAN_ROUNDING_MS = 0.0056
 # Renderer records are separate from the stable FRAME fields and stage order.
 MATERIAL_KINDS = ("surface", "scenery", "effect", "light", "shadow")
 RENDERER_TAGS = frozenset(("GROUND_INDEX", "POSE", "MATERIAL", "GROUND_INDEX_FRAME",
@@ -182,10 +192,76 @@ def check_initial(result, rules_version=0, requested_rules_version=0):
              f"not {rules_version}/{requested_rules_version}")
 
 
+def check_simulation_records(result, lines, frames=None):
+    """Validate paired simulation rows before projecting the unchanged FRAME transcript."""
+    positions = [index for index, line in enumerate(lines) if line.startswith("bench: FRAME")]
+    simulation = [line for line in lines if line.startswith("bench: SIM_FRAME")]
+    if not positions:
+        if simulation:
+            fail(result, "simulation records: SIM_FRAME has no FRAME span")
+        return lines
+
+    def require(condition, message):
+        if not condition:
+            fail(result, "simulation records: " + message)
+
+    result_line = next((line for line in lines if line.startswith("bench: RESULT ")), "")
+    span = re.search(r"\bframes (\d+)\b.*\bticks (\d+)\b", result_line)
+    require(span is not None, "missing RESULT frame and tick counts")
+    result_frames, result_ticks = map(int, span.groups())
+    require(frames is None or frames == result_frames, "RESULT frame count differs")
+    require(len(positions) == len(simulation) == result_frames,
+            "each FRAME needs exactly one SIM_FRAME")
+    measuring = next((line for line in lines if line.startswith("bench: MEASURING ")), "")
+    initial = re.search(r"\btick=(\d+)\b", measuring)
+    require(initial is not None, "missing initial measured tick")
+    previous = int(initial.group(1))
+    require(previous <= UINT32_MASK and result_ticks <= UINT32_MASK, "span tick exceeds uint32")
+    ticks_total = 0
+    simulation_total = 0.0
+    for frame, position in enumerate(positions):
+        frame_match = FRAME.fullmatch(lines[position])
+        require(frame_match is not None and int(frame_match.group(1)) == frame,
+                "FRAME indices are not complete and ordered")
+        require(position + 1 < len(lines), "missing SIM_FRAME after FRAME")
+        match = SIM_FRAME.fullmatch(lines[position + 1])
+        require(match is not None, "SIM_FRAME must immediately follow FRAME")
+        row = match.groupdict()
+        require(int(row["frame"]) == frame, "SIM_FRAME index differs from FRAME")
+        before, after, ticks, steps, slowest = (int(row[name]) for name in
+                                                 ("before", "after", "ticks", "steps", "slowest"))
+        require(all(value <= UINT32_MASK for value in (before, after, ticks, steps, slowest)),
+                "SIM_FRAME count or tick exceeds uint32")
+        require(before == previous, "frame tick spans are not contiguous")
+        require(ticks == ((after - before) & UINT32_MASK), "ticks differ from wrapped boundaries")
+        milliseconds, maximum = float(row["sim"]), float(row["maximum"])
+        require(milliseconds < float("inf") and maximum < float("inf"), "nonfinite step time")
+        if steps == 0:
+            require(milliseconds == maximum == slowest == 0, "zero-step frame has timed work")
+        else:
+            require(maximum <= milliseconds + SIM_ROUNDING_MS, "step maximum exceeds frame sum")
+            require(milliseconds <= steps * maximum + (steps + 1) * SIM_ROUNDING_MS,
+                    "frame sum exceeds its step maxima")
+            if ticks != 0:
+                require(0 < ((slowest - before) & UINT32_MASK) <= ticks,
+                        "slowest step tick is outside the frame")
+        ticks_total += ticks
+        simulation_total += milliseconds
+        previous = after
+    require((ticks_total & UINT32_MASK) == result_ticks, "frame ticks differ from RESULT")
+    measured = next((match for line in lines if (match := MEASURE.fullmatch(line)) and
+                     match.group(1) == "sim(per frame)"), None)
+    require(measured is not None and
+            abs(simulation_total / result_frames - float(measured.group(3))) <= SIM_MEAN_ROUNDING_MS,
+            "frame simulation mean differs from MEASURE")
+    return [line for line in lines if not line.startswith("bench: SIM_FRAME")]
+
+
 def check_renderer_records(result, lines, frames, timers):
     """Validate optional renderer families, returning the unchanged legacy transcript."""
+    legacy = [line for line in lines if line.split()[1] not in RENDERER_TAGS]
+    lines = check_simulation_records(result, lines, frames)
     tags = [line.split()[1] for line in lines]
-    legacy = [line for line, tag in zip(lines, tags) if tag not in RENDERER_TAGS]
     if not any(tag in RENDERER_TAGS for tag in tags):
         return legacy
 
@@ -350,7 +426,8 @@ def check_lines(result, timers, rules_version=0, requested_rules_version=0):
     if away and not AWAY.match(away[0]):
         fail(result, f"the AWAY line does not read: {away[0]}")
     lines = [line for line in lines if not line.startswith("bench: AWAY")]
-    kinds = [line.split()[1] for line in lines if line.split()[1] not in RENDERER_TAGS]
+    simulation_checked = check_simulation_records(result, lines)
+    kinds = [line.split()[1] for line in simulation_checked if line.split()[1] not in RENDERER_TAGS]
     # The lines come in their order, each kind once but SEC, MEASURE, STAGE,
     # ATLAS, SLOW and FRAME.
     order = ["INITIAL", "WARMUP", "MEASURING", "SEC", "SHOT", "RESULT", "MEASURE", "STAGE", "COUNTS",
@@ -479,7 +556,7 @@ def main():
                 raise BenchFailure("tools/bench/summarise.py did not read the run")
             untimed = run_bench(arguments.native, arguments.game_dir, workdir, "untimed",
                                 VIEW.format(stage=stage, warmup=WARMUP_TICKS, seconds=1, timers=0))
-            if any(line.startswith(("bench: STAGE", "bench: SLOW", "bench: FRAME")) or
+            if any(line.startswith(("bench: STAGE", "bench: SLOW", "bench: FRAME", "bench: SIM_FRAME")) or
                    (line.startswith("bench: ") and line.split()[1] in RENDERER_TAGS)
                    for line in untimed.stdout.splitlines()):
                 fail(untimed, "the bench printed its stage timers with them off")

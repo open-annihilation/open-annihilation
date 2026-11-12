@@ -34,6 +34,15 @@ def spread_line(name, milliseconds):
             f"p95 {value} p99 {value} low1 {value} max {value}")
 
 
+def simulation_record(frame, **changes):
+    """Return one timed call advancing thirty ticks, independently of frame work."""
+    values = dict(frame=frame, before=30 + frame * 30, after=60 + frame * 30,
+                  ticks=30, steps=1, sim="1.000", maximum="1.000", slowest=60 + frame * 30)
+    values.update(changes)
+    return ("bench: SIM_FRAME {frame} sim_ms {sim} tick_before {before} tick_after {after} "
+            "ticks {ticks} steps {steps} max_step_ms {maximum} max_step_tick {slowest}").format(**values)
+
+
 def transcript(rules_version=0, requested_rules_version=0, timers=False):
     """Return a complete run with one 1000 ms frame each second."""
     seconds = 3
@@ -61,9 +70,10 @@ def transcript(rules_version=0, requested_rules_version=0, timers=False):
                      "atlas_rows 0 a frame full_atlas_uploads 0")
         lines.extend(f"bench: SLOW STAGE {name} 1.00" for name in bench.STAGES)
         stages = " 1.00" * len(bench.STAGES)
-        lines.extend(f"bench: FRAME {frame} frame 1000.00 work 1.00 draw 1.00 ground 0 "
-                     f"terrain_packs 0 atlas_resets 0 atlas_rows 0 materials 0 stages{stages}"
-                     for frame in range(seconds))
+        for frame in range(seconds):
+            lines.append(f"bench: FRAME {frame} frame 1000.00 work 1.00 draw 1.00 ground 0 "
+                         f"terrain_packs 0 atlas_resets 0 atlas_rows 0 materials 0 stages{stages}")
+            lines.append(simulation_record(frame))
     lines.append("bench: DONE label=check")
     return "\n".join(lines) + "\n"
 
@@ -94,6 +104,8 @@ def renderer_transcript(families=RENDERER_FAMILIES, diagnostics=True):
     """Add complete optional renderer families to an otherwise valid timed transcript."""
     lines = []
     for line in transcript(timers=True).splitlines():
+        if line.startswith("bench: SIM_FRAME "):
+            continue
         if line.startswith("bench: FRAME 0 "):
             if "GROUND_INDEX" in families:
                 lines.append("bench: GROUND_INDEX builds 1 hits 1 triangles 8 wall_ms 0.600")
@@ -107,6 +119,7 @@ def renderer_transcript(families=RENDERER_FAMILIES, diagnostics=True):
         if not line.startswith("bench: FRAME "):
             continue
         frame = int(line.split()[2])
+        lines.append(simulation_record(frame))
         if "GROUND_INDEX" in families:
             builds, hits, triangles, wall = ((0, 0, 0, "0.000"), (1, 0, 8, "0.600"),
                                              (0, 1, 0, "0.000"))[frame]
@@ -216,6 +229,85 @@ class NativeBenchReceiptTest(unittest.TestCase):
                                         spread_line("draw", 1).replace("p95 1.00", "p95 0.50"))
         self.assert_rejected(result_for(text), bench.check_lines, False, rules_version=6,
                              requested_rules_version=6, message="spread is out of order")
+
+    def test_simulation_rows_distinguish_catchup_from_one_slow_step(self):
+        """The same 90 ms sum can mean five bounded steps or one genuinely slow step."""
+        text = transcript(timers=True)
+        replacements = (
+            simulation_record(0, after=30, ticks=0, steps=0, sim="0.000",
+                              maximum="0.000", slowest=0),
+            simulation_record(1, before=30, after=35, ticks=5, steps=5, sim="90.000",
+                              maximum="30.000", slowest=32),
+            simulation_record(2, before=35, after=36, ticks=1, steps=1, sim="90.000",
+                              maximum="90.000", slowest=36))
+        for frame, row in enumerate(replacements):
+            text = text.replace(simulation_record(frame), row)
+        text = text.replace("ticks 90 (30.00/s)", "ticks 6 (2.00/s)")
+        text = text.replace("work 1.00", "work 1000.00")
+        text = text.replace(spread_line("sim(per frame)", 1),
+                            "bench: MEASURE sim(per frame) min 0.00 avg 60.00 p50 90.00 "
+                            "p95 90.00 p99 90.00 low1 90.00 max 90.00")
+        self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+
+    def test_simulation_tick_wrap_and_multitick_calls_preserve_boundaries(self):
+        """Wrapped maximum tick zero and hook calls spanning several ticks remain valid."""
+        text = transcript(timers=True).replace("tick=30 seconds", "tick=4294967294 seconds")
+        rows = (simulation_record(0, before=4294967294, after=4294967295, ticks=1,
+                                  slowest=4294967295),
+                simulation_record(1, before=4294967295, after=0, ticks=1, slowest=0),
+                simulation_record(2, before=0, after=2, ticks=2, slowest=2))
+        for frame, row in enumerate(rows):
+            text = text.replace(simulation_record(frame), row)
+        text = text.replace("ticks 90 (30.00/s)", "ticks 4 (1.33/s)")
+        self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+
+    def test_simulation_rows_are_complete_adjacent_and_well_formed(self):
+        """A companion family cannot hide missing, duplicate, misplaced or malformed rows."""
+        text = renderer_transcript()
+        bad = (text.replace(simulation_record(1) + "\n", ""),
+               "\n".join(line for line in text.splitlines()
+                         if not line.startswith("bench: SIM_FRAME ")) + "\n",
+               text.replace(simulation_record(1), simulation_record(1) + "\n" + simulation_record(1)),
+               text.replace(simulation_record(1), simulation_record(1).replace("SIM_FRAME 1", "SIM_FRAME 0")),
+               text.replace(simulation_record(1), simulation_record(1) + " trailing"),
+               text.replace(simulation_record(1), simulation_record(1, sim="nan")),
+               text.replace(simulation_record(1), simulation_record(1, maximum="inf")),
+               text.replace(simulation_record(1), simulation_record(1, sim="1..0")),
+               text.replace(simulation_record(1) + "\n", "").replace(
+                   "bench: POSE_FRAME 1 ", simulation_record(1) + "\nbench: POSE_FRAME 1 "))
+        for changed in bad:
+            with self.subTest(changed=changed):
+                self.assert_rejected(result_for(changed), bench.check_lines, True,
+                                     message="simulation records")
+
+    def test_simulation_rows_refuse_false_tick_or_timing_claims(self):
+        """Tick ranges, zero-step markers and rounded maxima must agree with the measured span."""
+        text = transcript(timers=True)
+        changes = (dict(before=59), dict(after=91), dict(ticks=29), dict(ticks=4294967296),
+                   dict(steps=4294967296), dict(slowest=4294967296), dict(steps=0),
+                   dict(maximum="2.000"), dict(maximum="0.000"), dict(slowest=60),
+                   dict(slowest=91), dict(sim="2.000", maximum="2.000"),
+                   dict(sim="9" * 400))
+        for row in changes:
+            with self.subTest(row=row):
+                changed = text.replace(simulation_record(1), simulation_record(1, **row))
+                self.assert_rejected(result_for(changed), bench.check_lines, True,
+                                     message="simulation records")
+        zero = text
+        for frame in range(3):
+            zero = zero.replace(simulation_record(frame), simulation_record(
+                frame, before=30, after=30, ticks=0, steps=0, sim="0.000", maximum="0.000", slowest=0))
+        zero = zero.replace("ticks 90 (30.00/s)", "ticks 0 (0.00/s)")
+        zero = zero.replace(spread_line("sim(per frame)", 1), spread_line("sim(per frame)", 0))
+        self.assertEqual(bench.check_lines(result_for(zero), True), zero.splitlines())
+        for row in (dict(sim="0.001"), dict(maximum="0.001"), dict(slowest=30)):
+            base = simulation_record(1, before=30, after=30, ticks=0, steps=0,
+                                     sim="0.000", maximum="0.000", slowest=0)
+            changed = zero.replace(base, simulation_record(
+                1, **(dict(before=30, after=30, ticks=0, steps=0, sim="0.000",
+                           maximum="0.000", slowest=0) | row)))
+            self.assert_rejected(result_for(changed), bench.check_lines, True,
+                                 message="simulation records")
 
     def test_renderer_families_are_optional_and_preserve_the_legacy_transcript(self):
         """Legacy logs and each complete counter family retain the full strict legacy checks."""
