@@ -129,6 +129,8 @@ enum class Fog : uint8_t { seen, grey, black };
 
 /// Reads mapping before line of sight, so unexplored cells stay black.
 Fog fog_at(const full::SightView& sight, int32_t x, int32_t z) {
+    if (!sight.mapping && !sight.line_of_sight)
+        return Fog::seen;
     constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
     const int32_t column = x / fog_edge;
     const int32_t row = z / fog_edge;
@@ -248,6 +250,10 @@ float fog_brightness(
 
 /// Interpolates fog inside known ground and fades to black before unknown cells.
 float brightness_at(const full::SightView& sight, float x, float y, float unseen = -1) {
+    // With neither visibility restriction, every sample is seen, including
+    // samples beyond the sight grid, so interpolation is uniformly one.
+    if (!sight.mapping && !sight.line_of_sight)
+        return 1.0F;
     return fog_brightness(
         [&sight](int32_t column, int32_t row) { return fog_at(sight, column, row); },
         sight.width,

@@ -5290,6 +5290,79 @@ void strategic_unit_marker_visibility() {
     OA_CHECK(fixture.scene.unit_ranges.empty());
 }
 
+/// Mapping and line of sight independently restrict strategic markers, while
+/// an unrestricted view remains fully bright even without sight cells.
+void strategic_unit_marker_visibility_controls() {
+    namespace camera = oa::app::renderer_live_camera;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+
+    struct Visibility {
+        bool mapping{}, line_of_sight{};
+        uint16_t mapped{}, coverage{};
+        bool drawable{}, grey{};
+    };
+
+    constexpr std::array<Visibility, 8> cases{
+        {{false, false, 0, 0, true, false},
+         {false, true, 0, 0, true, true},
+         {false, true, 0, 1, true, false},
+         {true, false, 0, 1, false, false},
+         {true, false, 1, 0, true, false},
+         {true, true, 1, 0, true, true},
+         {true, true, 1, 1, true, false},
+         {true, true, 0, 1, false, false}}
+    };
+    Fixture fixture;
+    auto& in = fixture.inputs;
+    in.clip_width = in.clip_height = 128;
+    in.unit_marker_pixels = 5;
+    in.dot_frame = 1;
+    OA_CHECK(camera::projection({}, {16, 0, 16, 64, 64, 1}, in.clip_projection));
+    oa::Unit unit{};
+    unit.id = 7;
+    const std::array<uint32_t, 1> generations{3};
+    in.dot_generations = generations;
+    live::DotRenderPacket packet;
+    in.dot_capture = &packet;
+    fixture.draws.unit_markers = {{&unit, {16 * fixed, 0, 16 * fixed}}};
+    for (const auto& visibility : cases)
+        for (const bool dithered : {false, true}) {
+            in.sight.mapping = visibility.mapping;
+            in.sight.line_of_sight = visibility.line_of_sight;
+            in.sight.dithered = dithered;
+            fixture.mapped[0] = visibility.mapped;
+            fixture.coverage[0] = visibility.coverage;
+            OA_CHECK(live::build(in, fixture.scene, fixture.error));
+            OA_CHECK(packet.ready && packet.markers.size() == 1);
+            if (!packet.ready || packet.markers.size() != 1)
+                continue;
+            const auto& marker = packet.markers[0];
+            OA_CHECK(marker.drawable == visibility.drawable);
+            if (marker.drawable) {
+                const float expected = visibility.grey ? (dithered ? 0.5F : 0.35F) : 1.0F;
+                OA_CHECK(
+                    std::bit_cast<uint32_t>(marker.brightness) == std::bit_cast<uint32_t>(expected)
+                );
+            }
+        }
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.sight.player_bits = {};
+    in.sight.coverage = {};
+    // An elevated unit's painted fog point can lie beyond either grid edge.
+    for (const oa::FixedVec3 position :
+         {oa::FixedVec3{-8 * fixed, 0, 16 * fixed},
+          oa::FixedVec3{16 * fixed, 96 * fixed, 16 * fixed},
+          oa::FixedVec3{48 * fixed, 0, 16 * fixed}}) {
+        fixture.draws.unit_markers[0].shown_position = position;
+        OA_CHECK(live::build(in, fixture.scene, fixture.error));
+        OA_CHECK(packet.ready && packet.markers.size() == 1);
+        if (packet.ready && packet.markers.size() == 1) {
+            OA_CHECK(packet.markers[0].drawable);
+            OA_CHECK(std::bit_cast<uint32_t>(packet.markers[0].brightness) == 0x3f800000U);
+        }
+    }
+}
+
 /// Twenty thousand canonical units need only bounded billboard geometry,
 /// retain every picking identity and leave no markers after the list clears.
 void strategic_unit_marker_population() {
@@ -8656,6 +8729,7 @@ int main() {
     high_indexed_model_vertex_projection();
     strategic_unit_markers_without_models();
     strategic_unit_marker_visibility();
+    strategic_unit_marker_visibility_controls();
     strategic_unit_marker_population();
     strategic_unit_markers_on_threads();
     strategic_unit_markers_on_card();
