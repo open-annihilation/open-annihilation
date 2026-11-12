@@ -1712,7 +1712,10 @@ void Runtime::check_replay_viewer() {
         require_named("oa.replay-viewer.camera", "Camera is not shown").text == "Follow a unit",
         "the followed unit did not take the camera"
     );
-    frame_run_clock_ns_ = frame_pacing::steady_now_ns();
+    // The check's own clock has run since the recording, and a held scroll
+    // needs only that it runs. Set to the wall clock here, it would jump back
+    // or ahead by however far this machine's frames ran from the check's, and
+    // hold the replay or race it on.
     frame_run_scroll_ = 1;
     frames(2);
     frame_run_scroll_ = 0;
@@ -1727,6 +1730,27 @@ void Runtime::check_replay_viewer() {
     key(SDLK_F4);
     frames(1);
     require(!replay_stats_hidden_, "F4 did not show the stats panel again");
+    // The views are read paused, short of the recording's end. There one
+    // computer leaves, and a seat that has gone shows the watcher's own view.
+    if (!playback().paused)
+        key(SDLK_PAUSE);
+    require(playback().paused, "the replay did not pause for the views");
+    {
+        const oa::World& world = match_->state();
+        int recorded = 0;
+        for (const oa::Player& player : world.game.players) {
+            const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+            if (player.in_use != 0 && info != nullptr &&
+                (info->options & OA_SETUP_OPTION_WATCHER) == 0)
+                ++recorded;
+        }
+        require(
+            recorded >= 3,
+            "a recorded player had left by tick " + std::to_string(playback().tick) +
+                ", before the views"
+        );
+        std::cout << "replay viewer: the views are read paused at tick " << playback().tick << '\n';
+    }
     {
         // Each row of the View menu is its own seat. Two computers of one
         // side share a name. Tab reaches every one of them, and only the row
@@ -1850,6 +1874,8 @@ void Runtime::check_replay_viewer() {
         }
         require(visited_seated >= seated, "Tab did not reach every player");
     }
+    key(SDLK_PAUSE);
+    require(!playback().paused, "the replay stayed paused after the views");
     replay_reset_watch();
     set_camera_position(kept_camera_x, kept_camera_z, 0);
     call_hook_or_report<&Extension::replay_set_speed>(
