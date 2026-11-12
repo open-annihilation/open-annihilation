@@ -11,7 +11,8 @@
 # menu as it is, and the log says the place is for button mode only. Ridge
 # with art of its own brings a FrontendX of its own and no MAINMENU.GUI: the
 # strip's rows are not shown, the menu keeps the base game's own layout
-# (SINGLE at 139,393, not the layout the expansion brings for the strip), and
+# (SINGLE at 139,393, not the layout the expansion brings for the strip), the
+# credits give back the menu as it was, the plate and all, and
 # ENTER on the strip's plate starts the Boneyards entry, which tells this
 # command-line mod to start without it (the mod question), the plate at the default
 # place at the top right (497,8) without a place in the profile, and at the
@@ -221,6 +222,8 @@ def main():
         )),
         ("button", "button", own, (
             "boneyards menu: the ENTER plate stands at 497,8, the default place at the top right",
+            "boneyards menu modes check: Credits played its movie and gave back the main menu "
+            "as it was",
             "boneyards menu modes check: button: ",
             "ENTER on the plate at 497,8 was pressed",
             "Start Open Annihilation without the mod on its command line to enter the Boneyards.",

@@ -15309,6 +15309,15 @@ class Runtime final : public menu::Host,
     /// its focus as it does today.
     void clear_menu_keyboard();
 
+    /// Remembers the main menu's keyboard stop and focus as a movie from the
+    /// main menu begins, for take_back_menu_stop.
+    void keep_menu_stop_for_return();
+
+    /// Puts back the stop keep_menu_stop_for_return remembered, once, on the
+    /// main menu loaded again after the movie: the next Tab goes on from the
+    /// control the player had. Does nothing when no movie left one.
+    void take_back_menu_stop();
+
     /// Writes the cross-family stop onto the controls the tree reports.
     ///
     /// A reported stop, and a stop on one of the screen's own controls, leave
@@ -15379,7 +15388,9 @@ class Runtime final : public menu::Host,
     /// frontend mode tick runs its unit header step before each dispatcher
     /// pass; dispatching every frame
     /// instead would rebuild MAINMENU while its signal stays initialize, dropping
-    /// a press before its release.
+    /// a press before its release. A press whose second pass played a movie,
+    /// as Credits' does, runs a third, which sets up the main menu the movie
+    /// returned to.
     void activate();
 
     /// Acts on the selected gadget of the current screen as a click released
@@ -23384,6 +23395,23 @@ class Runtime final : public menu::Host,
     std::string menu_keyboard_control_{};
     /// The gadget record, while the stop is one of the screen's own controls.
     int32_t menu_keyboard_gadget_ = -1;
+
+    /// The main menu's stop and focus as a movie from it began.
+    struct MenuStopBeforeMovie {
+        MenuKeyboardKind kind = MenuKeyboardKind::reported;
+        Screen screen = Screen::main_menu;
+        std::string window;
+        std::string control;
+        int32_t gadget = -1;
+        int32_t focus = -1;
+    };
+
+    /// Kept until the main menu is loaded again after the movie
+    /// (take_back_menu_stop).
+    std::optional<MenuStopBeforeMovie> menu_stop_before_movie_;
+    /// The movies the frontend's dispatcher has asked for (play_movie), so a
+    /// press can tell that its last pass played one.
+    uint32_t frontend_movies_ = 0;
     // The Mutators button, while that screen exists. The screen sets it as
     // it is made and clears it as it goes. Brain seats hand Tab through it.
     MutatorButtonScreen* mutator_button_screen_ = nullptr;

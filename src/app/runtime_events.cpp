@@ -1165,6 +1165,35 @@ void Runtime::clear_menu_keyboard() {
         oa_layer_->note_menu_keyboard_stop("");
 }
 
+void Runtime::keep_menu_stop_for_return() {
+    menu_stop_before_movie_ = MenuStopBeforeMovie{
+        menu_keyboard_,
+        menu_keyboard_screen_,
+        menu_keyboard_window_,
+        menu_keyboard_control_,
+        menu_keyboard_gadget_,
+        frontend_focus_
+    };
+}
+
+void Runtime::take_back_menu_stop() {
+    if (!menu_stop_before_movie_)
+        return;
+    const MenuStopBeforeMovie stop = std::move(*menu_stop_before_movie_);
+    menu_stop_before_movie_.reset();
+    // The menu loaded again is the same MAINMENU.GUI, so a record keeps its
+    // number.
+    const auto records = static_cast<int32_t>(resources_.layout.gadgets.size());
+    const auto record = [records](int32_t index) { return index < records ? index : -1; };
+    menu_keyboard_ = stop.kind;
+    menu_keyboard_screen_ = stop.screen;
+    menu_keyboard_window_ = stop.window;
+    menu_keyboard_control_ = stop.control;
+    menu_keyboard_gadget_ = record(stop.gadget);
+    frontend_focus_ = record(stop.focus);
+    MenuKeyboardAccess::note_stop(*this, stop.kind);
+}
+
 void Runtime::choose_focused_map() {
     if (oa_layer_ != nullptr)
         oa_layer_->note_family_return();

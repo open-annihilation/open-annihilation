@@ -178,6 +178,11 @@ uint32_t Runtime::query(frontend::Query query, frontend::State&) {
 }
 
 void Runtime::play_movie(frontend::State&, std::string_view filename) {
+    ++frontend_movies_;
+    // A movie from the main menu returns to it, which keeps the player's
+    // keyboard stop when it is set up again.
+    if (screen_ == Screen::main_menu)
+        keep_menu_stop_for_return();
     // The mod profile names each movie's file (media.movies); an empty name
     // plays none, and the frontend goes straight on to what follows.
     if (options_.check_frontend_controls)

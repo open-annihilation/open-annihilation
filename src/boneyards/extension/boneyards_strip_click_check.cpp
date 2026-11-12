@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-strip-buttons. A real pointer click, button down then up, on the
-// strip's SINGLE, MULTI and EXIT, and on the part of MULTI the strip does
-// not cover. --check-boneyards-menu-modes: the way in a mod's main menu
-// shows, the strip's art over a hidden button, and the strip's ENTER plate. The
-// running game is driven through the check host. No button is activated
-// by its name.
+// strip's SINGLE, MULTI, INTRO, credits spot and EXIT, and on the part of
+// MULTI the strip does not cover. --check-boneyards-menu-modes: the way in a
+// mod's main menu shows, the strip's art over a hidden button, the strip's
+// ENTER plate, and the menu's Credits. A movie's return is held to the main
+// menu as it was before it. The running game is driven through the check
+// host. No button is activated by its name.
 #include "boneyards_strip_click_check.hpp"
 
 #include "boneyards_check.hpp"
@@ -16,15 +17,22 @@
 #include "oa/boneyards/console/menu_entry.hpp"
 #include "oa/boneyards/console/status_widget.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
+#include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_state/dispatcher.hpp"
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace oa::app {
 
@@ -36,6 +44,7 @@ bool boneyards_console_menu_entry(
     int32_t* width,
     int32_t* height
 );
+std::size_t boneyards_console_strip_builds();
 
 namespace {
 
@@ -62,6 +71,16 @@ constexpr int32_t k_base_single_y = 393;
 /// A point of the strip's plain art, at its bottom right, over no button.
 constexpr int32_t k_strip_art_x = 620;
 constexpr int32_t k_strip_art_y = 470;
+/// The passes of the screen packages a movie's return has to show the main
+/// menu again in.
+constexpr int k_movie_return_passes = 4;
+/// The frontend clock the menu is read at, before and after a movie, so the
+/// strip's lamps and the cursor draw the same.
+constexpr uint32_t k_menu_read_tick = 3000;
+/// How far round the parked pointer the cursor may draw.
+constexpr int32_t k_cursor_reach = 48;
+/// The main menu's buttons a movie's return has to give back in place.
+constexpr std::array<const char*, 5> k_menu_buttons{"SINGLE", "MULTI", "INTRO", "EXIT", "Credits"};
 
 /// What the failures of the check that runs say first.
 std::string_view g_check_name = "strip buttons check";
@@ -155,6 +174,137 @@ void click_named(const CheckHost& host, const char* name, std::string_view what)
     click_at(host, x + width / 2, y + height / 2, what);
 }
 
+/// The main menu as the player sees it: the way in, the menu's buttons and
+/// the frame.
+struct MenuSeen {
+    /// The strip's widget is up, so the strip or its plate is there to draw.
+    bool way_in = false;
+    by_console::MenuEntryMode mode = by_console::MenuEntryMode::strip;
+    /// The plate's place and size in button mode; zeros otherwise.
+    std::array<int32_t, 4> plate{};
+    /// Each of k_menu_buttons: 1 when the layout has it, then its place and size.
+    std::array<std::array<int32_t, 5>, k_menu_buttons.size()> buttons{};
+    std::vector<uint8_t> frame;
+};
+
+/// Reads the main menu as it shows, the pointer parked over nothing and the
+/// clock held at k_menu_read_tick, which stays held.
+///
+/// @param host The running game.
+/// @return What it shows.
+MenuSeen see_menu(const CheckHost& host) {
+    MenuSeen seen;
+    seen.way_in = boneyards_console_status_widget() != nullptr;
+    require(
+        boneyards_console_menu_entry(
+            &seen.mode, &seen.plate[0], &seen.plate[1], &seen.plate[2], &seen.plate[3]
+        ),
+        "the main menu never built the strip"
+    );
+    for (std::size_t index = 0; index < k_menu_buttons.size(); ++index) {
+        auto& place = seen.buttons[index];
+        place[0] =
+            host.gadget(
+                host.context, k_menu_buttons[index], &place[1], &place[2], &place[3], &place[4]
+            )
+                ? 1
+                : 0;
+    }
+    if (!host.pointer(host.context, SDL_EVENT_MOUSE_MOTION, k_empty_x, k_empty_y, k_single_click))
+        fail("parking the pointer ended the run");
+    host.hold_clock(host.context, k_menu_read_tick);
+    host.compose(host.context);
+    seen.frame = host.surface(host.context)->rgb;
+    return seen;
+}
+
+/// Counts the pixels two frames of the main menu differ in, leaving out the
+/// cursor round the parked pointer.
+///
+/// @param before The frame before.
+/// @param after The frame after.
+/// @return The pixels that differ; every pixel when the sizes differ.
+std::size_t changed_pixels(const std::vector<uint8_t>& before, const std::vector<uint8_t>& after) {
+    constexpr std::size_t channels = 3;
+    constexpr int32_t width = 640;
+    if (before.size() != after.size() || before.size() % (channels * width) != 0)
+        return std::max(before.size(), after.size()) / channels;
+    std::size_t changed = 0;
+    for (std::size_t pixel = 0; pixel < before.size() / channels; ++pixel) {
+        const auto x = static_cast<int32_t>(pixel % width);
+        const auto y = static_cast<int32_t>(pixel / width);
+        if (std::abs(x - k_empty_x) <= k_cursor_reach && std::abs(y - k_empty_y) <= k_cursor_reach)
+            continue;
+        const std::size_t at = pixel * channels;
+        if (!std::equal(
+                before.begin() + static_cast<std::ptrdiff_t>(at),
+                before.begin() + static_cast<std::ptrdiff_t>(at + channels),
+                after.begin() + static_cast<std::ptrdiff_t>(at)
+            ))
+            ++changed;
+    }
+    return changed;
+}
+
+/// Presses a main-menu control that plays a movie and checks that the main
+/// menu comes back as the player had it.
+///
+/// The menu is left once and set up once again: the strip's widget is built
+/// once more. The way in shows as before, in the same mode and at the same
+/// place, the menu's buttons stand where they stood, and the frame is the
+/// same but for the menu's sparks, which start again with the menu.
+///
+/// @param host The running game.
+/// @param what What the press is, named in the result.
+/// @param press Presses it.
+void expect_movie_return(
+    const CheckHost& host, std::string_view what, const std::function<void()>& press
+) {
+    const std::string name(what);
+    require(on_main_menu(host), name + ": not on the main menu");
+    const MenuSeen before = see_menu(host);
+    host.release_clock(host.context);
+    const std::size_t builds = boneyards_console_strip_builds();
+    press();
+    for (int pass = 0; pass < k_movie_return_passes; ++pass)
+        host.package_pass(host.context);
+    require(on_main_menu(host), name + " did not return to the main menu");
+    const MenuSeen after = see_menu(host);
+    host.release_clock(host.context);
+    const std::size_t built = boneyards_console_strip_builds() - builds;
+    require(
+        built == 1,
+        name + " set the main menu's strip up " + std::to_string(built) +
+            " times after its movie; once was expected"
+    );
+    require(after.way_in == before.way_in, name + " left the main menu without its way in");
+    require(
+        after.mode == before.mode && after.plate == before.plate,
+        name + " changed how the way in shows on the main menu"
+    );
+    for (std::size_t index = 0; index < k_menu_buttons.size(); ++index) {
+        const auto& was = before.buttons[index];
+        const auto& now = after.buttons[index];
+        if (was == now)
+            continue;
+        fail(
+            name + " moved the menu's " + k_menu_buttons[index] + " from " +
+            std::to_string(was[1]) + ',' + std::to_string(was[2]) + " to " +
+            std::to_string(now[1]) + ',' + std::to_string(now[2])
+        );
+    }
+    // Each spark is one pixel, in either frame.
+    const std::size_t changed = changed_pixels(before.frame, after.frame);
+    require(
+        changed <= 2 * oa::ui::frontend_renderer::menu_spark_count,
+        name + " gave back a main menu whose frame differs in " + std::to_string(changed) +
+            " pixels"
+    );
+    std::cout << g_check_name << ": " << name
+              << " played its movie and gave back the main menu as it was; " << changed
+              << " pixels of its frame changed, where the sparks run\n";
+}
+
 } // namespace
 
 int check_strip_buttons(const CheckHost& host) {
@@ -190,12 +340,22 @@ int check_strip_buttons(const CheckHost& host) {
     click_control(host, "PREVMENU", "the return from the old MULTI column");
     require(on_main_menu(host), "the old MULTI column did not come back");
 
+    // Credits is the gadget under the strip's credits spot, which takes the
+    // click; INTRO is the strip's own button.
+    expect_movie_return(host, "Credits", [&host] {
+        click_strip(host, by_console::OverlayPart::credits, "Credits");
+    });
+    expect_movie_return(host, "INTRO", [&host] {
+        click_strip(host, by_console::OverlayPart::intro, "INTRO");
+    });
+
     click_strip(host, by_console::OverlayPart::exit, "EXIT");
     if (host.pointer(host.context, SDL_EVENT_MOUSE_MOTION, k_empty_x, k_empty_y, k_single_click))
         fail("EXIT left the game running");
 
     std::cout << "strip buttons check: SINGLE opens single player, MULTI opens SELECT "
-                 "CONNECTION, and EXIT ends the run\n";
+                 "CONNECTION, Credits and INTRO give the main menu back as it was, and EXIT "
+                 "ends the run\n";
     return 0;
 }
 
@@ -257,6 +417,9 @@ int check_boneyards_menu_modes(const CheckHost& host, bool button) {
         "the menu does not keep the base game's layout: SINGLE is at " + std::to_string(single_x) +
             ',' + std::to_string(single_y)
     );
+    expect_movie_return(host, "Credits", [&host] {
+        click_named(host, "Credits", "the menu's Credits");
+    });
     click_named(host, "SINGLE", "the mod's SINGLE");
     require(
         host.screen(game) == screen_id(Screen::single_player) &&

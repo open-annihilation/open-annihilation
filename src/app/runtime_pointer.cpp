@@ -229,8 +229,20 @@ void Runtime::activate() {
     // Dispatching unconditionally every rendered frame would repeatedly
     // rebuild MAINMENU while its signal remains initialize, clearing a
     // mouse-down selection before the matching mouse-up arrives.
+    const uint32_t movies = frontend_movies_;
     step(frontend::Step::reload_unit_overrides, state_);
     frontend::dispatch(state_, *this, frontend_states_);
+    // Credits' callback selects a signal, not a state: the first pass enters
+    // the movie's state, and the second takes the main menu down, plays the
+    // movie and returns to the main menu, whose initialize sets it up again
+    // only on the pass after, as 3.1c's frontend does on its next frame.
+    // That pass runs now, so the menu comes back as it was, with an
+    // extension's overlay that went down with it, and not as the movie left
+    // it.
+    if (frontend_movies_ != movies && screen_ != Screen::match) {
+        step(frontend::Step::reload_unit_overrides, state_);
+        frontend::dispatch(state_, *this, frontend_states_);
+    }
     if (options_.trace_input)
         std::cerr << "input activate after state=" << static_cast<int>(state_.state)
                   << " signal=" << static_cast<int>(state_.signal)

@@ -119,9 +119,11 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
     --preferences-file "${oa_boneyards_checks}/boneyards-unit-limit.conf")
   set_tests_properties(native-boneyards-unit-limit PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
     WORKING_DIRECTORY "${oa_boneyards_checks}")
-  # Pointer clicks on the strip's SINGLE, MULTI and EXIT, and on the old
-  # MULTI column. SINGLE opens single player, MULTI opens SELECT CONNECTION
-  # and EXIT ends the run. The run has no window.
+  # Pointer clicks on the strip's SINGLE, MULTI, credits spot, INTRO and
+  # EXIT, and on the old MULTI column. SINGLE opens single player, MULTI
+  # opens SELECT CONNECTION, Credits and INTRO play their movies and give
+  # back the main menu as it was, the strip and all, and EXIT ends the run.
+  # The run has no window.
   add_test(NAME native-boneyards-strip-buttons COMMAND oa-game
     --game-dir "${oa_boneyards_game_dir}" --mod-dir "${CMAKE_BINARY_DIR}/coreprime"
     --mute --check-strip-buttons
@@ -130,7 +132,7 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
     TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
     WORKING_DIRECTORY "${oa_boneyards_checks}"
     PASS_REGULAR_EXPRESSION
-      "strip buttons check: SINGLE opens single player, MULTI opens SELECT CONNECTION, and EXIT ends the run"
+      "strip buttons check: SINGLE opens single player, MULTI opens SELECT CONNECTION, Credits and INTRO give the main menu back as it was, and EXIT ends the run"
     ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
   # The status strip on the presented main menu, once with Basic asked and
   # once with Full. Each run keeps its own preferences file. The dummy
@@ -253,7 +255,8 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${oa_boneyards_game_dir}")
     # writes and the Boneyards installed as the expansion: on the base
     # game's art the strip, which takes a click on its art over the mod's
     # hidden EXIT; on art of the mod's own the base game's layout and the
-    # strip's ENTER plate, which starts the Boneyards entry.
+    # strip's ENTER plate, which the credits give back where it was and
+    # which starts the Boneyards entry.
     # Each run wipes its own work folder.
     add_test(NAME native-boneyards-menu-modes COMMAND ${Python3_EXECUTABLE}
       "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_native_boneyards_menu_modes.py"

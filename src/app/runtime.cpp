@@ -2400,8 +2400,13 @@ void Runtime::load(Screen screen) {
     if (desc->assets.layout != nullptr)
         frontend_focus_ = frontend_panel_focus(resources_.layout);
     // A screen opens on its own first stop. A stop landed on the screen just
-    // left must not answer the next Tab.
+    // left must not answer the next Tab. The main menu a movie returns to
+    // keeps the stop the player had on it; any other screen forgets it.
     clear_menu_keyboard();
+    if (screen == Screen::main_menu)
+        take_back_menu_stop();
+    else
+        menu_stop_before_movie_.reset();
     apply_output_mode();
     // Each new screen has the window system hide the pointer again where
     // the game draws its own.

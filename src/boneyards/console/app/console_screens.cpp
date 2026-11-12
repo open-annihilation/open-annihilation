@@ -230,6 +230,9 @@ struct OverlayState {
     // the press, until the key is let go. Zero when the next typed character
     // is kept.
     int32_t swallow_character = 0;
+    // The widgets build_strip has made, for the checks: each return to the
+    // main menu that left it makes one.
+    std::size_t builds = 0;
 };
 
 OverlayState g_state;
@@ -1306,6 +1309,7 @@ void build_strip(ScreenContext* ctx, OverlayState* state) {
     if (state->widget == nullptr) {
         report_files_missing(ctx);
     } else {
+        ++state->builds;
         console::boneyards_status_widget_set_screen_keyboard(
             state->widget, host_screen_keyboard, state
         );
@@ -1977,6 +1981,16 @@ bool boneyards_console_menu_entry(
     if (height != nullptr)
         *height = button ? g_state.plate_place.height : 0;
     return chosen;
+}
+
+/// Counts the strip's widgets made since the game started, for the checks.
+///
+/// The main menu makes one as it first shows, and again each time it comes
+/// back after a screen or a movie that took the widget down.
+///
+/// @return the widgets made
+std::size_t boneyards_console_strip_builds() {
+    return g_state.builds;
 }
 
 void register_boneyards_console_screens(ScreenRegistry* registry) {

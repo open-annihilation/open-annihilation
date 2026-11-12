@@ -504,6 +504,24 @@ void Runtime::check_frontend_controls() {
             );
             leave_what_multi_opened();
         } else if (covered == intro_name) {
+            // The keyboard's stop comes back with the menu: a Tab lands it
+            // on a control, and the menu the intro returns to has it there
+            // still. The stop the menu opened on is put back after, for the
+            // quick keys.
+            const auto keyboard_stop = [this] {
+                return std::tuple{
+                    menu_keyboard_,
+                    menu_keyboard_screen_,
+                    menu_keyboard_window_,
+                    menu_keyboard_control_,
+                    menu_keyboard_gadget_,
+                    frontend_focus_
+                };
+            };
+            const auto opened_on = keyboard_stop();
+            type_key(SDLK_TAB);
+            const auto tabbed_to = keyboard_stop();
+            require(tabbed_to != opened_on, "Tab did not move the main menu's keyboard stop");
             // One frame, without waiting out the movie: the press has to
             // start the intro, and the menu is back before the quick keys.
             const auto saved_limit = options_.frame_limit;
@@ -527,6 +545,18 @@ void Runtime::check_frontend_controls() {
             for (int pass = 0; pass < 4 && !on_main_menu(); ++pass)
                 idle_tick();
             require(on_main_menu(), "the intro did not return to the main menu");
+            require(
+                keyboard_stop() == tabbed_to,
+                "the intro did not give the main menu back its keyboard stop"
+            );
+            std::tie(
+                menu_keyboard_,
+                menu_keyboard_screen_,
+                menu_keyboard_window_,
+                menu_keyboard_control_,
+                menu_keyboard_gadget_,
+                frontend_focus_
+            ) = opened_on;
         } else if (covered == exit_name) {
             const auto menu_state = state_;
             click(covered);
