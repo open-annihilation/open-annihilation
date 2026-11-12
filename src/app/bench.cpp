@@ -27,6 +27,10 @@ constexpr uint16_t kMostPlayers = 10;
 constexpr double kLargestValue = 1.0e6;
 /// Room for one printed line.
 constexpr std::size_t kLineBytes = 160;
+/// Room for a SIM_FRAME line with full-width tick numbers and times.
+constexpr std::size_t simulation_line_bytes = 256;
+/// The frame receiving existing step timings on this thread, only inside a bench scope.
+thread_local SimulationFrame* simulation_frame{};
 
 /// Returns the text with the blanks at both ends left off.
 ///
@@ -75,6 +79,53 @@ constexpr std::size_t kLineBytes = 160;
 }
 
 } // namespace
+
+SimulationFrameScope::SimulationFrameScope(SimulationFrame* frame) noexcept
+    : frame_(frame), previous_(simulation_frame) {
+    simulation_frame = frame;
+}
+
+SimulationFrameScope::~SimulationFrameScope() {
+    if (frame_ && previous_ && frame_ != previous_ && frame_->steps != 0) {
+        if (previous_->steps == 0 || frame_->slowest_ns > previous_->slowest_ns) {
+            previous_->slowest_ns = frame_->slowest_ns;
+            previous_->slowest_tick = frame_->slowest_tick;
+        }
+        previous_->steps += frame_->steps;
+    }
+    simulation_frame = previous_;
+}
+
+void note_simulation_step(uint32_t tick, uint64_t elapsed_ns) noexcept {
+    if (!simulation_frame)
+        return;
+    if (simulation_frame->steps == 0 || elapsed_ns > simulation_frame->slowest_ns) {
+        simulation_frame->slowest_ns = elapsed_ns;
+        simulation_frame->slowest_tick = tick;
+    }
+    ++simulation_frame->steps;
+}
+
+std::string
+simulation_frame_line(std::size_t index, double milliseconds, const SimulationFrame& frame) {
+    constexpr double nanoseconds_per_millisecond = 1.0e6;
+    char line[simulation_line_bytes];
+    std::snprintf(
+        line,
+        sizeof line,
+        "bench: SIM_FRAME %zu sim_ms %.3f tick_before %u tick_after %u ticks %u steps %u "
+        "max_step_ms %.3f max_step_tick %u",
+        index,
+        milliseconds,
+        frame.tick_before,
+        frame.tick_after,
+        uint32_t(frame.tick_after - frame.tick_before),
+        frame.steps,
+        static_cast<double>(frame.slowest_ns) / nanoseconds_per_millisecond,
+        frame.slowest_tick
+    );
+    return line;
+}
 
 bool parse_view(std::string_view text, View& view, std::string& error) {
     std::set<std::string, std::less<>> given;

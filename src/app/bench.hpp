@@ -110,6 +110,59 @@ struct Spread {
     double most{};
 };
 
+/// The native tick boundaries and timed, clock-advancing step calls of one
+/// measured frame. Step times are wall nanoseconds from the runtime's existing
+/// timer; a step call may advance more than one tick through an extension.
+struct SimulationFrame {
+    uint32_t tick_before{};
+    uint32_t tick_after{};
+    uint32_t steps{};
+    uint32_t slowest_tick{}; ///< the tick after the first slowest step; valid when steps is nonzero
+    uint64_t slowest_ns{};
+};
+
+/// Records existing step measurements into one frame on the calling thread.
+/// Nested scopes include their steps in the enclosing frame when they end.
+/// A frame must not be reused through a different active frame.
+class SimulationFrameScope {
+  public:
+
+    /// Selects the frame that receives step measurements until this scope ends.
+    ///
+    /// @param[in,out] frame the frame's initially empty measurements; null disables recording
+    explicit SimulationFrameScope(SimulationFrame* frame) noexcept;
+
+    /// Includes this frame's steps in its enclosing frame and restores that recorder.
+    ~SimulationFrameScope();
+
+    SimulationFrameScope(const SimulationFrameScope&) = delete;
+    SimulationFrameScope& operator=(const SimulationFrameScope&) = delete;
+
+  private:
+
+    SimulationFrame* frame_{};
+    SimulationFrame* previous_{};
+};
+
+/// Records an already measured, clock-advancing step; does nothing outside
+/// a SimulationFrameScope. Equal maxima keep the first step's tick.
+///
+/// @param tick the native tick after the measured step
+/// @param elapsed_ns the step's existing wall measurement, in nanoseconds
+void note_simulation_step(uint32_t tick, uint64_t elapsed_ns) noexcept;
+
+/// Returns a separate SIM_FRAME line containing a frame's simulation wall
+/// sum, native tick boundaries and wrapped tick delta, timed step count, and
+/// slowest step's wall time and ending tick. Zero-step frames have a zero
+/// maximum and tick; times are milliseconds to three places.
+///
+/// @param index the frame's zero-based position in the measured span
+/// @param milliseconds the existing simulation wall sum for the frame
+/// @param frame its tick boundaries and existing step measurements
+/// @return the line, with no newline
+[[nodiscard]] std::string
+simulation_frame_line(std::size_t index, double milliseconds, const SimulationFrame& frame);
+
 /// Returns the spread of a measure's values. The n-th percentile of N values
 /// is the value at position N * n / 100, rounded down and counted from 0, of
 /// the values sorted from least to most, or the most when that is past the

@@ -63,6 +63,7 @@ struct FrameSample {
     double present{};      ///< uploading and presenting it
     double full_stage{};   ///< classic Full model/sprite construction and uploads
     double full_execute{}; ///< classic Full's first executor call
+    bench::SimulationFrame simulation{};
     renderer_live_scene::GroundIndexBuilds index_builds{}; ///< bounded build-only diagnostics
 };
 
@@ -771,8 +772,15 @@ void Runtime::play_bench() {
         const auto phases = phase_times_;
         const auto totals_before = bench_timers::timers.totals;
         bench_timers::clear_ground_index_builds();
-        frame();
-        const double finished = now();
+        bench::SimulationFrame simulation{};
+        simulation.tick_before = match_timing_.tick;
+        double finished{};
+        {
+            const bench::SimulationFrameScope recording(view.frame_log ? &simulation : nullptr);
+            frame();
+            finished = now();
+            simulation.tick_after = match_timing_.tick;
+        }
         if (screen_ != Screen::match || !match_) {
             if (view.require_paused || view.require_gameplay || view.expected_live_units != 0)
                 fail("the benchmark lost its match");
@@ -792,6 +800,7 @@ void Runtime::play_bench() {
              ms(phase_times_.compose - phases.compose),
              ms((phase_times_.upload - phases.upload) + (phase_times_.present - phases.present))}
         );
+        samples.back().simulation = simulation;
         if (bench_timers::timers.ground_index_builds.size != 0 ||
             bench_timers::timers.ground_index_builds.dropped != 0)
             samples.back().index_builds = bench_timers::timers.ground_index_builds;
@@ -1168,6 +1177,11 @@ void Runtime::play_bench() {
                 sample.atlas_rows_uploaded,
                 materials,
                 stages.c_str()
+            );
+            std::printf(
+                "%s\n",
+                bench::simulation_frame_line(index, samples[index].sim, samples[index].simulation)
+                    .c_str()
             );
             std::printf(
                 "bench: GROUND_INDEX_FRAME %zu builds %.0f hits %.0f triangles %.0f wall_ms %.3f\n",

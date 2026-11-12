@@ -643,7 +643,7 @@ a comment. Every key may be left out:
 | `turn_rate D` | Degrees of yaw a second through the span. | 0 |
 | `hold_after S` | Seconds the match plays on after the span, before the game closes. | 0 |
 | `stage_timers 0` | Measures the frames with the stage timers off. | 1, on |
-| `frame_log 1` | Prints a `FRAME` line for each frame of the span once it ends. | 0, off |
+| `frame_log 1` | Prints `FRAME` and `SIM_FRAME` lines for each frame of the span once it ends. | 0, off |
 
 A key the bench does not know, a value that does not read and a key given
 twice stop the bench with the file and line, and so do a skirmish that
@@ -722,6 +722,7 @@ its log (or into the folder `--log-dir` names), each beginning `bench:`:
 | `ATLAS terrain_packs N a frame, atlas_resets N in F frames` | The terrain tiles packed into the atlas a frame and the frames whose atlas was emptied to fit, then `ATLAS packed by STAGE N materials T texels a frame` for each stage that packed materials afresh. |
 | `SLOW frames N of F, the slowest 1%: frame avg MS ground_revisions G terrain_packs T a frame atlas_resets R atlas_rows A a frame full_atlas_uploads U` | What the slowest 1% of the span's frames were made of, those the 1% low frame rate is taken from: their mean frame time, the frames among them whose kept ground changed, the terrain tiles they packed a frame, the frames among them whose atlas was emptied, the atlas rows they sent a frame and the frames among them that sent the whole atlas; then `SLOW STAGE NAME MS`, each stage timer's mean milliseconds over those frames in the order of the `STAGE` lines, and `SLOW ATLAS packed by STAGE N materials T texels a frame`. Left out with `stage_timers 0`. |
 | `FRAME N frame MS work MS draw MS ground G terrain_packs T atlas_resets R atlas_rows A materials M stages MS...` | With `frame_log 1`, each frame of the span from 0: its frame, work and drawing times, whether its kept ground changed, the terrain tiles it packed, whether its atlas was emptied, the atlas rows it sent, the materials it packed, and each stage timer's milliseconds in the order of the `STAGE` lines. |
+| `SIM_FRAME N sim_ms MS tick_before B tick_after A ticks T steps S max_step_ms MS max_step_tick K` | With `frame_log 1`, the same frame's simulation wall sum, native ticks before and after it, their unsigned wrapped difference, completed clock-advancing step calls, and the first slowest step's wall time and ending tick. A normally clocked frame can run zero to five ticks. A hook may advance several ticks in one step call, so `steps` and `ticks` are distinct. With no measured step, the maximum and its tick are zero. These are wall measurements, including waits or preemption, not CPU times; a frame's sum is not an individual tick's cost. |
 | `DONE label=NAME` | The bench has finished; the game closes. |
 | `FAILED WHAT` | The bench stopped before it finished, and why; the game ends with status 1. |
 

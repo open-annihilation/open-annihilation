@@ -6,7 +6,8 @@
 // the label from its name; requested and started Enhanced Mode rules; the
 // spread of a measure, its percentiles and its
 // slowest 1% and which frames those are; the MEASURE, STAGE and SLOW STAGE
-// lines; and the stage timers, which sum nothing while off, and time stages,
+// lines; simulation frames' tick boundaries and existing step maxima; and
+// the stage timers, which sum nothing while off, and time stages,
 // parts and the atlas's counts while on, frame by frame.
 #include "bench.hpp"
 #include "bench_timers.hpp"
@@ -20,6 +21,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -403,6 +406,114 @@ void lines_keep_their_layout() {
     }
 }
 
+/// A zero-step frame differs from a catch-up frame whose simulation wall
+/// sum is long even though no individual step is long.
+void simulation_frames_separate_catchup_from_slow_steps() {
+    bench::SimulationFrame idle{};
+    idle.tick_before = idle.tick_after = 900;
+    {
+        const bench::SimulationFrameScope recording(&idle);
+    }
+    OA_CHECK(
+        bench::simulation_frame_line(0, 0, idle) ==
+        "bench: SIM_FRAME 0 sim_ms 0.000 tick_before 900 tick_after 900 ticks 0 steps 0 "
+        "max_step_ms 0.000 max_step_tick 0"
+    );
+
+    bench::SimulationFrame catchup{};
+    catchup.tick_before = 900;
+    {
+        const bench::SimulationFrameScope recording(&catchup);
+        bench::note_simulation_step(901, 15'000'000);
+        bench::note_simulation_step(902, 30'000'000);
+        bench::note_simulation_step(903, 15'000'000);
+        bench::note_simulation_step(904, 15'000'000);
+        bench::note_simulation_step(905, 15'000'000);
+    }
+    catchup.tick_after = 905;
+    OA_CHECK(
+        bench::simulation_frame_line(1, 90, catchup) ==
+        "bench: SIM_FRAME 1 sim_ms 90.000 tick_before 900 tick_after 905 ticks 5 steps 5 "
+        "max_step_ms 30.000 max_step_tick 902"
+    );
+
+    bench::SimulationFrame slow{};
+    slow.tick_before = 905;
+    {
+        const bench::SimulationFrameScope recording(&slow);
+        bench::note_simulation_step(906, 90'000'000);
+    }
+    slow.tick_after = 906;
+    OA_CHECK(
+        bench::simulation_frame_line(2, 90, slow) ==
+        "bench: SIM_FRAME 2 sim_ms 90.000 tick_before 905 tick_after 906 ticks 1 steps 1 "
+        "max_step_ms 90.000 max_step_tick 906"
+    );
+    bench::note_simulation_step(907, 120'000'000);
+    OA_CHECK(slow.steps == 1 && slow.slowest_tick == 906 && slow.slowest_ns == 90'000'000);
+}
+
+/// Tick deltas wrap, a measured zero duration still names its tick, and an
+/// extension's multi-tick step remains distinct from the native tick delta.
+void simulation_frames_preserve_tick_and_step_boundaries() {
+    bench::SimulationFrame wrapped{};
+    wrapped.tick_before = std::numeric_limits<uint32_t>::max() - 1;
+    {
+        const bench::SimulationFrameScope recording(&wrapped);
+        bench::note_simulation_step(std::numeric_limits<uint32_t>::max(), 5'000'000);
+        bench::note_simulation_step(0, 10'000'000);
+        bench::note_simulation_step(1, 10'000'000);
+    }
+    wrapped.tick_after = 1;
+    OA_CHECK(
+        bench::simulation_frame_line(3, 25, wrapped) ==
+        "bench: SIM_FRAME 3 sim_ms 25.000 tick_before 4294967294 tick_after 1 ticks 3 steps 3 "
+        "max_step_ms 10.000 max_step_tick 0"
+    );
+
+    bench::SimulationFrame extension{};
+    extension.tick_before = 40;
+    {
+        const bench::SimulationFrameScope recording(&extension);
+        bench::note_simulation_step(42, 0);
+    }
+    extension.tick_after = 42;
+    OA_CHECK(
+        bench::simulation_frame_line(4, 0, extension) ==
+        "bench: SIM_FRAME 4 sim_ms 0.000 tick_before 40 tick_after 42 ticks 2 steps 1 "
+        "max_step_ms 0.000 max_step_tick 42"
+    );
+}
+
+/// Nested measurements remain in their enclosing frame's maximum and
+/// count, and unwinding restores recording without leaking a stack pointer.
+void simulation_frame_scopes_restore_their_recorders() {
+    bench::SimulationFrame outer{}, inner{};
+    {
+        const bench::SimulationFrameScope recording(&outer);
+        bench::note_simulation_step(10, 2);
+        try {
+            const bench::SimulationFrameScope nested(&inner);
+            bench::note_simulation_step(11, 7);
+            throw std::runtime_error("end the nested frame");
+        } catch (const std::runtime_error&) {
+        }
+        bench::note_simulation_step(12, 7);
+        {
+            const bench::SimulationFrameScope disabled(nullptr);
+            bench::note_simulation_step(13, 100);
+        }
+        {
+            const bench::SimulationFrameScope same(&outer);
+            bench::note_simulation_step(14, 3);
+        }
+    }
+    OA_CHECK(inner.steps == 1 && inner.slowest_ns == 7 && inner.slowest_tick == 11);
+    OA_CHECK(outer.steps == 4 && outer.slowest_ns == 7 && outer.slowest_tick == 11);
+    bench::note_simulation_step(15, 100);
+    OA_CHECK(outer.steps == 4 && inner.steps == 1);
+}
+
 /// While the timers are off nothing is summed; on, a span times its stage,
 /// packing is charged to the innermost span, marks follow one another, and
 /// a reset clears the sums but keeps the last scene and ground.
@@ -538,6 +649,9 @@ int main() {
     spread_takes_percentiles_and_the_slowest();
     slowest_frames_are_the_slowest_one_percent();
     lines_keep_their_layout();
+    simulation_frames_separate_catchup_from_slow_steps();
+    simulation_frames_preserve_tick_and_step_boundaries();
+    simulation_frame_scopes_restore_their_recorders();
     timers_sum_only_while_on();
     totals_of_a_frame_add_up();
     if (oa::test::check_exit_status() != 0)

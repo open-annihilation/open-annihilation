@@ -3,6 +3,7 @@
 
 // Runtime construction, main loop and screen loading.
 #include "oa/app/runtime.hpp"
+#include "bench.hpp"
 #include "oa/app/netgame/launch_file.hpp"
 #include "renderer_effect_events.hpp"
 #include "oa/app/view_rules.hpp"
@@ -1752,6 +1753,7 @@ bool Runtime::run_one_match_step() {
             frame_stats_, frame_pacing::FrameMeasure::tick, static_cast<uint64_t>(tick_ns)
         );
         phase_times_.simulation += tick_ns;
+        bench::note_simulation_step(match_timing_.tick, static_cast<uint64_t>(tick_ns));
     }
     // The step's records are applied: the playout of the units of
     // players this machine does not simulate reads where they are.
