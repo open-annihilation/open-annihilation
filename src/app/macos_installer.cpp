@@ -684,7 +684,15 @@ struct Pump {
                         return false;
                     target.filled += rest.size();
                 } else if (target.filled >= target.prefix) {
+                    // Every kept byte matched, so the copy goes on by writing after them. A
+                    // stream open for update needs a positioning call between a read and a
+                    // write that follows it (C11 7.21.5.3); without one the write may fail, as
+                    // it does in the C runtime under Wine.
                     target.comparing = false;
+                    if (!seek_file(target.part.file, target.filled)) {
+                        fail("the copy could not be written");
+                        return false;
+                    }
                 }
             } else {
                 const auto piece = bytes.first(step);

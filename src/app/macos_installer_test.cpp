@@ -284,6 +284,10 @@ void copy_and_check() {
     OA_CHECK(!tree_has(nowhere, "rev31.gp3"));
 }
 
+/// A partial file is resumed: kept bytes that differ are written again, and kept bytes that all
+/// match, part of the file or the whole of it, are kept and the copy goes on after them. The
+/// bytes copied show which way each went. A copy that read the kept bytes and then wrote with
+/// no seek between failed here in the C runtime under Wine.
 void resumes_a_partial_file() {
     const Scratch scratch;
     const std::vector<uint8_t> package =
@@ -329,6 +333,31 @@ void resumes_a_partial_file() {
     OA_CHECK(
         read_bytes(oa::app::bundle_folder(user_prefix, *totala) / "rev31.gp3") == "rev31-fixture\n"
     );
+    // The four kept bytes were kept, not written again: the first copy wrote its differing
+    // bytes again, the whole file.
+    OA_CHECK(rest.files_copied == copied.files_copied);
+    OA_CHECK(rest.bytes_copied + 4 == copied.bytes_copied);
+    OA_CHECK(!fs::exists(kept));
+
+    // The whole file kept as the partial: nothing is written, and it is finished all the same.
+    const fs::path user_whole = scratch.root / "whole";
+    fs::create_directories(user_whole);
+    const fs::path whole = oa::app::bundle_folder(user_whole, *totala) / "rev31.gp3.part";
+    fs::create_directories(whole.parent_path());
+    {
+        std::ofstream out(whole, std::ios::binary);
+        out << "rev31-fixture\n";
+    }
+    oa::app::MacosInstallerSource again(pkg, oa::app::copy_check_bundles(), false);
+    request.user_folder = user_whole;
+    const oa::app::CopyResult kept_whole = oa::app::copy_content(again, request);
+    OA_CHECK(kept_whole.status == oa::app::CopyStatus::finished);
+    OA_CHECK(
+        read_bytes(oa::app::bundle_folder(user_whole, *totala) / "rev31.gp3") == "rev31-fixture\n"
+    );
+    OA_CHECK(kept_whole.files_copied == copied.files_copied);
+    OA_CHECK(kept_whole.bytes_copied + 14 == copied.bytes_copied);
+    OA_CHECK(!fs::exists(whole));
 }
 
 const oa::data::content_bundles::Bundle* totala_bundle() {
