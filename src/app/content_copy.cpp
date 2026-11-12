@@ -16,6 +16,7 @@
 #include "oa/base/sha256.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/file_clone.hpp"
+#include "oa/platform/file_time.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/game_installs.hpp"
 #include "oa/platform/preferences.hpp"
@@ -24,7 +25,6 @@
 #include <atomic>
 #include <cctype>
 #include <cerrno>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -93,43 +93,6 @@ uint32_t narrow_count(std::size_t count) noexcept {
     if (count > limit)
         return std::numeric_limits<uint32_t>::max();
     return static_cast<uint32_t>(count);
-}
-
-/// Converts a file time to whole seconds since 1970, as the import does.
-template <typename Clock>
-[[nodiscard]] int64_t seconds_of_clock(typename Clock::time_point time) {
-    const auto count = [](auto system_time) {
-        return std::chrono::floor<std::chrono::seconds>(system_time).time_since_epoch().count();
-    };
-    if constexpr (requires { Clock::to_sys(time); })
-        return static_cast<int64_t>(count(Clock::to_sys(time)));
-    else {
-        const auto utc = Clock::to_utc(time);
-        using Utc = typename decltype(utc)::clock;
-        return static_cast<int64_t>(count(Utc::to_sys(utc)));
-    }
-}
-
-/// Converts whole seconds since 1970 to a file time.
-template <typename Clock>
-[[nodiscard]] typename Clock::time_point time_of_clock(int64_t seconds) {
-    const std::chrono::sys_seconds system{std::chrono::seconds{seconds}};
-    if constexpr (requires { Clock::from_sys(system); }) {
-        return std::chrono::time_point_cast<typename Clock::duration>(Clock::from_sys(system));
-    } else {
-        using Utc = typename decltype(Clock::to_utc(typename Clock::time_point{}))::clock;
-        return std::chrono::time_point_cast<typename Clock::duration>(
-            Clock::from_utc(Utc::from_sys(system))
-        );
-    }
-}
-
-[[nodiscard]] int64_t modified_seconds(fs::file_time_type time) {
-    return seconds_of_clock<fs::file_time_type::clock>(time);
-}
-
-[[nodiscard]] fs::file_time_type time_from_seconds(int64_t seconds) {
-    return time_of_clock<fs::file_time_type::clock>(seconds);
 }
 
 [[nodiscard]] char fold_byte(char byte) noexcept {
@@ -525,7 +488,7 @@ list_tree(const fs::path& root, std::vector<ContentSourceFile>& files, std::stri
                     if (!size_error) {
                         listed.size = narrow_size(size);
                         if (!time_error)
-                            listed.modified = modified_seconds(stamp);
+                            listed.modified = oa::platform::file_seconds_since_1970(stamp);
                         files.push_back(std::move(listed));
                     }
                 }
@@ -732,7 +695,7 @@ struct TailRequest {
         return false;
     digest = oa::base::sha256::finish(hasher);
     size = got;
-    modified = modified_seconds(stamp);
+    modified = oa::platform::file_seconds_since_1970(stamp);
     return true;
 }
 
@@ -746,7 +709,7 @@ struct TailRequest {
 
 [[nodiscard]] bool set_modified(const fs::path& path, int64_t modified, std::string* error) {
     std::error_code failure;
-    fs::last_write_time(path, time_from_seconds(modified), failure);
+    fs::last_write_time(path, oa::platform::file_time_from_seconds(modified), failure);
     if (failure) {
         set_error(error, "the copied file's time could not be set");
         return false;
@@ -765,7 +728,7 @@ file_matches_record(const fs::path& dest, const ContentRecordFile& recorded, uin
     const auto stamp = fs::last_write_time(dest, failure);
     if (failure)
         return false;
-    return modified_seconds(stamp) == recorded.modified;
+    return oa::platform::file_seconds_since_1970(stamp) == recorded.modified;
 }
 
 [[nodiscard]] uint64_t regular_size(const fs::path& path) {
@@ -979,7 +942,7 @@ stamp_tree(const fs::path& root, std::vector<SourceStamp>& stamps, std::string& 
                     reason = "the fixture's time could not be read";
                     return false;
                 }
-                stamp.modified = modified_seconds(written);
+                stamp.modified = oa::platform::file_seconds_since_1970(written);
                 if (!load_bytes(child, stamp.bytes, reason))
                     return false;
                 stamps.push_back(std::move(stamp));
@@ -999,7 +962,7 @@ stamp_tree(const fs::path& root, std::vector<SourceStamp>& stamps, std::string& 
         }
         std::error_code failure;
         const auto written = fs::last_write_time(stamp.path, failure);
-        if (failure || modified_seconds(written) != stamp.modified) {
+        if (failure || oa::platform::file_seconds_since_1970(written) != stamp.modified) {
             reason = "the source changed time";
             return false;
         }
@@ -1043,7 +1006,7 @@ void stop_after_one_file(void* context, const CopyProgress& progress) {
             reason = "the fixture could not be written";
         return false;
     }
-    fs::last_write_time(dest, time_from_seconds(k_check_time), failure);
+    fs::last_write_time(dest, oa::platform::file_time_from_seconds(k_check_time), failure);
     if (failure) {
         reason = "the fixture's time could not be set";
         return false;
@@ -2821,9 +2784,10 @@ ContentCheck check_managed_content(
                     return check;
                 continue;
             }
-            const bool unchanged = recorded && timed && !never_held &&
-                                   narrow_size(disk_bytes) == record.files[index].size &&
-                                   modified_seconds(stamp) == record.files[index].modified;
+            const bool unchanged =
+                recorded && timed && !never_held &&
+                narrow_size(disk_bytes) == record.files[index].size &&
+                oa::platform::file_seconds_since_1970(stamp) == record.files[index].modified;
             oa::base::sha256::Digest digest{};
             bool have_digest = false;
             if (unchanged) {

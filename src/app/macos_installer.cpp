@@ -12,11 +12,11 @@
 #include "oa/formats/cpio.hpp"
 #include "oa/formats/xar.hpp"
 #include "oa/platform/file_clone.hpp"
+#include "oa/platform/file_time.hpp"
 #include "oa/platform/files.hpp"
 
 #include <algorithm>
 #include <cerrno>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -105,41 +105,6 @@ std::string sentence(std::string_view detail) {
     if (text.back() != '.')
         text.push_back('.');
     return text;
-}
-
-template <typename Clock>
-[[nodiscard]] int64_t seconds_of_clock(typename Clock::time_point time) {
-    const auto count = [](auto system_time) {
-        return std::chrono::floor<std::chrono::seconds>(system_time).time_since_epoch().count();
-    };
-    if constexpr (requires { Clock::to_sys(time); })
-        return static_cast<int64_t>(count(Clock::to_sys(time)));
-    else {
-        const auto utc = Clock::to_utc(time);
-        using Utc = typename decltype(utc)::clock;
-        return static_cast<int64_t>(count(Utc::to_sys(utc)));
-    }
-}
-
-template <typename Clock>
-[[nodiscard]] typename Clock::time_point time_of_clock(int64_t seconds) {
-    const std::chrono::sys_seconds system{std::chrono::seconds{seconds}};
-    if constexpr (requires { Clock::from_sys(system); }) {
-        return std::chrono::time_point_cast<typename Clock::duration>(Clock::from_sys(system));
-    } else {
-        using Utc = typename decltype(Clock::to_utc(typename Clock::time_point{}))::clock;
-        return std::chrono::time_point_cast<typename Clock::duration>(
-            Clock::from_utc(Utc::from_sys(system))
-        );
-    }
-}
-
-[[nodiscard]] int64_t modified_seconds(fs::file_time_type time) {
-    return seconds_of_clock<fs::file_time_type::clock>(time);
-}
-
-[[nodiscard]] fs::file_time_type time_from_seconds(int64_t seconds) {
-    return time_of_clock<fs::file_time_type::clock>(seconds);
 }
 
 [[nodiscard]] char fold_byte(char byte) noexcept {
@@ -351,7 +316,7 @@ file_matches_record(const fs::path& dest, const ContentRecordFile& recorded, uin
     const auto stamp = fs::last_write_time(dest, failure);
     if (failure)
         return false;
-    return modified_seconds(stamp) == recorded.modified;
+    return oa::platform::file_seconds_since_1970(stamp) == recorded.modified;
 }
 
 [[nodiscard]] const ContentRecordFile*
@@ -797,7 +762,7 @@ struct Pump {
 
     [[nodiscard]] bool stamp(const fs::path& path, int64_t modified, int64_t& stored) {
         std::error_code failure;
-        fs::last_write_time(path, time_from_seconds(modified), failure);
+        fs::last_write_time(path, oa::platform::file_time_from_seconds(modified), failure);
         if (failure) {
             fail("the copied file's time could not be set");
             return false;
@@ -807,7 +772,7 @@ struct Pump {
             fail("the copied file's time could not be set");
             return false;
         }
-        stored = modified_seconds(read_back);
+        stored = oa::platform::file_seconds_since_1970(read_back);
         return true;
     }
 

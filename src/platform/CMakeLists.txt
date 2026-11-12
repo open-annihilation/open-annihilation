@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Host services: token locks, clock, threads, heap, performance counters,
-# file/log streams, the log folder, the machine the game runs on and the
+# file/log streams, files' times, the log folder, the machine the game runs on and the
 # system's memory.
 add_library(oa-platform-shims src/allocator.cpp src/crash.cpp src/dataless.cpp src/files.cpp
-  src/file_clone.cpp src/file_copy.cpp src/lock.cpp src/log_files.cpp
+  src/file_clone.cpp src/file_copy.cpp src/file_time.cpp src/lock.cpp src/log_files.cpp
   src/machine.cpp src/memory_status.cpp src/perf.cpp src/system.cpp src/system_memory.cpp)
 add_library(oa::platform::shims ALIAS oa-platform-shims)
 target_include_directories(oa-platform-shims PUBLIC include)
@@ -57,6 +57,13 @@ if(BUILD_TESTING)
   target_link_libraries(oa-platform-file-copy-test PRIVATE oa-platform-shims oa-test-support)
   add_test(NAME platform-file-copy COMMAND oa-platform-file-copy-test)
   set_tests_properties(platform-file-copy PROPERTIES TIMEOUT 30)
+  # A file's time as seconds since 1970 and back: known times, one before 1970 rounded down
+  # and a round trip, through a clock with to_sys and one of the Visual C++ shape (100 ns
+  # ticks from 1601, no to_sys), then through this system's own file clock and a file.
+  add_executable(oa-platform-file-time-test tests/file_time_test.cpp)
+  target_link_libraries(oa-platform-file-time-test PRIVATE oa-platform-shims oa-test-support)
+  add_test(NAME platform-file-time COMMAND oa-platform-file-time-test)
+  set_tests_properties(platform-file-time PROPERTIES TIMEOUT 30)
   # A path's UTF-8 spelling and the path a spelling names: UTF-16 and UTF-8
   # both ways, text that is not UTF-8, and a folder whose names no one code
   # page holds, listed, opened and replaced.

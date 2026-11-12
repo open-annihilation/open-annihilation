@@ -13,11 +13,11 @@
 #include "oa/formats/json.hpp"
 #include "oa/formats/oademo/oademo.hpp"
 #include "oa/formats/tad.hpp"
+#include "oa/platform/file_time.hpp"
 #include "oa/platform/files.hpp"
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -27,7 +27,6 @@
 #include <limits>
 #include <new>
 #include <optional>
-#include <ratio>
 #include <span>
 #include <string>
 #include <string_view>
@@ -64,42 +63,6 @@ constexpr std::array<uint16_t, 32> windows_1252_high = {
     0x2039, 0x0152, 0x008D, 0x017D, 0x008F, 0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022,
     0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178,
 };
-
-/// Converts a time of a file clock to whole seconds since 1970.
-///
-/// A clock with to_sys converts directly. The Visual Studio file clock has
-/// none, and its way through UTC, `to_utc` and then `utc_clock::to_sys`,
-/// loads the time zone database for the leap seconds; where that database
-/// is missing the process aborts. That clock counts 100 ns ticks from
-/// 1601-01-01, 11644473600 seconds before 1970, and the leap seconds its
-/// `to_utc` adds `to_sys` takes away again, so the whole seconds are this
-/// difference.
-///
-/// @param stamp a time of the clock
-/// @return seconds since 1970
-template <typename Clock>
-[[nodiscard]] int64_t seconds_of_clock(typename Clock::time_point stamp) {
-    if constexpr (requires { Clock::to_sys(stamp); }) {
-        return std::chrono::floor<std::chrono::seconds>(Clock::to_sys(stamp))
-            .time_since_epoch()
-            .count();
-    } else {
-        static_assert(std::ratio_equal_v<typename Clock::period, std::ratio<1, 10'000'000>>);
-        using hundred_ns = std::chrono::duration<long long, std::ratio<1, 10'000'000>>;
-        // 11644473600 seconds, in 100 ns ticks: 1601-01-01 to 1970-01-01.
-        constexpr hundred_ns file_epoch_to_unix{0x19DB1DED53E8000LL};
-        const auto since_unix = stamp.time_since_epoch() - file_epoch_to_unix;
-        return static_cast<int64_t>(std::chrono::floor<std::chrono::seconds>(since_unix).count());
-    }
-}
-
-/// Converts a file's modification time to seconds since 1970.
-///
-/// @param stamp the time the file system gives
-/// @return seconds since 1970 (UTC)
-int64_t seconds_since_1970(fs::file_time_type stamp) {
-    return seconds_of_clock<fs::file_time_type::clock>(stamp);
-}
 
 /// Tells whether a text ends with an ending, without ASCII case.
 ///
@@ -679,7 +642,7 @@ Replay read_file(const fs::path& recordings, std::string_view path) {
         return replay;
     }
     replay.size = size;
-    replay.modified = seconds_since_1970(written);
+    replay.modified = oa::platform::file_seconds_since_1970(written);
     replay.recorded = replay.modified;
     if (size > most_file_bytes) {
         mark_damaged(replay, file_too_large);
@@ -743,7 +706,7 @@ void walk(
                     Listed listed;
                     listed.path = prefix + name;
                     listed.size = size;
-                    listed.modified = seconds_since_1970(written);
+                    listed.modified = oa::platform::file_seconds_since_1970(written);
                     listed.file = *kind;
                     out.push_back(std::move(listed));
                 }
@@ -855,8 +818,8 @@ std::optional<int64_t> kept_set_aside_at(const fs::path& recordings) {
         // time, so it spares every replay.
         std::error_code time_error;
         const fs::file_time_type written = entries->last_write_time(time_error);
-        const int64_t at =
-            time_error ? std::numeric_limits<int64_t>::max() : seconds_since_1970(written);
+        const int64_t at = time_error ? std::numeric_limits<int64_t>::max()
+                                      : oa::platform::file_seconds_since_1970(written);
         if (!newest || at > *newest)
             newest = at;
     }
