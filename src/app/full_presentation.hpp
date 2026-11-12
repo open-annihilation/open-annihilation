@@ -75,6 +75,18 @@ struct FullFrameVertices {
     float zoom{};          ///< the zoom the frame was drawn at
 };
 
+/// The overlay canvas the Full tier's overlay was converted from, with the
+/// key and the display gamma it was converted at, against which the next
+/// canvas's bands are compared so that only those that differ are converted
+/// and uploaded again (convert_changed_rgb24_keyed_overlay_argb).
+struct FullOverlaySource {
+    std::vector<uint8_t> canvas;        ///< RGB24, the battlefield's size; empty before the first
+    std::array<uint8_t, 3> key{};       ///< the canvas's key colour
+    std::array<uint8_t, 256> gamma{};   ///< the display gamma's table, where gamma_on
+    bool gamma_on{};                    ///< the overlay went through `gamma`; else no table
+    std::vector<uint8_t> changed_bands; ///< the bands the last upload converted
+};
+
 /// The card's page that holds a page of the sprite pages.
 struct FullCardPage {
     card::PageHandle handle{}; ///< none for a page not made
@@ -430,6 +442,7 @@ struct Runtime::FullPresentation {
     std::vector<uint8_t> overlay; ///< ARGB8888 words, the battlefield's size
     std::vector<uint8_t> opaque_bands;
     std::vector<uint8_t> uploaded_bands;
+    FullOverlaySource overlay_source; ///< the canvas the overlay's words were converted from
     bool overlay_uploaded{};
     ScaledWorldCounts counts; ///< what the overlay's texture was made of
     /// The quads the painters after the fog asked for this frame, in paint

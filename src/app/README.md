@@ -2659,7 +2659,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   its colour's; their foregrounds go on the canvas as in every tier. The
   executor runs the frame within the battlefield's scissor; the canvas
   goes up as the overlay by its key (`convert_rgb24_keyed_overlay_argb`),
-  in the bands that hold paint, laid over the card's picture 1:1, so
+  in the bands that hold paint or held it, and of those only the bands
+  that differ from the canvas uploaded last are converted and uploaded
+  again (`convert_changed_rgb24_keyed_overlay_argb`), laid over the
+  card's picture 1:1, so
   Basic's overlay by difference, which cannot tell a paint of the base's
   own colour from the base, is not needed; the sprite pages' texels and
   the model stage's pages go up as they change; the HUD strips
