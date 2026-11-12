@@ -4,6 +4,7 @@
 #pragma once
 
 #include "oa/sim/ground_orders/navigator.hpp"
+#include "oa/sim/unit_movement/local_flow.hpp"
 
 #include <array>
 #include <cstdint>
@@ -68,6 +69,48 @@ inline constexpr int64_t one_pixel = 65536;
     const auto follower_distance = direction[0] * direction[0] + direction[1] * direction[1];
     const auto leader_distance = remaining[0] * remaining[0] + remaining[1] * remaining[1];
     return ahead > 0 && same_direction > 0 && leader_distance < follower_distance;
+}
+
+/// Optionally checks a shared-prefix leader against its just-applied local leg.
+/// Unsupported or stale heads preserve the original queue certificate. This
+/// helper is disabled by default and has no production caller.
+/// @param follower following unit's current geometry
+/// @param route follower's canonical navigation
+/// @param leader selected blocker's current geometry
+/// @param leader_route selected blocker's canonical navigation
+/// @param head selected blocker's applied local head, if available
+/// @param goal_key identity of the blocker's currently owned Goal
+/// @param tick current simulation tick
+/// @param enabled explicit experimental adapter opt-in
+/// @return original certificate, narrowed only by a current non-forward local leg
+[[nodiscard]] inline bool same_forward_route_with_applied_head(
+    const unit_movement::Unit& follower,
+    const ground_orders::Navigation& route,
+    const unit_movement::Unit& leader,
+    const ground_orders::Navigation& leader_route,
+    const unit_movement::LocalFlowHead* head,
+    uint64_t goal_key,
+    uint32_t tick,
+    bool enabled = false
+) noexcept {
+    const bool native = same_forward_route(follower, route, leader, leader_route);
+    if (!native || !enabled || !head || !head->active || head->count != 3 || goal_key == 0 ||
+        head->goal_key != goal_key || head->tick != tick ||
+        unit_movement::local_flow_head_reached(leader, *head) ||
+        unit_movement::local_flow_recovery_due(*head, tick, static_cast<uint16_t>(leader.id)))
+        return native;
+    using namespace route_queue_detail;
+    const std::array<int64_t, 2> applied{
+        int64_t(head->points[1][0]) * one_pixel - leader.position[0],
+        int64_t(head->points[1][1]) * one_pixel - leader.position[2]
+    };
+    const std::array<int64_t, 2> forward{
+        int64_t(leader_route.points[1][0]) * one_pixel - leader.position[0],
+        int64_t(leader_route.points[1][1]) * one_pixel - leader.position[2]
+    };
+    if (!bounded_vector(applied) || !bounded_vector(forward))
+        return native;
+    return applied[0] * forward[0] + applied[1] * forward[1] > 0;
 }
 
 } // namespace oa::sim::match_runtime

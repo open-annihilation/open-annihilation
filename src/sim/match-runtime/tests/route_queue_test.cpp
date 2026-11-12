@@ -4,6 +4,9 @@
 // An actual native route queue waits briefly at a right-angle mouth, then
 // crosses on real movement after an ordinary unit leaves the passage.
 #include "combat_fixture.hpp"
+#include "../src/route_queue.hpp"
+
+#include "oa/sim/ground_orders/steering_target.hpp"
 
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/ground_orders/goals.hpp"
@@ -733,6 +736,425 @@ void historical_profiles_do_not_read_route_coherence() {
         CHECK(pipeline(version, Pipeline::matched) == pipeline(version, Pipeline::different_goal));
 }
 
+uint64_t applied_goal_key(const ground::Goal& goal) {
+    uint64_t key = 14695981039346656037ull;
+    const auto add = [&key](uint32_t value) {
+        for (unsigned byte = 0; byte < 4; ++byte) {
+            key ^= static_cast<uint8_t>(value >> (byte * 8));
+            key *= 1099511628211ull;
+        }
+    };
+    add(static_cast<uint32_t>(goal.shape));
+    add(static_cast<uint16_t>(goal.cell[0]));
+    add(static_cast<uint16_t>(goal.cell[1]));
+    add(static_cast<uint32_t>(goal.tolerance));
+    add(static_cast<uint32_t>(goal.radius_squared));
+    add(static_cast<uint32_t>(goal.inner_range));
+    add(static_cast<uint32_t>(goal.inner_radius_squared));
+    add(static_cast<uint32_t>(goal.left));
+    add(static_cast<uint32_t>(goal.right));
+    add(static_cast<uint32_t>(goal.top));
+    add(static_cast<uint32_t>(goal.bottom));
+    return key;
+}
+
+void applied_head_certificate_is_explicit_and_current() {
+    movement::Unit follower{}, leader{};
+    follower.position = {88 * pixel, land_height * pixel, 144 * pixel};
+    leader.position = {120 * pixel, land_height * pixel, 144 * pixel};
+    follower.footprint = leader.footprint = {2, 2};
+    follower.id = 3;
+    leader.id = 2;
+    ground::Goal goal{};
+    ground::Navigation route{};
+    route.goal = &goal;
+    route.flags = ground::route_present_flag;
+    route.count = 3;
+    route.points[1] = {208, 144};
+    route.points[2] = {208, 48};
+    auto leader_route = route;
+    movement::LocalFlowHead head{};
+    head.points = {{{120, 144}, {104, 144}, {208, 48}}};
+    head.active = true;
+    head.count = 3;
+    head.tick = 57;
+    head.goal_key = 9;
+    const auto check = [&](const movement::LocalFlowHead* candidate,
+                           bool enabled = true,
+                           uint64_t key = 9,
+                           uint32_t tick = 57) {
+        return runtime::same_forward_route_with_applied_head(
+            follower, route, leader, leader_route, candidate, key, tick, enabled
+        );
+    };
+    CHECK(runtime::same_forward_route(follower, route, leader, leader_route));
+    CHECK(
+        runtime::same_forward_route_with_applied_head(
+            follower, route, leader, leader_route, &head, 9, 57
+        )
+    );
+    CHECK(!check(&head));
+    head.points[1] = {120, 160};
+    CHECK(!check(&head));
+    head.points[1] = {136, 144};
+    CHECK(check(&head));
+    head.points[1] = {104, 144};
+    CHECK(check(nullptr));
+    CHECK(check(&head, false));
+    CHECK(check(&head, true, 0));
+    CHECK(check(&head, true, 8));
+    CHECK(check(&head, true, 9, 56));
+    CHECK(check(&head, true, 9, 58));
+    for (const uint8_t count : {uint8_t{0}, uint8_t{2}, uint8_t{4}}) {
+        head.count = count;
+        CHECK(check(&head));
+    }
+    head.count = 3;
+    head.active = false;
+    CHECK(check(&head));
+    head.active = true;
+    head.points[1] = {123, 144};
+    CHECK(movement::local_flow_head_reached(leader, head));
+    CHECK(check(&head));
+    head.points[1] = {104, 144};
+    head.blocked_ticks = movement::local_flow_retry_ticks;
+    head.tick = 88;
+    CHECK(movement::local_flow_recovery_due(head, 88, 2));
+    CHECK(check(&head, true, 9, 88));
+    head.blocked_ticks = 0;
+    head.tick = 57;
+    leader_route.points[1] = {32, 144};
+    CHECK(!check(&head));
+}
+
+std::vector<movement::LocalFlowHead> saved_heads(runtime::Match& match) {
+    const auto* table = runtime::find_rule_state(match.rule_state(), "local-flow");
+    CHECK(table && table->bytes && table->restore);
+    std::vector<movement::LocalFlowHead> heads(match.state().unit_slot_count);
+    CHECK(movement::read_local_flow_heads(heads, table->bytes(table->context)));
+    return heads;
+}
+
+void restore_heads(runtime::Match& match, const std::vector<movement::LocalFlowHead>& heads) {
+    const auto* table = runtime::find_rule_state(match.rule_state(), "local-flow");
+    CHECK(table && table->restore);
+    std::vector<uint8_t> bytes(heads.size() * movement::local_flow_head_bytes);
+    CHECK(movement::write_local_flow_heads(heads, bytes));
+    CHECK(table->restore(table->context, bytes));
+}
+
+/// Read-only occupancy host for the explicit test adapter and copied first step.
+/// Subsequent movement runs through the actual Match, with its real host.
+struct AppliedProbe final : movement::Host {
+    Scene& scene;
+    bool enabled{};
+    uint32_t tick{};
+    std::vector<movement::LocalFlowHead> heads;
+    std::vector<uint32_t> progress;
+
+    AppliedProbe(Scene& scene, bool enabled)
+        : scene(scene), enabled(enabled), tick(scene.match().simulation().tick),
+          heads(saved_heads(scene.match())), progress(scene.match().state().unit_slot_count) {
+        for (const auto id : scene.all_units())
+            progress[id] = scene.ground(id).movement.last_motion_tick;
+    }
+
+    movement::LocalFlowBlocker
+    at(const movement::Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy) {
+        using Obstacle = movement::LocalFlowObstacle;
+        if (occupancy != ground_layer || cell[0] < 0 || cell[1] < 0 ||
+            uint32_t(cell[0]) + 2 >= scene.width || uint32_t(cell[1]) + 2 >= map_height)
+            return {Obstacle::stationary};
+        auto& match = scene.match();
+        movement::LocalFlowBlocker result{};
+        bool coherent = true;
+        const auto follower = static_cast<uint16_t>(unit.id);
+        for (int16_t z = 0; z < 2; ++z)
+            for (int16_t x = 0; x < 2; ++x) {
+                const auto& plot =
+                    match.spatial().plots[size_t(cell[1] + z) * scene.width + size_t(cell[0] + x)];
+                if (plot.blocking_feature || plot.low_height != land_height ||
+                    plot.high_height != land_height)
+                    return {Obstacle::stationary};
+                const auto id = plot.ground;
+                if (id == oa::sim::spatial_state::no_unit || id == follower)
+                    continue;
+                const auto* other = match.ground_runtime(id);
+                if (!other || !other->navigation.goal)
+                    return {Obstacle::stationary};
+                const auto& slot = match.spawn_slot(id);
+                const auto* goal = other->navigation.goal;
+                const auto& own = scene.ground(follower).navigation;
+                coherent =
+                    coherent &&
+                    slot.record.owner_index == match.spawn_slot(follower).record.owner_index &&
+                    slot.unit && slot.unit->primary == goal->order && own.goal &&
+                    own.goal->order == match.spawn_slot(follower).unit->primary &&
+                    runtime::same_forward_route_with_applied_head(
+                        unit,
+                        own,
+                        other->geometry,
+                        other->navigation,
+                        &heads[id],
+                        applied_goal_key(*goal),
+                        tick,
+                        enabled
+                    );
+                const auto waiting = tick - progress[id];
+                if (result.obstacle != Obstacle::moving || waiting > result.waiting_ticks ||
+                    (waiting == result.waiting_ticks && id < result.unit_id))
+                    result = {Obstacle::moving, id, other->geometry.heading, waiting};
+            }
+        result.same_route_queue = result.obstacle == Obstacle::moving && coherent;
+        return result;
+    }
+
+    bool can_occupy(
+        const movement::Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy
+    ) override {
+        return at(unit, cell, occupancy).obstacle == movement::LocalFlowObstacle::clear;
+    }
+
+    void remove_occupancy(movement::Unit&) override {}
+
+    void insert_occupancy(movement::Unit&) override {}
+
+    void update_spatial_membership(movement::Unit&) override {}
+
+    movement::LocalFlowDecision choose(uint16_t id, movement::LocalFlowCounters& counters) {
+        auto& body = scene.ground(id);
+        movement::LocalFlowProbe probe{};
+        probe.context = this;
+        probe.at = [](void* context,
+                      const movement::Unit& unit,
+                      std::array<int16_t, 2> cell,
+                      uint8_t occupancy) {
+            return static_cast<AppliedProbe*>(context)->at(unit, cell, occupancy);
+        };
+        probe.allow_reverse = false;
+        probe.progress_at_tick_start = progress;
+        const auto points = ground::steering_points(body.navigation);
+        return movement::choose_local_flow(
+            body.geometry,
+            body.movement,
+            points[1],
+            ground::steering_target(body.geometry, points).point,
+            tick,
+            *this,
+            probe,
+            counters
+        );
+    }
+};
+
+struct AppliedOutcome {
+    bool adjusted{}, old_certificate{}, applied_certificate{}, first_fresh_veto{};
+    bool vacated_before_recovery{}, both_arrived{}, both_rested{};
+    uint32_t finish_tick{};
+    std::array<int16_t, 2> target{};
+};
+
+AppliedOutcome applied_leader_wave(bool enabled) {
+    Scene scene(distributed_version, false, true);
+    auto& match = scene.match();
+    const auto leader = scene.queue[0], follower = scene.queue[1];
+    scene.run(60);
+    for (const auto id : scene.queue) {
+        const int32_t goal_x = id == leader ? 336 : 304;
+        CHECK(!match.order_refused(
+            match.issue_ground_move(id, {goal_x * pixel, 0, 128 * pixel}, false)
+        ));
+    }
+    scene.run();
+    match.simulation().tick = 56;
+    match.place_unit_at(scene.gate, 80 * pixel, land_height * pixel, 224 * pixel, ground_layer);
+    prepare_route(scene, leader, 176 * pixel, 176, 2);
+    prepare_route(scene, follower, 152 * pixel - 1, 173, 2);
+    for (const auto id : scene.queue) {
+        auto& body = scene.ground(id);
+        body.navigation.points[1] = {240, 128};
+        body.navigation.points[2] = {272, 128};
+        body.navigation.points[3] = {static_cast<int16_t>(id == leader ? 336 : 304), 128};
+        body.navigation.count = 4;
+        body.navigation.last_search_tick = 56;
+        body.movement.flags = ground_layer;
+        const uint16_t heading = id == leader ? uint16_t{16384} : uint16_t{0};
+        match.spawn_slot(id).record.heading = heading;
+        body.project_slot();
+        body.movement.velocity = movement::aim_velocity(heading, 0, body.movement.speed);
+        CHECK(
+            body.navigation.goal &&
+            body.navigation.goal->order == match.spawn_slot(id).unit->primary
+        );
+    }
+    // Placement starts a new physical oracle. Discard traffic heads made
+    // while the ordinary owned Goals were installed at the spawn positions.
+    auto heads = saved_heads(match);
+    heads[follower] = {};
+    auto& front = heads[leader];
+    front.points = {{{176, 176}, {160, 176}, {272, 128}}};
+    front.goal_key = applied_goal_key(*scene.ground(leader).navigation.goal);
+    front.tick = 56;
+    front.count = 3;
+    front.active = true;
+    restore_heads(match, heads);
+    scene.check_claims();
+    // First let the real Match apply the leader's retained backward leg. The
+    // opt-in adapter may only inspect that actual current-tick publication.
+    scene.run();
+    const uint32_t admission_tick = match.simulation().tick;
+    const auto start_cell = scene.ground(follower).geometry.cell;
+    AppliedProbe probe(scene, enabled);
+    auto& back = scene.ground(follower);
+    auto& lead = scene.ground(leader);
+    CHECK(probe.heads[leader].active && probe.heads[leader].tick == admission_tick);
+    CHECK(!movement::local_flow_head_reached(lead.geometry, probe.heads[leader]));
+    std::cout << "Applied admission: tick=" << admission_tick
+              << ", front=" << lead.geometry.position[0] << ',' << lead.geometry.position[2]
+              << ", back=" << back.geometry.position[0] << ',' << back.geometry.position[2]
+              << ", frontP1=" << lead.navigation.points[1][0] << ',' << lead.navigation.points[1][1]
+              << ", backP1=" << back.navigation.points[1][0] << ',' << back.navigation.points[1][1]
+              << ", frontP2=" << lead.navigation.points[2][0] << ',' << lead.navigation.points[2][1]
+              << ", backP2=" << back.navigation.points[2][0] << ',' << back.navigation.points[2][1]
+              << ", frontHead=" << probe.heads[leader].active << ':'
+              << probe.heads[leader].points[1][0] << ',' << probe.heads[leader].points[1][1]
+              << ", backHead=" << probe.heads[follower].active << ':'
+              << probe.heads[follower].points[1][0] << ',' << probe.heads[follower].points[1][1]
+              << ", oldcert="
+              << runtime::same_forward_route(
+                     back.geometry, back.navigation, lead.geometry, lead.navigation
+                 )
+              << '\n';
+    CHECK(!probe.heads[follower].active);
+    CHECK(probe.heads[follower].count == 0);
+    CHECK(probe.heads[follower].blocked_ticks < movement::local_flow_retry_ticks);
+    CHECK(!movement::local_flow_recovery_due(probe.heads[follower], admission_tick, follower));
+    AppliedOutcome result;
+    result.old_certificate =
+        runtime::same_forward_route(back.geometry, back.navigation, lead.geometry, lead.navigation);
+    result.applied_certificate = runtime::same_forward_route_with_applied_head(
+        back.geometry,
+        back.navigation,
+        lead.geometry,
+        lead.navigation,
+        &probe.heads[leader],
+        applied_goal_key(*lead.navigation.goal),
+        admission_tick,
+        true
+    );
+    CHECK(result.old_certificate && !result.applied_certificate);
+    const auto native_before = back.navigation;
+    const auto goal_before = *back.navigation.goal;
+    const auto* own_goal = back.navigation.goal;
+    const auto* own_order = own_goal->order;
+    const auto leader_goal = *lead.navigation.goal;
+    // Ownership remains an outer certificate gate in both adapters. Merely
+    // observing the same foreign body never acquires a following proof.
+    auto& leader_record = match.spawn_slot(leader).record;
+    const uint8_t owner = leader_record.owner_index;
+    leader_record.owner_index = 1;
+    const auto foreign = probe.at(back.geometry, lead.geometry.cell, ground_layer);
+    probe.enabled = !enabled;
+    const auto foreign_other = probe.at(back.geometry, lead.geometry.cell, ground_layer);
+    probe.enabled = enabled;
+    leader_record.owner_index = owner;
+    CHECK(foreign.obstacle == movement::LocalFlowObstacle::moving);
+    CHECK(foreign_other.obstacle == foreign.obstacle && foreign_other.unit_id == foreign.unit_id);
+    CHECK(!foreign.same_route_queue && !foreign_other.same_route_queue);
+    movement::LocalFlowCounters counters{};
+    const auto decision = probe.choose(follower, counters);
+    result.adjusted = decision.adjusted;
+    CHECK(decision.mobile_blocked);
+    CHECK(back.navigation.goal == own_goal && own_goal->order == own_order);
+    CHECK(
+        back.navigation.points == native_before.points &&
+        back.navigation.count == native_before.count
+    );
+    auto effective = back.navigation;
+    if (decision.adjusted) {
+        auto& head = probe.heads[follower];
+        head.points = {
+            {{static_cast<int16_t>(back.geometry.position[0] >> 16),
+              static_cast<int16_t>(back.geometry.position[2] >> 16)},
+             {static_cast<int16_t>(decision.target[0] >> 16),
+              static_cast<int16_t>(decision.target[2] >> 16)},
+             native_before.points[2]}
+        };
+        head.count = 3;
+        head.active = true;
+        head.mobile_blocked = true;
+        head.goal_key = applied_goal_key(*own_goal);
+        head.tick = admission_tick;
+        std::copy(head.points.begin(), head.points.end(), effective.points.begin());
+        effective.count = 3;
+        result.target = head.points[1];
+        restore_heads(match, probe.heads);
+    }
+    // This is an actual native steering+sweep on copies against the live full
+    // footprint claims. It distinguishes a fresh refusal from latched flags.
+    auto step_unit = back.geometry;
+    auto step_movement = back.movement;
+    ground::steer_ground(
+        step_unit, step_movement, effective, back.acceleration, back.deceleration, sea_level
+    );
+    const auto sweep = movement::integrate_swept_local_flow(
+        step_unit, step_movement, admission_tick + 1, true, probe, counters
+    );
+    result.first_fresh_veto = sweep.status == movement::GroundSweepStatus::blocked;
+    CHECK(sweep.status != movement::GroundSweepStatus::unsupported);
+    std::array<bool, 2> arrived{};
+    for (uint32_t elapsed = 0; elapsed < 900; ++elapsed) {
+        scene.run();
+        const auto& state = scene.ground(follower);
+        if (elapsed == 0) {
+            CHECK(state.geometry.position == step_unit.position);
+            CHECK(state.geometry.cell == step_unit.cell);
+            CHECK(state.geometry.heading == step_unit.heading);
+            CHECK(state.movement.speed == step_movement.speed);
+            CHECK(state.movement.velocity == step_movement.velocity);
+        }
+        if (elapsed + 1 < movement::local_flow_retry_ticks && state.geometry.cell != start_cell)
+            result.vacated_before_recovery = true;
+        for (size_t index = 0; index < scene.queue.size(); ++index) {
+            const auto& current = scene.ground(scene.queue[index]);
+            const auto& goal = index == 0 ? leader_goal : goal_before;
+            arrived[index] = arrived[index] || ground::goal_contains_unit(goal, current.geometry);
+            if (current.navigation.goal) {
+                CHECK(
+                    current.navigation.goal->order ==
+                    match.spawn_slot(scene.queue[index]).unit->primary
+                );
+                CHECK(same_goal(*current.navigation.goal, goal));
+            }
+        }
+        result.both_arrived = arrived[0] && arrived[1];
+        result.both_rested = result.both_arrived && scene.ground(leader).movement.speed == 0 &&
+                             scene.ground(follower).movement.speed == 0 &&
+                             !scene.ground(leader).navigation.goal &&
+                             !scene.ground(follower).navigation.goal;
+        if (result.both_rested) {
+            result.finish_tick = elapsed + 1;
+            break;
+        }
+    }
+    std::cout << "Applied leader oracle: adapter=" << enabled << ", adjusted=" << result.adjusted
+              << ", target=" << result.target[0] << ',' << result.target[1]
+              << ", fresh_veto=" << result.first_fresh_veto
+              << ", vacated_before_recovery=" << result.vacated_before_recovery
+              << ", arrived=" << result.both_arrived << ", rested=" << result.both_rested
+              << ", finish=" << result.finish_tick << '\n';
+    return result;
+}
+
+void applied_backward_leader_releases_an_existing_passing_leg() {
+    const auto old = applied_leader_wave(false);
+    const auto adapted = applied_leader_wave(true);
+    CHECK(!old.adjusted && old.first_fresh_veto && !old.vacated_before_recovery);
+    CHECK(adapted.adjusted && adapted.target[1] < 173);
+    CHECK(!adapted.first_fresh_veto && adapted.vacated_before_recovery);
+    CHECK(adapted.both_arrived && adapted.both_rested);
+}
+
 void print_legacy_trace() {
     for (uint32_t version = 0; version < battle_version; ++version)
         for (const auto control :
@@ -793,5 +1215,7 @@ int main(int argc, char** argv) {
         );
     }
     run("historical profile coherence", historical_profiles_do_not_read_route_coherence);
+    run("applied head certificate gates", applied_head_certificate_is_explicit_and_current);
+    run("applied backward leader", applied_backward_leader_releases_an_existing_passing_leg);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
