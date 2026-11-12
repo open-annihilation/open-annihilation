@@ -4,6 +4,7 @@
 // Independent scalar captures and drawing-pool captures leave the same full
 // history, including rates, across tick, generation and attachment changes.
 #include "presentation_capture.hpp"
+#include "oa/data/enhanced_mode.hpp"
 
 #include "oa/base/float_precision.hpp"
 
@@ -417,12 +418,14 @@ void test_parallel_history() {
 void test_capture_policy() {
     oa::data::match_rules::MatchRules rules;
     for (const bool enabled : {false, true})
-        for (int32_t version = 0; version <= 8; ++version) {
+        for (int32_t version = 0; version <= 9; ++version) {
             rules.setup.enhanced_mode.enabled = enabled;
             rules.setup.enhanced_mode.version = version;
             CHECK(app::unit_pose_capture(rules, false) == app::UnitPoseCapture::full);
             const auto expected =
-                enabled && version == 7 ? app::UnitPoseCapture::root : app::UnitPoseCapture::full;
+                enabled && oa::data::enhanced_mode::uses_distributed_battle_flow(version)
+                    ? app::UnitPoseCapture::root
+                    : app::UnitPoseCapture::full;
             CHECK(app::unit_pose_capture(rules, true) == expected);
         }
 }

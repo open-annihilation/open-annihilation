@@ -210,7 +210,7 @@ oa::Unit* nearest_enemy(
     filter.skip_dying =
         task.kind == TaskKind::strike && rules.setup.enhanced_mode.enabled &&
         (rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
-         rules.setup.enhanced_mode.version == data::enhanced_mode::distributed_battle_flow_version);
+         data::enhanced_mode::uses_distributed_battle_flow(rules.setup.enhanced_mode.version));
     if (ai_rules(state).nearest_enemy_filter.rules ==
         data::match_rules::AiNearestEnemyFilterRules::skip_submerged) {
         filter.widened_flags = true;
@@ -359,8 +359,7 @@ void run_strike(
         state != nullptr ? state->rules.rules() : data::match_rules::baseline_match_rules;
     const bool distributed =
         rules.setup.enhanced_mode.enabled &&
-        rules.setup.enhanced_mode.version ==
-            static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version);
+        data::enhanced_mode::uses_distributed_battle_flow(rules.setup.enhanced_mode.version);
     recruit_squad(
         host,
         ai,

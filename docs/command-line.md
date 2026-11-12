@@ -622,7 +622,7 @@ a comment. Every key may be left out:
 | `label NAME` | The run's name in its lines. | the file's name without its extension |
 | `stage FILE` | A stage played into the match once it starts; a path that is not absolute is taken from the view file's folder. | none |
 | `players N` | The skirmish's players, from 2 to 10. | 2 |
-| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 7; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
+| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 8; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
 | `menu_seconds S` | Seconds on the main menu first. | 1 |
 | `warmup_ticks N` | The match tick the measured span starts at. | 600 |
 | `warmup_frames N` | Additional rendered warm-up frames after staging and the tick warm-up. | 0 |
@@ -1801,7 +1801,7 @@ independent graphics setting.
 | `--benchmark-scenario idle\|march\|group-march\|combat` | Hold fire, independent cross-map moves, shared destination patches, or explicit attacks | combat |
 | `--benchmark-map NAME` | An installed map with two start positions | Coast To Coast |
 | `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
-| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
+| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
 | `--match-ticks N` | Successful measured ticks required | 300 |
 | `--seed N` | Match random seed | the engine's fixed seed |
 | `--enhanced-mode[=on\|off]` | Enhanced rules for this run; a bare flag means on | stored choice |

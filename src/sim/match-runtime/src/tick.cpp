@@ -163,13 +163,13 @@ void Match::run_player_controller(uint8_t player) {
     if (computer) {
         const SeatHooks hooks = seat_hooks_[player];
         const bool played = hooks.play != nullptr && hooks.play(hooks.context, *this, player);
-        auto* retarget =
-            enhanced_ != nullptr && (rules().setup.enhanced_mode.version ==
-                                         data::enhanced_mode::battle_flow_version ||
-                                     rules().setup.enhanced_mode.version ==
-                                         data::enhanced_mode::distributed_battle_flow_version)
-                ? &enhanced_->ai_retarget
-                : nullptr;
+        auto* retarget = enhanced_ != nullptr && (rules().setup.enhanced_mode.version ==
+                                                      data::enhanced_mode::battle_flow_version ||
+                                                  data::enhanced_mode::uses_distributed_battle_flow(
+                                                      rules().setup.enhanced_mode.version
+                                                  ))
+                             ? &enhanced_->ai_retarget
+                             : nullptr;
         if (retarget != nullptr) {
             const auto bit = static_cast<uint16_t>(uint16_t(1) << player);
             if (played)
@@ -241,7 +241,7 @@ bool Match::prepare_search_job(
     begin.world_width = spatial_.terrain_width;
     begin.world_height = spatial_.terrain_height;
     if (rules().setup.enhanced_mode.enabled &&
-        rules().setup.enhanced_mode.version == data::enhanced_mode::distributed_battle_flow_version)
+        data::enhanced_mode::uses_distributed_battle_flow(rules().setup.enhanced_mode.version))
         begin.seed_step_limit = distributed_seed_step_limit;
     map = &*klass->map;
     return true;
@@ -330,8 +330,8 @@ void Match::advance_path_search() {
         &find_slot,
         &flow_sampler,
         shared_routes,
-        shared_routes && rules().setup.enhanced_mode.version ==
-                             data::enhanced_mode::distributed_battle_flow_version
+        shared_routes &&
+            data::enhanced_mode::uses_distributed_battle_flow(rules().setup.enhanced_mode.version)
     };
 
     sim::ground_orders::SearchUnitAccess access;

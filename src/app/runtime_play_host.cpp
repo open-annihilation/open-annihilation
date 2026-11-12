@@ -1037,7 +1037,7 @@ struct PlayHostAccess {
                 enhanced.version == oa::data::enhanced_mode::battle_flow_version;
             const bool distribute_formation =
                 shaped && enhanced.enabled &&
-                enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version;
+                oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version);
             const auto& spawned = app.match_->world();
             if (shaped) {
                 for (uint16_t id : ids)

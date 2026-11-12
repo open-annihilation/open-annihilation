@@ -498,11 +498,11 @@ void test_mutator_match() {
     MatchOption enhanced;
     enhanced.path = "setup.enhanced-mode.version";
     enhanced.turn_on = true;
-    for (const auto version : {"1", "2", "3", "4", "5", "6", "7"}) {
+    for (const auto version : {"1", "2", "3", "4", "5", "6", "7", "8"}) {
         enhanced.value = version;
         OA_CHECK(!match_option_problem(enhanced).has_value());
     }
-    for (const auto version : {"0", "8"}) {
+    for (const auto version : {"0", "9"}) {
         enhanced.value = version;
         OA_CHECK(match_option_problem(enhanced).has_value());
     }

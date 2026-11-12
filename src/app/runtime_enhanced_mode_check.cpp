@@ -86,7 +86,8 @@ void Runtime::check_enhanced_mode() {
           mode::swept_ground_version,
           mode::corridor_flow_version,
           mode::battle_flow_version,
-          mode::distributed_battle_flow_version}) {
+          mode::distributed_battle_flow_version,
+          mode::following_flow_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
@@ -271,7 +272,7 @@ void Runtime::check_enhanced_mode() {
                 plot.blocking_feature = true;
             }
             std::array<Point, 2> specialized_expected = formations;
-            const bool distributed = version == mode::distributed_battle_flow_version;
+            const bool distributed = mode::uses_distributed_battle_flow(version);
             if ((version == mode::battle_flow_version || distributed) && scenario != 0)
                 specialized_expected[1] = click;
             auto expected = specialized_expected;
@@ -665,7 +666,8 @@ void Runtime::check_enhanced_mode() {
           mode::swept_ground_version,
           mode::corridor_flow_version,
           mode::battle_flow_version,
-          mode::distributed_battle_flow_version}) {
+          mode::distributed_battle_flow_version,
+          mode::following_flow_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
@@ -698,7 +700,7 @@ void Runtime::check_enhanced_mode() {
         );
     }
     require(
-        !hold_enhanced_rules_once(mode::distributed_battle_flow_version + 1),
+        !hold_enhanced_rules_once(mode::following_flow_version + 1),
         "an unknown version was accepted"
     );
     require(

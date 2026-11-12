@@ -550,9 +550,7 @@ bool Match::issue_attack_command(
     if (kind == 0)
         return false;
     const auto& enhanced = rules().setup.enhanced_mode;
-    if (enhanced.enabled &&
-        enhanced.version ==
-            static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version) &&
+    if (enhanced.enabled && data::enhanced_mode::uses_distributed_battle_flow(enhanced.version) &&
         enhanced_ != nullptr && enhanced_->ai_retarget.builtin_dispatch && !queue &&
         point == nullptr && kind == attack_chase_kind && from.unit->owner != nullptr &&
         from.unit->owner->record.index == enhanced_->ai_retarget.builtin_player &&

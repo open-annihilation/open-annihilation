@@ -1070,7 +1070,7 @@ void Runtime::issue_selection_move(
         const auto centre = local_selection_centre(bound);
         const auto& enhanced = match_->rules().setup.enhanced_mode;
         if (enhanced.enabled &&
-            enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version) {
+            oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) {
             std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
             const auto& world = match_->state();
             const oa::FixedVec3 click{point[0], point[1], point[2]};
@@ -1139,7 +1139,7 @@ bool Runtime::issue_selection_patrol(
         const auto hooks = order_cursor_hooks();
         const auto& enhanced = match_->rules().setup.enhanced_mode;
         if (enhanced.enabled &&
-            enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version) {
+            oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) {
             std::vector<input::SelectionOrder> orders;
             for_each_selected([&](uint16_t id) {
                 const auto* actor = oa::world_unit_at(&world, id);

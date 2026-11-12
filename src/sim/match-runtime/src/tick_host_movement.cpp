@@ -180,8 +180,9 @@ void TickHost::movement_tick(oa::Unit& record) {
         bool advanced_corner = false;
         const bool moving_corner =
             flow_head &&
-            match.rules().setup.enhanced_mode.version ==
-                data::enhanced_mode::distributed_battle_flow_version &&
+            data::enhanced_mode::uses_distributed_battle_flow(
+                match.rules().setup.enhanced_mode.version
+            ) &&
             g.movement.speed > 0 &&
             live_route_corner_moving_due(
                 g.geometry, g.navigation, match.simulation_.tick, s.unit_index
@@ -285,10 +286,9 @@ void TickHost::movement_tick(oa::Unit& record) {
                     context.same_route_queue =
                         (match.rules().setup.enhanced_mode.version ==
                              static_cast<int32_t>(data::enhanced_mode::battle_flow_version) ||
-                         match.rules().setup.enhanced_mode.version ==
-                             static_cast<int32_t>(
-                                 data::enhanced_mode::distributed_battle_flow_version
-                             )) &&
+                         data::enhanced_mode::uses_distributed_battle_flow(
+                             match.rules().setup.enhanced_mode.version
+                         )) &&
                         flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks &&
                         sim::simulation_state::locally_simulated(u);
                     if (const auto* klass = match.movement_class_map(g.movement_class)) {
@@ -297,10 +297,9 @@ void TickHost::movement_tick(oa::Unit& record) {
                         context.have_movement = true;
                     }
                     bool guide_ready = false;
-                    if (match.rules().setup.enhanced_mode.version ==
-                            static_cast<int32_t>(
-                                data::enhanced_mode::distributed_battle_flow_version
-                            ) &&
+                    if (data::enhanced_mode::uses_distributed_battle_flow(
+                            match.rules().setup.enhanced_mode.version
+                        ) &&
                         (uint64_t(match.simulation_.tick) + s.unit_index) %
                                 local_throat_probe_period ==
                             0 &&

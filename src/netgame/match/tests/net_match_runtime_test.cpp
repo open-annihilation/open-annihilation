@@ -879,7 +879,15 @@ void local_traffic_heads_keep_their_copies() {
     // Keep both routes above the map's hidden bottom edge.
     constexpr uint16_t traffic_map_cells = kMapCells * 2;
     for (const uint32_t version :
-         {released_mode, enhanced_capacity_mode, enhanced_flow_mode, enhanced_regional_flow_mode}) {
+         {released_mode,
+          enhanced_capacity_mode,
+          enhanced_flow_mode,
+          enhanced_regional_flow_mode,
+          4u,
+          5u,
+          6u,
+          7u,
+          8u}) {
         Pair pair(0, traffic_map_cells, false, false, false, false, version);
         auto& host = *pair.host;
         auto& joiner = *pair.joiner;

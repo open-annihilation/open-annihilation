@@ -539,8 +539,7 @@ void Match::record_death_statistics(
 void Match::release_target_observers(sim::simulation_state::Unit& target) {
     if (enhanced_ != nullptr &&
         (rules().setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
-         rules().setup.enhanced_mode.version ==
-             data::enhanced_mode::distributed_battle_flow_version))
+         data::enhanced_mode::uses_distributed_battle_flow(rules().setup.enhanced_mode.version)))
         enhanced_->ai_retarget.lose_target(
             static_cast<uint16_t>(oa::world_unit_slot(&state(), &target.record))
         );

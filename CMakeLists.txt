@@ -324,7 +324,7 @@ target_compile_definitions(oa-app-headers INTERFACE "OA_SELF_CHECKS=$<BOOL:${OA_
 # kit's headers and the registrations of Settings pages, kit screens, notices
 # and prompts.
 target_link_libraries(oa-app-headers INTERFACE oa-base-sha256 oa-data-languages oa-data-limits
-  oa-data-mod-profile oa-data-brain-library oa-ui-engine-settings oa-ui-pad-controls
+  oa-data-mod-profile oa-data-enhanced-mode oa-data-brain-library oa-ui-engine-settings oa-ui-pad-controls
   oa-platform-game-installs oa-platform-shims oa-ui-kit oa-ui-screen-registry
   oa-data-content-bundles)
 # oa-game's command line, which the option tests parse without a running app.

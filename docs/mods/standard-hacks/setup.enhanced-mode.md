@@ -39,8 +39,8 @@ hacks:
 
 The application still requires Enhanced Mode to be selected before loading
 a profile that enables these rules.
-The switch selects version 5 for new games only with its corresponding
-corridor flow behavior integrated and validated. An existing profile's bare
+The switch selects version 4 for new games. Later experimental presets
+require an explicit version choice and their matching behavior. An existing profile's bare
 `true` still resolves to version 1 before that match choice is applied.
 
 ## Details
@@ -68,7 +68,7 @@ Hack id `setup.enhanced-mode`, written under the profile's `hacks` block.
 
 | Parameter | Type | Unit | Allowed | Length | Baseline (3.1c) | Default | Adjustable | Scope | Overridden by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `version` | `int` | - | `1` to `7` | - | `1` | `1` | `match` | `sim` | - |
+| `version` | `int` | - | `1` to `8` | - | `1` | `1` | `match` | `sim` | - |
 
 Adjustable: `match`: as `install`, and the host may also change it for one game.
 

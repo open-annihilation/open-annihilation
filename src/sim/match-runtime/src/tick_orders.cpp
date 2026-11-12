@@ -170,8 +170,7 @@ Match::issue_ground_move(uint16_t index, const sim::ground_orders::Point& destin
         return refused_order();
     const auto& enhanced = rules().setup.enhanced_mode;
     if (!queue && enhanced.enabled &&
-        enhanced.version ==
-            static_cast<int32_t>(data::enhanced_mode::distributed_battle_flow_version) &&
+        data::enhanced_mode::uses_distributed_battle_flow(enhanced.version) &&
         enhanced_ != nullptr && enhanced_->ai_retarget.builtin_dispatch && unit.owner != nullptr &&
         unit.owner->record.index == enhanced_->ai_retarget.builtin_player &&
         (unit.record.squad == static_cast<int32_t>(sim::ai::Squad::land_army) ||

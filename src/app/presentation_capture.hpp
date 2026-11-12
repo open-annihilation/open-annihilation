@@ -18,7 +18,7 @@ namespace oa::app {
 /// The presentation fields needed by a categorical global Dots frame or models.
 enum class UnitPoseCapture { full, root };
 
-/// Selects root-only capture for the explicitly enabled version-7 preset's Dots.
+/// Selects root-only capture for the explicitly enabled version-7 and version-8 presets' Dots.
 /// Other presets and rendered model frames keep complete rig history.
 /// @param rules the match's resolved rules
 /// @param global_dots the existing graphics policy draws every unit as a dot

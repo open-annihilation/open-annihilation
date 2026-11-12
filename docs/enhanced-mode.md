@@ -11,8 +11,10 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 4 remains the current preset. Versions 5, 6 and 7 are explicit
-experimental benchmark choices. Version 6 derives from version 4 and keeps
+Rules version 4 remains the current preset. Versions 5, 6, 7 and 8 are explicit
+experimental benchmark choices. Version 8 retains version 7's static routing
+and native movement as the baseline for experimental local following; its
+version identity alone does not add that following behavior. Version 6 derives from version 4 and keeps
 version 5's advisory corridor lanes separate. The presets retain a capacity of
 10,000 units per participating player. The engine
 allocates ranges only for participating players, with at most 32,767 units
@@ -196,7 +198,7 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6` or `7` with Enhanced Mode to compare the
+Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6`, `7` or `8` with Enhanced Mode to compare the
 presets on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
@@ -737,6 +739,16 @@ also substantial. Sampled host activity and the different version-6
 movement and combat workload prevent a causal comparison with the earlier
 version-4 timing. A previous attempt lost focus at tick 1,205 and is
 excluded. These measurements precede the later minimap and recording changes.
+
+## Experimental local following (version 8)
+
+Version 8 has a separate save, recording and multiplayer identity. It starts
+with version 7's native movement and static shared routing, including fine
+format-3 fields, their unfinished construction prefixes and the same bounded
+work and storage limits. It does not select a global crowd-cost field.
+The local-following policy requires separate integration and validation;
+supporting the preset does not establish improved 20,000-unit flow.
+Version 4 remains the new-game default, and renderer choices stay independent.
 
 ## Experimental distributed battle flow (version 7)
 

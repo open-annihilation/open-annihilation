@@ -311,7 +311,7 @@ bool Runtime::run_stage_direction(
         std::size_t ordered = 0;
         const auto& enhanced = match_->rules().setup.enhanced_mode;
         if (enhanced.enabled &&
-            enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version) {
+            oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) {
             std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
             const oa::FixedVec3 click{point[0], point[1], point[2]};
             const auto hooks = order_cursor_hooks();
@@ -443,7 +443,7 @@ bool Runtime::run_stage_direction(
                 oa::sim::gameplay_input::add_to_group_centre(centre, *member);
         const auto& enhanced = match_->rules().setup.enhanced_mode;
         if (enhanced.enabled &&
-            enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version) {
+            oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) {
             std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
             const oa::FixedVec3 click{point[0], point[1], point[2]};
             const auto hooks = order_cursor_hooks();

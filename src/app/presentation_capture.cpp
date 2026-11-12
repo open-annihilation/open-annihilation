@@ -4,6 +4,7 @@
 #include "presentation_capture.hpp"
 
 #include "oa/base/float_precision.hpp"
+#include "oa/data/enhanced_mode.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -14,8 +15,6 @@ namespace {
 
 /// Fewest units assigned to a drawing band before capture uses workers.
 constexpr std::size_t units_per_capture_band = 256;
-/// The explicitly opted-in match preset; future versions keep complete capture.
-constexpr int32_t root_only_rules_version = 7;
 
 /// Adds completed capture work without touching the global frame timers.
 void add(UnitCaptureTotals& total, const UnitCaptureTotals& more) noexcept {
@@ -70,7 +69,8 @@ struct CaptureFloatControl {
 UnitPoseCapture
 unit_pose_capture(const oa::data::match_rules::MatchRules& rules, bool global_dots) noexcept {
     const auto& enhanced = rules.setup.enhanced_mode;
-    return global_dots && enhanced.enabled && enhanced.version == root_only_rules_version
+    return global_dots && enhanced.enabled &&
+                   oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)
                ? UnitPoseCapture::root
                : UnitPoseCapture::full;
 }

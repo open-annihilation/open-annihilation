@@ -510,8 +510,9 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         constexpr int32_t regional_flow_version = 3;
         constexpr uint32_t fine_flow_field_limit = 80;
         constexpr uint32_t fine_flow_cell_limit = 8 * 1024 * 1024;
-        const bool fine_routes = input.rules.setup.enhanced_mode.version ==
-                                 data::enhanced_mode::distributed_battle_flow_version;
+        const bool fine_routes = data::enhanced_mode::uses_distributed_battle_flow(
+            input.rules.setup.enhanced_mode.version
+        );
         auto flow_limits = sim::ground_orders::FlowLimits{};
         if (fine_routes) {
             flow_limits.fields = fine_flow_field_limit;
@@ -647,8 +648,9 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     }
     if (enhanced_ &&
         (input.rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
-         input.rules.setup.enhanced_mode.version ==
-             data::enhanced_mode::distributed_battle_flow_version)) {
+         data::enhanced_mode::uses_distributed_battle_flow(
+             input.rules.setup.enhanced_mode.version
+         ))) {
         const bool retarget_added = add_rule_state(
             rule_state_,
             {"ai-retarget",
@@ -1140,8 +1142,7 @@ void Match::assign_squad(sim::unit_spawn::Slot& slot, uint32_t group) {
     bool indexed =
         squad_positions_valid_ && rules().setup.enhanced_mode.enabled &&
         (rules().setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
-         rules().setup.enhanced_mode.version ==
-             data::enhanced_mode::distributed_battle_flow_version);
+         data::enhanced_mode::uses_distributed_battle_flow(rules().setup.enhanced_mode.version));
     if (indexed && slot.record.squad == -1 && squad_positions_[slot.unit_index] != 0) {
         squad_positions_valid_ = false;
         indexed = false;

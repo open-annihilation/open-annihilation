@@ -32,7 +32,13 @@ their original canonical profiles and hashes. `battle_flow_version` is six:
 its rules retain patrol goals, bounded early AI retargeting, and short-grace
 route queues. `distributed_battle_flow_version` is seven, retaining those
 features while distributing repaired group destinations. Versions 6 and 7
-remain explicit experimental choices; the new-game default remains 4.
+remain explicit experimental choices. `following_flow_version` is eight:
+it inherits version 7's static `fine_regions` routes, format-3 saved fields,
+80-field and 8 Mi-cell limits, and native movement. Its separate identity
+reserves an experimental local-following policy; metadata alone does not
+implement that policy or establish better large-battle flow. The new-game
+default remains 4. `uses_distributed_battle_flow` selects only the known
+versions 7 and 8, so an unsupported future version does not inherit them.
 Graphics settings are
 independent and never enter this module.
 
@@ -52,7 +58,7 @@ Resolve before allocating a match and retain its rules for the match's
 lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
-`data-enhanced-mode` checks pinned Off, version-1, version-2, version-3 and
-version-4 canonical and simulation hashes, distinct version-5, version-6 and version-7 identities,
+`data-enhanced-mode` checks pinned Off and version-1 through version-7
+canonical and simulation hashes, the distinct version-8 identity,
 preservation of selected mod rules and match choices, and refusals of
 unsupported versions or rules that require Enhanced Mode while Off.

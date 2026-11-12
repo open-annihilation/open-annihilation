@@ -30,8 +30,18 @@ inline constexpr uint32_t corridor_flow_version = 5;
 inline constexpr uint32_t battle_flow_version = 6;
 /// The preset distributing repaired group destinations while retaining battle flow.
 inline constexpr uint32_t distributed_battle_flow_version = 7;
+/// The experimental preset for following an applied local movement leg.
+inline constexpr uint32_t following_flow_version = 8;
 /// The Enhanced Mode preset supplied by this build.
 inline constexpr uint32_t current_version = swept_ground_version;
+
+/// Selects the known presets inheriting distributed battle flow.
+///
+/// @param version the recorded preset version
+/// @return true only for the explicitly supported distributed and following presets
+[[nodiscard]] inline constexpr bool uses_distributed_battle_flow(uint32_t version) noexcept {
+    return version == distributed_battle_flow_version || version == following_flow_version;
+}
 
 /// Tells whether this build can resolve a preset, including Off.
 ///
@@ -57,6 +67,7 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// Version 5 reserves a separate identity for corridor flow when integrated.
 /// Version 6 selects persistent patrol goals and bounded AI strike retargeting.
 /// Version 7 retains battle flow and distributes repaired group destinations.
+/// Version 8 retains version 7's static routing for experimental local following.
 /// Rendering remains independent. Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes

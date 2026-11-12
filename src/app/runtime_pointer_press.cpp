@@ -327,7 +327,7 @@ std::string_view Runtime::issue_selection_orders(
     const auto& enhanced = match_->rules().setup.enhanced_mode;
     if (ground && enhanced.enabled &&
         (enhanced.version == oa::data::enhanced_mode::battle_flow_version ||
-         enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version))
+         oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)))
         distribute_group_order_destinations({orders.data(), count}, *ground);
     std::optional<oa::sim::ground_orders::Point> target_point;
     if (bound != 0) {
@@ -596,7 +596,7 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
     const bool bounded_ground =
         ground_order && enhanced.enabled &&
         (enhanced.version == oa::data::enhanced_mode::battle_flow_version ||
-         enhanced.version == oa::data::enhanced_mode::distributed_battle_flow_version);
+         oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version));
     if (!bounded_ground)
         return order_point(formation);
     const auto bounded = bounded_group_order_point(
@@ -645,7 +645,7 @@ void Runtime::distribute_group_order_destinations(
     const auto& enhanced = match_->rules().setup.enhanced_mode;
     if (!enhanced.enabled)
         return;
-    if (enhanced.version != oa::data::enhanced_mode::distributed_battle_flow_version) {
+    if (!oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) {
         if (enhanced.version == oa::data::enhanced_mode::battle_flow_version)
             for (auto& order : orders)
                 order.position = fixed_point(

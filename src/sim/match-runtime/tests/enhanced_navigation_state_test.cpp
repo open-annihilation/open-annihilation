@@ -41,7 +41,7 @@ Options options_for(uint32_t version) {
 
 routes::FlowLimits fixture_route_limits(uint32_t version) {
     auto limits = routes::FlowLimits{};
-    if (version == oa::data::enhanced_mode::distributed_battle_flow_version) {
+    if (oa::data::enhanced_mode::uses_distributed_battle_flow(version)) {
         limits.fields = 80;
         limits.total_cells = 8 * 1024 * 1024;
     }
@@ -77,8 +77,9 @@ void install_pending_field(runtime::Match& match) {
         16,
         16,
         fixture_route_limits(match.rules().setup.enhanced_mode.version),
-        match.rules().setup.enhanced_mode.version ==
-                oa::data::enhanced_mode::distributed_battle_flow_version
+        oa::data::enhanced_mode::uses_distributed_battle_flow(
+            match.rules().setup.enhanced_mode.version
+        )
             ? routes::FlowPreset::fine_regions
         : match.rules().setup.enhanced_mode.version >= 3 ? routes::FlowPreset::large_regions
                                                          : routes::FlowPreset::original
@@ -242,8 +243,8 @@ void different_presets_refuse_each_others_routes() {
     CHECK(bytes_of(new_routes) == new_bytes);
 }
 
-/// Older recorded presets keep their complete cache bytes; seven has a distinct save format.
-void fine_routes_are_selected_only_for_version_seven() {
+/// Older presets retain their bytes; seven and following share the fine save format.
+void fine_routes_are_selected_only_for_known_fine_presets() {
     for (const uint32_t version : {2u, 3u, 4u, 5u, 6u}) {
         Fixture fixture(options_for(version));
         routes::FlowCache expected(
@@ -271,6 +272,34 @@ void fine_routes_are_selected_only_for_version_seven() {
     CHECK(!fine_routes.restore(fine_routes.context, old_bytes));
     CHECK(bytes_of(old_routes) == old_bytes);
     CHECK(bytes_of(fine_routes) == fine_bytes);
+}
+
+/// Following preserves fine BUILDING bytes and saved continuation from seven.
+void following_keeps_fine_navigation_continuation() {
+    Fixture previous(options_for(oa::data::enhanced_mode::distributed_battle_flow_version));
+    Fixture following(options_for(oa::data::enhanced_mode::following_flow_version));
+    auto& first = previous.spawn(0, 64, 64);
+    auto& second = following.spawn(0, 64, 64);
+    CHECK(first.unit_index == second.unit_index);
+    previous.match->simulation().tick = following.match->simulation().tick = 123;
+    install_pending_field(*previous.match);
+    install_pending_field(*following.match);
+    install_steering_state(*previous.match, first.unit_index);
+    install_steering_state(*following.match, second.unit_index);
+    const auto compare = [&] {
+        for (const auto* name : navigation_tables)
+            CHECK(
+                bytes_of(table(*previous.match, name)) == bytes_of(table(*following.match, name))
+            );
+        CHECK(previous.match->random_state() == following.match->random_state());
+        CHECK(previous.match->lcg_state() == following.match->lcg_state());
+        CHECK(first.record.position.x == second.record.position.x);
+        CHECK(first.record.position.z == second.record.position.z);
+    };
+    compare();
+    previous.run(1);
+    following.run(1);
+    compare();
 }
 
 /// Rebuilds the fixture with one real, permissive ground movement class.
@@ -338,11 +367,14 @@ void shared_field_storage_is_bounded_per_preset() {
 
     constexpr auto old = oa::data::enhanced_mode::battle_flow_version;
     constexpr auto fine_version = oa::data::enhanced_mode::distributed_battle_flow_version;
-    constexpr std::array<StorageCase, 4> cases{
+    constexpr auto following = oa::data::enhanced_mode::following_flow_version;
+    constexpr std::array<StorageCase, 6> cases{
         {{old, 642, 648, 64, 8'354'560},
          {fine_version, 642, 648, 80, 41'611'200},
          {old, 1024, 512, 64, 10'494'080},
-         {fine_version, 1024, 512, 64, 41'951'360}}
+         {fine_version, 1024, 512, 64, 41'951'360},
+         {following, 642, 648, 80, 41'611'200},
+         {following, 1024, 512, 64, 41'951'360}}
     };
     for (const auto& c : cases) {
         Fixture fixture(options_for(c.version));
@@ -361,7 +393,7 @@ void shared_field_storage_is_bounded_per_preset() {
             return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 |
                    uint32_t(bytes[at + 2]) << 16 | uint32_t(bytes[at + 3]) << 24;
         };
-        const bool fine = c.version == fine_version;
+        const bool fine = oa::data::enhanced_mode::uses_distributed_battle_flow(c.version);
         const uint32_t stride = fine ? 2 : 4;
         const uint32_t cells =
             ((c.width + stride - 1) / stride) * ((c.height + stride - 1) / stride);
@@ -384,8 +416,9 @@ void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, boo
         16,
         16,
         fixture_route_limits(match.rules().setup.enhanced_mode.version),
-        match.rules().setup.enhanced_mode.version ==
-                oa::data::enhanced_mode::distributed_battle_flow_version
+        oa::data::enhanced_mode::uses_distributed_battle_flow(
+            match.rules().setup.enhanced_mode.version
+        )
             ? routes::FlowPreset::fine_regions
         : match.rules().setup.enhanced_mode.version >= 3 ? routes::FlowPreset::large_regions
                                                          : routes::FlowPreset::original
@@ -1391,16 +1424,21 @@ int main() {
              {2u,
               3u,
               oa::data::enhanced_mode::battle_flow_version,
-              oa::data::enhanced_mode::distributed_battle_flow_version}) {
+              oa::data::enhanced_mode::distributed_battle_flow_version,
+              oa::data::enhanced_mode::following_flow_version}) {
             navigation_state_survives_restore(version);
             malformed_state_is_rejected_atomically(version);
         }
         different_presets_refuse_each_others_routes();
-        fine_routes_are_selected_only_for_version_seven();
+        fine_routes_are_selected_only_for_known_fine_presets();
+        following_keeps_fine_navigation_continuation();
         shared_field_storage_is_bounded_per_preset();
         shared_poll_progresses_without_legacy_credit();
         shared_poll_progresses_without_legacy_credit(
             oa::data::enhanced_mode::distributed_battle_flow_version
+        );
+        shared_poll_progresses_without_legacy_credit(
+            oa::data::enhanced_mode::following_flow_version
         );
         shared_poll_rotates_extraction_opportunities();
         shared_poll_preserves_an_active_full_search();

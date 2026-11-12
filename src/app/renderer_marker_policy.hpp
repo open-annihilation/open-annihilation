@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "oa/data/match_rules.hpp"
+#include "oa/data/enhanced_mode.hpp"
 
 namespace oa::app {
 
@@ -30,10 +30,10 @@ struct MarkerFramePolicy {
     if (!frame.global_dots || !frame.gpu_ready || frame.debug_queries || frame.directed ||
         frame.retained)
         return false;
-    constexpr int32_t marker_rules_version = 7;
     const auto& enhanced = rules.setup.enhanced_mode;
     return frame.explicit_check ||
-           (!frame.headless && enhanced.enabled && enhanced.version == marker_rules_version);
+           (!frame.headless && enhanced.enabled &&
+            oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version));
 }
 
 } // namespace oa::app
