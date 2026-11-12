@@ -82,8 +82,8 @@ void configure_ground(Fixture& fixture, const Case& input) {
             input.obstacle == Obstacle::terrain && index == 6 * 16 + 6 ? uint8_t{0} : land_height;
         if (input.offset_corner) {
             const auto land = [](int32_t x, int32_t z) {
-                return (x >= 2 && x <= 9 && z >= 5 && z <= 7) ||
-                       (x >= 7 && x <= 9 && z >= 5 && z <= 13) ||
+                return (x >= 2 && x <= 10 && z >= 4 && z <= 8) ||
+                       (x >= 6 && x <= 10 && z >= 4 && z <= 13) ||
                        (x >= 10 && x <= 13 && z >= 10 && z <= 13);
             };
             const auto x = int32_t(index % 16), z = int32_t(index / 16);
@@ -578,13 +578,19 @@ void finish_owned_move(
     }
     std::printf(
         "{\"case\":\"cell_exit_continuation\",\"mode\":%u,\"sample\":%u,"
-        "\"injected_saved_head\":%s,\"arrived\":%s,\"rested\":%s,\"ticks\":%u}\n",
+        "\"injected_saved_head\":%s,\"arrived\":%s,\"rested\":%s,\"ticks\":%u,"
+        "\"final_x\":%d,\"final_z\":%d,\"nav_count\":%u,\"nav1_x\":%d,\"nav1_z\":%d}\n",
         version,
         sample,
         sample ? "true" : "false",
         arrived ? "true" : "false",
         rested ? "true" : "false",
-        elapsed
+        elapsed,
+        state.geometry.position[0],
+        state.geometry.position[2],
+        state.navigation.count,
+        state.navigation.points[1][0],
+        state.navigation.points[1][1]
     );
     CHECK(arrived && rested);
 }
