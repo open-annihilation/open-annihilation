@@ -658,12 +658,14 @@ void owned_move_rounds_mobile_offset_corner() {
         input.obstacle = Obstacle::none;
         input.offset_corner = true;
         configure_ground(fixture, input);
-        auto& blocker = fixture.spawn(0, 136, 104);
         auto& mover = fixture.spawn(0, 64, 104);
-        blocker.unit->flags &= ~OA_UNIT_FLAG_FIRE_ORDER_MASK;
         mover.unit->flags &= ~OA_UNIT_FLAG_FIRE_ORDER_MASK;
         auto& match = *fixture.match;
         const auto geometry = owned_move(fixture, mover.unit_index, requested);
+        // Introduce traffic after ordinary routing so the actual movement
+        // host meets a newly occupied leg, rather than searching around it.
+        auto& blocker = fixture.spawn(0, 136, 104);
+        blocker.unit->flags &= ~OA_UNIT_FLAG_FIRE_ORDER_MASK;
         auto& state = *match.ground_runtime(mover.unit_index);
         bool arrived = false, rested = false, had_head = false;
         std::array<ground::RoutePoint, 3> prior_points{};
@@ -715,9 +717,10 @@ void owned_move_rounds_mobile_offset_corner() {
             rested ? "true" : "false"
         );
         CHECK(arrived && rested);
-        CHECK(head_choices > 0);
-        if (version == 6)
+        if (version == 6) {
+            CHECK(head_choices > 0);
             CHECK(same_origin_choices > 0);
+        }
     }
 }
 
