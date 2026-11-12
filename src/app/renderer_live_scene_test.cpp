@@ -5179,6 +5179,101 @@ void check_marker_frames(const live::Scene& actual, const live::Scene& expected)
     }
 }
 
+/// Compact markers reconstruct the same ordered triangles, picking identities
+/// and atlas as the ordinary path, including full models between card draws.
+void check_marker_card_frame(const live::Scene& actual, const live::Scene& expected) {
+    const auto drawn = card_frame(actual);
+    const auto ordinary = card_frame(expected);
+    OA_CHECK(drawn.units == ordinary.units);
+    OA_CHECK(drawn.vertices.size() == ordinary.vertices.size());
+    if (drawn.vertices.size() == ordinary.vertices.size() && !drawn.vertices.empty())
+        OA_CHECK(
+            std::memcmp(
+                drawn.vertices.data(),
+                ordinary.vertices.data(),
+                drawn.vertices.size() * sizeof(drawn.vertices[0])
+            ) == 0
+        );
+    OA_CHECK(
+        actual.vertices.size() + actual.cards.vertices ==
+        expected.vertices.size() + expected.cards.vertices
+    );
+    OA_CHECK(actual.model_count == expected.model_count);
+    OA_CHECK(actual.shadow_count == expected.shadow_count);
+    OA_CHECK(actual.sprite_count == expected.sprite_count);
+    OA_CHECK(actual.particle_count == expected.particle_count);
+    OA_CHECK(actual.nano_particle_count == expected.nano_particle_count);
+    OA_CHECK(actual.terrain_vertex_count == expected.terrain_vertex_count);
+    OA_CHECK(actual.texture_rgba == expected.texture_rgba);
+    OA_CHECK(actual.texture_width == expected.texture_width);
+    OA_CHECK(actual.texture_height == expected.texture_height);
+    OA_CHECK(actual.texture_revision == expected.texture_revision);
+    OA_CHECK(actual.frame_rows == expected.frame_rows);
+    OA_CHECK(actual.frame.order == expected.frame.order);
+    OA_CHECK(actual.materials.size() == expected.materials.size());
+    const auto& update = actual.atlas_update;
+    const auto& other = expected.atlas_update;
+    OA_CHECK(update.previous_revision == other.previous_revision);
+    OA_CHECK(update.first_row == other.first_row && update.end_row == other.end_row);
+    OA_CHECK(
+        update.frame_first_row == other.frame_first_row &&
+        update.frame_end_row == other.frame_end_row
+    );
+    OA_CHECK(
+        std::equal(
+            update.regions.begin(),
+            update.regions.end(),
+            other.regions.begin(),
+            other.regions.end(),
+            [](const auto& a, const auto& b) {
+                return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+            }
+        )
+    );
+    constexpr std::array<uint32_t, 6> fan{0, 1, 2, 0, 2, 3};
+    std::size_t markers{};
+    for (const auto& unit : actual.cards.units) {
+        if (!unit.marker)
+            continue;
+        ++markers;
+        OA_CHECK(unit.index_count == fan.size());
+        OA_CHECK(unit.instance < actual.cards.markers.size());
+        OA_CHECK(
+            unit.first_index <= actual.cards.indices.size() &&
+            fan.size() <= actual.cards.indices.size() - unit.first_index
+        );
+        if (unit.instance >= actual.cards.markers.size() ||
+            unit.first_index > actual.cards.indices.size() ||
+            fan.size() > actual.cards.indices.size() - unit.first_index)
+            continue;
+        const auto& marker = actual.cards.markers[unit.instance];
+        for (std::size_t at = 0; at < fan.size(); ++at) {
+            const auto index = actual.cards.indices[unit.first_index + at];
+            OA_CHECK(index == fan[at]);
+            const auto vertex = live::card_vertex(actual.card_types, actual.cards, unit, index);
+            const auto& corner = marker.corners[fan[at]];
+            OA_CHECK(vertex.x == corner[0] && vertex.height == corner[1] && vertex.z == corner[2]);
+            OA_CHECK(vertex.brightness == marker.brightness);
+            OA_CHECK(
+                vertex.red == marker.color[0] && vertex.green == marker.color[1] &&
+                vertex.blue == marker.color[2]
+            );
+        }
+    }
+    OA_CHECK(markers == actual.cards.markers.size());
+    std::size_t next_marker{};
+    for (const auto& run : actual.cards.marker_runs) {
+        OA_CHECK(run.first_instance == next_marker && run.instance_count != 0);
+        OA_CHECK(run.vertex <= actual.vertices.size());
+        next_marker += run.instance_count;
+    }
+    OA_CHECK(next_marker == markers);
+    const auto card_draws = live::card_draws(actual.card_types, actual.cards);
+    OA_CHECK(card_draws.markers.size() == markers);
+    OA_CHECK(card_draws.marker_runs.size() == actual.cards.marker_runs.size());
+    OA_CHECK(card_draws.marker_uv == actual.cards.marker_uv);
+}
+
 /// Marker workers keep exact geometry, atlas updates and picking identities through moving armies.
 void strategic_unit_markers_on_threads() {
     namespace camera = oa::app::renderer_live_camera;
@@ -5315,6 +5410,135 @@ void strategic_unit_markers_on_threads() {
     OA_CHECK(std::memcmp(units.data(), canonical.data(), units.size() * sizeof(units[0])) == 0);
 }
 
+/// Compact marker instances preserve the ordinary six-corner stream through
+/// army movement, visibility changes, different drawing threads and reuse.
+void strategic_unit_markers_on_card() {
+    namespace camera = oa::app::renderer_live_camera;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    constexpr uint32_t population = 20000;
+    Fixture battle;
+    auto& in = battle.inputs;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.clip_width = in.clip_height = 128;
+    in.unit_marker_pixels = 5;
+    in.sea_level = 6;
+    for (auto& cell : battle.map.attributes)
+        cell.height = 4;
+    OA_CHECK(camera::projection({20, -53, true}, {16, 6, 16, 64, 64, 0.25F}, in.clip_projection));
+    for (std::size_t owner = 0; owner < in.owner_colors.size(); ++owner)
+        in.owner_colors[owner] = {
+            static_cast<uint8_t>(20 + owner * 7),
+            static_cast<uint8_t>(220 - owner * 3),
+            static_cast<uint8_t>(40 + owner * 5)
+        };
+    std::vector<oa::Unit> units(population);
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.owner_index = static_cast<uint8_t>(index % in.owner_colors.size());
+        unit.position = {24 * fixed, -12 * fixed, 24 * fixed};
+        battle.draws.unit_markers.push_back(
+            {&unit,
+             {static_cast<int32_t>(8 + index % 16) * fixed,
+              static_cast<int32_t>(index % 7) * 4 * fixed - 8 * fixed,
+              static_cast<int32_t>(8 + (index / 16) % 16) * fixed}}
+        );
+    }
+    const auto canonical = units;
+    const auto all = battle.draws.unit_markers;
+    oa::platform::job_pool::Pool one{1}, four{4};
+    live::Scene ordinary;
+    const auto compare = [&](oa::platform::job_pool::Pool& pool, bool compact) {
+        in.pool = &one;
+        in.markers_on_card = false;
+        const bool reference_built = live::build(in, ordinary, battle.error);
+        OA_CHECK(reference_built);
+        in.pool = &pool;
+        in.markers_on_card = compact;
+        const bool actual_built = live::build(in, battle.scene, battle.error);
+        OA_CHECK(actual_built);
+        if (!reference_built || !actual_built)
+            return;
+        OA_CHECK(battle.error.empty());
+        check_marker_card_frame(battle.scene, ordinary);
+        OA_CHECK(
+            battle.scene.vertices.size() + battle.scene.cards.vertices <=
+            oa::app::renderer_live_gpu::largest_vertex_count
+        );
+        if (!compact) {
+            OA_CHECK(battle.scene.cards.markers.empty() && battle.scene.cards.marker_runs.empty());
+            check_marker_frames(battle.scene, ordinary);
+        }
+    };
+    compare(one, true);
+    compare(four, true);
+    OA_CHECK(battle.scene.cards.markers.size() == population);
+    OA_CHECK(battle.scene.cards.vertices == population * 6);
+    OA_CHECK(battle.scene.unit_ranges.empty());
+    OA_CHECK(battle.scene.cards.instances.empty() && battle.scene.cards.positions.empty());
+    OA_CHECK(battle.scene.vertices.size() == battle.scene.terrain_vertex_count);
+    OA_CHECK(same_on_card(battle.scene, ordinary, in));
+    for (std::size_t index = 0; index < battle.scene.cards.units.size(); ++index)
+        OA_CHECK(battle.scene.cards.units[index].unit_id == units[index].id);
+    for (const bool models_on_card : {true, false}) {
+        in.models_on_card = models_on_card;
+        for (auto& marker : battle.draws.unit_markers) {
+            marker.shown_position.x += fixed / 7;
+            marker.shown_position.z -= fixed / 11;
+        }
+        in.owner_colors[1] = {240, 30, 120};
+        battle.palette[alternate_index * oa::palette_entry_bytes] += 1;
+        compare(four, true);
+    }
+    const int rounding = std::fegetround();
+    if (rounding != -1 && std::fesetround(FE_UPWARD) == 0) {
+        compare(four, true);
+        OA_CHECK(std::fegetround() == FE_UPWARD);
+        OA_CHECK(std::fesetround(rounding) == 0);
+        compare(four, true);
+    }
+    auto copied = battle.scene;
+    battle.scene = {};
+    battle.scene = std::move(copied);
+    compare(four, true);
+    compare(four, false);
+    compare(four, true);
+    oa::Unit unnamed{}, attached{};
+    attached.id = 60000;
+    attached.attach_parent = units[0].id;
+    battle.draws.unit_markers[0].unit = nullptr;
+    battle.draws.unit_markers[4999].unit = &unnamed;
+    battle.draws.unit_markers[5000].unit = &attached;
+    battle.draws.unit_markers[9999].shown_position = {30000 * fixed, 0, 30000 * fixed};
+    compare(four, true);
+    OA_CHECK(battle.scene.cards.markers.size() == population - 4);
+    in.sight.mapping = in.sight.line_of_sight = true;
+    battle.coverage[0] = 0;
+    compare(four, true);
+    battle.mapped[0] = 0;
+    compare(four, true);
+    OA_CHECK(battle.scene.cards.markers.empty() && battle.scene.model_count == 0);
+    battle.mapped[0] = battle.coverage[0] = viewer_bit;
+    battle.draws.unit_markers = all;
+    in.sea_level = 2;
+    for (auto& cell : battle.map.attributes)
+        cell.height = 12;
+    compare(four, true);
+    battle.draws.unit_markers.resize(1);
+    compare(one, true);
+    battle.draws.unit_markers.clear();
+    compare(four, true);
+    OA_CHECK(battle.scene.cards.markers.empty() && battle.scene.cards.marker_runs.empty());
+    battle.draws.unit_markers = all;
+    const auto projection = in.clip_projection;
+    in.clip_projection[0] = std::numeric_limits<float>::quiet_NaN();
+    compare(four, true);
+    OA_CHECK(battle.scene.cards.markers.empty());
+    in.clip_projection = projection;
+    compare(four, true);
+    OA_CHECK(std::memcmp(units.data(), canonical.data(), units.size() * sizeof(units[0])) == 0);
+}
+
 /// Real model geometry stays before marker bands and projectile geometry stays after them.
 void strategic_unit_marker_mixed_passes() {
     namespace camera = oa::app::renderer_live_camera;
@@ -5368,37 +5592,57 @@ void strategic_unit_marker_mixed_passes() {
     shot.position = {4 * fixed, 4 * fixed, 12 * fixed};
     battle.draws.projectiles.push_back(shot);
     oa::platform::job_pool::Pool one{1}, four{4};
-    live::Scene ordinary;
-    for (const bool on_card : {false, true}) {
-        in.models_on_card = on_card;
-        for (uint32_t frame = 0; frame < 3; ++frame) {
-            if (frame == 2) {
-                model.shown_position = oa::FixedVec3{9 * fixed, 0, 13 * fixed};
-                battle.palette[alternate_index * oa::palette_entry_bytes] += 1;
-            }
-            in.pool = &one;
-            OA_CHECK(live::build(in, ordinary, battle.error));
-            in.pool = &four;
-            OA_CHECK(live::build(in, battle.scene, battle.error));
-            OA_CHECK(!ordinary.unit_detail_active && !battle.scene.unit_detail_active);
-            check_marker_frames(battle.scene, ordinary);
-            OA_CHECK(battle.scene.cards.units.empty() != on_card);
-            if (frame != 0) {
-                OA_CHECK(battle.scene.passes.marker_bands.size() == 4);
-                OA_CHECK(battle.scene.model_count == population + 1);
-                const auto expanded = card_frame(battle.scene);
-                const auto expected = battle.scene.terrain_vertex_count + 3 + population * 6 + 6;
-                OA_CHECK(expanded.vertices.size() == expected && expanded.units.size() == expected);
-                if (expanded.vertices.size() != expected || expanded.units.size() != expected)
-                    continue;
-                OA_CHECK(expanded.units[battle.scene.terrain_vertex_count] == model_unit.id);
-                const auto first_marker = battle.scene.terrain_vertex_count + 3;
-                for (std::size_t index = 0; index < population; ++index)
-                    OA_CHECK(expanded.units[first_marker + index * 6] == units[index].id);
-                for (std::size_t vertex = expanded.vertices.size() - 6;
-                     vertex < expanded.vertices.size();
-                     ++vertex)
-                    OA_CHECK(expanded.units[vertex] == 0);
+    for (const bool marker_cards : {false, true}) {
+        live::Scene ordinary;
+        battle.scene = {};
+        for (const bool on_card : {false, true}) {
+            in.models_on_card = on_card;
+            for (uint32_t frame = 0; frame < 3; ++frame) {
+                if (frame == 2) {
+                    model.shown_position = oa::FixedVec3{9 * fixed, 0, 13 * fixed};
+                    battle.palette[alternate_index * oa::palette_entry_bytes] += 1;
+                }
+                in.pool = &one;
+                in.markers_on_card = false;
+                OA_CHECK(live::build(in, ordinary, battle.error));
+                in.pool = &four;
+                in.markers_on_card = marker_cards;
+                OA_CHECK(live::build(in, battle.scene, battle.error));
+                OA_CHECK(!ordinary.unit_detail_active && !battle.scene.unit_detail_active);
+                if (marker_cards)
+                    check_marker_card_frame(battle.scene, ordinary);
+                else
+                    check_marker_frames(battle.scene, ordinary);
+                OA_CHECK(
+                    std::count_if(
+                        battle.scene.cards.units.begin(),
+                        battle.scene.cards.units.end(),
+                        [](const live::CardUnit& unit) { return !unit.marker; }
+                    ) == (on_card ? 1 : 0)
+                );
+                if (frame != 0) {
+                    if (marker_cards)
+                        OA_CHECK(battle.scene.cards.markers.size() == population);
+                    else
+                        OA_CHECK(battle.scene.passes.marker_bands.size() == 4);
+                    OA_CHECK(battle.scene.model_count == population + 1);
+                    const auto expanded = card_frame(battle.scene);
+                    const auto expected =
+                        battle.scene.terrain_vertex_count + 3 + population * 6 + 6;
+                    OA_CHECK(
+                        expanded.vertices.size() == expected && expanded.units.size() == expected
+                    );
+                    if (expanded.vertices.size() != expected || expanded.units.size() != expected)
+                        continue;
+                    OA_CHECK(expanded.units[battle.scene.terrain_vertex_count] == model_unit.id);
+                    const auto first_marker = battle.scene.terrain_vertex_count + 3;
+                    for (std::size_t index = 0; index < population; ++index)
+                        OA_CHECK(expanded.units[first_marker + index * 6] == units[index].id);
+                    for (std::size_t vertex = expanded.vertices.size() - 6;
+                         vertex < expanded.vertices.size();
+                         ++vertex)
+                        OA_CHECK(expanded.units[vertex] == 0);
+                }
             }
         }
     }
@@ -8081,6 +8325,7 @@ int main() {
     strategic_unit_marker_visibility();
     strategic_unit_marker_population();
     strategic_unit_markers_on_threads();
+    strategic_unit_markers_on_card();
     strategic_unit_marker_mixed_passes();
     projected_unit_detail();
     shared_unit_detail_bounds();
