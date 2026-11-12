@@ -5648,6 +5648,108 @@ void strategic_unit_marker_mixed_passes() {
     }
 }
 
+/// Water and ripples count the markers' virtual triangles against the same
+/// frame limit, including when most geometry is shared model draws.
+void strategic_unit_marker_water_budget() {
+    namespace camera = oa::app::renderer_live_camera;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr std::size_t polygons = 128;
+    constexpr std::size_t population =
+        oa::app::renderer_live_gpu::largest_vertex_count / (polygons * 3) - 1;
+    Fixture battle;
+    auto& in = battle.inputs;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.clip_width = in.clip_height = 128;
+    in.models_on_card = true;
+    in.sea_level = 6;
+    in.water.detail = 1;
+    in.water.ripples = in.water.coastal_waves = 0;
+    in.tick = 8;
+    OA_CHECK(camera::projection({}, {16, 0, 16, 64, 64, 1}, in.clip_projection));
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    auto& object = source->objects[0];
+    object.vertices = {{0, 0, 0}, {4 * fixed, 0, 0}, {0, 4 * fixed, 0}};
+    object.primitives.resize(polygons);
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(polygons);
+    for (std::size_t index = 0; index < polygons; ++index) {
+        object.primitives[index].vertex_indices = {0, 1, 2};
+        auto& primitive = prepared.objects[0].primitives[index];
+        primitive.source_index = static_cast<uint32_t>(index);
+        primitive.flags = drawing::primitive_colored;
+        primitive.color = alternate_index;
+    }
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    std::vector<oa::Unit> units(population);
+    battle.draws.models.resize(population);
+    for (std::size_t index = 0; index < population; ++index) {
+        auto& unit = units[index];
+        unit.id = static_cast<uint16_t>(index + 1);
+        unit.flags = OA_UNIT_FLAG_BUILDING;
+        unit.position = {16 * fixed, 20 * fixed, 16 * fixed};
+        auto& draw = battle.draws.models[index];
+        draw.model.unit = &unit;
+        draw.model.instance = &instance;
+        draw.model.prepared = &prepared;
+        draw.plan.linked.drawn = true;
+    }
+    const bool initial = live::build(in, battle.scene, battle.error);
+    OA_CHECK(initial);
+    if (!initial)
+        return;
+    OA_CHECK(!battle.scene.unit_detail_active);
+    OA_CHECK(battle.scene.cards.instances.size() == population);
+    OA_CHECK(battle.scene.cards.vertices == population * polygons * 3);
+    const auto budget = oa::app::renderer_live_gpu::largest_vertex_count;
+    const auto occupied = battle.scene.vertices.size() + battle.scene.cards.vertices;
+    OA_CHECK(occupied + 12 <= budget);
+    if (occupied + 12 > budget)
+        return;
+    const auto marker_count = (budget - occupied) / 6 - 1;
+    std::vector<oa::Unit> markers(marker_count);
+    for (std::size_t index = 0; index < marker_count; ++index) {
+        auto& unit = markers[index];
+        unit.id = static_cast<uint16_t>(60000 + index);
+        unit.position = {16 * fixed, 0, 16 * fixed};
+        battle.draws.unit_markers.push_back({&unit, unit.position});
+    }
+    const std::array events{oa::app::renderer_water::Disturbance{
+        16, 16, 0, 1, oa::app::renderer_water::Kind::water_impact
+    }};
+    in.water_disturbances = events;
+    std::size_t expected_vertices{};
+    for (const bool compact : {false, true}) {
+        in.markers_on_card = compact;
+        in.water.ripples = in.water.coastal_waves = 0;
+        const bool fits = live::build(in, battle.scene, battle.error);
+        OA_CHECK(fits);
+        if (!fits)
+            continue;
+        OA_CHECK(!battle.scene.unit_detail_active);
+        OA_CHECK(battle.scene.cards.markers.size() == (compact ? marker_count : 0));
+        const auto logical = battle.scene.vertices.size() + battle.scene.cards.vertices;
+        OA_CHECK(logical <= budget && budget - logical < 12);
+        if (!compact)
+            expected_vertices = logical;
+        OA_CHECK(logical == expected_vertices);
+        for (const bool ripples : {false, true}) {
+            in.water.coastal_waves = ripples ? 0 : 1;
+            in.water.ripples = ripples ? 1 : 0;
+            OA_CHECK(!live::build(in, battle.scene, battle.error));
+            OA_CHECK(battle.scene.out_of_room);
+            OA_CHECK(battle.error.find("geometry budget") != std::string::npos);
+        }
+        in.water.ripples = in.water.coastal_waves = 0;
+        OA_CHECK(live::build(in, battle.scene, battle.error));
+        OA_CHECK(battle.scene.vertices.size() + battle.scene.cards.vertices == expected_vertices);
+    }
+}
+
 /// Shared posed vertices preserve exact source values, retries and bounded memory.
 void shared_model_positions() {
     namespace models = oa::formats::objects3d;
@@ -8327,6 +8429,7 @@ int main() {
     strategic_unit_markers_on_threads();
     strategic_unit_markers_on_card();
     strategic_unit_marker_mixed_passes();
+    strategic_unit_marker_water_budget();
     projected_unit_detail();
     shared_unit_detail_bounds();
     shared_unit_detail_texture_visibility();
