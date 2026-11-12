@@ -214,6 +214,47 @@ inline bool chord(const movement::Unit& unit, ground::RoutePoint target, Probe& 
     );
 }
 
+/// Tests whether P1 lies strictly forward along a bounded current-to-P2 chord.
+/// The origin-span bound limits products before projection arithmetic.
+/// @param unit actual fixed-point ground pose
+/// @param navigation canonical route with a real third point
+/// @param maximum_origins fixed full-footprint origin allowance
+/// @return whether discarding P1 can make forward progress toward P2
+inline bool forward_corner(
+    const movement::Unit& unit, const ground::Navigation& navigation, uint32_t maximum_origins
+) noexcept {
+    if (navigation.count < 3)
+        return false;
+    live_corner_detail::Segment segment{};
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        const auto position_axis = axis == 0 ? 0 : 2;
+        if (!live_corner_detail::origin(
+                unit.position[position_axis], 2, segment.from[axis], segment.first[axis]
+            ) ||
+            !live_corner_detail::origin(
+                int64_t(navigation.points[2][axis]) * live_corner_detail::one_world_unit,
+                2,
+                segment.to[axis],
+                segment.last[axis]
+            ))
+            return false;
+    }
+    const int32_t cells_x = int32_t(segment.last[0]) - segment.first[0];
+    const int32_t cells_z = int32_t(segment.last[1]) - segment.first[1];
+    const uint32_t minimum_origins = 1u + uint32_t(std::abs(cells_x)) + uint32_t(std::abs(cells_z));
+    if (minimum_origins > maximum_origins)
+        return false;
+    const int64_t dx = segment.to[0] - segment.from[0];
+    const int64_t dz = segment.to[1] - segment.from[1];
+    const int64_t px =
+        int64_t(navigation.points[1][0]) * live_corner_detail::one_world_unit - unit.position[0];
+    const int64_t pz =
+        int64_t(navigation.points[1][1]) * live_corner_detail::one_world_unit - unit.position[2];
+    const auto length = dx * dx + dz * dz;
+    const auto dot = px * dx + pz * dz;
+    return dot > 0 && dot < length;
+}
+
 /// Converts a legal FP2 native origin into a representable whole-world centre point.
 /// @param origin complete native footprint origin
 /// @param[out] result whole-world X/Z point, assigned only on success
@@ -245,15 +286,19 @@ inline bool point(ground::CorridorOrigin origin, ground::RoutePoint& result) noe
 /// @param sampler known-only static full-footprint classifier
 /// @param[in,out] budget caller's query allowance and actual query count
 /// @param[out] effective temporary steering route; unchanged when no proof is available
+/// @param[out] consume_first optional route-safe P1 consumption proposal; false on failure
 /// @return whether complete two-lane guidance was produced
 [[nodiscard]] inline bool try_local_throat_guide(
     const sim::unit_movement::Unit& unit,
     const sim::ground_orders::Navigation& navigation,
     const sim::ground_orders::CorridorSampler& sampler,
     sim::ground_orders::CorridorBudget& budget,
-    sim::ground_orders::Navigation& effective
+    sim::ground_orders::Navigation& effective,
+    bool* consume_first = nullptr
 ) noexcept {
     using namespace local_throat_detail;
+    if (consume_first)
+        *consume_first = false;
     if (unit.footprint != ground::CorridorOrigin{2, 2} || !navigation.goal ||
         navigation.goal->shape != ground::GoalShape::circle || !ground::route_present(navigation) ||
         navigation.count < 2 || navigation.count > navigation.points.size() || !sampler.origin)
@@ -265,14 +310,31 @@ inline bool point(ground::CorridorOrigin origin, ground::RoutePoint& result) noe
             return false;
         target[axis] = static_cast<int16_t>(coordinate / 16);
     }
+    ground::CorridorOrigin following{};
+    bool can_consume = consume_first && navigation.count >= 3;
+    if (can_consume) {
+        for (unsigned axis = 0; axis < 2; ++axis) {
+            const int32_t coordinate = int32_t(navigation.points[2][axis]) - 16;
+            if (coordinate < 0) {
+                can_consume = false;
+                break;
+            }
+            following[axis] = static_cast<int16_t>(coordinate / 16);
+        }
+        can_consume = can_consume &&
+                      forward_corner(
+                          unit, navigation, std::min(budget.remaining, local_throat_maximum_probes)
+                      );
+    }
     const int32_t dx = int32_t(target[0]) - unit.cell[0];
     const int32_t dz = int32_t(target[1]) - unit.cell[1];
     Probe probe{sampler, budget, std::min(budget.remaining, local_throat_maximum_probes)};
     const unsigned preferred_axis = std::abs(dx) >= std::abs(dz) ? 0u : 1u;
     for (const unsigned axis : {preferred_axis, 1u - preferred_axis}) {
         const unsigned minor_axis = 1 - axis;
-        const int32_t delta = int32_t(target[axis]) - unit.cell[axis];
-        const int32_t minor_delta = int32_t(target[minor_axis]) - unit.cell[minor_axis];
+        const int32_t native_delta = int32_t(target[axis]) - unit.cell[axis];
+        const int32_t following_delta = int32_t(following[axis]) - unit.cell[axis];
+        const int32_t delta = native_delta != 0 ? native_delta : can_consume ? following_delta : 0;
         const int32_t step = delta > 0 ? 1 : -1;
         if (delta == 0 || (int32_t(navigation.goal->cell[axis]) - unit.cell[axis]) * step <= 0)
             continue;
@@ -280,13 +342,22 @@ inline bool point(ground::CorridorOrigin origin, ground::RoutePoint& result) noe
         ground::CorridorGeometry geometry{};
         bool proven = false;
         for (const int32_t distance : {0, -2, 8, 16}) {
-            if (distance > std::abs(delta))
-                continue;
-            // The lookback tests the actual lane through the trailing mouth.
-            // A far off-axis Goal must not move that body seed sideways.
-            const int32_t minor = distance <= 0 ? unit.cell[minor_axis]
-                                                : int32_t(unit.cell[minor_axis]) +
-                                                      minor_delta * distance / std::abs(delta);
+            auto ray = target;
+            int32_t ray_delta = native_delta;
+            if (distance > std::abs(ray_delta)) {
+                if (!can_consume || following_delta * step <= 0 ||
+                    distance > std::abs(following_delta))
+                    continue;
+                ray = following;
+                ray_delta = following_delta;
+            }
+            // The lookback stays in the current lane; bounded forward probes
+            // may use P2 when a short P1 hides the entrance ahead.
+            const int32_t minor = distance <= 0
+                                      ? unit.cell[minor_axis]
+                                      : int32_t(unit.cell[minor_axis]) +
+                                            (int32_t(ray[minor_axis]) - unit.cell[minor_axis]) *
+                                                distance / std::abs(ray_delta);
             const auto seed = origin(axis, int32_t(unit.cell[axis]) + step * distance, minor);
             const auto opening = section(probe, axis, seed[axis], seed[minor_axis]);
             if (opening.kind == SectionKind::unknown)
@@ -301,10 +372,21 @@ inline bool point(ground::CorridorOrigin origin, ground::RoutePoint& result) noe
         const int32_t first = axis == 0 ? geometry.origins.left : geometry.origins.top;
         const int32_t last = axis == 0 ? geometry.origins.right : geometry.origins.bottom;
         const int32_t exit = step > 0 ? last + 2 : first - 2;
-        if ((int32_t(target[axis]) - exit) * step < 0 ||
-            (int32_t(navigation.goal->cell[axis]) - exit) * step < 0 ||
+        if ((int32_t(navigation.goal->cell[axis]) - exit) * step < 0 ||
             (int32_t(unit.cell[axis]) - exit) * step >= 0)
             continue;
+        bool advance_first = false;
+        auto native_next = navigation.points[1];
+        if ((int32_t(target[axis]) - exit) * step < 0) {
+            const auto& r = geometry.origins;
+            if (!can_consume || target[axis] <= first || target[axis] >= last ||
+                target[0] < r.left || target[0] > r.right || target[1] < r.top ||
+                target[1] > r.bottom || (int32_t(following[axis]) - exit) * step < 0 ||
+                !chord(unit, navigation.points[2], probe))
+                continue;
+            advance_first = true;
+            native_next = navigation.points[2];
+        }
         int16_t lane{};
         if (!ground::corridor_lane(
                 geometry,
@@ -342,10 +424,12 @@ inline bool point(ground::CorridorOrigin origin, ground::RoutePoint& result) noe
             static_cast<int16_t>(unit.position[2] >> 16)
         };
         result.points[1] = next;
-        result.points[2] = inside || aligned ? navigation.points[1] : exit_point;
+        result.points[2] = inside || aligned ? native_next : exit_point;
         result.count = 3;
         result.flags |= ground::route_present_flag;
         effective = result;
+        if (consume_first)
+            *consume_first = advance_first;
         return true;
     }
     return false;

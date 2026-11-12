@@ -52,9 +52,9 @@ bool same_goal(const ground::Goal& a, const ground::Goal& b) {
 }
 
 /// Supplies room for both ordinary native waves and complete known terrain.
-Options options() {
+Options options(bool local_sight = false) {
     Options result;
-    result.sight_cells = 161;
+    result.sight_cells = local_sight ? 1 : 161;
     result.per_player_limit = 16;
     return result;
 }
@@ -75,8 +75,10 @@ struct Scene {
     uint32_t version{};
 
     /// Builds real native movement, terrain and orders without injecting routes or heads.
-    explicit Scene(uint32_t version, test::InstalledUnits* installed = nullptr)
-        : installed(installed), version(version) {
+    explicit Scene(
+        uint32_t version, test::InstalledUnits* installed = nullptr, bool short_prefix = false
+    )
+        : fixture{options(short_prefix)}, installed(installed), version(version) {
         fixture.match.reset();
         fixture.map.attribute_width = width;
         fixture.map.attribute_height = height;
@@ -198,11 +200,13 @@ struct Scene {
         }
         fixture.run(60);
         // Complete known terrain is a stated fixture input, independent of current visibility.
-        std::fill(
-            match().sight_mutable().player_bits.begin(),
-            match().sight_mutable().player_bits.end(),
-            3
-        );
+        if (!short_prefix) {
+            std::fill(
+                match().sight_mutable().player_bits.begin(),
+                match().sight_mutable().player_bits.end(),
+                3
+            );
+        }
         check_claims();
         for (const auto& actor : actors) {
             CHECK(!match().order_refused(
@@ -345,8 +349,99 @@ void check_owned_goal(Scene& scene, Actor& actor) {
     CHECK(walk.found);
 }
 
+/// Compares native search scheduling fields across route-result publication.
+bool same_jobs(const ground::SearchPlayerJobState& a, const ground::SearchPlayerJobState& b) {
+    return a.round_robin == b.round_robin && a.unit_cursor == b.unit_cursor &&
+           a.credit == b.credit && a.job_picks == b.job_picks &&
+           a.player_heuristic == b.player_heuristic && a.refresh_tick == b.refresh_tick &&
+           a.tick_credit == b.tick_credit && a.base_heuristic == b.base_heuristic &&
+           a.slice_cost == b.slice_cost && a.active_heuristic == b.active_heuristic;
+}
+
+/// Publishes a legal short first corner after ordinary owned Goals and searches exist.
+void publish_short_prefixes(Scene& scene) {
+    bool ready = false;
+    for (uint32_t tick = 0; tick < 120 && !ready; ++tick) {
+        ready = true;
+        for (const auto& actor : scene.actors) {
+            const auto& navigation = scene.ground(actor.id).navigation;
+            ready = ready && navigation.goal && !navigation.needs_search();
+        }
+        if (!ready) {
+            scene.fixture.run(1);
+            scene.check_claims();
+        }
+    }
+    CHECK(ready);
+    const auto search = scene.match().path_search_jobs();
+    uint32_t existing_heads = 0;
+    for (auto& actor : scene.actors) {
+        auto& state = scene.ground(actor.id);
+        auto& slot = scene.match().spawn_slot(actor.id);
+        auto* goal = state.navigation.goal;
+        CHECK(goal && goal->order == slot.unit->primary && !state.navigation.needs_search());
+        const auto geometry = *goal;
+        const auto search_tick = state.navigation.last_search_tick;
+        const auto events = goal->order->raised_events;
+        const ground::RoutePoint corner{centre(actor.increasing ? 50 : 84), centre(lower)};
+        const std::array<ground::RoutePoint, 3> route{
+            ground::RoutePoint{
+                int16_t(state.geometry.position[0] >> 16), int16_t(state.geometry.position[2] >> 16)
+            },
+            corner,
+            actor.destination
+        };
+        const auto corner_goal = ground::make_goal(
+            *slot.unit->primary, state.geometry, {corner[0] * pixel, 0, corner[1] * pixel}, 4
+        );
+        CHECK(
+            ground::static_flow_passable(
+                scene.classifier(actor.id),
+                corner_goal.cell[0],
+                corner_goal.cell[1],
+                scene.match().spatial()
+            )
+        );
+        std::array<uint8_t, 3> weapon_flags{};
+        ground::UnitView view{
+            *slot.unit,
+            state.geometry,
+            state.movement,
+            state.navigation,
+            slot.record.attach_parent != 0,
+            weapon_flags
+        };
+        CHECK(!ground::accept_path(view, route));
+        CHECK(state.navigation.goal == goal && same_goal(*goal, geometry));
+        CHECK(state.navigation.last_search_tick == search_tick && !state.navigation.needs_search());
+        CHECK(goal->order == slot.unit->primary && goal->order->raised_events == events);
+        CHECK(state.navigation.count == 3 && state.navigation.points[1] == corner);
+        actor.owned_goal = goal;
+        actor.geometry = *goal;
+        actor.seen_goal = true;
+        check_owned_goal(scene, actor);
+        if (const auto* head = scene.match().local_flow_head(actor.id))
+            existing_heads += head->active;
+    }
+    CHECK(same_jobs(search, scene.match().path_search_jobs()));
+    std::fill(
+        scene.match().sight_mutable().player_bits.begin(),
+        scene.match().sight_mutable().player_bits.end(),
+        3
+    );
+    std::printf(
+        "{\"kind\":\"short_prefix_publication\",\"actors\":%u,\"tick\":%u,"
+        "\"east_p1_origin\":50,\"west_p1_origin\":84,\"existing_ordinary_heads\":%u,"
+        "\"head_or_goal_injection\":false}\n",
+        actor_count,
+        uint32_t(scene.match().simulation().tick),
+        existing_heads
+    );
+}
+
 struct Result {
     uint32_t arrived{}, rested{}, crossed{}, certified_heads{}, retained_ticks{}, end_tick{};
+    uint32_t consumptions{}, upstream_consumptions{};
     bool restored{};
     uint64_t motion_digest{14695981039346656037ull}, world_digest{};
 };
@@ -526,6 +621,338 @@ Result march(uint32_t version, bool roundtrip, test::InstalledUnits* installed =
     );
     return result;
 }
+
+/// Consumes short inside-throat P1 corners through the actual owned-Goal Match caller.
+Result short_prefix_march() {
+    constexpr auto version = exact_version;
+    constexpr bool roundtrip = false;
+    test::InstalledUnits* installed = nullptr;
+    Scene scene(version, installed, true);
+    publish_short_prefixes(scene);
+    Result result;
+    for (uint32_t tick = 0; tick < last_tick; ++tick) {
+        std::array<movement::LocalFlowHead, actor_count> before_heads{};
+        std::array<movement::Unit, actor_count> before_bodies{};
+        std::array<ground::Navigation, actor_count> before_routes{}, certificates{};
+        std::array<bool, actor_count> proved{}, consumes{};
+        std::array<ground::Goal, actor_count> before_goals{};
+        std::array<uint32_t, actor_count> before_order_events{};
+        const auto next_tick = scene.match().simulation().tick + 1;
+        for (size_t i = 0; i < actor_count; ++i) {
+            auto& actor = scene.actors[i];
+            auto& ground = scene.ground(actor.id);
+            before_bodies[i] = ground.geometry;
+            before_routes[i] = ground.navigation;
+            if (ground.navigation.goal) {
+                before_goals[i] = *ground.navigation.goal;
+                before_order_events[i] = ground.navigation.goal->order->raised_events;
+            }
+            if (const auto* head = scene.match().local_flow_head(actor.id))
+                before_heads[i] = *head;
+            const bool recovery =
+                movement::local_flow_recovery_due(before_heads[i], next_tick, actor.id);
+            if (version == exact_version && !before_heads[i].active &&
+                (before_heads[i].blocked_ticks < 30 || recovery) &&
+                (next_tick + actor.id) % 12 == 0) {
+                certificates[i] = ground.navigation;
+                StaticProbe context{&scene, actor.id};
+                ground::CorridorBudget budget{512, 0};
+                const auto jobs = scene.match().path_search_jobs();
+                proved[i] = runtime::try_local_throat_guide(
+                    ground.geometry,
+                    ground.navigation,
+                    static_sampler(context),
+                    budget,
+                    certificates[i],
+                    &consumes[i]
+                );
+                CHECK(same_jobs(jobs, scene.match().path_search_jobs()));
+                CHECK(ground.navigation.goal == before_routes[i].goal);
+                CHECK(ground.navigation.points == before_routes[i].points);
+                CHECK(ground.navigation.count == before_routes[i].count);
+                CHECK(ground.navigation.flags == before_routes[i].flags);
+                CHECK(ground.navigation.last_search_tick == before_routes[i].last_search_tick);
+                if (ground.navigation.goal)
+                    CHECK(same_goal(*ground.navigation.goal, before_goals[i]));
+                CHECK(!consumes[i] || proved[i]);
+                if (consumes[i]) {
+                    const int64_t dx = int64_t(ground.geometry.position[0]) -
+                                       int64_t(ground.navigation.points[1][0]) * pixel;
+                    const int64_t dz = int64_t(ground.geometry.position[2]) -
+                                       int64_t(ground.navigation.points[1][1]) * pixel;
+                    CHECK(dx * dx + dz * dz > int64_t{25} * pixel * pixel);
+                    // Native waypoint capture uses integer world coordinates.
+                    const int64_t ix =
+                        (ground.geometry.position[0] >> 16) - ground.navigation.points[1][0];
+                    const int64_t iz =
+                        (ground.geometry.position[2] >> 16) - ground.navigation.points[1][1];
+                    CHECK(ix * ix + iz * iz > 25);
+                    CHECK(!runtime::live_route_corner_moving_due(
+                        ground.geometry, ground.navigation, next_tick, actor.id
+                    ));
+                    CHECK(!runtime::live_route_corner_due(
+                        before_heads[i].blocked_ticks, next_tick, actor.id
+                    ));
+                    CHECK(!ground.navigation.needs_search());
+                }
+            }
+        }
+        scene.fixture.run(1);
+        scene.check_claims();
+        bool all_resting = true;
+        for (size_t i = 0; i < actor_count; ++i) {
+            auto& actor = scene.actors[i];
+            auto& ground = scene.ground(actor.id);
+            auto* goal = ground.navigation.goal;
+            if (consumes[i]) {
+                // The certified short corner is far outside native capture at
+                // this upstream admission, so the real caller must consume it.
+                CHECK(goal == before_routes[i].goal && goal);
+                CHECK(same_goal(*goal, before_goals[i]));
+                CHECK(goal->order == scene.match().spawn_slot(actor.id).unit->primary);
+                CHECK(goal->order->raised_events == before_order_events[i]);
+                CHECK(ground.navigation.count + 1 == before_routes[i].count);
+                CHECK(ground.navigation.points[1] == before_routes[i].points[2]);
+                CHECK(
+                    ground.navigation.points[0] == (ground::RoutePoint{
+                                                       int16_t(before_bodies[i].position[0] >> 16),
+                                                       int16_t(before_bodies[i].position[2] >> 16)
+                                                   })
+                );
+                CHECK(ground.navigation.last_search_tick == before_routes[i].last_search_tick);
+                CHECK(ground.navigation.needs_search() == before_routes[i].needs_search());
+                CHECK(
+                    (ground.navigation.flags & ~ground::route_changed_flag) ==
+                    (before_routes[i].flags & ~ground::route_changed_flag)
+                );
+                ++result.consumptions;
+                if (actor.increasing ? before_bodies[i].cell[0] < first
+                                     : before_bodies[i].cell[0] > last)
+                    ++result.upstream_consumptions;
+            }
+            if (goal) {
+                CHECK(goal->order == scene.match().spawn_slot(actor.id).unit->primary);
+                if (!actor.seen_goal) {
+                    actor.owned_goal = goal;
+                    actor.geometry = *goal;
+                    actor.seen_goal = true;
+                    check_owned_goal(scene, actor);
+                } else if (version == exact_version) {
+                    if (goal != actor.owned_goal || goal->order != actor.geometry.order) {
+                        actor.owned_goal = goal;
+                        actor.geometry = *goal;
+                        check_owned_goal(scene, actor);
+                    } else {
+                        CHECK(same_goal(*goal, actor.geometry));
+                    }
+                }
+            } else if (actor.seen_goal && !actor.contacted) {
+                const bool contacted =
+                    ground::goal_contains_unit(actor.geometry, before_bodies[i]) ||
+                    ground::goal_contains_unit(actor.geometry, ground.geometry);
+                if (version == exact_version)
+                    CHECK(contacted);
+                if (contacted) {
+                    actor.contacted = true;
+                    ++result.arrived;
+                }
+            }
+            const auto* head = scene.match().local_flow_head(actor.id);
+            if (head && head->active) {
+                CHECK(head->tick == scene.match().simulation().tick);
+                const bool reached =
+                    movement::local_flow_head_reached(before_bodies[i], before_heads[i]);
+                const bool recovery =
+                    movement::local_flow_recovery_due(before_heads[i], next_tick, actor.id);
+                if (version == exact_version && before_heads[i].active && !reached && !recovery &&
+                    goal == before_routes[i].goal &&
+                    ground.navigation.points == before_routes[i].points &&
+                    ground.navigation.count == before_routes[i].count) {
+                    CHECK(head->points == before_heads[i].points);
+                    ++result.retained_ticks;
+                }
+                if (proved[i] && head->count == 3 &&
+                    std::equal(
+                        head->points.begin(), head->points.end(), certificates[i].points.begin()
+                    )) {
+                    CHECK(version == exact_version && (next_tick + actor.id) % 12 == 0);
+                    ++result.certified_heads;
+                    check_owned_goal(scene, actor);
+                    if (roundtrip && !result.restored) {
+                        roundtrip_local_heads(scene);
+                        result.restored = true;
+                    }
+                }
+            }
+            const auto x = ground.geometry.cell[0];
+            if (actor.crossed)
+                CHECK(actor.increasing ? x > last : x + 1 < first);
+            if (!actor.crossed && (actor.increasing ? x > last : x + 1 < first)) {
+                actor.crossed = true;
+                ++result.crossed;
+            }
+            if (actor.contacted && !actor.rested && ground.movement.speed == 0 &&
+                ground.movement.velocity == ground::Point{}) {
+                CHECK(std::abs((ground.geometry.position[0] >> 16) - actor.destination[0]) <= 32);
+                CHECK(std::abs((ground.geometry.position[2] >> 16) - actor.destination[1]) <= 32);
+                actor.rested = true;
+                ++result.rested;
+            }
+            all_resting = all_resting && actor.rested;
+            for (const auto value :
+                 {uint32_t(ground.geometry.position[0]),
+                  uint32_t(ground.geometry.position[2]),
+                  uint32_t(ground.geometry.heading),
+                  uint32_t(ground.movement.speed),
+                  ground.movement.last_motion_tick,
+                  ground.navigation.count,
+                  uint32_t(ground.navigation.flags)})
+                fold(result, value);
+            if (head) {
+                for (const auto& point : head->points) {
+                    fold(result, uint16_t(point[0]));
+                    fold(result, uint16_t(point[1]));
+                }
+                fold(result, head->goal_key);
+                fold(result, head->tick);
+                fold(result, head->count);
+                fold(result, head->active);
+                fold(result, head->blocked_ticks);
+            }
+        }
+        result.end_tick = scene.match().simulation().tick;
+        if (all_resting)
+            break;
+    }
+    result.world_digest =
+        sim::trace::match_state_hash(scene.match(), base::game_loop::Timing{}, 0, 0, nullptr);
+    std::printf(
+        "{\"mode\":%u,\"installed\":%s,\"roundtrip\":%s,\"arrived\":%u,\"rested\":%u,"
+        "\"crossed\":%u,\"certified_heads\":%u,\"retained_ticks\":%u,\"end_tick\":%u,"
+        "\"consumptions\":%u,\"upstream_consumptions\":%u,"
+        "\"world\":\"%016llx\",\"motion\":\"%016llx\"}\n",
+        version,
+        installed ? "true" : "false",
+        roundtrip ? "true" : "false",
+        result.arrived,
+        result.rested,
+        result.crossed,
+        result.certified_heads,
+        result.retained_ticks,
+        result.end_tick,
+        result.consumptions,
+        result.upstream_consumptions,
+        (unsigned long long)result.world_digest,
+        (unsigned long long)result.motion_digest
+    );
+    return result;
+}
+
+/// Pins exact captured pose/corner admission on a reconstructed full-FP2 mask.
+/// This is geometry-only: it does not replay the captured attack order, terrain
+/// objects, route tail, movement state or tick. Real owned-Goal publication and
+/// consumption are exercised independently by short_prefix_march.
+void captured_corner_admission() {
+    struct Captured {
+        uint32_t slot;
+        ground::Point position;
+        ground::CorridorOrigin cell, goal;
+        ground::RoutePoint p0, p1, p2;
+        int16_t lower, last;
+        bool consume;
+    };
+
+    constexpr std::array<Captured, 3> captures{
+        {{743,
+          {354076650, 9109504, 353695396},
+          {337, 336},
+          {85, 343},
+          {5479, 5491},
+          {5392, 5392},
+          {4784, 5392},
+          336,
+          337,
+          true},
+         {10247,
+          {315334735, 9109504, 355219771},
+          {300, 338},
+          {539, 345},
+          {4784, 5456},
+          {4848, 5392},
+          {5424, 5392},
+          336,
+          337,
+          false},
+         {11426,
+          {333929822, 9109504, 322791987},
+          {317, 307},
+          {630, 290},
+          {4837, 4935},
+          {5424, 4912},
+          {5712, 5200},
+          304,
+          338,
+          false}}
+    };
+    for (const auto& capture : captures) {
+        movement::Unit body;
+        body.position = capture.position;
+        body.cell = capture.cell;
+        body.footprint = {2, 2};
+        ground::Goal goal;
+        goal.cell = capture.goal;
+        ground::Navigation canonical;
+        canonical.goal = &goal;
+        canonical.points[0] = capture.p0;
+        canonical.points[1] = capture.p1;
+        canonical.points[2] = capture.p2;
+        canonical.points[3] = {centre(capture.goal[0]), centre(capture.goal[1])};
+        canonical.count = 4;
+        canonical.flags = ground::route_present_flag | ground::route_changed_flag;
+        const auto before = canonical;
+        const auto before_goal = goal;
+        ground::CorridorSampler sampler{
+            const_cast<Captured*>(&capture),
+            [](void* pointer, ground::CorridorOrigin origin, ground::CorridorOrigin fp) {
+                const auto& shape = *static_cast<const Captured*>(pointer);
+                if (fp != (ground::CorridorOrigin{2, 2}) || origin[0] < 0 || origin[1] < 0 ||
+                    origin[0] + fp[0] >= 640 || origin[1] + fp[1] >= 640)
+                    return ground::CorridorCell::blocked;
+                bool clear;
+                if (origin[0] >= 300 && origin[0] <= shape.last)
+                    clear = origin[1] >= shape.lower && origin[1] <= shape.lower + 3;
+                else if (origin[0] == shape.last + 1)
+                    clear = origin[1] >= shape.lower - 1 && origin[1] <= shape.lower + 3;
+                else
+                    clear = origin[1] >= 280 && origin[1] <= 359;
+                return clear ? ground::CorridorCell::clear : ground::CorridorCell::blocked;
+            }
+        };
+        auto effective = canonical;
+        ground::CorridorBudget budget{512, 0};
+        bool consume = false;
+        const bool guided =
+            runtime::try_local_throat_guide(body, canonical, sampler, budget, effective, &consume);
+        CHECK(
+            canonical.goal == before.goal && canonical.points == before.points &&
+            canonical.count == before.count && canonical.flags == before.flags &&
+            canonical.last_search_tick == before.last_search_tick
+        );
+        CHECK(same_goal(goal, before_goal));
+        CHECK(budget.used <= 512 && budget.remaining + budget.used == 512);
+        CHECK(guided == capture.consume && consume == capture.consume);
+        if (guided)
+            CHECK(effective.goal == canonical.goal && effective.count == 3);
+        if (capture.slot == 11426) {
+            // P1 equals the last origin, independently failing strict interior.
+            // Its current-to-P2 chord also crosses this known blocked bank.
+            ground::CorridorBudget chord_budget{512, 0};
+            runtime::local_throat_detail::Probe probe{sampler, chord_budget, 512};
+            CHECK(!runtime::local_throat_detail::chord(body, capture.p2, probe));
+        }
+    }
+}
+
 } // namespace
 
 /// Runs exact-version caller checks separately from installed-content checks.
@@ -558,6 +985,14 @@ int main(int argc, char** argv) {
                 restored.motion_digest == ordinary.motion_digest &&
                 restored.world_digest == ordinary.world_digest
             );
+            const auto short_prefix = short_prefix_march();
+            CHECK(short_prefix.consumptions == actor_count);
+            CHECK(short_prefix.upstream_consumptions == actor_count);
+            CHECK(
+                short_prefix.arrived == actor_count && short_prefix.rested == actor_count &&
+                short_prefix.crossed == actor_count
+            );
+            captured_corner_admission();
         }
     } catch (const std::exception& error) {
         std::cerr << "sparse throat flow: " << error.what() << '\n';

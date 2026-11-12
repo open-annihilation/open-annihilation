@@ -356,9 +356,19 @@ void TickHost::movement_tick(oa::Unit& record) {
                             sim::ground_orders::CorridorBudget budget{
                                 local_throat_maximum_probes, 0
                             };
+                            bool consume_first = false;
                             guide_ready = try_local_throat_guide(
-                                g.geometry, g.navigation, sampler, budget, effective_navigation
+                                g.geometry,
+                                g.navigation,
+                                sampler,
+                                budget,
+                                effective_navigation,
+                                &consume_first
                             );
+                            if (guide_ready && consume_first) {
+                                sim::ground_orders::advance_path(g.navigation, 1);
+                                g.navigation.points[0] = local_flow_point(g.geometry);
+                            }
                             match.enhanced_->local_flow_counters.probes += budget.used;
                         }
                     }
