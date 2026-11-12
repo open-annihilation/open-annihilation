@@ -76,6 +76,16 @@ struct Result {
 /// Rebuilds the actual match with one flat, full-footprint ground movement class.
 void configure_ground(Fixture& fixture, const Case& input) {
     fixture.match.reset();
+    // The engine reserves the bottom 128 world units. Keep the L's Goal and
+    // mobile parking bay above that border instead of placing them in void.
+    if (input.offset_corner) {
+        fixture.map.attribute_height = 32;
+        fixture.map.attributes.resize(16 * 32);
+        fixture.collision_plots.resize(16 * 32);
+        fixture.terrain_values.resize(16 * 32);
+        fixture.altitude_cells.resize(8 * 16);
+    }
+    const auto map_height = fixture.map.attribute_height;
     fixture.map.sea_level = sea_level;
     for (size_t index = 0; index < fixture.map.attributes.size(); ++index) {
         auto height =
@@ -96,10 +106,10 @@ void configure_ground(Fixture& fixture, const Case& input) {
         fixture.collision_plots[index].high_height = height;
     }
     if (input.offset_corner)
-        for (uint32_t z = 0; z < 16; ++z)
+        for (uint32_t z = 0; z < map_height; ++z)
             for (uint32_t x = 0; x < 16; ++x) {
                 auto& plot = fixture.collision_plots[z * 16 + x];
-                for (uint32_t dz = 0; dz < 2 && z + dz < 16; ++dz)
+                for (uint32_t dz = 0; dz < 2 && z + dz < map_height; ++dz)
                     for (uint32_t dx = 0; dx < 2 && x + dx < 16; ++dx) {
                         const auto height = fixture.map.attributes[(z + dz) * 16 + x + dx].height;
                         plot.low_height = std::min(plot.low_height, height);
@@ -131,7 +141,7 @@ void configure_ground(Fixture& fixture, const Case& input) {
         fixture.terrain_values,
         fixture.masks,
         8,
-        8,
+        int32_t(map_height / 2),
         4,
         2,
         0,
@@ -141,7 +151,7 @@ void configure_ground(Fixture& fixture, const Case& input) {
         {},
         fixture.collision_plots,
         oa::sim::visibility_state::AltitudeSightData{
-            8, 8, fixture.altitude_cells, fixture.altitude_patterns
+            8, int32_t(map_height / 2), fixture.altitude_cells, fixture.altitude_patterns
         }
     };
     inputs.rules.setup.enhanced_mode.enabled = input.version != 0;
@@ -450,6 +460,23 @@ ground::Goal& owned_move(Fixture& fixture, uint16_t id, ground::RoutePoint targe
     ));
     for (uint32_t tick = 0; tick < 120; ++tick) {
         auto& navigation = match.ground_runtime(id)->navigation;
+        if (navigation.goal) {
+            const spatial::CellClassifier classifier{2, 2, 0, -10000, 255, 255, 255, 255, 0};
+            CHECK(
+                ground::static_flow_passable(
+                    classifier, navigation.goal->cell[0], navigation.goal->cell[1], match.spatial()
+                )
+            );
+            // Include reserved features, particularly the native hidden map
+            // border, rather than accepting the terrain heights alone.
+            for (int32_t z = 0; z < 2; ++z)
+                for (int32_t x = 0; x < 2; ++x) {
+                    const auto index =
+                        size_t(navigation.goal->cell[1] + z) * match.spatial().terrain_width +
+                        size_t(navigation.goal->cell[0] + x);
+                    CHECK(!match.spatial().plots[index].blocking_feature);
+                }
+        }
         if (navigation.goal && navigation.count >= 2 && !navigation.needs_search()) {
             CHECK(navigation.goal->order == match.spawn_slot(id).unit->primary);
             return *navigation.goal;
