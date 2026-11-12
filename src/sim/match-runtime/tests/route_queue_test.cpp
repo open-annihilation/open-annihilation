@@ -33,6 +33,7 @@ constexpr int32_t pixel = 65536;
 constexpr uint32_t battle_version = oa::data::enhanced_mode::battle_flow_version;
 constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
 constexpr uint32_t legacy_version = 4;
+constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
 constexpr uint32_t map_height = 24;
 constexpr uint8_t land_height = 60;
 constexpr uint8_t sea_level = 30;
@@ -954,8 +955,7 @@ struct AppliedOutcome {
     std::array<int16_t, 2> target{};
 };
 
-AppliedOutcome applied_leader_wave(bool enabled) {
-    Scene scene(distributed_version, false, true);
+void prepare_applied_leader_checkpoint(Scene& scene) {
     auto& match = scene.match();
     const auto leader = scene.queue[0], follower = scene.queue[1];
     scene.run(60);
@@ -999,6 +999,13 @@ AppliedOutcome applied_leader_wave(bool enabled) {
     front.active = true;
     restore_heads(match, heads);
     scene.check_claims();
+}
+
+AppliedOutcome applied_leader_wave(bool enabled) {
+    Scene scene(distributed_version, false, true);
+    prepare_applied_leader_checkpoint(scene);
+    auto& match = scene.match();
+    const auto leader = scene.queue[0], follower = scene.queue[1];
     // First let the real Match apply the leader's retained backward leg. The
     // opt-in adapter may only inspect that actual current-tick publication.
     scene.run();
@@ -1155,6 +1162,118 @@ void applied_backward_leader_releases_an_existing_passing_leg() {
     CHECK(adapted.both_arrived && adapted.both_rested);
 }
 
+AppliedOutcome actual_following_caller_wave(uint32_t version) {
+    Scene scene(version, false, true);
+    prepare_applied_leader_checkpoint(scene);
+    auto& match = scene.match();
+    const auto leader = scene.queue[0], follower = scene.queue[1];
+    const auto initial_heads = saved_heads(match);
+    CHECK(initial_heads[leader].active);
+    CHECK(!initial_heads[follower].active && initial_heads[follower].count == 0);
+    const auto native_before = scene.ground(follower).navigation;
+    const auto goals =
+        std::array{*scene.ground(leader).navigation.goal, *scene.ground(follower).navigation.goal};
+    const auto* follower_goal = scene.ground(follower).navigation.goal;
+    const auto* follower_order = follower_goal->order;
+    auto step_unit = scene.ground(follower).geometry;
+    auto step_movement = scene.ground(follower).movement;
+    const auto start_cell = step_unit.cell;
+    const auto leader_cell = scene.ground(leader).geometry.cell;
+    // No adapter chooses or restores a follower head. This tick executes the
+    // real TickHost certificate, local choice and ordinary retained head.
+    scene.run();
+    const uint32_t admission_tick = match.simulation().tick;
+    const auto* applied = match.local_flow_head(follower);
+    const auto* front = match.local_flow_head(leader);
+    CHECK(applied && front && front->active && front->tick == admission_tick);
+    CHECK(!movement::local_flow_head_reached(scene.ground(leader).geometry, *front));
+    CHECK(!movement::local_flow_recovery_due(*front, admission_tick, leader));
+    const auto& actual = scene.ground(follower);
+    CHECK(actual.navigation.goal == follower_goal && follower_goal->order == follower_order);
+    CHECK(
+        actual.navigation.points == native_before.points &&
+        actual.navigation.count == native_before.count
+    );
+    CHECK(scene.ground(leader).geometry.cell == leader_cell);
+    CHECK(actual.geometry.cell == start_cell);
+    AppliedOutcome result;
+    result.adjusted = applied->active;
+    auto effective = native_before;
+    if (applied->active) {
+        CHECK(applied->count == 3 && applied->goal_key == applied_goal_key(*follower_goal));
+        CHECK(applied->tick == admission_tick);
+        CHECK(applied->blocked_ticks < movement::local_flow_retry_ticks);
+        result.target = applied->points[1];
+        std::copy(applied->points.begin(), applied->points.end(), effective.points.begin());
+        effective.count = 3;
+    }
+    // Only the read-only collision host is reused here. It never runs its
+    // decision adapter. Native copied steering+sweep must equal the first
+    // actual TickHost step, identifying fresh refusal rather than old flags.
+    AppliedProbe physical(scene, false);
+    movement::LocalFlowCounters counters{};
+    const auto& body = scene.ground(follower);
+    ground::steer_ground(
+        step_unit, step_movement, effective, body.acceleration, body.deceleration, sea_level
+    );
+    const auto sweep = movement::integrate_swept_local_flow(
+        step_unit, step_movement, admission_tick, true, physical, counters
+    );
+    CHECK(sweep.status != movement::GroundSweepStatus::unsupported);
+    result.first_fresh_veto = sweep.status == movement::GroundSweepStatus::blocked;
+    CHECK(actual.geometry.position == step_unit.position);
+    CHECK(actual.geometry.cell == step_unit.cell);
+    CHECK(actual.geometry.heading == step_unit.heading);
+    CHECK(actual.movement.speed == step_movement.speed);
+    CHECK(actual.movement.velocity == step_movement.velocity);
+    std::array<bool, 2> arrived{};
+    for (uint32_t elapsed = 0; elapsed < 900; ++elapsed) {
+        if (elapsed)
+            scene.run();
+        if (elapsed + 1 < movement::local_flow_retry_ticks &&
+            scene.ground(follower).geometry.cell != start_cell)
+            result.vacated_before_recovery = true;
+        for (size_t index = 0; index < scene.queue.size(); ++index) {
+            const auto& current = scene.ground(scene.queue[index]);
+            arrived[index] =
+                arrived[index] || ground::goal_contains_unit(goals[index], current.geometry);
+            if (current.navigation.goal) {
+                CHECK(
+                    current.navigation.goal->order ==
+                    match.spawn_slot(scene.queue[index]).unit->primary
+                );
+                CHECK(same_goal(*current.navigation.goal, goals[index]));
+            }
+        }
+        result.both_arrived = arrived[0] && arrived[1];
+        result.both_rested = result.both_arrived && scene.ground(leader).movement.speed == 0 &&
+                             scene.ground(follower).movement.speed == 0 &&
+                             !scene.ground(leader).navigation.goal &&
+                             !scene.ground(follower).navigation.goal;
+        if (result.both_rested) {
+            result.finish_tick = elapsed + 1;
+            break;
+        }
+    }
+    std::cout << "Native applied-follow caller: version=" << version
+              << ", active=" << result.adjusted << ", target=" << result.target[0] << ','
+              << result.target[1] << ", fresh_veto=" << result.first_fresh_veto
+              << ", vacated_before_recovery=" << result.vacated_before_recovery
+              << ", arrived=" << result.both_arrived << ", rested=" << result.both_rested
+              << ", finish=" << result.finish_tick << '\n';
+    return result;
+}
+
+void actual_match_uses_the_following_certificate_only_in_eight() {
+    const auto old = actual_following_caller_wave(distributed_version);
+    const auto following = actual_following_caller_wave(following_version);
+    CHECK(!old.adjusted && old.first_fresh_veto && !old.vacated_before_recovery);
+    CHECK(following.adjusted && following.target[1] < 173);
+    CHECK(!following.first_fresh_veto && following.vacated_before_recovery);
+    CHECK(old.both_arrived && old.both_rested);
+    CHECK(following.both_arrived && following.both_rested);
+}
+
 void print_legacy_trace() {
     for (uint32_t version = 0; version < battle_version; ++version)
         for (const auto control :
@@ -1217,5 +1336,6 @@ int main(int argc, char** argv) {
     run("historical profile coherence", historical_profiles_do_not_read_route_coherence);
     run("applied head certificate gates", applied_head_certificate_is_explicit_and_current);
     run("applied backward leader", applied_backward_leader_releases_an_existing_passing_leg);
+    run("actual following caller", actual_match_uses_the_following_certificate_only_in_eight);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

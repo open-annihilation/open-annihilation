@@ -73,7 +73,7 @@ inline constexpr int64_t one_pixel = 65536;
 
 /// Optionally checks a shared-prefix leader against its just-applied local leg.
 /// Unsupported or stale heads preserve the original queue certificate. This
-/// helper is disabled by default and has no production caller.
+/// helper is disabled by default; callers opt in for a recorded experimental preset.
 /// @param follower following unit's current geometry
 /// @param route follower's canonical navigation
 /// @param leader selected blocker's current geometry
