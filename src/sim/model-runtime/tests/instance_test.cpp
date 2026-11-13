@@ -365,6 +365,174 @@ void copy_local_pose(Instance& into, const Instance& from) {
     }
 }
 
+/// Checks an exact final root-plane reuse through wraps and reordered hierarchies.
+void check_root_prefix_transforms() {
+    constexpr int32_t lowest = std::numeric_limits<int32_t>::min();
+    constexpr int32_t highest = std::numeric_limits<int32_t>::max();
+    constexpr uint32_t none = oa::formats::objects3d::kNoObject;
+    const auto cancelled = [](int16_t angle) {
+        return std::bit_cast<int16_t>(static_cast<uint16_t>(0U - static_cast<uint16_t>(angle)));
+    };
+    const auto word = [](uint32_t bits) {
+        return std::bit_cast<int16_t>(static_cast<uint16_t>(bits));
+    };
+    auto model = std::make_shared<oa::formats::objects3d::Model>();
+    model->objects.resize(2);
+    auto& base = model->objects[0];
+    base.name = "base";
+    base.next_sibling = 1;
+    base.offset_from_parent = {lowest, highest, highest};
+    base.vertices = {{lowest, 0, highest}, {highest, lowest, lowest}, {0, highest, 0}};
+    auto& sibling = model->objects[1];
+    sibling.name = "loose";
+    sibling.vertices = {{lowest, highest, 1}, {7, 0, -3}, {0, 0, lowest}};
+    constexpr std::string_view names[]{"loose", "base"};
+    auto prefix = oa::sim::model_runtime::make_instance(model, 17, names);
+    const auto root_index = prefix.root_piece();
+    require(root_index == 1, "the prefix fixture did not reorder the root");
+    prefix.pieces()[root_index].translation = {highest, lowest, lowest};
+    prefix.pieces()[root_index].rotation = {321, word(0x8123), -123};
+    const RotationWords prefix_root{-23, cancelled(prefix.pieces()[root_index].rotation.xz), 400};
+    prefix.rebuild_transforms(prefix_root, true);
+    const Instance saved_prefix = prefix;
+    auto receiver = oa::sim::model_runtime::make_instance(model, 91, names);
+    copy_local_pose(receiver, prefix);
+    receiver.pieces()[root_index].rotation.xy = 338;
+    receiver.pieces()[root_index].rotation.yz = -144;
+    for (int32_t angle = std::numeric_limits<int16_t>::min();
+         angle <= std::numeric_limits<int16_t>::max();
+         ++angle) {
+        auto& root_piece = receiver.pieces()[root_index];
+        root_piece.rotation.xz = word(uint32_t(angle) * 977U);
+        root_piece.translation = {
+            std::bit_cast<int32_t>(uint32_t(angle) * 2654435761U),
+            angle % 2 == 0 ? lowest : highest,
+            std::bit_cast<int32_t>(0U - uint32_t(angle) * 2246822519U)
+        };
+        const RotationWords root{-40, static_cast<int16_t>(angle), 421};
+        const auto oracle = scalar_old_rebuild(receiver, root);
+        require(receiver.root_transforms_changed(root), "a changed root was called incremental");
+        transform_allocations = 0;
+        watch_transform_allocations = true;
+        const bool reused = receiver.reuse_root_prefix_transforms(prefix, root);
+        watch_transform_allocations = false;
+        require(reused && transform_allocations == 0, "a root prefix missed or allocated");
+        require(
+            same_transforms(receiver, oracle), "a final root plane differs from the scalar walk"
+        );
+        require(
+            receiver.owner_token() == 91 && !receiver.transforms_dirty() &&
+                !receiver.root_transforms_changed(root),
+            "root prefix reuse changed ownership or remembered the wrong root"
+        );
+        for (const auto& piece : receiver.pieces())
+            require(
+                same_vector(piece.translation, piece.built_translation) &&
+                    same_words(piece.rotation, piece.built_rotation),
+                "root prefix reuse did not record the receiver's raw inputs"
+            );
+        Instance ordinary = receiver;
+        ordinary.rebuild_transforms(root);
+        require(
+            same_state(receiver, ordinary), "a native rebuild after prefix reuse changed state"
+        );
+    }
+    require(same_state(prefix, saved_prefix), "prefix reuse changed its source");
+    const RotationWords last_root{-40, std::numeric_limits<int16_t>::max(), 421};
+    const auto refused = [&](Instance bad, const Instance& source, RotationWords root) {
+        const auto before = bad;
+        require(!bad.reuse_root_prefix_transforms(source, root), "an incompatible prefix was used");
+        require(same_state(bad, before), "a refused prefix changed its receiver");
+    };
+    auto stale = prefix;
+    stale.pieces()[root_index].translation.x =
+        scalar_low32(int64_t{stale.pieces()[root_index].translation.x} + 1);
+    refused(receiver, stale, last_root);
+    auto not_prefix = prefix;
+    auto wrong_turn = prefix_root;
+    ++wrong_turn.xz;
+    not_prefix.rebuild_transforms(wrong_turn);
+    refused(receiver, not_prefix, last_root);
+    auto wrong_plane = last_root;
+    ++wrong_plane.xy;
+    refused(receiver, prefix, wrong_plane);
+    auto changed_sibling = receiver;
+    ++changed_sibling.pieces()[0].translation.y;
+    refused(changed_sibling, prefix, last_root);
+    auto malformed = receiver;
+    malformed.pieces()[root_index].parent = 0;
+    refused(malformed, prefix, last_root);
+    auto insufficient = receiver;
+    std::vector<FixedVector3>{}.swap(insufficient.pieces()[root_index].transformed_vertices);
+    refused(insufficient, prefix, last_root);
+    require(!prefix.reuse_root_prefix_transforms(prefix, prefix_root), "a prefix reused itself");
+    Instance empty;
+    refused(empty, prefix, last_root);
+
+    // An eleven-level chain plus an untransformed root sibling. Lower poses
+    // vary independently; the oracle uses neither prefix API nor fast rotations.
+    constexpr uint32_t count = 12, loose = count - 1;
+    auto deep_model = std::make_shared<oa::formats::objects3d::Model>();
+    deep_model->objects.resize(count);
+    std::array<std::string_view, count> deep_names{};
+    for (uint32_t index = 0; index < count; ++index) {
+        auto& object = deep_model->objects[index];
+        object.name = "piece" + std::to_string(index);
+        object.parent = index == 0 || index == loose ? none : index - 1;
+        object.first_child = index + 1 < loose ? index + 1 : none;
+        object.next_sibling = index == 0 ? loose : none;
+        object.offset_from_parent = {lowest + int32_t(index), highest - int32_t(index), -17};
+        object.vertices = {{lowest, highest, 0}, {1, 0, lowest}, {0, highest, 7}};
+    }
+    for (uint32_t index = 0; index < count; ++index)
+        deep_names[index] = deep_model->objects[count - index - 1].name;
+    auto deep = oa::sim::model_runtime::make_instance(deep_model, 333, deep_names);
+    for (uint32_t frame = 0; frame < 128; ++frame) {
+        for (uint32_t index = 0; index < count; ++index) {
+            auto& piece = deep.pieces()[index];
+            const uint32_t bits = frame * 2654435761U + index * 2246822519U;
+            piece.translation = {
+                std::bit_cast<int32_t>(bits), lowest, std::bit_cast<int32_t>(0U - bits)
+            };
+            piece.rotation = {word(bits), word(bits >> 11), word(bits >> 17)};
+        }
+        const auto ri = deep.root_piece();
+        const RotationWords built_root{
+            word(frame * 31), cancelled(deep.pieces()[ri].rotation.xz), word(frame * 11)
+        };
+        auto saved = deep;
+        saved.rebuild_transforms(built_root, true);
+        deep.pieces()[ri].translation = {highest, lowest, highest};
+        deep.pieces()[ri].rotation.xz = word(frame * 691);
+        const RotationWords wanted{built_root.xy, word(frame * 977), built_root.yz};
+        const auto oracle = scalar_old_rebuild(deep, wanted);
+        require(deep.reuse_root_prefix_transforms(saved, wanted), "a deep prefix was refused");
+        require(
+            same_transforms(deep, oracle), "a deep wrapped prefix differs from the scalar walk"
+        );
+        require(!deep.root_transforms_changed(wanted), "a reused deep root remains dirty");
+        uint32_t child{};
+        while (deep.pieces()[child].object_index != 1)
+            ++child;
+        ++deep.pieces()[child].translation.y;
+        require(
+            !deep.root_transforms_changed(wanted), "a lower-piece change disabled incremental reuse"
+        );
+        auto changed_prefix = deep;
+        auto changed_root = wanted;
+        changed_root.xz = cancelled(changed_prefix.pieces()[ri].rotation.xz);
+        changed_prefix.rebuild_transforms(changed_root, true);
+        const auto partial_oracle = scalar_old_rebuild(deep, wanted);
+        require(
+            deep.reuse_root_prefix_transforms(changed_prefix, wanted),
+            "partial dirty prefix refused"
+        );
+        require(
+            same_transforms(deep, partial_oracle), "partial dirty prefix changed kept geometry"
+        );
+    }
+}
+
 void check_reused_transforms() {
     // The root has a deep subtree and an untransformed root sibling. COB
     // ordering places children before parents and moves the root from slot 0.
@@ -922,6 +1090,7 @@ int main() {
         );
         check_kept_transforms();
         check_reused_transforms();
+        check_root_prefix_transforms();
         check_zero_pair_rotation();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

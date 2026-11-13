@@ -206,6 +206,37 @@ class Instance {
     [[nodiscard]] bool
     reuse_transforms(const Instance& from, RotationWords root_rotation = {}) noexcept;
 
+    /// Returns whether a root change requires every rooted piece to be rebuilt.
+    ///
+    /// Local changes below an unchanged root keep the ordinary incremental
+    /// rebuild, which can retain the other pieces' vertex buffers.
+    ///
+    /// @param root_rotation angle words added to the root piece's rotation
+    /// @return true when the root inputs differ from the last completed rebuild
+    [[nodiscard]] bool root_transforms_changed(RotationWords root_rotation) const noexcept;
+
+    /// Reuses completed transforms whose final root XZ turn is zero.
+    ///
+    /// The source keeps an ordinary completed rebuild with its combined root
+    /// XZ word zero. Both instances have identical models, hierarchy and local
+    /// inputs except for the root translation, root XZ word and the separate
+    /// words whose sums give the same root XY and YZ turns. The receiver
+    /// subtracts the source's root translation modulo 2^32, applies its own
+    /// final XZ turn, then adds its root translation modulo 2^32. This is the
+    /// same plane order and integer rounding as a full rebuild.
+    ///
+    /// Every source condition and destination capacity is checked before any
+    /// change. A refusal changes nothing; neither outcome allocates storage.
+    /// Successful reuse retains the receiver's raw pose and owner, clears
+    /// transform markers and records the receiver's inputs as built. Pieces
+    /// that an ordinary incremental rebuild retains remain in place.
+    ///
+    /// @param from completed instance with a zero combined root XZ turn
+    /// @param root_rotation angle words added to the receiver's root rotation
+    /// @return true when the completed prefix supplied the receiver's geometry
+    [[nodiscard]] bool
+    reuse_root_prefix_transforms(const Instance& from, RotationWords root_rotation) noexcept;
+
     /// Returns the dynamically allocated piece and transformed-vertex storage.
     ///
     /// Counts vector capacities, including the spare piece's vertices. The

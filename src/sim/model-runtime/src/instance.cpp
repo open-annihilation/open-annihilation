@@ -488,6 +488,111 @@ bool Instance::reuse_transforms(const Instance& from, RotationWords root_rotatio
     return true;
 }
 
+bool Instance::root_transforms_changed(RotationWords root_rotation) const noexcept {
+    if (root_piece_ >= pieces_.size())
+        return false;
+    const auto& root = pieces_[root_piece_];
+    return !transforms_built_ || !same_words(built_root_, root_rotation) ||
+           !same_vector(root.translation, root.built_translation) ||
+           !same_words(root.rotation, root.built_rotation);
+}
+
+bool Instance::reuse_root_prefix_transforms(
+    const Instance& from, RotationWords root_rotation
+) noexcept {
+    if (this == &from || !model_ || model_ != from.model_ || root_piece_ != from.root_piece_ ||
+        root_piece_ >= pieces_.size() || pieces_.size() != from.pieces_.size() ||
+        pieces_.size() != model_->objects.size() || !from.transforms_built_ ||
+        from.transforms_dirty_ || pieces_[root_piece_].object_index != 0 ||
+        pieces_[root_piece_].parent != kNoPiece)
+        return false;
+    const auto sum_word = [](int16_t a, int16_t b) {
+        return static_cast<uint16_t>(static_cast<uint16_t>(a) + static_cast<uint16_t>(b));
+    };
+    const auto& source_root = from.pieces_[root_piece_];
+    const auto& root = pieces_[root_piece_];
+    if (sum_word(source_root.rotation.xz, from.built_root_.xz) != 0 ||
+        sum_word(root.rotation.xy, root_rotation.xy) !=
+            sum_word(source_root.rotation.xy, from.built_root_.xy) ||
+        sum_word(root.rotation.yz, root_rotation.yz) !=
+            sum_word(source_root.rotation.yz, from.built_root_.yz))
+        return false;
+    const auto linked_object = [&](uint32_t piece, uint32_t object) {
+        return object == kNoPiece
+                   ? piece == kNoPiece
+                   : piece < from.pieces_.size() && from.pieces_[piece].object_index == object;
+    };
+    for (size_t index = 0; index < pieces_.size(); ++index) {
+        const auto& mine = pieces_[index];
+        const auto& theirs = from.pieces_[index];
+        if (mine.object_index != theirs.object_index || mine.parent != theirs.parent ||
+            mine.first_child != theirs.first_child || mine.next_sibling != theirs.next_sibling ||
+            theirs.object_index >= model_->objects.size() ||
+            !same_vector(theirs.translation, theirs.built_translation) ||
+            !same_words(theirs.rotation, theirs.built_rotation) ||
+            (index != root_piece_ && (!same_vector(mine.translation, theirs.built_translation) ||
+                                      !same_words(mine.rotation, theirs.built_rotation))))
+            return false;
+        const auto& object = model_->objects[theirs.object_index];
+        if ((object.parent != kNoPiece && object.parent >= theirs.object_index) ||
+            !linked_object(theirs.parent, object.parent) ||
+            !linked_object(theirs.first_child, object.first_child) ||
+            !linked_object(theirs.next_sibling, object.next_sibling) ||
+            theirs.transformed_vertices.size() != object.vertices.size() ||
+            mine.transformed_vertices.capacity() < theirs.transformed_vertices.size())
+            return false;
+    }
+    const auto& root_object = model_->objects[root.object_index];
+    const auto translation = [&](const PieceState& piece) {
+        return oa::formats::objects3d::FixedVector3{
+            low32(
+                static_cast<int64_t>(negate(root_object.offset_from_parent.x)) + piece.translation.x
+            ),
+            low32(static_cast<int64_t>(root_object.offset_from_parent.y) + piece.translation.y),
+            low32(
+                static_cast<int64_t>(negate(root_object.offset_from_parent.z)) + piece.translation.z
+            )
+        };
+    };
+    const auto before = translation(source_root), after = translation(root);
+    const auto turn = base::game_math::prepare_integer_rotation(
+        std::bit_cast<int16_t>(sum_word(root.rotation.xz, root_rotation.xz))
+    );
+    const auto placed = [&](oa::formats::objects3d::FixedVector3 point) {
+        point.x = low32(static_cast<int64_t>(point.x) - before.x);
+        point.y = low32(static_cast<int64_t>(point.y) - before.y);
+        point.z = low32(static_cast<int64_t>(point.z) - before.z);
+        rotate_pair(point.x, point.z, turn);
+        point.x = low32(static_cast<int64_t>(point.x) + after.x);
+        point.y = low32(static_cast<int64_t>(point.y) + after.y);
+        point.z = low32(static_cast<int64_t>(point.z) + after.z);
+        return point;
+    };
+    const bool built = transforms_built_ && same_words(built_root_, root_rotation);
+    for (uint32_t index = 0; index < pieces_.size(); ++index) {
+        auto& mine = pieces_[index];
+        const auto& theirs = from.pieces_[index];
+        mine.transform_marker = 0;
+        const bool rooted = under_root(index);
+        if (built && (!rooted || posed_as_built(index)))
+            continue;
+        mine.transformed_origin =
+            rooted ? placed(theirs.transformed_origin) : theirs.transformed_origin;
+        mine.transformed_vertices.resize(theirs.transformed_vertices.size());
+        for (size_t vertex = 0; vertex < theirs.transformed_vertices.size(); ++vertex)
+            mine.transformed_vertices[vertex] = rooted ? placed(theirs.transformed_vertices[vertex])
+                                                       : theirs.transformed_vertices[vertex];
+    }
+    for (auto& piece : pieces_) {
+        piece.built_translation = piece.translation;
+        piece.built_rotation = piece.rotation;
+    }
+    transforms_built_ = true;
+    built_root_ = root_rotation;
+    transforms_dirty_ = false;
+    return true;
+}
+
 size_t Instance::transform_storage_bytes() const noexcept {
     constexpr size_t maximum = std::numeric_limits<size_t>::max();
     if (pieces_.capacity() > maximum / sizeof(PieceState))

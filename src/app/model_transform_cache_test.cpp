@@ -583,6 +583,72 @@ void test_heading_and_pitch_families_keep_exact_repeats() {
     }
 }
 
+/// Checks heading-independent reuse, lower-pose refusal and bounded domain admission.
+void test_root_prefix_domain() {
+    const auto model = model_with(6, 8);
+    auto source = make_instance(model, 17);
+    pose(source, 113);
+    const RotationWords built{32, -24001, -73};
+    source.rebuild_transforms(built, true);
+    ModelTransformCache cache;
+    cache.begin_frame();
+    cache.remember_root_prefix(source, built);
+    OA_CHECK(cache.counts().stores == 1);
+    const auto bytes = cache.storage_bytes();
+    for (int32_t heading = -30000; heading <= 30000; heading += 127) {
+        auto receiver = make_instance(model, 99);
+        pose(receiver, 113);
+        auto& root_piece = receiver.pieces()[receiver.root_piece()];
+        root_piece.translation = {INT32_MAX, INT32_MIN, heading};
+        root_piece.rotation.xz = static_cast<int16_t>(heading / 2);
+        const RotationWords wanted{built.xy, static_cast<int16_t>(heading), built.yz};
+        const auto oracle = rebuilt_afresh(receiver, wanted);
+        OA_CHECK(cache.reuse_root_prefix(receiver, wanted));
+        OA_CHECK(same_transforms(receiver, oracle));
+        OA_CHECK(receiver.owner_token() == 99);
+        OA_CHECK(!receiver.transforms_dirty());
+        OA_CHECK(cache.storage_bytes() == bytes);
+    }
+    auto changed = source;
+    ++changed.pieces()[1].rotation.yz;
+    const auto before = changed;
+    OA_CHECK(!cache.reuse_root_prefix(changed, built));
+    check_unchanged(changed, before);
+    auto changed_plane = built;
+    ++changed_plane.yz;
+    OA_CHECK(!cache.reuse_root_prefix(source, changed_plane));
+    cache.begin_frame();
+    OA_CHECK(!cache.reuse_root_prefix(source, built));
+
+    // Both kinds of pose retain admission room when the other kind fills its share.
+    for (int16_t phase = 0; phase < 100; ++phase) {
+        pose(source, phase);
+        source.rebuild_transforms(built, true);
+        cache.remember_incremental(source, built);
+    }
+    const auto full_stores = cache.counts().stores;
+    OA_CHECK(full_stores > 0 && full_stores < ModelTransformCache::entry_capacity);
+    for (int16_t phase = 100; phase < 200; ++phase) {
+        pose(source, phase);
+        source.rebuild_transforms(built, true);
+        cache.remember_root_prefix(source, built);
+    }
+    OA_CHECK(cache.counts().stores > full_stores);
+    OA_CHECK(cache.storage_bytes() <= ModelTransformCache::storage_limit);
+    OA_CHECK(cache.counts().stores <= ModelTransformCache::entry_capacity);
+
+    ModelTransformCache none(0);
+    none.begin_frame();
+    none.remember_root_prefix(source, built);
+    OA_CHECK(none.counts().stores == 0);
+    OA_CHECK(!none.reuse_root_prefix(source, built));
+    ModelTransformCache too_small(ModelTransformCache::entry_capacity, sizeof(ModelTransformCache));
+    too_small.begin_frame();
+    too_small.remember_root_prefix(source, built);
+    OA_CHECK(too_small.counts().stores == 0);
+    OA_CHECK(too_small.storage_bytes() <= sizeof(ModelTransformCache));
+}
+
 } // namespace
 
 int main() {
@@ -594,5 +660,6 @@ int main() {
     test_admission_limits_and_many_unique_poses();
     test_failed_replacement_preserves_accounting_and_active_entry();
     test_heading_and_pitch_families_keep_exact_repeats();
+    test_root_prefix_domain();
     return oa::test::check_exit_status();
 }

@@ -926,10 +926,20 @@ void plan_unit_model(
         );
         if (shown.state->transforms_dirty || shown.instance->transforms_dirty()) {
             if (!transforms->reuse(*shown.instance, shown.state->shift)) {
-                shown.instance->rebuild_transforms(
-                    shown.state->shift, frame.checked_integer_rotation
-                );
-                transforms->remember(*shown.instance, shown.state->shift);
+                const bool prefix = frame.checked_integer_rotation &&
+                                    shown.instance->root_transforms_changed(shown.state->shift);
+                if (!prefix ||
+                    !transforms->reuse_root_prefix(*shown.instance, shown.state->shift)) {
+                    shown.instance->rebuild_transforms(
+                        shown.state->shift, frame.checked_integer_rotation
+                    );
+                    if (prefix)
+                        transforms->remember_root_prefix(*shown.instance, shown.state->shift);
+                    else if (frame.checked_integer_rotation)
+                        transforms->remember_incremental(*shown.instance, shown.state->shift);
+                    else
+                        transforms->remember(*shown.instance, shown.state->shift);
+                }
             }
             shown.state->transforms_dirty = false;
         }
