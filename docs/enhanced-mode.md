@@ -12,13 +12,13 @@ Players in the same match may choose different graphics settings.
 ## Current preset
 
 Rules version 4 remains the current preset. Versions 5, 6, 7 and 8 are explicit
-experimental benchmark choices. Version 8 retains version 7's static routing
-and native movement as the baseline for experimental local following; its
-version identity alone does not add that following behavior. Version 6 derives from version 4 and keeps
-version 5's advisory corridor lanes separate. The presets retain a capacity of
-10,000 units per participating player. The engine
-allocates ranges only for participating players, with at most 32,767 units
-across the match. Two players can therefore field 10,000 units each.
+experimental benchmark choices. Version 8 extends version 7's static routing
+with applied-leg queue checks and planning that ignores temporary unit occupancy.
+Version 6 derives from version 4 and keeps version 5's advisory corridor lanes
+separate. The presets retain a capacity of 10,000 units per participating
+player. The engine allocates ranges only for participating players, with at
+most 32,767 units across the match. Two players can therefore field 10,000
+units each.
 Spectators do not consume a unit range. The projectile pool holds 32,767
 records, with allocation failures reported by the benchmark.
 
@@ -122,6 +122,21 @@ points. Their final destinations may differ. The leader must own its active
 route and be ahead and nearer the next point. This applies within the existing
 traffic grace period of fewer than 30 blocked ticks; mature recovery remains available.
 The installed-map results below remain mixed and do not establish smooth flow.
+
+Version 8 checks a leader's current applied passing leg before certifying that
+following it still advances a queue toward its guide. Ground-route planning
+also treats units with movement objects as temporary occupancy, including
+zero-speed definitions. Static building footprints, blocking features, terrain
+depth, slope and bounds retain their ordinary passability rules. Every actual
+ground step still checks current footprint claims and swept collision.
+
+A unit can retain its forward route while it waits for space in a crowd.
+Arrival, replacement and other native failure paths retain their normal mission
+transitions. In a separate prototype comparison with 20,000 units and 9,000
+simulation ticks on Core Prime Industrial Area, Hold Fire patrols in version 8
+recorded no path-failure callbacks and improved mean rear progress over version 7.
+Sustained bridge transit and broad rear advance remain unresolved. Version 8
+remains experimental and does not replace the default version 4.
 
 These changes do not yet establish smooth frame rates at that population.
 Ray tracing remains future work and will be a separate graphics choice.
@@ -746,9 +761,12 @@ Version 8 has a separate save, recording and multiplayer identity. It starts
 with version 7's native movement and static shared routing, including fine
 format-3 fields, their unfinished construction prefixes and the same bounded
 work and storage limits. It does not select a global crowd-cost field.
-The local-following policy requires separate integration and validation;
-supporting the preset does not establish improved 20,000-unit flow.
+Its applied-leg following and static-only cached planning retain the actual
+movement checks described above. Sustained 20,000-unit flow still requires
+validation; the prototype comparison does not establish smooth bridge transit.
 Version 4 remains the new-game default, and renderer choices stay independent.
+Select version 8 explicitly with `rules_version 8` in a gameplay benchmark
+or `--benchmark-rules-version 8` in the native simulation benchmark.
 
 ## Experimental distributed battle flow (version 7)
 
