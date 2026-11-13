@@ -6997,6 +6997,19 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             in.water.detail > 0 && reflection_budget >= 6;
         // Bound the actual animated geometry in the same screen space as the GPU.
         // Without a projection the painted crop only guarantees heights 0..255.
+        constexpr float nanoframe_margin = 1;
+        const float margin_x =
+            screen_bounds ? nanoframe_margin * (std::abs(projection[0]) + std::abs(projection[1]) +
+                                                std::abs(projection[2]))
+                          : nanoframe_margin;
+        const float margin_y =
+            screen_bounds ? nanoframe_margin * (std::abs(projection[4]) + std::abs(projection[5]) +
+                                                std::abs(projection[6]))
+                          : nanoframe_margin;
+        const float left = screen_bounds ? 0.0F : static_cast<float>(in.left);
+        const float top = screen_bounds ? 0.0F : static_cast<float>(in.top);
+        const float right = screen_bounds ? float(in.clip_width) : in.right;
+        const float bottom = screen_bounds ? float(in.clip_height) : in.bottom;
         float min_x = std::numeric_limits<float>::infinity();
         float min_y = min_x, max_x = -min_x, max_y = -min_x;
         bool bounded = true;
@@ -7033,6 +7046,15 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                 max_x = std::max(max_x, bound_x);
                 min_y = std::min(min_y, bound_y);
                 max_y = std::max(max_y, bound_y);
+                // Further vertices only widen these extrema. Once their prefix
+                // cannot be rejected on any side, the complete box cannot be
+                // rejected either; later nonfinite points also keep the draw.
+                if (in.body_lod_enabled && screen_bounds && max_x + margin_x >= left &&
+                    min_x - margin_x <= right && max_y + margin_y >= top &&
+                    min_y - margin_y <= bottom) {
+                    bounded = false;
+                    break;
+                }
                 // A hull outside the viewport can still cast an on-screen reflection.
                 if (reflects && height >= in.sea_level) {
                     const float mirrored_height = 2 * in.sea_level - height;
@@ -7053,19 +7075,6 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             if (!bounded)
                 break;
         }
-        constexpr float nanoframe_margin = 1;
-        const float margin_x =
-            screen_bounds ? nanoframe_margin * (std::abs(projection[0]) + std::abs(projection[1]) +
-                                                std::abs(projection[2]))
-                          : nanoframe_margin;
-        const float margin_y =
-            screen_bounds ? nanoframe_margin * (std::abs(projection[4]) + std::abs(projection[5]) +
-                                                std::abs(projection[6]))
-                          : nanoframe_margin;
-        const float left = screen_bounds ? 0.0F : static_cast<float>(in.left);
-        const float top = screen_bounds ? 0.0F : static_cast<float>(in.top);
-        const float right = screen_bounds ? float(in.clip_width) : in.right;
-        const float bottom = screen_bounds ? float(in.clip_height) : in.bottom;
         if (bounded && (max_x + margin_x < left || min_x - margin_x > right ||
                         max_y + margin_y < top || min_y - margin_y > bottom))
             continue;
