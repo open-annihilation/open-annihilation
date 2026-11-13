@@ -8,6 +8,7 @@
 #include "renderer_live_models.hpp"
 #include "renderer_water.hpp"
 #include "runtime_full.hpp"
+#include "body_lod_counts.hpp"
 #include "oa/formats/tnt.hpp"
 #include "oa/platform/job_pool.hpp"
 
@@ -253,6 +254,15 @@ struct UnitDetail {
     bool marker{};
     /// The ordinary ground shadow is wholly outside the active shadow map.
     bool shadow_outside{};
+    /// Coarse, animated physical geometry reserved before full meshes.
+    std::size_t body_low_surface{}, body_low_shadow{};
+    std::size_t body_medium_surface{}, body_medium_shadow{};
+    uint64_t body_piece_mask{};
+    uint64_t body_medium_piece_mask{};
+    /// Zero keeps the original mesh, one is the low hull and two the medium hull.
+    uint8_t body_lod{}, desired_body_lod{};
+    bool body_available{};
+    bool distance_marker{}, budget_marker{};
 };
 
 /// Texture choices that affect whether a local pose has a drawable face.
@@ -415,6 +425,7 @@ struct FrameWrite {
 /// joins the lists afterwards in the order the passes run in, one after
 /// another. The scene keeps every list, so that each frame reuses it.
 struct PassList {
+    BodyLodCounts body_lod_counts{};
     std::vector<renderer_live_gpu::Vertex> vertices{};
     /// The units' ranges, counted from the list's first vertex.
     std::vector<UnitRange> unit_ranges{};
@@ -622,6 +633,7 @@ struct Scene {
     uint64_t cut_source{};               ///< the kept ground's revision; 0 for none
     uint64_t cut_revision{};
     uint32_t model_count{};
+    BodyLodCounts body_lod_counts{};
     uint32_t sprite_count{};
     uint32_t shadow_count{};
     uint32_t particle_count{};
@@ -642,6 +654,8 @@ struct Scene {
     ModelCards cards{};
     /// Per-draw detail decisions, read by the model and shadow workers.
     std::vector<UnitDetail> unit_detail{};
+    /// Distance hysteresis by the complete unit ID; no unit or model is retained.
+    std::vector<uint8_t> body_detail_history{};
     bool unit_detail_active{};
     /// Exact pose summaries for the current detail prepass. At most 1,024
     /// summaries, 131,072 visible points and 32,768 pieces are retained.
@@ -694,6 +708,8 @@ struct Inputs {
     /// enabled, the same markers also bound crowded scenes to the GPU's
     /// existing surface and shadow index limits.
     float unit_marker_pixels{};
+    /// Preserve articulated physical bodies at middle distance and under budget pressure.
+    bool body_lod_enabled{};
     std::array<std::array<uint8_t, 3>, full::team_colour_players> owner_colors{};
     /// Painted map rectangle needed by the camera, clipped to the map.
     int32_t left{};

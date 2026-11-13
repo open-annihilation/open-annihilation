@@ -225,7 +225,8 @@ void check_deferred_image_draw(const live::Inputs& inputs, oa::present::model::M
                            a.instance == b.instance && a.type == b.type &&
                            a.first_index == b.first_index && a.index_count == b.index_count &&
                            a.left == b.left && a.top == b.top && a.right == b.right &&
-                           a.bottom == b.bottom && a.bounded == b.bounded;
+                           a.bottom == b.bottom && a.bounded == b.bounded &&
+                           a.body_lod == b.body_lod;
                 }
             )
         );
@@ -5707,7 +5708,8 @@ void check_marker_frames(const live::Scene& actual, const live::Scene& expected)
                 return a.unit_id == b.unit_id && a.vertex == b.vertex && a.instance == b.instance &&
                        a.type == b.type && a.first_index == b.first_index &&
                        a.index_count == b.index_count && a.left == b.left && a.top == b.top &&
-                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded;
+                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded &&
+                       a.body_lod == b.body_lod;
             }
         )
     );
@@ -7926,7 +7928,8 @@ void unit_detail_on_threads() {
                                a.instance == b.instance && a.type == b.type &&
                                a.first_index == b.first_index && a.index_count == b.index_count &&
                                a.left == b.left && a.top == b.top && a.right == b.right &&
-                               a.bottom == b.bottom && a.bounded == b.bounded;
+                               a.bottom == b.bottom && a.bounded == b.bounded &&
+                               a.body_lod == b.body_lod;
                     }
                 )
             );
@@ -7976,7 +7979,8 @@ void unit_detail_on_threads() {
                 return a.unit_id == b.unit_id && a.vertex == b.vertex && a.instance == b.instance &&
                        a.type == b.type && a.first_index == b.first_index &&
                        a.index_count == b.index_count && a.left == b.left && a.top == b.top &&
-                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded;
+                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded &&
+                       a.body_lod == b.body_lod;
             }
         );
     };
@@ -8372,7 +8376,7 @@ void physical_model_bands() {
             OA_CHECK(a.unit_id == b.unit_id && a.type == b.type && a.index_count == b.index_count);
             OA_CHECK(
                 a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom &&
-                a.bounded == b.bounded && a.marker == b.marker
+                a.bounded == b.bounded && a.body_lod == b.body_lod && a.marker == b.marker
             );
         }
         OA_CHECK(serial.cards.casts.size() == parallel.cards.casts.size());
@@ -8494,7 +8498,7 @@ void ground_shadows_in_view() {
         OA_CHECK(a.unit_id == fixture.units[0].id && a.unit_id == b.unit_id);
         OA_CHECK(
             a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom &&
-            a.bounded == b.bounded
+            a.bounded == b.bounded && a.body_lod == b.body_lod
         );
     }
     // Complex casters retain their original path, even wholly outside.
@@ -8846,7 +8850,8 @@ void shadows_on_card() {
                 return a.unit_id == b.unit_id && a.vertex == b.vertex && a.instance == b.instance &&
                        a.type == b.type && a.first_index == b.first_index &&
                        a.index_count == b.index_count && a.left == b.left && a.top == b.top &&
-                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded;
+                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded &&
+                       a.body_lod == b.body_lod;
             }
         )
     );
@@ -9776,8 +9781,16 @@ void underwater_features() {
 } // namespace
 
 #include "parallel_model_cards_test.inc"
+#include "body_lod_geometry_test.inc"
+#include "body_lod_cards_test.inc"
+#include "body_lod_scene_test.inc"
 
 int main() {
+    body_lod_geometry_tests();
+    body_lod_card_tests();
+    animated_body_lod_scene();
+    crowded_animated_body_lod();
+    crowded_body_position_budget();
     water_surface_bounds();
     sea_bed_follows_swells();
     water_disturbance_visibility();

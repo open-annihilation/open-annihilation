@@ -457,6 +457,72 @@ void begin_draw(Pass& pass, std::size_t draw) {
     mark_cards(list.cards);
 }
 
+/// Adds completed unit emissions without changing any draw or budget state.
+void add_body_counts(BodyLodCounts& into, const BodyLodCounts& from) noexcept {
+    into.full_mesh_models += from.full_mesh_models;
+    into.body_lod_models += from.body_lod_models;
+    into.distance_markers += from.distance_markers;
+    into.budget_markers += from.budget_markers;
+    into.full_mesh_vertices += from.full_mesh_vertices;
+    into.body_lod_vertices += from.body_lod_vertices;
+    into.shadow_vertices += from.shadow_vertices;
+}
+
+/// Counts only geometry a completed canonical-unit draw actually retained.
+class UnitEmission {
+  public:
+
+    /// @param pass the exclusive model or marker pass
+    /// @param id complete canonical unit ID, or zero for scenery
+    /// @param marker this draw selected a strategic or adaptive marker
+    /// @param budget the marker was selected by geometry pressure
+    UnitEmission(Pass& pass, uint16_t id, bool marker = false, bool budget = false) noexcept
+        : list_(pass.list), id_(id), marker_(marker), budget_(budget),
+          vertices_(list_.vertices.size() + list_.translucent_vertices.size()),
+          card_vertices_(list_.cards.vertices), units_(list_.cards.units.size()),
+          shadow_(list_.cards.cast_indices.size()), exceptions_(std::uncaught_exceptions()) {}
+
+    UnitEmission(const UnitEmission&) = delete;
+    UnitEmission& operator=(const UnitEmission&) = delete;
+
+    /// Commits telemetry only after material retries and ordinary fallbacks finish.
+    ~UnitEmission() {
+        if (id_ == 0 || std::uncaught_exceptions() != exceptions_)
+            return;
+        auto& counts = list_.body_lod_counts;
+        counts.shadow_vertices += list_.cards.cast_indices.size() - shadow_;
+        const auto count = list_.vertices.size() + list_.translucent_vertices.size() - vertices_ +
+                           list_.cards.vertices - card_vertices_;
+        if (count == 0)
+            return;
+        if (marker_) {
+            if (budget_)
+                ++counts.budget_markers;
+            else
+                ++counts.distance_markers;
+            return;
+        }
+        bool coarse = false;
+        for (std::size_t at = units_; at < list_.cards.units.size(); ++at)
+            coarse |= list_.cards.units[at].body_lod && list_.cards.units[at].index_count != 0;
+        if (coarse) {
+            ++counts.body_lod_models;
+            counts.body_lod_vertices += count;
+        } else {
+            ++counts.full_mesh_models;
+            counts.full_mesh_vertices += count;
+        }
+    }
+
+  private:
+
+    PassList& list_;
+    uint16_t id_{};
+    bool marker_{}, budget_{};
+    std::size_t vertices_{}, card_vertices_{}, units_{}, shadow_{};
+    int exceptions_{};
+};
+
 /// Mixes eight bytes into a digest at once: every bit of the word reaches
 /// every bit of the digest.
 ///
@@ -5344,6 +5410,209 @@ bool ground_shadow_outside(
            top > map_bottom + margin;
 }
 
+/// The physical body bands use screen pixels, independently of map zoom.
+constexpr float body_lod_minimum_pixels = 6;
+constexpr float body_lod_medium_pixels = 12;
+constexpr float body_lod_mesh_pixels = 20;
+constexpr float body_lod_hysteresis = 0.05F;
+constexpr float body_lod_small_piece_pixels = 0.45F;
+constexpr std::size_t body_lod_low_piece_limit = 6;
+constexpr std::size_t body_lod_piece_limit = 64;
+
+/// Retains the prior physical detail across small camera or pose changes.
+uint8_t desired_body_detail(float pixels, uint8_t previous) noexcept {
+    const float low = body_lod_medium_pixels;
+    const float high = body_lod_mesh_pixels;
+    if (previous == 1 && pixels <= low * (1 + body_lod_hysteresis))
+        return 1;
+    if (previous == 2 && pixels >= low * (1 - body_lod_hysteresis) &&
+        pixels <= high * (1 + body_lod_hysteresis))
+        return 2;
+    if (previous == 3 && pixels >= high * (1 - body_lod_hysteresis))
+        return 0;
+    return pixels <= low ? 1 : pixels <= high ? 2 : 0;
+}
+
+/// Checks every coarse representative material before it can replace a mesh.
+bool body_materials_ready(const Inputs& in, const CardType& type, const Unit& unit) {
+    const auto team = in.team_colors[unit.owner_index % in.team_colors.size()];
+    for (const auto& slot : type.slots) {
+        if (slot.primitive == nullptr)
+            continue;
+        const auto* frame = model::primitive_texture(*slot.primitive, slot.first_frame, team);
+        if (frame == nullptr || frame->data == nullptr || frame->encoding != OA_SPRITE_RAW ||
+            frame->width == 0 || frame->height == 0)
+            return false;
+    }
+    return true;
+}
+
+/// Leaves models reached by construction light on their original lit path.
+bool body_light_near(
+    const Inputs& in, const std::array<float, 3>& low, const std::array<float, 3>& high
+) {
+    if (!in.nanolathe_lighting)
+        return false;
+    constexpr std::size_t samples = 16;
+    constexpr float radius = 32;
+    const auto& particles = in.draws->spatial_particles;
+    const auto stride = std::max<std::size_t>(1, particles.size() / samples);
+    for (std::size_t at = 0, count = 0; at < particles.size() && count < samples;
+         at += stride, ++count) {
+        const auto& light = particles[at];
+        if (!light.emissive ||
+            fog_at(
+                in.sight,
+                light.position.x / 65536,
+                static_cast<int32_t>((light.position.z - light.position.y * 0.5F) / fixed_scale)
+            ) != Fog::seen)
+            continue;
+        const std::array position{
+            light.position.x / fixed_scale,
+            light.position.y / fixed_scale,
+            light.position.z / fixed_scale
+        };
+        float distance{};
+        for (std::size_t axis = 0; axis < position.size(); ++axis) {
+            const auto gap =
+                std::max({0.0F, low[axis] - position[axis], position[axis] - high[axis]});
+            distance += gap * gap;
+        }
+        if (distance < radius * radius)
+            return true;
+    }
+    return false;
+}
+
+/// Counts only visible selected pieces of a retained physical body type.
+std::size_t body_allowance(const CardType& type, uint64_t mask) noexcept {
+    std::size_t count{};
+    for (std::size_t piece = 0; piece + 1 < type.piece_polygons.size(); ++piece)
+        if ((mask & (uint64_t{1} << piece)) != 0)
+            for (auto polygon = type.piece_polygons[piece];
+                 polygon < type.piece_polygons[piece + 1];
+                 ++polygon)
+                count += (type.polygons[polygon].corners - 2) * 3;
+    return count;
+}
+
+/// Finds physical hull choices from the same visible animated pieces as the mesh.
+void plan_body_detail(
+    const Inputs& in,
+    const Scene& scene,
+    const ModelDraw& draw,
+    const Unit& unit,
+    std::size_t index,
+    UnitDetail& detail,
+    const std::array<float, 3>& low,
+    const std::array<float, 3>& high
+) {
+    if (!in.body_lod_enabled || !in.models_on_card ||
+        in.draws->models.size() >= renderer_live_gpu::largest_model_instance_count ||
+        index >= scene.card_types.body_draw_types_low.size() ||
+        index >= scene.card_types.body_draw_types_medium.size() ||
+        draw.model.instance->pieces().size() > body_lod_piece_limit ||
+        body_light_near(in, low, high))
+        return;
+    const auto low_index = scene.card_types.body_draw_types_low[index];
+    const auto medium_index = scene.card_types.body_draw_types_medium[index];
+    if (low_index < 0 || medium_index < 0)
+        return;
+    const auto& low_type = scene.card_types.types[static_cast<std::size_t>(low_index)];
+    const auto& medium_type = scene.card_types.types[static_cast<std::size_t>(medium_index)];
+    if (!body_materials_ready(in, low_type, unit) || !body_materials_ready(in, medium_type, unit))
+        return;
+    for (std::size_t piece = 0; piece < low_type.source_vertex_counts.size(); ++piece)
+        if (detail_points(draw, piece).size() != low_type.source_vertex_counts[piece])
+            return;
+
+    struct PieceSize {
+        std::size_t piece{};
+        float pixels{};
+        bool moving{};
+    };
+
+    std::array<PieceSize, body_lod_piece_limit> visible{};
+    std::size_t count{};
+    const auto pieces = draw.model.instance->pieces();
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        if ((pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
+                0 ||
+            low_type.piece_polygons[piece] == low_type.piece_polygons[piece + 1])
+            continue;
+        const auto points = detail_points(draw, piece);
+        std::array<float, 2> least{
+            std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()
+        };
+        std::array<float, 2> greatest{-least[0], -least[1]};
+        for (const auto& point : points) {
+            const std::array position{
+                point.x / fixed_scale, point.y / fixed_scale, -(point.z / fixed_scale)
+            };
+            for (std::size_t row = 0; row < least.size(); ++row) {
+                float projected{};
+                for (std::size_t axis = 0; axis < position.size(); ++axis)
+                    projected += in.clip_projection[row * 4 + axis] * position[axis];
+                least[row] = std::min(least[row], projected);
+                greatest[row] = std::max(greatest[row], projected);
+            }
+        }
+        const auto pixels = std::max(greatest[0] - least[0], greatest[1] - least[1]);
+        if (!std::isfinite(pixels) || pixels < 0)
+            return;
+        const auto moving = (pieces[piece].flags &
+                             static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) == 0;
+        visible[count++] = {piece, pixels, moving};
+        if (pixels >= body_lod_small_piece_pixels)
+            detail.body_medium_piece_mask |= uint64_t{1} << piece;
+    }
+    if (count == 0)
+        return;
+    std::sort(
+        visible.begin(),
+        visible.begin() + static_cast<std::ptrdiff_t>(count),
+        [](const PieceSize& a, const PieceSize& b) {
+            return a.pixels != b.pixels ? a.pixels > b.pixels : a.piece < b.piece;
+        }
+    );
+    std::size_t kept{};
+    bool moving_kept = false;
+    for (std::size_t at = 0; at < count && kept < body_lod_low_piece_limit; ++at) {
+        const auto& part = visible[at];
+        if (kept != 0 && part.pixels < body_lod_small_piece_pixels)
+            continue;
+        detail.body_piece_mask |= uint64_t{1} << part.piece;
+        moving_kept |= part.moving;
+        ++kept;
+    }
+    // A budget body retains a moving part whenever one is visible. The largest
+    // part remains its anchor, even when a small limb replaces its last detail.
+    if (!moving_kept && kept > 1)
+        for (std::size_t at = 0; at < count; ++at)
+            if (visible[at].moving && visible[at].pixels >= body_lod_small_piece_pixels) {
+                for (std::size_t last = count; last-- > 1;)
+                    if ((detail.body_piece_mask & (uint64_t{1} << visible[last].piece)) != 0) {
+                        detail.body_piece_mask &= ~(uint64_t{1} << visible[last].piece);
+                        break;
+                    }
+                detail.body_piece_mask |= uint64_t{1} << visible[at].piece;
+                break;
+            }
+    if (detail.body_medium_piece_mask == 0)
+        detail.body_medium_piece_mask = uint64_t{1} << visible[0].piece;
+    detail.body_low_surface = body_allowance(low_type, detail.body_piece_mask);
+    detail.body_medium_surface = body_allowance(medium_type, detail.body_medium_piece_mask);
+    detail.body_low_shadow = detail.shadow == 0 ? 0 : detail.body_low_surface;
+    detail.body_medium_shadow = detail.shadow == 0 ? 0 : detail.body_medium_surface;
+    detail.body_available = detail.body_low_surface > 0 && detail.body_low_surface < detail.surface;
+    if (detail.body_available) {
+        const auto previous = unit.id < scene.body_detail_history.size()
+                                  ? scene.body_detail_history[unit.id]
+                                  : uint8_t{};
+        detail.desired_body_lod = desired_body_detail(detail.pixels, previous);
+    }
+}
+
 /// Classifies a disjoint range without changing materials, model types or
 /// canonical state. Each range owns its pose memo and corner scratch.
 template <typename Memo>
@@ -5478,6 +5747,11 @@ bool plan_unit_details(
             continue;
         detail.eligible = true;
         detail.marker = detail.pixels <= in.unit_marker_pixels;
+        if (in.body_lod_enabled) {
+            detail.marker = detail.pixels < body_lod_minimum_pixels;
+            plan_body_detail(in, scene, draw, *unit, index, detail, low, high);
+        }
+        detail.distance_marker = detail.marker;
         eligible = true;
     }
     return eligible;
@@ -5516,6 +5790,8 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
         return;
     const auto& draws = in.draws->models;
     scene.unit_detail.resize(draws.size());
+    if (in.body_lod_enabled && scene.body_detail_history.empty())
+        scene.body_detail_history.resize(std::size_t{1} << 16);
     constexpr std::size_t draws_per_detail_band = 512;
     const auto threads =
         in.pool ? std::min(in.pool->threads(), platform::job_pool::max_threads) : uint32_t{1};
@@ -5556,10 +5832,127 @@ void plan_unit_detail(const Inputs& in, Scene& scene) {
     }
 }
 
+/// Bounds distinct posed points even when every unit has a unique animation.
+/// Omitted pieces still belong to a coarse type's shared point layout.
+std::size_t body_position_allowance(const Scene& scene, std::size_t index, uint8_t detail) {
+    const auto& choices = detail == 1   ? scene.card_types.body_draw_types_low
+                          : detail == 2 ? scene.card_types.body_draw_types_medium
+                                        : scene.card_types.draw_types;
+    if (index >= choices.size() || choices[index] < 0)
+        return 0;
+    const auto& type = scene.card_types.types[static_cast<std::size_t>(choices[index])];
+    return type.drawable && !type.piece_vertices.empty() ? type.piece_vertices.back() : 0;
+}
+
+/// Reserves animated low hulls before spending room on nearer mesh detail.
+void budget_physical_bodies(const Inputs& in, Scene& scene, std::size_t rest) {
+    std::size_t surface = rest, shadow{}, positions{};
+    // Full meshes can safely fall back to their already reserved CPU geometry.
+    // Keep their worst-case upload ahead of coarse bodies, whose CPU fallback
+    // would otherwise be larger than the physical hull reservation.
+    for (std::size_t index = 0; index < scene.unit_detail.size(); ++index)
+        if (!scene.unit_detail[index].eligible)
+            positions =
+                std::min(maximum_vertices, positions + body_position_allowance(scene, index, 0));
+    std::vector<std::size_t> near;
+    for (std::size_t index = 0; index < scene.unit_detail.size(); ++index) {
+        auto& detail = scene.unit_detail[index];
+        if (!detail.eligible) {
+            surface += detail.surface;
+            shadow += detail.shadow;
+            continue;
+        }
+        detail.body_lod = 0;
+        if (detail.distance_marker) {
+            detail.marker = true;
+            surface += 6;
+        } else {
+            near.push_back(index);
+            if (detail.body_available) {
+                detail.marker = false;
+                detail.body_lod = 1;
+                surface += detail.body_low_surface;
+                shadow += detail.body_low_shadow;
+                positions += body_position_allowance(scene, index, 1);
+            } else {
+                detail.marker = true;
+                detail.budget_marker = true;
+                surface += 6;
+            }
+        }
+        const auto* unit = in.draws->models[index].model.unit;
+        if (unit && unit->id < scene.body_detail_history.size())
+            scene.body_detail_history[unit->id] = detail.distance_marker ? 0
+                                                  : detail.desired_body_lod == 0
+                                                      ? 3
+                                                      : detail.desired_body_lod;
+    }
+    std::sort(near.begin(), near.end(), [&](std::size_t a, std::size_t b) {
+        const auto& left = scene.unit_detail[a];
+        const auto& right = scene.unit_detail[b];
+        return left.pixels != right.pixels
+                   ? left.pixels > right.pixels
+                   : in.draws->models[a].model.unit->id < in.draws->models[b].model.unit->id;
+    });
+    // Exceptional models may still exceed a frame's physical minimum. Give
+    // room back from the farthest hulls first; every such marker is reported.
+    for (auto at = near.rbegin();
+         at != near.rend() &&
+         (surface > maximum_vertices || shadow > maximum_vertices || positions > maximum_vertices);
+         ++at) {
+        auto& detail = scene.unit_detail[*at];
+        if (detail.body_lod == 0)
+            continue;
+        surface -= detail.body_low_surface;
+        surface += 6;
+        shadow -= detail.body_low_shadow;
+        positions -= body_position_allowance(scene, *at, 1);
+        detail.body_lod = 0;
+        detail.marker = detail.budget_marker = true;
+    }
+    if (surface > maximum_vertices || shadow > maximum_vertices)
+        throw GeometryFull();
+    for (const auto index : near) {
+        auto& detail = scene.unit_detail[index];
+        const auto held_surface = detail.marker          ? std::size_t{6}
+                                  : detail.body_lod == 1 ? detail.body_low_surface
+                                                         : detail.surface;
+        const auto held_shadow = detail.marker          ? std::size_t{}
+                                 : detail.body_lod == 1 ? detail.body_low_shadow
+                                                        : detail.shadow;
+        const auto held_positions =
+            detail.marker ? std::size_t{} : body_position_allowance(scene, index, detail.body_lod);
+        const auto wanted = detail.body_available ? detail.desired_body_lod : uint8_t{};
+        const auto wanted_positions = body_position_allowance(scene, index, wanted);
+        const auto wanted_surface = wanted == 1   ? detail.body_low_surface
+                                    : wanted == 2 ? detail.body_medium_surface
+                                                  : detail.surface;
+        const auto wanted_shadow = wanted == 1   ? detail.body_low_shadow
+                                   : wanted == 2 ? detail.body_medium_shadow
+                                                 : detail.shadow;
+        const auto surface_without = surface - held_surface;
+        const auto shadow_without = shadow - held_shadow;
+        const auto positions_without = positions - held_positions;
+        if (wanted_surface <= maximum_vertices - surface_without &&
+            wanted_shadow <= maximum_vertices - shadow_without &&
+            wanted_positions <= maximum_vertices - positions_without) {
+            surface = surface_without + wanted_surface;
+            shadow = shadow_without + wanted_shadow;
+            positions = positions_without + wanted_positions;
+            detail.body_lod = wanted;
+            detail.marker = detail.budget_marker = false;
+        }
+    }
+}
+
 /// Reserves every marker first, then keeps the largest full models that
 /// fit both the remaining surface allowance and the shadow index limit.
 /// Unit ID breaks equal-size ties independently of planning order.
 void budget_unit_detail(const Inputs& in, Scene& scene, std::size_t rest) {
+    if (in.body_lod_enabled) {
+        budget_physical_bodies(in, scene, rest);
+        return;
+    }
     std::size_t surface = rest, shadow{};
     std::vector<std::size_t> near;
     for (std::size_t index = 0; index < scene.unit_detail.size(); ++index) {
@@ -5572,6 +5965,7 @@ void budget_unit_detail(const Inputs& in, Scene& scene, std::size_t rest) {
             if (!detail.marker)
                 near.push_back(index);
             detail.marker = true;
+            detail.budget_marker = !detail.distance_marker;
         }
     }
     std::sort(near.begin(), near.end(), [&](std::size_t a, std::size_t b) {
@@ -5588,6 +5982,7 @@ void budget_unit_detail(const Inputs& in, Scene& scene, std::size_t rest) {
         const auto extra = detail.surface > 6 ? detail.surface - 6 : 0;
         if (extra <= maximum_vertices - surface && detail.shadow <= maximum_vertices - shadow) {
             detail.marker = false;
+            detail.budget_marker = false;
             surface += extra;
             shadow += detail.shadow;
         }
@@ -5893,7 +6288,8 @@ void cast_on_card(
     Pass& pass,
     const ModelDraw& draw,
     const DrawShadow& shadow,
-    uint32_t type_index
+    uint32_t type_index,
+    uint64_t piece_mask = std::numeric_limits<uint64_t>::max()
 ) {
     auto& cards = pass.list.cards;
     if (cards.cast_depths >= most_cast_depths)
@@ -5962,6 +6358,9 @@ void cast_on_card(
         const uint32_t named = (cast - run.first_instance) << renderer_live_gpu::model_corner_bits;
         const std::size_t first_index = cards.cast_indices.size();
         for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+            if (type.body_detail &&
+                (piece >= body_lod_piece_limit || (piece_mask & (uint64_t{1} << piece)) == 0))
+                continue;
             const uint16_t flags = pieces[piece].flags;
             const bool cached =
                 (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0;
@@ -5998,11 +6397,23 @@ void cast_on_card(
 void find_card_types(const Inputs& in, CardTypes& types) {
     const auto& models = in.draws->models;
     types.draw_types.assign(in.models_on_card ? models.size() : 0, -1);
+    const auto physical = in.models_on_card && in.body_lod_enabled ? models.size() : 0;
+    types.body_draw_types_low.assign(physical, -1);
+    types.body_draw_types_medium.assign(physical, -1);
     for (std::size_t index = 0; index < types.draw_types.size(); ++index) {
         const auto& reference = models[index].model;
         if ((models[index].plan.linked.drawn || models[index].preplan_omitted) &&
             reference.instance != nullptr && reference.prepared != nullptr)
             types.draw_types[index] = card_type(types, *reference.instance, *reference.prepared);
+        if (index < physical && models[index].plan.linked.drawn && reference.instance != nullptr &&
+            reference.prepared != nullptr &&
+            reference.instance->pieces().size() <= body_lod_piece_limit) {
+            types.body_draw_types_low[index] =
+                card_type(types, *reference.instance, *reference.prepared, body_lod::Quality::low);
+            types.body_draw_types_medium[index] = card_type(
+                types, *reference.instance, *reference.prepared, body_lod::Quality::medium
+            );
+        }
     }
 }
 
@@ -6165,7 +6576,8 @@ bool draw_on_card(
     std::span<const std::array<float, 3>> lights,
     std::vector<CardCorner>& corners,
     std::vector<std::array<float, 3>>& points,
-    CardVertexCache& vertices
+    CardVertexCache& vertices,
+    uint64_t piece_mask = std::numeric_limits<uint64_t>::max()
 ) {
     auto& cards = pass.list.cards;
     const auto& reference = draw.model;
@@ -6234,6 +6646,9 @@ bool draw_on_card(
     };
     bool bounded = true;
     for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        if (type.body_detail &&
+            (piece >= body_lod_piece_limit || (piece_mask & (uint64_t{1} << piece)) == 0))
+            continue;
         if ((pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
             0)
             continue;
@@ -6250,7 +6665,11 @@ bool draw_on_card(
                 find_card_slot(in, pass, materials, type.slots[slot - table], slot, team);
             if (cards.slot_states[slot] != 1)
                 continue;
-            const auto& indices = object.primitives[polygon.primitive].vertex_indices;
+            const std::span<const uint16_t> indices =
+                polygon.body_lod ? std::span<const uint16_t>{polygon.body_vertices}
+                                 : std::span<const uint16_t>{
+                                       object.primitives[polygon.primitive].vertex_indices
+                                   };
             corners.clear();
             for (const uint16_t index : indices)
                 corners.push_back(vertices.world(first_point + index, positions, origin));
@@ -6289,6 +6708,7 @@ bool draw_on_card(
     drawn.type = type_index;
     drawn.first_index = first_index;
     drawn.index_count = index_count;
+    drawn.body_lod = type.body_detail.has_value() && index_count != 0;
     if (index_count != 0) {
         drawn.left = bounds[0];
         drawn.top = bounds[1];
@@ -6337,6 +6757,7 @@ void strategic_marker(
         z
     };
     detail.brightness = brightness_at(in.sight, x, fog_z);
+    UnitEmission emitted(pass, unit->id, true);
     unit_marker(in, pass, detail, *unit, white_material, white_palette, true);
     return;
 }
@@ -6439,8 +6860,16 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             unit = &in.draws->stand_ins[static_cast<std::size_t>(draw.stand_in)];
         if (unit == nullptr || reference.instance == nullptr || reference.prepared == nullptr)
             continue;
-        if (draw_index < pass.scene.unit_detail.size() &&
-            pass.scene.unit_detail[draw_index].marker) {
+        const auto* detail = draw_index < pass.scene.unit_detail.size()
+                                 ? &pass.scene.unit_detail[draw_index]
+                                 : nullptr;
+        UnitEmission emitted(
+            pass,
+            draw.on_map || draw.stand_in >= 0 ? uint16_t{} : unit->id,
+            detail && detail->marker,
+            detail && detail->budget_marker
+        );
+        if (detail && detail->marker) {
             unit_marker(
                 in, pass, pass.scene.unit_detail[draw_index], *unit, white_material, white_palette
             );
@@ -6449,14 +6878,27 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
         // Its type on the card, and the shadow the card casts from it, on
         // screen or not.
         const auto& draw_types = pass.scene.card_types.draw_types;
-        const int32_t card_type_index =
+        int32_t card_type_index =
             in.models_on_card && draw_index < draw_types.size() ? draw_types[draw_index] : -1;
+        uint64_t body_piece_mask = std::numeric_limits<uint64_t>::max();
+        if (detail && detail->body_lod != 0) {
+            const auto& choices = detail->body_lod == 1
+                                      ? pass.scene.card_types.body_draw_types_low
+                                      : pass.scene.card_types.body_draw_types_medium;
+            if (draw_index < choices.size() && choices[draw_index] >= 0) {
+                card_type_index = choices[draw_index];
+                body_piece_mask = detail->body_lod == 1 ? detail->body_piece_mask
+                                                        : detail->body_medium_piece_mask;
+            }
+        }
         if (card_type_index >= 0) {
             const auto shadow = shadow_of_draw(in, draw);
             const bool outside = draw_index < pass.scene.unit_detail.size() &&
                                  pass.scene.unit_detail[draw_index].shadow_outside;
             if (!outside && shadow_on_card(in, pass.scene, draw_index, shadow))
-                cast_on_card(in, pass, draw, shadow, static_cast<uint32_t>(card_type_index));
+                cast_on_card(
+                    in, pass, draw, shadow, static_cast<uint32_t>(card_type_index), body_piece_mask
+                );
         }
         // A cloaked unit, or every unit under the debug overlay, is blended
         // at half its opacity, as the classic view blends its picture.
@@ -6574,7 +7016,8 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     nanolathe_lights,
                     card_corners,
                     card_points,
-                    card_vertices
+                    card_vertices,
+                    body_piece_mask
                 )) {
                 ++list.drawn;
                 continue;
@@ -8437,6 +8880,7 @@ void clear_list(PassList& list, std::size_t end) {
     list.peak = 0;
     list.drawn = 0;
     list.nano_particles = 0;
+    list.body_lod_counts = {};
     list.stopped = end;
     list.draw_vertices = 0;
     list.draw_translucent = 0;
@@ -8907,7 +9351,10 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
         if (!in.draws->models[index].plan.linked.drawn)
             return uint64_t{0};
         const auto& detail = scene.unit_detail[index];
-        return uint64_t{1} + detail.surface + detail.shadow;
+        return uint64_t{1} +
+               (detail.body_lod == 1   ? detail.body_low_surface + detail.body_low_shadow
+                : detail.body_lod == 2 ? detail.body_medium_surface + detail.body_medium_shadow
+                                       : detail.surface + detail.shadow);
     };
     for (std::size_t index = 0; index <= in.draws->models.size(); ++index) {
         if (index != in.draws->models.size() && parallel_model_candidate(in, scene, index)) {
@@ -9036,6 +9483,7 @@ bool models_with_parallel_range(
             }
             pass.list.drawn += from.drawn;
             pass.list.nano_particles += from.nano_particles;
+            add_body_counts(pass.list.body_lod_counts, from.body_lod_counts);
             (void)listing(pass, 0);
         }
         models(in, pass, range.ends[range.bands], end);
@@ -9712,6 +10160,9 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     join(passes.particles.vertices);
     scene.shadow_count = shadows + scene.cards.cast_depths;
     scene.model_count = passes.models.drawn + markers_drawn;
+    scene.body_lod_counts = passes.models.body_lod_counts;
+    for (const auto& band : passes.marker_bands)
+        add_body_counts(scene.body_lod_counts, band.body_lod_counts);
     scene.sprite_count = ground_cards + standing_cards;
     scene.particle_count = passes.particles.drawn;
     scene.nano_particle_count = passes.particles.nano_particles;
@@ -9884,6 +10335,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             clear_cards(scene.cards);
             scene.shadow_count = 0;
             scene.model_count = 0;
+            scene.body_lod_counts = {};
             scene.sprite_count = 0;
             scene.particle_count = 0;
             scene.nano_particle_count = 0;
@@ -10092,6 +10544,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         scene.shadow_count = 0;
         scene.terrain_vertex_count = 0;
         scene.model_count = 0;
+        scene.body_lod_counts = {};
         scene.sprite_count = 0;
         scene.particle_count = 0;
         scene.nano_particle_count = 0;
