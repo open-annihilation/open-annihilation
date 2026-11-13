@@ -301,6 +301,12 @@ void check_zero_pair_rotation() {
             static_cast<int16_t>(0U - step * 257U)
         };
         const Instance expected = scalar_old_rebuild(instance, root);
+        Instance checked = instance;
+        checked.rebuild_transforms(root, true);
+        require(
+            same_transforms(checked, expected),
+            "a checked integer rebuild differs from the scalar hierarchy walk"
+        );
         instance.rebuild_transforms(root);
         require(
             same_transforms(instance, expected),
@@ -678,7 +684,13 @@ void check_kept_transforms() {
         default: // nothing changes
             break;
         }
+        Instance checked = instance;
+        checked.rebuild_transforms(root, true);
         instance.rebuild_transforms(root);
+        require(
+            same_state(checked, instance),
+            "checked integer rotations changed transforms or rebuild bookkeeping"
+        );
         require(
             same_transforms(instance, rebuilt_afresh(model, names, instance, root)),
             "a rebuild after a change differs from a full rebuild"

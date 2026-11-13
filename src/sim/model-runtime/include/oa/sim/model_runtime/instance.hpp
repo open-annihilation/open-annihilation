@@ -176,6 +176,17 @@ class Instance {
     /// @quirk Root-level siblings of the root piece are reset but not transformed, as in 3.1c.
     void rebuild_transforms(RotationWords root_rotation = {});
 
+    /// Rebuilds the same transforms, with checked integer rotation estimates.
+    ///
+    /// When checked_integer_rotation is true, an estimate may settle a
+    /// coordinate only when it proves the same rounded integer as the ordinary
+    /// extended products. Unsupported rounding settings keep those products.
+    /// All pieces, markers and remembered poses follow rebuild_transforms.
+    ///
+    /// @param root_rotation angle words added to the root piece's rotation
+    /// @param checked_integer_rotation permits proved integer estimates
+    void rebuild_transforms(RotationWords root_rotation, bool checked_integer_rotation);
+
     /// Reuses another instance's completed transforms for the same model and pose.
     ///
     /// The source must have completed a rebuild under the same floating-point

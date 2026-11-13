@@ -86,6 +86,48 @@ struct RotatedPair {
 /// @param angle angle word, 65536 per turn
 /// @return first * cos - second * sin and first * sin + second * cos
 [[nodiscard]] RotatedPair rotate_pair(int32_t first, int32_t second, int16_t angle) noexcept;
+
+/// Coefficients for rounding rotated integer coordinates.
+///
+/// Keep this value unchanged after prepare_integer_rotation returns it, and
+/// use it before changing the calling thread's floating-point rounding mode.
+struct PreparedIntegerRotation {
+    int16_t angle{};         ///< angle word, 65536 per turn
+    double sine{};           ///< sine rounded to a double
+    double cosine{1.0};      ///< cosine rounded to a double
+    bool estimate_allowed{}; ///< double estimates may settle integer rounding
+};
+
+/// A rotated pair after rounding each coordinate to a signed 64-bit integer.
+struct IntegerPair {
+    int64_t first{};
+    int64_t second{};
+};
+
+/// Prepares an angle for repeated integer rotations on the calling thread.
+///
+/// Estimates are used only with nearest rounding and binary64 operations.
+/// Other floating-point settings keep the ordinary extended products.
+///
+/// @param angle angle word, 65536 per turn
+/// @return coefficients kept unchanged until all their rotations finish
+[[nodiscard]] PreparedIntegerRotation prepare_integer_rotation(int16_t angle) noexcept;
+
+/// Rotates a pair and rounds its coordinates as rotate_pair followed by llrint.
+///
+/// A double estimate settles a coordinate only when its entire error interval
+/// falls strictly inside one integer's nearest-rounding interval. Otherwise
+/// the ordinary extended products decide both coordinates. This preserves the
+/// integer results; floating-point exception flags are not preserved.
+///
+/// @param first first coordinate
+/// @param second second coordinate
+/// @param rotation unchanged result of prepare_integer_rotation, under the
+///     same floating-point rounding mode
+/// @return each rotated coordinate rounded using the current rounding mode
+[[nodiscard]] IntegerPair rotate_pair_rounded(
+    int32_t first, int32_t second, const PreparedIntegerRotation& rotation
+) noexcept;
 /// Returns the length of the planar vector (x, z), truncated.
 ///
 /// @param x east-west component

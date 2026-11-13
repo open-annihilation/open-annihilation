@@ -279,6 +279,51 @@ void place_in_parent(
     );
 }
 
+/// The three prepared pair rotations, in the game's axis order.
+struct PreparedRotationWords {
+    base::game_math::PreparedIntegerRotation xy{};
+    base::game_math::PreparedIntegerRotation yz{};
+    base::game_math::PreparedIntegerRotation xz{};
+};
+
+/// Prepares the turns shared by every vertex of one ancestor transform.
+PreparedRotationWords prepare_rotation_words(RotationWords words) {
+    return {
+        base::game_math::prepare_integer_rotation(words.xy),
+        base::game_math::prepare_integer_rotation(words.yz),
+        base::game_math::prepare_integer_rotation(words.xz)
+    };
+}
+
+/// Rounds a prepared pair rotation and keeps each coordinate's low 32 bits.
+void rotate_pair(int32_t& a, int32_t& b, const base::game_math::PreparedIntegerRotation& rotation) {
+    if (rotation.angle == 0 || (a == 0 && b == 0))
+        return;
+    const auto rotated = base::game_math::rotate_pair_rounded(a, b, rotation);
+    a = low32(rotated.first);
+    b = low32(rotated.second);
+}
+
+/// Turns a point with proved integer estimates, then applies the same offsets.
+void place_in_parent(
+    oa::formats::objects3d::FixedVector3& point,
+    const PreparedRotationWords& turn,
+    const oa::formats::objects3d::Object& source,
+    const PieceState& state
+) {
+    rotate_pair(point.x, point.y, turn.xy);
+    rotate_pair(point.y, point.z, turn.yz);
+    rotate_pair(point.x, point.z, turn.xz);
+    point.x = low32(
+        static_cast<int64_t>(point.x) + negate(source.offset_from_parent.x) + state.translation.x
+    );
+    point.y =
+        low32(static_cast<int64_t>(point.y) + source.offset_from_parent.y + state.translation.y);
+    point.z = low32(
+        static_cast<int64_t>(point.z) + negate(source.offset_from_parent.z) + state.translation.z
+    );
+}
+
 // The turns piece_box holds for a piece and its nearest ancestors; a deeper
 // piece works out the turns of the levels past them for each vertex.
 constexpr std::size_t kHeldTurns = 8;
@@ -342,6 +387,10 @@ bool Instance::posed_as_built(uint32_t piece_index) const {
 }
 
 void Instance::rebuild_transforms(RotationWords root_rotation) {
+    rebuild_transforms(root_rotation, false);
+}
+
+void Instance::rebuild_transforms(RotationWords root_rotation, bool checked_integer_rotation) {
     // The transforms are a function of the root rotation and of the
     // translations and rotations from each piece up to the root alone, so a
     // piece whose inputs are those of the last rebuild keeps what it left. A
@@ -367,9 +416,16 @@ void Instance::rebuild_transforms(RotationWords root_rotation) {
             const auto& source = model_->objects[state.object_index];
             // Every point of the piece turns by the same words.
             const RotationWords turn = turning_words(current, root_rotation);
-            place_in_parent(piece.transformed_origin, turn, source, state);
-            for (auto& vertex : piece.transformed_vertices)
-                place_in_parent(vertex, turn, source, state);
+            if (checked_integer_rotation) {
+                const auto prepared = prepare_rotation_words(turn);
+                place_in_parent(piece.transformed_origin, prepared, source, state);
+                for (auto& vertex : piece.transformed_vertices)
+                    place_in_parent(vertex, prepared, source, state);
+            } else {
+                place_in_parent(piece.transformed_origin, turn, source, state);
+                for (auto& vertex : piece.transformed_vertices)
+                    place_in_parent(vertex, turn, source, state);
+            }
         }
     }
     for (auto& piece : pieces_) {

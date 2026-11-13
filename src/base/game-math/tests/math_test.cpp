@@ -2,10 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/base/game_math.hpp"
+#include <bit>
+#include <cfenv>
+#include <cfloat>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <source_location>
 #include <stdexcept>
+#include <string>
 
 namespace {
 
@@ -46,10 +52,198 @@ void truncation() {
         throw std::runtime_error("float truncation differs");
 }
 
+/// Reports a failed rotation check with its source location.
+void rotation_check(
+    bool passed,
+    const char* expression,
+    std::source_location location = std::source_location::current()
+) {
+    if (!passed)
+        throw std::runtime_error(
+            std::string{location.file_name()} + ":" + std::to_string(location.line()) + ": " +
+            expression
+        );
+}
+
+/// Restores the rounding mode when the rotation checks finish or fail.
+struct RestoreRoundingMode {
+    int mode{};
+
+    /// Restores the mode that was active before the checks.
+    ~RestoreRoundingMode() { std::fesetround(mode); }
+};
+
+/// Returns the next signed coordinate from a deterministic local bit stream.
+int32_t next_rotation_coordinate(uint32_t& bits) {
+    constexpr int first_left_shift = 13;
+    constexpr int right_shift = 17;
+    constexpr int second_left_shift = 5;
+    bits ^= bits << first_left_shift;
+    bits ^= bits >> right_shift;
+    bits ^= bits << second_left_shift;
+    return std::bit_cast<int32_t>(bits);
+}
+
+/// Rounds one estimate operation to a double.
+double stored_rotation_estimate(double value) {
+    volatile double stored = value;
+    return stored;
+}
+
+/// Checks whether a prepared estimate reaches a half-integer's error margin.
+bool rotation_estimate_near_half(
+    int32_t first, int32_t second, const oa::base::game_math::PreparedIntegerRotation& rotation
+) {
+    const double cosine_first =
+        stored_rotation_estimate(rotation.cosine * static_cast<double>(first));
+    const double sine_second =
+        stored_rotation_estimate(rotation.sine * static_cast<double>(second));
+    const double sine_first = stored_rotation_estimate(rotation.sine * static_cast<double>(first));
+    const double cosine_second =
+        stored_rotation_estimate(rotation.cosine * static_cast<double>(second));
+    const double estimated_first = stored_rotation_estimate(cosine_first - sine_second);
+    const double estimated_second = stored_rotation_estimate(sine_first + cosine_second);
+    constexpr double margin_scale = 0x1p-49;
+    const double margin = margin_scale * (std::fabs(static_cast<double>(first)) +
+                                          std::fabs(static_cast<double>(second)) + 1.0);
+    constexpr double half_integer = 0.5;
+    return std::fabs(estimated_first - static_cast<double>(std::llrint(estimated_first))) >=
+               half_integer - margin ||
+           std::fabs(estimated_second - static_cast<double>(std::llrint(estimated_second))) >=
+               half_integer - margin;
+}
+
+/// Checks integer rotation against the rounded double coordinates and current mode.
+oa::base::game_math::IntegerPair check_integer_rotation(
+    int32_t first,
+    int32_t second,
+    const oa::base::game_math::PreparedIntegerRotation& rotation,
+    int mode
+) {
+    const auto coordinates = oa::base::game_math::rotate_pair(first, second, rotation.angle);
+    const int64_t expected_first = std::llrint(coordinates.first);
+    const int64_t expected_second = std::llrint(coordinates.second);
+    const auto actual = oa::base::game_math::rotate_pair_rounded(first, second, rotation);
+    const bool equal = actual.first == expected_first && actual.second == expected_second;
+    if (!equal)
+        std::cerr << "angle " << rotation.angle << ", coordinates " << first << ", " << second
+                  << ", mode " << mode << ": expected " << expected_first << ", " << expected_second
+                  << ", got " << actual.first << ", " << actual.second << '\n';
+    rotation_check(equal, "rotate_pair_rounded equals rotate_pair followed by llrint");
+    rotation_check(std::fegetround() == mode, "integer rotation preserves the rounding mode");
+    return actual;
+}
+
+/// Checks every angle word, integer-coordinate edges and all four rounding modes.
+void integer_rotation() {
+    const int initial_mode = std::fegetround();
+    rotation_check(initial_mode != -1, "the initial rounding mode is available");
+    const RestoreRoundingMode restore{initial_mode};
+    constexpr int32_t minimum = std::numeric_limits<int32_t>::min();
+    constexpr int32_t maximum = std::numeric_limits<int32_t>::max();
+    // Equal coordinates at angle 8192 put one result within the error margin
+    // of 384199200.5; the sign variants exercise both rotated coordinates.
+    constexpr int32_t near_half_coordinate = 271669860;
+    constexpr int32_t coordinate_pairs[][2]{
+        {0, 0},
+        {1, 0},
+        {0, -1},
+        {1, 1},
+        {1, -1},
+        {-1, 1},
+        {-1, -1},
+        {3, 4},
+        {-3, 4},
+        {65536, 0},
+        {0, -65536},
+        {65537, -65535},
+        {16777217, -16777217},
+        {123456789, -987654321},
+        {minimum, 0},
+        {0, minimum},
+        {maximum, 0},
+        {0, maximum},
+        {minimum, minimum},
+        {maximum, maximum},
+        {minimum, maximum},
+        {maximum, minimum},
+        {minimum, 1},
+        {1, maximum},
+        {maximum, -1},
+        {-1, minimum},
+        {near_half_coordinate, near_half_coordinate},
+        {near_half_coordinate, -near_half_coordinate},
+        {-near_half_coordinate, near_half_coordinate},
+        {-near_half_coordinate, -near_half_coordinate}
+    };
+    uint64_t prepared_estimates{};
+    uint64_t near_half_estimates{};
+    uint64_t wide_results{};
+    constexpr int additional_pairs_per_angle = 2;
+    for (const int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+        rotation_check(std::fesetround(mode) == 0, "each rounding mode can be selected");
+        uint32_t coordinate_bits = 0x91e10da5U;
+        for (int32_t word = std::numeric_limits<int16_t>::min();
+             word <= std::numeric_limits<int16_t>::max();
+             ++word) {
+            const auto angle = static_cast<int16_t>(word);
+            const auto rotation = oa::base::game_math::prepare_integer_rotation(angle);
+            const auto saved_rotation = rotation;
+            rotation_check(rotation.angle == angle, "the prepared angle is unchanged");
+            rotation_check(
+                rotation.estimate_allowed ==
+                    (angle != 0 && FLT_EVAL_METHOD == 0 && mode == FE_TONEAREST),
+                "nonzero angles allow estimates only with binary64 evaluation and nearest rounding"
+            );
+            rotation_check(std::fegetround() == mode, "preparation preserves the rounding mode");
+            if (rotation.estimate_allowed)
+                ++prepared_estimates;
+            const auto check_pair = [&](int32_t first, int32_t second) {
+                const auto actual = check_integer_rotation(first, second, rotation, mode);
+                if (actual.first < minimum || actual.first > maximum || actual.second < minimum ||
+                    actual.second > maximum)
+                    ++wide_results;
+                if (rotation.estimate_allowed &&
+                    rotation_estimate_near_half(first, second, rotation))
+                    ++near_half_estimates;
+            };
+            for (const auto& pair : coordinate_pairs)
+                check_pair(pair[0], pair[1]);
+            for (int pair = 0; pair < additional_pairs_per_angle; ++pair) {
+                const auto first = next_rotation_coordinate(coordinate_bits);
+                const auto second = next_rotation_coordinate(coordinate_bits);
+                check_pair(first, second);
+            }
+            rotation_check(
+                rotation.angle == saved_rotation.angle &&
+                    std::bit_cast<uint64_t>(rotation.sine) ==
+                        std::bit_cast<uint64_t>(saved_rotation.sine) &&
+                    std::bit_cast<uint64_t>(rotation.cosine) ==
+                        std::bit_cast<uint64_t>(saved_rotation.cosine) &&
+                    rotation.estimate_allowed == saved_rotation.estimate_allowed,
+                "rotation calls preserve every prepared coefficient"
+            );
+        }
+    }
+    if (FLT_EVAL_METHOD == 0) {
+        constexpr uint64_t nonzero_angle_word_count = 65535;
+        rotation_check(
+            prepared_estimates == nonzero_angle_word_count,
+            "all nonzero angle words allow estimates"
+        );
+        rotation_check(near_half_estimates != 0, "near-half estimates exercise extended products");
+    } else {
+        rotation_check(prepared_estimates == 0, "wider evaluation keeps extended products");
+    }
+    rotation_check(wide_results != 0, "rotated coordinates retain values outside 32 bits");
+    rotation_check(std::fesetround(initial_mode) == 0, "the initial rounding mode is restored");
+}
+
 } // namespace
 
 int main() {
     truncation();
+    integer_rotation();
     uint32_t rng_state = 1;
     if (oa::base::game_math::random_bounded(rng_state, 100) != 7 || rng_state != 16807)
         throw std::runtime_error("random first state and draw");

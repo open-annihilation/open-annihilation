@@ -5,6 +5,8 @@
 
 #include <array>
 #include <bit>
+#include <cfenv>
+#include <cfloat>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -134,6 +136,45 @@ RotatedPair rotate_pair(int32_t first, int32_t second, int16_t angle) noexcept {
         rounded(product(cosine_value, first) - product(sine_value, second)),
         rounded(product(sine_value, first) + product(cosine_value, second))
     };
+}
+
+PreparedIntegerRotation prepare_integer_rotation(int16_t angle) noexcept {
+    if (angle == 0)
+        return {};
+    const auto coefficients = angle_word_sine_cosine(angle);
+    return {
+        angle,
+        to_double(coefficients.sine),
+        to_double(coefficients.cosine),
+        FLT_EVAL_METHOD == 0 && std::fegetround() == FE_TONEAREST
+    };
+}
+
+IntegerPair rotate_pair_rounded(
+    int32_t first, int32_t second, const PreparedIntegerRotation& rotation
+) noexcept {
+    if (rotation.estimate_allowed) {
+        const double cosine_first = rounded(rotation.cosine * static_cast<double>(first));
+        const double sine_second = rounded(rotation.sine * static_cast<double>(second));
+        const double sine_first = rounded(rotation.sine * static_cast<double>(first));
+        const double cosine_second = rounded(rotation.cosine * static_cast<double>(second));
+        const double x = rounded(cosine_first - sine_second);
+        const double y = rounded(sine_first + cosine_second);
+        const int64_t nearest_x = std::llrint(x), nearest_y = std::llrint(y);
+        // Coefficient conversion, both product roundings and both sum
+        // roundings differ by at most 5 * 2^-52 * (|first| + |second|).
+        // This wider margin and its subtraction from a half are exact.
+        constexpr double rounding_margin_scale = 0x1p-49;
+        constexpr double half_integer = 0.5;
+        const double margin =
+            rounding_margin_scale *
+            (std::fabs(static_cast<double>(first)) + std::fabs(static_cast<double>(second)) + 1.0);
+        if (std::fabs(x - static_cast<double>(nearest_x)) < half_integer - margin &&
+            std::fabs(y - static_cast<double>(nearest_y)) < half_integer - margin)
+            return {nearest_x, nearest_y};
+    }
+    const auto exact = rotate_pair(first, second, rotation.angle);
+    return {std::llrint(exact.first), std::llrint(exact.second)};
 }
 
 double planar_length(int32_t x, int32_t z) noexcept {

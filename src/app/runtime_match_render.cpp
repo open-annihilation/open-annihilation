@@ -597,6 +597,8 @@ struct UnitPlanFrame {
     const PreplanningVisibility* preplanning{};
     const full::SightView* preplanning_sight{};
     uint16_t probe_unit{};
+    /// Enhanced Mode permits proved integer estimates during model rebuilds.
+    bool checked_integer_rotation{};
 };
 
 /// Prepares immutable object boxes once on the caller thread, before workers.
@@ -873,7 +875,9 @@ void plan_unit_model(
         );
         if (shown.state->transforms_dirty || shown.instance->transforms_dirty()) {
             if (!transforms->reuse(*shown.instance, shown.state->shift)) {
-                shown.instance->rebuild_transforms(shown.state->shift);
+                shown.instance->rebuild_transforms(
+                    shown.state->shift, frame.checked_integer_rotation
+                );
                 transforms->remember(*shown.instance, shown.state->shift);
             }
             shown.state->transforms_dirty = false;
@@ -2271,7 +2275,8 @@ bool Runtime::draw_match_surface() {
         world_record.game.sea_level,
         &models.preplanning_visibility,
         &preplanning_sight,
-        frame_draws_.probe_unit
+        frame_draws_.probe_unit,
+        match_->rules().setup.enhanced_mode.enabled
     };
     if (live_world && dots)
         for (auto& cache : models.transform_caches)
