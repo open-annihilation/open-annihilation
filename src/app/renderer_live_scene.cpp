@@ -4,6 +4,8 @@
 #include "renderer_live_scene.hpp"
 #include "bench_timers.hpp"
 #include "renderer_live_camera.hpp"
+#include "renderer_live_frame.hpp"
+#include "renderer_live_sight.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
@@ -35,6 +37,8 @@
 namespace oa::app::renderer_live_scene {
 namespace {
 using renderer_live_gpu::Vertex;
+using renderer_live_sight::Fog;
+using renderer_live_sight::fog_at;
 namespace model = present::model;
 constexpr uint32_t channels = 4;
 constexpr int32_t cell_edge = formats::tnt::layout::attribute_cell_pixels;
@@ -126,34 +130,6 @@ class GeometryFull : public OutOfRoom {
 
     GeometryFull() : OutOfRoom("experimental scene exceeds its geometry budget") {}
 };
-
-/// Separates undiscovered ground from mapped ground outside current sight.
-enum class Fog : uint8_t { seen, grey, black };
-
-/// Reads mapping before line of sight, so unexplored cells stay black.
-Fog fog_at(const full::SightView& sight, int32_t x, int32_t z) {
-    if (!sight.mapping && !sight.line_of_sight)
-        return Fog::seen;
-    constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
-    const int32_t column = x / fog_edge;
-    const int32_t row = z / fog_edge;
-    if (x < 0 || z < 0 || column >= sight.width || row >= sight.height)
-        return sight.mapping ? Fog::black : Fog::seen;
-    const std::size_t index = static_cast<std::size_t>(row) * sight.width + column;
-    if (sight.mapping &&
-        (index >= sight.player_bits.size() || (sight.player_bits[index] & sight.mapped_bits) == 0))
-        return Fog::black;
-    const present::world_renderer::FogOptions options{
-        sight.line_of_sight, sight.mapping, sight.shared_bits
-    };
-    const bool visible = present::world_renderer::cell_shown_in_sight(
-        index < sight.coverage.size() ? sight.coverage[index] : uint16_t{0},
-        index < sight.player_bits.size() ? sight.player_bits[index] : uint16_t{0},
-        static_cast<uint16_t>(sight.mapped_bits & ~sight.shared_bits),
-        options
-    );
-    return present::world_renderer::view_greys(options) && !visible ? Fog::grey : Fog::seen;
-}
 
 /// What the fog shows of each sight cell, as fog_at reads it, held for a
 /// frame's ground: every point of it reads a dozen cells.
@@ -6023,9 +5999,41 @@ void find_card_types(const Inputs& in, CardTypes& types) {
     types.draw_types.assign(in.models_on_card ? models.size() : 0, -1);
     for (std::size_t index = 0; index < types.draw_types.size(); ++index) {
         const auto& reference = models[index].model;
-        if (models[index].plan.linked.drawn && reference.instance != nullptr &&
-            reference.prepared != nullptr)
+        if ((models[index].plan.linked.drawn || models[index].preplan_omitted) &&
+            reference.instance != nullptr && reference.prepared != nullptr)
             types.draw_types[index] = card_type(types, *reference.instance, *reference.prepared);
+    }
+}
+
+/// Rechecks an omitted plan's producer before any policy can bypass validation.
+/// Tagged records retain their references and original indices but no geometry.
+/// @param in the frame's current policy and sight
+/// @param types the types freshly found after registry trimming
+void verify_preplanned_omissions(const Inputs& in, const CardTypes& types) {
+    const auto& draws = in.draws->models;
+    for (std::size_t index = 0; index < draws.size(); ++index) {
+        const auto& draw = draws[index];
+        if (!draw.preplan_omitted)
+            continue;
+        if (!in.geometry_shadows_in_view || !in.geometry_shadow_metadata || !in.models_on_card ||
+            draw.plan.linked.drawn || draw.plan.level != model::UnitSupersampling::off ||
+            !draw.plan.model.carried.empty() || !draw.shown_vertices.empty() ||
+            !draw.shown_position ||
+            draws.size() >= std::min<std::size_t>(
+                                most_cast_depths, renderer_live_gpu::largest_model_instance_count
+                            ) ||
+            index >= types.draw_types.size() || types.draw_types[index] < 0 ||
+            !geometry_shadow_metadata_candidate(draw, in.sea_level) || in.translucent_units ||
+            (draw.model.unit->state_flags & model::unit_state_cloaked) != 0 ||
+            (draw.model.unit->flags & OA_UNIT_FLAG_SELECTED) != 0)
+            throw std::runtime_error("3D preplanned model needs its ordinary plan");
+        const auto position = *draw.shown_position;
+        const float x = position.x / fixed_scale;
+        const float h = position.y / fixed_scale;
+        const float z = position.z / fixed_scale;
+        if (fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(z - h * height_lift)) !=
+            Fog::seen)
+            throw std::runtime_error("3D preplanned model needs its ordinary sight plan");
     }
 }
 
@@ -6039,6 +6047,8 @@ void verify_geometry_shadow_metadata(const Inputs& in, const CardTypes& types) {
     const auto& draws = in.draws->models;
     for (std::size_t index = 0; index < draws.size(); ++index) {
         const auto& draw = draws[index];
+        if (draw.preplan_omitted)
+            continue;
         if (draw.model.state == nullptr || !draw.model.state->deferred_image)
             continue;
         const auto& image = *draw.model.state->deferred_image;
@@ -6056,18 +6066,7 @@ void verify_geometry_shadow_metadata(const Inputs& in, const CardTypes& types) {
 /// @param in the frame
 /// @return the map
 renderer_live_gpu::ShadowMap shadow_map_for(const Inputs& in) {
-    constexpr uint32_t widest = renderer_live_gpu::largest_edge;
-    constexpr float coarsest = 8;
-    renderer_live_gpu::ShadowMap map;
-    map.left = static_cast<float>(in.left);
-    map.top = static_cast<float>(in.top);
-    const auto across = static_cast<float>(std::max(1, in.right - in.left));
-    const auto down = static_cast<float>(std::max(1, in.bottom - in.top));
-    while (map.scale < coarsest && (across / map.scale > widest || down / map.scale > widest))
-        map.scale *= 2;
-    map.width = std::min(widest, static_cast<uint32_t>(std::ceil(across / map.scale)));
-    map.height = std::min(widest, static_cast<uint32_t>(std::ceil(down / map.scale)));
-    return map;
+    return renderer_live_frame::shadow_map_for_crop(in.left, in.top, in.right, in.bottom);
 }
 
 /// One model vertex placed and projected lazily during a single draw.
@@ -8887,6 +8886,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const bool timing = bench_timers::timers.on;
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
+    verify_preplanned_omissions(in, scene.card_types);
     verify_geometry_shadow_metadata(in, scene.card_types);
     plan_unit_detail(in, scene);
     // The ordinary model pass packs a missing marker material in its

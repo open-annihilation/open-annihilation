@@ -41,6 +41,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -229,8 +230,9 @@ int Runtime::check_live_renderer() {
             require(match_timing_.tick == tick_before, "vertex comparison advanced simulation");
             ++borrowed_vertex_frames;
             for (const auto& draw : match_models().draws.models)
-                borrowed_vertex_models += draw.stand_in < 0 && draw.shown_position.has_value() &&
-                                          draw.shown_vertices.empty();
+                borrowed_vertex_models +=
+                    draw.stand_in < 0 && draw.plan.linked.drawn && !draw.preplan_omitted &&
+                    draw.shown_position.has_value() && draw.shown_vertices.empty();
         }
         return match_world_cpu_;
     };
@@ -3566,6 +3568,319 @@ int Runtime::check_live_renderer() {
             std::cout << "live renderer check: actual supported ground image deferred with exact "
                          "3D pixels, bounds and picks; lost producer repeated the frozen frame "
                          "with genuine classic pixels\n";
+        }
+        // A real walking rig must enter the caller's from-copies path before
+        // any frozen comparison. No record position, piece pose or tick is
+        // manufactured to make the visibility proof succeed.
+        {
+            start_ground_match();
+            enter_console_check_line("+nowisee");
+            constexpr int32_t fixed = 65536;
+            constexpr float preplan_pitch = -20;
+            const auto anchor = match_->world().record.units[selected_match_unit_].position;
+            clear_local_selection();
+            const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
+            oa::sim::unit_spawn::Request request;
+            request.player = match_local_player_;
+            request.type = oa::sim::unit_spawn::find_type_index(spawn_type_names_, "ARMPW");
+            request.finished = true;
+            request.state = kGroundOccupancyState;
+            request.position = {
+                static_cast<uint32_t>(anchor.x + 96 * fixed), 0, static_cast<uint32_t>(anchor.z)
+            };
+            const auto floor = terrain.height(
+                static_cast<int32_t>(request.position[0]), static_cast<int32_t>(request.position[2])
+            );
+            require(
+                request.type != 0 && floor >= terrain.sea_level(),
+                "the pre-planning fixture lacks a dry ARMPW spawn"
+            );
+            request.position[1] = static_cast<uint32_t>(floor * fixed);
+            auto* placed = match_->create(request);
+            require(placed && placed->unit, "the pre-planning ARMPW did not spawn");
+            placed->unit->object_present = true;
+            const auto walker = placed->unit_index;
+            const auto walker_id = placed->record.id;
+            require(match_->takes_move_order(walker), "the pre-planning unit cannot walk");
+            match_layout_ = lay_out_match(1280, 800);
+            match_zoom_ = match_zoom_target_ = 1;
+            require(
+                turn_live_camera(ground_check_yaw, preplan_pitch),
+                "the pre-planning camera did not turn"
+            );
+            center_camera_on_unit(walker);
+            auto& models = match_models();
+            auto& visibility = models.preplanning_visibility;
+            preplanning_visibility::FrameView cold_sentinel;
+            cold_sentinel.frame = 0x12345678;
+            cold_sentinel.width = 13;
+            cold_sentinel.height = 29;
+            const auto cold_expected = cold_sentinel;
+            const auto cold_tick = uint32_t{match_->simulation().tick};
+            const auto cold_random = match_->random_state();
+            require(
+                !prepare_preplanning_visibility_frame(cold_sentinel) &&
+                    cold_sentinel == cold_expected && match_->simulation().tick == cold_tick &&
+                    match_->random_state() == cold_random,
+                "cold pre-planning preparation changed its sentinel, simulation or RNG"
+            );
+            visibility.force_ordinary = true;
+            const auto find_walker = [&]() -> const ModelDraw* {
+                const auto found = std::find_if(
+                    models.draws.models.begin(), models.draws.models.end(), [&](const auto& draw) {
+                        return draw.model.unit && draw.model.unit->id == walker_id;
+                    }
+                );
+                return found == models.draws.models.end() ? nullptr : &*found;
+            };
+            const auto walker_visible = [&] {
+                const auto* draw = find_walker();
+                const auto bounds = live_unit_bounds(walker_id);
+                return draw && draw->plan.linked.drawn && !draw->preplan_omitted && bounds &&
+                       bounds->x2 > bounds->x1 && bounds->y2 > bounds->y1;
+            };
+            const auto walker_omitted = [&] {
+                const auto* draw = find_walker();
+                return draw && draw->preplan_omitted && !draw->plan.linked.drawn &&
+                       draw->shown_vertices.empty() && visibility.omitted_count != 0;
+            };
+            try {
+                bool walked_and_animated{};
+                constexpr std::array<std::array<int32_t, 2>, 4> directions{
+                    {{256, 0}, {0, 256}, {-256, 0}, {0, -256}}
+                };
+                const int32_t map_width = static_cast<int32_t>(selected_tnt_->attribute_width) * 16;
+                const int32_t map_height =
+                    static_cast<int32_t>(selected_tnt_->attribute_height) * 16;
+                for (const auto& direction : directions) {
+                    const auto here = match_->world().record.units[walker].position;
+                    const int32_t x = here.x / fixed + direction[0];
+                    const int32_t z = here.z / fixed + direction[1];
+                    if (x < 16 || z < 16 || x >= map_width - 16 || z >= map_height - 16)
+                        continue;
+                    const auto destination_floor = terrain.height(x * fixed, z * fixed);
+                    if (destination_floor < terrain.sea_level())
+                        continue;
+                    (void)match_->issue_ground_move(
+                        walker, {x * fixed, destination_floor * fixed, z * fixed}, false
+                    );
+                    for (unsigned tick = 0; tick < 120 && !walked_and_animated; ++tick) {
+                        const auto before = match_->world().record.units[walker].position;
+                        step_match_simulation();
+                        set_presentation_alpha(0.5F);
+                        render_match_surface();
+                        require(
+                            !match_->fault() && live_renderer_active() && !live_renderer_failed(),
+                            "the real pre-planning walk failed to simulate or render"
+                        );
+                        const auto after = match_->world().record.units[walker].position;
+                        const auto& motion = models.presentation.units[walker];
+                        walked_and_animated = (before.x != after.x || before.z != after.z) &&
+                                              motion.continued && motion.moved &&
+                                              motion.pieces_moved && motion.rig_valid &&
+                                              !motion.rig_primed;
+                    }
+                    if (walked_and_animated)
+                        break;
+                }
+                require(
+                    walked_and_animated,
+                    "the real ARMPW did not supply moving root and animated piece endpoints"
+                );
+                set_presentation_alpha(0.5F);
+                render_match_surface();
+                render_match_surface();
+                require(
+                    walker_visible() && live_models_on_card(),
+                    "the real walking GPU model did not warm on screen"
+                );
+                const auto centered = match_view_place();
+                std::array<double, 2> outside_view{};
+                bool naturally_omitted{};
+                constexpr std::array<std::array<double, 2>, 8> offsets{
+                    {{1.5, 0}, {-1.5, 0}, {0, 1.5}, {0, -1.5}, {2, 1}, {-2, 1}, {2, -1}, {-2, -1}}
+                };
+                const auto frozen_tick = uint32_t{match_->simulation().tick};
+                const auto frozen_presentation = match_timing_.tick;
+                const auto frozen_random = match_->random_state();
+                for (const auto& offset : offsets) {
+                    place_match_view(
+                        centered[0] + offset[0] * match_layout_.battlefield_width(),
+                        centered[1] + offset[1] * match_layout_.battlefield_height()
+                    );
+                    visibility.force_ordinary = true;
+                    for (unsigned warm = 0; warm < 4; ++warm)
+                        render_match_surface();
+                    visibility.force_ordinary = false;
+                    render_match_surface();
+                    if (walker_omitted()) {
+                        outside_view = match_view_place();
+                        naturally_omitted = true;
+                        break;
+                    }
+                }
+                require(
+                    naturally_omitted && visibility.view,
+                    "the actual caller did not omit the offscreen moving/animated ARMPW"
+                );
+                visibility.force_ordinary = true;
+                render_match_surface();
+                require(
+                    visibility.omitted_count == 0 && find_walker() &&
+                        find_walker()->plan.linked.drawn,
+                    "the ordinary pre-planning reference did not plan the real walker"
+                );
+                const auto ordinary = match_world_cpu_;
+                const auto ordinary_picks = bounds_and_picks();
+                visibility.force_ordinary = false;
+                render_match_surface();
+                require(
+                    walker_omitted() && match_world_cpu_.rgb == ordinary.rgb &&
+                        bounds_and_picks() == ordinary_picks && !live_renderer_failed(),
+                    "natural pre-planning omission changed frozen pixels, bounds or picks"
+                );
+                require(
+                    match_->simulation().tick == frozen_tick &&
+                        match_timing_.tick == frozen_presentation &&
+                        match_->random_state() == frozen_random,
+                    "pre-planning frozen comparisons changed simulation, presentation or RNG"
+                );
+                // A HELD RENDERER INPUT control changes the camera only
+                // after the natural caller produced tagged omissions. The
+                // late consumer must reject that exact stale frame contract.
+                UnitPose mismatch_before, mismatch_after;
+                capture_unit_pose(
+                    match_->world().record.units[walker],
+                    match_->runtime_state(walker).instance->model(),
+                    mismatch_before
+                );
+                const auto mismatch_flags = match_->world().record.units[walker].flags;
+                const auto mismatch_health = match_->world().record.units[walker].health;
+                require(
+                    turn_live_camera(ground_check_yaw + 7, preplan_pitch),
+                    "the held pre-planning camera did not change"
+                );
+                require(
+                    !render_live_match_surface() && !live_renderer_active() &&
+                        live_renderer_failed(),
+                    "a late camera mismatch accepted a held tagged model frame"
+                );
+                render_match_surface();
+                capture_unit_pose(
+                    match_->world().record.units[walker],
+                    match_->runtime_state(walker).instance->model(),
+                    mismatch_after
+                );
+                require(
+                    visibility.omitted_count == 0 &&
+                        std::none_of(
+                            models.draws.models.begin(),
+                            models.draws.models.end(),
+                            [](const auto& draw) { return draw.preplan_omitted; }
+                        ) &&
+                        !match_world_cpu_.rgb.empty() && match_->simulation().tick == frozen_tick &&
+                        match_timing_.tick == frozen_presentation &&
+                        match_->random_state() == frozen_random &&
+                        poses_equal(mismatch_before, mismatch_after) &&
+                        match_->world().record.units[walker].flags == mismatch_flags &&
+                        match_->world().record.units[walker].health == mismatch_health,
+                    "late camera mismatch did not finish an ordinary replan with unchanged state"
+                );
+                require(
+                    turn_live_camera(ground_check_yaw, preplan_pitch),
+                    "the natural pre-planning camera did not restore after mismatch"
+                );
+                center_camera_on_unit(walker);
+                render_match_surface();
+                require(
+                    walker_visible(),
+                    "camera ingress did not rebuild the omitted real animated geometry"
+                );
+                const auto ingress = match_world_cpu_;
+                const auto ingress_picks = bounds_and_picks();
+                visibility.force_ordinary = true;
+                render_match_surface();
+                require(
+                    match_world_cpu_.rgb == ingress.rgb && bounds_and_picks() == ingress_picks,
+                    "camera ingress differs from its ordinary frozen reference"
+                );
+                visibility.force_ordinary = false;
+                bool visible_animation{};
+                for (unsigned tick = 0; tick < 12 && !visible_animation; ++tick) {
+                    step_match_simulation();
+                    set_presentation_alpha(0.5F);
+                    render_match_surface();
+                    visible_animation = walker_visible() &&
+                                        models.presentation.units[walker].pieces_moved &&
+                                        match_world_cpu_.rgb != ingress.rgb;
+                }
+                require(
+                    visible_animation && !match_->fault(),
+                    "the reentered real walking model did not continue visibly animating"
+                );
+                place_match_view(outside_view[0], outside_view[1]);
+                render_match_surface();
+                require(walker_omitted(), "the real moving walker was not omitted again");
+                const auto fallback_tick = uint32_t{match_->simulation().tick};
+                const auto fallback_random = match_->random_state();
+                {
+                    // An explicitly synthetic HELD RENDERER INPUT control:
+                    // only actual caller-produced omissions may remain live.
+                    // Preserve every index; no World, pose or tick is changed.
+                    struct RestoreModels {
+                        std::vector<ModelDraw>& target;
+                        std::vector<ModelDraw> complete;
+
+                        ~RestoreModels() { target = std::move(complete); }
+                    } restore{models.draws.models, models.draws.models};
+
+                    for (auto& draw : models.draws.models)
+                        if (!draw.preplan_omitted)
+                            draw.plan.linked.drawn = false;
+                    require(
+                        std::all_of(
+                            models.draws.models.begin(),
+                            models.draws.models.end(),
+                            [](const auto& draw) { return !draw.plan.linked.drawn; }
+                        ),
+                        "the held omitted-only renderer control retained an active model"
+                    );
+                    set_live_models_on_card(false);
+                    require(
+                        !render_live_match_surface() && !live_renderer_active() &&
+                            live_renderer_failed(),
+                        "an omitted-only held frame lost its GPU without requesting replan"
+                    );
+                } // Restore the complete caller list before the classic replan.
+                render_match_surface();
+                require(
+                    visibility.omitted_count == 0 &&
+                        std::none_of(
+                            models.draws.models.begin(),
+                            models.draws.models.end(),
+                            [](const auto& draw) { return draw.preplan_omitted; }
+                        ) &&
+                        !match_world_cpu_.rgb.empty(),
+                    "classic fallback retained pre-planning omission tags"
+                );
+                require(
+                    match_->simulation().tick == fallback_tick &&
+                        match_->random_state() == fallback_random && !match_->fault(),
+                    "the omitted-frame classic replan changed simulation or RNG"
+                );
+            } catch (...) {
+                visibility.force_ordinary = false;
+                set_live_models_on_card(true);
+                set_presentation_alpha(1);
+                throw;
+            }
+            visibility.force_ordinary = false;
+            set_live_models_on_card(true);
+            set_presentation_alpha(1);
+            std::cout << "live renderer check: real walking/animated ARMPW naturally omitted "
+                         "with exact frozen pixels, bounds and picks; camera ingress animates; "
+                         "held camera mismatch and omitted-only producer loss request genuine "
+                         "classic replans\n";
         }
         leave_match();
     } catch (...) {

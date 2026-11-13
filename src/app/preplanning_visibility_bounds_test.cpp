@@ -322,7 +322,7 @@ void interpolated_raw_poses_use_the_existing_helpers() {
 
 /// Exact visible native vertices projected as the normal body and ordinary cast.
 struct NativeVisibility {
-    bool body_outside{}, shadow_outside{}, markers_outside{};
+    bool body_outside{}, shadow_outside{}, markers_outside{}, reservation_outside{};
 };
 
 NativeVisibility scan_native(
@@ -397,6 +397,24 @@ NativeVisibility scan_native(
         markers_outside &= sx + radius < 0 || sy + radius < 0 || sx - radius > view.width ||
                            sy - radius > view.height;
     }
+    // The existing detail pass reserves no body only after this native
+    // translation-first bbox/center/extent test. It is a separate obligation
+    // from exact polygon or billboard visibility.
+    bool reservation_outside = false;
+    std::array<float, 3> world_center{};
+    for (std::size_t axis = 0; axis < world_center.size(); ++axis)
+        world_center[axis] = (world_low[axis] + world_high[axis]) * 0.5F;
+    for (std::size_t row = 0; row < 2; ++row) {
+        float extent{}, center = p[row * 4 + 3], margin{};
+        for (std::size_t axis = 0; axis < world_low.size(); ++axis) {
+            extent += std::abs(p[row * 4 + axis]) * (world_high[axis] - world_low[axis]);
+            center += p[row * 4 + axis] * world_center[axis];
+            margin += std::abs(p[row * 4 + axis]);
+        }
+        const float edge = row == 0 ? view.width : view.height;
+        reservation_outside |=
+            center + extent * 0.5F + margin < 0 || center - extent * 0.5F - margin > edge;
+    }
     return {
         max_x + margin_x < 0 || min_x - margin_x > view.width || max_y + margin_y < 0 ||
             min_y - margin_y > view.height,
@@ -404,7 +422,8 @@ NativeVisibility scan_native(
             shadow_left > view.shadow_bounds[2] + shadow_margin ||
             shadow_bottom < view.shadow_bounds[1] - shadow_margin ||
             shadow_top > view.shadow_bounds[3] + shadow_margin,
-        markers_outside
+        markers_outside,
+        reservation_outside
     };
 }
 
@@ -431,6 +450,7 @@ struct FrameFixture {
         view.frame = 17;
         gate.enhanced = gate.local = gate.rig_resolved = gate.ground_resolved = true;
         gate.gpu_type_supported = gate.budget_safe = gate.native_geometry_resolved = true;
+        gate.fog_seen = true;
         gate.ordinary_model_path = true;
         gate.frame = view.frame;
         gate.owner_token = instance.owner_token();
@@ -481,7 +501,7 @@ void exact_native_body_and_shadow_oracle() {
                                 ++accepted;
                                 OA_CHECK(
                                     actual.body_outside && actual.shadow_outside &&
-                                    actual.markers_outside
+                                    actual.markers_outside && actual.reservation_outside
                                 );
                             }
                             if (!actual.body_outside || !actual.shadow_outside ||
@@ -550,7 +570,10 @@ void interpolated_native_projection_oracle() {
             scan_native(native, fixture.unit, fixture.view, fixture.gate.ground_height);
         if (result) {
             ++rejected;
-            OA_CHECK(actual.body_outside && actual.shadow_outside && actual.markers_outside);
+            OA_CHECK(
+                actual.body_outside && actual.shadow_outside && actual.markers_outside &&
+                actual.reservation_outside
+            );
         }
     }
     OA_CHECK(rejected != 0);
@@ -568,6 +591,7 @@ void unknown_policy_and_identity_keep_the_normal_path() {
           &proof::Eligibility::gpu_type_supported,
           &proof::Eligibility::budget_safe,
           &proof::Eligibility::native_geometry_resolved,
+          &proof::Eligibility::fog_seen,
           &proof::Eligibility::ordinary_model_path}) {
         fixture.gate = original;
         fixture.gate.*field = false;

@@ -262,6 +262,7 @@ struct FrameView {
     uint32_t width{}, height{};
     float shadow_scale{1};
     uint64_t frame{};
+    bool operator==(const FrameView&) const = default;
 };
 
 /// Caller facts required before a geometric rejection may be considered.
@@ -269,7 +270,7 @@ struct FrameView {
 struct Eligibility {
     bool enhanced{}, local{}, rig_resolved{}, ground_resolved{}, gpu_type_supported{};
     /// Existing cast-depth/instance limits and ordinary native geometry are proved.
-    bool budget_safe{}, native_geometry_resolved{};
+    bool budget_safe{}, native_geometry_resolved{}, fog_seen{};
     /// Ordinary model/adaptive detail, excluding global strategic dots.
     bool ordinary_model_path{};
     bool selected{}, debug{}, probe{}, reflection{}, complex{}, snapshot{}, vertex_override{};
@@ -294,9 +295,9 @@ struct Eligibility {
 ) {
     if (!gate.enhanced || !gate.local || !gate.rig_resolved || !gate.ground_resolved ||
         !gate.gpu_type_supported || !gate.budget_safe || !gate.native_geometry_resolved ||
-        !gate.ordinary_model_path || gate.selected || gate.debug || gate.probe || gate.reflection ||
-        gate.complex || gate.snapshot || gate.vertex_override || gate.frame == 0 ||
-        gate.frame != view.frame || gate.generation == 0 ||
+        !gate.fog_seen || !gate.ordinary_model_path || gate.selected || gate.debug || gate.probe ||
+        gate.reflection || gate.complex || gate.snapshot || gate.vertex_override ||
+        gate.frame == 0 || gate.frame != view.frame || gate.generation == 0 ||
         gate.generation != gate.rig_generation || view.width == 0 || view.height == 0 ||
         !std::isfinite(view.shadow_scale) || !(view.shadow_scale > 0) ||
         !std::all_of(
@@ -362,6 +363,31 @@ struct Eligibility {
         if (!std::isfinite(low[axis]) || !std::isfinite(high[axis]) ||
             low[axis] < -coordinate_limit || high[axis] > coordinate_limit)
             return false;
+    // The old detail classifier must also reserve exactly zero surface
+    // geometry. Bound its translation-first center expression and its
+    // extent separately, rather than inferring that budget result from
+    // the model pass's differently ordered projection below.
+    bool reservation_outside = false;
+    for (std::size_t row = 0; row < 2; ++row) {
+        const auto r = row * 4;
+        float first = p[r + 3], last = first, extent = 0, margin = 0;
+        for (std::size_t axis = 0; axis < low.size(); ++axis) {
+            const float coefficient = p[r + axis];
+            first += coefficient * (coefficient < 0 ? high[axis] : low[axis]);
+            last += coefficient * (coefficient < 0 ? low[axis] : high[axis]);
+            extent += std::abs(coefficient) * (high[axis] - low[axis]);
+            margin += std::abs(coefficient);
+        }
+        const float after = last + extent * 0.5F + margin;
+        const float before = first - extent * 0.5F - margin;
+        if (!std::isfinite(first) || !std::isfinite(last) || !std::isfinite(extent) ||
+            !std::isfinite(margin) || !std::isfinite(after) || !std::isfinite(before))
+            return false;
+        const float edge = row == 0 ? view.width : view.height;
+        reservation_outside |= after < 0 || before > edge;
+    }
+    if (!reservation_outside)
+        return false;
     bool body_outside = false;
     for (std::size_t row = 0; row < 2; ++row) {
         const auto r = row * 4;

@@ -451,6 +451,9 @@ struct ModelDraw {
     /// Presentation transforms captured before deferred drawing can rebuild them.
     std::optional<oa::FixedVec3> shown_position{};
     std::vector<std::vector<oa::formats::objects3d::FixedVector3>> shown_vertices{};
+    /// A proved invisible ordinary unit retained for indices and type verification.
+    /// Its false linked plan emits no body, marker or shadow geometry.
+    bool preplan_omitted{};
 };
 
 /// A projectile drawn as a 3DO object (render types 1, 3 and 6): its ground

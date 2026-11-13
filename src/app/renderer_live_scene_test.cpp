@@ -8375,6 +8375,88 @@ void ground_shadows_in_view() {
     OA_CHECK(actual.cards.casts.size() == 3);
 }
 
+/// Omitted-only frames still validate their current producer with shadows off.
+void preplanned_omission_validation() {
+    namespace models = oa::formats::objects3d;
+    namespace runtime = oa::sim::model_runtime;
+    ShadowViewFixture fixture(1);
+    auto& inputs = fixture.inputs;
+    auto& draw = fixture.many.models[0];
+    fixture.units[0].position = {1024 * fixture.fixed, 0, 1024 * fixture.fixed};
+    fixture.many.shadow_level = 0;
+    inputs.graphics_flags = 0;
+    inputs.geometry_shadow_metadata = inputs.geometry_shadows_in_view = true;
+    std::string error;
+    live::Scene ordinary;
+    OA_CHECK(live::build(inputs, ordinary, error));
+    OA_CHECK(ordinary.cards.instances.empty() && ordinary.cards.units.empty());
+    OA_CHECK(live::cached_card_type(ordinary.card_types, fixture.instance, fixture.prepared));
+    // This is the caller's record shape: retain references and list position,
+    // but no linked plan, transformed snapshot or deferred-image requirement.
+    draw.plan = {};
+    draw.shown_position = fixture.units[0].position;
+    draw.preplan_omitted = true;
+    OA_CHECK(!fixture.state.deferred_image);
+    live::Scene omitted;
+    OA_CHECK(live::build(inputs, omitted, error));
+    OA_CHECK(omitted.cards.instances.empty() && omitted.cards.units.empty());
+    OA_CHECK(omitted.cards.casts.empty() && omitted.cards.markers.empty());
+    OA_CHECK(omitted.unit_ranges.empty() && omitted.model_count == 0);
+    OA_CHECK(same_on_card(omitted, ordinary, inputs));
+    OA_CHECK(omitted.card_types.draw_types.size() == 1);
+    if (omitted.card_types.draw_types.size() == 1)
+        OA_CHECK(omitted.card_types.draw_types[0] >= 0);
+    // A retained proof is insufficient after the ordinary registry trim.
+    // An omitted record must recreate its supported type in the same build.
+    const auto revision = omitted.card_types.revision;
+    omitted.card_types.records.resize((live::card_records_kept + 1) * 2);
+    OA_CHECK(live::build(inputs, omitted, error));
+    OA_CHECK(omitted.card_types.revision != revision);
+    OA_CHECK(live::cached_card_type(omitted.card_types, fixture.instance, fixture.prepared));
+    OA_CHECK(omitted.card_types.records.size() / 2 <= live::card_records_kept);
+    OA_CHECK(same_on_card(omitted, ordinary, inputs));
+    const auto refuses_omission = [&] {
+        error.clear();
+        OA_CHECK(!live::build(inputs, omitted, error));
+        OA_CHECK(!omitted.out_of_room);
+        OA_CHECK(error.find("preplanned model needs its ordinary plan") != std::string::npos);
+    };
+    // These are Scene-level controls: no Runtime producer guard can mask an
+    // accidental early return in the shadow/deferred-image verifier.
+    inputs.models_on_card = false;
+    refuses_omission();
+    inputs.models_on_card = true;
+    inputs.geometry_shadow_metadata = false;
+    refuses_omission();
+    inputs.geometry_shadow_metadata = true;
+    inputs.geometry_shadows_in_view = false;
+    refuses_omission();
+    inputs.geometry_shadows_in_view = true;
+    OA_CHECK(live::build(inputs, omitted, error));
+    // A different, valid native model can exceed the GPU type's vertex
+    // field. It must be refused after trimming, despite the prior proof.
+    auto unsupported_source = std::make_shared<models::Model>(*fixture.source);
+    unsupported_source->objects[0].vertices.resize(
+        (std::size_t{1} << oa::app::renderer_live_gpu::model_piece_shift) + 1
+    );
+    auto unsupported = runtime::make_instance(unsupported_source);
+    unsupported.rebuild_transforms();
+    draw.model.instance = &unsupported;
+    omitted.card_types.records.resize((live::card_records_kept + 1) * 2);
+    refuses_omission();
+    OA_CHECK(omitted.card_types.draw_types.size() == 1);
+    if (omitted.card_types.draw_types.size() == 1)
+        OA_CHECK(omitted.card_types.draw_types[0] < 0);
+    // Untagged false-linked records keep their ordinary harmless behavior.
+    draw.preplan_omitted = false;
+    OA_CHECK(live::build(inputs, omitted, error));
+    OA_CHECK(same_on_card(omitted, ordinary, inputs));
+    draw.model.instance = &fixture.instance;
+    draw.preplan_omitted = true;
+    OA_CHECK(live::build(inputs, omitted, error));
+    OA_CHECK(same_on_card(omitted, ordinary, inputs));
+}
+
 /// With its models on the card, a battle's units cast their shadows on the
 /// card rather than as decals: a vehicle its picture's pieces, cached and
 /// visible, without its walls of the image key; a building its cached
@@ -9639,6 +9721,7 @@ int main() {
     large_shared_model_scene();
     shadows_on_card();
     ground_shadows_in_view();
+    preplanned_omission_validation();
     geometry_shadow_frame_policy();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();

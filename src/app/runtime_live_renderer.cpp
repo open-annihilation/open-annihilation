@@ -11,6 +11,7 @@
 #include "director_state.hpp"
 #include "match_models.hpp"
 #include "model_shadow_metadata.hpp"
+#include "preplanning_visibility_bounds.hpp"
 #include "engine_settings_state.hpp"
 #include "renderer_effects.hpp"
 #include "graphics_report.hpp"
@@ -18,6 +19,7 @@
 #include "render_run.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
+#include "renderer_live_frame.hpp"
 #include "renderer_live_overlay.hpp"
 #include "renderer_live_picking.hpp"
 #include "renderer_live_scene.hpp"
@@ -144,6 +146,33 @@ constexpr int terrain_cell_edge = 16;
 constexpr float height_lift = 0.5F;
 /// Projected diameter at which ordinary units use owner-coloured markers.
 constexpr float unit_marker_pixels = 5.0F;
+
+/// Binds one prepared camera and active shadow map to the current draw.
+/// @param prepared the current view geometry
+/// @param width the final battlefield columns
+/// @param height the final battlefield rows
+/// @param draw the current presentation draw
+/// @return the geometry proof's current-frame inputs
+preplanning_visibility::FrameView visibility_frame(
+    const renderer_live_frame::Prepared& prepared, uint32_t width, uint32_t height, uint64_t draw
+) noexcept {
+    const auto& crop = prepared.crop;
+    const auto shadow =
+        renderer_live_frame::shadow_map_for_crop(crop[0], crop[1], crop[2], crop[3]);
+    preplanning_visibility::FrameView frame;
+    frame.projection = prepared.projection;
+    frame.shadow_bounds = {
+        shadow.left,
+        shadow.top,
+        shadow.left + shadow.width * shadow.scale,
+        shadow.top + shadow.height * shadow.scale
+    };
+    frame.width = width;
+    frame.height = height;
+    frame.shadow_scale = shadow.scale;
+    frame.frame = draw;
+    return frame;
+}
 
 /// The frame's triangles the pick passes over at once where its point lies
 /// outside their bounds (LiveRenderer::pick_blocks).
@@ -917,13 +946,62 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
     return true;
 }
 
+bool Runtime::prepare_preplanning_visibility_frame(preplanning_visibility::FrameView& frame) {
+    if (!match_ || !selected_tnt_ || !live_renderer_ || live_renderer_->match != match_.get() ||
+        live_renderer_->failed || !live_renderer_active() || !live_models_on_card() ||
+        !match_models_ || match_models_->match != match_.get() ||
+        match_models_->presentation.draw == 0)
+        return false;
+    const auto width = match_layout_.battlefield_width();
+    const auto height = match_layout_.battlefield_height();
+    const auto& map = *selected_tnt_;
+    if (width <= 0 || height <= 0 || map.attribute_width == 0 || map.attribute_height == 0 ||
+        map.attributes.size() <
+            static_cast<std::size_t>(map.attribute_width) * map.attribute_height)
+        return false;
+    const auto& live = *live_renderer_;
+    const auto prepared = renderer_live_frame::prepare(
+        map,
+        live.camera,
+        match_view_place(),
+        match_zoom(),
+        static_cast<float>(width),
+        static_cast<float>(height),
+        true,
+        live.pivot_held,
+        live.view.focus_y
+    );
+    if (!prepared.projected)
+        return false;
+    frame = visibility_frame(
+        prepared,
+        static_cast<uint32_t>(width),
+        static_cast<uint32_t>(height),
+        match_models_->presentation.draw
+    );
+    return true;
+}
+
 bool Runtime::render_live_match_surface() {
     // The overlay the last frame painted goes with it.
     if (live_renderer_)
         live_renderer_->overlay.painted = false;
+    const bool omitted = match_models_ && match_models_->match == match_.get() &&
+                         match_models_->preplanning_visibility.omitted_count != 0;
+    const auto retry_classic = [this] {
+        if (live_renderer_) {
+            live_renderer_->failed = true;
+            renderer_live_camera::reset(live_renderer_->camera);
+            live_renderer_->dragging = false;
+            live_renderer_->drag_button = 0;
+            live_renderer_->pivot_held = false;
+        }
+        std::cerr << "3D view: the planned view changed; the frame is drawn classically\n";
+        return false;
+    };
     if ((!engine_settings().allow_full_3d && !director_draws_on_card()) || !match_ ||
         !selected_tnt_)
-        return true;
+        return omitted ? retry_classic() : true;
     ensure_live_renderer();
     auto& live = *live_renderer_;
     if (live.match != match_.get()) {
@@ -942,33 +1020,26 @@ bool Runtime::render_live_match_surface() {
     const float zoom = match_zoom();
     const float width = static_cast<float>(match_layout_.battlefield_width());
     const float height = static_cast<float>(match_layout_.battlefield_height());
-    const float focus_x = static_cast<float>(place[0]) + width / (2 * zoom);
-    const float focus_y = static_cast<float>(place[1]) + height / (2 * zoom);
-    float elevation{};
-    if (map.attribute_width && map.attribute_height && !map.attributes.empty()) {
-        const auto column = std::clamp(
-            static_cast<int>(focus_x) / terrain_cell_edge,
-            0,
-            static_cast<int>(map.attribute_width) - 1
+    const bool turned = live_renderer_active();
+    const auto prepared = renderer_live_frame::prepare(
+        map, live.camera, place, zoom, width, height, turned, live.pivot_held, live.view.focus_y
+    );
+    live.pivot_held = turned;
+    live.view = prepared.view;
+    if (!prepared.projected)
+        return omitted ? retry_classic() : true;
+    live.projection = prepared.projection;
+    if (omitted) {
+        const auto& planned = match_models_->preplanning_visibility.view;
+        const auto current = visibility_frame(
+            prepared,
+            match_world_cpu_.width,
+            match_world_cpu_.height,
+            match_models_->presentation.draw
         );
-        const auto row = std::clamp(
-            static_cast<int>(focus_y) / terrain_cell_edge,
-            0,
-            static_cast<int>(map.attribute_height) - 1
-        );
-        elevation =
-            map.attributes[static_cast<std::size_t>(row) * map.attribute_width + column].height;
+        if (!turned || live.failed || !live_models_on_card() || !planned || *planned != current)
+            return retry_classic();
     }
-    // Keep the orbit pivot's height while panning and zooming across terrain cells.
-    // A sampled height change would otherwise shift the whole rotated view.
-    if (live_renderer_active() && live.pivot_held)
-        elevation = live.view.focus_y;
-    live.pivot_held = live_renderer_active();
-    live.view = {
-        focus_x, elevation, focus_y + elevation * height_lift, width * 0.5F, height * 0.5F, zoom
-    };
-    if (!renderer_live_camera::projection(live.camera, live.view, live.projection))
-        return true;
     // A classic frame is the last camera drawn until a turned one draws.
     if (!live_renderer_active())
         live.drawn = {true, live.camera, live.view, place, zoom, view_hold_};
@@ -1076,29 +1147,10 @@ bool Runtime::render_live_match_surface() {
         inputs.sight.line_of_sight = match_line_of_sight_on();
         inputs.sight.dithered =
             (match_->state().game.graphics_flags & init::preference_flags::dithered_fog) != 0;
-        const int32_t map_width = static_cast<int32_t>(map.attribute_width) * terrain_cell_edge;
-        const int32_t map_height = static_cast<int32_t>(map.attribute_height) * terrain_cell_edge;
-        inputs.left = 0;
-        inputs.top = 0;
-        inputs.right = map_width;
-        inputs.bottom = map_height;
-        // Include the whole visible footprint at both terrain height limits.
-        // Map edges bound the work even when an unlocked camera is nearly horizontal.
-        constexpr float terrain_margin = 2 * terrain_cell_edge;
-        renderer_live_camera::TerrainBounds visible{};
-        if (renderer_live_camera::visible_terrain_bounds(
-                live.projection, width, height, terrain_margin, visible
-            )) {
-            inputs.left =
-                static_cast<int32_t>(std::clamp(std::floor(visible.min_x), 0.0F, float(map_width)));
-            inputs.top = static_cast<int32_t>(
-                std::clamp(std::floor(visible.min_y), 0.0F, float(map_height))
-            );
-            inputs.right =
-                static_cast<int32_t>(std::clamp(std::ceil(visible.max_x), 0.0F, float(map_width)));
-            inputs.bottom =
-                static_cast<int32_t>(std::clamp(std::ceil(visible.max_y), 0.0F, float(map_height)));
-        }
+        inputs.left = prepared.crop[0];
+        inputs.top = prepared.crop[1];
+        inputs.right = prepared.crop[2];
+        inputs.bottom = prepared.crop[3];
         std::string error;
         Span building(Stage::scene_build);
         // A frame a check draws again on the card takes the scene drawn

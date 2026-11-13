@@ -18,6 +18,8 @@
 #include "render_state.hpp"
 #include "world_draws.hpp"
 #include "model_shadow_metadata.hpp"
+#include "renderer_live_sight.hpp"
+#include "renderer_live_frame.hpp"
 #include "renderer_weapon_style.hpp"
 #include "xrgb_conversion.hpp"
 #include "oa/base/float_precision.hpp"
@@ -592,7 +594,95 @@ struct UnitPlanFrame {
     bool (*shadow_type_supported)(void* context, const model_render::ModelRef& model) noexcept {};
     /// Sea level in world pixels, bounding ordinary ground shadows.
     int32_t sea_level{};
+    const PreplanningVisibility* preplanning{};
+    const full::SightView* preplanning_sight{};
+    uint16_t probe_unit{};
 };
+
+/// Prepares immutable object boxes once on the caller thread, before workers.
+const preplanning_visibility::Geometry*
+preplanning_geometry(MatchModels& models, const model_render::ModelRef& model) {
+    auto& state = models.preplanning_visibility;
+    if (!state.view || state.geometry_unavailable || !model.instance)
+        return nullptr;
+    const auto& handle = model.instance->model_handle();
+    if (!handle)
+        return nullptr;
+    try {
+        auto [entry, inserted] = state.geometry.try_emplace(handle.get());
+        if (inserted)
+            entry->second = preplanning_visibility::prepare_geometry(handle);
+        return entry->second.model ? &entry->second : nullptr;
+    } catch (const std::bad_alloc&) {
+        state.geometry_unavailable = true;
+        return nullptr;
+    }
+}
+
+/// Omits only a presentation copy after its original's ordinary update ran.
+bool omit_presented_model(
+    MatchModels& models,
+    model_render::ModelRenderer& renderer,
+    const UnitPlanFrame& frame,
+    UnitPlan& plan,
+    PreplanningVisibility::Worker* worker
+) {
+    if (!worker || !frame.preplanning || !frame.preplanning->view ||
+        !frame.preplanning->budget_safe || !frame.preplanning_sight || !plan.from_copies ||
+        plan.linked || !plan.preplanning_geometry || frame.snapshot_unlinked_vertices ||
+        !frame.shadow_type_supported || plan.unit_index == frame.probe_unit ||
+        plan.unit_index >= models.presentation.units.size())
+        return false;
+    const auto& shown = plan.shown;
+    const auto& motion = models.presentation.units[plan.unit_index];
+    if (!shown.instance || !shown.state || !shown.unit || shown.instance != &motion.instance ||
+        !motion.seen || !motion.rig_valid || motion.blended_draw != models.presentation.draw ||
+        motion.instance_generation != plan.preplanning_generation ||
+        !frame.shadow_type_supported(frame.shadow_type_context, shown) ||
+        renderer.ground_height == nullptr)
+        return false;
+    // Keep the copy's threshold/cache invalidation where its update would
+    // put them. Its vertex and image planning stay lazy after a proof;
+    // ingress or a classic retry runs that ordinary planning in full.
+    model_render::set_model_shift(
+        shown, {shown.unit->bank, static_cast<int16_t>(shown.unit->heading), shown.unit->pitch}
+    );
+    constexpr float fixed_scale = 65536;
+    const auto& position = shown.unit->position;
+    const auto fog = renderer_live_sight::fog_at(
+        *frame.preplanning_sight,
+        static_cast<int32_t>(position.x / fixed_scale),
+        static_cast<int32_t>(position.z / fixed_scale - position.y / fixed_scale * 0.5F)
+    );
+    preplanning_visibility::Eligibility gate;
+    gate.enhanced = gate.local = gate.rig_resolved = gate.ground_resolved =
+        gate.gpu_type_supported = gate.budget_safe = gate.native_geometry_resolved =
+            gate.ordinary_model_path = true;
+    gate.fog_seen = fog == renderer_live_sight::Fog::seen;
+    gate.frame = models.presentation.draw;
+    gate.owner_token = plan.preplanning_owner;
+    gate.generation = plan.preplanning_generation;
+    gate.rig_generation = motion.instance_generation;
+    gate.sea_level = frame.sea_level;
+    gate.ground_height = renderer.ground_height(renderer.user, position);
+    if (!preplanning_visibility::rejection_proof(
+            *plan.preplanning_geometry,
+            shown,
+            shown.state->shift,
+            *frame.preplanning->view,
+            gate,
+            worker->scratch
+        ))
+        return false;
+    plan.draw = {};
+    plan.draw.model = shown;
+    plan.draw.shown_position = position;
+    plan.draw.preplan_omitted = true;
+    plan.carried.clear();
+    plan.adds_draw = true;
+    ++worker->omitted_count;
+    return true;
+}
 
 // The units a drawing thread takes at a time to plan: few enough that the
 // threads finish a frame's units together, and enough that taking them
@@ -762,7 +852,8 @@ void plan_unit_model(
     model_render::ModelRenderer& renderer,
     const UnitPlanFrame& frame,
     UnitPlan& plan,
-    ModelTransformCache* transforms
+    ModelTransformCache* transforms,
+    PreplanningVisibility::Worker* preplanning_worker
 ) {
     const auto& model = plan.model;
     plan.shown = model;
@@ -810,6 +901,8 @@ void plan_unit_model(
         plan.shown = unit_copies(models, plan.unit_index, model, plan.pose);
         model_render::note_piece_changes(plan.shown);
         if (carried)
+            return;
+        if (omit_presented_model(models, renderer, frame, plan, preplanning_worker))
             return;
         update(plan.shown);
         plan_model(
@@ -918,6 +1011,16 @@ void plan_unit_draws(
         pool != nullptr ? std::min(pool->threads(), oa::platform::job_pool::max_threads) : 1U;
     const uint32_t bands = std::min(threads, items);
     const bool reuse_transforms = frame.live_renderer && !frame.snapshot_unlinked_vertices;
+    auto& preplanning_workers = models.preplanning_visibility.workers;
+    bool preplanning_ready = frame.preplanning && frame.preplanning->view.has_value();
+    if (preplanning_ready)
+        try {
+            preplanning_workers.resize(bands);
+            for (auto& worker : preplanning_workers)
+                worker.omitted_count = 0;
+        } catch (const std::bad_alloc&) {
+            preplanning_ready = false;
+        }
     if (reuse_transforms && models.transform_caches.size() < bands)
         models.transform_caches.resize(bands);
     if (models.band_scratch.size() + 1 < bands)
@@ -954,7 +1057,8 @@ void plan_unit_draws(
                             renderer,
                             frame,
                             unit_plans.plans[unit_plans.order[at]],
-                            transforms
+                            transforms,
+                            preplanning_ready ? &preplanning_workers[band] : nullptr
                         );
                 } catch (const std::exception& error) {
                     if (failure.second.empty())
@@ -969,6 +1073,9 @@ void plan_unit_draws(
             oa::present::bind_display(bound);
         }
     );
+    if (preplanning_ready)
+        for (const auto& worker : preplanning_workers)
+            models.preplanning_visibility.omitted_count += worker.omitted_count;
     const std::pair<uint32_t, std::string>* first_failure = nullptr;
     for (uint32_t band = 0; band < bands; ++band)
         if (!failures[band].second.empty() &&
@@ -1706,6 +1813,10 @@ bool Runtime::draw_match_surface() {
     // The frame's place between the ticks. Each draw notes the tick the
     // match is on first, so that the poses of the tick before are at hand.
     auto& models = match_models();
+    models.preplanning_visibility.view.reset();
+    models.preplanning_visibility.omitted_count = 0;
+    models.preplanning_visibility.geometry_unavailable = false;
+    models.preplanning_visibility.budget_safe = false;
     observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
     auto& presentation = models.presentation;
     const bool primed_rigs =
@@ -2124,6 +2235,26 @@ bool Runtime::draw_match_surface() {
         ) &&
         live_world && live_models_on_card() && !models.unit_plans.snapshot_unlinked_vertices &&
         unit_level == model_render::UnitSupersampling::off;
+    full::SightView preplanning_sight;
+    if (geometry_shadow_metadata && !dots && !far && !directed && !scaling.apart &&
+        match_zoom() >= 1.0F && !options_.debug_order_lines &&
+        world_record.game.debug_overlay == 0 && !models.preplanning_visibility.force_ordinary) {
+        preplanning_visibility::FrameView prepared;
+        if (prepare_preplanning_visibility_frame(prepared)) {
+            models.preplanning_visibility.view = prepared;
+            const auto& sight = match_->sight();
+            preplanning_sight.coverage = match_->player_coverage(match_view_player());
+            preplanning_sight.player_bits = sight.player_bits;
+            preplanning_sight.width = sight.width;
+            preplanning_sight.height = sight.height;
+            preplanning_sight.shared_bits = allied_mapped_bits();
+            preplanning_sight.mapped_bits = static_cast<uint16_t>(
+                (1U << (sight.viewpoint_player & 0x1fU)) | preplanning_sight.shared_bits
+            );
+            preplanning_sight.mapping = match_mapping_on();
+            preplanning_sight.line_of_sight = match_line_of_sight_on();
+        }
+    }
     const UnitPlanFrame plan_frame{
         unit_level,
         live_world,
@@ -2137,7 +2268,10 @@ bool Runtime::draw_match_surface() {
                   return static_cast<const Runtime*>(context)->live_geometry_shadow_type(model);
               }
             : nullptr,
-        world_record.game.sea_level
+        world_record.game.sea_level,
+        &models.preplanning_visibility,
+        &preplanning_sight,
+        frame_draws_.probe_unit
     };
     if (live_world && dots)
         for (auto& cache : models.transform_caches)
@@ -2632,9 +2766,11 @@ bool Runtime::draw_match_surface() {
     std::vector<uint16_t> units_to_draw;
     std::vector<oa::present::world_renderer::UnitDrawSite> unit_sites;
     auto& unit_plans = models.unit_plans;
+    std::size_t attached_units{};
     for (auto& slot : match_->world().slots) {
         if (slot.unit_index == 0 || slot.unit == nullptr || slot.record.type_index == 0)
             continue;
+        attached_units += slot.record.attach_parent != 0;
         try {
             if (!match_->unit_shown(static_cast<uint8_t>(match_view_player()), slot.unit_index))
                 continue;
@@ -2681,6 +2817,12 @@ bool Runtime::draw_match_surface() {
         plan.unit_index = slot.unit_index;
         plan.model = model;
         plan.pose = pose;
+        plan.preplanning_geometry = nullptr;
+        plan.preplanning_owner = reinterpret_cast<uintptr_t>(slot.unit);
+        plan.preplanning_generation = match_->runtime_state(slot.unit_index).instance_generation;
+        if (models.preplanning_visibility.view && plan_frame.shadow_type_supported &&
+            plan_frame.shadow_type_supported(plan_frame.shadow_type_context, model))
+            plan.preplanning_geometry = preplanning_geometry(models, model);
         units_to_draw.push_back(slot.unit_index);
         unit_sites.push_back(
             {pose ? pose->position.z : model.unit->position.z,
@@ -2690,6 +2832,14 @@ bool Runtime::draw_match_surface() {
              model.unit->footprint_z}
         );
     }
+    // A carrier may add one real child record beside that child's ordinary
+    // false-linked slot. Features and the possible build ghost complete a
+    // conservative upper bound before any sentinel can change allowances.
+    static_assert(renderer_live_gpu::largest_model_instance_count < 65000);
+    const uint64_t model_upper_bound =
+        uint64_t{units_to_draw.size()} + attached_units + match_features_.size() + 1;
+    models.preplanning_visibility.budget_safe =
+        model_upper_bound < renderer_live_gpu::largest_model_instance_count;
     oa::present::world_renderer::BattlefieldDrawPlan draw_plan;
     oa::present::world_renderer::plan_battlefield_draws(
         feature_sites, unit_sites, renderer.camera_y, draw_plan

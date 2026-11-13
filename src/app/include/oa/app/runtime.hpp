@@ -149,6 +149,10 @@ namespace oa::app::renderer_live_overlay {
 struct Operation;
 } // namespace oa::app::renderer_live_overlay
 
+namespace oa::app::preplanning_visibility {
+struct FrameView;
+} // namespace oa::app::preplanning_visibility
+
 namespace oa::present::model {
 struct RgbBridge;
 struct RgbFrame;
@@ -8649,6 +8653,11 @@ class Runtime final : public menu::Host,
     ///         battlefield the classic raster left out; the view is then
     ///         classic again, and the frame must be drawn again
     [[nodiscard]] bool render_live_match_surface();
+    /// Prepares the current live camera proof without changing renderer resources.
+    /// @param[out] frame current projection and rounded shadow-map extent
+    /// @return false for a cold, unsupported or invalid live frame
+    [[nodiscard]] bool
+    prepare_preplanning_visibility_frame(preplanning_visibility::FrameView& frame);
     /// Makes the live renderer where there is none, drawing on the device
     /// the window can present through (RendererHost::card_device) where
     /// there is one, so that its pictures need not be read back.

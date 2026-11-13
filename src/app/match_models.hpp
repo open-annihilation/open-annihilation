@@ -23,6 +23,7 @@
 #include "presentation_interpolation.hpp"
 #include "presentation_capture.hpp"
 #include "model_transform_cache.hpp"
+#include "preplanning_visibility_bounds.hpp"
 #include "world_draws.hpp"
 
 #include <cstddef>
@@ -95,6 +96,10 @@ struct UnitPlan {
     /// It is drawn from its copies (presented_unit): between two ticks once
     /// it or a unit it carries moved, and on every frame on its playout.
     bool from_copies{};
+    /// Immutable raw geometry and canonical ownership for an optional proof.
+    const preplanning_visibility::Geometry* preplanning_geometry{};
+    uintptr_t preplanning_owner{};
+    uint32_t preplanning_generation{};
     /// It carries units or is carried, so that its plan reaches the models
     /// of other units: such units are planned one after another, in their
     /// order, on one thread.
@@ -134,6 +139,24 @@ struct UnitPlans {
     std::vector<std::vector<std::vector<oa::formats::objects3d::FixedVector3>>> spare_vertices;
 };
 
+/// Optional frame-local proof state, separate from canonical gameplay/model state.
+struct PreplanningVisibility {
+    struct Worker {
+        preplanning_visibility::Scratch scratch;
+        std::size_t omitted_count{};
+    };
+
+    std::optional<preplanning_visibility::FrameView> view;
+    std::size_t omitted_count{};
+    bool geometry_unavailable{};
+    bool budget_safe{};
+    /// Windowless reference control; ordinary matches leave the proof enabled.
+    bool force_ordinary{};
+    std::unordered_map<const oa::formats::objects3d::Model*, preplanning_visibility::Geometry>
+        geometry;
+    std::vector<Worker> workers;
+};
+
 /// 3DO renderer state of one match: prepared models and textures, the draw
 /// state of every unit slot, and the 8-bit bridge onto the RGB frame. Each 3D
 /// feature keeps its own draw state in its MatchFeatureDraw.
@@ -162,6 +185,7 @@ struct MatchModels {
     std::vector<WorldBandScratch> band_scratch;
     // The frame's units, planned before the draws are worked out in order.
     UnitPlans unit_plans;
+    PreplanningVisibility preplanning_visibility;
     /// Exact model-space transform caches, one per unit-planning worker.
     /// Each is reset for the run under that worker's floating-point control.
     std::vector<ModelTransformCache> transform_caches;
