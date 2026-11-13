@@ -136,6 +136,46 @@ bool name_is_unit(const ComputerPlayers* state, const char* name) noexcept {
     return false;
 }
 
+/// Tells whether a word gives a number, read as a weight's factor or a limit's count.
+///
+/// @param word a word of a weight or limit line
+/// @param weight true reads it with `std::strtod`, false with `std::strtol` base 10
+/// @return true when the reading takes at least one character
+bool gives_number(const char* word, bool weight) noexcept {
+    char* read_end = nullptr;
+    if (weight)
+        (void)std::strtod(word, &read_end);
+    else
+        (void)std::strtol(word, &read_end, 10);
+    return read_end != word;
+}
+
+/// Tells whether a weight or limit line writes its name with a space in it.
+///
+/// @param words the line's words; the first is the command
+/// @param count how many words the line has
+/// @param weight true for a weight line, false for a limit line
+/// @return true when the third word gives no number and a later word gives one
+bool splits_name(const char* const* words, uint32_t count, bool weight) noexcept {
+    if (count < 4 || gives_number(words[2], weight))
+        return false;
+    for (uint32_t index = 3; index < count; ++index)
+        if (gives_number(words[index], weight))
+            return true;
+    return false;
+}
+
+/// Tells whether the player skips a weight or limit line: a name written with a space in
+/// it, whose first part is no type's unit name (`computer_profile_line_skipped`).
+///
+/// @param state computer players and their type table
+/// @param line the line's words
+/// @param weight true for a weight line, false for a limit line
+/// @return true for a line the player skips
+bool skips_line(const ComputerPlayers* state, const TokenLine& line, bool weight) noexcept {
+    return splits_name(line.tokens, line.count, weight) && !name_is_unit(state, token(line, 1));
+}
+
 bool allocate_knowledge(ComputerKnowledge& k, uint32_t count) noexcept {
     k.owned_counts = static_cast<int16_t*>(std::calloc(count, sizeof(int16_t)));
     k.base_weights = static_cast<int8_t*>(std::calloc(count, sizeof(int8_t)));
@@ -271,7 +311,8 @@ void scan_metal_spots(const ComputerHost& host, ComputerKnowledge& k) noexcept {
 ///
 /// A plan line enables the following weight and limit lines when it names the game's
 /// difficulty (by the keyword ai.difficulty-names gives it) or "any"; weight lines apply to every controller, limit lines to every
-/// computer player.
+/// computer player. A weight or limit line whose name is written with a space in it, and
+/// whose first part is no type's unit name, is skipped (`computer_profile_line_skipped`).
 ///
 /// @param state computer players
 /// @param host difficulty and players
@@ -281,6 +322,9 @@ void scan_metal_spots(const ComputerHost& host, ComputerKnowledge& k) noexcept {
 /// @param only_player a player index, or -1 for every controller
 /// @param difficulty a difficulty to match plan lines against, or -1 for the game's
 /// @quirk "any" is only recognised as the first word after "plan", tested once per word.
+/// @quirk 3.1c applies a line whose name is written with a space in it as 0 to the first
+///        part: `Limit ARM DECOM 4` limits the category ARM to 0. Such a line is skipped
+///        here, unless that first part is a unit's name.
 void apply_script(
     ComputerPlayers* state,
     const ComputerHost& host,
@@ -320,7 +364,7 @@ void apply_script(
                     plan_matches = true;
             }
         } else if (equal_nocase(command, "weight")) {
-            if (!plan_matches)
+            if (!plan_matches || skips_line(state, line, true))
                 continue;
             const auto percent = static_cast<float>(std::strtod(token(line, 2), nullptr));
             for (uint8_t p = 0; p < OA_PLAYER_COUNT; ++p) {
@@ -330,7 +374,7 @@ void apply_script(
                     computer_apply_weight(state, p, token(line, 1), percent);
             }
         } else if (equal_nocase(command, "limit")) {
-            if (!plan_matches)
+            if (!plan_matches || skips_line(state, line, false))
                 continue;
             const auto limit = static_cast<int32_t>(std::strtol(token(line, 2), nullptr, 10));
             for (uint8_t p = 0; p < OA_PLAYER_COUNT; ++p) {
@@ -813,13 +857,23 @@ bool computer_profile_line_lacks_number(const ProfileLine& line) noexcept {
     const bool weight = equal_nocase(command, "weight");
     if (!weight && !equal_nocase(command, "limit"))
         return false;
-    const char* number = line.count > 2 ? line.words[2] : "";
-    char* read_end = nullptr;
-    if (weight)
-        (void)std::strtod(number, &read_end);
-    else
-        (void)std::strtol(number, &read_end, 10);
-    return read_end == number;
+    return !gives_number(line.count > 2 ? line.words[2] : "", weight);
+}
+
+bool computer_profile_line_skipped(const ProfileLine& line, const oa::World& world) noexcept {
+    if (line.words == nullptr || line.count < 4)
+        return false;
+    const char* command = line.words[0];
+    const bool weight = equal_nocase(command, "weight");
+    if (!weight && !equal_nocase(command, "limit"))
+        return false;
+    if (!splits_name(line.words, line.count, weight))
+        return false;
+    if (world.unit_defs != nullptr)
+        for (uint32_t t = 1; t < world.unit_def_count; ++t)
+            if (equal_nocase(world.unit_defs[t].unit_name, line.words[1]))
+                return false;
+    return true;
 }
 
 int32_t truncate_to_int32(double value) noexcept {

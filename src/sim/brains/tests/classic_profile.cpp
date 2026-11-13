@@ -1534,6 +1534,70 @@ void test_profile_leading_lines(const PackageBytes& package) {
     expect_equal(shot.weight[ARMPW], 20, "leading: the hard player keeps the category weight");
 }
 
+namespace {
+
+/// Seats Classic beside the built-in player on one profile at easy, and checks
+/// that both read it alike.
+///
+/// @param package the Classic package
+/// @param text the profile
+/// @param prep the built-in player and the Classic seat, filled here
+/// @return Classic's tables
+Snapshot seat_on_profile(const PackageBytes& package, const char* text, Prepared& prep) {
+    mark_players(prep.fake, 1);
+    prepare(
+        prep,
+        package,
+        text,
+        kBuildLists,
+        static_cast<uint32_t>(std::size(kBuildLists)),
+        31,
+        OA_DIFFICULTY_EASY,
+        OA_DIFFICULTY_EASY,
+        1,
+        false,
+        false,
+        nullptr
+    );
+    compare_seat_to_player(*prep.seat, prep, 1);
+    Snapshot request;
+    return read_snapshot(*prep.seat, request);
+}
+
+} // namespace
+
+void test_split_name_is_skipped(const PackageBytes& package) {
+    const char* text = "Limit ARM DECOM 4\n"
+                       "Weight ARM DECOM 0.5\n"
+                       "Limit ARM DE COM 4\n"
+                       "Limit ARMLAB 4\n"
+                       "Limit ARMSOLAR O\n"
+                       "Limit ARMLLT DECOM four\n";
+    Prepared prep;
+    const Snapshot shot = seat_on_profile(package, text, prep);
+    expect_equal(shot.limits[ARMMEX], -1, "split: the extractor stays unlimited");
+    expect_equal(shot.limits[ARMCOM], -1, "split: the commander stays unlimited");
+    expect_equal(shot.weight[ARMPW], 100, "split: the split weight is skipped too");
+    expect_equal(shot.limits[ARMLAB], 4, "split: a type named on its own keeps its limit");
+    expect_equal(shot.limits[ARMSOLAR], 0, "split: a word that is no number reads 0");
+    expect_equal(shot.limits[ARMLLT], 0, "split: no later number reads 0");
+    expect_equal(shot.limits[CORMEX], -1, "split: the other side is untouched");
+}
+
+void test_split_unit_name_reads_zero(const PackageBytes& package) {
+    const char* text = "Weight ARMCK MP 0\n"
+                       "Weight ARMCK 2.46\n"
+                       "Limit ARMLAB MP 0\n"
+                       "Limit ARMLAB 4\n";
+    Prepared prep;
+    const Snapshot shot = seat_on_profile(package, text, prep);
+    expect_equal(shot.weight[ARMCK], 0, "unit split: the weight reads 0");
+    expect_equal(shot.weight_locked[ARMCK], 1, "unit split: the weight locks");
+    expect_equal(shot.limits[ARMLAB], 0, "unit split: the limit reads 0");
+    expect_equal(shot.limit_locked[ARMLAB], 1, "unit split: the limit locks");
+    expect_equal(shot.weight[ARMPW], 100, "unit split: the side is untouched");
+}
+
 void test_difficulty_names(const PackageBytes& package) {
     using Names = oa::data::match_rules::AiDifficultyNamesNames;
     const char* text = "plan easy\nlimit ARMMEX 8\nplan hard\nlimit ARMMEX 1\n"

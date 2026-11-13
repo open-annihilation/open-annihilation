@@ -4,6 +4,8 @@
 -- Profile passes. A factor is the longest numeric prefix of the word, rounded
 -- once to single precision. A limit is a base-10 integer clamped to 32 bits.
 -- The plan flag is the seat's, shared by the passes and kept across a reload.
+-- A weight or limit line that writes its name with a space in it is skipped
+-- unless the name's first part is a unit's name.
 
 local knowledge = require("knowledge")
 
@@ -383,6 +385,53 @@ local function apply_limit(seat, name, limit)
     end
 end
 
+local function after_sign(word)
+    local index = 1
+    while index <= #word and is_space_byte(string.byte(word, index)) do
+        index = index + 1
+    end
+    local mark = string.byte(word, index)
+    if mark == 43 or mark == 45 then
+        index = index + 1
+    end
+    return index
+end
+
+-- True when a factor's reading takes at least one character of the word.
+local function gives_factor(word)
+    local index = after_sign(word)
+    if is_digit(string.byte(word, index)) then
+        return true
+    end
+    if string.byte(word, index) == 46 and is_digit(string.byte(word, index + 1)) then
+        return true
+    end
+    return starts_with(word, index, "inf") or starts_with(word, index, "nan")
+end
+
+-- True when a limit's reading takes at least one character of the word.
+local function gives_count(word)
+    return is_digit(string.byte(word, after_sign(word)))
+end
+
+-- A weight or limit line whose third word gives no number while a later word
+-- gives one writes its name with a space in it: "Limit ARM DECOM 4" for
+-- ARMDECOM. It is skipped when the name's first part is no unit's name. A
+-- unit's name keeps the reading below, so "Weight ARMCA MP 0" applies 0.
+-- @quirk 3.1c applies a skipped line as 0 to that first part, and
+-- "Limit ARM DECOM 4" limits every Arm type no line names on its own to 0.
+local function skips_line(seat, tokens, gives)
+    if #tokens < 4 or gives(tokens[3]) then
+        return false
+    end
+    for index = 4, #tokens do
+        if gives(tokens[index]) then
+            return not name_is_unit(seat, tokens[2])
+        end
+    end
+    return false
+end
+
 local function difficulty_number(word)
     if equal_nocase(word, "easy") then
         return 0
@@ -527,9 +576,13 @@ function profile.apply(seat, text, plan, difficulty)
                 matched = 0
             end
         elseif matched == 1 and equal_nocase(command, "weight") then
-            apply_weight(seat, tokens[2] or "", read_factor(tokens[3] or ""))
+            if not skips_line(seat, tokens, gives_factor) then
+                apply_weight(seat, tokens[2] or "", read_factor(tokens[3] or ""))
+            end
         elseif matched == 1 and equal_nocase(command, "limit") and computer then
-            apply_limit(seat, tokens[2] or "", read_limit(tokens[3] or ""))
+            if not skips_line(seat, tokens, gives_count) then
+                apply_limit(seat, tokens[2] or "", read_limit(tokens[3] or ""))
+            end
         end
     end)
     return matched

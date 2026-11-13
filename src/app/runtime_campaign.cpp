@@ -1064,6 +1064,7 @@ namespace {
 /// The profile lines `report_computer_profile_faults` logs, and the path they name.
 struct ProfileFaults {
     const std::string* path{};        ///< the profile's path
+    const oa::World* world{};         ///< the match, whose unit types name the units
     std::vector<std::string> lines{}; ///< one log line per weight or limit line without a number
 };
 
@@ -1087,13 +1088,20 @@ void note_profile_fault(void* context, const oa::sim::ai::ProfileLine& line) noe
             return static_cast<char>(std::tolower(c));
         });
         const std::string name(line.words[1]);
-        faults.lines.push_back(
-            "open-annihilation: computer players: " + *faults.path + " line " +
-            std::to_string(line.number) + " \"" + written + "\" has no number after " + name +
-            (command == "weight" ? ", so the weight of " + name + " is multiplied by 0"
-                                 : ", so " + name + " is limited to 0") +
-            ", as in 3.1c"
-        );
+        const std::string reading = command == "weight"
+                                        ? "the weight of " + name + " is multiplied by 0"
+                                        : name + " is limited to 0";
+        const std::string head = "open-annihilation: computer players: " + *faults.path + " line " +
+                                 std::to_string(line.number) + " \"" + written + "\"";
+        if (oa::sim::ai::computer_profile_line_skipped(line, *faults.world))
+            faults.lines.push_back(
+                head + " writes a name with a space in it, so the line is skipped, where in 3.1c " +
+                reading
+            );
+        else
+            faults.lines.push_back(
+                head + " has no number after " + name + ", so " + reading + ", as in 3.1c"
+            );
     } catch (const std::exception&) {
         // A line that cannot be written out is left unlogged; the profile applies all the same.
     }
@@ -1113,6 +1121,7 @@ void Runtime::report_computer_profile_faults(const ComputerProfileFile& file) {
         return;
     ProfileFaults faults;
     faults.path = &file.path;
+    faults.world = &match_->state();
     oa::sim::ai::computer_profile_lines(file.text, note_profile_fault, &faults);
     for (const std::string& line : faults.lines)
         report_data_fault(line);

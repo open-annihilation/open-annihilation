@@ -11089,10 +11089,10 @@ class Runtime final : public menu::Host,
 
     /// Logs each weight or limit line of the profile that gives no number
     /// (`computer_profile_line_lacks_number`), once a run, when the match has
-    /// a computer player. The line still applies as 0, as in 3.1c: a name
-    /// written with a space, such as `Limit ARM DECOM 4` in Core
-    /// Contingency's ai/Krogoth.txt, limits a whole side to 0, and that side's
-    /// computer players build nothing that no line names on its own.
+    /// a computer player. A line the computer players skip
+    /// (`computer_profile_line_skipped`), a name written with a space such as
+    /// `Limit ARM DECOM 4` in Core Contingency's ai/Krogoth.txt, is logged as
+    /// skipped. Any other such line is logged as applying as 0, as in 3.1c.
     ///
     /// @param file the profile the computer players read
     void report_computer_profile_faults(const ComputerProfileFile& file);

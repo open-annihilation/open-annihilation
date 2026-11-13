@@ -27,6 +27,8 @@
 //   test_profile_reload                classic_profile.cpp
 //   test_installed_data                classic_profile.cpp
 //   test_profile_leading_lines         classic_profile.cpp
+//   test_split_name_is_skipped         classic_profile.cpp
+//   test_split_unit_name_reads_zero    classic_profile.cpp
 //   test_difficulty_names              classic_profile.cpp
 //   test_squad5_factory_tick           classic_test.cpp
 //   test_factory_tick_filter           classic_test.cpp
@@ -2445,6 +2447,8 @@ void test_profile_reload(const PackageBytes& package);
 void test_weight_report(const PackageBytes& package);
 void test_load_start(const PackageBytes& package);
 void test_profile_leading_lines(const PackageBytes& package);
+void test_split_name_is_skipped(const PackageBytes& package);
+void test_split_unit_name_reads_zero(const PackageBytes& package);
 void test_difficulty_names(const PackageBytes& package);
 void test_profile_twins(const PackageBytes& package);
 void test_knowledge_twins(const PackageBytes& package);
@@ -2499,6 +2503,8 @@ int main(int argc, char** argv) {
         test_weight_report(package);
         test_load_start(package);
         test_profile_leading_lines(package);
+        test_split_name_is_skipped(package);
+        test_split_unit_name_reads_zero(package);
         test_difficulty_names(package);
         test_profile_twins(package);
         test_knowledge_twins(package);

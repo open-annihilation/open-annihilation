@@ -970,6 +970,34 @@ std::vector<uint32_t> lines_without_number(std::string_view text) {
     return lines;
 }
 
+/// The lines `lines_skipped` gathers, and the match whose unit types name the units.
+struct SkippedLines {
+    const oa::World* world{};      ///< the match
+    std::vector<uint32_t> lines{}; ///< the skipped lines' numbers
+};
+
+/// Collects the numbers of the profile lines the computer players skip.
+///
+/// @param context the SkippedLines being filled
+/// @param line a line of the profile
+void collect_skipped_lines(void* context, const ProfileLine& line) noexcept {
+    auto& skipped = *static_cast<SkippedLines*>(context);
+    if (computer_profile_line_skipped(line, *skipped.world))
+        skipped.lines.push_back(line.number);
+}
+
+/// Returns the numbers of a profile's lines the computer players skip.
+///
+/// @param text the profile
+/// @param world the match whose unit types name the units
+/// @return their line numbers, from 1
+std::vector<uint32_t> lines_skipped(std::string_view text, const oa::World& world) {
+    SkippedLines skipped;
+    skipped.world = &world;
+    computer_profile_lines(text, collect_skipped_lines, &skipped);
+    return skipped.lines;
+}
+
 /// Reads a text file of the installed game.
 ///
 /// @param assets the installed game's store
@@ -1001,8 +1029,15 @@ void test_installed_data(const oa::AssetStore& assets) {
     // Core Contingency's ai/Krogoth.txt, when installed, writes ARMDECOM as "ARM DECOM"
     // in each of its three plans.
     const auto krogoth = read_text(assets, "ai/krogoth.txt");
-    if (!krogoth.empty())
+    if (!krogoth.empty()) {
         check(lines_without_number(krogoth).size() >= 3, "ai/krogoth.txt lines told");
+        // Those three lines are skipped; its "Limit CORFORT O" lines read as 0.
+        const oa::World world{};
+        check(
+            lines_skipped(krogoth, world) == std::vector<uint32_t>{74, 317, 560},
+            "ai/krogoth.txt: its three split names are skipped"
+        );
+    }
 }
 
 // --- ai.* rules -------------------------------------------------------------
@@ -1079,14 +1114,39 @@ void test_profile_lines_without_number() {
     check(lines == std::vector<uint32_t>{2, 3, 4, 5}, "lines without a number");
 }
 
-// A limit line whose unit name holds a space, as "Limit ARM DECOM 4" in Core
-// Contingency's ai/Krogoth.txt, limits the category of its first word to 0, as
-// 3.1c reads it: every Arm type no line names on its own, the extractor and the
-// solar collector among them. With no metal income only a type's metal value
-// scores, and the commander, whose one type with a metal value is now limited to
-// 0, picks nothing on every pass, where the same profile without that line
-// picks the extractor.
-void test_split_name_limits_a_side() {
+// A weight or limit line whose name holds a space, and whose first part names
+// no unit, is told apart from one whose first part is a unit's name, and from
+// lines with no later number.
+void test_profile_lines_skipped() {
+    const char* text = "Limit ARM DECOM 4\n"
+                       "Weight ARM DECOM 0.5\n"
+                       "Weight ARMCK MP 0\n"
+                       "Limit ARMCK MP 0\n"
+                       "Limit CORFORT O\n"
+                       "Limit ARM DE COM 4\n"
+                       "Limit ARM DECOM four\n"
+                       "Limit ARMSABO\n"
+                       "Weight NORTON COMMANDO .5\n"
+                       "Weight limit armbrawl 400 // 0.1\n"
+                       "Limit ARM 4 DECOM\n";
+    Fake fake;
+    std::snprintf(fake.defs[ARMCK].unit_name, sizeof fake.defs[ARMCK].unit_name, "%s", "armck");
+    check(
+        lines_skipped(text, fake.world) == std::vector<uint32_t>{1, 2, 6, 9, 10},
+        "skipped: split names whose first part names no unit"
+    );
+    check(
+        lines_without_number(text) == std::vector<uint32_t>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+        "skipped: every line without a number is still told"
+    );
+}
+
+// "Limit ARM DECOM 4", ARMDECOM written with a space as in Core Contingency's
+// ai/Krogoth.txt, is skipped: 3.1c limits the category ARM to 0 there, every Arm
+// type no line names on its own, and with no metal income the commander picks
+// nothing. Skipped, the line leaves the extractor unlimited and the commander
+// picks it, as with the same profile without that line.
+void test_split_name_is_skipped() {
     for (const bool split : {false, true}) {
         Fake fake;
         fake.player(1, OA_PLAYER_STATUS_COMPUTER, 10, 30);
@@ -1104,28 +1164,52 @@ void test_split_name_limits_a_side() {
         auto host = host_for(fake);
         ComputerPlayers state{};
         describe_catalog(state);
-        const char* profile = split ? "Limit ARM DECOM 4\nLimit ARMLAB 4\n" : "Limit ARMLAB 4\n";
+        const char* profile = split ? "Limit ARM DECOM 4\nWeight ARM DECOM 0.5\nLimit ARMLAB 4\n"
+                                    : "Limit ARMLAB 4\n";
         check(computer_players_configure(&state, profile, kBuildLists), "split: configure");
         check(computer_players_initialize(&state, host), "split: initialize");
         const auto& k = state.players[1].knowledge;
         fake.spawn(10, 1, ARMCOM, 100, 100, 0);
-        if (split) {
-            check(
-                k.limits[ARMMEX] == 0 && k.limits[ARMSOLAR] == 0 && k.limits[ARMCOM] == 0,
-                "split: the Arm types no line names are limited to 0"
-            );
-            check(k.limits[ARMLAB] == 4, "split: a type named on its own keeps its limit");
-            check(k.limits[CORMEX] == unlimited, "split: the other side is untouched");
-            check(lines_without_number(profile) == std::vector<uint32_t>{1}, "split: line told");
-            for (int pass = 0; pass < 3; ++pass)
-                check(computer_pick_build(&state, host, 1, 10) == 0, "split: the commander idles");
-        } else {
-            check(k.limits[ARMMEX] == unlimited, "whole: the extractor is not limited");
-            check(lines_without_number(profile).empty(), "whole: no line told");
-            check(computer_pick_build(&state, host, 1, 10) == ARMMEX, "whole: extractor picked");
-        }
+        check(
+            k.limits[ARMMEX] == unlimited && k.limits[ARMSOLAR] == unlimited &&
+                k.limits[ARMCOM] == unlimited,
+            "split: the Arm types no line names stay unlimited"
+        );
+        check(k.weight_percent[ARMPW] == 100, "split: the split weight is skipped too");
+        check(k.limits[ARMLAB] == 4, "split: a type named on its own keeps its limit");
+        check(k.limits[CORMEX] == unlimited, "split: the other side is untouched");
+        check(computer_pick_build(&state, host, 1, 10) == ARMMEX, "split: extractor picked");
         computer_players_release(&state);
     }
+}
+
+// "Weight ARMCA MP 0", as in TA 3.3a's ai/issapequa.txt, names a unit before its
+// space, so it keeps 3.1c's reading: the weight is multiplied by 0 and locked, and
+// a later "Weight ARMCA 2.46" is ignored. ARMCK stands in for ARMCA. The limit line
+// of the same shape limits to 0 and locks.
+void test_split_unit_name_reads_zero() {
+    Fake fake;
+    fake.player(1, OA_PLAYER_STATUS_COMPUTER, 10, 30);
+    auto host = host_for(fake);
+    ComputerPlayers state{};
+    describe_catalog(state);
+    const char* profile = "Weight ARMCK MP 0\n"
+                          "Weight ARMCK 2.46\n"
+                          "Limit ARMLAB MP 0\n"
+                          "Limit ARMLAB 4\n";
+    check(computer_players_configure(&state, profile, kBuildLists), "unit split: configure");
+    check(computer_players_initialize(&state, host), "unit split: initialize");
+    const auto& k = state.players[1].knowledge;
+    check(
+        k.weight_percent[ARMCK] == 0 && k.weight_locked[ARMCK] == 1,
+        "unit split: the weight reads 0 and locks"
+    );
+    check(
+        k.limits[ARMLAB] == 0 && k.limit_locked[ARMLAB] == 1,
+        "unit split: the limit reads 0 and locks"
+    );
+    check(k.weight_percent[ARMPW] == 100, "unit split: the side is untouched");
+    computer_players_release(&state);
 }
 
 // ai.difficulty-names: the plan keyword, the report label and the menu label a
@@ -1605,7 +1689,9 @@ int main(int argc, char** argv) {
     test_profile_reload();
     test_profile_leading_lines();
     test_profile_lines_without_number();
-    test_split_name_limits_a_side();
+    test_profile_lines_skipped();
+    test_split_name_is_skipped();
+    test_split_unit_name_reads_zero();
     test_sighted_weight();
     test_siege();
     test_difficulty_names();

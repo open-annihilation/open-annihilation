@@ -800,7 +800,11 @@ case. Outside a match `unit` is nil.
 
 `profile:select(keyword)` takes `"easy"`, `"medium"` or `"hard"`. Any
 other keyword raises `select expects easy, medium or hard`. The result is
-`weights` and `limits`, the line tables that apply.
+`weights` and `limits`, the line tables that apply. The built-in player and
+Classic skip a weight or limit line whose name is written with a space in
+it, such as `Limit ARM DECOM 4`, when its third word gives no number, a
+later word gives one and its second word is no unit's name; `select` keeps
+such a line as written, and a brain reading it decides for itself.
 
 `brain.strengths(type)` returns the seat's three strategic bytes, each
 read as a signed 8-bit value: build priority, metal, energy. The charge

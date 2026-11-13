@@ -443,9 +443,11 @@ struct ProfileLine {
 /// `static_cast<float>(std::strtod(word, nullptr))` of the third word, which
 /// is `""` when the word is missing, so the factor is 0. `limit <name>
 /// <count>` reads the count with `static_cast<int32_t>(std::strtol(word,
-/// nullptr, 10))`; `-1` is unlimited. This walk does not apply either
-/// command, and it does not apply a downloadable type's own lines a second
-/// time: the player does that itself.
+/// nullptr, 10))`; `-1` is unlimited. The player skips a weight or limit line
+/// that writes its name with a space in it, unless the name's first part is a
+/// unit's name (`computer_profile_line_skipped`). This walk does not apply
+/// either command, and it does not apply a downloadable type's own lines a
+/// second time: the player does that itself.
 ///
 /// @param text profile text, or empty
 /// @param visit called once per line that has a word; null does nothing
@@ -459,16 +461,36 @@ void computer_profile_lines(
 ///
 /// The number is the third word, read as the player reads it: `std::strtod`
 /// for a weight, `std::strtol` base 10 for a limit. A third word that is
-/// missing, or that those read nothing from, still applies as 0: a weight
-/// factor of 0, or a limit of 0, for the unit or category the second word
-/// names. A name written with a space in it reads so: `Limit ARM DECOM 4`
-/// limits the category ARM to 0, which is every Arm type that no line of the
-/// profile names on its own. A line of the command alone names nothing.
+/// missing, or that those read nothing from, applies as 0: a weight factor of
+/// 0, or a limit of 0, for the unit or category the second word names. The
+/// player skips such a line instead when `computer_profile_line_skipped` holds
+/// for it. A line of the command alone names nothing.
 ///
 /// @param line a line `computer_profile_lines` visits
 /// @return true for a weight or limit line with a name and no number
-/// @quirk The line still applies, as in 3.1c; this only tells it apart.
+/// @quirk A line the player does not skip applies as 0, as in 3.1c; this only
+///        tells it apart.
 [[nodiscard]] bool computer_profile_line_lacks_number(const ProfileLine& line) noexcept;
+
+/// Tells whether the computer players skip a `weight` or `limit` line that
+/// writes its name with a space in it.
+///
+/// Such a line gives no number (`computer_profile_line_lacks_number`), a later
+/// word gives one, read the same way, and its second word is no type's unit
+/// name, ignoring ASCII case: a category, or a name that matches nothing.
+/// `Limit ARM DECOM 4`, ARMDECOM in Core Contingency's ai/Krogoth.txt, is
+/// skipped. A line whose second word is a unit's name keeps 3.1c's reading:
+/// `Weight ARMCA MP 0` multiplies the weight of ARMCA by 0 and locks it. So
+/// does a line with no later number.
+///
+/// @param line a line `computer_profile_lines` visits
+/// @param world the match; its unit types, from 1, name the units
+/// @return true for a line the computer players skip
+/// @quirk 3.1c applies a skipped line as 0 to the first part of the name:
+///        `Limit ARM DECOM 4` limits every Arm type no line names on its own
+///        to 0, and an Arm computer player builds nothing else.
+[[nodiscard]] bool
+computer_profile_line_skipped(const ProfileLine& line, const oa::World& world) noexcept;
 
 /// Applies a "weight <unit or category> <percent>" line to one player.
 ///
