@@ -17,8 +17,10 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <span>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 using namespace oa::sim::ai;
@@ -1469,6 +1471,364 @@ struct RecruitRun {
     }
 };
 
+/// Places eight compact strike groups opposite their own nearby enemy.
+struct CohortRun : RecruitRun {
+    static constexpr uint32_t cohort_version = 10;
+    static constexpr uint32_t groups = 8;
+    static constexpr uint32_t members_per_group = 4;
+    static constexpr int32_t fixed_one = 65536;
+
+    /// Keeps the whole existing force while isolating target assignment from recruitment.
+    explicit CohortRun(uint32_t version = cohort_version, bool long_x = false)
+        : RecruitRun(version, 0, groups * members_per_group) {
+        host.map_cells_x = host.map_cells_z = 1024;
+        state.players[player].tasks[static_cast<uint32_t>(destination)].merge_radius = 1000000;
+        constexpr std::array<int32_t, members_per_group> offset{-3, -1, 1, 3};
+        for (uint32_t group = 0; group < groups; ++group) {
+            const int32_t across = group % 2 == 0 ? 1000 : 3000;
+            const int32_t along = 1000 + static_cast<int32_t>(group / 2) * 2000;
+            enemy(
+                static_cast<uint16_t>(group + 1),
+                long_x ? along : across + 400,
+                long_x ? across + 400 : along
+            );
+            for (uint32_t member = 0; member < members_per_group; ++member) {
+                const auto slot = first + group * members_per_group + member;
+                auto& unit = fake.units[slot];
+                const int32_t x = (long_x ? along : across) + offset[member];
+                const int32_t z =
+                    (long_x ? across : along) + offset[members_per_group - 1 - member];
+                unit.position = {x * fixed_one, 0, z * fixed_one};
+            }
+        }
+    }
+
+    /// Replaces a canonical enemy slot and gives its current record positive health.
+    void enemy(uint16_t slot, int32_t x, int32_t z) {
+        auto& unit =
+            fake.spawn(slot, 0, ARMLLT, x, z, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS);
+        unit.id = slot;
+        unit.health = 1000;
+    }
+
+    /// Runs one ordinary scheduled dispatch and returns its slot-ordered attack assignments.
+    std::vector<std::pair<uint16_t, uint16_t>> assign(uint32_t at) {
+        fake.orders.clear();
+        fake.joined.clear();
+        const auto random_before = fake.roll;
+        tick(at);
+        check(fake.roll == random_before, "cohort targets: no random draws");
+        check(fake.joined.empty(), "cohort targets: the existing force recruits no waiting units");
+        std::vector<std::pair<uint16_t, uint16_t>> result;
+        for (const auto& order : fake.orders) {
+            check(
+                order.kind == "attack" && !order.queue,
+                "cohort targets: ordinary unqueued attack callbacks"
+            );
+            check(
+                order.unit >= first && order.unit < first + groups * members_per_group,
+                "cohort targets: only current members receive attack callbacks"
+            );
+            result.emplace_back(order.unit, order.arg);
+        }
+        check(
+            std::is_sorted(result.begin(), result.end()),
+            "cohort targets: callbacks stay in canonical unit-slot order"
+        );
+        check(
+            std::adjacent_find(
+                result.begin(),
+                result.end(),
+                [](const auto& left, const auto& right) { return left.first == right.first; }
+            ) == result.end(),
+            "cohort targets: each member receives at most one attack callback"
+        );
+        return result;
+    }
+};
+
+/// Preserves each earlier preset's single nearest-enemy assignment.
+void test_earlier_strikes_keep_one_target() {
+    for (uint32_t version = 0; version <= 8; ++version) {
+        CohortRun run(version);
+        const auto orders = run.assign(300);
+        check(orders.size() == 32, "cohort targets: earlier presets order the whole strike");
+        for (const auto& [unit, target] : orders) {
+            (void)unit;
+            // Slots 3 and 5 are equally close to the whole-force centroid;
+            // the native first strict minimum is slot 3.
+            check(target == 3, "cohort targets: earlier presets keep their centroid target");
+        }
+    }
+    CohortRun disabled;
+    disabled.rules.setup.enhanced_mode.enabled = false;
+    const auto disabled_orders = disabled.assign(300);
+    check(disabled_orders.size() == 32, "cohort targets: disabled mode orders the whole strike");
+    for (const auto& [unit, target] : disabled_orders) {
+        (void)unit;
+        check(target == 3, "cohort targets: disabled Enhanced Mode keeps the native target");
+    }
+}
+
+/// Keeps nearby members together while different fronts receive their nearby enemies.
+void test_spatial_strikes_use_local_targets() {
+    for (const bool long_x : {false, true}) {
+        CohortRun run(CohortRun::cohort_version, long_x);
+        const auto orders = run.assign(300);
+        check(orders.size() == 32, "cohort targets: every strike member is assigned");
+        for (const auto& [unit, target] : orders) {
+            const auto group = (unit - CohortRun::first) / CohortRun::members_per_group;
+            check(target == group + 1, "cohort targets: each front chooses its nearby enemy");
+        }
+        check(
+            run.assign(600) == orders,
+            "cohort targets: unchanged positions keep the same target assignments"
+        );
+    }
+}
+
+/// Shares a nearby enemy cluster instead of broadcasting its first unit to every group.
+void test_cohort_target_pressure_spreads_a_cluster() {
+    for (const int32_t enemy_x : {9000, 30000}) {
+        CohortRun run;
+        run.host.map_cells_x = 2048;
+        for (uint16_t slot = 1; slot <= CohortRun::groups; ++slot)
+            run.enemy(slot, enemy_x + slot * 4, 4000);
+        const auto orders = run.assign(300);
+        std::map<uint16_t, uint32_t> counts;
+        for (const auto& [unit, target] : orders) {
+            (void)unit;
+            ++counts[target];
+        }
+        check(orders.size() == 32, "cohort pressure: the whole force receives orders");
+        check(counts.size() == CohortRun::groups, "cohort pressure: nearby alternatives are used");
+        for (const auto& [target, count] : counts) {
+            check(
+                target >= 1 && target <= CohortRun::groups, "cohort pressure: a live enemy target"
+            );
+            check(
+                count == CohortRun::members_per_group,
+                "cohort pressure: one nearby group per target"
+            );
+        }
+        if (orders.size() == CohortRun::groups * CohortRun::members_per_group)
+            for (uint32_t group = 0; group < CohortRun::groups; ++group) {
+                const auto first = group * CohortRun::members_per_group;
+                for (uint32_t member = 1; member < CohortRun::members_per_group; ++member)
+                    check(
+                        orders[first + member].second == orders[first].second,
+                        "cohort pressure: nearby members keep one shared group target"
+                    );
+            }
+    }
+}
+
+/// Keeps pressure costs beyond 32 bits from favouring an already crowded target.
+void test_cohort_pressure_keeps_wide_costs() {
+    CohortRun run;
+    run.host.map_cells_x = run.host.map_cells_z = 2048;
+    for (uint16_t slot = 1; slot <= CohortRun::groups; ++slot)
+        run.fake.units[slot].flags = 0;
+    run.enemy(1, 32700, 32700);
+    run.enemy(2, 32704, 32704);
+    const auto orders = run.assign(300);
+    std::map<uint16_t, uint32_t> counts;
+    for (const auto& [unit, target] : orders) {
+        (void)unit;
+        ++counts[target];
+    }
+    check(orders.size() == 32, "cohort wide costs: every member receives a target");
+    check(
+        counts.size() == 2 && counts[1] == 16 && counts[2] == 16,
+        "cohort wide costs: equal nearby alternatives each receive half the force"
+    );
+}
+
+/// Keeps the existing widened and submerged filters in land and naval cohort searches.
+void test_cohort_targets_keep_water_filter() {
+    for (const bool naval : {false, true}) {
+        RecruitRun run(CohortRun::cohort_version, 0, 8, naval);
+        run.rules.ai.nearest_enemy_filter.enabled = true;
+        run.rules.ai.nearest_enemy_filter.rules =
+            oa::data::match_rules::AiNearestEnemyFilterRules::skip_submerged;
+        auto& sub = run.fake.spawn(1, 0, ARMPT, 400, 300, OA_UNIT_FLAG_HAS_WEAPONS);
+        sub.health = 1000;
+        constexpr uint32_t submerged = 3;
+        std::memcpy(sub.last_occupy_code, &submerged, sizeof submerged);
+        constexpr uint32_t move_rate_tier_two = 0x8u;
+        run.fake.spawn(2, 0, ARMPW, 500, 300, OA_UNIT_FLAG_HAS_WEAPONS | move_rate_tier_two)
+            .health = 1000;
+        run.fake.spawn(3, 0, ARMLLT, 600, 300, OA_UNIT_FLAG_HAS_WEAPONS).health = 1000;
+        const auto random_before = run.fake.roll;
+        run.tick(300);
+        check(run.fake.roll == random_before, "cohort water: no random draws");
+        check(run.fake.orders.size() == 8, "cohort water: every member receives an attack");
+        for (const auto& order : run.fake.orders)
+            check(
+                order.kind == "attack" && order.arg == (naval ? 1 : 3),
+                "cohort water: land skips submerged targets, naval strike retains them"
+            );
+    }
+}
+
+/// Uses the only valid enemy for every group, and emits no attacks when none remain.
+void test_cohort_target_filtering_and_empty_search() {
+    CohortRun run;
+    run.fake.units.resize(64);
+    run.fake.running.resize(64);
+    run.fake.world.units = run.fake.units.data();
+    run.fake.world.unit_slot_count = static_cast<uint32_t>(run.fake.units.size());
+    run.fake.player(2, OA_PLAYER_STATUS_LOCAL, 50, 51);
+    run.fake.allies[CohortRun::player][2] = true;
+    auto& ally = run.fake.spawn(50, 2, ARMLLT, 2000, 4000, OA_UNIT_FLAG_HAS_WEAPONS);
+    ally.health = 1000;
+    for (uint16_t slot = 1; slot <= CohortRun::groups; ++slot)
+        run.enemy(slot, 2000, 4000);
+    run.fake.units[1].health = 0;
+    run.fake.units[2].flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    run.fake.units[3].state_flags |= OA_UNIT_STATE_CLOAKED;
+    run.fake.units[4].flags |= OA_UNIT_FLAG_NOT_SELECTABLE;
+    constexpr uint32_t occupied_state_two = 2;
+    run.fake.units[5].flags |= occupied_state_two;
+    run.fake.units[6].flags &= ~OA_UNIT_FLAG_LIVE;
+    run.fake.units[8].health = -1;
+    const auto orders = run.assign(300);
+    check(orders.size() == 32, "cohort filters: every member uses the remaining enemy");
+    for (const auto& [unit, target] : orders) {
+        (void)unit;
+        check(
+            target == 7, "cohort filters: dying, cloaked, unavailable and allied units are skipped"
+        );
+    }
+    run.fake.units[7].health = 0;
+    check(run.assign(600).empty(), "cohort filters: no attack order without a valid enemy");
+    RecruitRun empty(CohortRun::cohort_version, 0, 0);
+    const auto random_before = empty.fake.roll;
+    empty.tick(300);
+    check(empty.fake.orders.empty(), "cohort filters: an empty strike issues no orders");
+    check(
+        empty.fake.roll == random_before, "cohort filters: an empty strike draws no random value"
+    );
+}
+
+/// Rechecks death, cloak and replacement records instead of retaining candidate slots.
+void test_cohort_targets_reread_live_slots() {
+    CohortRun run;
+    for (uint16_t slot = 2; slot <= CohortRun::groups; ++slot)
+        run.fake.units[slot].flags = 0;
+    const auto first = run.assign(300);
+    check(first.size() == 32, "cohort live slots: every member receives the first live target");
+    for (const auto& [unit, target] : first) {
+        (void)unit;
+        check(target == 1, "cohort live slots: the first live enemy is selected");
+    }
+    run.fake.units[1].flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    run.enemy(2, 3000, 4000);
+    const auto replacement = run.assign(600);
+    check(replacement.size() == 32, "cohort live slots: the replacement receives every group");
+    for (const auto& [unit, target] : replacement) {
+        (void)unit;
+        check(target == 2, "cohort live slots: the dying former target is dropped");
+    }
+    run.enemy(1, 2000, 4000);
+    run.fake.units[1].id = 1234;
+    run.fake.units[1].state_flags |= OA_UNIT_STATE_CLOAKED;
+    const auto cloaked = run.assign(900);
+    check(cloaked.size() == 32, "cohort live slots: the uncloaked target remains usable");
+    for (const auto& [unit, target] : cloaked) {
+        (void)unit;
+        check(target == 2, "cohort live slots: a cloaked reused slot is not a cached candidate");
+    }
+    run.fake.units[1].state_flags &= ~OA_UNIT_STATE_CLOAKED;
+    run.fake.units[2].health = 0;
+    const auto returned = run.assign(1200);
+    check(returned.size() == 32, "cohort live slots: the fresh record becomes eligible");
+    for (const auto& [unit, target] : returned) {
+        (void)unit;
+        check(target == 1, "cohort live slots: the current record is selected after replacement");
+    }
+}
+
+/// Keeps assignments independent of the squad list's swap-and-pop order.
+void test_cohort_targets_keep_canonical_callback_order() {
+    CohortRun normal;
+    CohortRun shuffled;
+    auto& members =
+        shuffled.fake.squads[{CohortRun::player, static_cast<int>(shuffled.destination)}];
+    std::reverse(members.begin(), members.end());
+    check(
+        normal.assign(300) == shuffled.assign(300),
+        "cohort target order: membership vector order does not change commands"
+    );
+}
+
+/// Resolves equal costs by canonical slot rather than the enemy player's iteration order.
+void test_cohort_targets_break_ties_by_slot() {
+    CohortRun run;
+    for (uint16_t slot = 1; slot <= CohortRun::groups; ++slot)
+        run.fake.units[slot].flags = 0;
+    run.fake.player(0, OA_PLAYER_STATUS_LOCAL, 2, 3);
+    run.fake.player(2, OA_PLAYER_STATUS_LOCAL, 1, 1);
+    auto& later = run.fake.spawn(1, 2, ARMLLT, 2000, 4000, OA_UNIT_FLAG_HAS_WEAPONS);
+    later.health = 1000;
+    run.enemy(2, 2000, 4000);
+    const auto orders = run.assign(300);
+    check(orders.size() == 32, "cohort ties: all members receive a live equal-cost target");
+    if (!orders.empty())
+        check(orders.front().second == 1, "cohort ties: the first cohort takes the lower slot");
+}
+
+/// Refreshes only selected members without disturbing ordinary task clocks or recruitment.
+void test_masked_cohort_refresh_keeps_task_state() {
+    for (const uint32_t version : {uint32_t{8}, CohortRun::cohort_version}) {
+        CohortRun run(version);
+        run.fake.world.game.tick = 100;
+        const auto members = run.members();
+        const auto random_before = run.fake.roll;
+        const auto& task =
+            run.state.players[CohortRun::player].tasks[static_cast<uint32_t>(run.destination)];
+        const auto deadline = task.next_tick;
+        const auto attacking = task.attacking;
+        std::array<uint64_t, strike_refresh_mask_words> sources{};
+        const auto refresh = [&](std::span<const uint64_t> selected) {
+            return computer_player_refresh_strike_targets(
+                &run.state, run.host, CohortRun::player, run.destination, selected
+            );
+        };
+        check(!refresh(sources), "cohort refresh: an empty selection is a no-op");
+        check(!refresh({}), "cohort refresh: an absent mask is not a whole-squad refresh");
+        constexpr uint16_t first = CohortRun::first;
+        constexpr uint16_t last = first + CohortRun::groups * CohortRun::members_per_group - 1;
+        for (const auto slot : {uint16_t{1}, first, last})
+            sources[slot / strike_refresh_word_bits] |= uint64_t{1}
+                                                        << (slot % strike_refresh_word_bits);
+        check(
+            !refresh(std::span<const uint64_t>(sources).first(1)),
+            "cohort refresh: a truncated mask is refused"
+        );
+        check(
+            refresh(sources) == (version == CohortRun::cohort_version),
+            "cohort refresh: only the cohort preset accepts early attack callbacks"
+        );
+        if (version == CohortRun::cohort_version) {
+            check(run.fake.orders.size() == 2, "cohort refresh: only two selected members ordered");
+            if (run.fake.orders.size() == 2)
+                check(
+                    run.fake.orders[0].unit == first && run.fake.orders[0].arg == 1 &&
+                        run.fake.orders[1].unit == last && run.fake.orders[1].arg == 8,
+                    "cohort refresh: selected fronts keep their ordinary spatial targets"
+                );
+        } else {
+            check(run.fake.orders.empty(), "cohort refresh: earlier presets issue no orders");
+        }
+        check(
+            task.next_tick == deadline && task.attacking == attacking && run.members() == members &&
+                run.fake.joined.empty() && run.fake.roll == random_before,
+            "cohort refresh: task deadline, attack state, membership and random stream unchanged"
+        );
+    }
+}
+
 /// Admits at most 256 new members per ordinary land or naval dispatch.
 void test_distributed_strike_recruitment_budget() {
     constexpr uint32_t version = RecruitRun::distributed_version;
@@ -1814,6 +2174,16 @@ int main(int argc, char** argv) {
     test_factory_tick_filter();
     test_builder_withhold_threshold();
     test_attack_wave_size();
+    test_earlier_strikes_keep_one_target();
+    test_spatial_strikes_use_local_targets();
+    test_cohort_target_pressure_spreads_a_cluster();
+    test_cohort_pressure_keeps_wide_costs();
+    test_cohort_targets_keep_water_filter();
+    test_cohort_target_filtering_and_empty_search();
+    test_cohort_targets_reread_live_slots();
+    test_cohort_targets_keep_canonical_callback_order();
+    test_cohort_targets_break_ties_by_slot();
+    test_masked_cohort_refresh_keeps_task_state();
     test_distributed_strike_recruitment_budget();
     test_earlier_recruitment_keeps_its_seed_and_limit();
     test_recruitment_rereads_reused_source_slots();
