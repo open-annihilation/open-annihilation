@@ -7122,6 +7122,14 @@
 	it=mod: {name};
 	}
 
+[Models while the average unit is at least 20% larger than a dot. Dots farther out.]
+	{
+	de=Modelle, solange die durchschnittliche Einheit mindestens 20 % größer als ein Punkt ist. Bei weiterem Herauszoomen erscheinen Punkte.;
+	fr=Modèles tant que l'unité moyenne est au moins 20 % plus grande qu'un point. Points en dézoomant davantage.;
+	es=Modelos mientras una unidad de tamaño medio sea al menos un 20 % más grande que un punto. Puntos al alejar más la vista.;
+	it=Modelli finché un'unità di dimensioni medie è almeno il 20% più grande di un punto. Punti riducendo ancora lo zoom.;
+	}
+
 [Modern fonts for in-game text, including internationalization.]
 	{
 	de=Moderne Schriften für Text im Spiel, einschließlich Internationalisierung.;
@@ -12592,6 +12600,14 @@
 	fr=Limite d'unités;
 	es=Límite de unidades;
 	it=Limite di unità;
+	}
+
+[Unit size]
+	{
+	de=Einheitengröße;
+	fr=Taille des unités;
+	es=Tamaño de las unidades;
+	it=Dimensione delle unità;
 	}
 
 [Units]
