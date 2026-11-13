@@ -6267,6 +6267,71 @@ int64_t card_instance(
     return cards.draw_instance;
 }
 
+/// Appends immutable corner runs without rebuilding each polygon's fan.
+/// Unsupported metadata or a crossed frame bound leaves the old path responsible.
+bool append_shadow_corner_runs(
+    ModelCards& cards,
+    const CardType& type,
+    std::span<const sim::model_runtime::PieceState> pieces,
+    uint32_t named,
+    bool every_piece,
+    bool cached_only,
+    bool walls,
+    uint64_t piece_mask
+) {
+    if (!type.shadow_runs_ready || type.piece_shadow_runs.size() != pieces.size() + 1)
+        return false;
+    const auto selected = [&](std::size_t piece) {
+        if (type.body_detail &&
+            (piece >= body_lod_piece_limit || (piece_mask & (uint64_t{1} << piece)) == 0))
+            return false;
+        const auto flags = pieces[piece].flags;
+        const bool cached =
+            (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0;
+        return (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) != 0 &&
+               (cached || (!cached_only && every_piece));
+    };
+    const auto visit = [&](auto&& take) {
+        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+            if (!selected(piece))
+                continue;
+            if (walls) {
+                const auto first = type.piece_polygons[piece];
+                const auto last = type.piece_polygons[piece + 1];
+                if (first != last) {
+                    const auto& tail = type.polygons[last - 1];
+                    const auto end = tail.record + (tail.corners - 2) * 3;
+                    take(
+                        CardCornerRun{
+                            type.polygons[first].record, end - type.polygons[first].record
+                        }
+                    );
+                }
+            } else {
+                for (auto run = type.piece_shadow_runs[piece];
+                     run < type.piece_shadow_runs[piece + 1];
+                     ++run)
+                    take(type.shadow_runs[run]);
+            }
+        }
+    };
+    std::size_t count{};
+    visit([&](const CardCornerRun& run) { count += run.count; });
+    const auto first = cards.cast_indices.size();
+    if (count > maximum_vertices || first > maximum_vertices - count)
+        return false;
+    if (count == 0)
+        return true;
+    cards.cast_indices.resize(first + count);
+    auto* output = cards.cast_indices.data() + first;
+    visit([&](CardCornerRun run) {
+        for (uint32_t corner = 0; corner < run.count; ++corner)
+            output[corner] = named | (run.first + corner);
+        output += run.count;
+    });
+    return true;
+}
+
 /// Casts the shadow of the draw the models pass is listing into the
 /// shadows' map, where the card casts it (shadow_on_card): a building's
 /// silhouette of its cached pieces sheared a quarter across and up, its
@@ -6358,24 +6423,29 @@ void cast_on_card(
         auto& run = cards.cast_runs.back();
         const uint32_t named = (cast - run.first_instance) << renderer_live_gpu::model_corner_bits;
         const std::size_t first_index = cards.cast_indices.size();
-        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
-            if (type.body_detail &&
-                (piece >= body_lod_piece_limit || (piece_mask & (uint64_t{1} << piece)) == 0))
-                continue;
-            const uint16_t flags = pieces[piece].flags;
-            const bool cached =
-                (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0;
-            if ((flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0 ||
-                (!cached && (cached_only || !every_piece)))
-                continue;
-            for (uint32_t at = type.piece_polygons[piece]; at < type.piece_polygons[piece + 1];
-                 ++at) {
-                const auto& polygon = type.polygons[at];
-                if (!walls && polygon.colored && polygon.color == model::image_key)
+        if (!in.body_lod_enabled ||
+            !append_shadow_corner_runs(
+                cards, type, pieces, named, every_piece, cached_only, walls, piece_mask
+            )) {
+            for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+                if (type.body_detail &&
+                    (piece >= body_lod_piece_limit || (piece_mask & (uint64_t{1} << piece)) == 0))
                     continue;
-                const std::size_t count = (polygon.corners - 2) * 3;
-                for (uint32_t corner = 0; corner < count; ++corner)
-                    cards.cast_indices.push_back(named | (polygon.record + corner));
+                const uint16_t flags = pieces[piece].flags;
+                const bool cached =
+                    (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0;
+                if ((flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) == 0 ||
+                    (!cached && (cached_only || !every_piece)))
+                    continue;
+                for (uint32_t at = type.piece_polygons[piece]; at < type.piece_polygons[piece + 1];
+                     ++at) {
+                    const auto& polygon = type.polygons[at];
+                    if (!walls && polygon.colored && polygon.color == model::image_key)
+                        continue;
+                    const std::size_t count = (polygon.corners - 2) * 3;
+                    for (uint32_t corner = 0; corner < count; ++corner)
+                        cards.cast_indices.push_back(named | (polygon.record + corner));
+                }
             }
         }
         run.index_count += static_cast<uint32_t>(cards.cast_indices.size() - first_index);

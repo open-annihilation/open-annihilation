@@ -9799,14 +9799,22 @@ void underwater_features() {
 #include "body_lod_cards_test.inc"
 #include "body_lod_scene_test.inc"
 #include "body_lod_shadow_test.inc"
+#include "caster_index_runs_test.inc"
+#include "caster_index_scene_test.inc"
 
 int main() {
     body_lod_geometry_tests();
     body_lod_card_tests();
+    caster_index_runs_tests();
     animated_body_lod_scene();
     crowded_animated_body_lod();
     crowded_body_position_budget();
     offscreen_body_surface_skip();
+    caster_index_piece_policy();
+    caster_index_building_walls();
+    caster_index_run_boundary();
+    caster_index_capacity_fallback();
+    caster_index_coarse_equivalence();
     water_surface_bounds();
     sea_bed_follows_swells();
     water_disturbance_visibility();
