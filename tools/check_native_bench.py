@@ -25,6 +25,7 @@ Short paused runs also check default and explicit Enhanced presets without
 making a running-gameplay or frame-rate claim.
 """
 import argparse
+import math
 import os
 from pathlib import Path
 import re
@@ -105,6 +106,23 @@ SIM_FRAME = re.compile(
     rf"steps (?P<steps>\d+) max_step_ms (?P<maximum>{NUMBER}) "
     r"max_step_tick (?P<slowest>\d+)$")
 UINT32_MASK = (1 << 32) - 1
+UNIT_DETAIL_TAGS = frozenset(("UNIT_GEOMETRY", "UNIT_DETAIL_FRAME"))
+UNSIGNED = r"(?:0|[1-9]\d*)"
+SIGNED = r"(?:0|-?[1-9]\d*)"
+UNIT_GEOMETRY = re.compile(
+    rf"^bench: UNIT_GEOMETRY type (?P<type>{UNSIGNED}) present (?P<present>{UNSIGNED}) "
+    rf"owned (?P<owned>{UNSIGNED}) rest_mesh_x (?P<x>\d+\.\d{{4}}) "
+    r"rest_mesh_y (?P<y>\d+\.\d{4}) rest_mesh_z (?P<z>\d+\.\d{4}) "
+    rf"footprint_x (?P<footprint_x>{SIGNED}) footprint_z (?P<footprint_z>{SIGNED}) name=(?P<name>\S+)$")
+UNIT_DETAIL_FRAME = re.compile(
+    rf"^bench: UNIT_DETAIL_FRAME (?P<frame>{UNSIGNED}) automatic (?P<automatic>[01]) "
+    r"average_pixels (?P<average>\d+\.\d{4}) dot_pixels (?P<dot>\d+\.\d) "
+    rf"model_ratio (?P<ratio>\d+\.\d{{2}}) reference_units (?P<units>{UNSIGNED}) dots (?P<dots>[01])$")
+UNIT_DOT_PIXELS = 5.0
+UNIT_MODEL_TO_DOT_RATIO = 1.2
+FRAME_RESULT = re.compile(RESULT.pattern.replace("label=check", r"label=\S+"))
+# Rest-mesh coordinates are signed 16.16; their difference can round to this size.
+UNIT_MAX_MESH_EXTENT = 65536.0
 # A sum and its maximum are independently rounded to three decimal places.
 SIM_ROUNDING_MS = 0.0011
 # The frame mean is rounded to two places, the SIM_FRAME samples to three.
@@ -206,8 +224,88 @@ def check_initial(result, rules_version=0, requested_rules_version=0):
              f"not {rules_version}/{requested_rules_version}")
 
 
+def check_unit_detail_records(result, lines):
+    """Validate optional mesh metadata and paired detail rows before removing only those rows."""
+    tags = [line.split()[1] for line in lines]
+    if any(tag.startswith("UNIT_") and tag not in UNIT_DETAIL_TAGS for tag in tags):
+        fail(result, "unit detail records: unknown unit metadata tag")
+    geometry = [index for index, tag in enumerate(tags) if tag == "UNIT_GEOMETRY"]
+    detail = [index for index, tag in enumerate(tags) if tag == "UNIT_DETAIL_FRAME"]
+    if not geometry and not detail:
+        return lines
+
+    def require(condition, message):
+        if not condition:
+            fail(result, "unit detail records: " + message)
+
+    positions = [index for index, tag in enumerate(tags) if tag == "FRAME"]
+    results = [FRAME_RESULT.fullmatch(line) for line in lines if line.startswith("bench: RESULT ")]
+    require(len(results) == 1 and results[0] is not None, "missing or malformed RESULT")
+    frames = int(results[0].group(2))
+    require(frames > 0 and len(positions) == frames, "metadata needs the complete FRAME span")
+    for frame, position in enumerate(positions):
+        match = FRAME.fullmatch(lines[position])
+        require(match is not None and int(match.group(1)) == frame,
+                "FRAME indices are not complete and ordered")
+    if geometry:
+        grounds = [index for index, tag in enumerate(tags) if tag == "GROUND"]
+        atlases = [index for index, tag in enumerate(tags) if tag == "ATLAS"]
+        require(len(grounds) == 1 and atlases and
+                geometry[0] == grounds[0] + 1 and geometry[-1] < atlases[0] < positions[0],
+                "mesh metadata must follow GROUND and precede ATLAS and FRAME")
+        require(geometry == list(range(geometry[0], geometry[-1] + 1)),
+                "mesh metadata is not contiguous")
+        previous_type = -1
+        present_total = 0
+        for index in geometry:
+            match = UNIT_GEOMETRY.fullmatch(lines[index])
+            require(match is not None, "a UNIT_GEOMETRY line does not read")
+            row = match.groupdict()
+            unit_type, present, owned = (int(row[key]) for key in ("type", "present", "owned"))
+            require(previous_type < unit_type <= (1 << 16) - 1,
+                    "mesh types are repeated, unordered or exceed uint16")
+            require(0 <= owned <= present <= UINT32_MASK and present > 0,
+                    "invalid mesh population counts")
+            require(all(-(1 << 15) <= int(row[key]) < 1 << 15
+                        for key in ("footprint_x", "footprint_z")),
+                    "mesh footprint exceeds int16")
+            dimensions = [float(row[key]) for key in ("x", "y", "z")]
+            require(all(math.isfinite(value) and 0 <= value <= UNIT_MAX_MESH_EXTENT
+                        for value in dimensions),
+                    "mesh extent is not finite or exceeds the rest-coordinate range")
+            previous_type = unit_type
+            present_total += present
+        counts = [COUNTS.match(line) for line in lines if line.startswith("bench: COUNTS ")]
+        require(len(counts) == 1 and counts[0] is not None and
+                present_total <= int(counts[0].group(1)) <= UINT32_MASK,
+                "mesh population exceeds the final unit census")
+    if detail:
+        require(len(detail) == frames, "each FRAME needs exactly one UNIT_DETAIL_FRAME")
+        for frame, position in enumerate(positions):
+            require(position + 2 < len(lines), "missing detail row after SIM_FRAME")
+            simulation = SIM_FRAME.fullmatch(lines[position + 1])
+            require(simulation is not None and int(simulation.group("frame")) == frame,
+                    "FRAME must immediately precede its SIM_FRAME")
+            require(detail[frame] == position + 2, "UNIT_DETAIL_FRAME must immediately follow SIM_FRAME")
+            match = UNIT_DETAIL_FRAME.fullmatch(lines[detail[frame]])
+            require(match is not None and int(match.group("frame")) == frame,
+                    "a UNIT_DETAIL_FRAME line does not read or has the wrong frame")
+            row = match.groupdict()
+            average, dot, ratio = (float(row[key]) for key in ("average", "dot", "ratio"))
+            units = int(row["units"])
+            require(all(math.isfinite(value) and value >= 0 for value in (average, dot, ratio)),
+                    "detail sizes are not finite nonnegative values")
+            require(dot == UNIT_DOT_PIXELS and ratio == UNIT_MODEL_TO_DOT_RATIO,
+                    "detail thresholds differ from the model transition")
+            require(units <= UINT32_MASK and (units != 0 or average == 0), "invalid detail reference count")
+            require(row["automatic"] == "1" or (units == 0 and average == 0),
+                    "manual detail has automatic reference measurements")
+    return [line for line, tag in zip(lines, tags) if tag not in UNIT_DETAIL_TAGS]
+
+
 def check_simulation_records(result, lines, frames=None):
     """Validate paired simulation rows before projecting the unchanged FRAME transcript."""
+    lines = check_unit_detail_records(result, lines)
     positions = [index for index, line in enumerate(lines) if line.startswith("bench: FRAME")]
     simulation = [line for line in lines if line.startswith("bench: SIM_FRAME")]
     if not positions:
@@ -273,6 +371,7 @@ def check_simulation_records(result, lines, frames=None):
 
 def check_renderer_records(result, lines, frames, timers):
     """Validate optional renderer families, returning the unchanged legacy transcript."""
+    lines = check_unit_detail_records(result, lines)
     legacy = [line for line in lines if line.split()[1] not in RENDERER_TAGS]
     lines = check_simulation_records(result, lines, frames)
     tags = [line.split()[1] for line in lines]
@@ -449,6 +548,8 @@ def check_lines(result, timers, rules_version=0, requested_rules_version=0):
     if away and not AWAY.match(away[0]):
         fail(result, f"the AWAY line does not read: {away[0]}")
     lines = [line for line in lines if not line.startswith("bench: AWAY")]
+    original = lines
+    lines = check_unit_detail_records(result, lines)
     simulation_checked = check_simulation_records(result, lines)
     kinds = [line.split()[1] for line in simulation_checked if line.split()[1] not in RENDERER_TAGS]
     # The lines come in their order, each kind once but SEC, MEASURE, STAGE,
@@ -508,7 +609,7 @@ def check_lines(result, timers, rules_version=0, requested_rules_version=0):
     check_renderer_records(result, lines, int(frames), timers)
     if timers:
         check_slow_and_frame_lines(result, lines, int(frames), measured["frame"])
-    return lines
+    return original
 
 
 def check_slow_and_frame_lines(result, lines, frames, frame_spread):
@@ -580,7 +681,8 @@ def main():
             untimed = run_bench(arguments.native, arguments.game_dir, workdir, "untimed",
                                 VIEW.format(stage=stage, warmup=WARMUP_TICKS, seconds=1, timers=0))
             if any(line.startswith(("bench: STAGE", "bench: SLOW", "bench: FRAME", "bench: SIM_FRAME")) or
-                   (line.startswith("bench: ") and line.split()[1] in RENDERER_TAGS)
+                   (line.startswith("bench: ") and
+                    line.split()[1] in RENDERER_TAGS | UNIT_DETAIL_TAGS)
                    for line in untimed.stdout.splitlines()):
                 fail(untimed, "the bench printed its stage timers with them off")
             if untimed.returncode != 0 or "bench: DONE label=check" not in untimed.stdout:

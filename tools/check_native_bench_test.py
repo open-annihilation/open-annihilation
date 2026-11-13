@@ -141,6 +141,38 @@ def renderer_transcript(families=RENDERER_FAMILIES, diagnostics=True):
     return "\n".join(lines) + "\n"
 
 
+def geometry_record(**changes):
+    """Return one cold type census with drawable rest-mesh dimensions."""
+    values = dict(type=95, present=200, owned=150, x="22.0000", y="26.0000", z="29.0000",
+                  footprint_x=2, footprint_z=2, name="ARMPW")
+    values.update(changes)
+    return ("bench: UNIT_GEOMETRY type {type} present {present} owned {owned} "
+            "rest_mesh_x {x} rest_mesh_y {y} rest_mesh_z {z} "
+            "footprint_x {footprint_x} footprint_z {footprint_z} name={name}").format(**values)
+
+
+def detail_record(frame, **changes):
+    """Return the frame's automatic model-size reference and actual dot choice."""
+    values = dict(frame=frame, automatic=1, average="6.0000", dot="5.0", ratio="1.20",
+                  units=180, dots=0)
+    values.update(changes)
+    return ("bench: UNIT_DETAIL_FRAME {frame} automatic {automatic} average_pixels {average} "
+            "dot_pixels {dot} model_ratio {ratio} reference_units {units} dots {dots}").format(**values)
+
+
+def unit_detail_transcript(geometry=True, detail=True):
+    """Add optional cold geometry and complete detail companions to the renderer transcript."""
+    lines = []
+    for line in renderer_transcript().splitlines():
+        lines.append(line)
+        if geometry and line.startswith("bench: GROUND revisions "):
+            lines.extend((geometry_record(), geometry_record(type=144, present=100, owned=0,
+                                                           name="CORAK")))
+        if detail and line.startswith("bench: SIM_FRAME "):
+            lines.append(detail_record(int(line.split()[2])))
+    return "\n".join(lines) + "\n"
+
+
 class NativeBenchReceiptTest(unittest.TestCase):
     """Receipts identify the actual preset and remain part of strict transcript validation."""
 
@@ -155,6 +187,142 @@ class NativeBenchReceiptTest(unittest.TestCase):
                 with self.assertRaisesRegex(bench.BenchFailure, message):
                     checker(result, *args, **kwargs)
         self.assertEqual(output.getvalue(), result.stdout + result.stderr)
+
+    def test_unit_detail_families_are_optional_and_project_only_validated_rows(self):
+        """Both new families retain strict legacy checks, together or independently."""
+        for geometry in (False, True):
+            for detail in (False, True):
+                with self.subTest(geometry=geometry, detail=detail):
+                    text = unit_detail_transcript(geometry, detail)
+                    self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+                    self.assertEqual(bench.check_unit_detail_records(result_for(text), text.splitlines()),
+                                     renderer_transcript().splitlines())
+                    self.assertEqual(bench.check_renderer_records(result_for(text), text.splitlines(),
+                                                                  3, True), transcript(timers=True).splitlines())
+
+    def test_unit_detail_accepts_zero_geometry_and_manual_or_unknown_size_choices(self):
+        """Empty mesh bounds and manual dots do not imply automatic geometry measurements."""
+        text = unit_detail_transcript().replace(geometry_record(), geometry_record(
+            x="0.0000", y="0.0000", z="65536.0000", footprint_x=-32768, footprint_z=32767))
+        self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+        for changes in (dict(automatic=0, average="0.0000", units=0, dots=1),
+                        dict(average="0.0000", units=0, dots=1),
+                        dict(average="0.0000", units=180), dict(average="6.0000", dots=1)):
+            with self.subTest(changes=changes):
+                changed = text
+                for frame in range(3):
+                    changed = changed.replace(detail_record(frame), detail_record(frame, **changes))
+                self.assertEqual(bench.check_lines(result_for(changed), True), changed.splitlines())
+
+    def test_geometry_rows_require_strict_fields_ranges_and_nonempty_names(self):
+        """Malformed metadata cannot disappear through the compatibility projection."""
+        text = unit_detail_transcript()
+        changes = (dict(type=65536), dict(type=-1), dict(type="095"), dict(present=0),
+                   dict(present=4294967296), dict(present=401), dict(owned=201),
+                   dict(owned=-1), dict(x="-1.0000"), dict(x="65536.0001"),
+                   dict(y="nan"), dict(y="inf"), dict(z="1..0000"), dict(x="1.000"),
+                   dict(x="9" * 400 + ".0000"), dict(footprint_x=-32769),
+                   dict(footprint_z=32768), dict(footprint_x="2.5"), dict(footprint_x="-0"),
+                   dict(footprint_z="02"), dict(name=""),
+                   dict(name="ARM PW"))
+        for change in changes:
+            with self.subTest(change=change):
+                self.assert_rejected(result_for(text.replace(geometry_record(), geometry_record(**change))),
+                                     bench.check_lines, True, message="unit detail records")
+        for row in (geometry_record() + " trailing", geometry_record().replace(" owned 150", "")):
+            self.assert_rejected(result_for(text.replace(geometry_record(), row)), bench.check_lines,
+                                 True, message="unit detail records")
+
+    def test_geometry_is_one_ordered_unique_cold_block_after_ground(self):
+        """Repeated types, moved metadata and a split census are refused."""
+        original = unit_detail_transcript().splitlines()
+        first = next(i for i, line in enumerate(original) if line.startswith("bench: UNIT_GEOMETRY"))
+        malformed = []
+        duplicate = original.copy()
+        duplicate.insert(first, duplicate[first])
+        malformed.append(duplicate)
+        reverse = original.copy()
+        reverse[first:first + 2] = reversed(reverse[first:first + 2])
+        malformed.append(reverse)
+        split = original.copy()
+        split.insert(first + 1, "bench: ATLAS packed by scenery 0.0 materials 0 texels a frame")
+        malformed.append(split)
+        for prefix in ("bench: GROUND revisions", "bench: FRAME 0 "):
+            moved = original.copy()
+            row = moved.pop(first)
+            index = next(i for i, line in enumerate(moved) if line.startswith(prefix))
+            moved.insert(index, row)
+            malformed.append(moved)
+        for lines in malformed:
+            with self.subTest(lines=lines):
+                self.assert_rejected(result_for("\n".join(lines) + "\n"), bench.check_lines, True,
+                                     message="unit detail records")
+
+    def test_detail_rows_require_complete_adjacent_frame_pairing(self):
+        """The companion occupies exactly the position after its matching SIM_FRAME."""
+        text = unit_detail_transcript()
+        malformed = (text.replace(detail_record(1) + "\n", ""),
+                     text.replace(detail_record(1), detail_record(1) + "\n" + detail_record(1)),
+                     text.replace(detail_record(1), detail_record(0)),
+                     text.replace(detail_record(1), detail_record(1) + " trailing"),
+                     text.replace(detail_record(1) + "\n", "").replace(
+                         "bench: POSE_FRAME 1 ", detail_record(1) + "\nbench: POSE_FRAME 1 "),
+                     text.replace(simulation_record(1), detail_record(1) + "\n" + simulation_record(1)),
+                     text.replace("bench: FRAME 1 ", "bench: FRAME 2 "))
+        for changed in malformed:
+            with self.subTest(changed=changed):
+                self.assert_rejected(result_for(changed), bench.check_lines, True,
+                                     message="unit detail records")
+        orphan = transcript().replace("bench: DONE", detail_record(0) + "\nbench: DONE")
+        self.assert_rejected(result_for(orphan), bench.check_lines, False, message="unit detail records")
+
+    def test_detail_rows_check_flags_constants_finite_sizes_and_reference_counts(self):
+        """The schema keeps native booleans and measured reference invariants distinct."""
+        text = unit_detail_transcript()
+        changes = (dict(automatic=2), dict(automatic=-1), dict(dots=2), dict(dots="01"),
+                   dict(average="nan"), dict(average="inf"), dict(average="-1.0000"),
+                   dict(average="9" * 400 + ".0000"), dict(average="6.000"),
+                   dict(dot="6.0"), dict(dot="0.0"), dict(dot="nan"), dict(ratio="1.30"),
+                   dict(ratio="1.2"), dict(units=4294967296), dict(units=-1),
+                   dict(units="180.0"), dict(units="0180"), dict(units=0),
+                   dict(automatic=0), dict(automatic=0, units=0))
+        for change in changes:
+            with self.subTest(change=change):
+                self.assert_rejected(result_for(text.replace(detail_record(1), detail_record(1, **change))),
+                                     bench.check_lines, True, message="unit detail records")
+
+    def test_timers_off_logged_frames_validate_detail_without_requiring_timers(self):
+        """Paused logs retain geometry and detail even though all renderer timings are zero."""
+        lines = []
+        for line in unit_detail_transcript().splitlines():
+            tag = line.split()[1]
+            if tag in (*RENDERER_FAMILIES, "STAGE", "SLOW") or tag.startswith("GROUND_INDEX_BUILD_"):
+                continue
+            if tag == "GROUND_INDEX_FRAME":
+                line = f"bench: {tag} {line.split()[2]} builds 0 hits 0 triangles 0 wall_ms 0.000"
+            elif tag == "POSE_FRAME":
+                line = f"bench: {tag} {line.split()[2]} units 0 pieces 0 vm_triplets 0"
+            elif tag == "MATERIAL_FRAME":
+                line = f"bench: {tag} {line.split()[2]} {line.split()[3]} insertions 0 texels 0 row_texels 0"
+            lines.append(line.replace("label=check", "label=paused"))
+        text = "\n".join(lines) + "\n"
+        projected = bench.check_renderer_records(result_for(text), lines, 3, False)
+        self.assertFalse(any(line.split()[1] in bench.UNIT_DETAIL_TAGS for line in projected))
+        broken = text.replace(detail_record(1), detail_record(1, units=0))
+        self.assert_rejected(result_for(broken), bench.check_renderer_records,
+                             broken.splitlines(), 3, False, message="unit detail records")
+        unknown = text.replace("bench: GROUND revisions", "bench: UNIT_DETAIL_EXTRA junk\nbench: GROUND revisions")
+        self.assert_rejected(result_for(unknown), bench.check_renderer_records,
+                             unknown.splitlines(), 3, False, message="unknown unit metadata tag")
+
+    def test_detail_projection_preserves_unknown_and_malformed_legacy_rejection(self):
+        """Validated telemetry cannot conceal unknown tags or alter the existing FRAME contract."""
+        text = unit_detail_transcript()
+        for changed in (text.replace("bench: GROUND revisions", "bench: UNKNOWN junk\nbench: GROUND revisions"),
+                        text.replace("bench: GROUND revisions", "bench: UNIT_DETAIL_EXTRA junk\nbench: GROUND revisions"),
+                        text.replace("frame 1000.00 work", "frame nan work", 1)):
+            with self.subTest(changed=changed):
+                self.assert_rejected(result_for(changed), bench.check_lines, True)
 
     def test_initial_accepts_default_current_and_explicit_versions(self):
         """Off, the current preset without a request, and explicit versions 0..8 identify themselves."""
