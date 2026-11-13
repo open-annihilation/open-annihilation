@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <memory>
 #include <limits>
 #include <vector>
@@ -819,6 +820,28 @@ void unit_size_keeps_models_farther_out_and_does_not_flicker() {
     OA_CHECK(!detail::as_dots(fallback, empty, 0, classic, 0, {}));
 }
 
+void unchanged_size_samples_do_not_request_geometry_again() {
+    namespace detail = oa::app::unit_detail_transition;
+    UnitSizeArmy army;
+    detail::State state;
+    const detail::Projection classic{1, 0, 0, 0, -0.5F, 1};
+    uint32_t requests{};
+    const auto geometry = [&] {
+        ++requests;
+        return std::span<const detail::Geometry>{army.geometry};
+    };
+    OA_CHECK(!detail::as_dots_with_geometry(state, *army.world, 10, classic, 0, geometry));
+    OA_CHECK(requests == 0 && !state.sampled);
+    OA_CHECK(!detail::as_dots_with_geometry(state, *army.world, 10, classic, 0.26F, geometry));
+    OA_CHECK(requests == 1 && state.average.units == 4 && state.average.pixels == 25);
+    OA_CHECK(!detail::as_dots_with_geometry(state, *army.world, 10, classic, 0.27F, geometry));
+    OA_CHECK(requests == 1);
+    OA_CHECK(!detail::as_dots_with_geometry(state, *army.world, 11, classic, 0.26F, geometry));
+    OA_CHECK(requests == 2);
+    OA_CHECK(!detail::as_dots_with_geometry(state, *army.world, 12, classic, 0, geometry));
+    OA_CHECK(requests == 2 && state.tick == 11);
+}
+
 } // namespace
 
 int main() {
@@ -838,5 +861,6 @@ int main() {
     the_automatic_boundary_uses_physical_population_size();
     physical_size_follows_camera_and_unit_turn();
     unit_size_keeps_models_farther_out_and_does_not_flicker();
+    unchanged_size_samples_do_not_request_geometry_again();
     return oa::test::check_exit_status();
 }
