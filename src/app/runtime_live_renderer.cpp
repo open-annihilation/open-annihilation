@@ -692,6 +692,13 @@ bool Runtime::live_models_on_card() const noexcept {
            renderer_live_gpu::draws_lights(live_renderer_->gpu);
 }
 
+bool Runtime::live_geometry_shadow_type(const oa::present::model::ModelRef& model) const noexcept {
+    return live_models_on_card() && model.instance != nullptr && model.prepared != nullptr &&
+           renderer_live_scene::cached_card_type(
+               live_renderer_->scene.card_types, *model.instance, *model.prepared
+           );
+}
+
 void Runtime::set_live_models_on_card(bool allowed) noexcept {
     if (!live_renderer_)
         live_renderer_.reset(new LiveRenderer{});
@@ -1020,6 +1027,12 @@ bool Runtime::render_live_match_surface() {
         // it adds the lights too: the processor's lights find their
         // surfaces among the frame's own triangles.
         inputs.models_on_card = live_models_on_card();
+        // Keep this policy enabled through a resource failure: any image
+        // already deferred must force a genuine-pixel replan if its type
+        // can no longer cast the frame's shadow on the card.
+        inputs.geometry_shadow_metadata = match_->rules().setup.enhanced_mode.enabled &&
+                                          director_ == nullptr &&
+                                          models.presentation.playout == nullptr;
         inputs.markers_on_card = compact_marker_frame(
             match_->rules(),
             {frame_draws_.units_as_dots,

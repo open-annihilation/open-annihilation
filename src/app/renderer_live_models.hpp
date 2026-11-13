@@ -230,6 +230,21 @@ struct CardCorner {
     const present::model::PreparedModel& prepared
 );
 
+/// Checks whether an existing drawable type matches the model and piece order.
+///
+/// This never creates a type or changes its registry. The model's ownership,
+/// prepared textures and piece objects must still match the retained type.
+///
+/// @param types the retained types, unchanged throughout a planning run
+/// @param instance the model and current piece order
+/// @param prepared the model's prepared textures
+/// @return true when the exact retained type can be drawn on the card
+[[nodiscard]] bool cached_card_type(
+    const CardTypes& types,
+    const sim::model_runtime::Instance& instance,
+    const present::model::PreparedModel& prepared
+) noexcept;
+
 /// The most triangle corners the types keep: past it, a frame forgets them
 /// all before it draws (trim_card_types).
 inline constexpr std::size_t card_records_kept = std::size_t{1} << 20;

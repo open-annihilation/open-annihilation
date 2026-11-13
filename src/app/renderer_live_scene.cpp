@@ -8,6 +8,7 @@
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
 #include "renderer_water_surface.hpp"
+#include "model_shadow_metadata.hpp"
 
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
@@ -3983,14 +3984,23 @@ DrawShadow shadow_of_draw(const Inputs& in, const ModelDraw& draw) {
         return shadow;
     const auto& source = building ? ref.state->shadow : ref.state->image;
     const auto& image = source.sprite;
-    const auto count = static_cast<std::size_t>(image.width) * image.height;
-    if (image.data == nullptr || count == 0 || count > maximum_vertices)
+    const auto* deferred = in.geometry_shadow_metadata && ref.state->deferred_image &&
+                                   geometry_shadow_metadata_candidate(draw, in.sea_level)
+                               ? &*ref.state->deferred_image
+                               : nullptr;
+    const auto width = deferred != nullptr ? deferred->width : image.width;
+    const auto height = deferred != nullptr ? deferred->height : image.height;
+    const auto count = static_cast<std::size_t>(width) * height;
+    if ((deferred == nullptr && image.data == nullptr) || width <= 0 || height <= 0 ||
+        count > maximum_vertices)
         return shadow;
     shadow.casts = true;
     shadow.building = building;
     shadow.digger = digger;
     shadow.unit = unit;
-    shadow.source = &source;
+    // A deferred frame was checked against the current card type before
+    // the passes began. Only its geometry casts; no CPU reader sees it.
+    shadow.source = deferred != nullptr ? nullptr : &source;
     shadow.position = draw.shown_position.value_or(unit->position);
     const auto& position = shadow.position;
     shadow.receiver =
@@ -5945,6 +5955,26 @@ void find_card_types(const Inputs& in, CardTypes& types) {
         if (models[index].plan.linked.drawn && reference.instance != nullptr &&
             reference.prepared != nullptr)
             types.draw_types[index] = card_type(types, *reference.instance, *reference.prepared);
+    }
+}
+
+/// Refuses deferred shadow pixels without the current frame's geometry support.
+/// @param in the frame and its image policy
+/// @param types the model types freshly found for every draw
+void verify_geometry_shadow_metadata(const Inputs& in, const CardTypes& types) {
+    if (!in.geometry_shadow_metadata || (in.graphics_flags & model::graphics_shadows) == 0 ||
+        in.draws->shadow_level == 0)
+        return;
+    const auto& draws = in.draws->models;
+    for (std::size_t index = 0; index < draws.size(); ++index) {
+        const auto& draw = draws[index];
+        if (draw.model.state == nullptr || !draw.model.state->deferred_image)
+            continue;
+        const auto& image = *draw.model.state->deferred_image;
+        if (!in.models_on_card || index >= types.draw_types.size() || types.draw_types[index] < 0 ||
+            !geometry_shadow_metadata_candidate(draw, in.sea_level) || image.width <= 0 ||
+            image.height <= 0 || uint64_t(image.width) * uint64_t(image.height) > maximum_vertices)
+            throw std::runtime_error("3D model shadow needs its cached image pixels");
     }
 }
 
@@ -8784,6 +8814,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const bool timing = bench_timers::timers.on;
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
+    verify_geometry_shadow_metadata(in, scene.card_types);
     plan_unit_detail(in, scene);
     // The ordinary model pass packs a missing marker material in its
     // original order. Only its already persistent rectangle may be read

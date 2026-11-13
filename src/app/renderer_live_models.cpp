@@ -15,6 +15,27 @@ namespace {
 namespace gpu = renderer_live_gpu;
 namespace model = present::model;
 
+/// Matches the immutable model, prepared textures and complete piece object order.
+/// @param type the retained model type
+/// @param instance the model and current pieces
+/// @param prepared the prepared textures used by the draw
+/// @return true when the retained type describes the instance
+bool same_card_type(
+    const CardType& type,
+    const sim::model_runtime::Instance& instance,
+    const present::model::PreparedModel& prepared
+) noexcept {
+    const auto& handle = instance.model_handle();
+    const auto pieces = instance.pieces();
+    if (!handle || type.prepared != &prepared || type.model.owner_before(handle) ||
+        handle.owner_before(type.model) || type.objects.size() != pieces.size())
+        return false;
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece)
+        if (type.objects[piece] != pieces[piece].object_index)
+            return false;
+    return true;
+}
+
 /// The most corners, vertices and pieces a type holds, and textures.
 constexpr uint32_t field_limit = 1U << gpu::model_piece_shift;
 constexpr uint32_t slot_limit = 1U << gpu::model_texture_bits;
@@ -177,13 +198,7 @@ int32_t card_type(
     auto& made = types.by_model[handle.get()];
     for (const uint32_t index : made) {
         const auto& type = types.types[index];
-        if (type.prepared != &prepared || type.model.owner_before(handle) ||
-            handle.owner_before(type.model) || type.objects.size() != pieces.size())
-            continue;
-        bool same = true;
-        for (std::size_t piece = 0; same && piece < pieces.size(); ++piece)
-            same = type.objects[piece] == pieces[piece].object_index;
-        if (same)
+        if (same_card_type(type, instance, prepared))
             return type.drawable ? static_cast<int32_t>(index) : -1;
     }
     CardType type;
@@ -211,6 +226,23 @@ int32_t card_type(
     made.push_back(static_cast<uint32_t>(types.types.size()));
     types.types.push_back(std::move(type));
     return types.types.back().drawable ? static_cast<int32_t>(types.types.size() - 1) : -1;
+}
+
+bool cached_card_type(
+    const CardTypes& types,
+    const sim::model_runtime::Instance& instance,
+    const present::model::PreparedModel& prepared
+) noexcept {
+    const auto& handle = instance.model_handle();
+    if (!handle)
+        return false;
+    const auto found = types.by_model.find(handle.get());
+    if (found == types.by_model.end())
+        return false;
+    for (const uint32_t index : found->second)
+        if (index < types.types.size() && same_card_type(types.types[index], instance, prepared))
+            return types.types[index].drawable;
+    return false;
 }
 
 void trim_card_types(CardTypes& types) {

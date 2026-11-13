@@ -153,6 +153,7 @@ namespace oa::present::model {
 struct RgbBridge;
 struct RgbFrame;
 struct ModelDisplay;
+struct ModelRef;
 } // namespace oa::present::model
 
 namespace oa::data::persist {
@@ -8560,6 +8561,11 @@ class Runtime final : public menu::Host,
     /// their types' models: once the card has drawn a frame and adds the
     /// lights itself, unless set_live_models_on_card(false) said not to.
     [[nodiscard]] bool live_models_on_card() const noexcept;
+    /// Checks the retained GPU type before a ground unit defers its image pixels.
+    /// @param model the current ordinary or interpolated model and piece order
+    /// @return true when the retained type still supports its geometry
+    [[nodiscard]] bool
+    live_geometry_shadow_type(const oa::present::model::ModelRef& model) const noexcept;
     /// Lets the live frames draw models from their types' models on the card,
     /// or keeps every model in the frame's vertices, for the checks.
     /// @param allowed whether the card may draw them

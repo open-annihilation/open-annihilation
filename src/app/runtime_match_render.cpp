@@ -17,6 +17,7 @@
 #include "render_run.hpp"
 #include "render_state.hpp"
 #include "world_draws.hpp"
+#include "model_shadow_metadata.hpp"
 #include "renderer_weapon_style.hpp"
 #include "xrgb_conversion.hpp"
 #include "oa/base/float_precision.hpp"
@@ -585,6 +586,12 @@ struct UnitPlanFrame {
     bool snapshot_unlinked_vertices{};
     /// A native world frame with every model shadow disabled needs image metadata only.
     model_render::ModelImagePlan image_plan{model_render::ModelImagePlan::pixels};
+    /// The immutable retained GPU type registry; null disables shadow metadata.
+    void* shadow_type_context{};
+    /// Checks the retained type without changing the registry; null keeps pixels.
+    bool (*shadow_type_supported)(void* context, const model_render::ModelRef& model) noexcept {};
+    /// Sea level in world pixels, bounding ordinary ground shadows.
+    int32_t sea_level{};
 };
 
 // The units a drawing thread takes at a time to plan: few enough that the
@@ -676,11 +683,15 @@ void plan_model(
     carried.clear();
     // Unfinished images can retain moving pieces from an earlier build;
     // linked models compose their cargo. Keep those cached pixels ready.
-    const auto image_plan = stand_in < 0 && model.unit->build_remaining == 0.0F &&
-                                    model.unit->attach_parent == 0 &&
-                                    model.unit->attach_first_child == 0
-                                ? frame.image_plan
-                                : model_render::ModelImagePlan::pixels;
+    auto image_plan = stand_in < 0 && model.unit->build_remaining == 0.0F &&
+                              model.unit->attach_parent == 0 && model.unit->attach_first_child == 0
+                          ? frame.image_plan
+                          : model_render::ModelImagePlan::pixels;
+    if (image_plan == model_render::ModelImagePlan::pixels &&
+        frame.shadow_type_supported != nullptr &&
+        geometry_shadow_metadata_candidate(drawn, frame.sea_level) &&
+        frame.shadow_type_supported(frame.shadow_type_context, model))
+        image_plan = model_render::ModelImagePlan::metadata;
     model_render::plan_unit_supersampled(
         renderer, bridge, model, region, idle, level, drawn.plan, image_plan
     );
@@ -2096,13 +2107,25 @@ bool Runtime::draw_match_surface() {
                                  unit_level == model_render::UnitSupersampling::off &&
                                  draw_list.shadow_level == 0 &&
                                  (renderer.graphics_flags & model_render::graphics_shadows) == 0;
+    const bool geometry_shadow_metadata =
+        match_->rules().setup.enhanced_mode.enabled && live_world && director_ == nullptr &&
+        models.presentation.playout == nullptr && live_models_on_card() &&
+        !models.unit_plans.snapshot_unlinked_vertices &&
+        unit_level == model_render::UnitSupersampling::off;
     const UnitPlanFrame plan_frame{
         unit_level,
         live_world,
         live_renderer_active(),
         models.unit_plans.snapshot_unlinked_vertices,
         metadata_images ? model_render::ModelImagePlan::metadata
-                        : model_render::ModelImagePlan::pixels
+                        : model_render::ModelImagePlan::pixels,
+        this,
+        geometry_shadow_metadata
+            ? +[](void* context, const model_render::ModelRef& model) noexcept {
+                  return static_cast<const Runtime*>(context)->live_geometry_shadow_type(model);
+              }
+            : nullptr,
+        world_record.game.sea_level
     };
     if (live_world && dots)
         for (auto& cache : models.transform_caches)

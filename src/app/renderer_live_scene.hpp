@@ -735,6 +735,10 @@ struct Inputs {
     /// a building, lit by nanolathe particles, or of a model the card cannot
     /// hold stays in the vertices.
     bool models_on_card{};
+    /// Accept deferred image frames only for verified ordinary ground
+    /// shadows cast from the current GPU model type. A missing type makes
+    /// the frame fail so its caller can plan genuine pixels instead.
+    bool geometry_shadow_metadata{};
     /// Draw explicit strategic markers from their exact four CPU corners.
     /// False retains the ordinary vertices and picking ranges.
     bool markers_on_card{};
