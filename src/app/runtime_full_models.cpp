@@ -329,6 +329,7 @@ struct BodyChoice {
     uint64_t frame{};
     float zoom{};
     uint8_t quality{}; ///< zero for the original mesh, one for low and two for medium
+    float pixels{};    ///< current drawable diameter in window pixels
 };
 
 /// Counts only geometry actually appended by a unit body or its shadow pass.
@@ -366,6 +367,28 @@ struct BodySources {
     bool attempted{};
     bool retained{};
 };
+
+/// The identity of immutable pixels already admitted for one unit slot.
+struct BodyImage {
+    std::weak_ptr<const Model> owner;
+    const oa::sim::model_runtime::Instance* instance{};
+    const draw::ModelState* state{};
+    const void* pixels{};
+    uint64_t fingerprint{};
+    uint64_t used_frame{};
+    uint32_t image_builds{};
+    uint32_t type{};
+    uint16_t width{}, height{};
+    int16_t origin_x{}, origin_y{};
+    uint8_t owner_index{};
+};
+
+/// Cached images use their own bounded pool, leaving material textures available.
+constexpr uint32_t body_image_page_side = 256;
+constexpr size_t body_image_page_bytes = size_t{body_image_page_side} * body_image_page_side * 4;
+constexpr size_t maximum_body_image_bytes = size_t{32} * 1024 * 1024;
+constexpr uint32_t maximum_body_image_side = 128;
+constexpr size_t maximum_body_image_pixels = size_t{128} * 128;
 
 /// A model's full mesh and its bounded distance variants.
 struct MeshEntry {
@@ -1526,6 +1549,13 @@ struct ModelStage::Impl {
     size_t body_source_bytes{};
     uint64_t body_frame{1};
     std::vector<BodyChoice> body_choices{};
+    gw::SpritePages body_images{gw::Limits{
+        body_image_page_side, body_image_page_side, body_image_page_bytes, maximum_body_image_bytes
+    }};
+    std::vector<PageSlot> body_image_slots;
+    /// At most one record per uint16 unit slot; atlas cells may be evicted independently.
+    std::unordered_map<uint16_t, BodyImage> body_image_records;
+    gw::GrowthHooks body_image_growth{};
 
     /// Cached soft-edged aircraft silhouettes; at most 256 pages of 256 square texels.
     struct AircraftShadow {
@@ -1588,6 +1618,7 @@ struct ModelStage::Impl {
         next_number = first_texture_number;
         keyed_texels.clear();
         meshes.clear();
+        body_image_records.clear();
         body_mesh_bytes = 0;
         body_source_bytes = 0;
         ++body_frame;
@@ -1851,6 +1882,11 @@ class Emitter {
     /// @return an immutable cached mesh, or the original on any uncertain state
     [[nodiscard]] const gw::ModelMesh&
     body_mesh(const ModelDraw& drawn, const draw::ModelRef& model, const gw::ModelMesh& mesh);
+    /// Emits a current, complete cached image, or retains the geometry path unchanged.
+    [[nodiscard]] bool
+    body_image(const ModelDraw& drawn, const draw::ModelRef& model, const Canvas& surface);
+    /// Uploads an image page before any packet may reference its current pixels.
+    [[nodiscard]] bool body_image_page(uint32_t page);
     /// Returns bounded unique drawable references, or none to scan the original corners.
     [[nodiscard]] const BodySources*
     body_sources(const draw::ModelRef& model, const gw::ModelMesh& mesh);
@@ -2503,6 +2539,7 @@ const gw::ModelMesh& Emitter::body_mesh(
     }
     const double pixels =
         any ? std::max(int64_t{right} - left + 1, int64_t{bottom} - top + 1) * view_.zoom : 0;
+    choice.pixels = static_cast<float>(pixels);
     const double full_boundary = full_body_pixels * (previous != 0 ? 1 + body_distance_hysteresis
                                                                    : 1 - body_distance_hysteresis);
     if (!(pixels > 0 && pixels <= full_boundary) || !body_materials(drawn, model, mesh))
@@ -2514,6 +2551,211 @@ const gw::ModelMesh& Emitter::body_mesh(
     return reduced_mesh(model, mesh, choice.quality);
 } catch (const std::bad_alloc&) {
     return mesh;
+}
+
+bool Emitter::body_image_page(uint32_t index) {
+    const auto pages = impl_.body_images.pages();
+    if (index >= pages.size() || pages[index].size == 0)
+        return false;
+    const auto& page = pages[index];
+    const bool new_page = index >= impl_.body_image_slots.size() ||
+                          impl_.body_image_slots[index].handle == card::PageHandle{} ||
+                          impl_.body_image_slots[index].size != page.size ||
+                          !executor_.page_alive(impl_.body_image_slots[index].handle);
+    std::string error;
+    if (!ensure_page_slot(
+            executor_, impl_.body_images, impl_.body_image_slots, index, counts_, error
+        ))
+        return false;
+    if (new_page) {
+        impl_.body_images.clear_dirty(index);
+        return true;
+    }
+    if (page.dirty.empty())
+        return true;
+    const card::Rect part{page.dirty.x, page.dirty.y, page.dirty.width, page.dirty.height};
+    const auto* pixels =
+        page.texels.data() + (size_t{page.dirty.y} * page.size + page.dirty.x) * card::texel_bytes;
+    if (!executor_.update_page(
+            impl_.body_image_slots[index].handle, 0, &part, pixels, page.size * card::texel_bytes
+        ))
+        return false;
+    ++counts_.page_uploads;
+    impl_.body_images.clear_dirty(index);
+    return true;
+}
+
+bool Emitter::body_image(
+    const ModelDraw& drawn, const draw::ModelRef& model, const Canvas& surface
+) try {
+    if (!impl_.body_lod_enabled || impl_.body_choices.empty() || !drawn.plan.model.from_image ||
+        !(scale_ > 0) || !std::isfinite(scale_))
+        return false;
+    const auto& unit = *model.unit;
+    // These guards precede reuse of a shadow pass's distance choice too.
+    if (drawn.on_map || drawn.stand_in >= 0 || is_building(unit) || unit.build_remaining != 0 ||
+        (unit.state_flags & draw::unit_state_cloaked) != 0 || in_.world->game.debug_overlay != 0 ||
+        (def_flags(model) & (OA_UNIT_DEF_FLAG_CAN_FLY | OA_UNIT_DEF_FLAG_FLOATER |
+                             OA_UNIT_DEF_FLAG_CAN_HOVER | OA_UNIT_DEF_FLAG_DIGGER)) != 0 ||
+        !drawn.plan.model.carried.empty() || in_.vertex_heights != nullptr ||
+        hi(unit.position.y) < in_.world->game.sea_level)
+        return false;
+    const auto limit = executor_.capabilities().texture_limit;
+    if (limit != 0 && body_image_page_side > limit)
+        return false;
+    const auto& choice = impl_.body_choices[unit.id];
+    if (choice.frame != impl_.body_frame || choice.draw != &drawn ||
+        choice.instance != model.instance || choice.zoom != view_.zoom || choice.quality == 0 ||
+        choice.pixels < least_body_pixels || choice.pixels > full_body_pixels)
+        return false;
+    const auto& state = *model.state;
+    const auto& image = state.image.sprite;
+    const auto pieces = model.instance->pieces();
+    if (state.deferred_image || state.image_unfinished || !state.cache.has_image ||
+        state.cache.draws == 0 || state.transforms_dirty || model.instance->transforms_dirty() ||
+        state.pieces.size() != pieces.size() || image.data == nullptr ||
+        image.key != draw::image_key || image.encoding != OA_SPRITE_RAW || image.child_count != 0 ||
+        image.child_draw_mode != 0 || image.width == 0 || image.height == 0 ||
+        image.width > maximum_body_image_side || image.height > maximum_body_image_side ||
+        size_t{image.width} * image.height > maximum_body_image_pixels ||
+        image.data != state.image.pixels.data() ||
+        state.image.pixels.size() < size_t{image.width} * image.height ||
+        (image.aux != nullptr &&
+         (image.aux != state.image.pixels.data() + size_t{image.width} * image.height ||
+          state.image.pixels.size() < size_t{2} * image.width * image.height)))
+        return false;
+    // Cached ancestors must also be cached: moving an uncached hidden parent
+    // does not invalidate a descendant's cached image in the ordinary planner.
+    for (size_t at = 0; at < pieces.size(); ++at) {
+        const auto& piece = pieces[at];
+        const auto& seen = state.pieces[at];
+        if ((piece.flags & piece_cached) == 0 || piece.flags != seen.flags ||
+            piece.translation.x != seen.translation.x ||
+            piece.translation.y != seen.translation.y ||
+            piece.translation.z != seen.translation.z || piece.rotation.xy != seen.rotation.xy ||
+            piece.rotation.xz != seen.rotation.xz || piece.rotation.yz != seen.rotation.yz)
+            return false;
+    }
+    const float left = surface.origin_x +
+                       float(hi(wrap_sub(unit.position.x, camera_x_)) - image.origin_x) * scale_;
+    const float top = surface.origin_y + float(
+                                             hi(wrap_sub(unit.position.z, camera_z_)) -
+                                             (hi(unit.position.y) >> 1) - image.origin_y
+                                         ) * scale_;
+    const float right = left + float(image.width) * scale_;
+    const float bottom = top + float(image.height) * scale_;
+    if (surface.scissored && (right < surface.scissor.x || bottom < surface.scissor.y ||
+                              left > double(surface.scissor.x) + surface.scissor.width ||
+                              top > double(surface.scissor.y) + surface.scissor.height))
+        return true;
+    uint64_t fingerprint = shape_digest_start;
+    bool covered = false;
+    const auto* pixels = static_cast<const uint8_t*>(image.data);
+    const auto size = size_t{image.width} * image.height;
+    for (size_t at = 0; at < size; ++at) {
+        fingerprint = (fingerprint ^ pixels[at]) * shape_digest_multiplier;
+        covered = covered || pixels[at] != draw::image_key;
+    }
+    if (!covered)
+        return false;
+    const auto old = impl_.body_image_records.find(unit.id);
+    const auto owner = old != impl_.body_image_records.end() ? old->second.owner.lock() : nullptr;
+    const bool same =
+        old != impl_.body_image_records.end() && owner.get() == &model.instance->model() &&
+        old->second.instance == model.instance && old->second.state == model.state &&
+        old->second.pixels == image.data && old->second.fingerprint == fingerprint &&
+        old->second.image_builds == state.image_builds && old->second.type == unit.type_index &&
+        old->second.owner_index == unit.owner_index && old->second.width == image.width &&
+        old->second.height == image.height && old->second.origin_x == image.origin_x &&
+        old->second.origin_y == image.origin_y;
+    // A packet already admitted for this slot must retain its original cell
+    // until the frame executes, including when the slot's owner changes.
+    if (!same && old != impl_.body_image_records.end() &&
+        old->second.used_frame == impl_.body_frame)
+        return false;
+    const uint64_t frame_id = uint64_t{unit.id} + 1;
+    auto placed = same ? impl_.body_images.find(frame_id, gw::DrawMode::opaque) : gw::FrameResult{};
+    if (!same || placed.status != gw::FrameStatus::ok) {
+        if (impl_.body_image_growth.allow != nullptr &&
+            impl_.body_images.memory().page_bytes == 0 &&
+            !impl_.body_image_growth.allow(
+                impl_.body_image_growth.context, 2 * body_image_page_bytes
+            ))
+            return false;
+        if (!same)
+            impl_.body_images.forget(frame_id);
+        render_texture(image, false, impl_.rendered);
+        placed = impl_.body_images.frame(frame_id, gw::DrawMode::opaque, impl_.rendered);
+        if (placed.status != gw::FrameStatus::ok)
+            return false;
+        ++counts_.frames_placed;
+    }
+    BodyImage admitted;
+    admitted.owner = model.instance->model_handle();
+    admitted.instance = model.instance;
+    admitted.state = model.state;
+    admitted.pixels = image.data;
+    admitted.fingerprint = fingerprint;
+    admitted.used_frame = same ? old->second.used_frame : 0;
+    admitted.image_builds = state.image_builds;
+    admitted.type = unit.type_index;
+    admitted.width = image.width;
+    admitted.height = image.height;
+    admitted.origin_x = image.origin_x;
+    admitted.origin_y = image.origin_y;
+    admitted.owner_index = unit.owner_index;
+    // Associate the CPU atlas cell with its new identity even if the GPU
+    // upload fails. A later reversion must not find these pixels under the
+    // previous identity. A failed record allocation drops only this unused cell.
+    try {
+        impl_.body_image_records[unit.id] = std::move(admitted);
+    } catch (const std::bad_alloc&) {
+        if (!same)
+            impl_.body_images.forget(frame_id);
+        throw;
+    }
+    if (!body_image_page(placed.record.page))
+        return false;
+    const auto& page = impl_.body_images.pages()[placed.record.page];
+    const auto& rect = placed.record.rect;
+    const float side = float(page.size);
+    const float u0 = rect.x / side, v0 = rect.y / side;
+    const float u1 = (rect.x + rect.width) / side, v1 = (rect.y + rect.height) / side;
+    const std::array<card::Vertex, 4> vertices{
+        {{left, top, {}, u0, v0},
+         {right, top, {}, u1, v0},
+         {right, bottom, {}, u1, v1},
+         {left, bottom, {}, u0, v1}}
+    };
+    constexpr std::array<card::Index, 6> indices{0, 1, 2, 0, 2, 3};
+    // Reserve before modifying the frame, so an allocation refusal leaves
+    // no partial quad for the geometry fallback to inherit.
+    if (frame_.vertices.size() > card::most_frame_vertices - vertices.size() ||
+        frame_.indices.size() > card::most_frame_indices - indices.size() ||
+        frame_.batches.size() >= card::most_frame_batches)
+        return false;
+    const auto reserve = [](auto& values, size_t extra, size_t maximum) {
+        const auto needed = values.size() + extra;
+        if (needed > values.capacity())
+            values.reserve(std::max(needed, std::min(maximum, values.capacity() * 2)));
+    };
+    reserve(frame_.vertices, vertices.size(), card::most_frame_vertices);
+    reserve(frame_.indices, indices.size(), card::most_frame_indices);
+    reserve(frame_.batches, 1, card::most_frame_batches);
+    impl_.body_image_records.at(unit.id).used_frame = impl_.body_frame;
+    const BodyEmission emission{impl_.body_lod_counts, frame_, frame_.indices.size(), true, false};
+    append(
+        surface,
+        impl_.body_image_slots[placed.record.page].handle,
+        card::Blend::alpha_premultiplied,
+        vertices,
+        indices
+    );
+    ++counts_.units;
+    ++counts_.polygons;
+    return true;
+} catch (const std::bad_alloc&) {
+    return false;
 }
 
 const Sprite* Emitter::frame_of(
@@ -4035,6 +4277,8 @@ void Emitter::draw_model(const ModelDraw& drawn) {
     const auto* original_mesh = mesh;
     mesh = &body_mesh(drawn, model, *mesh);
     body_lod_mesh_ = mesh != original_mesh ? mesh : nullptr;
+    if (body_image(drawn, model, canvas))
+        return;
     const BodyEmission emission{
         impl_.body_lod_counts,
         frame_,
@@ -4939,12 +5183,16 @@ void ModelStage::set_palette(const Palette& palette, float gamma) {
     impl_->has_palette = true;
     pages_.set_palette(palette, gamma);
     bright_pages_.set_palette(doubled(palette), gamma);
+    impl_->body_images.set_palette(palette, gamma);
     impl_->forget_contents();
 }
 
 void ModelStage::close(card::Executor& executor) noexcept {
     free_pages(executor, impl_->slots);
     free_pages(executor, impl_->bright_slots);
+    free_pages(executor, impl_->body_image_slots);
+    impl_->body_images.clear();
+    impl_->body_images.reset_memory_limit();
     if (impl_->solid_page != card::PageHandle{})
         executor.destroy_page(impl_->solid_page);
     impl_->solid_page = {};
@@ -4971,6 +5219,7 @@ void ModelStage::close(card::Executor& executor) noexcept {
 void ModelStage::begin_frame() noexcept {
     pages_.begin_frame();
     bright_pages_.begin_frame();
+    impl_->body_images.begin_frame();
     ++impl_->aircraft_shadow_frame;
     impl_->body_lod_counts = {};
     if (++impl_->body_frame == 0) {
@@ -4990,6 +5239,13 @@ const BodyLodCounts& ModelStage::body_lod_counts() const noexcept {
 void ModelStage::set_growth_hooks(const gw::GrowthHooks& hooks) noexcept {
     pages_.set_growth_hooks(hooks);
     bright_pages_.set_growth_hooks(hooks);
+    impl_->body_image_growth = hooks;
+    impl_->body_images.set_growth_hooks({impl_.get(), +[](void* context, size_t bytes) {
+                                             const auto& growth =
+                                                 static_cast<Impl*>(context)->body_image_growth;
+                                             return growth.allow != nullptr &&
+                                                    growth.allow(growth.context, 2 * bytes);
+                                         }});
 }
 
 void ModelStage::emit_shadows(
@@ -5031,6 +5287,10 @@ bool ModelStage::upload(card::Executor& executor) {
     const bool pages = upload_pages(executor, pages_, impl_->slots, counts_, error_);
     const bool bright = upload_pages(executor, bright_pages_, impl_->bright_slots, counts_, error_);
     return pages && bright;
+}
+
+const gw::SpritePages& ModelStage::body_image_pages() const noexcept {
+    return impl_->body_images;
 }
 
 std::size_t ModelStage::mesh_bytes() const noexcept {

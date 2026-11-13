@@ -905,14 +905,19 @@ bool Runtime::FullPresentation::allow_page_growth(void* context, std::size_t byt
 }
 
 void Runtime::FullPresentation::note_page_memory() {
-    const gw::SpritePages* const sets[] = {&sprite_pages, &models.pages(), &models.bright_pages()};
+    const gw::SpritePages* const sets[] = {
+        &sprite_pages, &models.pages(), &models.bright_pages(), &models.body_image_pages()
+    };
     std::size_t limit = 0;
     std::size_t largest = 0;
     uint64_t held_refusals = 0;
     for (const gw::SpritePages* set : sets) {
         limit += set->limits().memory_limit;
         largest += set->limits().largest_memory_limit;
-        held_refusals += set->statistics().held_refusals;
+        // An optional cached body image refused admission still draws its
+        // geometry, so it does not report missing sprite or material art.
+        if (set != &models.body_image_pages())
+            held_refusals += set->statistics().held_refusals;
     }
     if (logged_page_memory == 0)
         logged_page_memory = limit;

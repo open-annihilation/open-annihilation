@@ -138,6 +138,7 @@ constexpr uint8_t second_ink = 0x66;
 constexpr uint8_t third_ink = 0x77;
 constexpr uint8_t fourth_ink = 0x88;
 constexpr uint8_t team_colour = 4;
+constexpr uint16_t piece_visible = static_cast<uint16_t>(PieceFlag::visible);
 constexpr uint16_t piece_cached = static_cast<uint16_t>(PieceFlag::cached);
 /// The synthetic frame and where its unit stands.
 constexpr int frame_width = 160;
@@ -4070,6 +4071,366 @@ void test_installed_unit_faces(oa::AssetStore& assets) {
     OA_CHECK(share <= installed_other_face_share);
 }
 
+/// Readies the same cached-image invalidation and pixel plan as an ordinary frame.
+void plan_cached_body(
+    Scene& scene, SceneUnit& actor, ProcessorPicture& processor, uint16_t flags = 0
+) {
+    draw::note_piece_changes(scene.ref(actor));
+    ++scene.tick;
+    scene.begin_frame(processor, flags);
+    scene.plan_unit(actor);
+}
+
+/// Complete current cached images retain the processor's picture and transparent gaps.
+void test_cached_body_image() {
+    constexpr float zoom = 1.0F;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    for (auto& piece : actor.instance.pieces())
+        piece.flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    plan_cached_body(scene, actor, processor);
+    scene.raster_processor(processor);
+    Card candidate(scene, zoom);
+    candidate.stage.set_body_lod_enabled(true);
+    candidate.stage.begin_frame();
+    const auto shown = candidate.raster(scene, zoom);
+    OA_CHECK(candidate.frame.vertices.size() == 4);
+    OA_CHECK(candidate.frame.indices.size() == 6);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_vertices == 6);
+    OA_CHECK(candidate.frame.batches.back().blend == card::Blend::alpha_premultiplied);
+    check_exact("complete cached body", compare(shown, processor, scene));
+    OA_CHECK(pixels_with_alpha(shown, 0) > 0);
+    const auto uploads = candidate.stage.counts().page_uploads;
+    const auto decodes = candidate.stage.body_image_pages().statistics().decodes;
+    const auto builds = actor.state.image_builds;
+    plan_cached_body(scene, actor, processor);
+    candidate.stage.begin_frame();
+    OA_CHECK(candidate.raster(scene, zoom).rgba == shown.rgba);
+    OA_CHECK(candidate.stage.counts().page_uploads == uploads);
+    OA_CHECK(candidate.stage.body_image_pages().statistics().decodes == decodes);
+    OA_CHECK(actor.state.image_builds == builds);
+}
+
+/// Mutable persistent headers and buffers never freeze their admitted image pixels.
+void test_cached_body_image_revisions() {
+    constexpr float zoom = 0.5F;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    for (auto& piece : actor.instance.pieces())
+        piece.flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    plan_cached_body(scene, actor, processor);
+    Card candidate(scene, zoom);
+    candidate.stage.set_body_lod_enabled(true);
+    candidate.stage.begin_frame();
+    auto before = candidate.raster(scene, zoom);
+    const auto* header = &actor.state.image.sprite;
+    const auto* buffer = actor.state.image.sprite.data;
+    for (const bool revision : {true, false}) {
+        auto& image = actor.state.image.sprite;
+        auto* pixels = static_cast<uint8_t*>(image.data);
+        for (size_t at = 0; at < size_t{image.width} * image.height; ++at)
+            if (pixels[at] != draw::image_key)
+                pixels[at] = revision ? third_ink : fourth_ink;
+        if (revision)
+            ++actor.state.image_builds;
+        plan_cached_body(scene, actor, processor);
+        candidate.stage.begin_frame();
+        const auto changed = candidate.raster(scene, zoom);
+        OA_CHECK(&actor.state.image.sprite == header);
+        OA_CHECK(actor.state.image.sprite.data == buffer);
+        OA_CHECK(candidate.frame.indices.size() == 6);
+        OA_CHECK(changed.rgba != before.rgba);
+        before = changed;
+    }
+    const auto builds = actor.state.image_builds;
+    actor.instance.pieces()[1].translation.x += 2 * unit;
+    actor.instance.rebuild_transforms();
+    plan_cached_body(scene, actor, processor);
+    candidate.stage.begin_frame();
+    const auto moved = candidate.raster(scene, zoom);
+    OA_CHECK(actor.state.image_builds > builds);
+    OA_CHECK(candidate.frame.indices.size() == 6);
+    OA_CHECK(moved.rgba != before.rgba);
+}
+
+/// Palette changes and a reused unit slot cannot inherit stale image cells.
+void test_cached_body_image_identity() {
+    constexpr float zoom = 0.5F;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    for (auto& piece : actor.instance.pieces())
+        piece.flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    plan_cached_body(scene, actor, processor);
+    Card candidate(scene, zoom);
+    candidate.stage.set_body_lod_enabled(true);
+    candidate.stage.begin_frame();
+    const auto original = candidate.raster(scene, zoom);
+    scene.gamma = 1.5F;
+    candidate.stage.set_palette(scene.palette, scene.gamma);
+    plan_cached_body(scene, actor, processor);
+    candidate.stage.begin_frame();
+    const auto gamma = candidate.raster(scene, zoom);
+    OA_CHECK(gamma.rgba != original.rgba);
+    OA_CHECK(candidate.frame.indices.size() == 6);
+    scene.units.clear();
+    auto model = body_lod_model();
+    for (auto& object : model->objects)
+        for (auto& face : object.primitives)
+            face.color_index = fourth_ink;
+    auto& replacement = scene.add_unit(model, 1, unit_x + 5, unit_z);
+    replacement.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    replacement.unit->type_index = 2;
+    for (auto& piece : replacement.instance.pieces())
+        piece.flags |= piece_cached;
+    replacement.instance.rebuild_transforms();
+    plan_cached_body(scene, replacement, processor);
+    candidate.stage.begin_frame();
+    OA_CHECK(candidate.raster(scene, zoom).rgba != gamma.rgba);
+    OA_CHECK(candidate.frame.indices.size() == 6);
+    OA_CHECK(candidate.stage.body_image_pages().memory().frames == 1);
+    OA_CHECK(
+        candidate.stage.body_image_pages().limits().largest_memory_limit <= size_t{32} * 1024 * 1024
+    );
+}
+
+/// Camera phase, supersampling and clipping retain the cached image's ordinary anchor.
+void test_cached_body_image_anchor() {
+    constexpr float zoom = 0.5F;
+    constexpr float scale = 2.0F;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, 8, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    for (auto& piece : actor.instance.pieces())
+        piece.flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    plan_cached_body(scene, actor, processor);
+    Card candidate(scene, zoom * scale);
+    candidate.stage.set_body_lod_enabled(true);
+    candidate.stage.begin_frame();
+    full::SceneView view;
+    view.zoom = zoom;
+    view.scale = scale;
+    view.width = static_cast<int32_t>(scene.width * zoom);
+    view.height = static_cast<int32_t>(scene.height * zoom);
+    view.camera_x = 6;
+    view.camera_y = 10;
+    view.origin_x = 3.25F;
+    view.origin_y = 5.5F;
+    view.offset = {0.25, 0.5};
+    const auto shown = raster_seeded_body_view(candidate, scene, view, 0, 0, false);
+    OA_CHECK(candidate.frame.vertices.size() == 4);
+    OA_CHECK(candidate.frame.indices.size() == 6);
+    const auto& image = actor.state.image.sprite;
+    const float left = 3.0F + float(8 - view.camera_x - image.origin_x);
+    const float top = 5.0F + float(unit_z - view.camera_y - image.origin_y);
+    OA_CHECK(std::abs(candidate.frame.vertices[0].x - left) < 0.0001F);
+    OA_CHECK(std::abs(candidate.frame.vertices[0].y - top) < 0.0001F);
+    OA_CHECK(candidate.frame.vertices[0].x < candidate.frame.batches.back().scissor.x);
+    OA_CHECK(pixels_with_alpha(shown, 255) > 0);
+}
+
+/// Uncached visible pieces and uncached hidden ancestors retain live geometry.
+void test_cached_body_image_mixed_fallbacks() {
+    constexpr float zoom = 0.75F;
+    for (const bool hidden_parent : {false, true}) {
+        Scene scene;
+        auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+        actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        for (auto& piece : actor.instance.pieces())
+            piece.flags |= piece_cached;
+        if (hidden_parent)
+            actor.instance.pieces()[0].flags &=
+                static_cast<uint16_t>(~(piece_cached | piece_visible));
+        else
+            actor.instance.pieces()[1].flags &= static_cast<uint16_t>(~piece_cached);
+        actor.instance.rebuild_transforms();
+        ProcessorPicture processor;
+        plan_cached_body(scene, actor, processor);
+        Card candidate(scene, zoom);
+        candidate.stage.set_body_lod_enabled(true);
+        candidate.stage.begin_frame();
+        const auto before = candidate.raster(scene, zoom);
+        OA_CHECK(candidate.stage.body_image_pages().memory().frames == 0);
+        actor.instance.pieces()[hidden_parent ? 0 : 1].translation.x += 3 * unit;
+        actor.instance.rebuild_transforms();
+        plan_cached_body(scene, actor, processor);
+        candidate.stage.begin_frame();
+        OA_CHECK(candidate.raster(scene, zoom).rgba != before.rgba);
+        OA_CHECK(candidate.stage.body_image_pages().memory().frames == 0);
+    }
+}
+
+/// A revision after admission keeps the first packet's page intact and uses geometry.
+void test_cached_body_image_held_revision() {
+    constexpr float zoom = 0.5F;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    for (auto& piece : actor.instance.pieces())
+        piece.flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    plan_cached_body(scene, actor, processor);
+    Card candidate(scene, zoom);
+    candidate.stage.set_body_lod_enabled(true);
+    candidate.stage.begin_frame();
+    full::SceneView view;
+    view.zoom = zoom;
+    view.width = candidate.canvas.width;
+    view.height = candidate.canvas.height;
+    const auto inputs = scene.inputs();
+    const auto draw = scene.list.draws.front();
+    candidate.stage.emit_draw(inputs, view, draw, candidate.executor, candidate.frame);
+    OA_CHECK(candidate.frame.vertices.size() == 4);
+    OA_CHECK(candidate.frame.indices.size() == 6);
+    const auto vertices = candidate.frame.vertices;
+    const auto atlas_pixels = candidate.stage.body_image_pages().pages()[0].texels;
+    const auto uploads = candidate.stage.counts().page_uploads;
+    auto& image = actor.state.image.sprite;
+    auto* pixels = static_cast<uint8_t*>(image.data);
+    for (size_t at = 0; at < size_t{image.width} * image.height; ++at)
+        if (pixels[at] != draw::image_key)
+            pixels[at] = fourth_ink;
+    ++actor.state.image_builds;
+    candidate.stage.emit_draw(inputs, view, draw, candidate.executor, candidate.frame);
+    OA_CHECK(candidate.frame.indices.size() > 6);
+    OA_CHECK(candidate.stage.counts().page_uploads == uploads);
+    OA_CHECK(candidate.stage.body_image_pages().pages()[0].texels == atlas_pixels);
+    ++actor.unit->type_index;
+    candidate.stage.emit_draw(inputs, view, draw, candidate.executor, candidate.frame);
+    OA_CHECK(candidate.stage.counts().page_uploads == uploads);
+    OA_CHECK(candidate.stage.body_image_pages().pages()[0].texels == atlas_pixels);
+    for (size_t at = 0; at < vertices.size(); ++at)
+        OA_CHECK(vertex_words(candidate.frame.vertices[at]) == vertex_words(vertices[at]));
+    OA_CHECK(candidate.stage.upload(candidate.executor));
+    OA_CHECK(card::check_frame(candidate.frame).empty());
+}
+
+/// A failed new-image admission cannot alias a later return to the previous pixels.
+void test_cached_body_image_failed_revision() {
+    constexpr float zoom = 0.5F;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    for (auto& piece : actor.instance.pieces())
+        piece.flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    plan_cached_body(scene, actor, processor);
+    Card candidate(scene, zoom);
+    candidate.stage.set_body_lod_enabled(true);
+    candidate.stage.begin_frame();
+    const auto original = candidate.raster(scene, zoom);
+    auto& image = actor.state.image.sprite;
+    const auto size = size_t{image.width} * image.height;
+    auto* pixels = static_cast<uint8_t*>(image.data);
+    const std::vector<uint8_t> original_pixels(pixels, pixels + size);
+    const auto revision = actor.state.image_builds;
+    for (size_t at = 0; at < size; ++at)
+        if (pixels[at] != draw::image_key)
+            pixels[at] = fourth_ink;
+    ++actor.state.image_builds;
+    OA_CHECK(!candidate.executor.open(nullptr, 0));
+    candidate.frame.reset();
+    candidate.stage.begin_frame();
+    full::SceneView view;
+    view.zoom = zoom;
+    view.width = candidate.canvas.width;
+    view.height = candidate.canvas.height;
+    candidate.stage.emit_draw(
+        scene.inputs(), view, scene.list.draws.front(), candidate.executor, candidate.frame
+    );
+    OA_CHECK(candidate.frame.vertices.size() != 4);
+    OA_CHECK(candidate.stage.error().empty());
+    std::copy(original_pixels.begin(), original_pixels.end(), pixels);
+    actor.state.image_builds = revision;
+    OA_CHECK(candidate.executor.open(candidate.canvas.renderer, 0));
+    candidate.stage.begin_frame();
+    OA_CHECK(candidate.raster(scene, zoom).rgba == original.rgba);
+    OA_CHECK(candidate.frame.indices.size() == 6);
+}
+
+/// Atlas refusal and physical water intersections fall back without partial image packets.
+void test_cached_body_image_refusals() {
+    constexpr float zoom = 0.5F;
+    for (uint32_t kind = 0; kind < 3; ++kind) {
+        const bool wet = kind == 1;
+        Scene scene;
+        auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+        actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        for (auto& piece : actor.instance.pieces())
+            piece.flags |= piece_cached;
+        if (wet) {
+            scene.world->game.sea_level = 4;
+            scene.water_shimmer = 0.4F;
+            actor.unit->position.y = 4 * unit;
+            actor.instance.pieces()[1].translation.y = -8 * unit;
+        }
+        actor.instance.rebuild_transforms();
+        ProcessorPicture processor;
+        plan_cached_body(scene, actor, processor);
+        if (kind == 2)
+            scene.list.models.front().plan.model.from_image = false;
+        Card reference(scene, zoom), candidate(scene, zoom, kind == 0 ? 128 : 0);
+        candidate.stage.set_body_lod_enabled(true);
+        candidate.stage.begin_frame();
+        const auto shown = candidate.raster(scene, zoom);
+        OA_CHECK(candidate.stage.body_image_pages().memory().frames == 0);
+        OA_CHECK(candidate.stage.error().empty());
+        OA_CHECK(pixels_with_alpha(shown, 255) > 0);
+        if (wet) {
+            reference.stage.begin_frame();
+            OA_CHECK(shown.rgba == reference.raster(scene, zoom).rgba);
+        }
+    }
+}
+
+/// Cached bodies retain the original coarse geometry shadow pass exactly.
+void test_cached_body_image_shadows() {
+    constexpr float zoom = 0.5F;
+    constexpr uint16_t flags = draw::graphics_shadows | draw::graphics_vehicle_shadows;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    actor.unit->position.y = 4 * unit;
+    for (auto& piece : actor.instance.pieces())
+        piece.flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    plan_cached_body(scene, actor, processor, flags);
+    Card reference(scene, zoom), candidate(scene, zoom);
+    reference.stage.set_body_lod_enabled(true);
+    candidate.stage.set_body_lod_enabled(true);
+    auto snapshots = std::move(actor.state.pieces);
+    reference.stage.begin_frame();
+    std::ignore = reference.raster(scene, zoom);
+    actor.state.pieces = std::move(snapshots);
+    candidate.stage.begin_frame();
+    std::ignore = candidate.raster(scene, zoom);
+    const auto corners = candidate.stage.body_lod_counts().shadow_vertices;
+    OA_CHECK(corners > 0);
+    OA_CHECK(corners == reference.stage.body_lod_counts().shadow_vertices);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_vertices == 6);
+    OA_CHECK(candidate.stage.shadows_through_target());
+    for (size_t at = 0; at < corners; ++at) {
+        OA_CHECK(candidate.frame.indices[at] == reference.frame.indices[at]);
+        OA_CHECK(
+            vertex_words(candidate.frame.vertices[at]) == vertex_words(reference.frame.vertices[at])
+        );
+    }
+}
+
 /// Keeps near meshes exact, reduces small bodies and follows uncached moving pieces.
 void test_animated_body_lod() {
     constexpr float far_zoom = 0.5F;
@@ -4382,6 +4743,15 @@ int main(int argc, char** argv) {
         test_installed_unit_models(assets, argc > 2 ? argv[2] : nullptr);
         test_installed_unit_faces(assets);
     } else {
+        test_cached_body_image();
+        test_cached_body_image_revisions();
+        test_cached_body_image_identity();
+        test_cached_body_image_anchor();
+        test_cached_body_image_mixed_fallbacks();
+        test_cached_body_image_held_revision();
+        test_cached_body_image_failed_revision();
+        test_cached_body_image_refusals();
+        test_cached_body_image_shadows();
         test_animated_body_lod();
         test_body_lod_drawable_bounds();
         test_body_lod_piece_bounds();

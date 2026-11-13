@@ -648,6 +648,10 @@ class ModelStage {
         return bright_pages_;
     }
 
+    /// Returns the bounded pages holding current complete cached unit images.
+    /// @return the independent animated image atlas
+    [[nodiscard]] const oa::present::gpu_world::SpritePages& body_image_pages() const noexcept;
+
     /// Returns the bytes the meshes hold.
     ///
     /// @return the sum of mesh_bytes over the meshes built
