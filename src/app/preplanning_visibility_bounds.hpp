@@ -663,6 +663,7 @@ template <typename Bounds>
         !completed.plan.model.from_image || !completed.plan.model.carried.empty() ||
         completed.plan.model.ground != gate.ground_height || !completed.shown_vertices.empty() ||
         !completed.shown_position || shown.state == nullptr || shown.state->transforms_dirty ||
+        shown.state->finer || shown.state->build_bands ||
         !geometry_shadow_metadata_candidate(completed, gate.sea_level))
         return false;
     const auto& position = *completed.shown_position;

@@ -802,6 +802,12 @@ void completed_native_geometry_and_refusals() {
     bad = completed;
     ++bad.shown_position->x;
     OA_CHECK(!rejects(bad));
+    fixture.state.build_bands.emplace();
+    OA_CHECK(!rejects(completed));
+    fixture.state.build_bands.reset();
+    fixture.state.finer = std::make_unique<drawing::FinerModel>();
+    OA_CHECK(!rejects(completed));
+    fixture.state.finer.reset();
     fixture.state.transforms_dirty = true;
     OA_CHECK(!rejects(completed));
 }
