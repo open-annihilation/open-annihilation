@@ -184,6 +184,49 @@ void navigation_state_survives_restore(uint32_t version) {
     );
 }
 
+/// Restores completed-leg timing and the native actual-progress clock together.
+void retained_passing_history_survives_restore() {
+    constexpr auto version = oa::data::enhanced_mode::retained_passing_version;
+    constexpr uint32_t now = 220;
+    for (const uint32_t age : {flow::local_flow_completed_history_ticks - 1,
+                               flow::local_flow_completed_history_ticks}) {
+        Fixture source(options_for(version));
+        Fixture loaded(options_for(version));
+        const auto unit = source.spawn(0, 64, 64).unit_index;
+        CHECK(loaded.spawn(0, 64, 64).unit_index == unit);
+        source.match->simulation().tick = loaded.match->simulation().tick = now;
+        std::vector<flow::LocalFlowHead> heads(source.match->state().unit_slot_count);
+        heads[unit].points = {{{48, 64}, {64, 64}, {160, 64}}};
+        heads[unit].goal_key = 0x123456789abcdef0ull;
+        heads[unit].tick = now - 43;
+        heads[unit].count = flow::local_flow_completed_count;
+        heads[unit].mobile_blocked = true;
+        heads[unit].blocked_ticks = flow::local_flow_retry_ticks;
+        std::vector<uint8_t> bytes(heads.size() * flow::local_flow_head_bytes);
+        CHECK(flow::write_local_flow_heads(heads, bytes));
+        const auto& state = table(*source.match, "local-flow");
+        CHECK(state.restore(state.context, bytes));
+        source.match->ground_runtime(unit)->movement.last_motion_tick = now - age;
+        for (const auto* name : navigation_tables) {
+            const auto saved = bytes_of(table(*source.match, name));
+            const auto& destination = table(*loaded.match, name);
+            CHECK(destination.restore(destination.context, saved));
+            CHECK(bytes_of(destination) == saved);
+        }
+        const auto* before = source.match->local_flow_head(unit);
+        const auto* after = loaded.match->local_flow_head(unit);
+        CHECK(before && after && !after->active && after->count == flow::local_flow_completed_count);
+        CHECK(before->points == after->points && before->tick == after->tick);
+        CHECK(before->goal_key == after->goal_key);
+        CHECK(flow::local_flow_completed_within_history(*before, now));
+        CHECK(flow::local_flow_completed_within_history(*after, now));
+        const auto restored_progress = loaded.match->ground_runtime(unit)->movement.last_motion_tick;
+        CHECK(restored_progress == now - age);
+        CHECK(flow::local_flow_stationary_history_due(now, restored_progress) ==
+              (age == flow::local_flow_completed_history_ticks));
+    }
+}
+
 void malformed_state_is_rejected_atomically(uint32_t version) {
     Fixture fixture(options_for(version));
     auto& unit = fixture.spawn(0, 64, 64);
@@ -1487,12 +1530,14 @@ void passing_units_rejoin_and_arrive() {
 int main() {
     try {
         version_one_and_off_keep_no_flow_state();
+        retained_passing_history_survives_restore();
         for (const uint32_t version :
              {2u,
               3u,
               oa::data::enhanced_mode::battle_flow_version,
               oa::data::enhanced_mode::distributed_battle_flow_version,
-              oa::data::enhanced_mode::following_flow_version}) {
+              oa::data::enhanced_mode::following_flow_version,
+              oa::data::enhanced_mode::retained_passing_version}) {
             navigation_state_survives_restore(version);
             malformed_state_is_rejected_atomically(version);
         }
@@ -1507,6 +1552,9 @@ int main() {
         );
         shared_poll_progresses_without_legacy_credit(
             oa::data::enhanced_mode::following_flow_version
+        );
+        shared_poll_progresses_without_legacy_credit(
+            oa::data::enhanced_mode::retained_passing_version
         );
         shared_poll_rotates_extraction_opportunities();
         shared_poll_preserves_an_active_full_search();

@@ -86,6 +86,9 @@ inline constexpr uint8_t local_flow_retry_ticks = 30;
 /// Point count marking a completed, inactive local leg.
 inline constexpr uint8_t local_flow_completed_count = 2;
 
+/// Maximum age of a completed passing leg used by retained passing flow.
+inline constexpr uint32_t local_flow_completed_history_ticks = 4 * local_flow_retry_ticks;
+
 /// Tests whether a temporary steering waypoint has been reached or passed.
 ///
 /// A unit within five world units has arrived. Crossing the target's forward
@@ -108,6 +111,27 @@ inline constexpr uint8_t local_flow_completed_count = 2;
 /// @return whether the completed leg remains recent enough for local avoidance
 [[nodiscard]] bool
 local_flow_completed_last_tick(const LocalFlowHead& head, uint32_t tick) noexcept;
+
+/// Tests whether an inactive completed leg remains inside its history window.
+///
+/// The caller must also check the original goal's geometry key. A future
+/// completion tick supplies no history; the subtraction also handles tick wrap.
+///
+/// @param head retained local traffic state
+/// @param tick current simulation tick
+/// @return whether the completed leg is at most four retry periods old
+[[nodiscard]] bool
+local_flow_completed_within_history(const LocalFlowHead& head, uint32_t tick) noexcept;
+
+/// Tests whether actual motion has stopped for the completed-leg history window.
+///
+/// The caller separately requires a scheduled recovery. Future or ambiguous
+/// progress clocks do not permit undoing a completed passing leg.
+///
+/// @param tick current simulation tick
+/// @param last_progress last actual progress tick, preferably from the tick-start snapshot
+/// @return whether at least four retry periods have elapsed without actual progress
+[[nodiscard]] bool local_flow_stationary_history_due(uint32_t tick, uint32_t last_progress) noexcept;
 
 /// Records an occupancy result independently of subpixel motion within a cell.
 ///
