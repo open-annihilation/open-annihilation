@@ -9,6 +9,7 @@
 #include "renderer_water.hpp"
 #include "runtime_full.hpp"
 #include "body_lod_counts.hpp"
+#include "scene_model_work_counts.hpp"
 #include "oa/formats/tnt.hpp"
 #include "oa/platform/job_pool.hpp"
 
@@ -252,6 +253,8 @@ struct UnitDetail {
     std::array<float, 3> center{};
     bool eligible{};
     bool marker{};
+    /// The full conservative surface bound lies outside the active target.
+    bool surface_outside{};
     /// The ordinary ground shadow is wholly outside the active shadow map.
     bool shadow_outside{};
     /// Coarse, animated physical geometry reserved before full meshes.
@@ -634,6 +637,7 @@ struct Scene {
     uint64_t cut_revision{};
     uint32_t model_count{};
     BodyLodCounts body_lod_counts{};
+    SceneModelWorkCounts model_work_counts{};
     uint32_t sprite_count{};
     uint32_t shadow_count{};
     uint32_t particle_count{};

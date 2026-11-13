@@ -5718,6 +5718,7 @@ bool plan_unit_details(
         }
         if (outside && !reflecting) {
             detail.surface = 0;
+            detail.surface_outside = in.body_lod_enabled;
             continue;
         }
         // Complex/transparent geometry keeps its full path and opacity.
@@ -6900,6 +6901,11 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     in, pass, draw, shadow, static_cast<uint32_t>(card_type_index), body_piece_mask
                 );
         }
+        // Detail planning already enclosed every posed vertex with the same
+        // surface margin. Its retained ground cast above is independent of
+        // that proof, so an offscreen caster needs no second full point scan.
+        if (detail && detail->surface_outside)
+            continue;
         // A cloaked unit, or every unit under the debug overlay, is blended
         // at half its opacity, as the classic view blends its picture.
         constexpr float translucent_opacity = 0.5F;
@@ -9384,6 +9390,8 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
     thread_local ParallelModelLists storage;
     result.storage = &storage;
     result.bands = bands;
+    scene.model_work_counts.candidate_bands = bands;
+    scene.model_work_counts.candidate_slots = static_cast<uint32_t>(last - first);
     result.ends[0] = first;
     uint64_t preceding{};
     std::size_t next = first;
@@ -9421,6 +9429,7 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
             for (auto& temporary : storage.lists)
                 temporary = {};
             result.bands = 0;
+            scene.model_work_counts.fallback_frames = 1;
             break;
         }
     }
@@ -9464,6 +9473,8 @@ void trim_parallel_model_lists(const ParallelModelRange& range, bool release = f
 bool models_with_parallel_range(
     const Inputs& in, Pass& pass, std::size_t end, const ParallelModelRange& range
 ) {
+    auto& work = pass.scene.model_work_counts;
+    work.accepted_bands = work.accepted_slots = 0;
     if (range.bands == 0) {
         models(in, pass, 0, end);
         return false;
@@ -9477,6 +9488,7 @@ bool models_with_parallel_range(
                 !append_parallel_model_cards(
                     pass.list.cards, from.cards, pass.list.vertices.size()
                 )) {
+                work.fallback_frames = 1;
                 clear_list(pass.list, end);
                 models(in, pass, 0, end);
                 return false;
@@ -9486,16 +9498,28 @@ bool models_with_parallel_range(
             add_body_counts(pass.list.body_lod_counts, from.body_lod_counts);
             (void)listing(pass, 0);
         }
+        // These exact worker packets remain in the ordered list even if a
+        // later serial suffix pauses to pack its own missing material.
+        work.accepted_bands = range.bands;
+        work.accepted_slots = static_cast<uint32_t>(range.ends[range.bands] - range.ends[0]);
         models(in, pass, range.ends[range.bands], end);
         // The complete ordered result now uses the independent packet bands.
         return true;
     } catch (const std::bad_alloc&) {
         // Worker packets are only temporary. Give their memory back before
         // the ordinary pass retries the complete draw order.
+        work.accepted_bands = work.accepted_slots = 0;
+        work.fallback_frames = 1;
         trim_parallel_model_lists(range, true);
         clear_list(pass.list, end);
         models(in, pass, 0, end);
         return false;
+    } catch (...) {
+        // A missing prefix material sends the ordinary continuation through
+        // the candidate range serially. Joined packets survive suffix pauses.
+        if (work.accepted_bands == 0)
+            work.fallback_frames = 1;
+        throw;
     }
 }
 
@@ -9527,6 +9551,7 @@ bool models_with_parallel_range(
 void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ahead_bands) {
     auto& passes = scene.passes;
     passes.ground_indices = {};
+    scene.model_work_counts = {};
     const auto& draws = *in.draws;
     const std::size_t model_draws = draws.models.size() + draws.unit_markers.size();
     const bool timing = bench_timers::timers.on;

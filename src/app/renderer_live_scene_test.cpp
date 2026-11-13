@@ -8322,6 +8322,20 @@ void physical_model_bands() {
         in.pool = &pool;
         OA_CHECK(live::build(in, parallel, error));
         OA_CHECK(serial.model_count == parallel.model_count);
+        const auto& serial_work = serial.model_work_counts;
+        const auto& work = parallel.model_work_counts;
+        OA_CHECK(serial_work.candidate_bands == 0 && serial_work.candidate_slots == 0);
+        OA_CHECK(serial_work.accepted_bands == 0 && serial_work.accepted_slots == 0);
+        OA_CHECK(serial_work.fallback_frames == 0);
+        if (expect_parallel) {
+            OA_CHECK(work.candidate_bands == 4 && work.accepted_bands == 4);
+            OA_CHECK(work.candidate_slots == population - 2);
+            OA_CHECK(work.accepted_slots == work.candidate_slots);
+            OA_CHECK(work.fallback_frames == 0);
+        } else {
+            OA_CHECK(work.accepted_bands == 0 && work.accepted_slots == 0);
+            OA_CHECK(work.fallback_frames == (work.candidate_bands != 0 ? 1U : 0U));
+        }
         OA_CHECK(serial.texture_rgba == parallel.texture_rgba);
         OA_CHECK(serial.terrain_vertex_count == parallel.terrain_vertex_count);
         const auto same_range = [](const auto& a, const auto& b) {
@@ -9784,6 +9798,7 @@ void underwater_features() {
 #include "body_lod_geometry_test.inc"
 #include "body_lod_cards_test.inc"
 #include "body_lod_scene_test.inc"
+#include "body_lod_shadow_test.inc"
 
 int main() {
     body_lod_geometry_tests();
@@ -9791,6 +9806,7 @@ int main() {
     animated_body_lod_scene();
     crowded_animated_body_lod();
     crowded_body_position_budget();
+    offscreen_body_surface_skip();
     water_surface_bounds();
     sea_bed_follows_swells();
     water_disturbance_visibility();
