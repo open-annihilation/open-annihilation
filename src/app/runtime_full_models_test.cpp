@@ -4200,8 +4200,13 @@ void test_body_lod_fallbacks() {
         }
         if (kind == 3)
             actor.unit->flags |= OA_UNIT_FLAG_BUILDING;
-        if (kind == 5)
+        if (kind == 5) {
             scene.water_shimmer = 0.5F;
+            scene.world->game.sea_level = 4;
+            actor.unit->position.y = 4 * unit;
+            actor.instance.pieces()[1].translation.y = -8 * unit;
+            actor.instance.rebuild_transforms();
+        }
         std::vector<float> reflected;
         if (kind == 6)
             scene.vertex_heights = &reflected;
@@ -4215,6 +4220,43 @@ void test_body_lod_fallbacks() {
         OA_CHECK(candidate.raster(scene, zoom).rgba == reference.raster(scene, zoom).rgba);
         OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 0);
     }
+}
+
+/// Map-wide shimmer permits a dry animated hull but retains a waterline crossing mesh.
+void test_body_lod_dry_shimmer() {
+    constexpr float zoom = 0.5F;
+    Scene scene;
+    scene.water_shimmer = 0.5F;
+    scene.world->game.sea_level = 4;
+    auto model = body_lod_model();
+    // A helper vertex which no drawable face references cannot touch the water.
+    model->objects.front().vertices.push_back({0, -100 * unit, 0});
+    auto& actor = scene.add_unit(model, 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    actor.unit->position.y = 4 * unit;
+    actor.instance.pieces()[0].flags |= piece_cached;
+    actor.instance.pieces()[1].flags &= static_cast<uint16_t>(~piece_cached);
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(actor);
+    Card candidate(scene, zoom);
+    candidate.stage.set_body_lod_enabled(true);
+    candidate.stage.begin_frame();
+    const auto dry = candidate.raster(scene, zoom);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
+    OA_CHECK(pixels_with_alpha(dry, 255) > 0);
+    // The unit's origin stays at sea level while an animated piece dips below it.
+    actor.instance.pieces()[1].translation.y = -8 * unit;
+    actor.instance.rebuild_transforms();
+    ++scene.tick;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(actor);
+    Card reference(scene, zoom);
+    reference.stage.begin_frame();
+    candidate.stage.begin_frame();
+    OA_CHECK(candidate.raster(scene, zoom).rgba == reference.raster(scene, zoom).rgba);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 0);
 }
 
 /// Carried bodies retain the original composite image and depth ordering.
@@ -4258,6 +4300,7 @@ int main(int argc, char** argv) {
         test_body_lod_textures();
         test_body_lod_shadows();
         test_body_lod_fallbacks();
+        test_body_lod_dry_shimmer();
         test_body_lod_carried_fallback();
         test_shared_plane_order_population();
         test_distinct_plane_order_capacity();

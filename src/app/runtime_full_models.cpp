@@ -2401,8 +2401,8 @@ const gw::ModelMesh& Emitter::body_mesh(
         (def_flags(model) & (OA_UNIT_DEF_FLAG_CAN_FLY | OA_UNIT_DEF_FLAG_FLOATER |
                              OA_UNIT_DEF_FLAG_CAN_HOVER | OA_UNIT_DEF_FLAG_DIGGER)) != 0 ||
         !drawn.plan.model.carried.empty() || in_.vertex_heights != nullptr ||
-        in_.water_shimmer > 0 || hi(unit.position.y) < in_.world->game.sea_level ||
-        !std::isfinite(view_.zoom) || !(view_.zoom > 0))
+        hi(unit.position.y) < in_.world->game.sea_level || !std::isfinite(view_.zoom) ||
+        !(view_.zoom > 0))
         return mesh;
     if (impl_.body_choices.empty())
         impl_.body_choices.resize(body_choice_count);
@@ -2428,7 +2428,13 @@ const gw::ModelMesh& Emitter::body_mesh(
             const auto source = mesh.source_vertex[at];
             if (source >= piece.transformed_vertices.size())
                 return mesh;
-            const auto pixel = gw::pixel_of_model_point(piece.transformed_vertices[source], 0);
+            const auto& point = piece.transformed_vertices[source];
+            // Shimmer is enabled for the whole map, but only geometry reaching
+            // below its waterline needs the original face intersections.
+            if (in_.water_shimmer > 0 &&
+                point.y / 65536.0F + unit.position.y / 65536.0F < in_.water_sea_level)
+                return mesh;
+            const auto pixel = gw::pixel_of_model_point(point, 0);
             left = std::min(left, pixel.x);
             top = std::min(top, pixel.y);
             right = std::max(right, pixel.x);
