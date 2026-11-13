@@ -169,6 +169,8 @@ def check_value(spec, v, where):
         m = spec.get("multiple-of")
         if m and v % m:
             raise RegistryError(f"{where}: {v} is not a multiple of {m}")
+        if t != "decimal" and spec.get("values") and str(v) not in spec["values"]:
+            raise RegistryError(f"{where}: {v} is not one of {spec['values']}")
         return
     if t == "string":
         if not isinstance(v, str):
@@ -360,6 +362,21 @@ def check_registry(reg, known_actions=None):
                 problems.append(f"{w}: scope must be sim or view")
             if spec["type"] in ("enum", "list<enum>", "set<enum>") and not spec.get("values"):
                 problems.append(f"{w}: enum without values")
+            if spec.get("values") and spec["type"] in ("decimal", "list<decimal>"):
+                problems.append(f"{w}: decimal choices are not supported")
+            if spec.get("values") and spec["type"] in ("int", "int-or-none", "list<int>"):
+                choices = spec["values"]
+                if not isinstance(choices, list) or not all(
+                        isinstance(item, str) and re.fullmatch(r"0|-?[1-9][0-9]*", item)
+                        for item in choices):
+                    problems.append(f"{w}: integer choices must use canonical integer strings")
+                elif len(set(choices)) != len(choices):
+                    problems.append(f"{w}: integer choices must be distinct")
+                else:
+                    unrestricted = {key: value for key, value in spec.items() if key != "values"}
+                    unrestricted["type"] = "int"
+                    for item in choices:
+                        attempt(check_value, unrestricted, int(item), f"{w} choice {item}")
             for k in ("baseline", "default"):
                 attempt(check_value, spec, spec[k], f"{w} {k}")
             if spec.get("setting-transform") and spec["setting-transform"] not in transforms:
@@ -987,10 +1004,34 @@ def self_test():
     if number_parts(0.7) != (False, 7, -1, False) or number_parts(1500) != (False, 15, 2, True):
         failures.append("numbers are split wrong")
 
+    choices = {"type": "int", "min": 1, "max": 10,
+               "values": ["1", "2", "3", "4", "5", "6", "7", "8", "10"]}
+    for value in (1, 4, 8, 10):
+        try:
+            check_value(choices, value, "integer choices")
+        except RegistryError as error:
+            failures.append(str(error))
+    for value in (0, 9, 11, 1.0, True):
+        try:
+            check_value(choices, value, "integer choices")
+            failures.append(f"integer choices accepted {value!r}")
+        except RegistryError:
+            pass
+
     good = {"kind": "hack", "area": "units", "title": "Example", "scope": "sim", "implemented": False, "summary": "s",
             "params": {"ticks": {"type": "int", "min": 0, "max": 10, "baseline": 0, "default": 5,
                                  "adjustable": "fixed", "scope": "sim"}},
             "presets": {"baseline": {"ticks": 0}}}
+    for invalid, expected in (({"type": "decimal", "values": ["1"]}, "decimal choices"),
+                              ({"values": ["01", "2"]}, "canonical integer"),
+                              ({"values": ["1", "1"]}, "distinct"),
+                              ({"values": [1, 2]}, "canonical integer")):
+        bad_choices = dict(good["params"]["ticks"], **invalid)
+        entry = dict(good, params={"ticks": bad_choices})
+        issues = check_registry({"entries": {"units.example": entry},
+                                 "setting-transforms": {}, "area-titles": {"units": "Units"}})
+        if not any(expected in issue for issue in issues):
+            failures.append(f"integer-choice schema misses {expected}: {issues}")
     broken = [
         ({"presets": {"baseline": {}}}, "not a complete parameter set"),
         ({"params": {"ticks": dict(good["params"]["ticks"], default=50)}}, "outside"),

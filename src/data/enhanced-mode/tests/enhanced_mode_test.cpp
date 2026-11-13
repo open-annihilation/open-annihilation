@@ -351,6 +351,54 @@ void check_following_flow_identity() {
     OA_CHECK(!enhanced::uses_distributed_battle_flow(std::numeric_limits<uint32_t>::max()));
 }
 
+/// Keeps cohort targeting separate while retaining every version-8 static rule.
+void check_cohort_target_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto following =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::following_flow_version);
+    const auto cohort =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::cohort_target_version);
+    OA_CHECK(following.resolution && cohort.resolution);
+    if (!following.resolution || !cohort.resolution)
+        return;
+    OA_CHECK(
+        enhanced::rules_version(cohort.resolution->profile.rules) == enhanced::cohort_target_version
+    );
+    OA_CHECK(cohort.resolution->profile.sim_hash != following.resolution->profile.sim_hash);
+    OA_CHECK(cohort.resolution->profile.full_hash != following.resolution->profile.full_hash);
+    OA_CHECK(cohort.resolution->profile.limits == following.resolution->profile.limits);
+    auto earlier_rules = cohort.resolution->profile.rules;
+    earlier_rules.setup.enhanced_mode.version = enhanced::following_flow_version;
+    OA_CHECK(earlier_rules == following.resolution->profile.rules);
+    auto canonical = cohort.resolution->canonical;
+    constexpr std::string_view cohort_rule = "\"setup.enhanced-mode\":{\"version\":10}";
+    constexpr std::string_view following_rule = "\"setup.enhanced-mode\":{\"version\":8}";
+    const auto at = canonical.find(cohort_rule);
+    OA_CHECK(at != std::string::npos);
+    if (at != std::string::npos) {
+        canonical.replace(at, cohort_rule.size(), following_rule);
+        OA_CHECK(canonical == following.resolution->canonical);
+    }
+    for (uint32_t version = 0; version <= enhanced::cohort_target_version + 1; ++version) {
+        OA_CHECK(
+            enhanced::uses_distributed_battle_flow(version) ==
+            (version == 7 || version == 8 || version == 10)
+        );
+        OA_CHECK(enhanced::uses_following_battle_flow(version) == (version == 8 || version == 10));
+        OA_CHECK(enhanced::uses_cohort_target_distribution(version) == (version == 10));
+    }
+    for (const auto version : {9u, 11u, std::numeric_limits<uint32_t>::max()}) {
+        OA_CHECK(!enhanced::uses_following_battle_flow(version));
+        OA_CHECK(!enhanced::uses_cohort_target_distribution(version));
+    }
+    // Raw profiles and match overrides use the same sparse version choices.
+    for (const auto version : {9u, 11u}) {
+        const std::string profile =
+            std::string{mod_text} + "  setup.enhanced-mode: " + std::to_string(version) + "\n";
+        OA_CHECK(!profiles::resolve_profile(bytes(profile), "unsupported", {}).resolution);
+    }
+}
+
 /// Preserves the original version selected by a bare profile switch.
 void check_profile_default_version() {
     const std::string text = std::string{mod_text} + "  setup.enhanced-mode: true\n";
@@ -429,7 +477,9 @@ void check_enhanced_capacity() {
 void check_refusals() {
     const profiles::ResolveOptions options{};
     for (const uint32_t version :
-         {enhanced::following_flow_version + 1, std::numeric_limits<uint32_t>::max()}) {
+         {enhanced::following_flow_version + 1,
+          enhanced::cohort_target_version + 1,
+          std::numeric_limits<uint32_t>::max()}) {
         const auto result = enhanced::resolve_profile(bytes(mod_text), "chosen", options, version);
         OA_CHECK(!result.resolution);
         OA_CHECK(!result.errors.empty());
@@ -482,6 +532,7 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::battle_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::distributed_battle_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::following_flow_version));
+    OA_CHECK(enhanced::supported_version(enhanced::cohort_target_version));
     OA_CHECK(enhanced::current_version == enhanced::swept_ground_version);
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
     OA_CHECK(!enhanced::supported_version(enhanced::following_flow_version + 1));
@@ -494,6 +545,7 @@ int main() {
     check_battle_flow_identity();
     check_distributed_battle_flow_identity();
     check_following_flow_identity();
+    check_cohort_target_identity();
     check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();

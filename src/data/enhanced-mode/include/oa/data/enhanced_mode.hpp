@@ -32,15 +32,34 @@ inline constexpr uint32_t battle_flow_version = 6;
 inline constexpr uint32_t distributed_battle_flow_version = 7;
 /// The experimental preset for following an applied local movement leg.
 inline constexpr uint32_t following_flow_version = 8;
+/// The experimental preset distributing AI strike targets among spatial cohorts.
+inline constexpr uint32_t cohort_target_version = 10;
 /// The Enhanced Mode preset supplied by this build.
 inline constexpr uint32_t current_version = swept_ground_version;
 
 /// Selects the known presets inheriting distributed battle flow.
 ///
 /// @param version the recorded preset version
-/// @return true only for the explicitly supported distributed and following presets
+/// @return true only for known presets retaining distributed battle flow
 [[nodiscard]] inline constexpr bool uses_distributed_battle_flow(uint32_t version) noexcept {
-    return version == distributed_battle_flow_version || version == following_flow_version;
+    return version == distributed_battle_flow_version || version == following_flow_version ||
+           version == cohort_target_version;
+}
+
+/// Selects the known presets following an applied local movement leg.
+///
+/// @param version the recorded preset version
+/// @return true only for the following and cohort-target presets
+[[nodiscard]] inline constexpr bool uses_following_battle_flow(uint32_t version) noexcept {
+    return version == following_flow_version || version == cohort_target_version;
+}
+
+/// Selects deterministic AI strike-target distribution among spatial cohorts.
+///
+/// @param version the recorded preset version
+/// @return true only for the explicit cohort-target preset
+[[nodiscard]] inline constexpr bool uses_cohort_target_distribution(uint32_t version) noexcept {
+    return version == cohort_target_version;
 }
 
 /// Tells whether this build can resolve a preset, including Off.
@@ -68,7 +87,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// Version 6 selects persistent patrol goals and bounded AI strike retargeting.
 /// Version 7 retains battle flow and distributes repaired group destinations.
 /// Version 8 retains version 7's static routing for experimental local following.
-/// Rendering remains independent. Errors leave no usable resolution.
+/// Version 10 inherits version 8 and distributes AI strike targets among spatial cohorts.
+/// Version 9 is unsupported. Rendering remains independent. Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes
 /// @param source the name used by profile diagnostics

@@ -26,7 +26,7 @@ sim::spatial_state::CellClassifier Match::MovementClassMap::classifier() const {
     // Following-flow planning keeps movement objects out of its cached
     // topology. Actual ground collision reads current footprint claims.
     movement.occupancy_before_tick =
-        enhanced.enabled && enhanced.version == data::enhanced_mode::following_flow_version
+        enhanced.enabled && data::enhanced_mode::uses_following_battle_flow(enhanced.version)
             ? 0
             : map->projection_tick();
     return movement;

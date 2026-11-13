@@ -59,7 +59,7 @@ std::string bound_text(bool has, const formats::oamod::Number& bound) {
     return has ? formats::oamod::canonical_number_text(bound) : "None";
 }
 
-/// Writes an enumeration's values for a message.
+/// Writes the permitted value spellings for a message.
 ///
 /// @param spec the value's spec
 /// @return the values, as a list
@@ -280,6 +280,16 @@ check_value(const ValueSpec& spec, const Value& value, const std::string& path, 
                     value,
                     value_text(value) + " is not a multiple of " +
                         formats::oamod::canonical_number_text(spec.multiple_of)
+                );
+        }
+        if (!decimal && spec.value_count != 0) {
+            const std::string spelling = formats::oamod::canonical_number_text(number.number);
+            bool member = false;
+            for (const std::string_view candidate : enum_values_of(spec))
+                member = member || candidate == spelling;
+            if (!member)
+                return problem(
+                    path, value, value_text(value) + " is not one of " + values_text(spec)
                 );
         }
         normal = std::move(number);

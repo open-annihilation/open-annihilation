@@ -38,7 +38,12 @@ it inherits version 7's static `fine_regions` routes, format-3 saved fields,
 reserves an experimental local-following policy; metadata alone does not
 implement that policy or establish better large-battle flow. The new-game
 default remains 4. `uses_distributed_battle_flow` selects only the known
-versions 7 and 8, so an unsupported future version does not inherit them.
+versions 7, 8 and 10, so an unsupported future version does not inherit them.
+`cohort_target_version` is ten: it inherits version 8's movement and adds
+AI strike-target distribution among spatial cohorts. Version 9 is not
+supported. `uses_following_battle_flow` selects only versions 8 and 10;
+`uses_cohort_target_distribution` selects only 10. The new-game default
+remains version 4 while the explicit experiment is validated.
 Graphics settings are
 independent and never enter this module.
 
@@ -59,6 +64,6 @@ lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
 `data-enhanced-mode` checks pinned Off and version-1 through version-7
-canonical and simulation hashes, the distinct version-8 identity,
+canonical and simulation hashes, distinct version-8 and version-10 identities,
 preservation of selected mod rules and match choices, and refusals of
 unsupported versions or rules that require Enhanced Mode while Off.

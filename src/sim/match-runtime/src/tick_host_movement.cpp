@@ -284,10 +284,10 @@ void TickHost::movement_tick(oa::Unit& record) {
 
                     context.match = &match;
                     context.player = s.record.owner_index;
-                    context.follow_applied_heads =
-                        match.rules().setup.enhanced_mode.enabled &&
-                        match.rules().setup.enhanced_mode.version ==
-                            static_cast<int32_t>(data::enhanced_mode::following_flow_version);
+                    context.follow_applied_heads = match.rules().setup.enhanced_mode.enabled &&
+                                                   data::enhanced_mode::uses_following_battle_flow(
+                                                       match.rules().setup.enhanced_mode.version
+                                                   );
                     context.same_route_queue =
                         (match.rules().setup.enhanced_mode.version ==
                              static_cast<int32_t>(data::enhanced_mode::battle_flow_version) ||

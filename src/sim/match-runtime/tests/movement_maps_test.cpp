@@ -457,6 +457,7 @@ namespace movement = sim::unit_movement;
 namespace spatial = sim::spatial_state;
 constexpr int32_t pixel = 65536;
 constexpr uint32_t following_version = data::enhanced_mode::following_flow_version;
+constexpr uint32_t cohort_version = data::enhanced_mode::cohort_target_version;
 constexpr uint16_t east = 49152;
 constexpr uint8_t ground_layer = 1;
 constexpr uint8_t patrol_kind = 29;
@@ -472,8 +473,8 @@ void planning_inputs(Fixture& f) {
     f.plots[Fixture::plot(26, 8)].high_height = 0;
 }
 
-void cached_planning_excludes_only_movement_objects_in_eight() {
-    for (uint32_t version = 0; version <= following_version + 1; ++version) {
+void cached_planning_excludes_movement_objects_only_for_following_presets() {
+    for (uint32_t version = 0; version <= cohort_version + 1; ++version) {
         Fixture f({}, 0, version, planning_inputs);
         f.match->simulation().tick = 5;
         const auto aged = f.spawn(tank, 6, 8).unit_index;
@@ -499,7 +500,8 @@ void cached_planning_excludes_only_movement_objects_in_eight() {
         CHECK(f.match->spatial().units[aged].object_present);
         CHECK(f.match->spatial().units[immobile].object_present);
         CHECK(f.match->ground_runtime(immobile)->geometry.type.maximum_speed == 0);
-        const uint8_t occupied = version == following_version ? 3 : 0;
+        const bool follows = version == following_version || version == cohort_version;
+        const uint8_t occupied = follows ? 3 : 0;
         if (map->cell(6, 8) != occupied)
             std::cerr << "Cached planning version=" << version
                       << ", aged=" << unsigned(map->cell(6, 8))
@@ -519,8 +521,8 @@ void cached_planning_excludes_only_movement_objects_in_eight() {
             CHECK(physical && !*physical);
         }
     }
-    // A raw unsupported version above eight also retains the native cutoff;
-    // the public profile resolver still refuses it. Disabled eight is Off.
+    // Unsupported versions nine and eleven retain the native cutoff;
+    // the public profile resolver refuses both. Disabled following is Off.
     Fixture off({}, 0, following_version, planning_inputs, false);
     off.match->simulation().tick = 5;
     off.spawn(tank, 6, 8);
@@ -765,7 +767,7 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
             CHECK(body.navigation.goal->cell == home_cell);
             result.home_before_far = true;
         }
-        if (version == following_version && !result.reached_far) {
+        if ((version == following_version || version == cohort_version) && !result.reached_far) {
             CHECK(body.navigation.goal == far_goal);
             CHECK(body.navigation.goal->order == slot.unit->primary);
             CHECK(slot.unit->primary->kind == patrol_kind);
@@ -790,12 +792,16 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
     return result;
 }
 
-void static_eight_planning_does_not_weaken_physical_traffic() {
+void static_following_planning_does_not_weaken_physical_traffic() {
     const auto old = patrol_keeps_its_far_goal_after_the_gate_leaves(distributed_version);
-    const auto following = patrol_keeps_its_far_goal_after_the_gate_leaves(following_version);
     CHECK(!old.native_plan_reaches && old.fresh_refusal && old.home_before_far);
-    CHECK(following.native_plan_reaches && following.fresh_refusal && !following.home_before_far);
-    CHECK(following.reached_far && following.rested);
+    for (const auto version : {following_version, cohort_version}) {
+        const auto following = patrol_keeps_its_far_goal_after_the_gate_leaves(version);
+        CHECK(
+            following.native_plan_reaches && following.fresh_refusal && !following.home_before_far
+        );
+        CHECK(following.reached_far && following.rested);
+    }
 }
 
 // The player slot update advances each slot's Player.next_economy_tick deadline
@@ -898,8 +904,8 @@ int main() {
     building_walls_every_class_until_removed();
     features_refresh_every_class();
     persistent_search_matches_the_job_build();
-    cached_planning_excludes_only_movement_objects_in_eight();
-    static_eight_planning_does_not_weaken_physical_traffic();
+    cached_planning_excludes_movement_objects_only_for_following_presets();
+    static_following_planning_does_not_weaken_physical_traffic();
     restored_mobility_keeps_the_occupancy_tick();
     outcome_checks_follow_the_slot_deadline();
     the_load_ends_with_one_player_pass();

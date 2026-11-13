@@ -136,8 +136,8 @@ struct ValueSpec {
     bool distinct{};               ///< a list's items differ
     int32_t max_length{-1};        ///< the most characters a string holds; -1 for no bound
     std::string_view pattern{};    ///< a regular expression a string must contain a match of
-    uint16_t first_value{};        ///< an enumeration's first value, an index into the enum values
-    uint16_t value_count{};        ///< an enumeration's number of values
+    uint16_t first_value{};        ///< the first allowed spelling, an index into the value table
+    uint16_t value_count{};        ///< allowed spellings for an enumeration or restricted integer
     uint16_t baseline{no_literal}; ///< the 3.1c value, a literal; no_literal for a data key's
 };
 
@@ -287,7 +287,7 @@ struct Registry {
 /// @return its constraints
 [[nodiscard]] std::span<const Constraint> constraints_of(const Entry& entry) noexcept;
 
-/// Returns the values of an enumeration.
+/// Returns the permitted spellings of an enumeration or restricted integer.
 ///
 /// @param spec the value's spec
 /// @return its values, in the registry's order

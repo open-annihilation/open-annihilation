@@ -24,7 +24,9 @@ reserves a distinct identity for advisory corridor lanes,
 requiring its matching simulation behavior and validation
 before adoption. Versions 1, 2, 3 and 4 remain available for
 saved and recorded games with their original rules and hashes. The unit and
-projectile capacities stay the same.
+projectile capacities stay the same. Version 10 inherits version 8's movement
+and selects AI strike-target distribution among spatial cohorts. Version 9
+is unsupported; it does not become valid because version 10 is supported.
 
 ## Configuration example
 
@@ -68,7 +70,7 @@ Hack id `setup.enhanced-mode`, written under the profile's `hacks` block.
 
 | Parameter | Type | Unit | Allowed | Length | Baseline (3.1c) | Default | Adjustable | Scope | Overridden by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `version` | `int` | - | `1` to `8` | - | `1` | `1` | `match` | `sim` | - |
+| `version` | `int` | - | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `10`; `1` to `10` | - | `1` | `1` | `match` | `sim` | - |
 
 Adjustable: `match`: as `install`, and the host may also change it for one game.
 
