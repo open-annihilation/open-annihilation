@@ -4,6 +4,7 @@
 // Composition of the match battlefield frame, and the groups of text it
 // lays over the backings painted with them (BackedText).
 #include "oa/app/runtime.hpp"
+#include "runtime_classic_overlay_check.hpp"
 #include "bench_timers.hpp"
 #include "gui_actions.hpp"
 #include "oa/app/far_view.hpp"
@@ -69,6 +70,9 @@ static_assert(
 );
 
 namespace {
+
+/// Explicitly enabled render-tier check state, never a gameplay setting.
+thread_local classic_overlay_check::State classic_overlay_observations{};
 
 namespace model_render = oa::present::model;
 namespace unit_playout = oa::present::unit_playout;
@@ -1003,6 +1007,21 @@ build_preview_bands(const model_render::ModelRef& model, uint32_t pulse_tick, bo
 }
 
 } // namespace
+
+void classic_overlay_check::begin(bool reference) noexcept {
+    classic_overlay_observations = {};
+    classic_overlay_observations.watching = true;
+    classic_overlay_observations.reference = reference;
+}
+
+void classic_overlay_check::end() noexcept {
+    classic_overlay_observations.watching = false;
+    classic_overlay_observations.reference = false;
+}
+
+classic_overlay_check::State classic_overlay_check::read() noexcept {
+    return classic_overlay_observations;
+}
 
 unit_playout::FrameTime
 playout_moment(const MatchPresentation& presentation, uint32_t fraction) noexcept {
@@ -3037,6 +3056,23 @@ bool Runtime::draw_match_surface() {
     const auto bar_size = oa::ui::hud::health_bar_size(match_zoom());
     // The digits lie over every unit's bar and over each other's boxes.
     std::optional<BackedText> unit_digits(std::in_place, *this);
+    bool countdowns_only =
+        !live_renderer_active() && dots && match_->rules().setup.enhanced_mode.enabled;
+    if (countdowns_only)
+        for (uint8_t owner = 0; owner < OA_PLAYER_COUNT; ++owner) {
+            const auto& player = world_record.game.players[owner];
+            if (player.in_use != 0 && player.status == OA_PLAYER_STATUS_MIRRORED) {
+                // A mirrored pose records the playout moment even where
+                // no label paints; keep that observation in its old order.
+                countdowns_only = false;
+                break;
+            }
+        }
+    auto* overlay_check = options_.check_render_tiers && classic_overlay_observations.watching
+                              ? &classic_overlay_observations
+                              : nullptr;
+    const bool skip_zero_countdowns =
+        countdowns_only && !(overlay_check != nullptr && overlay_check->reference);
     for (const auto& slot : match_->world().slots) {
         if (live_renderer_active())
             break;
@@ -3050,6 +3086,22 @@ bool Runtime::draw_match_surface() {
         } catch (const std::exception&) {
             continue;
         }
+        if (overlay_check != nullptr)
+            ++overlay_check->eligible;
+        uint16_t early_countdown{};
+        if (skip_zero_countdowns) {
+            // Dots paint neither health bars nor squad digits. Keep the
+            // original visibility queries, including their fault behavior,
+            // then project only the self-destruct labels that can paint.
+            early_countdown = match_->self_destruct_remaining(slot.unit_index);
+            if (early_countdown == 0) {
+                if (overlay_check != nullptr)
+                    ++overlay_check->skipped;
+                continue;
+            }
+        }
+        if (overlay_check != nullptr)
+            ++overlay_check->projected;
         // The bars and digits stay with the unit where it shows.
         const bool shown_elsewhere =
             between_ticks ||
@@ -3095,10 +3147,16 @@ bool Runtime::draw_match_surface() {
                 std::string(1, oa::ui::hud::squad_digit(slot.record)),
                 255
             );
-        if (const auto count = match_->self_destruct_remaining(slot.unit_index); count != 0)
+        const uint16_t count = skip_zero_countdowns
+                                   ? early_countdown
+                                   : match_->self_destruct_remaining(slot.unit_index);
+        if (count != 0) {
+            if (overlay_check != nullptr)
+                ++overlay_check->countdowns;
             draw_match_label(
                 bar_x - 4, bar_y - bar_size.half_height - 10, std::to_string(count), 1
             );
+        }
     }
     unit_digits.reset();
     // The rotated view replaces the battlefield's picture, so it is drawn
