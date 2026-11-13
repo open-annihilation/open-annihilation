@@ -4,6 +4,8 @@
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
+
 #include <cstdint>
 
 namespace oa::sim::match_runtime {
@@ -20,7 +22,13 @@ rectangle_of(std::array<int16_t, 2> cell, std::array<int16_t, 2> footprint) {
 
 sim::spatial_state::CellClassifier Match::MovementClassMap::classifier() const {
     auto movement = record;
-    movement.occupancy_before_tick = map->projection_tick();
+    const auto& enhanced = match->rules().setup.enhanced_mode;
+    // Following-flow planning keeps movement objects out of its cached
+    // topology. Actual ground collision reads current footprint claims.
+    movement.occupancy_before_tick =
+        enhanced.enabled && enhanced.version == data::enhanced_mode::following_flow_version
+            ? 0
+            : map->projection_tick();
     return movement;
 }
 

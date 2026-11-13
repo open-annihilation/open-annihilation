@@ -6,10 +6,17 @@
 // single 30-tick deadline and the players' pass that ends a match's load.
 #include "oa/sim/match_runtime.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
+#include "oa/sim/ground_orders/goals.hpp"
+#include "oa/sim/match_runtime/rule_state.hpp"
+#include "oa/sim/unit_movement/local_flow.hpp"
+
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <iostream>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -71,7 +78,13 @@ struct Fixture {
     Scenario scenario;
     std::unique_ptr<sim::match_runtime::Match> match;
 
-    explicit Fixture(const std::vector<std::array<int32_t, 2>>& wall = {}, float tank_energy = 0) {
+    explicit Fixture(
+        const std::vector<std::array<int32_t, 2>>& wall = {},
+        float tank_energy = 0,
+        uint32_t version = 0,
+        void (*prepare)(Fixture&) = nullptr,
+        bool enabled = true
+    ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.sea_level = 20;
         map.attributes.resize(map_cells * map_cells);
@@ -126,6 +139,8 @@ struct Fixture {
         features[rock].footprint_x = features[rock].footprint_z = 2;
         features[wall_feature].footprint_x = 1;
         features[wall_feature].footprint_z = 3;
+        if (prepare)
+            prepare(*this);
         sim::match_runtime::OfflineInputs input{
             map,
             loaded,
@@ -147,7 +162,13 @@ struct Fixture {
             {}
         };
         input.feature_defs = features;
+        input.rules.setup.enhanced_mode.enabled = enabled && version != 0;
+        input.rules.setup.enhanced_mode.version = version;
+        if (input.rules.setup.enhanced_mode.enabled)
+            input.unit_player_mask = 3;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
+        if (const auto* fault = match->fault())
+            throw std::runtime_error(fault);
         match->configure_strategic_environment({0, 0.5F, 0});
         for (uint8_t player = 0; player < 2; ++player) {
             match->simulation().players[player].present = true;
@@ -431,6 +452,352 @@ void restored_mobility_keeps_the_occupancy_tick() {
     CHECK(map->cell(13, 10) == 0 && map->cell(14, 11) == 0 && map->cell(12, 9) == 1);
 }
 
+namespace ground = sim::ground_orders;
+namespace movement = sim::unit_movement;
+namespace spatial = sim::spatial_state;
+constexpr int32_t pixel = 65536;
+constexpr uint32_t following_version = data::enhanced_mode::following_flow_version;
+constexpr uint16_t east = 49152;
+constexpr uint8_t ground_layer = 1;
+constexpr uint8_t patrol_kind = 29;
+constexpr uint32_t native_occupancy_history = 30;
+constexpr uint32_t distributed_version = data::enhanced_mode::distributed_battle_flow_version;
+
+void planning_inputs(Fixture& f) {
+    f.defs[kbot].max_velocity_fixed = 0;
+    f.metadata[tank].max_water_depth = 0;
+    // A known water plot is an actual terrain obstacle for the land class.
+    f.map.attributes[Fixture::plot(26, 8)].height = 0;
+    f.plots[Fixture::plot(26, 8)].low_height = 0;
+    f.plots[Fixture::plot(26, 8)].high_height = 0;
+}
+
+void cached_planning_excludes_only_movement_objects_in_eight() {
+    for (uint32_t version = 0; version <= following_version + 1; ++version) {
+        Fixture f({}, 0, version, planning_inputs);
+        f.match->simulation().tick = 5;
+        const auto aged = f.spawn(tank, 6, 8).unit_index;
+        const auto immobile = f.spawn(kbot, 10, 8).unit_index;
+        f.spawn(building, 18, 8);
+        f.place(rock, 22, 8);
+        f.match->simulation().tick = 195;
+        f.spawn(tank, 14, 8);
+        auto& searcher = f.spawn(tank, 4, 14);
+        constexpr uint32_t now = 200;
+        f.match->simulation().tick = now;
+        ground::SearchBegin begin{};
+        begin.current_tick = now;
+        ground::MovementMap* map{};
+        CHECK(f.match->prepare_search_job(searcher, begin, map));
+        map->prepare_search(
+            ground::occupancy_rectangle(searcher.record),
+            *begin.unit_changed_tick,
+            begin.occupancy,
+            now
+        );
+        CHECK(map->projection_tick() == now - native_occupancy_history);
+        CHECK(f.match->spatial().units[aged].object_present);
+        CHECK(f.match->spatial().units[immobile].object_present);
+        CHECK(f.match->ground_runtime(immobile)->geometry.type.maximum_speed == 0);
+        const uint8_t occupied = version == following_version ? 3 : 0;
+        if (map->cell(6, 8) != occupied)
+            std::cerr << "Cached planning version=" << version
+                      << ", aged=" << unsigned(map->cell(6, 8))
+                      << ", expected=" << unsigned(occupied) << '\n';
+        CHECK(map->cell(6, 8) == occupied);
+        CHECK(map->cell(10, 8) == occupied);
+        CHECK(map->cell(14, 8) == 3);
+        CHECK(map->cell(18, 8) == 0);
+        CHECK(map->cell(22, 8) == 0);
+        CHECK(map->cell(26, 8) == 0);
+        const auto& body = f.match->spatial().units[searcher.unit_index];
+        for (const auto cell :
+             {std::array<int16_t, 2>{6, 8}, {10, 8}, {14, 8}, {18, 8}, {22, 8}, {26, 8}}) {
+            const auto physical = spatial::can_occupy(
+                body, searcher.unit_index, cell, ground_layer, f.match->spatial()
+            );
+            CHECK(physical && !*physical);
+        }
+    }
+    // A raw unsupported version above eight also retains the native cutoff;
+    // the public profile resolver still refuses it. Disabled eight is Off.
+    Fixture off({}, 0, following_version, planning_inputs, false);
+    off.match->simulation().tick = 5;
+    off.spawn(tank, 6, 8);
+    auto& searcher = off.spawn(tank, 4, 14);
+    ground::SearchBegin begin{};
+    begin.current_tick = 200;
+    ground::MovementMap* map{};
+    CHECK(off.match->prepare_search_job(searcher, begin, map));
+    map->prepare_search(
+        ground::occupancy_rectangle(searcher.record),
+        *begin.unit_changed_tick,
+        begin.occupancy,
+        begin.current_tick
+    );
+    CHECK(map->cell(6, 8) == 0);
+}
+
+struct PhysicalHost final : movement::Host {
+    Fixture& fixture;
+
+    explicit PhysicalHost(Fixture& f) : fixture(f) {}
+
+    bool can_occupy(
+        const movement::Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy
+    ) override {
+        const auto result = spatial::can_occupy(
+            fixture.match->spatial().units[static_cast<uint16_t>(unit.id)],
+            static_cast<uint16_t>(unit.id),
+            cell,
+            occupancy,
+            fixture.match->spatial()
+        );
+        CHECK(result.has_value());
+        return *result;
+    }
+
+    void remove_occupancy(movement::Unit&) override {}
+
+    void insert_occupancy(movement::Unit&) override {}
+
+    void update_spatial_membership(movement::Unit&) override {}
+};
+
+void place_gated_corridor(Fixture& f) {
+    // Canonical blocking rocks make a closed two-plot corridor and its
+    // north turnout. Tile the enclosing box away from native hidden rows.
+    for (int32_t z = 2; z <= 12; z += 2)
+        for (int32_t x = 0; x <= 24; x += 2) {
+            const bool passage = z == 8 && x >= 2 && x <= 22;
+            const bool turnout = x == 6 && (z == 4 || z == 6);
+            if (!passage && !turnout)
+                f.place(rock, x, z);
+        }
+}
+
+void check_physical_bodies(Fixture& f, const std::array<uint16_t, 2>& ids) {
+    std::array<uint16_t, map_cells * map_cells> claimed{};
+    for (const auto id : ids) {
+        const auto* body = f.match->ground_runtime(id);
+        CHECK(body && body->geometry.footprint == (std::array<int16_t, 2>{2, 2}));
+        for (int16_t z = 0; z < 2; ++z)
+            for (int16_t x = 0; x < 2; ++x) {
+                const auto px = int32_t(body->geometry.cell[0]) + x;
+                const auto pz = int32_t(body->geometry.cell[1]) + z;
+                CHECK(px >= 0 && pz >= 0 && px < int32_t(map_cells) && pz < int32_t(map_cells));
+                const auto at = Fixture::plot(px, pz);
+                CHECK(!claimed[at]);
+                claimed[at] = id;
+                const auto& plot = f.match->spatial().plots[at];
+                CHECK(plot.ground == id && !plot.blocking_feature);
+                CHECK(plot.low_height == ground_height && plot.high_height == ground_height);
+            }
+    }
+}
+
+bool same_goal_geometry(const ground::Goal& a, const ground::Goal& b) {
+    return a.shape == b.shape && a.cell == b.cell && a.tolerance == b.tolerance &&
+           a.radius_squared == b.radius_squared && a.inner_range == b.inner_range &&
+           a.inner_radius_squared == b.inner_radius_squared && a.left == b.left &&
+           a.right == b.right && a.top == b.top && a.bottom == b.bottom;
+}
+
+bool publish_native_movement_effects(
+    Fixture& f,
+    sim::unit_spawn::Slot& slot,
+    ground::GroundRuntime& body,
+    std::span<const ground::RoutePoint> route
+) {
+    std::array<uint8_t, 3> weapons{};
+    const bool failed = ground::accept_path(
+        {*slot.unit, body.geometry, body.movement, body.navigation, false, weapons}, route
+    );
+    // These are the movement effects of tick.cpp's native publisher. Its
+    // RuntimeOrder notification latch and EventHooks are not modeled here;
+    // this fixture has quiet services and inspects the real mission bits.
+    const auto* table = sim::match_runtime::find_rule_state(f.match->rule_state(), "local-flow");
+    CHECK(table && table->bytes && table->restore);
+    std::vector<movement::LocalFlowHead> heads(f.match->state().unit_slot_count);
+    CHECK(movement::read_local_flow_heads(heads, table->bytes(table->context)));
+    const auto before = heads[slot.unit_index];
+    heads[slot.unit_index].active = false;
+    heads[slot.unit_index].count = 0;
+    std::vector<uint8_t> bytes(heads.size() * movement::local_flow_head_bytes);
+    CHECK(movement::write_local_flow_heads(heads, bytes));
+    CHECK(table->restore(table->context, bytes));
+    const auto* after = f.match->local_flow_head(slot.unit_index);
+    CHECK(after && !after->active && after->count == 0);
+    CHECK(
+        after->points == before.points && after->goal_key == before.goal_key &&
+        after->tick == before.tick && after->blocked_ticks == before.blocked_ticks &&
+        after->mobile_blocked == before.mobile_blocked
+    );
+    return failed;
+}
+
+struct PatrolResult {
+    bool native_plan_reaches{}, fresh_refusal{}, home_before_far{}, reached_far{}, rested{};
+};
+
+PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
+    Fixture f({}, 0, version);
+    place_gated_corridor(f);
+    const auto gate = f.spawn(tank, 6, 8).unit_index;
+    const auto mover = f.spawn(tank, 2, 8).unit_index;
+    auto& body = *f.match->ground_runtime(mover);
+    auto& slot = f.match->spawn_slot(mover);
+    auto& patrol = f.match->issue_patrol(mover, {336 * pixel, 0, 144 * pixel}, false);
+    CHECK(patrol.kind == patrol_kind);
+    // Patrol first clones its Home leg, then installs its far Goal. Use its
+    // ordinary early ticks, before the native sixty-tick search deadline.
+    for (uint32_t tick = 0; tick < 8 && !body.navigation.goal; ++tick) {
+        ++f.match->simulation().tick;
+        f.match->tick();
+    }
+    CHECK(body.navigation.goal && body.navigation.goal->order == slot.unit->primary);
+    const auto home_cell = body.geometry.cell;
+    CHECK(home_cell == (std::array<int16_t, 2>{2, 8}));
+    const auto* initial_head = f.match->local_flow_head(mover);
+    std::cerr << "Patrol checkpoint: version=" << version
+              << ", tick=" << uint32_t(f.match->simulation().tick)
+              << ", head=" << (initial_head && initial_head->active)
+              << ", count=" << (initial_head ? unsigned(initial_head->count) : 0)
+              << ", P1=" << (initial_head ? initial_head->points[1][0] : 0) << ','
+              << (initial_head ? initial_head->points[1][1] : 0)
+              << ", pose=" << body.geometry.position[0] << ',' << body.geometry.position[2]
+              << ", northwall="
+              << bool(f.match->spatial().plots[Fixture::plot(3, 7)].blocking_feature)
+              << ", westwall="
+              << bool(f.match->spatial().plots[Fixture::plot(2, 8)].blocking_feature) << '\n';
+    CHECK(initial_head && !initial_head->active && initial_head->count == 0);
+    // The controlled checkpoint ages the gate and places the owned patrol
+    // at its next cell boundary. No retry timestamp or event is suppressed.
+    f.match->simulation().tick = 200;
+    f.match->place_unit_at(mover, 88 * pixel - 1, ground_height * pixel, 144 * pixel, ground_layer);
+    slot.record.heading = east;
+    body.project_slot();
+    body.movement.speed = f.defs[tank].max_velocity_fixed;
+    body.movement.velocity = movement::aim_velocity(east, 0, body.movement.speed);
+    body.movement.flags = ground_layer;
+    const auto original_pose = body.geometry;
+    const auto start_cell = body.geometry.cell;
+    // This real step still refuses the aged mobile's actual footprint.
+    ++f.match->simulation().tick;
+    f.match->tick();
+    check_physical_bodies(f, {gate, mover});
+    CHECK(body.navigation.goal && body.navigation.goal->order == slot.unit->primary);
+    const auto* far_goal = body.navigation.goal;
+    const auto far = *far_goal;
+    CHECK(far.cell == (std::array<int16_t, 2>{20, 8}));
+    CHECK(body.geometry.cell == start_cell);
+    CHECK((body.movement.flags & movement::collision_blocked) != 0);
+    PhysicalHost host(f);
+    auto copied_unit = original_pose;
+    movement::Movement copied_movement{};
+    copied_movement.velocity = body.movement.velocity;
+    copied_movement.speed = f.defs[tank].max_velocity_fixed;
+    copied_movement.flags = ground_layer;
+    movement::LocalFlowCounters counters{};
+    const auto sweep = movement::integrate_swept_local_flow(
+        copied_unit, copied_movement, f.match->simulation().tick, true, host, counters
+    );
+    PatrolResult result;
+    result.fresh_refusal = sweep.status == movement::GroundSweepStatus::blocked;
+    CHECK(result.fresh_refusal && sweep.origin_queries > 0 && sweep.refused_origin_valid);
+    CHECK(copied_unit.position == body.geometry.position && copied_unit.cell == body.geometry.cell);
+    ground::SearchBegin begin{};
+    begin.current_tick = f.match->simulation().tick;
+    ground::MovementMap* map{};
+    CHECK(f.match->prepare_search_job(slot, begin, map));
+    ground::Navigation scratch{};
+    ground::SearchWorker worker;
+    const std::array<uint16_t, map_cells * map_cells> known = [] {
+        std::array<uint16_t, map_cells * map_cells> result{};
+        result.fill(0xffff);
+        return result;
+    }();
+    auto status = worker.begin({slot.unit, &scratch, body.navigation.goal, map}, begin, known);
+    for (uint32_t slice = 0; slice < 64 && status == ground::SearchAdvance::in_progress; ++slice)
+        status = worker.advance_slice();
+    CHECK(status != ground::SearchAdvance::in_progress);
+    const auto route = worker.route();
+    result.native_plan_reaches =
+        !route.empty() &&
+        ground::goal_contains(far, (route.back()[0] - 8) / 16, (route.back()[1] - 8) / 16);
+    // Native searches may finish while Patrol waits in phase 2. Let that
+    // phase arise normally before delivering this completed worker result;
+    // phase 1 refreshes a Goal rather than consuming its completion event.
+    uint32_t waited{};
+    while (waited < 900 && slot.unit->primary && slot.unit->primary->kind == patrol_kind &&
+           slot.unit->primary->phase != 2) {
+        if (waited == 90)
+            CHECK(!f.match->order_refused(
+                f.match->issue_ground_move(gate, {112 * pixel, 0, 80 * pixel}, false)
+            ));
+        ++f.match->simulation().tick;
+        f.match->tick();
+        ++waited;
+        check_physical_bodies(f, {gate, mover});
+        CHECK(body.navigation.goal && same_goal_geometry(*body.navigation.goal, far));
+    }
+    CHECK(
+        waited < 900 && slot.unit->primary && slot.unit->primary->kind == patrol_kind &&
+        slot.unit->primary->phase == 2
+    );
+    CHECK(!ground::goal_contains_unit(far, body.geometry));
+    // Publish the real worker result through the original movement effects,
+    // equally in both modes. No failure event is forged or swallowed.
+    CHECK(publish_native_movement_effects(f, slot, body, route) == route.empty());
+    bool stopped{};
+    for (uint32_t elapsed = waited; elapsed < 900; ++elapsed) {
+        if (elapsed == 90)
+            CHECK(!f.match->order_refused(
+                f.match->issue_ground_move(gate, {112 * pixel, 0, 80 * pixel}, false)
+            ));
+        ++f.match->simulation().tick;
+        f.match->tick();
+        check_physical_bodies(f, {gate, mover});
+        const bool contains_far = ground::goal_contains_unit(far, body.geometry);
+        result.reached_far = result.reached_far || contains_far;
+        if (!result.reached_far && body.navigation.goal &&
+            !same_goal_geometry(*body.navigation.goal, far)) {
+            CHECK(body.navigation.goal->cell == home_cell);
+            result.home_before_far = true;
+        }
+        if (version == following_version && !result.reached_far) {
+            CHECK(body.navigation.goal == far_goal);
+            CHECK(body.navigation.goal->order == slot.unit->primary);
+            CHECK(slot.unit->primary->kind == patrol_kind);
+        }
+        if (result.reached_far && !stopped &&
+            (!body.navigation.goal || !same_goal_geometry(*body.navigation.goal, far))) {
+            // Patrol may rotate only after actual far containment. An
+            // ordinary Stop then permits natural deceleration at that end.
+            f.match->stop_orders(mover);
+            stopped = true;
+        }
+        if (stopped && body.movement.speed == 0 && !body.navigation.goal) {
+            result.rested = true;
+            break;
+        }
+    }
+    std::cout << "Static planning Patrol: version=" << version << ", publication_wait=" << waited
+              << ", plan_reaches=" << result.native_plan_reaches
+              << ", fresh_refusal=" << result.fresh_refusal
+              << ", home_before_far=" << result.home_before_far
+              << ", reached_far=" << result.reached_far << ", rested=" << result.rested << '\n';
+    return result;
+}
+
+void static_eight_planning_does_not_weaken_physical_traffic() {
+    const auto old = patrol_keeps_its_far_goal_after_the_gate_leaves(distributed_version);
+    const auto following = patrol_keeps_its_far_goal_after_the_gate_leaves(following_version);
+    CHECK(!old.native_plan_reaches && old.fresh_refusal && old.home_before_far);
+    CHECK(following.native_plan_reaches && following.fresh_refusal && !following.home_before_far);
+    CHECK(following.reached_far && following.rested);
+}
+
 // The player slot update advances each slot's Player.next_economy_tick deadline
 // once when it comes due; the local slot's outcome checks run under that same
 // deadline and no other.
@@ -531,6 +898,8 @@ int main() {
     building_walls_every_class_until_removed();
     features_refresh_every_class();
     persistent_search_matches_the_job_build();
+    cached_planning_excludes_only_movement_objects_in_eight();
+    static_eight_planning_does_not_weaken_physical_traffic();
     restored_mobility_keeps_the_occupancy_tick();
     outcome_checks_follow_the_slot_deadline();
     the_load_ends_with_one_player_pass();
