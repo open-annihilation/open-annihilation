@@ -19,6 +19,7 @@
 
 #include "oa/platform/job_pool.hpp"
 #include "oa/test/check.hpp"
+#include "oa/formats/objects3d.hpp"
 
 #include <array>
 #include <cmath>
@@ -500,6 +501,7 @@ struct UnitSizeArmy {
     std::unique_ptr<oa::World> world{std::make_unique<oa::World>()};
     std::array<oa::Unit, 12> units{};
     std::array<oa::UnitDef, 6> types{};
+    std::array<oa::app::unit_detail_transition::Geometry, 7> geometry{};
 
     UnitSizeArmy() {
         world->units = units.data();
@@ -511,6 +513,9 @@ struct UnitSizeArmy {
             types[type].size_x = x * fixed_scale;
             types[type].size_y = y * fixed_scale;
             types[type].size_z = z * fixed_scale;
+            geometry[type + 1].dimensions = {
+                static_cast<double>(x), static_cast<double>(y), static_cast<double>(z)
+            };
         };
         size(0, 20, 10, 10);
         size(1, 40, 20, 20);
@@ -522,45 +527,151 @@ struct UnitSizeArmy {
             units[slot].flags = OA_UNIT_FLAG_LIVE;
             units[slot].health = 100;
             units[slot].def = 1;
+            units[slot].type_index = 1;
         }
         units[4].def = 2;
+        units[4].type_index = 2;
         units[5].def = 3;
+        units[5].type_index = 3;
         units[6].def = 4;
+        units[6].type_index = 4;
         units[6].flags |= OA_UNIT_FLAG_BUILDING;
         units[7].def = 5;
+        units[7].type_index = 5;
         units[7].owner_index = 1;
     }
 };
+
+/// A small body whose footprint and nondrawable vertices are much larger.
+oa::formats::objects3d::Model physical_size_model() {
+    namespace mesh = oa::formats::objects3d;
+    constexpr int32_t fixed_scale = mesh::kThreeDoUnitsPerWorldUnit;
+    const auto point = [](int32_t x, int32_t y, int32_t z) {
+        return mesh::FixedVector3{x * fixed_scale, y * fixed_scale, z * fixed_scale};
+    };
+    mesh::Model model;
+    auto& body = model.objects.emplace_back();
+    body.vertices = {
+        point(0, 0, 0),
+        point(6, 0, 0),
+        point(0, 10, 0),
+        point(6, 10, 0),
+        point(0, 0, 4),
+        point(6, 0, 4),
+        point(0, 10, 4),
+        point(6, 10, 4),
+        point(1000, 0, 1000), // unreferenced
+        point(-200, 0, -200),
+        point(200, 0, -200),
+        point(-200, 1, 200),
+        point(-400, 0, -400),
+        point(400, 0, -400),
+        point(-400, 1, 400)
+    };
+    const std::array<std::array<uint16_t, 4>, 6> faces{
+        {{0, 1, 3, 2}, {4, 6, 7, 5}, {0, 4, 5, 1}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 5, 7, 3}}
+    };
+    for (const auto& face : faces) {
+        auto& polygon = body.primitives.emplace_back();
+        polygon.is_colored = 1;
+        polygon.color_index = 37;
+        polygon.vertex_indices.assign(face.begin(), face.end());
+    }
+    body.selection_primitive = static_cast<int32_t>(body.primitives.size());
+    auto& selection = body.primitives.emplace_back();
+    selection.is_colored = 1;
+    selection.vertex_indices = {9, 10, 11};
+    auto& invisible = body.primitives.emplace_back();
+    invisible.vertex_indices = {12, 13, 14};
+    return model;
+}
+
+void loaded_mesh_size_is_independent_of_collision_bounds() {
+    namespace detail = oa::app::unit_detail_transition;
+    namespace mesh = oa::formats::objects3d;
+
+    struct LoadedType {
+        std::shared_ptr<const mesh::Model> model{};
+    };
+
+    std::array<LoadedType, 2> loaded{};
+    loaded[1].model = std::make_shared<mesh::Model>(physical_size_model());
+    const auto collision = mesh::derive_unit_type_bounds(*loaded[1].model, 2, 2);
+    OA_CHECK(collision.ok());
+    if (!collision.ok())
+        return;
+    constexpr int32_t fixed_scale = mesh::kThreeDoUnitsPerWorldUnit;
+    OA_CHECK(collision.value->size_x == 32 * fixed_scale);
+    OA_CHECK(collision.value->size_z == 32 * fixed_scale);
+    OA_CHECK(
+        detail::derive_geometry(*loaded[1].model).dimensions == (std::array<double, 3>{6, 10, 4})
+    );
+
+    UnitSizeArmy army;
+    for (std::size_t slot = 2; slot < army.units.size(); ++slot)
+        army.units[slot].flags = 0;
+    army.types[0].size_x = collision.value->size_x;
+    army.types[0].size_y = collision.value->size_y;
+    army.types[0].size_z = collision.value->size_z;
+    detail::GeometryCache cache;
+    auto geometry = cache.prepare(loaded);
+    const detail::Projection classic{1, 0, 0, 0, -0.5F, 1};
+    auto average = detail::average_model_pixels(*army.world, classic, geometry);
+    // The physical 6x10x4 body spans nine screen pixels in this view;
+    // the 32x10x32 targeting box would span thirty-seven.
+    OA_CHECK(average.units == 1 && average.pixels == 9);
+    army.types[0].size_x *= 4;
+    army.types[0].size_z *= 4;
+    OA_CHECK(detail::average_model_pixels(*army.world, classic, geometry).pixels == 9);
+
+    std::weak_ptr<const mesh::Model> old_model = loaded[1].model;
+    auto replacement = std::make_shared<mesh::Model>(*loaded[1].model);
+    replacement->objects.front().first_child = 1;
+    auto& child = replacement->objects.emplace_back();
+    child.parent = 0;
+    child.offset_from_parent.x = 8 * fixed_scale;
+    child.vertices = {{0, 0, 0}, {2 * fixed_scale, 0, 0}, {0, 2 * fixed_scale, 2 * fixed_scale}};
+    auto& child_face = child.primitives.emplace_back();
+    child_face.is_colored = 1;
+    child_face.vertex_indices = {0, 1, 2};
+    loaded[1].model = replacement;
+    OA_CHECK(old_model.expired());
+    geometry = cache.prepare(loaded);
+    OA_CHECK(geometry[1].dimensions == (std::array<double, 3>{10, 10, 4}));
+    average = detail::average_model_pixels(*army.world, classic, geometry);
+    OA_CHECK(average.units == 1 && average.pixels == 10);
+    army.units[1].type_index = static_cast<uint16_t>(geometry.size());
+    OA_CHECK(detail::average_model_pixels(*army.world, classic, geometry).units == 0);
+    loaded[1].model.reset();
+    geometry = cache.prepare(loaded);
+    OA_CHECK(geometry[1].dimensions == (std::array<double, 3>{}));
+}
 
 void the_automatic_boundary_uses_physical_population_size() {
     namespace detail = oa::app::unit_detail_transition;
     const detail::Projection classic{1, 0, 0, 0, -0.5F, 1};
     UnitSizeArmy army;
-    auto average = detail::average_model_pixels(*army.world, classic);
+    auto average = detail::average_model_pixels(*army.world, classic, army.geometry);
     // Three 20-pixel units and one 40-pixel unit contribute by population.
     // The commander, building and hidden enemy cannot dominate that army.
     OA_CHECK(average.units == 4 && average.pixels == 25);
-    army.types[4].size_x *= 4;
-    OA_CHECK(detail::average_model_pixels(*army.world, classic).pixels == 25);
+    army.geometry[5].dimensions[0] *= 4;
+    OA_CHECK(detail::average_model_pixels(*army.world, classic, army.geometry).pixels == 25);
     army.units[4].flags |= OA_UNIT_FLAG_DEATH_PENDING;
-    average = detail::average_model_pixels(*army.world, classic);
+    average = detail::average_model_pixels(*army.world, classic, army.geometry);
     OA_CHECK(average.units == 3 && average.pixels == 20);
     army.units[1].health = 0;
     army.units[2].build_remaining = 0.5F;
     army.units[3].flags = 0;
-    average = detail::average_model_pixels(*army.world, classic);
+    average = detail::average_model_pixels(*army.world, classic, army.geometry);
     OA_CHECK(average.units == 2 && average.pixels == 900);
     army.units[5].flags = army.units[6].flags = 0;
-    OA_CHECK(detail::average_model_pixels(*army.world, classic).units == 0);
+    OA_CHECK(detail::average_model_pixels(*army.world, classic, army.geometry).units == 0);
 }
 
 void physical_size_follows_camera_and_unit_turn() {
     namespace detail = oa::app::unit_detail_transition;
-    oa::UnitDef type{};
-    constexpr int32_t fixed_scale = 65536;
-    type.size_x = 40 * fixed_scale;
-    type.size_y = 5 * fixed_scale;
-    type.size_z = 10 * fixed_scale;
+    detail::Geometry type{{40, 5, 10}};
     const detail::Projection side{1, 0, 0, 0, 1, 0};
     constexpr uint16_t quarter_turn = 16384;
     OA_CHECK(detail::model_pixels(type, side) == 40);
@@ -572,7 +683,7 @@ void physical_size_follows_camera_and_unit_turn() {
     auto invalid = side;
     invalid[0] = std::numeric_limits<float>::infinity();
     OA_CHECK(detail::model_pixels(type, invalid) == 0);
-    type.size_x = -1;
+    type.dimensions[0] = -1;
     OA_CHECK(detail::model_pixels(type, side) == 0);
 }
 
@@ -581,32 +692,32 @@ void unit_size_keeps_models_farther_out_and_does_not_flicker() {
     const detail::Projection classic{1, 0, 0, 0, -0.5F, 1};
     UnitSizeArmy army;
     // An exact 24-pixel population mean reaches six pixels at zoom 1/4.
-    army.types[1].size_x = 36 * 65536;
+    army.geometry[2].dimensions[0] = 36;
     detail::State before;
-    OA_CHECK(detail::as_dots(before, *army.world, 10, classic, 0.249F));
+    OA_CHECK(detail::as_dots(before, *army.world, 10, classic, 0.249F, army.geometry));
     detail::State at;
-    OA_CHECK(!detail::as_dots(at, *army.world, 10, classic, 0.25F));
+    OA_CHECK(!detail::as_dots(at, *army.world, 10, classic, 0.25F, army.geometry));
     // The old fixed 1/3 choice would already show dots at these zooms.
     detail::State moving;
-    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.26F));
-    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.249F));
-    OA_CHECK(detail::as_dots(moving, *army.world, 10, classic, 0.24F));
-    OA_CHECK(detail::as_dots(moving, *army.world, 10, classic, 0.25F));
-    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.26F));
+    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.26F, army.geometry));
+    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.249F, army.geometry));
+    OA_CHECK(detail::as_dots(moving, *army.world, 10, classic, 0.24F, army.geometry));
+    OA_CHECK(detail::as_dots(moving, *army.world, 10, classic, 0.25F, army.geometry));
+    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.26F, army.geometry));
     OA_CHECK(moving.average.units == 4 && moving.average.pixels == 24);
     // Tick and viewpoint changes refresh the representative population.
     army.units[4].flags |= OA_UNIT_FLAG_DEATH_PENDING;
-    OA_CHECK(detail::as_dots(moving, *army.world, 11, classic, 0.26F));
+    OA_CHECK(detail::as_dots(moving, *army.world, 11, classic, 0.26F, army.geometry));
     OA_CHECK(moving.average.units == 3 && moving.average.pixels == 20);
     army.world->game.viewpoint_player = 1;
-    OA_CHECK(!detail::as_dots(moving, *army.world, 11, classic, 0.26F));
+    OA_CHECK(!detail::as_dots(moving, *army.world, 11, classic, 0.26F, army.geometry));
     OA_CHECK(moving.average.units == 1 && moving.average.pixels == 750);
     // A match with no owned physical model retains the earlier fallback.
     oa::World empty{};
     detail::State fallback;
-    OA_CHECK(detail::as_dots(fallback, empty, 0, classic, 0.1F));
-    OA_CHECK(!detail::as_dots(fallback, empty, 0, classic, 0.2F));
-    OA_CHECK(!detail::as_dots(fallback, empty, 0, classic, 0));
+    OA_CHECK(detail::as_dots(fallback, empty, 0, classic, 0.1F, {}));
+    OA_CHECK(!detail::as_dots(fallback, empty, 0, classic, 0.2F, {}));
+    OA_CHECK(!detail::as_dots(fallback, empty, 0, classic, 0, {}));
 }
 
 } // namespace
@@ -623,6 +734,7 @@ int main() {
     a_dot_covers_the_pixels_drawn_in_its_colour();
     the_view_goes_past_the_map_until_its_edge_reaches_the_middle();
     a_smaller_share_keeps_more_of_the_view_on_the_map();
+    loaded_mesh_size_is_independent_of_collision_bounds();
     the_automatic_boundary_uses_physical_population_size();
     physical_size_follows_camera_and_unit_turn();
     unit_size_keeps_models_farther_out_and_does_not_flicker();
