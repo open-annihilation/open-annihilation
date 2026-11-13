@@ -44,11 +44,15 @@ struct Scratch {
 namespace detail {
 
 /// Matches the native reset/offset negation, including INT32_MIN.
+/// @param value the signed 16.16 model coordinate
+/// @return the negated coordinate with low 32 bits kept; INT32_MIN remains unchanged
 inline int32_t negate(int32_t value) noexcept {
     return std::bit_cast<int32_t>(0U - std::bit_cast<uint32_t>(value));
 }
 
 /// Grows an inclusive signed fixed-point box.
+/// @param[in,out] into the enclosing box, in 16.16 model coordinates
+/// @param part the inclusive box to include, in the same coordinates
 inline void include(FixedBounds& into, const FixedBounds& part) noexcept {
     into.low.x = std::min(into.low.x, part.low.x);
     into.low.y = std::min(into.low.y, part.low.y);
@@ -59,6 +63,12 @@ inline void include(FixedBounds& into, const FixedBounds& part) noexcept {
 }
 
 /// Applies one native rounded plane rotation, refusing a wrapped interval.
+/// @param[in,out] low_a the first axis's inclusive lower 16.16 coordinate
+/// @param[in,out] high_a the first axis's inclusive upper 16.16 coordinate, at least low_a
+/// @param[in,out] low_b the second axis's inclusive lower 16.16 coordinate
+/// @param[in,out] high_b the second axis's inclusive upper 16.16 coordinate, at least low_b
+/// @param angle the signed angle word, 65536 per turn
+/// @return true with enclosing rotated intervals; false leaves all coordinates unchanged
 inline bool rotate_pair(
     int32_t& low_a, int32_t& high_a, int32_t& low_b, int32_t& high_b, int16_t angle
 ) noexcept {
@@ -90,6 +100,9 @@ inline bool rotate_pair(
 }
 
 /// Applies the native XY, YZ, XZ pair order, reboxing after every rounded pair.
+/// @param[in,out] box the inclusive 16.16 model box; earlier planes may change it on failure
+/// @param words the signed rotation words, 65536 per turn on each plane
+/// @return true for a bounded rotation; false when any plane is nonfinite or may wrap
 inline bool rotate(FixedBounds& box, Rotation words) noexcept {
     return rotate_pair(box.low.x, box.high.x, box.low.y, box.high.y, words.xy) &&
            rotate_pair(box.low.y, box.high.y, box.low.z, box.high.z, words.yz) &&
@@ -97,6 +110,11 @@ inline bool rotate(FixedBounds& box, Rotation words) noexcept {
 }
 
 /// Adds one offset/translation exactly where no native low32 wrap can occur.
+/// @param[in,out] low the inclusive lower 16.16 model coordinate
+/// @param[in,out] high the inclusive upper 16.16 model coordinate, at least low
+/// @param offset the parent offset on this axis, in 16.16 model coordinates
+/// @param shift the local translation on this axis, in 16.16 model coordinates
+/// @return true with translated endpoints; false leaves both endpoints unchanged
 inline bool translate(int32_t& low, int32_t& high, int32_t offset, int32_t shift) noexcept {
     const int64_t first = int64_t{low} + offset + shift;
     const int64_t last = int64_t{high} + offset + shift;
@@ -108,6 +126,9 @@ inline bool translate(int32_t& low, int32_t& high, int32_t offset, int32_t shift
 }
 
 /// Matches the native signed angle-word addition without relying on narrowing.
+/// @param a the first signed angle word, 65536 per turn
+/// @param b the second signed angle word, 65536 per turn
+/// @return the signed sum with low 16 bits kept
 inline int16_t add_angle(int16_t a, int16_t b) noexcept {
     return std::bit_cast<int16_t>(
         static_cast<uint16_t>(std::bit_cast<uint16_t>(a) + std::bit_cast<uint16_t>(b))
@@ -118,6 +139,8 @@ inline int16_t add_angle(int16_t a, int16_t b) noexcept {
 
 /// Scans immutable raw vertices once, applying the exact native reset signs.
 /// Allocation or invalid model hierarchy leaves an unusable geometry record.
+/// @param model the immutable model and hierarchy, with raw vertices in 16.16 coordinates
+/// @return per-object reset bounds; a record without a model on hierarchy or allocation failure
 [[nodiscard]] inline Geometry
 prepare_geometry(std::shared_ptr<const oa::formats::objects3d::Model> model) {
     try {
@@ -155,6 +178,12 @@ prepare_geometry(std::shared_ptr<const oa::formats::objects3d::Model> model) {
 /// Root is the target ModelState's effective thresholded shift. Neither
 /// canonical nor presentation state is changed. Unknown, empty, invalid,
 /// differently owned or wrapping input returns no bound.
+///
+/// @param geometry the immutable reset bounds prepared from the instance's shared model
+/// @param instance the resolved current-frame local pose and visible-piece flags
+/// @param root the effective thresholded root rotation words, 65536 per turn
+/// @param[in,out] scratch reusable piece-index storage; may change even when no bound is returned
+/// @return an inclusive 16.16 model-space bound, or no value when containment is unproved
 [[nodiscard]] inline std::optional<FixedBounds> bound_instance(
     const Geometry& geometry,
     const oa::sim::model_runtime::Instance& instance,
@@ -262,6 +291,8 @@ struct FrameView {
     uint32_t width{}, height{};
     float shadow_scale{1};
     uint64_t frame{};
+    /// Compares the current-frame proof inputs member by member.
+    /// @return true when every member compares equal
     bool operator==(const FrameView&) const = default;
 };
 
@@ -280,11 +311,20 @@ struct Eligibility {
     int32_t sea_level{}, ground_height{};
 };
 
-/// Proves both the ordinary ground body and its shadow lie outside this frame.
+/// Proves the ordinary ground body, possible marker and shadow lie outside this frame.
 ///
 /// This is only a geometry proof, not an integrated replacement for planning.
 /// The shown model must hold the exact resolved frame pose and effective root
 /// shift; missing identity, policy or arithmetic evidence keeps the old path.
+/// The ordinary detail classifier must also reserve no surface geometry.
+///
+/// @param geometry the immutable reset bounds of the shown instance's shared model
+/// @param shown the current resolved ordinary ground model and its 16.16 world position
+/// @param effective_root the shown state's thresholded rotation words, 65536 per turn
+/// @param view the same frame's projection to screen pixels and shadow bounds in world pixels
+/// @param gate the proved caller facts, including nonzero frame and matching rig generations
+/// @param[in,out] scratch reusable piece-index storage; may change on a refused proof
+/// @return true only for a complete outside proof; false for visible or uncertain input
 [[nodiscard]] inline bool rejection_proof(
     const Geometry& geometry,
     const oa::present::model::ModelRef& shown,

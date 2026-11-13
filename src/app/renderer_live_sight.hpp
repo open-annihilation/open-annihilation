@@ -16,6 +16,10 @@ namespace oa::app::renderer_live_sight {
 enum class Fog : uint8_t { seen, grey, black };
 
 /// Reads mapping before line of sight, so unexplored cells stay black.
+/// @param sight the current mapping, player coverage and allied sight policy
+/// @param x the east-west fog-sampling coordinate, in world pixels
+/// @param z the north-south fog-sampling coordinate, in world pixels
+/// @return seen, grey or black under the policy; cells absent from enabled mapping stay black
 inline Fog fog_at(const full::SightView& sight, int32_t x, int32_t z) {
     if (!sight.mapping && !sight.line_of_sight)
         return Fog::seen;
