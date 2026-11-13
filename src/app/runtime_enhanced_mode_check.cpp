@@ -87,7 +87,8 @@ void Runtime::check_enhanced_mode() {
           mode::corridor_flow_version,
           mode::battle_flow_version,
           mode::distributed_battle_flow_version,
-          mode::following_flow_version}) {
+          mode::following_flow_version,
+          mode::cohort_target_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
@@ -667,7 +668,8 @@ void Runtime::check_enhanced_mode() {
           mode::corridor_flow_version,
           mode::battle_flow_version,
           mode::distributed_battle_flow_version,
-          mode::following_flow_version}) {
+          mode::following_flow_version,
+          mode::cohort_target_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
@@ -699,10 +701,9 @@ void Runtime::check_enhanced_mode() {
             "leaving an earlier save kept its old rules"
         );
     }
-    require(
-        !hold_enhanced_rules_once(mode::following_flow_version + 1),
-        "an unknown version was accepted"
-    );
+    for (const uint32_t unsupported :
+         {mode::following_flow_version + 1, mode::cohort_target_version + 1})
+        require(!hold_enhanced_rules_once(unsupported), "an unknown version was accepted");
     require(
         enhanced_mode_version(*this) == mode::current_version, "a rejected version changed rules"
     );

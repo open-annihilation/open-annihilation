@@ -418,11 +418,11 @@ void test_parallel_history() {
 void test_capture_policy() {
     oa::data::match_rules::MatchRules rules;
     for (const bool enabled : {false, true})
-        for (int32_t version = 0; version <= 9; ++version) {
+        for (int32_t version = 0; version <= 11; ++version) {
             rules.setup.enhanced_mode.enabled = enabled;
             rules.setup.enhanced_mode.version = version;
             CHECK(app::unit_pose_capture(rules, false) == app::UnitPoseCapture::full);
-            const auto expected = enabled && (version == 7 || version == 8)
+            const auto expected = enabled && (version == 7 || version == 8 || version == 10)
                                       ? app::UnitPoseCapture::root
                                       : app::UnitPoseCapture::full;
             CHECK(app::unit_pose_capture(rules, true) == expected);

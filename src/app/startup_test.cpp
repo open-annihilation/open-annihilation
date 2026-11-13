@@ -864,7 +864,7 @@ void enhanced_benchmark_options() {
                 .benchmark_units == 10000,
         "the enhanced battle population parses before runtime mode validation"
     );
-    for (const char* version : {"1", "2", "3", "4", "5", "6", "7", "8"}) {
+    for (const char* version : {"1", "2", "3", "4", "5", "6", "7", "8", "10"}) {
         const auto group = parse(
             {"--battle-benchmark",
              "report.json",
@@ -876,15 +876,17 @@ void enhanced_benchmark_options() {
         );
         expect(
             group.benchmark_scenario == "group-march" &&
-                group.benchmark_rules_version == static_cast<uint32_t>(version[0] - '0'),
+                group.benchmark_rules_version == (std::string_view{version} == "10"
+                                                      ? 10u
+                                                      : static_cast<uint32_t>(version[0] - '0')),
             "group movement can compare every recorded Enhanced preset"
         );
     }
-    for (const char* version : {"0", "9", "4294967296"})
+    for (const char* version : {"0", "9", "11", "4294967296"})
         expect(
             rejection(
                 {"--battle-benchmark", "report.json", "--benchmark-rules-version", version}
-            ) == "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7 or 8",
+            ) == "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8 or 10",
             "unsupported benchmark rules versions are refused without truncation"
         );
     for (const char* value : {"0", "10001", "65536"})
