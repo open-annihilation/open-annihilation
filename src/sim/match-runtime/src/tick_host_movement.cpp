@@ -251,32 +251,17 @@ void TickHost::movement_tick(oa::Unit& record) {
                 flow_head->mobile_blocked = false;
             } else {
                 const auto goal_key = local_flow_goal_key(*g.navigation.goal);
-                const bool retain_completed = match.rules().setup.enhanced_mode.enabled &&
-                                              data::enhanced_mode::uses_retained_passing_flow(
-                                                  match.rules().setup.enhanced_mode.version
-                                              );
-                if (retain_completed && !flow_head->active &&
-                    flow_head->count == sim::unit_movement::local_flow_completed_count &&
-                    (flow_head->goal_key != goal_key ||
-                     !sim::unit_movement::local_flow_completed_within_history(
-                         *flow_head, match.simulation_.tick
-                     )))
-                    flow_head->count = 0;
                 const bool recover = sim::unit_movement::local_flow_recovery_due(
                     *flow_head, match.simulation_.tick, s.unit_index
                 );
                 const bool completed_head =
                     flow_head->active && flow_head->goal_key == goal_key &&
                     sim::unit_movement::local_flow_head_reached(g.geometry, *flow_head);
-                // Completed passing legs can bound later choices on the same goal.
-                const bool recent_completion =
-                    flow_head->goal_key == goal_key &&
-                    (retain_completed ? sim::unit_movement::local_flow_completed_within_history(
-                                            *flow_head, match.simulation_.tick
-                                        )
-                                      : sim::unit_movement::local_flow_completed_last_tick(
-                                            *flow_head, match.simulation_.tick
-                                        ));
+                // One tick on the original route can separate two local choices.
+                const bool recent_completion = flow_head->goal_key == goal_key &&
+                                               sim::unit_movement::local_flow_completed_last_tick(
+                                                   *flow_head, match.simulation_.tick
+                                               );
                 if (flow_head->active && (flow_head->goal_key != goal_key || completed_head ||
                                           (recover && !advanced_corner))) {
                     flow_head->active = false;
@@ -299,10 +284,10 @@ void TickHost::movement_tick(oa::Unit& record) {
 
                     context.match = &match;
                     context.player = s.record.owner_index;
-                    context.follow_applied_heads = match.rules().setup.enhanced_mode.enabled &&
-                                                   data::enhanced_mode::uses_following_flow(
-                                                       match.rules().setup.enhanced_mode.version
-                                                   );
+                    context.follow_applied_heads =
+                        match.rules().setup.enhanced_mode.enabled &&
+                        match.rules().setup.enhanced_mode.version ==
+                            static_cast<int32_t>(data::enhanced_mode::following_flow_version);
                     context.same_route_queue =
                         (match.rules().setup.enhanced_mode.version ==
                              static_cast<int32_t>(data::enhanced_mode::battle_flow_version) ||
@@ -406,11 +391,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                     const auto own_progress = s.unit_index < probe.progress_at_tick_start.size()
                                                   ? probe.progress_at_tick_start[s.unit_index]
                                                   : g.movement.last_motion_tick;
-                    if (retain_completed)
-                        probe.allow_reverse =
-                            recover && sim::unit_movement::local_flow_stationary_history_due(
-                                           match.simulation_.tick, own_progress
-                                       );
                     probe.recovery_yield =
                         recover && match.simulation_.tick - own_progress >=
                                        sim::unit_movement::local_flow_retry_ticks;

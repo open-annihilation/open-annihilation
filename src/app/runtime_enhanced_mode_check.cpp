@@ -87,8 +87,7 @@ void Runtime::check_enhanced_mode() {
           mode::corridor_flow_version,
           mode::battle_flow_version,
           mode::distributed_battle_flow_version,
-          mode::following_flow_version,
-          mode::retained_passing_version}) {
+          mode::following_flow_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
@@ -668,8 +667,7 @@ void Runtime::check_enhanced_mode() {
           mode::corridor_flow_version,
           mode::battle_flow_version,
           mode::distributed_battle_flow_version,
-          mode::following_flow_version,
-          mode::retained_passing_version}) {
+          mode::following_flow_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
@@ -702,7 +700,7 @@ void Runtime::check_enhanced_mode() {
         );
     }
     require(
-        !hold_enhanced_rules_once(mode::retained_passing_version + 1),
+        !hold_enhanced_rules_once(mode::following_flow_version + 1),
         "an unknown version was accepted"
     );
     require(

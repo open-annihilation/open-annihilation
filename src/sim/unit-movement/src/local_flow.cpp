@@ -158,16 +158,6 @@ bool local_flow_completed_last_tick(const LocalFlowHead& head, uint32_t tick) no
            uint32_t(tick - head.tick) == 1;
 }
 
-bool local_flow_completed_within_history(const LocalFlowHead& head, uint32_t tick) noexcept {
-    return !head.active && head.count == local_flow_completed_count &&
-           uint32_t(tick - head.tick) <= local_flow_completed_history_ticks;
-}
-
-bool local_flow_stationary_history_due(uint32_t tick, uint32_t last_progress) noexcept {
-    const auto age = uint32_t(tick - last_progress);
-    return age >= local_flow_completed_history_ticks && age <= UINT32_MAX / 2;
-}
-
 void record_local_flow_block(LocalFlowHead& head, bool blocked) noexcept {
     constexpr uint8_t maximum_blocked_ticks = local_flow_retry_ticks + 1;
     head.blocked_ticks =
