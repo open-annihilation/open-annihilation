@@ -2924,8 +2924,10 @@ void Runtime::check_full_render_tier(
         automatic_defaults.max_zoom_in = whole_map.max_zoom_in;
         apply_engine_settings(automatic_defaults);
         const unit_detail_transition::Projection classic_projection{1, 0, 0, 0, -0.5F, 1};
+        unit_detail_transition::GeometryCache geometry_cache;
+        const auto geometry = geometry_cache.prepare(loaded_commander_types_);
         const auto average = unit_detail_transition::average_model_pixels(
-            match_->world().record, classic_projection
+            match_->world().record, classic_projection, geometry
         );
         if (average.units != 0 && average.pixels > 0) {
             const double boundary_pixels =

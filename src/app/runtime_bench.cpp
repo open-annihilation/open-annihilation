@@ -1091,6 +1091,46 @@ void Runtime::play_bench() {
         scene.card_models
     );
     std::printf("bench: GROUND revisions %.0f in %zu frames\n", totals.ground_revisions, frames);
+    if (view.frame_log && match_) {
+        // Cold metadata makes the actual mesh reference auditable without
+        // adding geometry work or output inside a measured frame.
+        const auto& world = match_->world().record;
+        std::vector<uint32_t> owned(loaded_commander_types_.size());
+        std::vector<uint32_t> present(owned.size());
+        std::vector<oa_ref32> definitions(owned.size());
+        for (uint32_t slot = 1; slot < world.unit_slot_count; ++slot) {
+            const auto& unit = world.units[slot];
+            if (oa::unit_is_live_target(unit.flags) && unit.health > 0 &&
+                unit.build_remaining == 0 && unit.type_index < owned.size()) {
+                ++present[unit.type_index];
+                if (unit.owner_index == world.game.viewpoint_player)
+                    ++owned[unit.type_index];
+                definitions[unit.type_index] = unit.def;
+            }
+        }
+        unit_detail_transition::GeometryCache mesh_cache;
+        const auto geometry = mesh_cache.prepare(loaded_commander_types_);
+        for (std::size_t type = 0; type < owned.size(); ++type) {
+            if (present[type] == 0)
+                continue;
+            const auto* definition = oa::world_unit_def(&world, definitions[type]);
+            const auto& dimensions = geometry[type].dimensions;
+            std::printf(
+                "bench: UNIT_GEOMETRY type %zu present %u owned %u rest_mesh_x %.4f rest_mesh_y "
+                "%.4f "
+                "rest_mesh_z %.4f footprint_x %d footprint_z %d name=%s\n",
+                type,
+                present[type],
+                owned[type],
+                dimensions[0],
+                dimensions[1],
+                dimensions[2],
+                definition ? definition->footprint_x : 0,
+                definition ? definition->footprint_z : 0,
+                loaded_commander_types_[type].unit_name.c_str()
+            );
+        }
+    }
     if (view.require_gameplay && match_models_) {
         const auto& models = *match_models_;
         size_t deferred_draws{}, preplanned_omissions{}, deferred_original{}, deferred_copies{},

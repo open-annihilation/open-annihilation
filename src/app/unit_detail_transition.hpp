@@ -3,6 +3,7 @@
 #pragma once
 
 #include "oa/core/world.h"
+#include "unit_mesh_geometry.hpp"
 
 #include <algorithm>
 #include <array>
@@ -10,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <numbers>
+#include <span>
 
 namespace oa::app::unit_detail_transition {
 
@@ -70,24 +72,23 @@ struct Heading {
 
 /// Returns one type's containing model diameter projected at zoom one.
 ///
-/// Static model bounds describe physical geometry, rather than its collision
-/// footprint. Negative or empty dimensions cannot supply a useful boundary.
+/// Rest-pose drawable mesh bounds supply this size. Canonical UnitDef X/Z
+/// bounds describe the collision footprint and must not supply it.
 ///
-/// @param type canonical type whose model bounds were loaded with the game data
+/// @param geometry containing dimensions derived from loaded drawable polygons
 /// @param projection current camera's screen coefficients at zoom one
 /// @param turn unit's heading words about its height axis
 /// @return projected pixels; zero for invalid bounds or projection
 [[nodiscard]] inline double
-model_pixels(const oa::UnitDef& type, const Projection& projection, uint16_t turn = 0) noexcept {
-    if (type.size_x < 0 || type.size_y < 0 || type.size_z < 0 ||
-        (type.size_x == 0 && type.size_y == 0 && type.size_z == 0))
+model_pixels(const Geometry& geometry, const Projection& projection, uint16_t turn = 0) noexcept {
+    const auto& dimensions = geometry.dimensions;
+    if (std::any_of(
+            dimensions.begin(),
+            dimensions.end(),
+            [](double value) { return !std::isfinite(value) || value < 0; }
+        ) ||
+        std::all_of(dimensions.begin(), dimensions.end(), [](double value) { return value == 0; }))
         return 0;
-    constexpr double fixed_scale = 65536.0;
-    const std::array dimensions{
-        static_cast<double>(type.size_x) / fixed_scale,
-        static_cast<double>(type.size_y) / fixed_scale,
-        static_cast<double>(type.size_z) / fixed_scale
-    };
     double pixels{};
     const auto& direction = heading(turn);
     for (std::size_t row = 0; row < 2; ++row) {
@@ -113,11 +114,13 @@ model_pixels(const oa::UnitDef& type, const Projection& projection, uint16_t tur
 /// does not carry the same weight as an army of small ones. Buildings and
 /// commanders supply a fallback only when no ordinary mobile unit is present.
 ///
-/// @param world canonical units and their loaded model dimensions
+/// @param world canonical units; their type bounds are not used for geometry
 /// @param projection current camera's screen coefficients at zoom one
+/// @param geometry drawable rest-mesh dimensions, indexed by unit type index
 /// @return the larger projected width or height averaged over eligible units
-[[nodiscard]] inline Average
-average_model_pixels(const oa::World& world, const Projection& projection) noexcept {
+[[nodiscard]] inline Average average_model_pixels(
+    const oa::World& world, const Projection& projection, std::span<const Geometry> geometry
+) noexcept {
     Average ordinary{}, fallback{};
     if (world.units == nullptr || world.unit_defs == nullptr)
         return {};
@@ -127,9 +130,9 @@ average_model_pixels(const oa::World& world, const Projection& projection) noexc
             unit.owner_index != world.game.viewpoint_player || unit.build_remaining != 0)
             continue;
         const auto* type = oa::world_unit_def_of(&world, &unit);
-        if (type == nullptr)
+        if (type == nullptr || unit.type_index >= geometry.size())
             continue;
-        const double pixels = model_pixels(*type, projection, unit.heading);
+        const double pixels = model_pixels(geometry[unit.type_index], projection, unit.heading);
         if (!(pixels > 0))
             continue;
         fallback.pixels += pixels;
@@ -157,10 +160,17 @@ average_model_pixels(const oa::World& world, const Projection& projection) noexc
 /// @param tick current simulation tick
 /// @param projection camera coefficients at zoom one
 /// @param zoom current framebuffer pixels per map pixel
+/// @param geometry_provider supplies mesh dimensions only when the sample changes
 /// @return true for dots; false for physical units
-[[nodiscard]] inline bool as_dots(
-    State& state, const oa::World& world, uint32_t tick, const Projection& projection, float zoom
-) noexcept {
+template <class GeometryProvider>
+[[nodiscard]] inline bool as_dots_with_geometry(
+    State& state,
+    const oa::World& world,
+    uint32_t tick,
+    const Projection& projection,
+    float zoom,
+    GeometryProvider&& geometry_provider
+) {
     if (!std::isfinite(zoom) || !(zoom > 0))
         return false;
     const bool same_world = state.world == &world;
@@ -172,7 +182,7 @@ average_model_pixels(const oa::World& world, const Projection& projection) noexc
         state.tick = tick;
         state.viewpoint = world.game.viewpoint_player;
         state.projection = projection;
-        state.average = average_model_pixels(world, projection);
+        state.average = average_model_pixels(world, projection, geometry_provider());
         state.sampled = true;
     }
     if (state.average.units == 0) {
@@ -186,6 +196,27 @@ average_model_pixels(const oa::World& world, const Projection& projection) noexc
     state.dots = pixels < boundary;
     state.decided = true;
     return state.dots;
+}
+
+/// Applies the automatic boundary using an already available geometry span.
+/// @param[in,out] state previous representation and size sample
+/// @param world canonical records, read without changing them
+/// @param tick current simulation tick
+/// @param projection camera coefficients at zoom one
+/// @param zoom current framebuffer pixels per map pixel
+/// @param geometry drawable rest-mesh dimensions, indexed by type
+/// @return true for dots; false for physical units
+[[nodiscard]] inline bool as_dots(
+    State& state,
+    const oa::World& world,
+    uint32_t tick,
+    const Projection& projection,
+    float zoom,
+    std::span<const Geometry> geometry
+) noexcept {
+    return as_dots_with_geometry(state, world, tick, projection, zoom, [geometry] {
+        return geometry;
+    });
 }
 
 } // namespace oa::app::unit_detail_transition

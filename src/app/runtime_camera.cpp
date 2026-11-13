@@ -27,6 +27,7 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <new>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -646,9 +647,20 @@ bool Runtime::zoomed_out_units_frame() const noexcept {
     auto& state = match_models_ && match_models_->match == match_.get()
                       ? match_models_->unit_transition
                       : first;
-    return unit_detail_transition::as_dots(
-        state, match_->world().record, match_->simulation().tick, axes, match_zoom_
-    );
+    try {
+        // Immutable mesh dimensions are derived once per loaded model;
+        // no unit's transformed geometry or collision footprint is sampled.
+        return unit_detail_transition::as_dots_with_geometry(
+            state, match_->world().record, match_->simulation().tick, axes, match_zoom_, [this] {
+                static thread_local unit_detail_transition::GeometryCache geometry;
+                return geometry.prepare(loaded_commander_types_);
+            }
+        );
+    } catch (const std::bad_alloc&) {
+        state.average = {};
+        state.sampled = state.decided = false;
+        return match_zoom_ < unit_detail_transition::unknown_size_zoom;
+    }
 }
 
 bool Runtime::dots_frame() const noexcept {
