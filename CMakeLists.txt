@@ -1108,6 +1108,16 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-model-transform-cache-test PRIVATE oa-app-headers
     oa-present-model oa-sim-model-runtime oa-sim-effect-particles oa-test-support oa-options)
   add_test(NAME app-model-transform-cache COMMAND oa-app-model-transform-cache-test)
+  # A private pre-planning geometry proof is held to independently rebuilt
+  # native model vertices before any Runtime caller can consume it.
+  add_executable(oa-app-preplanning-visibility-bounds-test
+    src/app/preplanning_visibility_bounds_test.cpp src/app/presentation_interpolation.cpp)
+  target_link_libraries(oa-app-preplanning-visibility-bounds-test PRIVATE oa-app-headers
+    oa-present-model oa-present-world-renderer oa-sim-model-runtime oa-base-float-precision
+    oa-test-support oa-options)
+  add_test(NAME app-preplanning-visibility-bounds
+    COMMAND oa-app-preplanning-visibility-bounds-test)
+  set_tests_properties(app-preplanning-visibility-bounds PROPERTIES TIMEOUT 120)
   # Current-frame picking bounds, retained by bounded unit slot with exact
   # duplicate-range merging and frame-stamp invalidation.
   add_executable(oa-app-unit-bounds-test src/app/unit_bounds_test.cpp)

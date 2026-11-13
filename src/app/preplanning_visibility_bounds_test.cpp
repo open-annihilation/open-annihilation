@@ -1,0 +1,674 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// The proof is checked against freshly rebuilt native vertices, never against
+// another interval transform or the receiver's stale transformed buffers.
+#include "preplanning_visibility_bounds.hpp"
+#include "presentation_interpolation.hpp"
+
+#include "oa/test/check.hpp"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cfenv>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <limits>
+#include <memory>
+#include <new>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace {
+thread_local bool refuse_allocation{};
+thread_local std::size_t refused_allocations{};
+} // namespace
+
+/// Refuses a single allocation only inside the explicit recovery controls.
+void* operator new(std::size_t bytes) {
+    if (refuse_allocation) {
+        refuse_allocation = false;
+        ++refused_allocations;
+        throw std::bad_alloc{};
+    }
+    if (void* result = std::malloc(bytes == 0 ? 1 : bytes))
+        return result;
+    throw std::bad_alloc{};
+}
+
+/// Routes array allocation through the same one-shot control.
+void* operator new[](std::size_t bytes) {
+    return ::operator new(bytes);
+}
+
+/// Releases ordinary storage.
+void operator delete(void* pointer) noexcept {
+    std::free(pointer);
+}
+
+/// Releases array storage.
+void operator delete[](void* pointer) noexcept {
+    std::free(pointer);
+}
+
+/// Releases sized ordinary storage.
+void operator delete(void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
+
+/// Releases sized array storage.
+void operator delete[](void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
+
+namespace {
+namespace proof = oa::app::preplanning_visibility;
+namespace runtime = oa::sim::model_runtime;
+namespace drawing = oa::present::model;
+using oa::formats::objects3d::FixedVector3;
+using oa::formats::objects3d::Model;
+using runtime::Instance;
+using runtime::RotationWords;
+constexpr int32_t fixed = 65536;
+constexpr uint16_t visible = static_cast<uint16_t>(runtime::PieceFlag::visible);
+constexpr uint16_t cached = static_cast<uint16_t>(runtime::PieceFlag::cached);
+constexpr std::array<std::string_view, 6> cob_order{
+    "tip", "side_tip", "base", "detached", "lower", "side"
+};
+
+bool same(FixedVector3 a, FixedVector3 b) {
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+/// A branched hierarchy with an empty hidden parent, short pieces and a root sibling.
+std::shared_ptr<const Model> branched_model() {
+    auto model = std::make_shared<Model>();
+    model->objects.resize(6);
+    constexpr std::array names{"base", "lower", "tip", "side", "side_tip", "detached"};
+    constexpr std::array<std::size_t, 6> counts{4, 0, 1, 2, 7, 3};
+    for (std::size_t object = 0; object < model->objects.size(); ++object) {
+        auto& part = model->objects[object];
+        part.name = names[object];
+        part.offset_from_parent = {
+            static_cast<int32_t>(object) * fixed / 3 + 13,
+            static_cast<int32_t>(object) * -fixed / 4 - 7,
+            static_cast<int32_t>(object) * fixed / 5 + 19
+        };
+        for (std::size_t vertex = 0; vertex < counts[object]; ++vertex)
+            part.vertices.push_back(
+                {static_cast<int32_t>(vertex) * fixed / 2 - 2 * fixed + 3,
+                 static_cast<int32_t>((vertex + object) % 3) * fixed - 11,
+                 static_cast<int32_t>(vertex % 4) * -fixed / 3 + 23}
+            );
+    }
+    model->objects[0].first_child = 1;
+    model->objects[0].next_sibling = 5;
+    model->objects[1].parent = 0;
+    model->objects[1].first_child = 2;
+    model->objects[1].next_sibling = 3;
+    model->objects[2].parent = 1;
+    model->objects[3].parent = 0;
+    model->objects[3].first_child = 4;
+    model->objects[4].parent = 3;
+    return model;
+}
+
+/// Reconstructs only raw pose inputs in the same COB order, then uses native rebuild.
+Instance native_oracle(
+    const Instance& posed, RotationWords root, std::span<const std::string_view> names = {}
+) {
+    auto fresh = runtime::make_instance(posed.model_handle(), posed.owner_token(), names);
+    OA_CHECK(fresh.pieces().size() == posed.pieces().size());
+    for (std::size_t index = 0; index < fresh.pieces().size(); ++index) {
+        OA_CHECK(fresh.pieces()[index].object_index == posed.pieces()[index].object_index);
+        fresh.pieces()[index].translation = posed.pieces()[index].translation;
+        fresh.pieces()[index].rotation = posed.pieces()[index].rotation;
+        fresh.pieces()[index].flags = posed.pieces()[index].flags;
+    }
+    fresh.rebuild_transforms(root);
+    return fresh;
+}
+
+/// Makes stale/reset geometry unusable as an accidental oracle or proof input.
+void poison(Instance& instance) {
+    for (std::size_t index = 0; index < instance.pieces().size(); ++index) {
+        auto& piece = instance.pieces()[index];
+        piece.transformed_vertices.clear();
+        if (index % 2 != 0)
+            piece.transformed_vertices.push_back({123456789, -987654321, 777777777});
+        piece.transformed_origin = {-1, 2, -3};
+        piece.transform_marker = 65535;
+    }
+}
+
+/// The geometry-only query must not mutate raw or stale native instance state.
+void unchanged(const Instance& instance, const Instance& saved) {
+    OA_CHECK(instance.owner_token() == saved.owner_token());
+    OA_CHECK(instance.transforms_dirty() == saved.transforms_dirty());
+    OA_CHECK(instance.pieces().size() == saved.pieces().size());
+    for (std::size_t index = 0; index < instance.pieces().size(); ++index) {
+        const auto& a = instance.pieces()[index];
+        const auto& b = saved.pieces()[index];
+        OA_CHECK(same(a.translation, b.translation));
+        OA_CHECK(
+            a.rotation.xy == b.rotation.xy && a.rotation.xz == b.rotation.xz &&
+            a.rotation.yz == b.rotation.yz
+        );
+        OA_CHECK(a.flags == b.flags && a.object_index == b.object_index);
+        OA_CHECK(
+            a.parent == b.parent && a.first_child == b.first_child &&
+            a.next_sibling == b.next_sibling
+        );
+        OA_CHECK(a.transform_marker == b.transform_marker);
+        OA_CHECK(same(a.transformed_origin, b.transformed_origin));
+        OA_CHECK(a.transformed_vertices.size() == b.transformed_vertices.size());
+        if (a.transformed_vertices.size() == b.transformed_vertices.size())
+            for (std::size_t point = 0; point < a.transformed_vertices.size(); ++point)
+                OA_CHECK(same(a.transformed_vertices[point], b.transformed_vertices[point]));
+    }
+}
+
+/// Checks only the native visible vertices, including visible one/two-vertex pieces.
+bool encloses(const proof::FixedBounds& box, const Instance& native) {
+    bool nonempty{};
+    for (const auto& piece : native.pieces())
+        if ((piece.flags & visible) != 0)
+            for (const auto& point : piece.transformed_vertices) {
+                nonempty = true;
+                OA_CHECK(box.low.x <= point.x && point.x <= box.high.x);
+                OA_CHECK(box.low.y <= point.y && point.y <= box.high.y);
+                OA_CHECK(box.low.z <= point.z && point.z <= box.high.z);
+            }
+    return nonempty;
+}
+
+/// Queries first, then builds a separate native receiver from raw fields alone.
+bool check_pose(
+    const proof::Geometry& geometry,
+    Instance& posed,
+    RotationWords root,
+    std::span<const std::string_view> names = {},
+    bool required = true
+) {
+    poison(posed);
+    const auto saved = posed;
+    proof::Scratch scratch;
+    const auto box = proof::bound_instance(geometry, posed, root, scratch);
+    unchanged(posed, saved);
+    const auto native = native_oracle(posed, root, names);
+    if (required)
+        OA_CHECK(box.has_value());
+    if (box)
+        OA_CHECK(encloses(*box, native));
+    return box.has_value();
+}
+
+/// Gives repeatable signed words without consuming simulation randomness.
+uint32_t next_word(uint32_t& value) {
+    value = value * 1664525U + 1013904223U;
+    return value;
+}
+
+void native_hierarchy_and_pose_corpus() {
+    const auto model = branched_model();
+    const auto geometry = proof::prepare_geometry(model);
+    OA_CHECK(geometry.model == model && geometry.objects.size() == model->objects.size());
+    uint32_t random = 0x16b0a57U;
+    for (const bool reordered : {false, true}) {
+        const auto names = reordered ? std::span<const std::string_view>(cob_order)
+                                     : std::span<const std::string_view>{};
+        auto posed = runtime::make_instance(model, 19, names);
+        for (unsigned sample = 0; sample < 96; ++sample) {
+            for (auto& piece : posed.pieces()) {
+                const auto coordinate = [&] {
+                    return static_cast<int32_t>(next_word(random) % (32U * fixed)) - 16 * fixed;
+                };
+                piece.translation = {coordinate(), coordinate(), coordinate()};
+                piece.rotation = {
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random))),
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random))),
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random)))
+                };
+                piece.flags = static_cast<uint16_t>(visible | (sample % 2 == 0 ? cached : 0));
+                if (piece.object_index == 1 || (sample % 5 == 0 && piece.object_index == 3))
+                    piece.flags = 0; // An invisible parent still transforms its visible children.
+            }
+            const RotationWords root{
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random))),
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random))),
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random)))
+            };
+            check_pose(geometry, posed, root, names);
+        }
+    }
+    auto deep = std::make_shared<Model>();
+    deep->objects.resize(24);
+    for (std::size_t index = 0; index < deep->objects.size(); ++index) {
+        auto& object = deep->objects[index];
+        object.name = "deep" + std::to_string(index);
+        object.vertices = {{-fixed, fixed / 2, 0}, {fixed, 0, fixed}, {0, -fixed, -fixed}};
+        object.offset_from_parent = {31, -19, 11};
+        if (index != 0)
+            object.parent = static_cast<uint32_t>(index - 1);
+        if (index + 1 < deep->objects.size())
+            object.first_child = static_cast<uint32_t>(index + 1);
+    }
+    const auto deep_geometry = proof::prepare_geometry(deep);
+    auto instance = runtime::make_instance(deep);
+    check_pose(deep_geometry, instance, {});
+    for (auto& piece : instance.pieces())
+        piece.rotation = {8191, -16383, 2731};
+    // Reboxing deep rotating chains may conservatively refuse; it must never underbound.
+    check_pose(deep_geometry, instance, {32767, -32768, 16384}, {}, false);
+}
+
+void interpolated_raw_poses_use_the_existing_helpers() {
+    const auto model = branched_model();
+    const auto geometry = proof::prepare_geometry(model);
+    auto previous = runtime::make_instance(model, 41, cob_order);
+    auto current = runtime::make_instance(model, 41, cob_order);
+    for (std::size_t index = 0; index < current.pieces().size(); ++index) {
+        previous.pieces()[index].translation = {-9 * fixed, static_cast<int32_t>(index) * 37, 13};
+        previous.pieces()[index].rotation = {30000, -31000, 123};
+        current.pieces()[index].translation = {11 * fixed, -77, static_cast<int32_t>(index) * 101};
+        current.pieces()[index].rotation = {-30000, 31000, -923};
+        previous.pieces()[index].flags = current.pieces()[index].flags = visible | cached;
+    }
+    oa::Unit first{}, last{};
+    first.position = {100 * fixed, 32 * fixed, 80 * fixed};
+    last.position = {104 * fixed, 36 * fixed, 91 * fixed};
+    first.heading = 65000;
+    last.heading = 1100;
+    first.bank = -193;
+    last.pitch = 291;
+    oa::app::UnitPose before, after;
+    std::vector<int32_t> turns(current.pieces().size() * 3, 0);
+    oa::app::capture_unit_pose(first, previous, before, turns);
+    oa::app::capture_unit_pose(last, current, after, turns);
+    // One axis makes two complete revolutions between identical endpoints.
+    after.pieces[0].rotation.xy = before.pieces[0].rotation.xy;
+    after.pieces[0].turn_per_tick[0] = 65536;
+    for (const uint32_t fraction : {0U, 1U, 8192U, 32768U, 57344U, oa::app::whole_tick}) {
+        auto resolved = runtime::make_instance(model, 41, cob_order);
+        for (std::size_t index = 0; index < resolved.pieces().size(); ++index)
+            resolved.pieces()[index].flags = current.pieces()[index].flags;
+        auto record = last;
+        oa::app::blend_unit_pose(before, after, fraction, record, resolved, 2);
+        check_pose(
+            geometry,
+            resolved,
+            {record.bank, static_cast<int16_t>(record.heading), record.pitch},
+            cob_order
+        );
+        // A newly primed rig uses its current local pieces, with root-only blending.
+        auto primed = runtime::make_instance(model, 41, cob_order);
+        for (std::size_t index = 0; index < primed.pieces().size(); ++index)
+            primed.pieces()[index].flags = current.pieces()[index].flags;
+        oa::app::blend_unit_root_pose(before, after, fraction, record);
+        oa::app::place_current_unit_pieces(after, primed);
+        check_pose(
+            geometry,
+            primed,
+            {record.bank, static_cast<int16_t>(record.heading), record.pitch},
+            cob_order
+        );
+    }
+}
+
+/// Exact visible native vertices projected as the normal body and ordinary cast.
+struct NativeVisibility {
+    bool body_outside{}, shadow_outside{}, markers_outside{};
+};
+
+NativeVisibility scan_native(
+    const Instance& native, const oa::Unit& unit, const proof::FrameView& view, int32_t ground
+) {
+    float min_x = std::numeric_limits<float>::infinity(), min_y = min_x;
+    float max_x = -min_x, max_y = -min_x;
+    float shadow_left = min_x, shadow_top = min_x, shadow_right = -min_x, shadow_bottom = -min_x;
+    std::array world_low{min_x, min_x, min_x}, world_high{-min_x, -min_x, -min_x};
+    const std::array origin{
+        unit.position.x / float(fixed),
+        unit.position.y / float(fixed),
+        unit.position.z / float(fixed)
+    };
+    const auto& p = view.projection;
+    std::size_t points{};
+    for (const auto& piece : native.pieces())
+        if ((piece.flags & visible) != 0)
+            for (const auto& point : piece.transformed_vertices) {
+                ++points;
+                const float x = origin[0] + point.x / float(fixed);
+                const float height = origin[1] + point.y / float(fixed);
+                const float z = origin[2] - point.z / float(fixed);
+                const std::array world{x, height, z};
+                for (std::size_t axis = 0; axis < world.size(); ++axis) {
+                    world_low[axis] = std::min(world_low[axis], world[axis]);
+                    world_high[axis] = std::max(world_high[axis], world[axis]);
+                }
+                const float across = p[0] * x + p[1] * height + p[2] * z + p[3];
+                const float down = p[4] * x + p[5] * height + p[6] * z + p[7];
+                min_x = std::min(min_x, across);
+                max_x = std::max(max_x, across);
+                min_y = std::min(min_y, down);
+                max_y = std::max(max_y, down);
+                const float laid_x =
+                    origin[0] + (drawing::shadow_offset_x + std::floor(x - origin[0]));
+                const float laid_y =
+                    (origin[2] + -float(ground) * 0.5F) +
+                    (std::floor(z - origin[2]) - std::floor(std::floor(height - origin[1]) * 0.5F));
+                shadow_left = std::min(shadow_left, laid_x);
+                shadow_right = std::max(shadow_right, laid_x);
+                shadow_top = std::min(shadow_top, laid_y);
+                shadow_bottom = std::max(shadow_bottom, laid_y);
+            }
+    OA_CHECK(points != 0);
+    const float margin_x = std::abs(p[0]) + std::abs(p[1]) + std::abs(p[2]);
+    const float margin_y = std::abs(p[4]) + std::abs(p[5]) + std::abs(p[6]);
+    const float shadow_margin = 2 * view.shadow_scale + 1;
+    // The ordinary marker uses this inverse-camera basis and the midpoint
+    // of the actual posed vertices. No interval-bound center is used here.
+    const std::array a{p[0], p[1], p[2]}, b{p[4], p[5], p[6]}, c{p[8], p[9], p[10]};
+    std::array across{
+        b[1] * c[2] - b[2] * c[1], b[2] * c[0] - b[0] * c[2], b[0] * c[1] - b[1] * c[0]
+    };
+    std::array down{
+        c[1] * a[2] - c[2] * a[1], c[2] * a[0] - c[0] * a[2], c[0] * a[1] - c[1] * a[0]
+    };
+    const float determinant = a[0] * across[0] + a[1] * across[1] + a[2] * across[2];
+    OA_CHECK(std::isfinite(determinant) && std::abs(determinant) >= 1e-12F);
+    for (std::size_t axis = 0; axis < across.size(); ++axis) {
+        across[axis] /= determinant;
+        down[axis] /= determinant;
+    }
+    bool markers_outside = true;
+    for (const float radius : {0.0F, 2.5F, 32.0F}) {
+        std::array<float, 3> center{};
+        for (std::size_t axis = 0; axis < center.size(); ++axis)
+            center[axis] = (world_low[axis] + world_high[axis]) * 0.5F;
+        center[1] += radius * (std::abs(across[1]) + std::abs(down[1])) + 0.25F;
+        const float sx = p[0] * center[0] + p[1] * center[1] + p[2] * center[2] + p[3];
+        const float sy = p[4] * center[0] + p[5] * center[1] + p[6] * center[2] + p[7];
+        markers_outside &= sx + radius < 0 || sy + radius < 0 || sx - radius > view.width ||
+                           sy - radius > view.height;
+    }
+    return {
+        max_x + margin_x < 0 || min_x - margin_x > view.width || max_y + margin_y < 0 ||
+            min_y - margin_y > view.height,
+        shadow_right < view.shadow_bounds[0] - shadow_margin ||
+            shadow_left > view.shadow_bounds[2] + shadow_margin ||
+            shadow_bottom < view.shadow_bounds[1] - shadow_margin ||
+            shadow_top > view.shadow_bounds[3] + shadow_margin,
+        markers_outside
+    };
+}
+
+struct FrameFixture {
+    std::shared_ptr<const Model> model = branched_model();
+    proof::Geometry geometry = proof::prepare_geometry(model);
+    oa::Unit unit{};
+    oa::UnitDef definition{};
+    drawing::PreparedModel prepared{};
+    drawing::ModelState state{};
+    Instance instance =
+        runtime::make_instance(model, reinterpret_cast<uintptr_t>(&unit), cob_order);
+    proof::Scratch scratch{};
+    proof::FrameView view{};
+    proof::Eligibility gate{};
+    RotationWords root{};
+
+    FrameFixture() {
+        unit.id = unit.type_index = 1;
+        unit.position = {200 * fixed, 20 * fixed, 200 * fixed};
+        view.projection = {1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0.5F, 0};
+        view.shadow_bounds = {0, 0, 64, 64};
+        view.width = view.height = 64;
+        view.frame = 17;
+        gate.enhanced = gate.local = gate.rig_resolved = gate.ground_resolved = true;
+        gate.gpu_type_supported = gate.budget_safe = gate.native_geometry_resolved = true;
+        gate.ordinary_model_path = true;
+        gate.frame = view.frame;
+        gate.owner_token = instance.owner_token();
+        gate.generation = gate.rig_generation = 7;
+    }
+
+    drawing::ModelRef ref() { return {&instance, &prepared, &state, &unit, &definition}; }
+
+    bool reject() { return proof::rejection_proof(geometry, ref(), root, view, gate, scratch); }
+};
+
+void exact_native_body_and_shadow_oracle() {
+    FrameFixture fixture;
+    std::size_t accepted{};
+    for (const bool translated : {false, true})
+        for (const float shadow_scale : {1.0F, 4.0F})
+            for (const int32_t ground : {0, 63}) {
+                const int32_t origin = translated ? 7168 : 0;
+                fixture.view.projection =
+                    translated
+                        ? std::array<
+                              float,
+                              12>{0, 0, 1, -float(origin), 1, -0.5F, 0, -float(origin), 0, 1, 0, 0}
+                        : std::array<float, 12>{1, 0, 0, 0, 0, -0.5F, 1, 0, 0, 1, 0.5F, 0};
+                fixture.view.shadow_bounds = {
+                    float(origin), float(origin), float(origin + 64), float(origin + 64)
+                };
+                fixture.view.shadow_scale = shadow_scale;
+                fixture.gate.ground_height = ground;
+                fixture.root = {2731, -8192, 511};
+                for (const int32_t x : {-320, -20, -5, 0, 32, 64, 70, 320})
+                    for (const int32_t z : {-320, -2, 24, 64, 320})
+                        for (const uint32_t fraction : {0U, 1U, 16384U, 32768U, 65535U}) {
+                            fixture.unit.position = {
+                                (origin + x) * fixed + static_cast<int32_t>(fraction),
+                                (ground + 20) * fixed,
+                                (origin + z) * fixed - static_cast<int32_t>(fraction)
+                            };
+                            poison(fixture.instance);
+                            const auto saved = fixture.instance;
+                            const bool rejected = fixture.reject();
+                            unchanged(fixture.instance, saved);
+                            const auto native =
+                                native_oracle(fixture.instance, fixture.root, cob_order);
+                            const auto actual =
+                                scan_native(native, fixture.unit, fixture.view, ground);
+                            if (rejected) {
+                                ++accepted;
+                                OA_CHECK(
+                                    actual.body_outside && actual.shadow_outside &&
+                                    actual.markers_outside
+                                );
+                            }
+                            if (!actual.body_outside || !actual.shadow_outside ||
+                                !actual.markers_outside)
+                                OA_CHECK(!rejected);
+                        }
+            }
+    OA_CHECK(accepted != 0);
+    fixture.view = FrameFixture{}.view;
+    fixture.gate.ground_height = 0;
+    fixture.root = {};
+    // Both native body and laid shadow are outside, but the largest
+    // supported budget marker still reaches the viewport from the left.
+    fixture.unit.position = {-20 * fixed, 20 * fixed, 32 * fixed};
+    const auto marker_native = native_oracle(fixture.instance, {}, cob_order);
+    const auto marker_visibility = scan_native(marker_native, fixture.unit, fixture.view, 0);
+    OA_CHECK(marker_visibility.body_outside && marker_visibility.shadow_outside);
+    OA_CHECK(!marker_visibility.markers_outside);
+    OA_CHECK(!fixture.reject());
+    // A body above the viewport still casts directly onto visible ground.
+    fixture.unit.position = {32 * fixed, 400 * fixed, 32 * fixed};
+    const auto native = native_oracle(fixture.instance, {}, cob_order);
+    const auto visibility = scan_native(native, fixture.unit, fixture.view, 0);
+    OA_CHECK(visibility.body_outside && !visibility.shadow_outside);
+    OA_CHECK(!fixture.reject());
+    // Conversely the body is visible while a deliberately distant shadow crop is not.
+    fixture.unit.position = {32 * fixed, 20 * fixed, 32 * fixed};
+    fixture.view.shadow_bounds = {1000, 1000, 1064, 1064};
+    OA_CHECK(!fixture.reject());
+}
+
+void interpolated_native_projection_oracle() {
+    FrameFixture fixture;
+    auto first = runtime::make_instance(fixture.model, fixture.instance.owner_token(), cob_order);
+    auto last = runtime::make_instance(fixture.model, fixture.instance.owner_token(), cob_order);
+    for (std::size_t index = 0; index < first.pieces().size(); ++index) {
+        first.pieces()[index].translation = {-3 * fixed, static_cast<int32_t>(index) * 17, 123};
+        last.pieces()[index].translation = {5 * fixed, -73, static_cast<int32_t>(index) * -91};
+        first.pieces()[index].rotation = {30000, -31000, 993};
+        last.pieces()[index].rotation = {-30000, 31000, -447};
+        first.pieces()[index].flags = last.pieces()[index].flags = visible | cached;
+        fixture.instance.pieces()[index].flags = visible | cached;
+    }
+    auto before_record = fixture.unit, after_record = fixture.unit;
+    after_record.position.x += 7 * fixed;
+    before_record.heading = 64000;
+    after_record.heading = 1200;
+    before_record.bank = -431;
+    after_record.pitch = 293;
+    oa::app::UnitPose before, after;
+    oa::app::capture_unit_pose(before_record, first, before);
+    oa::app::capture_unit_pose(after_record, last, after);
+    after.pieces[0].rotation.xy = before.pieces[0].rotation.xy;
+    after.pieces[0].turn_per_tick[0] = 65536;
+    std::size_t rejected{};
+    for (const uint32_t fraction : {0U, 1U, 8192U, 32768U, 57344U, oa::app::whole_tick}) {
+        fixture.unit = after_record;
+        oa::app::blend_unit_pose(before, after, fraction, fixture.unit, fixture.instance, 2);
+        fixture.root = {
+            fixture.unit.bank, static_cast<int16_t>(fixture.unit.heading), fixture.unit.pitch
+        };
+        poison(fixture.instance);
+        const bool result = fixture.reject();
+        const auto native = native_oracle(fixture.instance, fixture.root, cob_order);
+        const auto actual =
+            scan_native(native, fixture.unit, fixture.view, fixture.gate.ground_height);
+        if (result) {
+            ++rejected;
+            OA_CHECK(actual.body_outside && actual.shadow_outside && actual.markers_outside);
+        }
+    }
+    OA_CHECK(rejected != 0);
+}
+
+void unknown_policy_and_identity_keep_the_normal_path() {
+    FrameFixture fixture;
+    OA_CHECK(fixture.reject());
+    const auto original = fixture.gate;
+    for (bool proof::Eligibility::* field :
+         {&proof::Eligibility::enhanced,
+          &proof::Eligibility::local,
+          &proof::Eligibility::rig_resolved,
+          &proof::Eligibility::ground_resolved,
+          &proof::Eligibility::gpu_type_supported,
+          &proof::Eligibility::budget_safe,
+          &proof::Eligibility::native_geometry_resolved,
+          &proof::Eligibility::ordinary_model_path}) {
+        fixture.gate = original;
+        fixture.gate.*field = false;
+        OA_CHECK(!fixture.reject());
+    }
+    for (bool proof::Eligibility::* field :
+         {&proof::Eligibility::selected,
+          &proof::Eligibility::debug,
+          &proof::Eligibility::probe,
+          &proof::Eligibility::reflection,
+          &proof::Eligibility::complex,
+          &proof::Eligibility::snapshot,
+          &proof::Eligibility::vertex_override}) {
+        fixture.gate = original;
+        fixture.gate.*field = true;
+        OA_CHECK(!fixture.reject());
+    }
+    fixture.gate = original;
+    fixture.gate.frame++;
+    OA_CHECK(!fixture.reject());
+    fixture.gate = original;
+    fixture.gate.rig_generation++;
+    OA_CHECK(!fixture.reject());
+    fixture.gate = original;
+    fixture.gate.owner_token++;
+    OA_CHECK(!fixture.reject());
+    fixture.gate = original;
+    fixture.unit.flags |= OA_UNIT_FLAG_SELECTED;
+    OA_CHECK(!fixture.reject());
+    fixture.unit.flags = 0;
+    const auto view = fixture.view;
+    fixture.view.projection.fill(0);
+    OA_CHECK(!fixture.reject());
+    fixture.view = view;
+    for (std::size_t column = 0; column < 3; ++column)
+        fixture.view.projection[8 + column] = fixture.view.projection[column];
+    OA_CHECK(!fixture.reject()); // The first two rows alone do not certify full rank.
+    fixture.view = view;
+    fixture.view.projection[0] = std::numeric_limits<float>::infinity();
+    OA_CHECK(!fixture.reject());
+    fixture.view = view;
+    fixture.view.shadow_scale = 0;
+    OA_CHECK(!fixture.reject());
+}
+
+void ownership_topology_wrap_and_allocation_refusals() {
+    const auto model = branched_model();
+    const auto geometry = proof::prepare_geometry(model);
+    auto instance = runtime::make_instance(model, 1, cob_order);
+    proof::Scratch scratch;
+    const std::shared_ptr<const Model> unrelated(model.get(), [](const Model*) {});
+    const auto foreign_geometry = proof::prepare_geometry(unrelated);
+    OA_CHECK(!proof::bound_instance(foreign_geometry, instance, {}, scratch));
+    instance.pieces()[0].object_index = instance.pieces()[1].object_index;
+    OA_CHECK(!proof::bound_instance(geometry, instance, {}, scratch));
+    instance = runtime::make_instance(model, 1, cob_order);
+    instance.pieces()[0].parent = 99999;
+    OA_CHECK(!proof::bound_instance(geometry, instance, {}, scratch));
+    auto extreme = std::make_shared<Model>();
+    extreme->objects.resize(1);
+    extreme->objects[0].vertices = {
+        {std::numeric_limits<int32_t>::min(), 0, std::numeric_limits<int32_t>::min()},
+        {0, 0, 0},
+        {fixed, 0, fixed}
+    };
+    const auto extreme_geometry = proof::prepare_geometry(extreme);
+    auto wrapped = runtime::make_instance(extreme);
+    check_pose(extreme_geometry, wrapped, {}); // Reset negation preserves INT32_MIN.
+    wrapped.pieces()[0].translation.x = -1;
+    OA_CHECK(!proof::bound_instance(extreme_geometry, wrapped, {}, scratch));
+    wrapped.pieces()[0].translation.x = 0;
+    OA_CHECK(!proof::bound_instance(extreme_geometry, wrapped, {0, 8192, 0}, scratch));
+    auto invalid = std::make_shared<Model>(*model);
+    invalid->objects[1].parent = 1;
+    OA_CHECK(!proof::prepare_geometry(invalid).model);
+    const auto before_failures = refused_allocations;
+    refuse_allocation = true;
+    const auto failed_geometry = proof::prepare_geometry(model);
+    OA_CHECK(!refuse_allocation && refused_allocations == before_failures + 1);
+    OA_CHECK(!failed_geometry.model);
+    instance = runtime::make_instance(model, 1, cob_order);
+    proof::Scratch cold;
+    refuse_allocation = true;
+    const auto failed_bound = proof::bound_instance(geometry, instance, {}, cold);
+    OA_CHECK(!refuse_allocation && refused_allocations == before_failures + 2);
+    OA_CHECK(!failed_bound);
+    OA_CHECK(proof::bound_instance(geometry, instance, {}, cold).has_value());
+    const auto saved_control = oa::base::float_precision::save_float_control();
+    if (std::fesetround(FE_DOWNWARD) == 0) {
+        OA_CHECK(!proof::bound_instance(geometry, instance, {}, cold));
+        oa::base::float_precision::restore_float_control(saved_control);
+    }
+}
+} // namespace
+
+int main() {
+    native_hierarchy_and_pose_corpus();
+    interpolated_raw_poses_use_the_existing_helpers();
+    exact_native_body_and_shadow_oracle();
+    interpolated_native_projection_oracle();
+    unknown_policy_and_identity_keep_the_normal_path();
+    ownership_topology_wrap_and_allocation_refusals();
+    return oa::test::check_exit_status();
+}
