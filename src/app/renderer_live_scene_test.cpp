@@ -1282,6 +1282,179 @@ void ground_kept_while_moving() {
     OA_CHECK(triangles(moving.scene) == pictured(35));
 }
 
+/// An inward zoom shares the exact terrain already covering its picture;
+/// the ordinary path still redraws, and settling releases the wider ground.
+void contained_camera_ground() {
+    constexpr uint32_t tiles = 32;
+    constexpr uint32_t width = 200, height = 150;
+    constexpr std::array<float, 12> projection{1, 0, -1, 100, 0.5F, -1, 0.5F, -250, 0, 1, 0, 0};
+    const auto make = [&](Fixture& fixture, bool contained) {
+        auto& map = fixture.map;
+        map.tile_width = map.tile_height = tiles;
+        map.attribute_width = map.attribute_height = tiles * 2;
+        map.tile_indices.assign(tiles * tiles, 0);
+        map.attributes.assign(map.attribute_width * map.attribute_height, {});
+        for (uint32_t row = 0; row < map.attribute_height; ++row)
+            for (uint32_t column = 0; column < map.attribute_width; ++column)
+                map.attributes[row * map.attribute_width + column].height =
+                    static_cast<uint8_t>((column * 3 + row * 5) % 40);
+        auto& in = fixture.inputs;
+        in.sight.mapping = in.sight.line_of_sight = false;
+        in.right = in.bottom = static_cast<int32_t>(tiles) * tile_edge;
+        in.clip_width = width;
+        in.clip_height = height;
+        in.clip_projection = projection;
+        in.detail_scale = 0.4F;
+        in.tiles_hold_while_moving = true;
+        in.ground_holds_contained_views = contained;
+    };
+    const auto zoom = [&](live::Inputs& in, float scale) {
+        for (std::size_t row : {std::size_t{0}, std::size_t{4}}) {
+            for (std::size_t column = 0; column < 4; ++column)
+                in.clip_projection[row + column] = projection[row + column] * scale;
+            const float center = row == 0 ? width / 2.0F : height / 2.0F;
+            in.clip_projection[row + 3] += center * (1 - scale);
+        }
+    };
+    using Triangle = std::array<uint32_t, 3 * sizeof(oa::app::renderer_live_gpu::Vertex) / 4>;
+    const auto triangles = [](const live::Scene& scene) {
+        std::vector<Triangle> result;
+        for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3) {
+            Triangle triangle{};
+            std::memcpy(triangle.data(), scene.vertices.data() + first, sizeof(triangle));
+            result.push_back(triangle);
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    Fixture moving, ordinary;
+    make(moving, true);
+    make(ordinary, false);
+    const auto build = [](Fixture& fixture) {
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.error.empty());
+        check_ground_points(fixture.scene);
+        OA_CHECK(fixture.scene.vertices.size() <= oa::app::renderer_live_gpu::largest_vertex_count);
+        return fixture.scene.ground_revision;
+    };
+    build(moving);
+    const auto original = build(moving);
+    build(ordinary);
+    const auto ordinary_original = build(ordinary);
+    const auto retained = triangles(moving.scene);
+    OA_CHECK(moving.scene.ground_kept && moving.scene.ground_source.picture_margin == 0);
+    for (int frame = 1; frame <= 24; ++frame) {
+        const float scale = 1 + frame * 0.025F;
+        zoom(moving.inputs, scale);
+        zoom(ordinary.inputs, scale);
+        OA_CHECK(build(moving) == original);
+        OA_CHECK(build(ordinary) != ordinary_original);
+        OA_CHECK(!moving.scene.ground_ahead.active);
+        OA_CHECK(triangles(moving.scene) == retained);
+        Fixture fresh;
+        make(fresh, false);
+        zoom(fresh.inputs, scale);
+        build(fresh);
+        const auto pictured = triangles(fresh.scene);
+        OA_CHECK(std::includes(retained.begin(), retained.end(), pictured.begin(), pictured.end()));
+    }
+    for (int frame = 0; frame < 10; ++frame)
+        build(moving);
+    OA_CHECK(moving.scene.ground_revision != original);
+    OA_CHECK(moving.scene.terrain_vertex_count < retained.size() * 3);
+    // A pan outside the retained picture cannot take its geometry.
+    const auto settled = moving.scene.ground_revision;
+    moving.inputs.clip_projection[3] += width * 2;
+    OA_CHECK(build(moving) != settled);
+    // Every retained-source edit remains an invalidation, including edits
+    // at the same address and a detail threshold crossed during the zoom.
+    const auto changed = [&](const auto& edit) {
+        Fixture fixture;
+        make(fixture, true);
+        build(fixture);
+        const auto before = build(fixture);
+        zoom(fixture.inputs, 1.2F);
+        OA_CHECK(build(fixture) == before);
+        edit(fixture);
+        OA_CHECK(build(fixture) != before);
+    };
+    changed([](Fixture& fixture) { ++fixture.map.attributes[100].height; });
+    changed([](Fixture& fixture) { ++fixture.map.tile_palette_indices[0]; });
+    changed([](Fixture& fixture) { ++fixture.palette[ground_index * oa::palette_entry_bytes]; });
+    changed([](Fixture& fixture) { fixture.inputs.sight.mapping = true; });
+    changed([](Fixture& fixture) { fixture.inputs.detail_scale = 0.6F; });
+    changed([](Fixture& fixture) { ++fixture.inputs.clip_width; });
+    changed([](Fixture& fixture) {
+        for (std::size_t row : {std::size_t{0}, std::size_t{4}})
+            for (std::size_t column = 0; column < 4; ++column)
+                fixture.inputs.clip_projection[row + column] *= 0.5F;
+    });
+    changed([](Fixture& fixture) {
+        fixture.inputs.clip_projection[6] = -fixture.inputs.clip_projection[4];
+    });
+    const int rounding = std::fegetround();
+    changed([](Fixture&) { OA_CHECK(std::fesetround(FE_DOWNWARD) == 0); });
+    OA_CHECK(std::fesetround(rounding) == 0);
+    // The wider retained ground gives way to the current picture before
+    // full-detail models force the terrain to lose height samples.
+    Fixture crowded, fresh;
+    make(crowded, true);
+    make(fresh, false);
+    build(crowded);
+    const auto wide = build(crowded);
+    zoom(crowded.inputs, 3);
+    zoom(fresh.inputs, 3);
+    OA_CHECK(build(crowded) == wide);
+    build(fresh);
+    const auto narrow_count = fresh.scene.terrain_vertex_count;
+    OA_CHECK(crowded.scene.terrain_vertex_count > narrow_count);
+    constexpr std::size_t polygons = 128;
+    constexpr std::size_t model_vertices = polygons * 3;
+    const std::size_t population =
+        (oa::app::renderer_live_gpu::largest_vertex_count - narrow_count) / model_vertices;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {{0, 0, 0}, {4 * fixed, 0, 0}, {0, 4 * fixed, 0}};
+    source->objects[0].primitives.resize(polygons);
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(polygons);
+    for (std::size_t index = 0; index < polygons; ++index) {
+        source->objects[0].primitives[index].vertex_indices = {0, 1, 2};
+        auto& primitive = prepared.objects[0].primitives[index];
+        primitive.source_index = static_cast<uint32_t>(index);
+        primitive.flags = drawing::primitive_colored;
+        primitive.color = alternate_index;
+    }
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    std::vector<oa::Unit> units(population);
+    for (Fixture* fixture : {&crowded, &fresh}) {
+        fixture->inputs.models_on_card = true;
+        fixture->draws.models.resize(population);
+        for (std::size_t index = 0; index < population; ++index) {
+            auto& unit = units[index];
+            unit.id = static_cast<uint16_t>(index + 1);
+            unit.flags = OA_UNIT_FLAG_BUILDING;
+            unit.position = {325 * fixed, 20 * fixed, 325 * fixed};
+            auto& draw = fixture->draws.models[index];
+            draw.model.unit = &unit;
+            draw.model.instance = &instance;
+            draw.model.prepared = &prepared;
+            draw.plan.linked.drawn = true;
+        }
+        build(*fixture);
+        OA_CHECK(fixture->scene.cards.vertices == population * model_vertices);
+    }
+    OA_CHECK(crowded.scene.ground_revision != wide);
+    OA_CHECK(crowded.scene.ground_source.step == 1 && fresh.scene.ground_source.step == 1);
+    OA_CHECK(crowded.scene.terrain_square_limit == fresh.scene.terrain_square_limit);
+    OA_CHECK(triangles(crowded.scene) == triangles(fresh.scene));
+}
+
 /// Known sight boundaries interpolate, while every unknown terrain sample remains black.
 void smooth_fog_boundary() {
     Fixture fixture;
@@ -9021,6 +9194,7 @@ int main() {
     coarse_ground_far_out();
     terrain_beyond_picture();
     ground_kept_while_moving();
+    contained_camera_ground();
     smooth_fog_boundary();
     terrain_zoom_detail();
     particle_zoom_detail();

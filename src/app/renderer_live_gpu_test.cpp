@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <functional>
+#include <cstring>
 #include <limits>
 #include <span>
 #include <vector>
@@ -4201,6 +4202,130 @@ void large_marker_scene_readback() {
     );
 }
 
+/// Contained zooms show the same GPU pixels and unit picking triangles as
+/// freshly rebuilt terrain, including relief and a changed fog boundary.
+void contained_ground_readback() {
+    namespace live = oa::app::renderer_live_scene;
+    constexpr uint32_t tiles = 32, target = 128, tile_edge = 32;
+    constexpr int32_t extent = tiles * tile_edge;
+    constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    constexpr std::array<float, 12> projection{
+        0.5F, 0, -0.25F, -64, 0.25F, -0.4F, 0.5F, -320, 0, 1, 0, 0
+    };
+    oa::formats::tnt::Map map{};
+    map.attribute_width = map.attribute_height = tiles * 2;
+    map.tile_width = map.tile_height = tiles;
+    map.tile_count = 1;
+    map.attributes.resize(map.attribute_width * map.attribute_height);
+    map.tile_indices.assign(tiles * tiles, 0);
+    map.tile_palette_indices.resize(tile_edge * tile_edge);
+    for (uint32_t row = 0; row < map.attribute_height; ++row)
+        for (uint32_t column = 0; column < map.attribute_width; ++column)
+            map.attributes[row * map.attribute_width + column].height =
+                static_cast<uint8_t>((column * 3 + row * 5) % 40);
+    for (std::size_t pixel = 0; pixel < map.tile_palette_indices.size(); ++pixel)
+        map.tile_palette_indices[pixel] = static_cast<uint8_t>(1 + pixel % 3);
+    oa::PaletteBytes palette{};
+    for (uint32_t index = 1; index <= 3; ++index) {
+        palette[index * oa::palette_entry_bytes] = static_cast<uint8_t>(index * 50);
+        palette[index * oa::palette_entry_bytes + 1] = static_cast<uint8_t>(180 - index * 30);
+        palette[index * oa::palette_entry_bytes + 2] = static_cast<uint8_t>(index * 35);
+    }
+    oa::Unit marker{};
+    marker.id = 19;
+    marker.position = {512 * fixed, 20 * fixed, 512 * fixed};
+    oa::app::WorldDrawList draws{};
+    draws.unit_markers = {{&marker, marker.position}};
+    live::Inputs in{};
+    in.map = &map;
+    in.palette = &palette;
+    in.draws = &draws;
+    in.right = in.bottom = extent;
+    in.clip_width = in.clip_height = target;
+    in.clip_projection = projection;
+    in.detail_scale = 0.4F;
+    in.tiles_hold_while_moving = true;
+    in.sight.mapping = in.sight.line_of_sight = false;
+    in.owner_colors[0] = {255, 80, 20};
+    std::array<live::Scene, 2> scenes{};
+    std::array<Context, 2> contexts{};
+    std::array<std::vector<uint8_t>, 2> pixels{};
+    std::string error;
+    std::array<uint16_t, tiles * tiles> coverage{}, mapped{};
+    coverage.fill(1);
+    mapped.fill(1);
+    uint64_t retained{};
+    for (uint32_t frame = 0; frame < 10; ++frame) {
+        const float zoom = frame < 2 ? 1 : 1 + (frame - 1) * 0.1F;
+        for (const std::size_t row : {std::size_t{0}, std::size_t{4}}) {
+            for (std::size_t column = 0; column < 4; ++column)
+                in.clip_projection[row + column] = projection[row + column] * zoom;
+            in.clip_projection[row + 3] += target / 2.0F * (1 - zoom);
+        }
+        if (frame == 6) {
+            in.sight.width = in.sight.height = tiles;
+            in.sight.coverage = coverage;
+            in.sight.player_bits = mapped;
+            in.sight.mapped_bits = 1;
+            in.sight.mapping = in.sight.line_of_sight = true;
+            for (uint32_t row = 0; row < tiles; ++row)
+                coverage[row * tiles + tiles / 2] = 0;
+        }
+        if (frame >= 8) {
+            in.sea_level = 20;
+            in.water.sea_level = 20;
+            in.water.ripples = in.water.coastal_waves = 1;
+            in.water.seconds = static_cast<float>(frame);
+        }
+        for (std::size_t index = 0; index < scenes.size(); ++index) {
+            in.ground_holds_contained_views = index == 0;
+            OA_CHECK(live::build(in, scenes[index], error));
+            auto& scene = scenes[index];
+            OA_CHECK(
+                render(
+                    contexts[index],
+                    scene.vertices,
+                    scene.texture_rgba,
+                    scene.texture_width,
+                    scene.texture_height,
+                    scene.texture_revision,
+                    target,
+                    target,
+                    in.clip_projection,
+                    pixels[index],
+                    error,
+                    1,
+                    &scene.atlas_update,
+                    &in.water,
+                    &scene.card_ground
+                ) == Result::success
+            );
+        }
+        if (frame == 1)
+            retained = scenes[0].ground_revision;
+        if (frame > 1 && frame < 6)
+            OA_CHECK(scenes[0].ground_revision == retained);
+        if (frame == 6)
+            OA_CHECK(scenes[0].ground_revision != retained);
+        OA_CHECK(pixels[0].size() == target * target * channels);
+        OA_CHECK(pixels[0] == pixels[1]);
+        OA_CHECK(scenes[0].unit_ranges.size() == 1 && scenes[1].unit_ranges.size() == 1);
+        if (scenes[0].unit_ranges.size() == 1 && scenes[1].unit_ranges.size() == 1) {
+            const auto& a = scenes[0].unit_ranges[0];
+            const auto& b = scenes[1].unit_ranges[0];
+            OA_CHECK(a.unit_id == marker.id && a.unit_id == b.unit_id);
+            OA_CHECK(a.vertex_count == b.vertex_count);
+            OA_CHECK(
+                std::memcmp(
+                    scenes[0].vertices.data() + a.first_vertex,
+                    scenes[1].vertices.data() + b.first_vertex,
+                    a.vertex_count * sizeof(Vertex)
+                ) == 0
+            );
+        }
+    }
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
@@ -4235,6 +4360,7 @@ int main() {
         large_marker_scene_readback();
         strategic_marker_bands_readback();
         compact_marker_readback();
+        contained_ground_readback();
     }
     SDL_Quit();
     return result != 0 ? result : oa::test::check_exit_status();

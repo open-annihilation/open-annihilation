@@ -2012,6 +2012,14 @@ bool note_ground_source(GroundSource& source, const Inputs& in, const Scene& sce
     note(source.sight_height, in.sight.height);
     note(source.mapping, in.sight.mapping);
     note(source.dithered, in.sight.dithered);
+    note(source.contained_views, in.ground_holds_contained_views);
+    if (source.contained_views) {
+        const auto control = base::float_precision::save_float_control();
+        note(
+            source.float_control,
+            std::array<uint64_t, 3>{control.older_unit, control.vector_unit, control.arm_unit}
+        );
+    }
     constexpr int32_t fog_edge = present::world_renderer::fog_cell_pixels;
     const auto sight_cells = static_cast<std::size_t>(std::max(in.sight.width, 0)) *
                              static_cast<std::size_t>(std::max(in.sight.height, 0));
@@ -2079,6 +2087,57 @@ float picture_shift(
     return furthest;
 }
 
+/// Tells whether the complete widened picture lies inside the kept ground's
+/// picture. An affine projection reaches each coordinate's extremes at a
+/// picture corner and at the least or greatest terrain height. The inverse
+/// and projection are evaluated in double; a conservative float rounding
+/// allowance keeps boundary cases on the ordinary redraw path.
+///
+/// @param source the kept ground and its picture
+/// @param picture the new affine picture
+/// @return true only when every widened corner is strictly inside
+bool ground_contains_picture(const GroundSource& source, const std::array<float, 12>& picture) {
+    if (!source.contained_views || source.clip_width == 0 || source.clip_height == 0)
+        return false;
+    if (!std::all_of(picture.begin(), picture.end(), [](float value) {
+            return std::isfinite(value);
+        }))
+        return false;
+    const double a = picture[0], b = picture[2], c = picture[4], d = picture[6];
+    const double determinant = a * d - b * c;
+    constexpr double rounding_share = 64 * std::numeric_limits<float>::epsilon();
+    if (!(std::abs(determinant) > rounding_share * (std::abs(a * d) + std::abs(b * c))))
+        return false;
+    const double right = source.clip_width + double(screen_ground_margin);
+    const double bottom = source.clip_height + double(screen_ground_margin);
+    const double margin = screen_ground_margin + double(source.picture_margin);
+    for (const double height : {double(source.lowest), double(source.highest)})
+        for (const double screen_y : {-double(screen_ground_margin), bottom})
+            for (const double screen_x : {-double(screen_ground_margin), right}) {
+                const double horizontal = screen_x - picture[1] * height - picture[3];
+                const double vertical = screen_y - picture[5] * height - picture[7];
+                const double x = (d * horizontal - b * vertical) / determinant;
+                const double z = (a * vertical - c * horizontal) / determinant;
+                for (const std::size_t row : {std::size_t{0}, std::size_t{4}}) {
+                    const auto& old = source.clip_projection;
+                    const double terms[] = {
+                        old[row] * x, old[row + 1] * height, old[row + 2] * z, old[row + 3]
+                    };
+                    double coordinate = 0, magnitude = 1;
+                    for (const double term : terms) {
+                        coordinate += term;
+                        magnitude += std::abs(term);
+                    }
+                    const double allowance = rounding_share * magnitude;
+                    const double edge = row == 0 ? source.clip_width : source.clip_height;
+                    if (!(coordinate > -margin + allowance &&
+                          coordinate < edge + margin - allowance))
+                        return false;
+                }
+            }
+    return true;
+}
+
 /// Tells whether the ground drawn from source holds every cell the frame's
 /// picture shows: it was drawn for the same picture, or for one of the
 /// same size whose margin (GroundSource::picture_margin) is wider than any
@@ -2090,10 +2149,19 @@ float picture_shift(
 /// @param source what the kept ground was drawn from
 /// @param in the frame
 /// @param crop the frame's crop
+/// @param holding the camera is moving or has not settled yet
 /// @return true when the frame may take the kept ground
-bool ground_covers(const GroundSource& source, const Inputs& in, const TerrainCrop& crop) {
+bool ground_covers(
+    const GroundSource& source, const Inputs& in, const TerrainCrop& crop, bool holding
+) {
     if (source.clip_width != in.clip_width || source.clip_height != in.clip_height)
         return false;
+    const int32_t edge = cell_edge * std::max(source.step, 1);
+    if (in.ground_holds_contained_views && holding && (crop.left - source.crop[0]) % edge == 0 &&
+        (crop.top - source.crop[1]) % edge == 0 && source.crop[0] <= crop.left &&
+        source.crop[1] <= crop.top && source.crop[2] >= crop.right &&
+        source.crop[3] >= crop.bottom && ground_contains_picture(source, in.clip_projection))
+        return true;
     if (source.picture_margin == 0)
         return source.clip_projection == in.clip_projection &&
                source.crop == std::array{crop.left, crop.top, crop.right, crop.bottom};
@@ -3160,7 +3228,9 @@ bool drawn_alike(const GroundSource& a, const GroundSource& b) {
            a.tile_art_bytes == b.tile_art_bytes && a.heights == b.heights &&
            a.tile_indices == b.tile_indices && a.step == b.step && a.distant == b.distant &&
            a.fog_divisions == b.fog_divisions && a.fog == b.fog && a.sight_width == b.sight_width &&
-           a.sight_height == b.sight_height && a.mapping == b.mapping && a.dithered == b.dithered;
+           a.sight_height == b.sight_height && a.mapping == b.mapping && a.dithered == b.dithered &&
+           a.contained_views == b.contained_views &&
+           (!a.contained_views || a.float_control == b.float_control);
 }
 
 /// Starts drawing the ground ahead of a moving camera (GroundAhead) once
@@ -3193,6 +3263,9 @@ void plan_ground_ahead(const Inputs& in, Scene& scene, const std::array<float, 1
         );
     };
     constexpr auto drawing_frames = static_cast<float>(ground_ahead_pipeline);
+    if (in.ground_holds_contained_views &&
+        ground_contains_picture(source, expected(drawing_frames + 1)))
+        return;
     if (shift(source.clip_projection, expected(drawing_frames + 1)) <= margin)
         return;
     const float pace = shift(expected(-1), in.clip_projection);
@@ -3381,6 +3454,8 @@ bool kept_ground_runs_out(
     std::array<float, 12> next{};
     for (std::size_t index = 0; index < next.size(); ++index)
         next[index] = in.clip_projection[index] + motion[index];
+    if (in.ground_holds_contained_views && ground_contains_picture(source, next))
+        return false;
     return !(
         picture_shift(
             source.clip_projection,
@@ -3537,7 +3612,7 @@ bool terrain(
     auto& source = scene.ground_source;
     const auto crop = terrain_crop(in);
     const bool same_source = note_ground_source(source, in, scene, step);
-    const bool same_picture = ground_covers(source, in, crop);
+    const bool same_picture = ground_covers(source, in, crop, plan.holding);
     // A moving camera's ground reaches beyond the picture for the frames
     // after it.
     const bool moving = plan.holding && widen && in.clip_width != 0 && in.clip_height != 0;
@@ -3560,7 +3635,7 @@ bool terrain(
         const bool ready =
             !kept || ahead.packed_late ||
             (ahead.placed && ahead.cut && ahead.sent == ahead_card_vertices(ahead).size());
-        if (whole && ready && ground_covers(ahead.source, in, crop)) {
+        if (whole && ready && ground_covers(ahead.source, in, crop, plan.holding)) {
             take_ground_ahead(in, scene, plan);
             return true;
         }
@@ -3605,7 +3680,8 @@ bool terrain(
     source.clip_width = in.clip_width;
     source.clip_height = in.clip_height;
     source.picture_margin = margin;
-    if (margin == 0 && !(same_source && (drawn_before || camera_still))) {
+    if (margin == 0 && !(same_source && (drawn_before || camera_still)) &&
+        !(in.ground_holds_contained_views && plan.holding)) {
         scene.listed_ground_revision = 0;
         draw_ground(in, scene, plan, ground_draw(source), scene.vertices, moving);
         scene.terrain_vertex_count = scene.vertices.size();
@@ -9489,6 +9565,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         // A moving camera's ground may reach beyond the picture's margin
         // until its triangles do not fit.
         bool widen = true;
+        bool contained_ground_retried = false;
         for (uint32_t attempt = 0; attempt < attempts;) {
             // The ground listed from a kept ground stays at the head of the
             // vertices for a frame that lists the same (run_passes).
@@ -9582,6 +9659,16 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             } catch (const GeometryFull&) {
                 // A frame tried again draws its ground afresh.
                 scene.ground_ahead.active = false;
+                // A contained picture can use wider ground than it needs.
+                // Give its own crop room before reducing terrain detail.
+                if (inputs.ground_holds_contained_views && !contained_ground_retried &&
+                    scene.ground_kept &&
+                    scene.ground_source.clip_projection != inputs.clip_projection) {
+                    contained_ground_retried = true;
+                    scene.ground_kept = false;
+                    widen = false;
+                    continue;
+                }
                 // The ground beyond a moving camera's picture goes first.
                 if (widen && scene.ground_source.picture_margin != 0) {
                     widen = false;

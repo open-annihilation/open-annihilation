@@ -119,6 +119,8 @@ struct GroundSource {
     int32_t sight_height{};
     bool mapping{}; ///< ground beyond the sight cells is never mapped
     bool dithered{};
+    bool contained_views{}; ///< contained camera pictures may share this ground
+    std::array<uint64_t, 3> float_control{};
 
     [[nodiscard]] bool operator==(const GroundSource&) const = default;
 };
@@ -718,6 +720,9 @@ struct Inputs {
     /// nearer and new ones into view. Once the camera has settled, every
     /// tile takes the plan's square again.
     bool tiles_hold_while_moving{};
+    /// Retain unchanged ground when its picture contains the new camera's,
+    /// including inward zooms that move further than the usual margin.
+    bool ground_holds_contained_views{};
     /// The drawing threads the passes after the terrain run on, at once;
     /// none runs them one after another on the calling thread. Either way
     /// the frame is the same.

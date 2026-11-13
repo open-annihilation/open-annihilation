@@ -1013,6 +1013,7 @@ bool Runtime::render_live_match_surface() {
         inputs.new_unit_shadows = engine_settings().new_unit_shadows;
         // A recording draws each frame at the plan's detail.
         inputs.tiles_hold_while_moving = director_ == nullptr;
+        inputs.ground_holds_contained_views = match_->rules().setup.enhanced_mode.enabled;
         inputs.pool = draw_pool_.get();
         // The card draws the models it can from their types' models where
         // it adds the lights too: the processor's lights find their
