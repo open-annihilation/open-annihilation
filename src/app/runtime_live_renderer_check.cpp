@@ -3284,6 +3284,10 @@ int Runtime::check_live_renderer() {
         );
         const auto held_ground_picture = snapshot();
         const auto held_ground_picks = bounds_and_picks();
+        require(
+            !held_ground_picture.rgb.empty() && !held_ground_picks.empty(),
+            "the prepared ground fixture has no actual pixels or picks to compare"
+        );
         const auto held_ground_tick = match_timing_.tick;
         for (unsigned frame = 0; frame < held_preparation_frames; ++frame) {
             require(
@@ -3357,6 +3361,10 @@ int Runtime::check_live_renderer() {
         );
         const auto refused_ground_picture = snapshot();
         const auto refused_ground_picks = bounds_and_picks();
+        require(
+            !refused_ground_picture.rgb.empty() && !refused_ground_picks.empty(),
+            "the false-boundary ground fixture has no actual pixels or picks to compare"
+        );
         const auto refused_ground_tick = match_timing_.tick;
         for (unsigned frame = 0; frame < held_preparation_frames; ++frame) {
             require(
