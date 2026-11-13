@@ -44,7 +44,7 @@ RUN_TIMEOUT = 300
 WARMUP_TICKS = 30
 MEASURE_SECONDS = 3
 CURRENT_RULES_VERSION = 4
-SUPPORTED_RULES_VERSIONS = frozenset(range(9))
+SUPPORTED_RULES_VERSIONS = frozenset(range(10))
 VIEW = """label check
 stage {stage}
 menu_seconds 0
@@ -628,7 +628,7 @@ def main():
                     "bench: FAILED the live unit roster differs from expected_live_units" \
                     not in wrong_population.stdout:
                 fail(wrong_population, "a wrong rendering population was not refused")
-            for version in (0, 4, 6, 7, 8):
+            for version in (0, 4, 6, 7, 8, 9):
                 rules_view = paused_view + (f"rules_version {version}\n" if version else "")
                 selected = run_bench(
                     arguments.native, arguments.game_dir, workdir, f"rules-{version}",
@@ -650,7 +650,7 @@ def main():
                 fail(mode_off, "explicit rules without Enhanced Mode were not refused")
             unsupported = run_bench(
                 arguments.native, arguments.game_dir, workdir, "rules-unsupported",
-                "label rules-unsupported\nrules_version 9\n", enhanced=True)
+                "label rules-unsupported\nrules_version 10\n", enhanced=True)
             view = workdir / "rules-unsupported" / "rules-unsupported.bench"
             expected = (f"bench: FAILED {view}: line 2: rules_version takes 0 or a supported "
                         "Enhanced Mode rules version")

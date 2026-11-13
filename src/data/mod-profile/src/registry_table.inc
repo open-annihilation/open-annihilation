@@ -622,7 +622,7 @@ constexpr std::array<Parameter, 123> parameters{{
     {.name = "rng", .value = {.type = ValueType::enumeration, .scope = Scope::sim, .first_value = 54, .value_count = 2, .baseline = 240}, .default_value = 241, .adjustable = Adjustable::fixed},
     {.name = "view-switch-branch", .value = {.type = ValueType::boolean, .scope = Scope::sim, .baseline = 243}, .default_value = 244, .adjustable = Adjustable::fixed},
     {.name = "mode", .value = {.type = ValueType::enumeration, .scope = Scope::sim, .first_value = 56, .value_count = 2, .baseline = 245}, .default_value = 246, .adjustable = Adjustable::fixed},
-    {.name = "version", .value = {.type = ValueType::integer, .scope = Scope::sim, .has_minimum = true, .minimum = {false, 1u, 0, true}, .has_maximum = true, .maximum = {false, 8u, 0, true}, .baseline = 248}, .default_value = 249, .adjustable = Adjustable::match},
+    {.name = "version", .value = {.type = ValueType::integer, .scope = Scope::sim, .has_minimum = true, .minimum = {false, 1u, 0, true}, .has_maximum = true, .maximum = {false, 9u, 0, true}, .baseline = 248}, .default_value = 249, .adjustable = Adjustable::match},
     {.name = "timed-spawns", .value = {.type = ValueType::boolean, .scope = Scope::sim, .baseline = 250}, .default_value = 251, .adjustable = Adjustable::fixed},
     {.name = "auto-neutral-ai", .value = {.type = ValueType::boolean, .scope = Scope::sim, .baseline = 252}, .default_value = 253, .adjustable = Adjustable::fixed},
     {.name = "format", .value = {.type = ValueType::string, .scope = Scope::sim, .max_length = 32, .pattern = "^[^%]*%s[^%]*(%d[^%]*)?$", .baseline = 254}, .default_value = 255, .adjustable = Adjustable::fixed},

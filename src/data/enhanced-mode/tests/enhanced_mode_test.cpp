@@ -347,8 +347,59 @@ void check_following_flow_identity() {
     OA_CHECK(enhanced::uses_distributed_battle_flow(enhanced::following_flow_version));
     OA_CHECK(!enhanced::uses_distributed_battle_flow(enhanced::battle_flow_version));
     OA_CHECK(!enhanced::uses_distributed_battle_flow(enhanced::off_version));
-    OA_CHECK(!enhanced::uses_distributed_battle_flow(enhanced::following_flow_version + 1));
+    OA_CHECK(!enhanced::uses_distributed_battle_flow(enhanced::retained_passing_version + 1));
     OA_CHECK(!enhanced::uses_distributed_battle_flow(std::numeric_limits<uint32_t>::max()));
+}
+
+/// Retained passing changes only its explicit version in the resolved static rules.
+void check_retained_passing_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto following =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::following_flow_version);
+    const auto retained =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::retained_passing_version);
+    OA_CHECK(following.resolution && retained.resolution);
+    if (!following.resolution || !retained.resolution)
+        return;
+    OA_CHECK(
+        enhanced::rules_version(retained.resolution->profile.rules) ==
+        enhanced::retained_passing_version
+    );
+    OA_CHECK(retained.resolution->profile.sim_hash != following.resolution->profile.sim_hash);
+    OA_CHECK(retained.resolution->profile.full_hash != following.resolution->profile.full_hash);
+    OA_CHECK(retained.resolution->profile.limits == following.resolution->profile.limits);
+    auto prior = retained.resolution->profile.rules;
+    prior.setup.enhanced_mode.version = enhanced::following_flow_version;
+    OA_CHECK(prior == following.resolution->profile.rules);
+    auto canonical = retained.resolution->canonical;
+    constexpr std::string_view retained_rule = "\"setup.enhanced-mode\":{\"version\":9}";
+    constexpr std::string_view following_rule = "\"setup.enhanced-mode\":{\"version\":8}";
+    const auto at = canonical.find(retained_rule);
+    OA_CHECK(at != std::string::npos);
+    if (at != std::string::npos) {
+        canonical.replace(at, retained_rule.size(), following_rule);
+        OA_CHECK(canonical == following.resolution->canonical);
+    }
+}
+
+/// Explicit policy inheritance does not extend to earlier or unknown versions.
+void check_known_flow_versions() {
+    for (uint32_t version = enhanced::off_version;
+         version <= enhanced::retained_passing_version + 1;
+         ++version) {
+        OA_CHECK(enhanced::supported_version(version) == (version <= 9));
+        OA_CHECK(enhanced::uses_retained_passing_flow(version) == (version == 9));
+        OA_CHECK(enhanced::uses_following_flow(version) == (version == 8 || version == 9));
+        OA_CHECK(
+            enhanced::uses_distributed_battle_flow(version) ==
+            (version == 7 || version == 8 || version == 9)
+        );
+    }
+    constexpr auto unknown = std::numeric_limits<uint32_t>::max();
+    OA_CHECK(!enhanced::supported_version(unknown));
+    OA_CHECK(!enhanced::uses_retained_passing_flow(unknown));
+    OA_CHECK(!enhanced::uses_following_flow(unknown));
+    OA_CHECK(!enhanced::uses_distributed_battle_flow(unknown));
 }
 
 /// Preserves the original version selected by a bare profile switch.
@@ -429,7 +480,7 @@ void check_enhanced_capacity() {
 void check_refusals() {
     const profiles::ResolveOptions options{};
     for (const uint32_t version :
-         {enhanced::following_flow_version + 1, std::numeric_limits<uint32_t>::max()}) {
+         {enhanced::retained_passing_version + 1, std::numeric_limits<uint32_t>::max()}) {
         const auto result = enhanced::resolve_profile(bytes(mod_text), "chosen", options, version);
         OA_CHECK(!result.resolution);
         OA_CHECK(!result.errors.empty());
@@ -444,7 +495,7 @@ void check_refusals() {
         bytes(requires_enhanced), "chosen", options, enhanced::current_version
     );
     OA_CHECK(on.resolution.has_value());
-    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 9\n";
+    const std::string unsupported = std::string{mod_text} + "  setup.enhanced-mode: 10\n";
     const auto bad_profile =
         enhanced::resolve_profile(bytes(unsupported), "chosen", options, enhanced::current_version);
     OA_CHECK(!bad_profile.resolution);
@@ -482,9 +533,10 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::battle_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::distributed_battle_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::following_flow_version));
+    OA_CHECK(enhanced::supported_version(enhanced::retained_passing_version));
     OA_CHECK(enhanced::current_version == enhanced::swept_ground_version);
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
-    OA_CHECK(!enhanced::supported_version(enhanced::following_flow_version + 1));
+    OA_CHECK(!enhanced::supported_version(enhanced::retained_passing_version + 1));
     OA_CHECK(enhanced::rules_version({}) == enhanced::off_version);
     check_off_identity();
     check_versioned_identity();
@@ -494,6 +546,8 @@ int main() {
     check_battle_flow_identity();
     check_distributed_battle_flow_identity();
     check_following_flow_identity();
+    check_retained_passing_identity();
+    check_known_flow_versions();
     check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();

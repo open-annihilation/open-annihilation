@@ -37,8 +37,15 @@ it inherits version 7's static `fine_regions` routes, format-3 saved fields,
 80-field and 8 Mi-cell limits, and native movement. Its separate identity
 reserves an experimental local-following policy; metadata alone does not
 implement that policy or establish better large-battle flow. The new-game
-default remains 4. `uses_distributed_battle_flow` selects only the known
-versions 7 and 8, so an unsupported future version does not inherit them.
+default remains 4. `retained_passing_version` is nine. It inherits version
+8's rules and retains completed passing-leg history for the same Goal for
+120 ticks. Recovery may override that history only after 120 ticks without
+actual movement. It uses the existing passing-head points, tick and count;
+the matching simulation implementation and large-battle validation are still
+required. `uses_retained_passing_flow` selects only version 9.
+`uses_following_flow` selects only versions 8 and 9, and
+`uses_distributed_battle_flow` selects only versions 7, 8 and 9. Unsupported
+future versions inherit none of these policies.
 Graphics settings are
 independent and never enter this module.
 
@@ -59,6 +66,8 @@ lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
 `data-enhanced-mode` checks pinned Off and version-1 through version-7
-canonical and simulation hashes, the distinct version-8 identity,
-preservation of selected mod rules and match choices, and refusals of
-unsupported versions or rules that require Enhanced Mode while Off.
+canonical and simulation hashes, the distinct version-8 and version-9
+identities with exactly their predecessors' other canonical rules, explicit
+policy inheritance, preservation of selected mod rules and match choices,
+and refusals of unsupported versions or rules that require Enhanced Mode
+while Off.
