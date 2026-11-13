@@ -91,6 +91,9 @@ struct SupersampledUnitPlan {
     ModelDrawPlan model{};
 };
 
+/// The caller's verified source for a model's complete shadow.
+enum class ModelShadowSource : uint8_t { cached_image, verified_geometry };
+
 /// Readies a unit and builds what its draw at a level builds, as
 /// draw_unit_supersampled does, without drawing.
 ///
@@ -108,7 +111,10 @@ struct SupersampledUnitPlan {
 /// @param level the level
 /// @param[out] plan what draw_planned_unit needs; its buffers are reused
 /// @param image_plan whether cached pixels are needed; metadata is used only
-///     at UnitSupersampling::off with model shadows disabled
+///     at UnitSupersampling::off
+/// @param shadow_source whether the caller has proved that the
+///     current native renderer can cast this unit's complete shadow without
+///     cached pixels; otherwise shadows continue to require pixels
 void plan_unit_supersampled(
     ModelRenderer& renderer,
     const RgbBridge& bridge,
@@ -117,7 +123,8 @@ void plan_unit_supersampled(
     bool movement_idle,
     UnitSupersampling level,
     SupersampledUnitPlan& plan,
-    ModelImagePlan image_plan = ModelImagePlan::pixels
+    ModelImagePlan image_plan = ModelImagePlan::pixels,
+    ModelShadowSource shadow_source = ModelShadowSource::cached_image
 );
 
 /// Draws a unit planned by plan_unit_supersampled, as draw_unit_supersampled

@@ -297,7 +297,8 @@ void plan_unit_supersampled(
     bool movement_idle,
     UnitSupersampling level,
     SupersampledUnitPlan& plan,
-    ModelImagePlan image_plan
+    ModelImagePlan image_plan,
+    ModelShadowSource shadow_source
 ) {
     const Rect32 clipped = clip_to_surface(region, bridge.surface);
     const UnitSupersampling fitting =
@@ -312,7 +313,8 @@ void plan_unit_supersampled(
         // As draw_linked_model readies and builds, once the region is
         // captured; any finer image the unit kept is let go.
         model.state->finer.reset();
-        if ((renderer.graphics_flags & graphics_shadows) != 0)
+        if ((renderer.graphics_flags & graphics_shadows) != 0 &&
+            shadow_source != ModelShadowSource::verified_geometry)
             image_plan = ModelImagePlan::pixels;
         plan.linked = prepare_linked_draw(renderer, model, movement_idle, image_plan);
         if (plan.linked.drawn)

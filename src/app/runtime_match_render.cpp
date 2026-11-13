@@ -687,13 +687,24 @@ void plan_model(
                               model.unit->attach_parent == 0 && model.unit->attach_first_child == 0
                           ? frame.image_plan
                           : model_render::ModelImagePlan::pixels;
-    if (image_plan == model_render::ModelImagePlan::pixels &&
+    const bool verified_geometry_shadow =
+        image_plan == model_render::ModelImagePlan::pixels &&
         frame.shadow_type_supported != nullptr &&
         geometry_shadow_metadata_candidate(drawn, frame.sea_level) &&
-        frame.shadow_type_supported(frame.shadow_type_context, model))
+        frame.shadow_type_supported(frame.shadow_type_context, model);
+    if (verified_geometry_shadow)
         image_plan = model_render::ModelImagePlan::metadata;
     model_render::plan_unit_supersampled(
-        renderer, bridge, model, region, idle, level, drawn.plan, image_plan
+        renderer,
+        bridge,
+        model,
+        region,
+        idle,
+        level,
+        drawn.plan,
+        image_plan,
+        verified_geometry_shadow ? model_render::ModelShadowSource::verified_geometry
+                                 : model_render::ModelShadowSource::cached_image
     );
     if (frame.live_renderer && drawn.plan.linked.drawn) {
         drawn.shown_position = model.unit->position;

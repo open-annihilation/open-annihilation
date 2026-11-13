@@ -200,6 +200,182 @@ void off_draws_as_without() {
     }
 }
 
+/// Requires a verified geometry source before deferring cached shadow pixels.
+void metadata_shadow_source() {
+    const oa::Rect32 region{0, 0, frame_side - 1, frame_side - 1};
+    for (const uint32_t depth : {0U, static_cast<uint32_t>(OA_UNIT_FLAG2_Z_BUFFER)}) {
+        Scene pixels;
+        Scene ordinary;
+        Scene verified;
+        Scene unknown;
+        for (Scene* scene : {&pixels, &ordinary, &verified, &unknown}) {
+            scene->renderer.graphics_flags = graphics_shadows | graphics_vehicle_shadows;
+            scene->unit->id = 1;
+            scene->unit->type_index = 1;
+            scene->unit->position.x += unit_fixed / 3;
+            scene->unit->position.y = 20 * unit_fixed;
+            scene->unit->flags2 |= depth;
+        }
+        SupersampledUnitPlan pixel_plan;
+        SupersampledUnitPlan ordinary_plan;
+        SupersampledUnitPlan verified_plan;
+        oa::present::bind_display(&pixels.display.context);
+        plan_unit_supersampled(
+            pixels.renderer,
+            pixels.bridge,
+            pixels.ref(),
+            region,
+            true,
+            UnitSupersampling::off,
+            pixel_plan
+        );
+        oa::present::bind_display(&ordinary.display.context);
+        // The existing metadata request keeps its default cached-image source.
+        plan_unit_supersampled(
+            ordinary.renderer,
+            ordinary.bridge,
+            ordinary.ref(),
+            region,
+            true,
+            UnitSupersampling::off,
+            ordinary_plan,
+            ModelImagePlan::metadata
+        );
+        CHECK(ordinary.state.image.sprite.data != nullptr);
+        CHECK(!ordinary.state.deferred_image.has_value());
+        CHECK(ordinary.state.image.pixels == pixels.state.image.pixels);
+        constexpr auto unknown_source = static_cast<ModelShadowSource>(255);
+        SupersampledUnitPlan unknown_plan;
+        oa::present::bind_display(&unknown.display.context);
+        plan_unit_supersampled(
+            unknown.renderer,
+            unknown.bridge,
+            unknown.ref(),
+            region,
+            true,
+            UnitSupersampling::off,
+            unknown_plan,
+            ModelImagePlan::metadata,
+            unknown_source
+        );
+        CHECK(unknown.state.image.sprite.data != nullptr);
+        CHECK(!unknown.state.deferred_image.has_value());
+        CHECK(unknown.state.image.pixels == pixels.state.image.pixels);
+        oa::present::bind_display(&verified.display.context);
+        plan_unit_supersampled(
+            verified.renderer,
+            verified.bridge,
+            verified.ref(),
+            region,
+            true,
+            UnitSupersampling::off,
+            verified_plan,
+            ModelImagePlan::metadata,
+            ModelShadowSource::verified_geometry
+        );
+        CHECK(verified_plan.level == UnitSupersampling::off);
+        CHECK(verified_plan.linked.drawn && verified_plan.model.from_image);
+        CHECK(verified.state.image.sprite.data == nullptr && verified.state.image.pixels.empty());
+        CHECK(verified.state.deferred_image.has_value());
+        CHECK(verified.state.image_builds == pixels.state.image_builds);
+        if (verified.state.deferred_image) {
+            const auto& frame = *verified.state.deferred_image;
+            const auto& image = pixels.state.image.sprite;
+            CHECK(frame.width == image.width && frame.height == image.height);
+            CHECK(frame.origin_x == image.origin_x && frame.origin_y == image.origin_y);
+            CHECK(verified.state.deferred_image_depth == (image.aux != nullptr));
+        }
+        // A later processor draw materializes the retained frame without
+        // changing its logical build count or cached pixels.
+        oa::present::bind_display(&pixels.display.context);
+        plan_unit_supersampled(
+            pixels.renderer,
+            pixels.bridge,
+            pixels.ref(),
+            region,
+            true,
+            UnitSupersampling::off,
+            pixel_plan
+        );
+        oa::present::bind_display(&verified.display.context);
+        plan_unit_supersampled(
+            verified.renderer,
+            verified.bridge,
+            verified.ref(),
+            region,
+            true,
+            UnitSupersampling::off,
+            verified_plan
+        );
+        CHECK(verified.state.image.sprite.data != nullptr);
+        CHECK(!verified.state.deferred_image.has_value());
+        CHECK(verified.state.image_builds == pixels.state.image_builds);
+        CHECK(verified.state.cache.draws == pixels.state.cache.draws);
+        CHECK(verified.state.image.pixels == pixels.state.image.pixels);
+        CHECK((verified.state.image.sprite.aux != nullptr) == (depth != 0));
+        for (const auto& item :
+             {std::pair{&pixels, &pixel_plan}, std::pair{&verified, &verified_plan}}) {
+            auto& scene = *item.first;
+            oa::present::bind_display(&scene.display.context);
+            bool holds{};
+            draw_planned_unit(
+                scene.renderer,
+                scene.bridge,
+                nullptr,
+                scene.scratch,
+                scene.ref(),
+                *item.second,
+                holds
+            );
+            CHECK(holds);
+            bridge_end(scene.bridge);
+        }
+        CHECK(verified.rgb == pixels.rgb);
+        CHECK(pixels.level_at(100, 90) == ink);
+        CHECK(pixels.level_at(106, 104) < ground);
+    }
+    // Sampled tiers continue to build both images from real pixels even
+    // when the caller supplies the geometry-source capability.
+    for (const UnitSupersampling level : finer_levels) {
+        Scene pixels;
+        Scene verified;
+        for (Scene* scene : {&pixels, &verified}) {
+            scene->renderer.graphics_flags = graphics_shadows | graphics_vehicle_shadows;
+            scene->unit->position.y = 20 * unit_fixed;
+        }
+        SupersampledUnitPlan pixel_plan;
+        SupersampledUnitPlan verified_plan;
+        oa::present::bind_display(&pixels.display.context);
+        plan_unit_supersampled(
+            pixels.renderer, pixels.bridge, pixels.ref(), region, true, level, pixel_plan
+        );
+        oa::present::bind_display(&verified.display.context);
+        plan_unit_supersampled(
+            verified.renderer,
+            verified.bridge,
+            verified.ref(),
+            region,
+            true,
+            level,
+            verified_plan,
+            ModelImagePlan::metadata,
+            ModelShadowSource::verified_geometry
+        );
+        CHECK(verified_plan.level == level);
+        CHECK(verified.state.image.sprite.data != nullptr);
+        CHECK(!verified.state.deferred_image.has_value());
+        CHECK(verified.state.image.pixels == pixels.state.image.pixels);
+        CHECK(verified.state.finer != nullptr && pixels.state.finer != nullptr);
+        if (verified.state.finer && pixels.state.finer) {
+            CHECK(verified.state.finer->samples == supersampling_factor(level));
+            CHECK(verified.state.finer->state.image.sprite.data != nullptr);
+            CHECK(
+                verified.state.finer->state.image.pixels == pixels.state.finer->state.image.pixels
+            );
+        }
+    }
+}
+
 // A model whose edges fall on pixel boundaries covers whole pixels, so every
 // level draws it, and its shadow, exactly as Off does: from an image without
 // a depth plane, and from one with a depth plane through the composite.
@@ -353,6 +529,7 @@ int main() {
     levels_and_factors_agree();
     levels_fit_the_region();
     off_draws_as_without();
+    metadata_shadow_source();
     whole_pixels_draw_as_off();
     fixed_composite_counts_game_pixels();
     edges_blend_by_coverage();
