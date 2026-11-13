@@ -8,8 +8,9 @@ namespace oa::app {
 
 /// Counts the unit model draws a completed frame actually emitted.
 ///
-/// Offscreen records and non-unit scenery supply no model count. Vertices
-/// count logical triangle corners, including those stored in card packets.
+/// Records culled before emission and non-unit scenery supply no model
+/// count. Scissored geometry still counts. Vertices count logical triangle
+/// corners, including those stored in card packets.
 struct BodyLodCounts {
     uint32_t full_mesh_models{}; ///< unit draws using the original model geometry
     uint32_t body_lod_models{};  ///< unit draws using animated reduced geometry

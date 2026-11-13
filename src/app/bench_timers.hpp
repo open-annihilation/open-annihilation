@@ -11,6 +11,7 @@
 // times in (add_nanoseconds, count_packed_materials).
 #pragma once
 
+#include "body_lod_counts.hpp"
 #include "ground_index_build.hpp"
 
 #include <array>
@@ -245,6 +246,9 @@ struct Timers {
 
 /// The process's timers.
 inline Timers timers{};
+
+/// Unit representations emitted by the last completed benchmark frame.
+inline BodyLodCounts body_counts{};
 
 /// Reads the steady clock the timers measure by.
 ///
