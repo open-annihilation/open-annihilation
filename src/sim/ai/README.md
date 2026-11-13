@@ -19,6 +19,8 @@ run this player. Match rules select any changes to the built-in player.
   reports each line that has a word. It does not apply the line. The words
   are valid only while the visit runs. See the grammar below.
 - `computer_player_tick_orders` runs one computer player's orders.
+- `computer_player_refresh_strike_targets` updates only the selected members
+  of a cohort strike. It neither recruits nor changes the native task deadline.
 - `match_computer_players` returns the match's computer players, creating
   them on first use. `configure_match_computer_players` stores the profile,
   the runs and whether a campaign may build downloadable types.
@@ -55,6 +57,17 @@ pass to the next.
   straggler-shedding order are unchanged. Earlier presets retain the limit
   of 5,000 recruits plus an optional first member. This uses canonical
   membership and keeps no pending queue or extra saved state.
+- Enhanced preset 10 divides each attacking land or naval strike into at
+  most eight spatial groups: four bands along the squad's larger horizontal
+  extent and two along the smaller. Each group chooses from the current
+  canonical enemy records, with the ordinary alliance, cloak, occupancy and
+  water filters and positive live health. A target's squared whole-world
+  distance, plus one, is multiplied by one plus the number of earlier groups
+  assigned to it. Nearby alternatives can therefore receive separate groups.
+  Equal weighted distances choose the lower unit slot. The three member walks
+  and at most eight enemy walks use bounded local arrays, no new random draws
+  and no retained target handles. Attack callbacks remain in unit-slot order.
+  Earlier presets keep the whole-squad nearest-enemy command.
 - A pick whose unit name holds `MAKENUKE` or `MAKEANTI` is a round for the
   builder's first weapon. The structures task queues it with `order_factory`,
   and so does the construction task, which places no site for it: the match
@@ -77,4 +90,9 @@ them.
 The distributed recruitment bound can take more strike dispatches to gather
 a large army. It does not cap the existing squad's attack commands when a
 target changes, or the cost of examining and shedding its stragglers.
+
+Spatial attack groups do not test ground reachability or line of fire, and
+retain the strike search's existing visibility policy. Their target choices
+do not guarantee a route or a firing position. Recruitment and the ordinary
+300-tick strike deadline remain unchanged.
 

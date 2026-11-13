@@ -10,9 +10,11 @@
 #include "oa/sim/simulation_state.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <string_view>
 
@@ -22,6 +24,12 @@ namespace {
 constexpr uint32_t strike_interval_ticks = 300;
 /// Counts every new strike member, including the seed of an empty squad.
 constexpr uint32_t distributed_recruits_per_dispatch = 256;
+/// Spatial attack groups span four bands along their larger horizontal extent.
+constexpr uint32_t strike_cohort_bands = 4;
+constexpr uint32_t strike_cohort_depths = 2;
+constexpr uint32_t strike_cohort_count = strike_cohort_bands * strike_cohort_depths;
+/// Keeps an exactly coincident target's weighted distance responsive to load.
+constexpr uint64_t strike_target_distance_floor = 1;
 static_assert(
     distributed_recruits_per_dispatch > 0 && distributed_recruits_per_dispatch <= max_recruits
 );
@@ -263,6 +271,239 @@ void order_squad(
     }
 }
 
+/// Holds the horizontal extent used to divide a strike into spatial groups.
+struct StrikeExtent {
+    int32_t least_x{std::numeric_limits<int32_t>::max()};
+    int32_t greatest_x{std::numeric_limits<int32_t>::min()};
+    int32_t least_z{std::numeric_limits<int32_t>::max()};
+    int32_t greatest_z{std::numeric_limits<int32_t>::min()};
+    bool along_x{};
+};
+
+/// Holds one spatial group's centroid sums and selected canonical target slot.
+struct StrikeCohort {
+    int64_t sum_x{};
+    int64_t sum_z{};
+    uint32_t members{};
+    uint16_t target{};
+};
+
+/// Keeps a cohort search's selected record and bounded work summary.
+struct CohortChoice {
+    const oa::Unit* unit{};
+    uint64_t cost{};
+    uint32_t eligible_count{};
+};
+
+/// Tests whether a finished live member can receive a strike's attack command.
+bool strike_member(const oa::Unit& unit, uint8_t player, Squad squad) noexcept {
+    return unit.type_index != 0 && unit.owner_index == player &&
+           unit.squad == static_cast<int32_t>(squad) && oa::unit_is_live_target(unit.flags) &&
+           unit.health > 0 && unit.build_remaining == 0;
+}
+
+/// Finds a coordinate's stable band inside an inclusive whole-world extent.
+uint32_t strike_band(int32_t value, int32_t least, int32_t greatest, uint32_t bands) noexcept {
+    const auto offset = static_cast<uint64_t>(static_cast<int64_t>(value) - least);
+    const auto width = static_cast<uint64_t>(static_cast<int64_t>(greatest) - least) + 1;
+    return static_cast<uint32_t>(offset * bands / width);
+}
+
+/// Finds a member's spatial group without depending on squad-vector ordering.
+uint32_t strike_cohort(const oa::Unit& unit, const StrikeExtent& extent) noexcept {
+    const auto x = word(unit.position.x);
+    const auto z = word(unit.position.z);
+    const auto bands = extent.along_x
+                           ? strike_band(x, extent.least_x, extent.greatest_x, strike_cohort_bands)
+                           : strike_band(z, extent.least_z, extent.greatest_z, strike_cohort_bands);
+    const auto depth =
+        extent.along_x ? strike_band(z, extent.least_z, extent.greatest_z, strike_cohort_depths)
+                       : strike_band(x, extent.least_x, extent.greatest_x, strike_cohort_depths);
+    return bands * strike_cohort_depths + depth;
+}
+
+/// Tests the same enemy flags and water states used by the strike search.
+bool cohort_enemy_eligible(
+    const oa::Unit& unit, const sim::simulation_state::CandidateFilter& filter
+) noexcept {
+    constexpr uint32_t occupancy_upper_states = 0x2u;
+    constexpr uint32_t move_rate_upper_tiers = 0x8u;
+    constexpr uint32_t widened_skip =
+        occupancy_upper_states | move_rate_upper_tiers | OA_UNIT_FLAG_NOT_SELECTABLE;
+    constexpr uint32_t submerged_occupy_code = 3;
+    if (!oa::unit_is_live_target(unit.flags) || unit.health <= 0 ||
+        (unit.state_flags & OA_UNIT_STATE_CLOAKED) != 0)
+        return false;
+    if (filter.widened_flags) {
+        if ((unit.flags & widened_skip) != 0)
+            return false;
+    } else if (
+        (unit.flags & OA_UNIT_FLAG_OCCUPANCY_MASK) == occupancy_upper_states ||
+        (unit.flags & OA_UNIT_FLAG_NOT_SELECTABLE) != 0
+    ) {
+        return false;
+    }
+    if (filter.skip_submerged) {
+        uint32_t occupy_code{};
+        std::memcpy(&occupy_code, unit.last_occupy_code, sizeof occupy_code);
+        if (occupy_code == submerged_occupy_code)
+            return false;
+    }
+    return true;
+}
+
+/// Chooses a nearby enemy while charging for earlier groups sent to that target.
+///
+/// Whole-world coordinate differences are squared in 64 bits. Each previous
+/// assignment adds one to the distance multiplier; at most eight groups search.
+/// A lower canonical slot resolves an equal weighted distance. The search reads
+/// current records, keeping no target handle across dispatches.
+///
+/// @param host alliances and canonical unit records
+/// @param relation the controller's alliance row, including the no-player entry
+/// @param filter the strike's additional water and occupancy exclusions
+/// @param cohort the current group's aggregate positions and membership
+/// @param earlier groups whose targets were already selected
+/// @return selected record, weighted distance and eligible-candidate count
+CohortChoice choose_cohort_target(
+    const ComputerHost& host,
+    std::span<const uint8_t> relation,
+    const sim::simulation_state::CandidateFilter& filter,
+    const StrikeCohort& cohort,
+    std::span<const StrikeCohort> earlier
+) noexcept {
+    CohortChoice choice{};
+    const auto center_x = cohort.sum_x / cohort.members;
+    const auto center_z = cohort.sum_z / cohort.members;
+    uint16_t best_slot{};
+    for (uint8_t player_index = 0; player_index < OA_PLAYER_COUNT; ++player_index) {
+        const auto& player = host.world->game.players[player_index];
+        if (!sim::simulation_state::player_slot_active(player_index, player) ||
+            relation[player.index] != 0)
+            continue;
+        uint32_t count{};
+        const auto* units = oa::world_player_units(host.world, &player, &count);
+        if (units == nullptr)
+            continue;
+        for (uint32_t index = 0; index < count; ++index) {
+            const auto& unit = units[index];
+            if (!cohort_enemy_eligible(unit, filter))
+                continue;
+            ++choice.eligible_count;
+            const auto slot = static_cast<uint16_t>(oa::world_unit_slot(host.world, &unit));
+            uint64_t assignments{};
+            for (const auto& previous : earlier)
+                assignments += previous.target == slot ? 1 : 0;
+            const int64_t dx = center_x - word(unit.position.x);
+            const int64_t dz = center_z - word(unit.position.z);
+            const auto distance = static_cast<uint64_t>(dx * dx + dz * dz);
+            const auto cost = (distance + strike_target_distance_floor) * (assignments + 1);
+            if (choice.unit == nullptr || cost < choice.cost ||
+                (cost == choice.cost && slot < best_slot)) {
+                choice.unit = &unit;
+                choice.cost = cost;
+                best_slot = slot;
+            }
+        }
+    }
+    return choice;
+}
+
+/// Orders live strike members toward nearby targets shared by spatial groups.
+///
+/// Three unit-slot walks find the extent, form at most eight centroids and
+/// dispatch. Each occupied group searches the enemy records once. Existing
+/// order callbacks retain their ordinary mission and same-target handling.
+///
+/// @param state computer players and AI exclusions
+/// @param host canonical records, alliances and ordinary order callbacks
+/// @param ai the controller whose strike is dispatched
+/// @param task the land or naval strike task
+/// @param sources selected source-slot bits; empty dispatches every member
+/// @return true when at least one attack callback accepted an order
+bool order_strike_cohorts(
+    const ComputerPlayers* state,
+    const ComputerHost& host,
+    const ComputerPlayer& ai,
+    const ComputerTask& task,
+    std::span<const uint64_t> sources = {}
+) noexcept {
+    const auto& player = host.world->game.players[ai.player];
+    uint32_t count{};
+    auto* units = oa::world_player_units(host.world, &player, &count);
+    if (units == nullptr)
+        return false;
+    StrikeExtent extent{};
+    bool populated = false;
+    for (uint32_t index = 0; index < count; ++index) {
+        const auto& unit = units[index];
+        if (!strike_member(unit, ai.player, task.squad))
+            continue;
+        const auto x = word(unit.position.x);
+        const auto z = word(unit.position.z);
+        extent.least_x = std::min(extent.least_x, x);
+        extent.greatest_x = std::max(extent.greatest_x, x);
+        extent.least_z = std::min(extent.least_z, z);
+        extent.greatest_z = std::max(extent.greatest_z, z);
+        populated = true;
+    }
+    if (!populated)
+        return false;
+    extent.along_x = static_cast<int64_t>(extent.greatest_x) - extent.least_x >=
+                     static_cast<int64_t>(extent.greatest_z) - extent.least_z;
+    std::array<StrikeCohort, strike_cohort_count> cohorts{};
+    for (uint32_t index = 0; index < count; ++index) {
+        const auto& unit = units[index];
+        if (!strike_member(unit, ai.player, task.squad))
+            continue;
+        auto& cohort = cohorts[strike_cohort(unit, extent)];
+        cohort.sum_x += word(unit.position.x);
+        cohort.sum_z += word(unit.position.z);
+        ++cohort.members;
+    }
+    std::array<uint8_t, OA_PLAYER_COUNT + 1> relation{};
+    for (uint8_t index = 0; index < OA_PLAYER_COUNT; ++index)
+        relation[index] = host.allied(host.context, ai.player, index) ? 1 : 0;
+    relation[OA_PLAYER_COUNT] = 1;
+    sim::simulation_state::CandidateFilter filter{};
+    filter.skip_dying = true;
+    if (ai_rules(state).nearest_enemy_filter.rules ==
+        data::match_rules::AiNearestEnemyFilterRules::skip_submerged) {
+        filter.widened_flags = true;
+        filter.skip_submerged = task.source_squad != Squad::navy;
+    }
+    bool targeted = false;
+    for (uint32_t index = 0; index < cohorts.size(); ++index) {
+        auto& cohort = cohorts[index];
+        if (cohort.members == 0)
+            continue;
+        const auto choice = choose_cohort_target(
+            host, relation, filter, cohort, std::span<const StrikeCohort>(cohorts).first(index)
+        );
+        if (choice.unit != nullptr) {
+            cohort.target = static_cast<uint16_t>(oa::world_unit_slot(host.world, choice.unit));
+            targeted = true;
+        }
+    }
+    if (!targeted)
+        return false;
+    bool issued = false;
+    for (uint32_t index = 0; index < count; ++index) {
+        const auto& unit = units[index];
+        if (!strike_member(unit, ai.player, task.squad))
+            continue;
+        const auto slot = static_cast<uint16_t>(oa::world_unit_slot(host.world, &unit));
+        if (!sources.empty() && (sources[slot / strike_refresh_word_bits] &
+                                 (uint64_t{1} << (slot % strike_refresh_word_bits))) == 0)
+            continue;
+        const auto target = cohorts[strike_cohort(unit, extent)].target;
+        if (target != 0) {
+            issued = host.order_attack(host.context, slot, target) || issued;
+        }
+    }
+    return issued;
+}
+
 /// Pulls members of a source squad within the per-member radius into the task's squad.
 ///
 /// Seeds an empty task squad with the source's first member, then sheds the farthest
@@ -383,6 +624,11 @@ void run_strike(
         }
     }
     task.attacking = 1;
+    if (rules.setup.enhanced_mode.enabled &&
+        data::enhanced_mode::uses_cohort_target_distribution(rules.setup.enhanced_mode.version)) {
+        (void)order_strike_cohorts(state, host, ai, task);
+        return;
+    }
     oa::FixedVec3 center{};
     (void)squad_centroid(host, ai, task.squad, &center);
     const auto* target = nearest_enemy(state, host, ai, task, center);
@@ -892,6 +1138,32 @@ void computer_player_create(
     siege.siege_probe = centre;
     siege.siege_step = centre;
     siege.siege_weight = 0;
+}
+
+bool computer_player_refresh_strike_targets(
+    ComputerPlayers* state,
+    const ComputerHost& host,
+    uint8_t player,
+    Squad squad,
+    std::span<const uint64_t> sources
+) noexcept {
+    if (state == nullptr || host.world == nullptr || player >= OA_PLAYER_COUNT ||
+        !state->players[player].present || sources.size() != strike_refresh_mask_words ||
+        host.allied == nullptr || host.order_attack == nullptr ||
+        std::none_of(sources.begin(), sources.end(), [](uint64_t bits) { return bits != 0; }))
+        return false;
+    const auto& enhanced = state->rules.rules().setup.enhanced_mode;
+    if (!enhanced.enabled ||
+        !data::enhanced_mode::uses_cohort_target_distribution(enhanced.version))
+        return false;
+    const auto index = static_cast<uint32_t>(squad);
+    if (index >= squad_count)
+        return false;
+    const auto& ai = state->players[player];
+    const auto& task = ai.tasks[index];
+    if (task.kind != TaskKind::strike || task.attacking == 0)
+        return false;
+    return order_strike_cohorts(state, host, ai, task, sources);
 }
 
 void computer_player_tick_orders(

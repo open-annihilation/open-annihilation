@@ -23,6 +23,9 @@ inline constexpr uint32_t squad_count = 10;
 inline constexpr uint32_t type_categories_bytes = 256;
 inline constexpr uint32_t sort_interval_ticks = 30;
 inline constexpr int32_t unlimited = -1;
+/// A temporary strike-refresh mask has one bit for each 16-bit unit slot.
+inline constexpr uint32_t strike_refresh_word_bits = 64;
+inline constexpr uint32_t strike_refresh_mask_words = 1024;
 
 /// Unit.squad values the computer player sorts its units into.
 enum class Squad : uint32_t {
@@ -335,6 +338,26 @@ bool computer_players_reload_profile(
 /// @param player player index; nothing for a player without a computer controller
 void computer_player_tick_orders(
     ComputerPlayers* state, const ComputerHost& host, uint8_t player
+) noexcept;
+
+/// Refreshes only selected strike members without recruiting or moving its deadline.
+///
+/// Cohort-target rules select targets from the entire current strike. The mask
+/// limits attack callbacks to members whose current target was lost; an empty
+/// mask changes no order. Earlier presets do nothing.
+///
+/// @param[in,out] state computer players and their retained native tasks
+/// @param host canonical records and ordinary attack callbacks
+/// @param player controller to refresh
+/// @param squad land or naval strike whose members are selected
+/// @param sources exactly strike_refresh_mask_words words, one bit per unit slot
+/// @return true when an ordinary attack callback accepted at least one order
+[[nodiscard]] bool computer_player_refresh_strike_targets(
+    ComputerPlayers* state,
+    const ComputerHost& host,
+    uint8_t player,
+    Squad squad,
+    std::span<const uint64_t> sources
 ) noexcept;
 
 /// Sums the base weights of the units a player has sighted near a point.
