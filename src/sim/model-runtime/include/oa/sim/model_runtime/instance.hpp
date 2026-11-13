@@ -217,8 +217,9 @@ class Instance {
 
     /// Reuses completed transforms whose final root XZ turn is zero.
     ///
-    /// The source keeps an ordinary completed rebuild with its combined root
-    /// XZ word zero. Both instances have identical models, hierarchy and local
+    /// The source keeps an ordinary completed rebuild under the same floating-
+    /// point control, with its combined root XZ word zero. Both instances have
+    /// identical models, hierarchy and local
     /// inputs except for the root translation, root XZ word and the separate
     /// words whose sums give the same root XY and YZ turns. The receiver
     /// subtracts the source's root translation modulo 2^32, applies its own
