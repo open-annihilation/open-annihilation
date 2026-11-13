@@ -2262,11 +2262,11 @@ void the_view_past_the_map_edge_defaults_reads_and_round_trips() {
     CHECK(settings::past_map_edge_share(settings::ViewPastMapEdge::one_half) == 0.5);
 }
 
-/// How units look zoomed out: Rendered and 1/6 everywhere by default; a
+/// How units look zoomed out: Rendered and Unit size everywhere by default; a
 /// file written before them reads the defaults; each word reads its choice,
 /// and any other text, Icons' word among them, the default; each other
 /// choice written alone and read back, and Restore defaults then OK erases
-/// both keys. Each After zoom choice stands for its share of normal size.
+/// both keys. Fixed After zoom choices keep their shares of normal size.
 void the_zoomed_out_units_default_read_and_round_trip() {
     CHECK(settings::key::zoomed_out_units == "open-annihilation.zoomed-out-units");
     CHECK(settings::key::zoomed_out_after == "open-annihilation.zoomed-out-after");
@@ -2277,7 +2277,7 @@ void the_zoomed_out_units_default_read_and_round_trip() {
     for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac, light}) {
         const auto defaults = settings::default_settings(inputs);
         CHECK(defaults.zoomed_out_units == settings::ZoomedOutUnits::rendered);
-        CHECK(defaults.zoomed_out_after == settings::ZoomedOutAfter::one_sixth);
+        CHECK(defaults.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
         CHECK(settings::read_settings({}, inputs, false) == defaults);
     }
     // An older file: the zoom's limits, without the keys.
@@ -2287,7 +2287,7 @@ void the_zoomed_out_units_default_read_and_round_trip() {
     };
     const auto read_older = settings::read_settings(older, players_own_on_linux, false);
     CHECK(read_older.zoomed_out_units == settings::ZoomedOutUnits::rendered);
-    CHECK(read_older.zoomed_out_after == settings::ZoomedOutAfter::one_sixth);
+    CHECK(read_older.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
     CHECK(read_older.max_zoom_out == settings::ZoomOutLimit::whole_map);
 
     const auto units = [](const char* text) {
@@ -2313,7 +2313,9 @@ void the_zoomed_out_units_default_read_and_round_trip() {
         CHECK(static_cast<std::size_t>(old_ordinals[ordinal]) == ordinal);
     CHECK(static_cast<uint8_t>(settings::ZoomedOutAfter::normal_size) == 7);
     CHECK(static_cast<uint8_t>(settings::ZoomedOutAfter::twice_normal_size) == 8);
-    const std::array<std::tuple<settings::ZoomedOutAfter, const char*, float>, 9> after_words{{
+    CHECK(static_cast<uint8_t>(settings::ZoomedOutAfter::unit_size) == 9);
+    const std::array<std::tuple<settings::ZoomedOutAfter, const char*, float>, 10> after_words{{
+        {settings::ZoomedOutAfter::unit_size, "unit-size", 1.0F / 6.0F},
         {settings::ZoomedOutAfter::twice_normal_size, "2", 2.0F},
         {settings::ZoomedOutAfter::normal_size, "1", 1.0F},
         {settings::ZoomedOutAfter::one_half, "1/2", 0.5F},
@@ -2332,7 +2334,7 @@ void the_zoomed_out_units_default_read_and_round_trip() {
         CHECK(settings::zoomed_out_zoom(choice) == zoom);
     }
     for (const char* text : {"", "1/5", "1/32", "0.25", "6", " 1/8", "1/6 "})
-        CHECK(after(text) == settings::ZoomedOutAfter::one_sixth);
+        CHECK(after(text) == settings::ZoomedOutAfter::unit_size);
 
     const auto defaults = settings::default_settings(players_own_on_linux);
     auto dots = defaults;

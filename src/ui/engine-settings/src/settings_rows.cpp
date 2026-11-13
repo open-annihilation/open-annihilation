@@ -533,8 +533,8 @@ static_assert(
     "every Maximum zoom out choice has its caption"
 );
 /// After zoom's choices' texts, in zoomed_out_afters' order.
-constexpr std::array<std::string_view, 9> kZoomedOutAfterCaptions{
-    "2x", "1x", "1/2", "1/3", "1/4", "1/6", "1/8", "1/12", "1/16"
+constexpr std::array<std::string_view, 10> kZoomedOutAfterCaptions{
+    "Unit size", "2x", "1x", "1/2", "1/3", "1/4", "1/6", "1/8", "1/12", "1/16"
 };
 static_assert(
     kZoomedOutAfterCaptions.size() == zoomed_out_afters.size(),
@@ -1803,6 +1803,11 @@ std::string zoomed_out_units_hint(const SettingsModel& model, std::size_t line) 
 std::string zoomed_out_after_hint(const SettingsModel& model, std::size_t line) {
     // Where the dots begin, and what is drawn nearer.
     switch (model.settings->zoomed_out_after) {
+    case ZoomedOutAfter::unit_size:
+        return line_of(
+            {"Models while the average unit is at least 20% larger than a dot. Dots farther out."},
+            line
+        );
     case ZoomedOutAfter::normal_size:
         return line_of(
             {"Dots farther out than normal size. Closer in, units are drawn as models."}, line
@@ -2949,7 +2954,7 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
      .copy = &copy_field<&E::zoomed_out_units>},
     {.setting = S::zoomed_out_after,
      .spec = changing(wide(kit::choice("zoomed-out-after", "After zoom",
-                                       DropDown<ZoomedOutAfter, 9, zoomed_out_afters, &E::zoomed_out_after, kZoomedOutAfterCaptions, &table_word<zoomed_out_after_words, ZoomedOutAfter>>::stepper()),
+                                       DropDown<ZoomedOutAfter, 10, zoomed_out_afters, &E::zoomed_out_after, kZoomedOutAfterCaptions, &table_word<zoomed_out_after_words, ZoomedOutAfter>>::stepper()),
                            choice_width),
                       &zoomed_out_after_hint, &lines<1>),
      .lock = &Locks::zoomed_out_after},

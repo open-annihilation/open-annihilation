@@ -8878,10 +8878,10 @@ void zoomed_out_units_show_and_change() {
     CHECK(geometry::strip_caption(Setting::zoomed_out_units, 2) == "Icons");
     CHECK(geometry::kind_of(Setting::zoomed_out_after) == geometry::RowKind::choice);
     CHECK(settings::EngineSettings{}.zoomed_out_units == settings::ZoomedOutUnits::rendered);
-    CHECK(settings::EngineSettings{}.zoomed_out_after == settings::ZoomedOutAfter::one_sixth);
+    CHECK(settings::EngineSettings{}.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
 
     // Scrolled to the strip: its three captions with Rendered's hint, and
-    // After zoom locked, showing 1/6.
+    // After zoom locked, showing Unit size.
     settings::Dialog dialog = graphics_page();
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = zoomed_out_units_in_view;
     auto parts = settings::dialog_layout(dialog);
@@ -8894,7 +8894,7 @@ void zoomed_out_units_show_and_change() {
           "on a large map, needs a fast CPU.",
           "After zoom",
           "Needs Dots",
-          "1/6"})
+          "Unit size"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
     CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::needs_dots);
 
@@ -8922,12 +8922,11 @@ void zoomed_out_units_show_and_change() {
     // With Dots, After zoom is free, and its hint names its choice.
     CHECK(find_part(parts, "Needs Dots", settings::no_control) == nullptr);
     CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::none);
+    CHECK(find_part(parts, "Unit size", settings::no_control) != nullptr);
     CHECK(
-        find_part(
-            parts, "Dots farther out than 1/6 of normal size. Closer", settings::no_control
-        ) != nullptr
+        geometry::hint_line(Setting::zoomed_out_after, dialog.chosen, {}, 0) ==
+        "Models while the average unit is at least 20% larger than a dot. Dots farther out."
     );
-    CHECK(find_part(parts, "in, units are drawn as models.", settings::no_control) != nullptr);
     // The keys: Right from Dots reaches no Icons; Left gives Rendered back.
     dialog.focused = settings::first_row_control + 9;
     CHECK(settings::dialog_key(dialog, DialogKey::right) != DialogAction::changed);
@@ -8935,6 +8934,12 @@ void zoomed_out_units_show_and_change() {
     // Down to After zoom: Right steps a choice farther out, Left back.
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 10);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::twice_normal_size);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
+    // A fixed threshold keeps the same neighbouring choices.
+    dialog.chosen.zoomed_out_after = settings::ZoomedOutAfter::one_sixth;
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::one_eighth);
     CHECK(
@@ -8952,11 +8957,11 @@ void zoomed_out_units_show_and_change() {
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
     CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::needs_dots);
 
-    // Restore defaults gives Rendered and 1/6; Cancel what it opened with.
+    // Restore defaults gives Rendered and Unit size; Cancel what it opened with.
     dialog.chosen.zoomed_out_units = settings::ZoomedOutUnits::dots;
     CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
-    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::one_sixth);
+    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
     CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
     CHECK(dialog.chosen == dialog.opened);
 }
@@ -8968,7 +8973,7 @@ void enlarged_zoom_thresholds_show_select_and_keep_the_dots_lock() {
     dialog.chosen.zoomed_out_units = settings::ZoomedOutUnits::dots;
     dialog.chosen.zoomed_out_after = settings::ZoomedOutAfter::one_half;
     dialog.focused = settings::first_row_control + 10;
-    CHECK(geometry::choice_count(dialog, Setting::zoomed_out_after) == 9);
+    CHECK(geometry::choice_count(dialog, Setting::zoomed_out_after) == 10);
     const auto check_shown = [&](settings::ZoomedOutAfter choice,
                                  std::size_t index,
                                  std::string_view caption,
@@ -8999,21 +9004,30 @@ void enlarged_zoom_thresholds_show_select_and_keep_the_dots_lock() {
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     check_shown(
         settings::ZoomedOutAfter::normal_size,
-        1,
+        2,
         "1x",
         "Dots farther out than normal size. Closer in, units are drawn as models."
     );
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
     check_shown(
         settings::ZoomedOutAfter::twice_normal_size,
-        0,
+        1,
         "2x",
         "Dots farther out than twice normal size. Closer in, units are drawn as models."
     );
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    check_shown(
+        settings::ZoomedOutAfter::unit_size,
+        0,
+        "Unit size",
+        "Models while the average unit is at least 20% larger than a dot. Dots farther out."
+    );
     CHECK(settings::dialog_key(dialog, DialogKey::left) != DialogAction::changed);
-    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::twice_normal_size);
+    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
     for (const auto choice :
-         {settings::ZoomedOutAfter::normal_size, settings::ZoomedOutAfter::twice_normal_size}) {
+         {settings::ZoomedOutAfter::unit_size,
+          settings::ZoomedOutAfter::normal_size,
+          settings::ZoomedOutAfter::twice_normal_size}) {
         dialog.chosen.zoomed_out_units = settings::ZoomedOutUnits::rendered;
         dialog.chosen.zoomed_out_after = choice;
         // Keyboard navigation may scroll the badge out of view; show its row
@@ -9029,7 +9043,7 @@ void enlarged_zoom_thresholds_show_select_and_keep_the_dots_lock() {
     }
     CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
-    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::one_sixth);
+    CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
 }
 
 void window_frame_shows_and_changes() {

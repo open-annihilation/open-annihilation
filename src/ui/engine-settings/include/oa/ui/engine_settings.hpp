@@ -175,8 +175,8 @@ inline constexpr std::string_view fog_of_war = "open-annihilation.fog-of-war";
 inline constexpr std::string_view new_unit_shadows = "open-annihilation.new-unit-shadows";
 /// "rendered" or "dots" (EngineSettings::zoomed_out_units).
 inline constexpr std::string_view zoomed_out_units = "open-annihilation.zoomed-out-units";
-/// The share of normal size past which Zoomed out units applies: "1/2",
-/// "1/3", "1/4", "1/6", "1/8", "1/12" or "1/16"
+/// Where Zoomed out units applies: "unit-size", or a share of normal size:
+/// "2", "1", "1/2", "1/3", "1/4", "1/6", "1/8", "1/12" or "1/16"
 /// (EngineSettings::zoomed_out_after).
 inline constexpr std::string_view zoomed_out_after = "open-annihilation.zoomed-out-after";
 /// "hidden-in-play" or "always-shown" (EngineSettings::window_frame).
@@ -1008,7 +1008,7 @@ inline constexpr std::array<Look, 2> look_choices{
 };
 
 /// After zoom: the zoom farther out than which Zoomed out units applies,
-/// as a share of normal size.
+/// from projected unit size or as a share of normal size.
 enum class ZoomedOutAfter : uint8_t {
     one_half,          ///< farther out than 1/2
     one_third,         ///< than 1/3
@@ -1019,10 +1019,12 @@ enum class ZoomedOutAfter : uint8_t {
     one_sixteenth,     ///< than 1/16
     normal_size,       ///< than normal size
     twice_normal_size, ///< than twice normal size
+    unit_size,         ///< when the average model is less than 20% larger than a dot
 };
 
 /// The After zoom choices, in the order the dialog offers them.
-inline constexpr std::array<ZoomedOutAfter, 9> zoomed_out_afters{
+inline constexpr std::array<ZoomedOutAfter, 10> zoomed_out_afters{
+    ZoomedOutAfter::unit_size,
     ZoomedOutAfter::twice_normal_size,
     ZoomedOutAfter::normal_size,
     ZoomedOutAfter::one_half,
@@ -1034,7 +1036,10 @@ inline constexpr std::array<ZoomedOutAfter, 9> zoomed_out_afters{
     ZoomedOutAfter::one_sixteenth,
 };
 
-/// Returns the zoom an After zoom choice stands for.
+/// Returns the zoom a fixed After zoom choice stands for.
+///
+/// Unit size is evaluated by the view; where no model sizes are available,
+/// its fallback is one sixth of normal size.
 ///
 /// @param after the choice
 /// @return screen pixels per map pixel: Zoomed out units applies below it
@@ -1051,6 +1056,7 @@ inline constexpr std::array<ZoomedOutAfter, 9> zoomed_out_afters{
     case ZoomedOutAfter::one_quarter:
         return 1.0F / 4.0F;
     case ZoomedOutAfter::one_sixth:
+    case ZoomedOutAfter::unit_size:
         return 1.0F / 6.0F;
     case ZoomedOutAfter::one_eighth:
         return 1.0F / 8.0F;
@@ -1475,8 +1481,8 @@ struct EngineSettings {
     /// zoom, or as dots. Never icons, which the dialog shows but does not
     /// offer yet.
     ZoomedOutUnits zoomed_out_units{ZoomedOutUnits::rendered};
-    /// The zoom farther out than which zoomed_out_units applies.
-    ZoomedOutAfter zoomed_out_after{ZoomedOutAfter::one_sixth};
+    /// The model size or zoom farther out than which zoomed_out_units applies.
+    ZoomedOutAfter zoomed_out_after{ZoomedOutAfter::unit_size};
     /// When the game's window shows its title bar and borders.
     WindowFrame window_frame{WindowFrame::hidden_in_play};
     /// The size class Open Annihilation's own windows are laid out at. It

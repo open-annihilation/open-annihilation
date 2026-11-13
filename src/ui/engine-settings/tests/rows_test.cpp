@@ -136,7 +136,7 @@ constexpr std::array<Expected, 130> kExpected{{
     {Setting::native_density, RowKind::toggle, "Native pixel density", 1, 1, 0, 0, 0, false, Lock::none, &Locks::native_density},
     {Setting::explosion_flash, RowKind::levels, "Explosion flash", 1, 1, 3, 50, 3, false, Lock::none, nullptr},
     {Setting::zoomed_out_units, RowKind::levels, "Zoomed out units", 1, 1, 3, 56, 2, false, Lock::none, nullptr},
-    {Setting::zoomed_out_after, RowKind::choice, "After zoom", 1, 1, 9, 200, 0, false, Lock::none, &Locks::zoomed_out_after},
+    {Setting::zoomed_out_after, RowKind::choice, "After zoom", 1, 1, 10, 200, 0, false, Lock::none, &Locks::zoomed_out_after},
     {Setting::window_frame, RowKind::levels, "Window frame", 1, 1, 2, 85, 2, false, Lock::none, nullptr},
     {Setting::hud_scaling, RowKind::toggle, "HUD scaling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::interface_size, RowKind::choice, "Interface size", 1, 1, 5, 200, 0, false, Lock::none, nullptr},
@@ -659,7 +659,9 @@ void every_row_and_choice_has_an_id_of_one_word() {
     );
     OA_CHECK(
         ids_of(Setting::zoomed_out_after) ==
-        (std::vector<std::string>{"2", "1", "1-2", "1-3", "1-4", "1-6", "1-8", "1-12", "1-16"})
+        (std::vector<std::string>{
+            "unit-size", "2", "1", "1-2", "1-3", "1-4", "1-6", "1-8", "1-12", "1-16"
+        })
     );
     OA_CHECK(ids_of(Setting::fog_of_war) == (std::vector<std::string>{"classic", "smooth"}));
     OA_CHECK(ids_of(Setting::update_channel) == (std::vector<std::string>{"stable", "testing"}));
@@ -904,17 +906,23 @@ void accessibility_captions_name_both_ends() {
     OA_CHECK(latch.buttons.size() == 1 && latch.buttons[0] == "Choose…");
 }
 
-/// Offers the enlarged thresholds first, with complete hints in normal-size terms.
+/// Offers unit size first, then fixed thresholds with their complete hints.
 void enlarged_zoom_threshold_choices_keep_their_captions_and_hints() {
     auto dialog = engine_dialog();
-    constexpr std::array<std::string_view, 9> captions = {
-        "2x", "1x", "1/2", "1/3", "1/4", "1/6", "1/8", "1/12", "1/16"
+    constexpr std::array<std::string_view, 10> captions = {
+        "Unit size", "2x", "1x", "1/2", "1/3", "1/4", "1/6", "1/8", "1/12", "1/16"
     };
     OA_CHECK(geometry::choice_count(dialog, Setting::zoomed_out_after) == captions.size());
     for (std::size_t index = 0; index < captions.size(); ++index)
         OA_CHECK(
             geometry::choice_text(dialog, Setting::zoomed_out_after, index) == captions[index]
         );
+    dialog.chosen.zoomed_out_after = settings::ZoomedOutAfter::unit_size;
+    OA_CHECK(
+        geometry::hint_line(Setting::zoomed_out_after, dialog.chosen, {}, 0) ==
+        "Models while the average unit is at least 20% larger than a dot. Dots farther out."
+    );
+    OA_CHECK(geometry::hint_line(Setting::zoomed_out_after, dialog.chosen, {}, 1).empty());
     dialog.chosen.zoomed_out_after = settings::ZoomedOutAfter::normal_size;
     OA_CHECK(
         geometry::hint_line(Setting::zoomed_out_after, dialog.chosen, {}, 0) ==
