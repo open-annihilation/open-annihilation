@@ -213,4 +213,65 @@ void caster_index_run_boundary() {
     }
 }
 
+/// Exhausted fast-path capacity retains the ordinary scene outcome and index stream.
+void caster_index_capacity_fallback() {
+    constexpr uint32_t population = 12000;
+    constexpr auto capacity = oa::app::renderer_live_gpu::largest_vertex_count;
+    BodyLodFixture fixture;
+    auto& battle = fixture.battle;
+    battle.inputs.unit_marker_pixels = 0;
+    // Pan the camera only: every full caster still reaches the fixed world crop.
+    battle.inputs.clip_projection[3] += 512;
+    fixture.instance.pieces()[0].flags =
+        static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible) |
+        static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached);
+    fixture.instance.pieces()[1].flags =
+        static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
+    std::vector<oa::Unit> units(population, fixture.unit);
+    battle.draws.models.resize(population, battle.draws.models[0]);
+    for (uint32_t index = 0; index < population; ++index) {
+        units[index].id = static_cast<uint16_t>(index + 1);
+        battle.draws.models[index].model.unit = &units[index];
+    }
+    const auto expected =
+        std::size_t{population} * fixture.source->objects[0].primitives.size() * 3;
+    OA_CHECK(expected > capacity);
+    OA_CHECK(population < oa::app::renderer_live_gpu::largest_model_instance_count);
+    live::Scene ordinary, enhanced;
+    std::string ordinary_error, enhanced_error;
+    battle.inputs.body_lod_enabled = false;
+    const bool ordinary_built = live::build(battle.inputs, ordinary, ordinary_error);
+    battle.inputs.body_lod_enabled = true;
+    const bool enhanced_built = live::build(battle.inputs, enhanced, enhanced_error);
+    OA_CHECK(ordinary_built == enhanced_built);
+    OA_CHECK(ordinary_error == enhanced_error && ordinary.out_of_room == enhanced.out_of_room);
+    OA_CHECK(enhanced.card_types.draw_types.size() == population);
+    if (!enhanced.card_types.draw_types.empty()) {
+        const auto type = enhanced.card_types.draw_types[0];
+        OA_CHECK(type >= 0);
+        if (type >= 0)
+            OA_CHECK(enhanced.card_types.types[static_cast<std::size_t>(type)].shadow_runs_ready);
+    }
+    if (ordinary_built && enhanced_built) {
+        OA_CHECK(ordinary.cards.cast_indices.size() == expected);
+        OA_CHECK(enhanced.cards.cast_indices == ordinary.cards.cast_indices);
+        OA_CHECK(enhanced.cards.positions == ordinary.cards.positions);
+        OA_CHECK(ordinary.cards.casts.size() == population);
+        OA_CHECK(enhanced.cards.casts.size() == ordinary.cards.casts.size());
+        OA_CHECK(enhanced.cards.cast_depths == ordinary.cards.cast_depths);
+        OA_CHECK(enhanced.shadow_count == ordinary.shadow_count);
+        OA_CHECK(ordinary.cards.units.empty() && enhanced.cards.units.empty());
+    } else if (!ordinary_built && !enhanced_built) {
+        // A later geometry check may reject the same oversized legacy frame.
+        OA_CHECK(ordinary.out_of_room && !ordinary_error.empty());
+        OA_CHECK(ordinary_error.find("geometry budget") != std::string::npos);
+        OA_CHECK(ordinary.cards.cast_indices.empty() && enhanced.cards.cast_indices.empty());
+        OA_CHECK(
+            ordinary.passes.models.cards.cast_indices == enhanced.passes.models.cards.cast_indices
+        );
+        OA_CHECK(ordinary.model_count == 0 && enhanced.model_count == 0);
+        OA_CHECK(ordinary.shadow_count == 0 && enhanced.shadow_count == 0);
+    }
+}
+
 } // namespace
