@@ -3415,6 +3415,158 @@ int Runtime::check_live_renderer() {
                   << refused_ground.simulated_failures << " without an API call; new Scene "
                   << replacement_ground.api_calls
                   << " real call, with exact pixels, inputs, bounds and picks preserved\n";
+        // Exercise the actual pixel planner and retained-type provider, then
+        // remove that provider after planning so the normal failure branch
+        // must repeat this frozen frame with genuine classic pixels.
+        {
+            namespace drawing = oa::present::model;
+            constexpr int32_t shadow_unit_offset = 96;
+            constexpr int32_t shadow_fixed = 65536;
+            const auto& anchor = match_->world().record.units[selected_match_unit_].position;
+            oa::sim::unit_spawn::Request request;
+            request.player = match_local_player_;
+            request.type = oa::sim::unit_spawn::find_type_index(spawn_type_names_, "ARMPW");
+            request.finished = true;
+            request.state = kGroundOccupancyState;
+            request.position = {
+                static_cast<uint32_t>(anchor.x + shadow_unit_offset * shadow_fixed),
+                static_cast<uint32_t>(anchor.y),
+                static_cast<uint32_t>(anchor.z)
+            };
+            const oa::sim::unit_movement::Terrain shadow_terrain(*selected_tnt_);
+            const int32_t shadow_ground = shadow_terrain.height(
+                static_cast<int32_t>(request.position[0]), static_cast<int32_t>(request.position[2])
+            );
+            require(
+                shadow_ground >= match_->state().game.sea_level,
+                "the metadata-shadow fixture has no dry ground beside its commander"
+            );
+            request.position[1] = static_cast<uint32_t>(shadow_ground * shadow_fixed);
+            require(request.type != 0, "the metadata-shadow fixture lacks ARMPW");
+            auto* placed = match_->create(request);
+            require(placed && placed->unit, "the metadata-shadow unit did not spawn");
+            placed->unit->object_present = true;
+            const auto shadow_slot = placed->unit_index;
+            const auto shadow_id = placed->record.id;
+            auto& graphics = match_->state().game.graphics_flags;
+            graphics = static_cast<uint16_t>(
+                graphics | drawing::graphics_shadows | drawing::graphics_vehicle_shadows
+            );
+            match_zoom_ = match_zoom_target_ = 1.0F;
+            presentation_alpha_ = 1.0F;
+            center_camera_on_unit(shadow_slot);
+            const uint32_t frozen_shadow_tick = match_->simulation().tick;
+            const auto frozen_presentation_tick = match_timing_.tick;
+            auto& plans = match_models().unit_plans;
+            plans.snapshot_unlinked_vertices = true;
+            render_match_surface();
+            render_match_surface();
+            require(
+                live_renderer_active() && live_models_on_card() && !live_renderer_failed(),
+                "the metadata-shadow fixture did not warm its real GPU model type"
+            );
+            const auto find_shadow_draw = [&]() -> const ModelDraw* {
+                const auto& draws = match_models().draws.models;
+                const auto found =
+                    std::find_if(draws.begin(), draws.end(), [&](const ModelDraw& draw) {
+                        return draw.model.unit != nullptr && draw.model.unit->id == shadow_id &&
+                               draw.plan.linked.drawn;
+                    });
+                return found != draws.end() ? &*found : nullptr;
+            };
+            const auto target_has_geometry = [&] {
+                const auto bounds = live_unit_bounds(shadow_id);
+                if (!bounds || bounds->x2 <= bounds->x1 || bounds->y2 <= bounds->y1)
+                    return false;
+                constexpr int32_t pick_divisions = 6;
+                for (int32_t y = 1; y < pick_divisions; ++y)
+                    for (int32_t x = 1; x < pick_divisions; ++x) {
+                        const float across =
+                            bounds->x1 + float(bounds->x2 - bounds->x1) * x / pick_divisions;
+                        const float down =
+                            bounds->y1 + float(bounds->y2 - bounds->y1) * y / pick_divisions;
+                        if (live_unit_under(across, down) == shadow_id)
+                            return true;
+                    }
+                return false;
+            };
+            const auto* warm_draw = find_shadow_draw();
+            require(warm_draw && warm_draw->model.state, "the ground model was not planned");
+            require(
+                warm_draw->model.def != nullptr &&
+                    (warm_draw->model.def->flags & OA_UNIT_DEF_FLAG_NO_SHADOW) == 0,
+                "the actual ground fixture type does not require a shadow"
+            );
+            auto* state = warm_draw->model.state;
+            require(
+                live_geometry_shadow_type(warm_draw->model),
+                "the retained model type did not match the actual pixel planner"
+            );
+            state->cache.draws = 0;
+            render_match_surface();
+            const auto reference_picture = match_world_cpu_;
+            const auto reference_picks = bounds_and_picks();
+            require(
+                !reference_picture.rgb.empty() && !reference_picks.empty() &&
+                    state->image.sprite.data != nullptr && !state->deferred_image &&
+                    target_has_geometry(),
+                "the metadata-shadow reference did not own real pixels and picks"
+            );
+            plans.snapshot_unlinked_vertices = false;
+            state->cache.draws = 0;
+            render_match_surface();
+            const auto* deferred_draw = find_shadow_draw();
+            require(
+                deferred_draw && deferred_draw->model.state == state && state->deferred_image &&
+                    state->image.sprite.data == nullptr && state->image.pixels.empty() &&
+                    deferred_draw->plan.model.from_image &&
+                    deferred_draw->shown_position.has_value() &&
+                    int64_t(deferred_draw->shown_position->y) >=
+                        int64_t(match_->state().game.sea_level) * shadow_fixed &&
+                    match_models().draws.shadow_level != 0 &&
+                    (match_models().renderer.graphics_flags & drawing::graphics_shadows) != 0 &&
+                    (match_models().renderer.graphics_flags & drawing::graphics_vehicle_shadows) !=
+                        0,
+                "the actual supported ground planner did not defer its cached pixels"
+            );
+            require(
+                !live_renderer_failed() && match_world_cpu_.rgb == reference_picture.rgb &&
+                    bounds_and_picks() == reference_picks && target_has_geometry(),
+                "geometry-shadow metadata changed actual 3D pixels, bounds or picks"
+            );
+            try {
+                set_live_models_on_card(false);
+                require(
+                    !render_live_match_surface() && !live_renderer_active() &&
+                        live_renderer_failed(),
+                    "a lost shadow producer did not request the ordinary classic replan"
+                );
+                render_match_surface();
+                require(
+                    !state->deferred_image && state->image.sprite.data != nullptr &&
+                        !state->image.pixels.empty() && !match_world_cpu_.rgb.empty(),
+                    "the classic fallback did not materialize the deferred image"
+                );
+                const auto fallback_picture = match_world_cpu_;
+                render_match_surface();
+                require(
+                    match_world_cpu_.rgb == fallback_picture.rgb,
+                    "the pixel fallback differs from its ordinary frozen redraw"
+                );
+            } catch (...) {
+                set_live_models_on_card(true);
+                throw;
+            }
+            set_live_models_on_card(true);
+            require(
+                match_->simulation().tick == frozen_shadow_tick &&
+                    match_timing_.tick == frozen_presentation_tick && !match_->fault(),
+                "metadata-shadow rendering or fallback advanced simulation"
+            );
+            std::cout << "live renderer check: actual supported ground image deferred with exact "
+                         "3D pixels, bounds and picks; lost producer repeated the frozen frame "
+                         "with genuine classic pixels\n";
+        }
         leave_match();
     } catch (...) {
         finish_ground_check();
