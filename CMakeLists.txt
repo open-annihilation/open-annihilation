@@ -1108,6 +1108,10 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-model-transform-cache-test PRIVATE oa-app-headers
     oa-present-model oa-sim-model-runtime oa-sim-effect-particles oa-test-support oa-options)
   add_test(NAME app-model-transform-cache COMMAND oa-app-model-transform-cache-test)
+  add_executable(oa-app-deferred-model-geometry-test src/app/deferred_model_geometry_test.cpp)
+  target_link_libraries(oa-app-deferred-model-geometry-test PRIVATE oa-app-headers
+    oa-present-model oa-sim-model-runtime oa-test-support oa-options)
+  add_test(NAME app-deferred-model-geometry COMMAND oa-app-deferred-model-geometry-test)
   # A private pre-planning geometry proof is held to independently rebuilt
   # native model vertices before any Runtime caller can consume it.
   add_executable(oa-app-preplanning-visibility-bounds-test

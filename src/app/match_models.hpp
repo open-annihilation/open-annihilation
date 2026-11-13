@@ -23,6 +23,7 @@
 #include "presentation_interpolation.hpp"
 #include "presentation_capture.hpp"
 #include "model_transform_cache.hpp"
+#include "deferred_model_geometry.hpp"
 #include "preplanning_visibility_bounds.hpp"
 #include "unit_detail_transition.hpp"
 #include "world_draws.hpp"
@@ -146,12 +147,14 @@ struct PreplanningVisibility {
         preplanning_visibility::Scratch scratch;
         std::size_t omitted_count{};
         std::size_t whole_tick_postplan_omitted_count{};
+        std::size_t deferred_geometry_count{};
     };
 
     std::optional<preplanning_visibility::FrameView> view;
     /// All proved records omitted before Scene consumption, from either planner path.
     std::size_t omitted_count{};
     std::size_t copy_preplan_omitted_count{};
+    std::size_t deferred_geometry_count{};
     std::size_t whole_tick_postplan_omitted_count{};
     bool geometry_unavailable{};
     bool budget_safe{};
@@ -191,6 +194,7 @@ struct MatchModels {
     // The frame's units, planned before the draws are worked out in order.
     UnitPlans unit_plans;
     PreplanningVisibility preplanning_visibility;
+    DeferredModelGeometries deferred_geometry;
     /// Cached owned-army dimensions and the automatic dot/model boundary.
     unit_detail_transition::State unit_transition{};
     /// Exact model-space transform caches, one per unit-planning worker.

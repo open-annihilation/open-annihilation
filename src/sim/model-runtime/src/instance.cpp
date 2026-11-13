@@ -435,6 +435,8 @@ void Instance::rebuild_transforms(RotationWords root_rotation, bool checked_inte
     transforms_built_ = true;
     built_root_ = root_rotation;
     transforms_dirty_ = false;
+    if (++materialization_revision_ == 0)
+        ++materialization_revision_;
 }
 
 bool Instance::reuse_transforms(const Instance& from, RotationWords root_rotation) noexcept {
@@ -485,6 +487,8 @@ bool Instance::reuse_transforms(const Instance& from, RotationWords root_rotatio
     transforms_built_ = true;
     built_root_ = root_rotation;
     transforms_dirty_ = false;
+    if (++materialization_revision_ == 0)
+        ++materialization_revision_;
     return true;
 }
 
@@ -590,6 +594,37 @@ bool Instance::reuse_root_prefix_transforms(
     transforms_built_ = true;
     built_root_ = root_rotation;
     transforms_dirty_ = false;
+    if (++materialization_revision_ == 0)
+        ++materialization_revision_;
+    return true;
+}
+
+bool Instance::rebuild_retained_transforms(
+    std::span<TransformPose> poses, RotationWords root_rotation, bool checked_integer_rotation
+) noexcept {
+    if (!model_ || poses.size() != pieces_.size())
+        return false;
+    // A retained recipe is admitted only after ordinary geometry exists.
+    // Check every capacity before swapping inputs, so this write cannot allocate.
+    for (const auto& piece : pieces_)
+        if (piece.object_index >= model_->objects.size() ||
+            piece.transformed_vertices.capacity() <
+                model_->objects[piece.object_index].vertices.size())
+            return false;
+    const bool dirty = transforms_dirty_;
+    for (size_t i = 0; i < poses.size(); ++i) {
+        std::swap(pieces_[i].translation, poses[i].translation);
+        std::swap(pieces_[i].rotation, poses[i].rotation);
+    }
+    rebuild_transforms(root_rotation, checked_integer_rotation);
+    for (size_t i = 0; i < poses.size(); ++i) {
+        std::swap(pieces_[i].translation, poses[i].translation);
+        std::swap(pieces_[i].rotation, poses[i].rotation);
+        if (!same_vector(pieces_[i].translation, pieces_[i].built_translation) ||
+            !same_words(pieces_[i].rotation, pieces_[i].built_rotation))
+            transforms_dirty_ = true;
+    }
+    transforms_dirty_ |= dirty;
     return true;
 }
 
@@ -621,7 +656,11 @@ void Instance::take_pose(const Instance& from) {
                       mine.next_sibling == theirs.next_sibling;
     }
     if (!same_pieces) {
+        const uint64_t previous_revision = materialization_revision_;
         *this = from;
+        materialization_revision_ = previous_revision + 1;
+        if (materialization_revision_ == 0)
+            ++materialization_revision_;
         transforms_dirty_ = true;
         return;
     }

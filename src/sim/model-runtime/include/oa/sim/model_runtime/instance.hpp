@@ -61,6 +61,12 @@ struct PieceState {
     RotationWords built_rotation{};
 };
 
+/// The raw inputs of one piece's transformed points, in 16.16 and angle words.
+struct TransformPose {
+    oa::formats::objects3d::FixedVector3 translation{};
+    RotationWords rotation{};
+};
+
 /// A box in a model's space, inclusive at both corners.
 struct PieceBox {
     oa::formats::objects3d::FixedVector3 low{};
@@ -238,6 +244,26 @@ class Instance {
     [[nodiscard]] bool
     reuse_root_prefix_transforms(const Instance& from, RotationWords root_rotation) noexcept;
 
+    /// Returns the revision of the instance's last completed geometry write.
+    /// @return a monotonically advancing nonzero revision after a completed write
+    [[nodiscard]] uint64_t materialization_revision() const noexcept {
+        return materialization_revision_;
+    }
+
+    /// Rebuilds retained draw geometry without changing current script inputs.
+    ///
+    /// The supplied poses are temporary swap storage and keep their values.
+    /// Current flags remain current. Built inputs describe the retained geometry;
+    /// current inputs that differ from them leave the instance dirty.
+    ///
+    /// @param[in,out] poses one retained raw pose per piece, in piece order
+    /// @param root_rotation retained angle words added to the root
+    /// @param checked_integer_rotation permits proved integer rotation estimates
+    /// @return true on completion; false leaves the instance unchanged
+    [[nodiscard]] bool rebuild_retained_transforms(
+        std::span<TransformPose> poses, RotationWords root_rotation, bool checked_integer_rotation
+    ) noexcept;
+
     /// Returns the dynamically allocated piece and transformed-vertex storage.
     ///
     /// Counts vector capacities, including the spare piece's vertices. The
@@ -284,6 +310,7 @@ class Instance {
     uint32_t root_piece_{kNoPiece};
     uintptr_t owner_token_{};
     bool transforms_dirty_{true};
+    uint64_t materialization_revision_{}; ///< completed derived-geometry writes
     /// The transforms have been rebuilt, so that each piece's built
     /// translation and rotation and built_root_ say what they were worked
     /// out from.
