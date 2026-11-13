@@ -4203,6 +4203,164 @@ void large_marker_scene_readback() {
     );
 }
 
+/// Retains the actual GPU shadow and model pixels with deferred image frames,
+/// including multisampling and a later translated unit.
+void deferred_geometry_shadow_readback() {
+    namespace object = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    namespace runtime = oa::sim::model_runtime;
+    namespace live_scene = oa::app::renderer_live_scene;
+    constexpr uint32_t target = 64;
+    constexpr int32_t fixed = object::kThreeDoUnitsPerWorldUnit;
+    oa::formats::tnt::Map map;
+    map.attribute_width = map.attribute_height = 4;
+    map.tile_width = map.tile_height = 2;
+    map.tile_count = 1;
+    map.tile_indices.assign(4, 0);
+    map.attributes.resize(16);
+    map.tile_palette_indices.assign(32 * 32, 1);
+    oa::PaletteBytes palette{};
+    for (const auto channel : {0U, 1U, 2U}) {
+        palette[oa::palette_entry_bytes + channel] = 160;
+        palette[2 * oa::palette_entry_bytes + channel] = 220;
+    }
+    auto source = std::make_shared<object::Model>();
+    source->objects.resize(1);
+    auto& body = source->objects[0];
+    body.vertices = {
+        {0, 6 * fixed, 0},
+        {8 * fixed, 6 * fixed, 0},
+        {8 * fixed, 6 * fixed, -8 * fixed},
+        {0, 6 * fixed, -8 * fixed}
+    };
+    body.primitives.resize(2);
+    body.primitives[0].vertex_indices = {0, 1, 2, 3};
+    body.primitives[1].vertex_indices = {3, 2, 1, 0};
+    auto instance = runtime::make_instance(source);
+    instance.rebuild_transforms();
+    drawing::PreparedModel prepared;
+    prepared.objects.resize(1);
+    for (uint32_t index = 0; index < 2; ++index) {
+        drawing::PreparedPrimitive primitive;
+        primitive.source_index = index;
+        primitive.flags = drawing::primitive_colored;
+        primitive.color = 2;
+        prepared.objects[0].primitives.push_back(primitive);
+    }
+    oa::Unit unit{};
+    unit.id = 11;
+    unit.type_index = 1;
+    unit.position = {24 * fixed, 0, 32 * fixed};
+    oa::UnitDef definition{};
+    drawing::ModelState state;
+    state.image = oa::present::create_sprite(16, 16);
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 2);
+    oa::app::WorldDrawList draws;
+    draws.models.resize(1);
+    auto& draw = draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.def = &definition;
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.model.state = &state;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    live_scene::Inputs inputs;
+    inputs.map = &map;
+    inputs.palette = &palette;
+    inputs.draws = &draws;
+    inputs.right = inputs.bottom = target;
+    inputs.clip_width = inputs.clip_height = target;
+    inputs.clip_projection = classic_projection;
+    inputs.view_direction = {0, 1, 0};
+    inputs.sight.mapping = inputs.sight.line_of_sight = false;
+    inputs.models_on_card = true;
+    inputs.graphics_flags = drawing::graphics_shadows | drawing::graphics_vehicle_shadows;
+    std::array<Context, 3> contexts;
+    std::array<std::vector<uint8_t>, 3> pictures;
+    std::string error;
+    for (const auto multisampling : {false, true})
+        for (const uint32_t supersample : {1U, 2U}) {
+            for (auto& context : contexts)
+                context.multisampling_allowed = multisampling;
+            for (uint32_t frame = 0; frame < 2; ++frame) {
+                unit.position.x = static_cast<int32_t>(24 + frame * 3) * fixed;
+                std::array<live_scene::Scene, 3> scenes;
+                for (std::size_t variant = 0; variant < scenes.size(); ++variant) {
+                    const bool deferred = variant == 1;
+                    inputs.geometry_shadow_metadata = deferred;
+                    inputs.graphics_flags = variant == 2 ? 0
+                                                         : drawing::graphics_shadows |
+                                                               drawing::graphics_vehicle_shadows;
+                    oa::present::SpriteBuffer image;
+                    if (deferred) {
+                        image = std::move(state.image);
+                        state.image = {};
+                        state.deferred_image = drawing::ImageFrame{
+                            image.sprite.width,
+                            image.sprite.height,
+                            image.sprite.origin_x,
+                            image.sprite.origin_y
+                        };
+                        state.deferred_image_depth = image.sprite.aux != nullptr;
+                    }
+                    auto& scene = scenes[variant];
+                    const bool built = live_scene::build(inputs, scene, error);
+                    OA_CHECK(built);
+                    if (!built)
+                        std::fprintf(stderr, "deferred shadow Scene: %s\n", error.c_str());
+                    if (deferred) {
+                        OA_CHECK(state.image.sprite.data == nullptr && state.image.pixels.empty());
+                        state.image = std::move(image);
+                        state.deferred_image.reset();
+                        state.deferred_image_depth = false;
+                    }
+                    if (!built)
+                        return;
+                    const auto models = live_scene::card_draws(scene.card_types, scene.cards);
+                    const auto result = render(
+                        contexts[variant],
+                        scene.vertices,
+                        scene.texture_rgba,
+                        scene.texture_width,
+                        scene.texture_height,
+                        scene.texture_revision,
+                        target,
+                        target,
+                        classic_projection,
+                        pictures[variant],
+                        error,
+                        supersample,
+                        &scene.atlas_update,
+                        &inputs.water,
+                        &scene.card_ground,
+                        {},
+                        nullptr,
+                        &models
+                    );
+                    OA_CHECK(result == Result::success);
+                    if (result != Result::success)
+                        std::fprintf(stderr, "deferred shadow GPU: %s\n", error.c_str());
+                }
+                OA_CHECK(pictures[0].size() == target * target * channels);
+                OA_CHECK(pictures[0] == pictures[1]);
+                OA_CHECK(pictures[0] != pictures[2]);
+                OA_CHECK(scenes[0].shadow_count == 1 && scenes[1].shadow_count == 1);
+                OA_CHECK(scenes[0].cards.cast_indices == scenes[1].cards.cast_indices);
+                OA_CHECK(scenes[0].cards.units.size() == 1 && scenes[1].cards.units.size() == 1);
+                if (scenes[0].cards.units.size() == 1 && scenes[1].cards.units.size() == 1) {
+                    const auto& a = scenes[0].cards.units[0];
+                    const auto& b = scenes[1].cards.units[0];
+                    OA_CHECK(a.unit_id == unit.id && a.unit_id == b.unit_id);
+                    OA_CHECK(
+                        a.left == b.left && a.top == b.top && a.right == b.right &&
+                        a.bottom == b.bottom && a.bounded == b.bounded
+                    );
+                }
+            }
+        }
+}
+
 /// Contained zooms show the same GPU pixels and unit picking triangles as
 /// freshly rebuilt terrain, including relief and a changed fog boundary.
 void contained_ground_readback() {
@@ -4379,6 +4537,7 @@ int main() {
         picture_on_card();
         card_models();
         card_shadows();
+        deferred_geometry_shadow_readback();
         scene_marker_readback();
         frame_effect_material_readback();
         parallel_ground_indices_readback();

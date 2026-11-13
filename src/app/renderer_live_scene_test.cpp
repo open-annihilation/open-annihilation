@@ -8356,6 +8356,201 @@ void shadows_on_card() {
     const auto& shadow_map = card_scene.cards.shadow_map;
     OA_CHECK(shadow_map.left == in.left && shadow_map.top == in.top && shadow_map.scale == 1);
     OA_CHECK(shadow_map.width == uint32_t(in.right - in.left));
+    // A completed ground unit above the sea can retain the image's frame
+    // while the card casts its shadow from the same cached pieces.
+    in.sea_level = 0;
+    live::Scene pixels_shadow;
+    live::Scene deferred_shadow;
+    OA_CHECK(live::build(in, pixels_shadow, battle.error));
+    auto& vehicle_draw = battle.draws.models[vehicle];
+    auto& vehicle_state = states[vehicle];
+    auto retained_image = std::move(vehicle_state.image);
+    vehicle_state.image = {};
+    vehicle_state.deferred_image = drawing::ImageFrame{
+        retained_image.sprite.width,
+        retained_image.sprite.height,
+        retained_image.sprite.origin_x,
+        retained_image.sprite.origin_y
+    };
+    vehicle_state.deferred_image_depth = retained_image.sprite.aux != nullptr;
+    in.geometry_shadow_metadata = true;
+    OA_CHECK(live::build(in, deferred_shadow, battle.error));
+    OA_CHECK(vehicle_state.image.sprite.data == nullptr);
+    OA_CHECK(vehicle_state.image.pixels.empty());
+    OA_CHECK(pixels_shadow.shadow_count != 0);
+    OA_CHECK(pixels_shadow.shadow_count == deferred_shadow.shadow_count);
+    OA_CHECK(pixels_shadow.vertices.size() == deferred_shadow.vertices.size());
+    if (pixels_shadow.vertices.size() == deferred_shadow.vertices.size())
+        OA_CHECK(same(
+            pixels_shadow.vertices.data(),
+            deferred_shadow.vertices.data(),
+            pixels_shadow.vertices.size()
+        ));
+    OA_CHECK(pixels_shadow.texture_rgba == deferred_shadow.texture_rgba);
+    OA_CHECK(pixels_shadow.cards.positions == deferred_shadow.cards.positions);
+    OA_CHECK(pixels_shadow.cards.indices == deferred_shadow.cards.indices);
+    OA_CHECK(pixels_shadow.cards.piece_frames == deferred_shadow.cards.piece_frames);
+    OA_CHECK(pixels_shadow.cards.textures == deferred_shadow.cards.textures);
+    OA_CHECK(pixels_shadow.cards.cast_indices == deferred_shadow.cards.cast_indices);
+    OA_CHECK(pixels_shadow.cards.cast_depths == deferred_shadow.cards.cast_depths);
+    OA_CHECK(
+        std::equal(
+            pixels_shadow.cards.casts.begin(),
+            pixels_shadow.cards.casts.end(),
+            deferred_shadow.cards.casts.begin(),
+            deferred_shadow.cards.casts.end(),
+            [](const auto& a, const auto& b) {
+                return a.instance == b.instance && a.kind == b.kind && a.base == b.base &&
+                       a.ground_half == b.ground_half && a.least_height == b.least_height &&
+                       a.light == b.light && a.depth == b.depth && a.across == b.across &&
+                       a.down == b.down;
+            }
+        )
+    );
+    OA_CHECK(
+        std::equal(
+            pixels_shadow.cards.cast_runs.begin(),
+            pixels_shadow.cards.cast_runs.end(),
+            deferred_shadow.cards.cast_runs.begin(),
+            deferred_shadow.cards.cast_runs.end(),
+            [](const auto& a, const auto& b) {
+                return a.vertex == b.vertex && a.first_index == b.first_index &&
+                       a.index_count == b.index_count && a.first_instance == b.first_instance;
+            }
+        )
+    );
+    // Picking consumes the same emitted faces and bounds; shadows retain
+    // their original position among those faces.
+    OA_CHECK(
+        std::equal(
+            pixels_shadow.cards.units.begin(),
+            pixels_shadow.cards.units.end(),
+            deferred_shadow.cards.units.begin(),
+            deferred_shadow.cards.units.end(),
+            [](const live::CardUnit& a, const live::CardUnit& b) {
+                return a.unit_id == b.unit_id && a.vertex == b.vertex && a.instance == b.instance &&
+                       a.type == b.type && a.first_index == b.first_index &&
+                       a.index_count == b.index_count && a.left == b.left && a.top == b.top &&
+                       a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded;
+            }
+        )
+    );
+    // The drawn interpolation can be below the sea while the canonical
+    // endpoint is above it. Eligibility follows the actual shown position.
+    vehicle_draw.shown_position = units[vehicle].position;
+    vehicle_draw.shown_position->y = -fixed;
+    OA_CHECK(units[vehicle].position.y >= 0);
+    OA_CHECK(!live::build(in, deferred_shadow, battle.error));
+    OA_CHECK(!battle.error.empty());
+    vehicle_draw.shown_position.reset();
+    definitions[vehicle].flags = OA_UNIT_DEF_FLAG_CAN_HOVER;
+    OA_CHECK(!live::build(in, deferred_shadow, battle.error));
+    definitions[vehicle].flags = 0;
+    units[vehicle].build_remaining = 0.5F;
+    OA_CHECK(!live::build(in, deferred_shadow, battle.error));
+    units[vehicle].build_remaining = 0;
+    units[vehicle].attach_parent = 1;
+    OA_CHECK(!live::build(in, deferred_shadow, battle.error));
+    units[vehicle].attach_parent = 0;
+    units[vehicle].attach_first_child = 2;
+    OA_CHECK(!live::build(in, deferred_shadow, battle.error));
+    units[vehicle].attach_first_child = 0;
+    // Removing the current GPU producer must refuse the deferred shadow
+    // rather than quietly losing it.
+    in.models_on_card = false;
+    OA_CHECK(!live::build(in, deferred_shadow, battle.error));
+    OA_CHECK(!battle.error.empty());
+    in.models_on_card = true;
+    // An otherwise valid model larger than a GPU type's vertex field is
+    // still drawable through the ordinary path, but cannot borrow support.
+    auto unsupported_source = std::make_shared<models::Model>(*source);
+    unsupported_source->objects[0].vertices.resize(
+        (std::size_t{1} << oa::app::renderer_live_gpu::model_piece_shift) + 1
+    );
+    auto unsupported = runtime::make_instance(unsupported_source);
+    unsupported.rebuild_transforms();
+    // The planner's retained-type proof reads a warmed registry without
+    // creating types, borrowing another model's ownership or allocating.
+    live::CardTypes cold_types;
+    live::CardTypes unsupported_types;
+    OA_CHECK(live::card_type(unsupported_types, unsupported, prepared) == -1);
+    auto different_prepared = prepared;
+    const std::shared_ptr<const models::Model> borrowed_model(source.get(), [](const auto*) {});
+    const auto borrowed = runtime::make_instance(borrowed_model);
+    auto reordered = runtime::make_instance(source);
+    std::swap(reordered.pieces()[0].object_index, reordered.pieces()[1].object_index);
+    const auto& retained = pixels_shadow.card_types;
+    const auto original_records = retained.records;
+    const auto original_models = retained.by_model;
+    const auto original_types = retained.types.size();
+    const auto original_revision = retained.revision;
+    const auto unsupported_records = unsupported_types.records;
+    const auto unsupported_models = unsupported_types.by_model;
+    const auto unsupported_type_count = unsupported_types.types.size();
+    const auto unsupported_revision = unsupported_types.revision;
+    std::array<bool, 6> supported{};
+    ground_allocations = refused_ground_allocations = 0;
+    ground_allocation_to_refuse = std::numeric_limits<std::size_t>::max();
+    watch_ground_allocations = true;
+    supported[0] = live::cached_card_type(cold_types, instances[vehicle], prepared);
+    supported[1] = live::cached_card_type(retained, instances[vehicle], prepared);
+    supported[2] = live::cached_card_type(retained, instances[vehicle], different_prepared);
+    supported[3] = live::cached_card_type(retained, borrowed, prepared);
+    supported[4] = live::cached_card_type(retained, reordered, prepared);
+    supported[5] = live::cached_card_type(unsupported_types, unsupported, prepared);
+    watch_ground_allocations = false;
+    OA_CHECK(ground_allocations == 0 && refused_ground_allocations == 0);
+    OA_CHECK((supported == std::array<bool, 6>{false, true, false, false, false, false}));
+    OA_CHECK(cold_types.types.empty() && cold_types.records.empty() && cold_types.by_model.empty());
+    OA_CHECK(cold_types.revision == 0);
+    OA_CHECK(retained.records == original_records && retained.by_model == original_models);
+    OA_CHECK(retained.types.size() == original_types && retained.revision == original_revision);
+    OA_CHECK(unsupported_types.records == unsupported_records);
+    OA_CHECK(unsupported_types.by_model == unsupported_models);
+    OA_CHECK(unsupported_types.types.size() == unsupported_type_count);
+    OA_CHECK(unsupported_types.revision == unsupported_revision);
+    vehicle_draw.model.instance = &unsupported;
+    OA_CHECK(!live::build(in, deferred_shadow, battle.error));
+    OA_CHECK(!battle.error.empty());
+    // The existing metadata path needs no GPU shadow producer when all
+    // shadows are disabled, including for an unsupported model type.
+    const auto shadow_flags = in.graphics_flags;
+    in.graphics_flags = 0;
+    OA_CHECK(live::build(in, deferred_shadow, battle.error));
+    OA_CHECK(deferred_shadow.cards.casts.empty() && deferred_shadow.shadow_count == 0);
+    in.graphics_flags = shadow_flags;
+    vehicle_draw.model.instance = &instances[vehicle];
+    vehicle_state.image = std::move(retained_image);
+    vehicle_state.deferred_image.reset();
+    vehicle_state.deferred_image_depth = false;
+    // Each excluded class keeps its pixel-backed path. A deferred image
+    // with such a class is refused before any shadow reader runs.
+    for (const auto kind : {building, digger, aircraft, floater, under_water}) {
+        in.sea_level = kind == under_water ? 30 : 0;
+        auto& excluded = battle.draws.models[kind];
+        const auto prior_flags = definitions[kind].flags;
+        if (kind == aircraft)
+            definitions[kind].flags = OA_UNIT_DEF_FLAG_CAN_FLY;
+        OA_CHECK(live::build(in, pixels_shadow, battle.error));
+        auto& excluded_state = *excluded.model.state;
+        auto pixels = std::move(excluded_state.image);
+        excluded_state.image = {};
+        excluded_state.deferred_image = drawing::ImageFrame{
+            pixels.sprite.width,
+            pixels.sprite.height,
+            pixels.sprite.origin_x,
+            pixels.sprite.origin_y
+        };
+        excluded_state.deferred_image_depth = pixels.sprite.aux != nullptr;
+        OA_CHECK(!live::build(in, deferred_shadow, battle.error));
+        OA_CHECK(!battle.error.empty());
+        excluded_state.image = std::move(pixels);
+        excluded_state.deferred_image.reset();
+        excluded_state.deferred_image_depth = false;
+        definitions[kind].flags = prior_flags;
+    }
+    in.sea_level = 0;
+    in.geometry_shadow_metadata = false;
     // Shadows off, none is cast.
     in.graphics_flags = 0;
     OA_CHECK(live::build(in, card_scene, battle.error));
