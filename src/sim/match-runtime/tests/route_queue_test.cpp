@@ -392,7 +392,7 @@ WaveResult native_wave(uint32_t version, bool wide = false, bool distinct_goals 
             goals.push_back(*scene.ground(id).navigation.goal);
         CHECK(goals[0].cell == (std::array<int16_t, 2>{20, 4}));
         CHECK(goals[1].cell == (std::array<int16_t, 2>{18, 4}));
-        if (version == distributed_version) {
+        if (version == distributed_version || version == following_version) {
             CHECK(navigation.points[1] == (ground::RoutePoint{176, 144}));
             CHECK(navigation.points[2] == (ground::RoutePoint{208, 112}));
         } else {
@@ -552,7 +552,7 @@ struct PipelineResult {
     uint16_t heading{};
     int16_t turn{};
     uint8_t flags{};
-    bool active{}, mobile{}, leader_live{}, follower_live{};
+    bool active{}, mobile{}, leader_live{}, follower_live{}, backward_leader{};
     bool operator==(const PipelineResult&) const = default;
 };
 
@@ -664,6 +664,21 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
                          match.spawn_slot(leader).record.health > 0;
     result.follower_live = oa::unit_is_live_target(match.spawn_slot(follower).record.flags) &&
                            match.spawn_slot(follower).record.health > 0;
+    if (result.leader_live) {
+        const auto* actual = match.ground_runtime(leader);
+        const auto* head = match.local_flow_head(leader);
+        if (actual && actual->navigation.goal && actual->navigation.count >= 2 &&
+            actual->navigation.goal->order == match.spawn_slot(leader).unit->primary && head &&
+            head->active && head->count == 3 && head->tick == 57) {
+            const int64_t dx = int64_t(head->points[1][0]) * pixel - actual->geometry.position[0];
+            const int64_t dz = int64_t(head->points[1][1]) * pixel - actual->geometry.position[2];
+            const int64_t fx =
+                int64_t(actual->navigation.points[1][0]) * pixel - actual->geometry.position[0];
+            const int64_t fz =
+                int64_t(actual->navigation.points[1][1]) * pixel - actual->geometry.position[2];
+            result.backward_leader = dx * fx + dz * fz <= 0;
+        }
+    }
     const auto* survivor = match.ground_runtime(follower);
     if (!survivor) {
         CHECK(!result.follower_live);
@@ -694,10 +709,15 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
 }
 
 void actual_pipeline_rejects_incompatible_or_unowned_routes(uint32_t version) {
+    // The idle gate makes the leader apply a non-forward local leg. Eight
+    // no longer treats that applied leg as a forward queue certificate.
+    const bool follows_applied = version == following_version;
     const auto matched = pipeline(version, Pipeline::matched);
-    CHECK(matched.mobile && !matched.active);
+    CHECK(matched.backward_leader);
+    CHECK(matched.mobile && matched.active == follows_applied);
     const auto different_goal = pipeline(version, Pipeline::different_goal);
-    CHECK(different_goal.mobile && !different_goal.active);
+    CHECK(different_goal.backward_leader);
+    CHECK(different_goal.mobile && different_goal.active == follows_applied);
     CHECK(pipeline(legacy_version, Pipeline::matched).active);
     for (const auto control :
          {Pipeline::opposing_leg,
@@ -1313,7 +1333,7 @@ int main(int argc, char** argv) {
             std::cerr << name << ": " << error.what() << '\n';
         }
     };
-    for (const auto version : {battle_version, distributed_version}) {
+    for (const auto version : {battle_version, distributed_version, following_version}) {
         const auto run_version = [&](const char* name, void (*test)(uint32_t)) {
             run(name, [&] { test(version); });
         };
