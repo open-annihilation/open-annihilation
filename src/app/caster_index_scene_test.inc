@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <cstdio>
+
 namespace {
 
 /// Requires identical shadow placement, instance naming and ordered source corners.
@@ -118,6 +120,15 @@ caster_index_frame(const live::Inputs& inputs, std::size_t index_count, std::siz
         OA_CHECK(type.shadow_runs_ready);
         OA_CHECK(type.piece_shadow_runs.size() == type.objects.size() + 1);
     }
+    if (ordinary.cards.cast_indices.size() != index_count)
+        std::fprintf(
+            stderr,
+            "caster source count: expected %zu, actual %zu, cast records %zu, instances %zu\n",
+            index_count,
+            ordinary.cards.cast_indices.size(),
+            ordinary.cards.casts.size(),
+            ordinary.cards.instances.size()
+        );
     OA_CHECK(ordinary.cards.cast_indices.size() == index_count);
     OA_CHECK(ordinary.cards.casts.size() == cast_count);
     OA_CHECK(enhanced.body_lod_counts.body_lod_models == 0);
@@ -168,9 +179,14 @@ void caster_index_piece_policy() {
                 frame.cards.casts[0].light == 1.0F - 0.5F * level / drawing::shadow_full_level
             );
     }
-    // A missing surface texture never removes the same face from its shadow.
+    // Textured triangles are unsupported; the source face disappears from
+    // both ordinary casting and the cached run when its colour is removed.
     fixture.prepared.objects[0].primitives[0].flags = 0;
-    (void)caster_index_frame(battle.inputs, root + child, 1);
+    (void)caster_index_frame(battle.inputs, root + child - 3, 1);
+    // A genuine four-corner texture face remains in the shadow even when
+    // its surface texture is missing. Its fan adds six corners instead of three.
+    fixture.source->objects[0].primitives[0].vertex_indices = {0, 4, 6, 2};
+    (void)caster_index_frame(battle.inputs, root + child + 3, 1);
 }
 
 /// Building cuts omit clear walls while the cached sheared cast retains them.
