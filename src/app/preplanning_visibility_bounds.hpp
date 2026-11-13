@@ -28,6 +28,8 @@ using Rotation = oa::sim::model_runtime::RotationWords;
 struct ObjectBounds {
     FixedBounds box{};
     bool nonempty{};
+    uint64_t l1_radius{}; ///< source maximum L1 length, in fixed-coordinate LSBs
+    bool radius_ready{};
 };
 
 /// Raw per-object bounds. These are not a static bound of an animated model.
@@ -39,6 +41,7 @@ struct Geometry {
 /// Reusable topology validation storage; no transformed vertices are retained.
 struct Scratch {
     std::vector<uint32_t> piece_for_object;
+    std::vector<uint64_t> far_radius_path; ///< reused integer ancestor contributions
     /// Reused only by completed-geometry validation, never by raw-pose bounds.
     std::vector<uint8_t> completed_topology_seen;
     std::vector<std::array<uint32_t, 2>> completed_pending;
@@ -51,6 +54,14 @@ namespace detail {
 /// @return the negated coordinate with low 32 bits kept; INT32_MIN remains unchanged
 inline int32_t negate(int32_t value) noexcept {
     return std::bit_cast<int32_t>(0U - std::bit_cast<uint32_t>(value));
+}
+
+/// Returns a fixed coordinate's magnitude without signed negation overflow.
+/// @param value a signed 16.16 model coordinate
+/// @return its nonnegative magnitude, including 2147483648 for INT32_MIN
+inline uint64_t magnitude(int32_t value) noexcept {
+    return value < 0 ? static_cast<uint64_t>(-static_cast<int64_t>(value))
+                     : static_cast<uint64_t>(value);
 }
 
 /// Grows an inclusive signed fixed-point box.
@@ -158,6 +169,11 @@ prepare_geometry(std::shared_ptr<const oa::formats::objects3d::Model> model) {
                 const oa::formats::objects3d::FixedVector3 reset{
                     detail::negate(vertex.x), vertex.y, detail::negate(vertex.z)
                 };
+                target.l1_radius = std::max(
+                    target.l1_radius,
+                    detail::magnitude(reset.x) + detail::magnitude(reset.y) +
+                        detail::magnitude(reset.z)
+                );
                 const FixedBounds point{reset, reset};
                 if (target.nonempty)
                     detail::include(target.box, point);
@@ -166,6 +182,7 @@ prepare_geometry(std::shared_ptr<const oa::formats::objects3d::Model> model) {
                     target.nonempty = true;
                 }
             }
+            target.radius_ready = true;
         }
         return result;
     } catch (const std::bad_alloc&) {
@@ -285,6 +302,115 @@ prepare_geometry(std::shared_ptr<const oa::formats::objects3d::Model> model) {
             result = box;
     }
     return result;
+}
+
+/// Encloses far geometry with integer path radii, without trigonometric work.
+///
+/// A source L1 radius bounds its Euclidean radius. Each plane uses coefficients
+/// rounded to 64-bit significands, four products and two sums rounded to 53 bits,
+/// then nearest integer coordinates. Below 2^31, coefficient norm error is less
+/// than 2^-32 coordinate LSBs and product/sum norm error less than 2^-18.
+/// Integer rounding adds at most sqrt(1/2), so two LSBs per plane suffice.
+/// Six per ancestor cover all three planes, including zero turns.
+/// Separate offset/translation L1 lengths safely cover the native offset signs.
+/// Every path contribution is nonnegative; the final strict radius cap also
+/// proves every earlier plane and translation stays inside signed coordinates.
+/// Root sibling trees and unsupported domains retain the exact ordinary proof.
+///
+/// @param geometry immutable prepared object bounds and source radii
+/// @param instance current raw local poses and visible-piece flags
+/// @param[in,out] scratch reusable bounded topology and integer path storage
+/// @return a rotation-independent 16.16 containing cube, or no proved bound
+[[nodiscard]] inline std::optional<FixedBounds> bound_far_instance(
+    const Geometry& geometry, const oa::sim::model_runtime::Instance& instance, Scratch& scratch
+) {
+    namespace runtime = oa::sim::model_runtime;
+    constexpr size_t maximum_far_pieces = 256;
+    const auto& handle = instance.model_handle();
+    if (!geometry.model || !handle || geometry.model.get() != handle.get() ||
+        geometry.model.owner_before(handle) || handle.owner_before(geometry.model) ||
+        geometry.objects.size() != geometry.model->objects.size() ||
+        !oa::base::float_precision::rounds_to_double() || std::fegetround() != FE_TONEAREST ||
+        !oa::base::float_precision::float_control_matches(
+            oa::base::float_precision::program_float_control().saved
+        ))
+        return std::nullopt;
+    const auto pieces = instance.pieces();
+    if (pieces.size() != geometry.objects.size() || pieces.empty() ||
+        pieces.size() > maximum_far_pieces)
+        return std::nullopt;
+    try {
+        scratch.piece_for_object.assign(pieces.size(), runtime::kNoPiece);
+    } catch (const std::bad_alloc&) {
+        return std::nullopt;
+    }
+    for (std::size_t index = 0; index < pieces.size(); ++index) {
+        const auto object = pieces[index].object_index;
+        if (object >= pieces.size() || scratch.piece_for_object[object] != runtime::kNoPiece)
+            return std::nullopt;
+        scratch.piece_for_object[object] = static_cast<uint32_t>(index);
+    }
+    const auto piece_link = [&](uint32_t object) {
+        return object == runtime::kNoPiece || object >= pieces.size()
+                   ? runtime::kNoPiece
+                   : scratch.piece_for_object[object];
+    };
+    if (instance.root_piece() != scratch.piece_for_object[0])
+        return std::nullopt;
+    for (const auto& piece : pieces) {
+        const auto& object = geometry.model->objects[piece.object_index];
+        if ((object.parent != runtime::kNoPiece && object.parent >= piece.object_index) ||
+            (object.parent != runtime::kNoPiece && object.parent >= pieces.size()) ||
+            (object.first_child != runtime::kNoPiece && object.first_child >= pieces.size()) ||
+            (object.next_sibling != runtime::kNoPiece && object.next_sibling >= pieces.size()) ||
+            piece.parent != piece_link(object.parent) ||
+            piece.first_child != piece_link(object.first_child) ||
+            piece.next_sibling != piece_link(object.next_sibling))
+            return std::nullopt;
+    }
+    constexpr uint64_t coordinate_limit =
+        static_cast<uint64_t>(std::numeric_limits<int32_t>::max());
+    constexpr uint64_t ancestor_rounding_pad = 6;
+    if (geometry.model->objects[0].next_sibling != runtime::kNoPiece)
+        return std::nullopt;
+    try {
+        scratch.far_radius_path.resize(pieces.size());
+    } catch (const std::bad_alloc&) {
+        return std::nullopt;
+    }
+    uint64_t radius{};
+    bool nonempty{};
+    for (size_t object_index = 0; object_index < pieces.size(); ++object_index) {
+        const auto& object = geometry.model->objects[object_index];
+        const auto& piece = pieces[scratch.piece_for_object[object_index]];
+        const auto& raw = geometry.objects[object_index];
+        if (!raw.radius_ready || (object_index != 0 && object.parent == runtime::kNoPiece))
+            return std::nullopt;
+        const uint64_t parent =
+            object.parent == runtime::kNoPiece ? 0 : scratch.far_radius_path[object.parent];
+        const uint64_t translation = detail::magnitude(object.offset_from_parent.x) +
+                                     detail::magnitude(object.offset_from_parent.y) +
+                                     detail::magnitude(object.offset_from_parent.z) +
+                                     detail::magnitude(piece.translation.x) +
+                                     detail::magnitude(piece.translation.y) +
+                                     detail::magnitude(piece.translation.z);
+        const uint64_t added = translation + ancestor_rounding_pad;
+        if (added >= coordinate_limit || parent >= coordinate_limit - added)
+            return std::nullopt;
+        const uint64_t path = parent + added;
+        scratch.far_radius_path[object_index] = path;
+        if ((piece.flags & static_cast<uint16_t>(runtime::PieceFlag::visible)) == 0 ||
+            !raw.nonempty)
+            continue;
+        if (raw.l1_radius >= coordinate_limit - path)
+            return std::nullopt;
+        radius = std::max(radius, raw.l1_radius + path);
+        nonempty = true;
+    }
+    if (!nonempty)
+        return std::nullopt;
+    const auto r = static_cast<int32_t>(radius);
+    return FixedBounds{{-r, -r, -r}, {r, r, r}};
 }
 
 /// Bounds completed native geometry without repeating its hierarchy rotations.
@@ -637,6 +763,26 @@ template <typename Bounds>
 ) {
     return detail::rejection_proof_with_bounds(shown, view, gate, [&] {
         return bound_instance(geometry, *shown.instance, effective_root, scratch);
+    });
+}
+
+/// Proves distant current-pose geometry outside without any plane rotations.
+/// A false result retains the existing exact raw-pose proof; it is not visibility.
+/// @param geometry immutable prepared bounds and source radii
+/// @param shown exact resolved current pose and world origin
+/// @param view current screen projection and rounded shadow-map extent
+/// @param gate required current policy, owner and generation evidence
+/// @param[in,out] scratch reusable topology and path-radius storage
+/// @return true only when the unchanged full body/marker/shadow predicate rejects
+[[nodiscard]] inline bool far_rejection_proof(
+    const Geometry& geometry,
+    const oa::present::model::ModelRef& shown,
+    const FrameView& view,
+    const Eligibility& gate,
+    Scratch& scratch
+) {
+    return detail::rejection_proof_with_bounds(shown, view, gate, [&] {
+        return bound_far_instance(geometry, *shown.instance, scratch);
     });
 }
 

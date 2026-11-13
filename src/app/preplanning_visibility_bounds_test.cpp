@@ -811,6 +811,180 @@ void completed_native_geometry_and_refusals() {
     fixture.state.transforms_dirty = true;
     OA_CHECK(!rejects(completed));
 }
+
+/// Makes the sibling fixture a single rooted tree without changing its COB order.
+std::shared_ptr<const Model> far_model() {
+    auto source = std::make_shared<Model>(*branched_model());
+    source->objects[0].next_sibling = runtime::kNoPiece;
+    source->objects[3].next_sibling = 5;
+    source->objects[5].parent = 0;
+    return source;
+}
+
+/// Checks the integer rounding margin at every angle word and large coordinates.
+void far_plane_rounding_margin() {
+    const auto squared = [](FixedVector3 point) {
+        const auto square = [](int32_t word) {
+            const auto value = static_cast<int64_t>(word);
+            return static_cast<uint64_t>(value * value);
+        };
+        return square(point.x) + square(point.y) + square(point.z);
+    };
+    for (uint32_t word = 0; word < 65536; ++word) {
+        const auto angle = std::bit_cast<int16_t>(static_cast<uint16_t>(word));
+        for (const int32_t radius : {1, fixed + 13, std::numeric_limits<int32_t>::max() - 128}) {
+            const auto plane = runtime::rotate_vector({radius, 0, 0}, {angle, 0, 0});
+            const auto padded = static_cast<uint64_t>(radius) + 2;
+            OA_CHECK(squared(plane) <= padded * padded);
+        }
+        const auto radius = std::numeric_limits<int32_t>::max() - 128;
+        const auto turned = runtime::rotate_vector(
+            {radius, 0, 0},
+            {angle,
+             std::bit_cast<int16_t>(static_cast<uint16_t>(word * 3)),
+             std::bit_cast<int16_t>(static_cast<uint16_t>(word * 7))}
+        );
+        const auto padded = static_cast<uint64_t>(radius) + 6;
+        OA_CHECK(squared(turned) <= padded * padded);
+        // Pythagorean pairs exercise both products and cancellation near the
+        // signed-coordinate limit, rather than only one nonzero input.
+        const int32_t pair_scale = radius / 5;
+        for (const int32_t sign : {-1, 1}) {
+            const auto pair =
+                runtime::rotate_vector({sign * 3 * pair_scale, 4 * pair_scale, 0}, {angle, 0, 0});
+            const auto pair_bound = uint64_t{5} * pair_scale + 2;
+            OA_CHECK(squared(pair) <= pair_bound * pair_bound);
+        }
+        const int32_t triple_scale = radius / 3;
+        const auto triple = runtime::rotate_vector(
+            {triple_scale, -2 * triple_scale, 2 * triple_scale},
+            {angle,
+             std::bit_cast<int16_t>(static_cast<uint16_t>(word * 3)),
+             std::bit_cast<int16_t>(static_cast<uint16_t>(word * 7))}
+        );
+        const auto triple_bound = uint64_t{3} * triple_scale + 6;
+        OA_CHECK(squared(triple) <= triple_bound * triple_bound);
+    }
+}
+
+/// Compares raw integer-radius cubes with separate native hierarchical rebuilds.
+void far_hierarchy_and_wrap_domains() {
+    const auto source = far_model();
+    const auto geometry = proof::prepare_geometry(source);
+    proof::Scratch scratch;
+    uint32_t random = 0x31568a21U;
+    for (const bool reordered : {false, true}) {
+        const auto names = reordered ? std::span<const std::string_view>(cob_order)
+                                     : std::span<const std::string_view>{};
+        auto posed = runtime::make_instance(source, 31, names);
+        for (unsigned sample = 0; sample < 128; ++sample) {
+            for (auto& piece : posed.pieces()) {
+                const auto coordinate = [&] {
+                    return static_cast<int32_t>(next_word(random) % (32U * fixed)) - 16 * fixed;
+                };
+                piece.translation = {coordinate(), coordinate(), coordinate()};
+                piece.rotation = {
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random))),
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random))),
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random)))
+                };
+                piece.flags = piece.object_index == 1 ? 0 : visible;
+            }
+            const RotationWords root{
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random))),
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random))),
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(random)))
+            };
+            poison(posed);
+            const auto before = posed;
+            const auto box = proof::bound_far_instance(geometry, posed, scratch);
+            unchanged(posed, before);
+            OA_CHECK(box.has_value());
+            if (box)
+                OA_CHECK(encloses(*box, native_oracle(posed, root, names)));
+        }
+    }
+    auto sibling = runtime::make_instance(branched_model(), 0, cob_order);
+    OA_CHECK(!proof::bound_far_instance(
+        proof::prepare_geometry(sibling.model_handle()), sibling, scratch
+    ));
+    auto posed = runtime::make_instance(source, 0, cob_order);
+    posed.pieces()[posed.root_piece()].translation.x = std::numeric_limits<int32_t>::min();
+    OA_CHECK(!proof::bound_far_instance(geometry, posed, scratch));
+    posed = runtime::make_instance(source, 0, cob_order);
+    posed.pieces()[0].parent = 999;
+    OA_CHECK(!proof::bound_far_instance(geometry, posed, scratch));
+    const auto saved_rounding = std::fegetround();
+    std::fesetround(FE_UPWARD);
+    OA_CHECK(!proof::bound_far_instance(geometry, runtime::make_instance(source), scratch));
+    std::fesetround(saved_rounding);
+    proof::Scratch cold;
+    auto allocation_pose = runtime::make_instance(source);
+    refuse_allocation = true;
+    OA_CHECK(!proof::bound_far_instance(geometry, allocation_pose, cold));
+    OA_CHECK(!refuse_allocation);
+    cold.piece_for_object.reserve(allocation_pose.pieces().size());
+    refuse_allocation = true;
+    OA_CHECK(!proof::bound_far_instance(geometry, allocation_pose, cold));
+    OA_CHECK(!refuse_allocation);
+    auto missing_radius = geometry;
+    missing_radius.objects.front().radius_ready = false;
+    OA_CHECK(!proof::bound_far_instance(missing_radius, allocation_pose, scratch));
+    posed = runtime::make_instance(source, 0, cob_order);
+    constexpr int32_t half_limit = std::numeric_limits<int32_t>::max() / 2;
+    posed.pieces()[posed.root_piece()].translation.x = half_limit;
+    for (auto& piece : posed.pieces())
+        if (piece.object_index == 2)
+            piece.translation.x = half_limit;
+    OA_CHECK(!proof::bound_far_instance(geometry, posed, scratch));
+}
+
+/// Checks native offset signs and proves the complete rejection result independently.
+void far_projection_and_translation_signs() {
+    auto source = std::make_shared<Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {{0, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    source->objects[0].offset_from_parent.x = 10 * fixed;
+    auto posed = runtime::make_instance(source);
+    posed.pieces()[0].translation.x = -10 * fixed;
+    proof::Scratch scratch;
+    const auto box = proof::bound_far_instance(proof::prepare_geometry(source), posed, scratch);
+    OA_CHECK(box && box->low.x <= -20 * fixed);
+    if (box)
+        OA_CHECK(encloses(*box, native_oracle(posed, {})));
+    source->objects[0].vertices[0].x = std::numeric_limits<int32_t>::min();
+    OA_CHECK(!proof::bound_far_instance(
+        proof::prepare_geometry(source), runtime::make_instance(source), scratch
+    ));
+
+    FrameFixture fixture;
+    fixture.model = far_model();
+    fixture.geometry = proof::prepare_geometry(fixture.model);
+    fixture.instance = runtime::make_instance(fixture.model, fixture.gate.owner_token, cob_order);
+    size_t accepted{};
+    for (const int32_t x : {-1600, -800, 32, 800, 1600})
+        for (const int32_t z : {-1600, -800, 32, 800, 1600}) {
+            fixture.unit.position.x = x * fixed;
+            fixture.unit.position.z = z * fixed;
+            if (proof::far_rejection_proof(
+                    fixture.geometry, fixture.ref(), fixture.view, fixture.gate, fixture.scratch
+                )) {
+                const auto native = native_oracle(fixture.instance, fixture.root, cob_order);
+                const auto visible_native =
+                    scan_native(native, fixture.unit, fixture.view, fixture.gate.ground_height);
+                OA_CHECK(
+                    visible_native.body_outside && visible_native.markers_outside &&
+                    visible_native.shadow_outside && visible_native.reservation_outside
+                );
+                ++accepted;
+            }
+        }
+    OA_CHECK(accepted != 0);
+    fixture.unit.position.x = fixture.unit.position.z = 32 * fixed;
+    OA_CHECK(!proof::far_rejection_proof(
+        fixture.geometry, fixture.ref(), fixture.view, fixture.gate, fixture.scratch
+    ));
+}
 } // namespace
 
 int main() {
@@ -821,5 +995,8 @@ int main() {
     unknown_policy_and_identity_keep_the_normal_path();
     ownership_topology_wrap_and_allocation_refusals();
     completed_native_geometry_and_refusals();
+    far_plane_rounding_margin();
+    far_hierarchy_and_wrap_domains();
+    far_projection_and_translation_signs();
     return oa::test::check_exit_status();
 }
