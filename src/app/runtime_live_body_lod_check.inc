@@ -14,10 +14,20 @@
             "a legacy rules frame emitted enhanced animated body geometry"
         );
     } else if (preplan_zoom < 1) {
+        const auto prior_zoom = match_zoom_;
+        const auto prior_zoom_target = match_zoom_target_;
+        // Actual conservative posed bounds are just above the mesh band at
+        // 0.35. Move the real camera farther out into the physical body band.
+        constexpr float body_proof_zoom = 0.315F;
+        match_zoom_ = match_zoom_target_ = body_proof_zoom;
+        center_camera_on_unit(walker);
+        render_match_surface();
         const auto require_bodies = [&] {
             const auto& counts = bench_timers::body_counts;
             require(
                 live_renderer_active() && !live_renderer_failed() && walker_visible() &&
+                    match_zoom() == body_proof_zoom &&
+                    counts.full_mesh_models + counts.body_lod_models != 0 &&
                     counts.body_lod_models != 0 && counts.body_lod_vertices != 0 &&
                     counts.distance_markers == 0 && counts.budget_markers == 0,
                 "the actual low-zoom rules-10 frame did not emit aggregate physical body geometry"
@@ -79,9 +89,15 @@
             );
         const auto& counts = bench_timers::body_counts;
         std::cout
-            << "live renderer check: aggregate stock rules-10 physical bodies "
-            << counts.body_lod_models << "; logical body vertices " << counts.body_lod_vertices
+            << "live renderer check: aggregate stock rules-10 physical bodies at zoom "
+            << match_zoom() << ": " << counts.body_lod_models << "; logical body vertices " << counts.body_lod_vertices
             << "; zero distance/budget markers; real walking/source-pose animation; frozen pixels, "
                "picks, pose, clocks and RNG preserved\n";
+        match_zoom_ = prior_zoom;
+        match_zoom_target_ = prior_zoom_target;
+        center_camera_on_unit(walker);
+        render_match_surface();
+        require(match_zoom() == prior_zoom && match_zoom_target_ == prior_zoom_target,
+            "the physical-body proof did not restore the original camera zoom");
     }
 }
