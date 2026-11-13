@@ -4361,6 +4361,235 @@ void deferred_geometry_shadow_readback() {
         }
 }
 
+/// Keeps a real visible caster beside a large offscreen army in a cropped view.
+struct ShadowViewFixture {
+    static constexpr uint32_t view_edge = 64;
+    static constexpr int32_t view_origin = 7168;
+    static constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    oa::formats::tnt::Map map{};
+    oa::PaletteBytes palette{};
+    std::shared_ptr<oa::formats::objects3d::Model> source{};
+    oa::sim::model_runtime::Instance instance{};
+    oa::present::model::PreparedModel prepared{};
+    oa::UnitDef definition{};
+    oa::present::model::ModelState state{};
+    std::vector<oa::Unit> units{};
+    oa::app::WorldDrawList few{};
+    oa::app::WorldDrawList many{};
+    oa::app::renderer_live_scene::Inputs inputs{};
+
+    /// Builds a shared posed model whose ordinary shadow allowance is substantial.
+    /// @param population visible unit and offscreen units in the army
+    explicit ShadowViewFixture(uint32_t population) : units(population) {
+        namespace drawing = oa::present::model;
+        constexpr uint32_t world_edge = 8192;
+        constexpr uint32_t primitives = 256;
+        map.attribute_width = map.attribute_height = world_edge / 16;
+        map.tile_width = map.tile_height = world_edge / 32;
+        map.tile_count = 1;
+        map.tile_indices.assign(map.tile_width * map.tile_height, 0);
+        map.attributes.resize(map.attribute_width * map.attribute_height);
+        map.tile_palette_indices.assign(32 * 32, 1);
+        for (const auto channel : {0U, 1U, 2U}) {
+            palette[oa::palette_entry_bytes + channel] = 160;
+            palette[2 * oa::palette_entry_bytes + channel] = 220;
+        }
+        source = std::make_shared<oa::formats::objects3d::Model>();
+        source->objects.resize(1);
+        auto& object = source->objects[0];
+        object.vertices = {
+            {0, 6 * fixed, 0},
+            {8 * fixed, 6 * fixed, 0},
+            {8 * fixed, 6 * fixed, -8 * fixed},
+            {0, 6 * fixed, -8 * fixed}
+        };
+        object.primitives.resize(primitives);
+        prepared.objects.resize(1);
+        for (uint32_t index = 0; index < primitives; ++index) {
+            object.primitives[index].vertex_indices = index % 2 == 0
+                                                          ? std::vector<uint16_t>{0, 1, 2, 3}
+                                                          : std::vector<uint16_t>{3, 2, 1, 0};
+            drawing::PreparedPrimitive primitive;
+            primitive.source_index = index;
+            primitive.flags = drawing::primitive_colored;
+            primitive.color = 2;
+            prepared.objects[0].primitives.push_back(primitive);
+        }
+        instance = oa::sim::model_runtime::make_instance(source);
+        instance.rebuild_transforms();
+        state.image = oa::present::create_sprite(16, 16);
+        std::fill(state.image.pixels.begin(), state.image.pixels.end(), 2);
+        many.models.resize(population);
+        for (uint32_t index = 0; index < population; ++index) {
+            auto& unit = units[index];
+            unit.id = static_cast<uint16_t>(index + 1);
+            unit.type_index = 1;
+            unit.position = {
+                static_cast<int32_t>(1024 + index % 256) * fixed,
+                0,
+                static_cast<int32_t>(1024 + index / 256) * fixed
+            };
+            auto& draw = many.models[index];
+            draw.model.unit = &unit;
+            draw.model.def = &definition;
+            draw.model.instance = &instance;
+            draw.model.prepared = &prepared;
+            draw.model.state = &state;
+            draw.plan.linked.drawn = true;
+            draw.plan.model.from_image = true;
+        }
+        units[0].position = {(view_origin + 24) * fixed, 0, (view_origin + 32) * fixed};
+        few.models.push_back(many.models[0]);
+        inputs.map = &map;
+        inputs.palette = &palette;
+        inputs.draws = &many;
+        inputs.left = inputs.top = view_origin;
+        inputs.right = inputs.bottom = view_origin + view_edge;
+        inputs.clip_width = inputs.clip_height = view_edge;
+        inputs.clip_projection = {
+            1, 0, 0, -float(view_origin), 0, -0.5F, 1, -float(view_origin), 0, 1, 0.5F, 0
+        };
+        inputs.view_direction = {0, 1, 0};
+        inputs.sight.mapping = inputs.sight.line_of_sight = false;
+        inputs.models_on_card = true;
+        inputs.unit_marker_pixels = 1;
+        inputs.graphics_flags = drawing::graphics_shadows | drawing::graphics_vehicle_shadows;
+    }
+};
+
+/// Keeps real GPU pixels and picking while omitting provably invisible casts.
+void ground_shadow_view_readback() {
+    namespace live_scene = oa::app::renderer_live_scene;
+    ShadowViewFixture fixture(20000);
+    auto& inputs = fixture.inputs;
+    std::string error;
+    std::array<Context, 3> contexts;
+    std::array<std::vector<uint8_t>, 3> pictures;
+    const auto read = [&](live_scene::Scene& scene,
+                          Context& context,
+                          std::vector<uint8_t>& picture,
+                          uint32_t supersample) {
+        const auto models = live_scene::card_draws(scene.card_types, scene.cards);
+        const auto result = render(
+            context,
+            scene.vertices,
+            scene.texture_rgba,
+            scene.texture_width,
+            scene.texture_height,
+            scene.texture_revision,
+            ShadowViewFixture::view_edge,
+            ShadowViewFixture::view_edge,
+            inputs.clip_projection,
+            picture,
+            error,
+            supersample,
+            &scene.atlas_update,
+            &inputs.water,
+            &scene.card_ground,
+            {},
+            nullptr,
+            &models
+        );
+        OA_CHECK(result == Result::success);
+        if (result != Result::success)
+            std::fprintf(stderr, "shadow-view GPU: %s\n", error.c_str());
+    };
+    for (const auto multisampling : {false, true})
+        for (const uint32_t supersample : {1U, 2U}) {
+            for (auto& context : contexts)
+                context.multisampling_allowed = multisampling;
+            for (std::size_t variant = 0; variant < 3; ++variant) {
+                inputs.draws = variant == 0 ? &fixture.few : &fixture.many;
+                inputs.geometry_shadows_in_view = variant != 0;
+                inputs.graphics_flags = variant == 2
+                                            ? 0
+                                            : oa::present::model::graphics_shadows |
+                                                  oa::present::model::graphics_vehicle_shadows;
+                live_scene::Scene scene;
+                const bool built = live_scene::build(inputs, scene, error);
+                OA_CHECK(built);
+                if (!built) {
+                    std::fprintf(stderr, "shadow-view Scene: %s\n", error.c_str());
+                    return;
+                }
+                OA_CHECK(scene.cards.units.size() == 1);
+                OA_CHECK(scene.cards.casts.size() == (variant == 2 ? 0U : 1U));
+                read(scene, contexts[variant], pictures[variant], supersample);
+            }
+            OA_CHECK(
+                pictures[0].size() ==
+                ShadowViewFixture::view_edge * ShadowViewFixture::view_edge * channels
+            );
+            OA_CHECK(pictures[0] == pictures[1]);
+            OA_CHECK(pictures[0] != pictures[2]);
+        }
+    // Exercise both sides of each shadow-map edge at fractional origins,
+    // including a visible body whose shadow lies beyond the map.
+    fixture.few.models.push_back(fixture.many.models[1]);
+    // Remove an earlier offscreen cast as well: the visible caster's
+    // absolute depth changes while its actual shadow stays the same.
+    std::swap(fixture.few.models[0], fixture.few.models[1]);
+    inputs.draws = &fixture.few;
+    inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    constexpr int32_t fixed = ShadowViewFixture::fixed;
+    const std::array<std::array<int32_t, 2>, 16> offsets{
+        {{-16 * fixed - 1, 32 * fixed + fixed / 4},
+         {-16 * fixed + 1, 32 * fixed - fixed / 4},
+         {-12 * fixed + fixed / 4, 32 * fixed},
+         {-5 * fixed + fixed / 4, 32 * fixed},
+         {50 * fixed - fixed / 4, 32 * fixed},
+         {59 * fixed - 1, 32 * fixed},
+         {63 * fixed - 1, 32 * fixed + fixed / 4},
+         {63 * fixed + 1, 32 * fixed - fixed / 4},
+         {24 * fixed, -9 * fixed - 1},
+         {24 * fixed, -8 * fixed + 1},
+         {24 * fixed, -4 * fixed - fixed / 4},
+         {24 * fixed, fixed / 4},
+         {24 * fixed, 61 * fixed + fixed / 4},
+         {24 * fixed, 66 * fixed + fixed / 4},
+         {24 * fixed, 70 * fixed - 1},
+         {24 * fixed, 70 * fixed + 1}}
+    };
+    std::size_t culled{}, kept{};
+    for (const auto& offset : offsets) {
+        fixture.units[1].position = {
+            ShadowViewFixture::view_origin * fixed + offset[0],
+            0,
+            ShadowViewFixture::view_origin * fixed + offset[1]
+        };
+        std::array<live_scene::Scene, 2> scenes;
+        for (std::size_t variant = 0; variant < scenes.size(); ++variant) {
+            inputs.geometry_shadows_in_view = variant != 0;
+            const bool built = live_scene::build(inputs, scenes[variant], error);
+            OA_CHECK(built);
+            if (!built)
+                return;
+            read(scenes[variant], contexts[variant], pictures[variant], 1);
+        }
+        OA_CHECK(pictures[0] == pictures[1]);
+        OA_CHECK(scenes[0].cards.units.size() == scenes[1].cards.units.size());
+        for (std::size_t index = 0;
+             index < std::min(scenes[0].cards.units.size(), scenes[1].cards.units.size());
+             ++index) {
+            const auto& a = scenes[0].cards.units[index];
+            const auto& b = scenes[1].cards.units[index];
+            OA_CHECK(
+                a.unit_id == b.unit_id && a.left == b.left && a.top == b.top &&
+                a.right == b.right && a.bottom == b.bottom && a.bounded == b.bounded
+            );
+        }
+        OA_CHECK(scenes[1].unit_detail.size() == 2);
+        if (scenes[1].unit_detail.size() == 2) {
+            if (scenes[1].unit_detail[0].shadow_outside)
+                ++culled;
+            else
+                ++kept;
+        }
+    }
+    OA_CHECK(culled != 0 && kept != 0);
+}
+
 /// Contained zooms show the same GPU pixels and unit picking triangles as
 /// freshly rebuilt terrain, including relief and a changed fog boundary.
 void contained_ground_readback() {
@@ -4538,6 +4767,7 @@ int main() {
         card_models();
         card_shadows();
         deferred_geometry_shadow_readback();
+        ground_shadow_view_readback();
         scene_marker_readback();
         frame_effect_material_readback();
         parallel_ground_indices_readback();

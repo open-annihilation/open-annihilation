@@ -3,6 +3,7 @@
 
 // Live terrain preserves painted coordinates, visibility and bounded atlas reuse.
 #include "renderer_live_scene.hpp"
+#include "model_shadow_metadata.hpp"
 #include "bench_timers.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_water_surface.hpp"
@@ -8188,6 +8189,192 @@ void large_shared_model_scene() {
     OA_CHECK(same_on_card(shared, expanded, battle.inputs));
 }
 
+/// Keeps a real visible caster beside a large offscreen army in a cropped view.
+struct ShadowViewFixture {
+    static constexpr uint32_t view_edge = 64;
+    static constexpr int32_t view_origin = 7168;
+    static constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+    oa::formats::tnt::Map map{};
+    oa::PaletteBytes palette{};
+    std::shared_ptr<oa::formats::objects3d::Model> source{};
+    oa::sim::model_runtime::Instance instance{};
+    oa::present::model::PreparedModel prepared{};
+    oa::UnitDef definition{};
+    oa::present::model::ModelState state{};
+    std::vector<oa::Unit> units{};
+    oa::app::WorldDrawList few{};
+    oa::app::WorldDrawList many{};
+    oa::app::renderer_live_scene::Inputs inputs{};
+
+    /// Builds a shared posed model whose ordinary shadow allowance is substantial.
+    /// @param population visible unit and offscreen units in the army
+    explicit ShadowViewFixture(uint32_t population) : units(population) {
+        namespace drawing = oa::present::model;
+        constexpr uint32_t world_edge = 8192;
+        constexpr uint32_t primitives = 256;
+        map.attribute_width = map.attribute_height = world_edge / 16;
+        map.tile_width = map.tile_height = world_edge / 32;
+        map.tile_count = 1;
+        map.tile_indices.assign(map.tile_width * map.tile_height, 0);
+        map.attributes.resize(map.attribute_width * map.attribute_height);
+        map.tile_palette_indices.assign(32 * 32, 1);
+        for (const auto channel : {0U, 1U, 2U}) {
+            palette[oa::palette_entry_bytes + channel] = 160;
+            palette[2 * oa::palette_entry_bytes + channel] = 220;
+        }
+        source = std::make_shared<oa::formats::objects3d::Model>();
+        source->objects.resize(1);
+        auto& object = source->objects[0];
+        object.vertices = {
+            {0, 6 * fixed, 0},
+            {8 * fixed, 6 * fixed, 0},
+            {8 * fixed, 6 * fixed, -8 * fixed},
+            {0, 6 * fixed, -8 * fixed}
+        };
+        object.primitives.resize(primitives);
+        prepared.objects.resize(1);
+        for (uint32_t index = 0; index < primitives; ++index) {
+            object.primitives[index].vertex_indices = index % 2 == 0
+                                                          ? std::vector<uint16_t>{0, 1, 2, 3}
+                                                          : std::vector<uint16_t>{3, 2, 1, 0};
+            drawing::PreparedPrimitive primitive;
+            primitive.source_index = index;
+            primitive.flags = drawing::primitive_colored;
+            primitive.color = 2;
+            prepared.objects[0].primitives.push_back(primitive);
+        }
+        instance = oa::sim::model_runtime::make_instance(source);
+        instance.rebuild_transforms();
+        state.image = oa::present::create_sprite(16, 16);
+        std::fill(state.image.pixels.begin(), state.image.pixels.end(), 2);
+        many.models.resize(population);
+        for (uint32_t index = 0; index < population; ++index) {
+            auto& unit = units[index];
+            unit.id = static_cast<uint16_t>(index + 1);
+            unit.type_index = 1;
+            unit.position = {
+                static_cast<int32_t>(1024 + index % 256) * fixed,
+                0,
+                static_cast<int32_t>(1024 + index / 256) * fixed
+            };
+            auto& draw = many.models[index];
+            draw.model.unit = &unit;
+            draw.model.def = &definition;
+            draw.model.instance = &instance;
+            draw.model.prepared = &prepared;
+            draw.model.state = &state;
+            draw.plan.linked.drawn = true;
+            draw.plan.model.from_image = true;
+        }
+        units[0].position = {(view_origin + 24) * fixed, 0, (view_origin + 32) * fixed};
+        few.models.push_back(many.models[0]);
+        inputs.map = &map;
+        inputs.palette = &palette;
+        inputs.draws = &many;
+        inputs.left = inputs.top = view_origin;
+        inputs.right = inputs.bottom = view_origin + view_edge;
+        inputs.clip_width = inputs.clip_height = view_edge;
+        inputs.clip_projection = {
+            1, 0, 0, -float(view_origin), 0, -0.5F, 1, -float(view_origin), 0, 1, 0.5F, 0
+        };
+        inputs.view_direction = {0, 1, 0};
+        inputs.sight.mapping = inputs.sight.line_of_sight = false;
+        inputs.models_on_card = true;
+        inputs.unit_marker_pixels = 1;
+        inputs.graphics_flags = drawing::graphics_shadows | drawing::graphics_vehicle_shadows;
+    }
+};
+
+/// Selects local Enhanced frames independently of the presence of a playout object.
+void geometry_shadow_frame_policy() {
+    using oa::app::local_geometry_shadow_frame;
+    oa::Game game{};
+    game.players[0].in_use = 1;
+    game.players[0].status = OA_PLAYER_STATUS_LOCAL;
+    OA_CHECK(!local_geometry_shadow_frame(game, false, false));
+    OA_CHECK(!local_geometry_shadow_frame(game, true, true));
+    OA_CHECK(local_geometry_shadow_frame(game, true, false));
+    auto& remote = game.players[1];
+    remote.in_use = 1;
+    remote.status = OA_PLAYER_STATUS_MIRRORED;
+    OA_CHECK(!local_geometry_shadow_frame(game, true, false));
+    remote.in_use = 0;
+    OA_CHECK(local_geometry_shadow_frame(game, true, false));
+}
+
+/// Reserves and emits only shadows that can reach the actual shadow map.
+void ground_shadows_in_view() {
+    constexpr uint32_t population = 20000;
+    ShadowViewFixture fixture(population);
+    auto& inputs = fixture.inputs;
+    std::string error;
+    live::Scene expected;
+    inputs.draws = &fixture.few;
+    OA_CHECK(live::build(inputs, expected, error));
+    OA_CHECK(expected.shadow_count == 1 && expected.cards.casts.size() == 1);
+    inputs.draws = &fixture.many;
+    live::Scene outside;
+    OA_CHECK(!live::build(inputs, outside, error));
+    OA_CHECK(outside.out_of_room);
+    OA_CHECK(error.find("geometry budget") != std::string::npos);
+    inputs.geometry_shadows_in_view = true;
+    live::Scene actual;
+    OA_CHECK(live::build(inputs, actual, error));
+    OA_CHECK(actual.unit_detail_active && actual.unit_detail.size() == population);
+    OA_CHECK(actual.shadow_count == 1 && actual.cards.casts.size() == 1);
+    OA_CHECK(actual.cards.instances.size() == 1);
+    OA_CHECK(actual.unit_detail[0].shadow_outside == false);
+    for (std::size_t index = 1; index < actual.unit_detail.size(); ++index) {
+        OA_CHECK(actual.unit_detail[index].shadow_outside);
+        OA_CHECK(actual.unit_detail[index].surface == 0 && actual.unit_detail[index].shadow == 0);
+    }
+    OA_CHECK(actual.cards.positions == expected.cards.positions);
+    OA_CHECK(actual.cards.indices == expected.cards.indices);
+    OA_CHECK(actual.cards.cast_indices == expected.cards.cast_indices);
+    OA_CHECK(actual.texture_rgba == expected.texture_rgba);
+    OA_CHECK(actual.vertices.size() == expected.vertices.size());
+    if (actual.vertices.size() == expected.vertices.size())
+        OA_CHECK(
+            std::memcmp(
+                actual.vertices.data(),
+                expected.vertices.data(),
+                actual.vertices.size() * sizeof(actual.vertices[0])
+            ) == 0
+        );
+    OA_CHECK(actual.cards.units.size() == 1 && expected.cards.units.size() == 1);
+    if (actual.cards.units.size() == 1 && expected.cards.units.size() == 1) {
+        const auto& a = actual.cards.units[0];
+        const auto& b = expected.cards.units[0];
+        OA_CHECK(a.unit_id == fixture.units[0].id && a.unit_id == b.unit_id);
+        OA_CHECK(
+            a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom &&
+            a.bounded == b.bounded
+        );
+    }
+    // Complex casters retain their original path, even wholly outside.
+    fixture.few.models.push_back(fixture.many.models[1]);
+    inputs.draws = &fixture.few;
+    oa::UnitDef complex_definition{};
+    fixture.few.models[1].model.def = &complex_definition;
+    for (const uint32_t flags :
+         {uint32_t(OA_UNIT_DEF_FLAG_CAN_FLY), uint32_t(OA_UNIT_DEF_FLAG_DIGGER)}) {
+        complex_definition.flags = flags;
+        OA_CHECK(live::build(inputs, actual, error));
+        OA_CHECK(actual.unit_detail.size() == 2);
+        if (actual.unit_detail.size() == 2)
+            OA_CHECK(!actual.unit_detail[1].shadow_outside);
+        OA_CHECK(actual.cards.casts.size() == 2);
+    }
+    complex_definition.flags = 0;
+    fixture.units[1].flags = OA_UNIT_FLAG_BUILDING;
+    fixture.state.shadow = oa::present::create_sprite(16, 16);
+    OA_CHECK(live::build(inputs, actual, error));
+    OA_CHECK(actual.unit_detail.size() == 2);
+    if (actual.unit_detail.size() == 2)
+        OA_CHECK(!actual.unit_detail[1].shadow_outside);
+    OA_CHECK(actual.cards.casts.size() == 3);
+}
+
 /// With its models on the card, a battle's units cast their shadows on the
 /// card rather than as decals: a vehicle its picture's pieces, cached and
 /// visible, without its walls of the image key; a building its cached
@@ -9451,6 +9638,8 @@ int main() {
     crowded_unit_detail();
     large_shared_model_scene();
     shadows_on_card();
+    ground_shadows_in_view();
+    geometry_shadow_frame_policy();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();
