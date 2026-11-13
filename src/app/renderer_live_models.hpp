@@ -10,13 +10,16 @@
 // the textures their teams draw and the triangles they show.
 
 #include "renderer_live_gpu.hpp"
+#include "body_lod_geometry.hpp"
 #include "oa/formats/objects3d.hpp"
 #include "oa/present/model/model_library.hpp"
 #include "oa/sim/model_runtime/instance.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <memory>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -46,6 +49,9 @@ struct CardPolygon {
     uint16_t running_slot{};
     bool colored{};  ///< filled with a palette colour
     uint8_t color{}; ///< that colour
+    /// Compact per-piece vertices of a coarse body triangle.
+    std::array<uint16_t, 3> body_vertices{};
+    bool body_lod{}; ///< body_vertices replace the source polygon corners
 };
 
 /// A model type the card keeps: a model, with its pieces in an instance's
@@ -55,6 +61,13 @@ struct CardType {
     /// freed one was never passes for it.
     std::weak_ptr<const formats::objects3d::Model> model{};
     const present::model::PreparedModel* prepared{};
+    /// None keeps the complete topology; a value names a coarse body variant.
+    std::optional<body_lod::Quality> body_detail{};
+    /// Original per-piece vertex indices packed in piece_vertices order. Empty
+    /// for the complete topology, whose point ranges remain unchanged.
+    std::vector<uint16_t> source_vertices{};
+    /// Complete source point counts of coarse pieces, before compaction.
+    std::vector<uint32_t> source_vertex_counts{};
     std::vector<uint32_t> objects{};        ///< each piece's object, in the instance's order
     std::vector<uint32_t> piece_vertices{}; ///< each piece's first vertex, then their count
     std::vector<CardPolygon> polygons{};    ///< in drawing order, piece by piece
@@ -81,6 +94,9 @@ struct CardTypes {
     /// found before the scene's passes run (-1 for none), which the passes
     /// read and never change.
     std::vector<int32_t> draw_types{};
+    /// Coarse variants found before workers start; -1 where unavailable.
+    std::vector<int32_t> body_draw_types_low{};
+    std::vector<int32_t> body_draw_types_medium{};
 };
 
 /// A type and team whose textures a frame has found: where they start in
@@ -112,7 +128,8 @@ struct CardUnit {
     /// triangle's; false where one is a sliver, which the pick tests
     /// wherever the pointer is.
     bool bounded{true};
-    bool marker{}; ///< instance names ModelCards::markers rather than a model
+    bool marker{};   ///< instance names ModelCards::markers rather than a model
+    bool body_lod{}; ///< the emitted draw uses a coarse animated body type
 };
 
 /// The sizes of a frame's model draws as a draw began, which a draw that
@@ -228,6 +245,19 @@ struct CardCorner {
     CardTypes& types,
     const sim::model_runtime::Instance& instance,
     const present::model::PreparedModel& prepared
+);
+
+/// Returns a complete or coarse type with the same material and piece identity.
+/// @param[in,out] types the retained types and triangle corners
+/// @param instance the instance drawn
+/// @param prepared the model's prepared textures
+/// @param detail none for complete geometry, otherwise a coarse body variant
+/// @return the type's place in types.types, or -1 when unsupported
+[[nodiscard]] int32_t card_type(
+    CardTypes& types,
+    const sim::model_runtime::Instance& instance,
+    const present::model::PreparedModel& prepared,
+    std::optional<body_lod::Quality> detail
 );
 
 /// Checks whether an existing drawable type matches the model and piece order.

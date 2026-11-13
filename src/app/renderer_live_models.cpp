@@ -19,16 +19,19 @@ namespace model = present::model;
 /// @param type the retained model type
 /// @param instance the model and current pieces
 /// @param prepared the prepared textures used by the draw
+/// @param detail none for complete geometry, otherwise a coarse body variant
 /// @return true when the retained type describes the instance
 bool same_card_type(
     const CardType& type,
     const sim::model_runtime::Instance& instance,
-    const present::model::PreparedModel& prepared
+    const present::model::PreparedModel& prepared,
+    std::optional<body_lod::Quality> detail = {}
 ) noexcept {
     const auto& handle = instance.model_handle();
     const auto pieces = instance.pieces();
-    if (!handle || type.prepared != &prepared || type.model.owner_before(handle) ||
-        handle.owner_before(type.model) || type.objects.size() != pieces.size())
+    if (!handle || type.prepared != &prepared || type.body_detail != detail ||
+        type.model.owner_before(handle) || handle.owner_before(type.model) ||
+        type.objects.size() != pieces.size())
         return false;
     for (std::size_t piece = 0; piece < pieces.size(); ++piece)
         if (type.objects[piece] != pieces[piece].object_index)
@@ -184,12 +187,131 @@ bool fill_type(
     return true;
 }
 
+/// Builds a coarse type from real piece vertices and the original materials.
+/// Clear image-key faces retain their ordinary topology; the other faces form
+/// a closed, lower-detail body and still follow every piece's current pose.
+bool fill_body_type(
+    CardType& type,
+    std::vector<uint32_t>& records,
+    const formats::objects3d::Model& source,
+    std::span<const sim::model_runtime::PieceState> pieces,
+    body_lod::Quality quality
+) {
+    CardType complete;
+    complete.prepared = type.prepared;
+    std::vector<uint32_t> complete_records;
+    if (!fill_type(complete, complete_records, source, pieces))
+        return false;
+    type.objects = complete.objects;
+    type.slots = std::move(complete.slots);
+    uint32_t vertices{};
+    for (uint32_t piece = 0; piece < pieces.size(); ++piece) {
+        const auto& object = source.objects[type.objects[piece]];
+        type.source_vertex_counts.push_back(static_cast<uint32_t>(object.vertices.size()));
+        type.piece_vertices.push_back(vertices);
+        type.piece_polygons.push_back(static_cast<uint32_t>(type.polygons.size()));
+        const auto first = complete.piece_polygons[piece];
+        const auto last = complete.piece_polygons[piece + 1];
+        std::vector<uint32_t> primitives;
+        for (uint32_t at = first; at < last; ++at) {
+            const auto& polygon = complete.polygons[at];
+            if (!polygon.colored || polygon.color != model::image_key)
+                primitives.push_back(polygon.primitive);
+        }
+        const auto body = body_lod::make_piece(object, primitives, quality);
+        if (!body.valid)
+            return false;
+
+        struct Face {
+            std::array<uint16_t, 3> vertices{};
+            uint32_t primitive{};
+            bool reduced{};
+        };
+
+        std::vector<Face> faces;
+        for (const auto& triangle : body.triangles)
+            faces.push_back({triangle.vertices, triangle.primitive, body.reduced});
+        for (uint32_t at = first; at < last; ++at) {
+            const auto& polygon = complete.polygons[at];
+            if (!polygon.colored || polygon.color != model::image_key)
+                continue;
+            const auto& corners = object.primitives[polygon.primitive].vertex_indices;
+            for (std::size_t fan = 1; fan + 1 < corners.size(); ++fan)
+                faces.push_back(
+                    {{corners[0], corners[fan], corners[fan + 1]}, polygon.primitive, false}
+                );
+        }
+        std::vector<uint32_t> compact(object.vertices.size(), field_limit);
+        uint32_t piece_vertices{};
+        for (const auto& face : faces)
+            for (const auto vertex : face.vertices) {
+                if (vertex >= object.vertices.size())
+                    return false;
+                if (compact[vertex] == field_limit) {
+                    if (piece_vertices >= field_limit - vertices)
+                        return false;
+                    compact[vertex] = piece_vertices++;
+                    type.source_vertices.push_back(vertex);
+                }
+            }
+        for (const auto& face : faces) {
+            const auto found = std::find_if(
+                complete.polygons.begin() + first,
+                complete.polygons.begin() + last,
+                [&](const CardPolygon& polygon) { return polygon.primitive == face.primitive; }
+            );
+            if (found == complete.polygons.begin() + last)
+                return false;
+            CardPolygon polygon = *found;
+            polygon.record = static_cast<uint32_t>(records.size() / 2);
+            polygon.corners = 3;
+            polygon.body_lod = true;
+            if (polygon.record > field_limit - polygon.corners)
+                return false;
+            const auto& original = object.primitives[face.primitive].vertex_indices;
+            const uint32_t textures = uint32_t{polygon.first_slot} |
+                                      (uint32_t{polygon.running_slot} << gpu::model_texture_bits);
+            for (std::size_t corner = 0; corner < face.vertices.size(); ++corner) {
+                const auto compact_vertex = compact[face.vertices[corner]];
+                polygon.body_vertices[corner] = static_cast<uint16_t>(compact_vertex);
+                uint32_t texture_corner = static_cast<uint32_t>(corner);
+                if (!face.reduced) {
+                    const auto original_corner =
+                        std::find(original.begin(), original.end(), face.vertices[corner]);
+                    if (original_corner == original.end())
+                        return false;
+                    texture_corner = static_cast<uint32_t>(original_corner - original.begin());
+                }
+                records.push_back((vertices + compact_vertex) | (piece << gpu::model_piece_shift));
+                records.push_back(
+                    textures |
+                    ((texture_corner & polygon_corner_mask) << gpu::model_polygon_corner_shift)
+                );
+            }
+            type.polygons.push_back(polygon);
+        }
+        vertices += piece_vertices;
+    }
+    type.piece_vertices.push_back(vertices);
+    type.piece_polygons.push_back(static_cast<uint32_t>(type.polygons.size()));
+    return true;
+}
+
 } // namespace
 
 int32_t card_type(
     CardTypes& types,
     const sim::model_runtime::Instance& instance,
     const present::model::PreparedModel& prepared
+) {
+    return card_type(types, instance, prepared, {});
+}
+
+int32_t card_type(
+    CardTypes& types,
+    const sim::model_runtime::Instance& instance,
+    const present::model::PreparedModel& prepared,
+    std::optional<body_lod::Quality> detail
 ) {
     const auto& handle = instance.model_handle();
     if (!handle)
@@ -198,21 +320,25 @@ int32_t card_type(
     auto& made = types.by_model[handle.get()];
     for (const uint32_t index : made) {
         const auto& type = types.types[index];
-        if (same_card_type(type, instance, prepared))
+        if (same_card_type(type, instance, prepared, detail))
             return type.drawable ? static_cast<int32_t>(index) : -1;
     }
     CardType type;
     type.model = handle;
     type.prepared = &prepared;
+    type.body_detail = detail;
     std::vector<uint32_t> records;
     // A model the card cannot draw is kept too, its pieces alone, so that
     // the frames after find it at once.
-    type.drawable = fill_type(type, records, *handle, pieces);
+    type.drawable = detail ? fill_body_type(type, records, *handle, pieces, *detail)
+                           : fill_type(type, records, *handle, pieces);
     if (!type.drawable) {
         type.objects.clear();
         for (const auto& piece : pieces)
             type.objects.push_back(piece.object_index);
         type.piece_vertices.clear();
+        type.source_vertices.clear();
+        type.source_vertex_counts.clear();
         type.polygons.clear();
         type.piece_polygons.clear();
         type.slots.clear();
@@ -337,6 +463,119 @@ void unmark_cards(ModelCards& cards) noexcept {
     }
 }
 
+namespace {
+
+/// Lists only a coarse type's selected points, retaining exact pose-cache checks.
+int64_t body_card_positions(
+    ModelCards& cards,
+    uint32_t type_index,
+    const CardType& type,
+    std::span<const sim::model_runtime::PieceState> pieces,
+    std::span<const std::vector<formats::objects3d::FixedVector3>> shown
+) {
+    using Point = formats::objects3d::FixedVector3;
+    if (type.piece_vertices.size() != pieces.size() + 1 || type.piece_vertices.front() != 0 ||
+        type.source_vertex_counts.size() != pieces.size())
+        return -1;
+    const std::size_t count = type.piece_vertices.back();
+    if (type.source_vertices.size() != count)
+        return -1;
+    const auto points = [&](std::size_t piece) -> std::span<const Point> {
+        return piece < shown.size() ? std::span<const Point>{shown[piece]}
+                                    : std::span<const Point>{pieces[piece].transformed_vertices};
+    };
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        const auto first = type.piece_vertices[piece];
+        const auto last = type.piece_vertices[piece + 1];
+        if (first > last || last > count ||
+            points(piece).size() != type.source_vertex_counts[piece])
+            return -1;
+        for (std::size_t at = first; at < last; ++at)
+            if (type.source_vertices[at] >= points(piece).size())
+                return -1;
+    }
+    const auto visit = [&](auto&& action) {
+        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+            const auto source = points(piece);
+            for (std::size_t at = type.piece_vertices[piece]; at < type.piece_vertices[piece + 1];
+                 ++at)
+                action(source[type.source_vertices[at]]);
+        }
+    };
+    const auto matches = [&](const CardPose& pose) {
+        if (pose.type != type_index || pose.point_count != count)
+            return false;
+        std::size_t at = pose.first_point;
+        bool equal = true;
+        visit([&](const Point& point) {
+            const auto& before = cards.pose_points[at++];
+            equal &= point.x == before.x && point.y == before.y && point.z == before.z;
+        });
+        return equal;
+    };
+    if (type_index < cards.recent_poses.size()) {
+        const auto recent = cards.recent_poses[type_index];
+        if (recent.epoch == cards.pose_epoch && recent.pose < cards.poses.size() &&
+            matches(cards.poses[recent.pose]))
+            return cards.poses[recent.pose].first_position;
+    }
+    uint64_t digest = (pose_digest_start ^ type_index) * pose_digest_factor;
+    visit([&](const Point& point) {
+        for (const int32_t coordinate : {point.x, point.y, point.z})
+            digest = (digest ^ static_cast<uint32_t>(coordinate)) * pose_digest_factor;
+    });
+    if (cards.pose_slots.empty()) {
+        cards.pose_slots.resize(pose_lookup_slots);
+        cards.recent_poses.resize(recent_pose_types);
+        cards.poses.reserve(shared_pose_count);
+        cards.pose_points.reserve(shared_pose_points);
+        if (cards.pose_epoch == 0)
+            cards.pose_epoch = 1;
+    }
+    std::size_t empty = cards.pose_slots.size();
+    for (std::size_t probe = 0; probe < pose_lookup_probes; ++probe) {
+        const std::size_t at = (digest + probe) & (pose_lookup_slots - 1);
+        const auto slot = cards.pose_slots[at];
+        if (slot.epoch != cards.pose_epoch) {
+            empty = at;
+            break;
+        }
+        if (slot.digest == digest && slot.pose < cards.poses.size() &&
+            matches(cards.poses[slot.pose])) {
+            if (type_index < cards.recent_poses.size())
+                cards.recent_poses[type_index] = {slot.pose, cards.pose_epoch};
+            return cards.poses[slot.pose].first_position;
+        }
+    }
+    const std::size_t first = cards.positions.size() / 3;
+    if (count > gpu::largest_vertex_count || first > gpu::largest_vertex_count - count)
+        return -1;
+    cards.positions.resize(cards.positions.size() + count * 3);
+    std::size_t at = first * 3;
+    visit([&](const Point& point) {
+        cards.positions[at++] = point.x / fixed_scale;
+        cards.positions[at++] = point.y / fixed_scale;
+        cards.positions[at++] = -(point.z / fixed_scale);
+    });
+    if (empty != cards.pose_slots.size() && cards.poses.size() < shared_pose_count &&
+        count <= shared_pose_points - cards.pose_points.size()) {
+        const auto pose = static_cast<uint32_t>(cards.poses.size());
+        cards.poses.push_back(
+            {type_index,
+             static_cast<uint32_t>(first),
+             static_cast<uint32_t>(cards.pose_points.size()),
+             static_cast<uint32_t>(count)}
+        );
+        visit([&](const Point& point) { cards.pose_points.push_back(point); });
+        cards.pose_slots[empty] = {digest, pose, cards.pose_epoch};
+        if (type_index < cards.recent_poses.size())
+            cards.recent_poses[type_index] = {pose, cards.pose_epoch};
+    }
+    return static_cast<int64_t>(first);
+}
+
+} // namespace
+
 int64_t card_positions(
     ModelCards& cards,
     uint32_t type_index,
@@ -344,6 +583,8 @@ int64_t card_positions(
     std::span<const sim::model_runtime::PieceState> pieces,
     std::span<const std::vector<formats::objects3d::FixedVector3>> shown
 ) {
+    if (type.body_detail)
+        return body_card_positions(cards, type_index, type, pieces, shown);
     using Point = formats::objects3d::FixedVector3;
     static_assert(sizeof(Point) == 3 * sizeof(int32_t));
     if (type.piece_vertices.size() != pieces.size() + 1 || type.piece_vertices.front() != 0)
