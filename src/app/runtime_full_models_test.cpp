@@ -435,6 +435,40 @@ Object square_object(int32_t height, uint8_t colour, const char* texture, bool f
     return object;
 }
 
+/// Supplies closed coloured pieces whose low hull has fewer faces than the source.
+std::shared_ptr<Model> body_lod_model() {
+    auto model = std::make_shared<Model>();
+    const auto box = [](int32_t half, int32_t height, uint8_t colour) {
+        Object object;
+        const int32_t h = half * unit;
+        const int32_t y = height * unit;
+        object.vertices = {
+            {-h, 0, -h},
+            {h, 0, -h},
+            {h, 0, h},
+            {-h, 0, h},
+            {-h, y, -h},
+            {h, y, -h},
+            {h, y, h},
+            {-h, y, h}
+        };
+        constexpr std::array<std::array<uint16_t, 4>, 6> faces{
+            {{0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1}, {3, 2, 6, 7}, {0, 3, 7, 4}, {1, 5, 6, 2}}
+        };
+        for (const auto& corners : faces)
+            object.primitives.push_back(
+                primitive(std::vector<uint16_t>(corners.begin(), corners.end()), colour, nullptr)
+            );
+        return object;
+    };
+    model->objects.push_back(box(4, 8, ink));
+    model->objects.push_back(box(3, 10, second_ink));
+    model->objects.front().first_child = 1;
+    model->objects.back().parent = 0;
+    model->objects.back().offset_from_parent.x = 8 * unit;
+    return model;
+}
+
 /// One square at height 0.
 std::shared_ptr<Model> square_model(uint8_t colour = ink, bool facing = true) {
     auto model = std::make_shared<Model>();
@@ -3979,6 +4013,233 @@ void test_installed_unit_faces(oa::AssetStore& assets) {
     OA_CHECK(share <= installed_other_face_share);
 }
 
+/// Keeps near meshes exact, reduces small bodies and follows uncached moving pieces.
+void test_animated_body_lod() {
+    constexpr float far_zoom = 0.5F;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    actor.instance.pieces()[0].flags |= piece_cached;
+    actor.instance.pieces()[1].flags &= static_cast<uint16_t>(~piece_cached);
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(actor);
+    Card near_reference(scene, 2.0F), near_candidate(scene, 2.0F);
+    near_candidate.stage.set_body_lod_enabled(true);
+    near_reference.stage.begin_frame();
+    near_candidate.stage.begin_frame();
+    OA_CHECK(near_candidate.raster(scene, 2.0F).rgba == near_reference.raster(scene, 2.0F).rgba);
+    OA_CHECK(near_candidate.stage.body_lod_counts().body_lod_models == 0);
+    Card reference(scene, far_zoom), candidate(scene, far_zoom);
+    reference.stage.begin_frame();
+    candidate.stage.begin_frame();
+    candidate.stage.set_body_lod_enabled(true);
+    const auto ordinary = reference.raster(scene, far_zoom);
+    const auto reduced = candidate.raster(scene, far_zoom);
+    OA_CHECK(pixels_with_alpha(ordinary, 255) > 0);
+    OA_CHECK(pixels_with_alpha(reduced, 255) > 0);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
+    OA_CHECK(candidate.stage.body_lod_counts().full_mesh_models == 0);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_vertices == candidate.frame.indices.size());
+    OA_CHECK(candidate.frame.indices.size() < reference.frame.indices.size());
+    const auto image_builds = actor.state.image_builds;
+    std::vector<std::array<float, 2>> before;
+    for (const auto& vertex : candidate.frame.vertices)
+        before.push_back({vertex.x, vertex.y});
+    actor.instance.pieces()[1].translation.x += 3 * unit;
+    actor.instance.rebuild_transforms();
+    ++scene.tick;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(actor);
+    candidate.stage.begin_frame();
+    const auto moved = candidate.raster(scene, far_zoom);
+    OA_CHECK(actor.state.image_builds == image_builds);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
+    OA_CHECK(moved.rgba != reduced.rgba);
+    bool moved_vertex = before.size() != candidate.frame.vertices.size();
+    for (size_t at = 0; at < std::min(before.size(), candidate.frame.vertices.size()); ++at)
+        moved_vertex |= before[at] !=
+                        std::array{candidate.frame.vertices[at].x, candidate.frame.vertices[at].y};
+    OA_CHECK(moved_vertex);
+    candidate.stage.set_body_lod_enabled(false);
+    candidate.stage.begin_frame();
+    reference.stage.begin_frame();
+    OA_CHECK(candidate.raster(scene, far_zoom).rgba == reference.raster(scene, far_zoom).rgba);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 0);
+}
+
+/// Selection and unused helper vertices do not enlarge a drawable body's LOD bounds.
+void test_body_lod_drawable_bounds() {
+    constexpr float zoom = 0.5F;
+    Scene scene;
+    auto model = body_lod_model();
+    auto& root = model->objects.front();
+    root.vertices.insert(
+        root.vertices.end(),
+        {{1000 * unit, 0, 0}, {1001 * unit, 0, 0}, {1000 * unit, unit, 0}, {-1000 * unit, 0, 0}}
+    );
+    root.selection_primitive = static_cast<int32_t>(root.primitives.size());
+    root.primitives.push_back(primitive({8, 9, 10}, third_ink, nullptr));
+    auto& actor = scene.add_unit(model, 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    actor.instance.pieces()[0].flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(actor);
+    Card candidate(scene, zoom);
+    candidate.stage.set_body_lod_enabled(true);
+    candidate.stage.begin_frame();
+    const auto shown = candidate.raster(scene, zoom);
+    OA_CHECK(pixels_with_alpha(shown, 255) > 0);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
+}
+
+/// Coarse faces keep bounded texture sampling and moving pieces' running frames.
+void test_body_lod_textures() {
+    constexpr float zoom = 0.5F;
+    for (const bool keyed : {false, true}) {
+        TextureFixture textures(true);
+        if (keyed)
+            for (auto& pixels : textures.texels)
+                (*pixels)[0] = draw::image_key;
+        Scene scene(gray_palette(), std::move(textures.library));
+        auto model = body_lod_model();
+        for (auto& object : model->objects)
+            for (auto& face : object.primitives) {
+                face.is_colored = 0;
+                face.texture_name = "blink";
+            }
+        auto& actor = scene.add_unit(model, 1, unit_x, unit_z);
+        actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        actor.instance.pieces()[0].flags |= piece_cached;
+        actor.instance.pieces()[1].flags &= static_cast<uint16_t>(~piece_cached);
+        actor.instance.rebuild_transforms();
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(actor);
+        Card reference(scene, zoom), candidate(scene, zoom);
+        reference.stage.begin_frame();
+        candidate.stage.begin_frame();
+        candidate.stage.set_body_lod_enabled(true);
+        const auto ordinary = reference.raster(scene, zoom);
+        const auto reduced = candidate.raster(scene, zoom);
+        if (keyed) {
+            OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 0);
+            OA_CHECK(reduced.rgba == ordinary.rgba);
+            continue;
+        }
+        OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
+        OA_CHECK(candidate.frame.indices.size() < reference.frame.indices.size());
+        OA_CHECK(pixels_with_alpha(reduced, 255) > 0);
+        for (const auto& vertex : candidate.frame.vertices) {
+            OA_CHECK(std::isfinite(vertex.u) && vertex.u >= 0 && vertex.u <= 1);
+            OA_CHECK(std::isfinite(vertex.v) && vertex.v >= 0 && vertex.v <= 1);
+        }
+        draw::step_texture_animations(scene.library);
+        draw::step_texture_animations(scene.library);
+        ++scene.tick;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(actor);
+        candidate.stage.begin_frame();
+        OA_CHECK(candidate.raster(scene, zoom).rgba != reduced.rgba);
+        OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
+    }
+}
+
+/// Geometry shadows use the same coarse animated support points as the body.
+void test_body_lod_shadows() {
+    constexpr float zoom = 0.5F;
+    constexpr uint16_t flags = draw::graphics_shadows | draw::graphics_vehicle_shadows;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->position.y = 4 * unit;
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    actor.instance.pieces()[0].flags |= piece_cached;
+    actor.instance.pieces()[1].flags |= piece_cached;
+    actor.instance.rebuild_transforms();
+    ProcessorPicture processor;
+    scene.begin_frame(processor, flags);
+    scene.plan_unit(actor);
+    Card reference(scene, zoom), candidate(scene, zoom);
+    reference.stage.begin_frame();
+    candidate.stage.begin_frame();
+    candidate.stage.set_body_lod_enabled(true);
+    std::ignore = reference.raster(scene, zoom);
+    const auto shown = candidate.raster(scene, zoom);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
+    OA_CHECK(candidate.stage.body_lod_counts().shadow_vertices > 0);
+    OA_CHECK(
+        candidate.stage.body_lod_counts().shadow_vertices <
+        reference.stage.body_lod_counts().shadow_vertices
+    );
+    OA_CHECK(candidate.stage.shadows_through_target());
+    OA_CHECK(pixels_with_alpha(shown, 255) > 0);
+    OA_CHECK(candidate.frame.indices.size() < reference.frame.indices.size());
+}
+
+/// Leaves special materials, construction, water and carried models on the original path.
+void test_body_lod_fallbacks() {
+    constexpr float zoom = 0.5F;
+    for (uint32_t kind = 0; kind < 7; ++kind) {
+        Scene scene;
+        auto model = body_lod_model();
+        if (kind == 4)
+            model->objects.front().primitives.front().color_index = draw::image_key;
+        auto& actor = scene.add_unit(model, 1, unit_x, unit_z);
+        actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        actor.instance.pieces()[0].flags |= piece_cached;
+        if (kind == 0)
+            actor.unit->state_flags |= draw::unit_state_cloaked;
+        if (kind == 1)
+            actor.unit->build_remaining = 0.5F;
+        if (kind == 2) {
+            scene.world->game.sea_level = 4;
+            actor.unit->owner_index = scene.world->game.viewpoint_player;
+        }
+        if (kind == 3)
+            actor.unit->flags |= OA_UNIT_FLAG_BUILDING;
+        if (kind == 5)
+            scene.water_shimmer = 0.5F;
+        std::vector<float> reflected;
+        if (kind == 6)
+            scene.vertex_heights = &reflected;
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(actor);
+        Card reference(scene, zoom), candidate(scene, zoom);
+        reference.stage.begin_frame();
+        candidate.stage.begin_frame();
+        candidate.stage.set_body_lod_enabled(true);
+        OA_CHECK(candidate.raster(scene, zoom).rgba == reference.raster(scene, zoom).rgba);
+        OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 0);
+    }
+}
+
+/// Carried bodies retain the original composite image and depth ordering.
+void test_body_lod_carried_fallback() {
+    constexpr float zoom = 0.5F;
+    Scene scene;
+    auto& carrier = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    auto& cargo = scene.add_unit(square_model(second_ink), 2, unit_x + 4, unit_z);
+    carrier.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    carrier.unit->attach_first_child = oa::oa_ref_from_index(2);
+    cargo.unit->attach_parent = oa::oa_ref_from_index(1);
+    cargo.unit->position.y = 6 * unit;
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(carrier);
+    scene.plan_unit(cargo);
+    OA_CHECK(!scene.list.models.front().plan.model.carried.empty());
+    Card reference(scene, zoom), candidate(scene, zoom);
+    reference.stage.begin_frame();
+    candidate.stage.begin_frame();
+    candidate.stage.set_body_lod_enabled(true);
+    OA_CHECK(candidate.raster(scene, zoom).rgba == reference.raster(scene, zoom).rgba);
+    OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 0);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -3992,6 +4253,12 @@ int main(int argc, char** argv) {
         test_installed_unit_models(assets, argc > 2 ? argv[2] : nullptr);
         test_installed_unit_faces(assets);
     } else {
+        test_animated_body_lod();
+        test_body_lod_drawable_bounds();
+        test_body_lod_textures();
+        test_body_lod_shadows();
+        test_body_lod_fallbacks();
+        test_body_lod_carried_fallback();
         test_shared_plane_order_population();
         test_distinct_plane_order_capacity();
         test_plane_order_digest_collisions();

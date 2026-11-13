@@ -32,6 +32,7 @@
 #include "full_plane_orders.hpp"
 #include "renderer_water_shading.hpp"
 #include "renderer_aircraft_shadow.hpp"
+#include "body_lod_geometry.hpp"
 
 #include "oa/base/game_math.hpp"
 #include "oa/present/palette_tables.hpp"
@@ -47,6 +48,7 @@
 #include <functional>
 #include <limits>
 #include <numeric>
+#include <new>
 #include <optional>
 #include <span>
 #include <tuple>
@@ -313,8 +315,54 @@ struct PlacedFrame {
 };
 
 /// A model's mesh, with the handle it was built for.
+struct BodyMesh {
+    gw::ModelMesh mesh;
+    size_t bytes{};
+    bool attempted{};
+    bool reduced{};
+};
+
+/// A frame's distance choice, retained for its separate shadow and body passes.
+struct BodyChoice {
+    const ModelDraw* draw{};
+    const oa::sim::model_runtime::Instance* instance{};
+    uint64_t frame{};
+    float zoom{};
+    uint8_t quality{}; ///< zero for the original mesh, one for low and two for medium
+};
+
+/// Counts only geometry actually appended by a unit body or its shadow pass.
+struct BodyEmission {
+    BodyLodCounts& counts;
+    const card::CardFrame& frame;
+    size_t before{};
+    bool reduced{};
+    bool shadow{};
+    bool counted{true};
+
+    /// Records only triangle corners already appended by this scope.
+    ~BodyEmission() {
+        if (!counted)
+            return;
+        const auto added = frame.indices.size() - before;
+        if (shadow) {
+            counts.shadow_vertices += added;
+        } else if (added != 0) {
+            if (reduced) {
+                ++counts.body_lod_models;
+                counts.body_lod_vertices += added;
+            } else {
+                ++counts.full_mesh_models;
+                counts.full_mesh_vertices += added;
+            }
+        }
+    }
+};
+
+/// A model's full mesh and its bounded distance variants.
 struct MeshEntry {
     gw::ModelMesh mesh;
+    std::array<BodyMesh, 2> body_meshes{};
     std::weak_ptr<const Model> owner;
     bool refused{};
 };
@@ -1463,6 +1511,11 @@ struct ModelStage::Impl {
     /// frame's address in the library.
     std::unordered_map<const void*, bool> keyed_texels;
     std::unordered_map<const Model*, MeshEntry> meshes;
+    bool body_lod_enabled{};
+    BodyLodCounts body_lod_counts{};
+    size_t body_mesh_bytes{};
+    uint64_t body_frame{1};
+    std::vector<BodyChoice> body_choices{};
 
     /// Cached soft-edged aircraft silhouettes; at most 256 pages of 256 square texels.
     struct AircraftShadow {
@@ -1525,6 +1578,8 @@ struct ModelStage::Impl {
         next_number = first_texture_number;
         keyed_texels.clear();
         meshes.clear();
+        body_mesh_bytes = 0;
+        ++body_frame;
     }
 };
 
@@ -1777,6 +1832,20 @@ class Emitter {
         bool first_frame,
         uint8_t team
     ) const;
+
+    /// Selects an original or reduced mesh from the current visible piece poses.
+    /// @param drawn the unit's ordinary plan
+    /// @param model its current unit and transformed pieces
+    /// @param mesh the original type mesh
+    /// @return an immutable cached mesh, or the original on any uncertain state
+    [[nodiscard]] const gw::ModelMesh&
+    body_mesh(const ModelDraw& drawn, const draw::ModelRef& model, const gw::ModelMesh& mesh);
+    /// Builds one bounded type/quality variant with original material references.
+    [[nodiscard]] const gw::ModelMesh&
+    reduced_mesh(const draw::ModelRef& model, const gw::ModelMesh& mesh, uint8_t quality);
+    /// Returns whether every active non-flat material can safely fill a coarse face.
+    [[nodiscard]] bool
+    body_materials(const ModelDraw& drawn, const draw::ModelRef& model, const gw::ModelMesh& mesh);
 
     // Placing polygons.
     [[nodiscard]] gw::PixelPoint
@@ -2076,6 +2145,9 @@ const gw::ModelMesh* Emitter::mesh_of(const draw::ModelRef& model) {
     const auto& handle = model.instance->model_handle();
     const auto held = entry.owner.lock();
     if (held == nullptr || held.get() != &source) {
+        for (const auto& body : entry.body_meshes)
+            impl_.body_mesh_bytes -= std::min(impl_.body_mesh_bytes, body.bytes);
+        entry.body_meshes = {};
         entry.owner = handle;
         entry.refused = false;
         const gw::MeshBuildError error = gw::build_model_mesh(
@@ -2089,6 +2161,294 @@ const gw::ModelMesh* Emitter::mesh_of(const draw::ModelRef& model) {
         }
     }
     return entry.refused ? nullptr : &entry.mesh;
+}
+
+/// The two coarse tiers bound type-cache storage and distance transitions.
+constexpr size_t maximum_body_mesh_bytes = size_t{32} * 1024 * 1024;
+constexpr size_t maximum_body_pieces = 256;
+constexpr size_t maximum_body_primitives = 4096;
+constexpr size_t maximum_body_corners = 65536;
+constexpr size_t body_choice_count = size_t{1} << 16;
+constexpr double body_distance_hysteresis = 0.025;
+constexpr float least_body_pixels = 6.0F;
+constexpr float medium_body_pixels = 12.0F;
+constexpr float full_body_pixels = 20.0F;
+
+/// Returns a conservative count of storage retained by a distance mesh.
+/// @param mesh the cached mesh
+/// @return its vector capacities, texture names and cache record, in bytes
+[[nodiscard]] size_t body_mesh_storage(const gw::ModelMesh& mesh) noexcept {
+    size_t bytes = sizeof(BodyMesh) + mesh.vertices.capacity() * sizeof(gw::MeshVertex) +
+                   mesh.source_vertex.capacity() * sizeof(uint16_t) +
+                   mesh.indices.capacity() * sizeof(uint32_t) +
+                   mesh.primitives.capacity() * sizeof(gw::MeshPrimitive) +
+                   mesh.pieces.capacity() * sizeof(gw::MeshPiece) +
+                   mesh.textures.capacity() * sizeof(gw::MeshTexture);
+    for (const auto& texture : mesh.textures)
+        bytes += texture.name.capacity();
+    return bytes;
+}
+
+bool Emitter::body_materials(
+    const ModelDraw& drawn, const draw::ModelRef& model, const gw::ModelMesh& mesh
+) {
+    const bool image = drawn.plan.model.from_image && model.state->image.sprite.data != nullptr;
+    const bool depth = image && model.state->image.sprite.aux != nullptr;
+    const uint8_t team = in_.team_colors[model.unit->owner_index % team_colour_players];
+    for (const auto& state : model.instance->pieces()) {
+        if ((state.flags & piece_visible) == 0)
+            continue;
+        if (state.object_index >= mesh.pieces.size() ||
+            state.object_index >= model.prepared->objects.size())
+            return false;
+        const auto& piece = mesh.pieces[state.object_index];
+        const auto& prepared = model.prepared->objects[state.object_index];
+        const bool cached = (state.flags & piece_cached) != 0;
+        const bool flat = !image || (!depth && !cached);
+        const bool first = image && cached ? true : depth ? false : drawn.plan.linked.unlit;
+        for (uint32_t at = piece.first_primitive;
+             at < piece.first_primitive + piece.primitive_count;
+             ++at) {
+            if (at >= mesh.primitives.size())
+                return false;
+            const auto& primitive = mesh.primitives[at];
+            if ((primitive.flags & gw::primitive_flag_textured) != 0) {
+                const auto* texture = frame_of(mesh, primitive, prepared, first, team);
+                if (texture == nullptr || (!flat && has_keyed_texels(*texture)))
+                    return false;
+            } else if (!flat && primitive.palette_index == draw::image_key) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/// Maps a hull support point through its representative face's rest-space texture basis.
+/// @param object the immutable source piece
+/// @param mesh the original material mesh
+/// @param primitive the original representative face
+/// @param source the hull's source vertex
+/// @return bounded texture coordinates, or none for an unusable basis
+[[nodiscard]] std::optional<std::array<float, 2>> body_corner_uv(
+    const Object& object,
+    const gw::ModelMesh& mesh,
+    const gw::MeshPrimitive& primitive,
+    uint16_t source
+) {
+    for (uint32_t at = 0; at < primitive.corner_count; ++at)
+        if (mesh.source_vertex[primitive.first_vertex + at] == source) {
+            const auto& corner = mesh.vertices[primitive.first_vertex + at];
+            return std::array{corner.u, corner.v};
+        }
+    if ((primitive.flags & gw::primitive_flag_textured) == 0)
+        return std::array{0.0F, 0.0F};
+    if (primitive.corner_count != 4 || source >= object.vertices.size())
+        return std::nullopt;
+    const auto point = [&](uint16_t index) {
+        const auto& vertex = object.vertices[index];
+        return std::array{double(vertex.x), double(vertex.y), double(vertex.z)};
+    };
+    const auto first = point(mesh.source_vertex[primitive.first_vertex]);
+    const auto second = point(mesh.source_vertex[primitive.first_vertex + 1]);
+    const auto fourth = point(mesh.source_vertex[primitive.first_vertex + 3]);
+    const auto placed = point(source);
+    std::array<double, 3> across{}, down{}, offset{};
+    double aa{}, ab{}, bb{}, oa{}, ob{};
+    for (size_t axis = 0; axis < across.size(); ++axis) {
+        across[axis] = second[axis] - first[axis];
+        down[axis] = fourth[axis] - first[axis];
+        offset[axis] = placed[axis] - first[axis];
+        aa += across[axis] * across[axis];
+        ab += across[axis] * down[axis];
+        bb += down[axis] * down[axis];
+        oa += offset[axis] * across[axis];
+        ob += offset[axis] * down[axis];
+    }
+    const double determinant = aa * bb - ab * ab;
+    if (!(determinant > 0) || !std::isfinite(determinant))
+        return std::nullopt;
+    const double u = (oa * bb - ob * ab) / determinant;
+    const double v = (ob * aa - oa * ab) / determinant;
+    if (!std::isfinite(u) || !std::isfinite(v))
+        return std::nullopt;
+    return std::array{
+        static_cast<float>(std::clamp(u, 0.0, 1.0)), static_cast<float>(std::clamp(v, 0.0, 1.0))
+    };
+}
+
+const gw::ModelMesh&
+Emitter::reduced_mesh(const draw::ModelRef& model, const gw::ModelMesh& mesh, uint8_t quality) {
+    auto& entry = impl_.meshes.at(&model.instance->model());
+    auto& cached = entry.body_meshes[quality - 1];
+    if (cached.attempted)
+        return cached.reduced ? cached.mesh : mesh;
+    cached.attempted = true;
+    const auto& source = model.instance->model();
+    if (source.objects.size() > maximum_body_pieces ||
+        mesh.primitives.size() > maximum_body_primitives ||
+        mesh.vertices.size() > maximum_body_corners)
+        return mesh;
+    gw::ModelMesh reduced;
+    reduced.textures = mesh.textures;
+    reduced.pieces = mesh.pieces;
+    bool changed = false;
+    for (size_t object = 0; object < mesh.pieces.size(); ++object) {
+        if (object >= source.objects.size())
+            return mesh;
+        const auto& original = mesh.pieces[object];
+        auto& piece = reduced.pieces[object];
+        piece.first_vertex = static_cast<uint32_t>(reduced.vertices.size());
+        piece.first_primitive = static_cast<uint32_t>(reduced.primitives.size());
+        std::vector<uint32_t> primitives;
+        for (uint32_t at = original.first_primitive;
+             at < original.first_primitive + original.primitive_count;
+             ++at) {
+            if (at >= mesh.primitives.size())
+                return mesh;
+            primitives.push_back(mesh.primitives[at].source_index);
+        }
+        const auto hull = body_lod::make_piece(
+            source.objects[object],
+            primitives,
+            quality == 1 ? body_lod::Quality::low : body_lod::Quality::medium
+        );
+        if (!hull.valid)
+            return mesh;
+        const auto append_original = [&](uint32_t at) {
+            const auto& old = mesh.primitives[at];
+            auto run = old;
+            run.first_vertex = static_cast<uint32_t>(reduced.vertices.size());
+            run.first_index = static_cast<uint32_t>(reduced.indices.size());
+            for (uint32_t corner = 0; corner < old.corner_count; ++corner) {
+                reduced.vertices.push_back(mesh.vertices[old.first_vertex + corner]);
+                reduced.source_vertex.push_back(mesh.source_vertex[old.first_vertex + corner]);
+            }
+            for (uint32_t index = 0; index < old.index_count; ++index)
+                reduced.indices.push_back(
+                    run.first_vertex + mesh.indices[old.first_index + index] - old.first_vertex
+                );
+            reduced.primitives.push_back(run);
+        };
+        if (!hull.reduced) {
+            for (uint32_t at = original.first_primitive;
+                 at < original.first_primitive + original.primitive_count;
+                 ++at)
+                append_original(at);
+        } else {
+            changed = true;
+            for (const auto& triangle : hull.triangles) {
+                const auto found = std::find_if(
+                    mesh.primitives.begin() + original.first_primitive,
+                    mesh.primitives.begin() + original.first_primitive + original.primitive_count,
+                    [&](const gw::MeshPrimitive& primitive) {
+                        return primitive.source_index == triangle.primitive;
+                    }
+                );
+                if (found == mesh.primitives.begin() + original.first_primitive +
+                                 original.primitive_count ||
+                    found->corner_count < 3)
+                    return mesh;
+                auto run = *found;
+                run.first_vertex = static_cast<uint32_t>(reduced.vertices.size());
+                run.first_index = static_cast<uint32_t>(reduced.indices.size());
+                run.corner_count = 3;
+                run.index_count = 3;
+                for (uint32_t corner = 0; corner < 3; ++corner) {
+                    auto vertex = mesh.vertices[found->first_vertex + corner];
+                    const auto source_vertex = triangle.vertices[corner];
+                    if (source_vertex >= source.objects[object].vertices.size())
+                        return mesh;
+                    const auto uv =
+                        body_corner_uv(source.objects[object], mesh, *found, source_vertex);
+                    if (!uv)
+                        return mesh;
+                    vertex.u = (*uv)[0];
+                    vertex.v = (*uv)[1];
+                    const auto& position = source.objects[object].vertices[source_vertex];
+                    vertex.x = -static_cast<float>(position.x) / gw::fixed_units_per_world_unit;
+                    vertex.y = position.y / gw::fixed_units_per_world_unit;
+                    vertex.z = -static_cast<float>(position.z) / gw::fixed_units_per_world_unit;
+                    reduced.vertices.push_back(vertex);
+                    reduced.source_vertex.push_back(source_vertex);
+                    reduced.indices.push_back(run.first_vertex + corner);
+                }
+                reduced.primitives.push_back(run);
+            }
+        }
+        piece.vertex_count = static_cast<uint32_t>(reduced.vertices.size()) - piece.first_vertex;
+        piece.primitive_count =
+            static_cast<uint32_t>(reduced.primitives.size()) - piece.first_primitive;
+    }
+    const auto bytes = body_mesh_storage(reduced);
+    if (!changed ||
+        bytes > maximum_body_mesh_bytes - std::min(maximum_body_mesh_bytes, impl_.body_mesh_bytes))
+        return mesh;
+    cached.mesh = std::move(reduced);
+    cached.bytes = bytes;
+    cached.reduced = true;
+    impl_.body_mesh_bytes += bytes;
+    return cached.mesh;
+}
+
+const gw::ModelMesh& Emitter::body_mesh(
+    const ModelDraw& drawn, const draw::ModelRef& model, const gw::ModelMesh& mesh
+) try {
+    const auto& unit = *model.unit;
+    if (!impl_.body_lod_enabled || drawn.on_map || drawn.stand_in >= 0 || is_building(unit) ||
+        unit.build_remaining != 0 || (unit.state_flags & draw::unit_state_cloaked) != 0 ||
+        in_.world->game.debug_overlay != 0 ||
+        (def_flags(model) & (OA_UNIT_DEF_FLAG_CAN_FLY | OA_UNIT_DEF_FLAG_FLOATER |
+                             OA_UNIT_DEF_FLAG_CAN_HOVER | OA_UNIT_DEF_FLAG_DIGGER)) != 0 ||
+        !drawn.plan.model.carried.empty() || in_.vertex_heights != nullptr ||
+        in_.water_shimmer > 0 || hi(unit.position.y) < in_.world->game.sea_level ||
+        !std::isfinite(view_.zoom) || !(view_.zoom > 0))
+        return mesh;
+    if (impl_.body_choices.empty())
+        impl_.body_choices.resize(body_choice_count);
+    auto& choice = impl_.body_choices[unit.id];
+    if (choice.frame == impl_.body_frame && choice.draw == &drawn &&
+        choice.instance == model.instance && choice.zoom == view_.zoom)
+        return choice.quality == 0 ? mesh : reduced_mesh(model, mesh, choice.quality);
+    const auto previous = choice.instance == model.instance ? choice.quality : uint8_t{};
+    choice = {&drawn, model.instance, impl_.body_frame, view_.zoom, 0};
+    int32_t left = std::numeric_limits<int32_t>::max(), top = left;
+    int32_t right = std::numeric_limits<int32_t>::min(), bottom = right;
+    bool any = false;
+    for (const auto& piece : model.instance->pieces()) {
+        if ((piece.flags & piece_visible) == 0)
+            continue;
+        if (piece.object_index >= mesh.pieces.size())
+            return mesh;
+        const auto& run = mesh.pieces[piece.object_index];
+        if (run.first_vertex > mesh.source_vertex.size() ||
+            run.vertex_count > mesh.source_vertex.size() - run.first_vertex)
+            return mesh;
+        for (uint32_t at = run.first_vertex; at < run.first_vertex + run.vertex_count; ++at) {
+            const auto source = mesh.source_vertex[at];
+            if (source >= piece.transformed_vertices.size())
+                return mesh;
+            const auto pixel = gw::pixel_of_model_point(piece.transformed_vertices[source], 0);
+            left = std::min(left, pixel.x);
+            top = std::min(top, pixel.y);
+            right = std::max(right, pixel.x);
+            bottom = std::max(bottom, pixel.y);
+            any = true;
+        }
+    }
+    const double pixels =
+        any ? std::max(int64_t{right} - left + 1, int64_t{bottom} - top + 1) * view_.zoom : 0;
+    const double full_boundary = full_body_pixels * (previous != 0 ? 1 + body_distance_hysteresis
+                                                                   : 1 - body_distance_hysteresis);
+    if (!(pixels > 0 && pixels <= full_boundary) || !body_materials(drawn, model, mesh))
+        return mesh;
+    const double medium_boundary =
+        medium_body_pixels *
+        (previous == 1 ? 1 + body_distance_hysteresis : 1 - body_distance_hysteresis);
+    choice.quality = pixels <= std::max<double>(least_body_pixels, medium_boundary) ? 1 : 2;
+    return reduced_mesh(model, mesh, choice.quality);
+} catch (const std::bad_alloc&) {
+    return mesh;
 }
 
 const Sprite* Emitter::frame_of(
@@ -3602,6 +3962,16 @@ void Emitter::draw_model(const ModelDraw& drawn) {
     const gw::ModelMesh* mesh = mesh_of(model);
     if (mesh == nullptr)
         return;
+    const auto* original_mesh = mesh;
+    mesh = &body_mesh(drawn, model, *mesh);
+    const BodyEmission emission{
+        impl_.body_lod_counts,
+        frame_,
+        frame_.indices.size(),
+        mesh != original_mesh,
+        false,
+        !drawn.on_map && drawn.stand_in < 0
+    };
     const Unit& unit = *model.unit;
     const Game& game = in_.world->game;
     impl_.corners.clear();
@@ -4073,6 +4443,15 @@ void Emitter::shadow_of_model(
                      unit.build_remaining != 0.0F;
     if (cut != unfinished_pass)
         return;
+    mesh = &body_mesh(drawn, model, *mesh);
+    const BodyEmission emission{
+        impl_.body_lod_counts,
+        frame_,
+        frame_.indices.size(),
+        false,
+        true,
+        !drawn.on_map && drawn.stand_in < 0
+    };
     const int32_t dx = wrap_sub(unit.position.x, camera_x_);
     const int32_t dz = wrap_sub(unit.position.z, camera_z_);
     const int32_t shadow_x = hi(dx) + draw::shadow_offset_x;
@@ -4522,6 +4901,19 @@ void ModelStage::begin_frame() noexcept {
     pages_.begin_frame();
     bright_pages_.begin_frame();
     ++impl_->aircraft_shadow_frame;
+    impl_->body_lod_counts = {};
+    if (++impl_->body_frame == 0) {
+        impl_->body_frame = 1;
+        impl_->body_choices.clear();
+    }
+}
+
+void ModelStage::set_body_lod_enabled(bool enabled) noexcept {
+    impl_->body_lod_enabled = enabled;
+}
+
+const BodyLodCounts& ModelStage::body_lod_counts() const noexcept {
+    return impl_->body_lod_counts;
 }
 
 void ModelStage::set_growth_hooks(const gw::GrowthHooks& hooks) noexcept {
@@ -4575,6 +4967,7 @@ std::size_t ModelStage::mesh_bytes() const noexcept {
     for (const auto& [model, entry] : impl_->meshes)
         if (!entry.refused)
             bytes += gw::mesh_bytes(entry.mesh);
+    bytes += impl_->body_mesh_bytes;
     return bytes;
 }
 

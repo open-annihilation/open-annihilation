@@ -33,6 +33,7 @@
 #include "oa/present/surface.h"
 #include "oa/present/world_renderer.hpp"
 #include "world_draws.hpp"
+#include "body_lod_counts.hpp"
 
 #include <algorithm>
 #include <array>
@@ -553,6 +554,14 @@ class ModelStage {
     ///
     /// @param hooks the hooks; empty ones let the limits never grow
     void set_growth_hooks(const oa::present::gpu_world::GrowthHooks& hooks) noexcept;
+
+    /// Enables reduced animated ground-unit geometry at small projected sizes.
+    /// @param enabled true for the Enhanced physical-body distance tier
+    void set_body_lod_enabled(bool enabled) noexcept;
+
+    /// Returns unit geometry actually appended since the last begin_frame.
+    /// @return completed body and shadow emission counts
+    [[nodiscard]] const BodyLodCounts& body_lod_counts() const noexcept;
 
     /// Emits the frame's shadows: every drawn unit's and 3D feature's
     /// silhouette and every projectile's shadow sprite into the shadow

@@ -33,6 +33,8 @@
 #include "renderer_effect_sources.hpp"
 #include "full_presentation.hpp"
 #include "graphics_report.hpp"
+#include "bench_timers.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "match_models.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
@@ -1859,6 +1861,11 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         full.sprite_pages.set_growth_hooks(growth);
         full.models.set_growth_hooks(growth);
         full.sprite_pages.begin_frame();
+        full.models.set_body_lod_enabled(
+            match_->rules().setup.enhanced_mode.enabled &&
+            match_->rules().setup.enhanced_mode.version ==
+                data::enhanced_mode::cohort_target_version
+        );
         full.models.begin_frame();
         full.sprites = {};
         full.frame_vertices = {};
@@ -2002,6 +2009,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 throw FullCardError(
                     "the model stage's pages could not be uploaded: " + full.models.error()
                 );
+            bench_timers::body_counts = full.models.body_lod_counts();
             full.stage_ns += nanoseconds_since(stage_start);
         };
         // The Classic dither's page, made and filled the first time it is
