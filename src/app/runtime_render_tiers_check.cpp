@@ -36,10 +36,12 @@
 #include "render_host.hpp"
 #include "render_run.hpp"
 #include "renderer_effect_sources.hpp"
+#include "runtime_classic_overlay_check.hpp"
 #include "runtime_full.hpp"
 #include "xrgb_conversion.hpp"
 
 #include "oa/formats/png.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/machine.hpp"
 #include "oa/platform/render_probe.hpp"
@@ -47,6 +49,7 @@
 #include "oa/present/model/rgb_bridge.hpp"
 #include "oa/sim/feature_runtime.hpp"
 #include "oa/sim/match_runtime/match_trace.hpp"
+#include "oa/sim/messages.hpp"
 #include "oa/sim/trace.hpp"
 #include "oa/sim/unit_spawn/spawn_runtime.hpp"
 #include "oa/ui/console/game_fields.hpp"
@@ -70,6 +73,7 @@
 #include <functional>
 #include <initializer_list>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <set>
 #include <span>
@@ -2243,6 +2247,173 @@ int Runtime::check_render_tiers() {
               << counts.textures_created << " textures made and " << counts.prescale_draws
               << " prescale draws; pictures in " << oa::platform::path_to_utf8(report_directory)
               << '\n';
+    // A reference override selects the old classic overlay loop in the
+    // same frozen match. Only Enhanced Dots may avoid position and label
+    // preparation for units whose real self-destruct count is zero.
+    {
+        namespace engine = oa::ui::engine_settings;
+        namespace mode = oa::data::enhanced_mode;
+        const auto saved_overlay_settings = engine_settings();
+        const auto saved_overlay_level = options_.hardware_acceleration;
+        const auto restore_overlay_check = [&] {
+            classic_overlay_check::end();
+            release_enhanced_rules_once(true);
+            apply_engine_settings(saved_overlay_settings);
+            options_.hardware_acceleration = saved_overlay_level;
+            update_render_tier();
+        };
+        try {
+            constexpr float overlay_zoom = 1;
+            const auto canonical_overlay_state = [&] {
+                std::vector<oa::sim::trace::UnitSide> sides(match_->state().unit_slot_count);
+                return oa::sim::match_runtime::match_tick_digest(*match_, sides);
+            };
+            const auto capture_overlay = [&](bool reference) {
+                const auto eases = readout_eases_;
+                const auto draws = frame_draws_;
+                classic_overlay_check::begin(reference);
+                try {
+                    render_match_surface();
+                    auto frame = match_world_cpu_;
+                    const auto work = classic_overlay_check::read();
+                    classic_overlay_check::end();
+                    readout_eases_ = eases;
+                    frame_draws_ = draws;
+                    return std::pair{std::move(frame), work};
+                } catch (...) {
+                    classic_overlay_check::end();
+                    readout_eases_ = eases;
+                    frame_draws_ = draws;
+                    throw;
+                }
+            };
+            const auto compare_overlay = [&](bool fast, uint64_t countdowns) {
+                const auto before = canonical_overlay_state();
+                const auto reference = capture_overlay(true);
+                const auto optimized = capture_overlay(false);
+                const auto after = canonical_overlay_state();
+                if (reference.first.rgb.empty() || reference.first.width == 0 ||
+                    reference.first.height == 0 || reference.first.width != optimized.first.width ||
+                    reference.first.height != optimized.first.height ||
+                    reference.first.rgb != optimized.first.rgb)
+                    fail("the classic countdown-only overlay changed frozen world pixels");
+                if (before.tick != after.tick)
+                    fail("the classic overlay comparison advanced simulation");
+                for (size_t section = 0; section < oa::sim::trace::section_count; ++section)
+                    if (before.sections[section].value != after.sections[section].value ||
+                        before.sections[section].items != after.sections[section].items)
+                        fail(
+                            "the classic overlay comparison changed canonical state or random "
+                            "streams"
+                        );
+                const auto& old = reference.second;
+                const auto& next = optimized.second;
+                if (old.eligible == 0 || old.eligible != next.eligible || old.skipped != 0 ||
+                    old.projected != old.eligible || old.countdowns != countdowns ||
+                    next.countdowns != countdowns || next.skipped + next.projected != next.eligible)
+                    fail("the classic overlay witness did not observe the expected real units");
+                if (fast) {
+                    if (next.projected != countdowns || next.skipped == 0)
+                        fail("Enhanced Dots did not skip only zero-countdown overlay work");
+                } else if (next.skipped != 0 || next.projected != next.eligible)
+                    fail("a classic overlay control skipped its original position path");
+                if (match_->fault() != nullptr)
+                    fail("the classic overlay comparison raised a simulation fault");
+                return optimized.first;
+            };
+            for (const bool enhanced : {true, false}) {
+                leave_match();
+                load(Screen::main_menu);
+                if (!hold_enhanced_rules_once(
+                        enhanced ? mode::following_flow_version : mode::off_version
+                    ))
+                    fail("the classic overlay fixture could not select its actual match rules");
+                start_benchmark_skirmish();
+                if (!match_ || match_->rules().setup.enhanced_mode.enabled != enhanced)
+                    fail("the classic overlay fixture did not start the requested real match");
+                if (enhanced && match_->rules().setup.enhanced_mode.version !=
+                                    static_cast<int32_t>(mode::following_flow_version))
+                    fail("the classic overlay fixture upgraded or replaced its Enhanced preset");
+                spawn_combat_armies(1);
+                select_local_commander();
+                const uint16_t selected = selected_match_unit_;
+                const auto selected_ids = selected_local_ids();
+                if (selected == 0 ||
+                    std::find(selected_ids.begin(), selected_ids.end(), selected) ==
+                        selected_ids.end())
+                    fail("the classic overlay fixture has no selected local commander");
+                const auto* own = match_->world().slots[selected].unit;
+                if (own == nullptr)
+                    fail("the classic overlay fixture lost its selected unit");
+                uint16_t enemy = 0;
+                int64_t nearest = std::numeric_limits<int64_t>::max();
+                for (const auto& slot : match_->world().slots) {
+                    if (slot.unit_index == 0 || slot.unit == nullptr ||
+                        slot.record.type_index == 0 || slot.unit->type == nullptr ||
+                        slot.owner_index == match_local_player_)
+                        continue;
+                    const int64_t distance =
+                        std::abs(int64_t{slot.unit->position[0]} - own->position[0]) +
+                        std::abs(int64_t{slot.unit->position[2]} - own->position[2]);
+                    if (distance < nearest) {
+                        nearest = distance;
+                        enemy = slot.unit_index;
+                    }
+                }
+                if (enemy == 0)
+                    fail("the classic overlay fixture has no mixed-owner unit");
+                enter_console_check_line("+nowisee");
+                oa::sim::messages::clear_messages(match_->state().game);
+                auto overlay_settings = engine_settings();
+                overlay_settings.zoomed_out_units = engine::ZoomedOutUnits::dots;
+                overlay_settings.zoomed_out_after = engine::ZoomedOutAfter::twice_normal_size;
+                apply_engine_settings(overlay_settings);
+                set_level(HardwareAcceleration::off);
+                reset_live_renderer();
+                match_zoom_ = match_zoom_target_ = overlay_zoom;
+                center_camera_on_unit(selected);
+                if (live_renderer_active() || !dots_frame())
+                    fail("the classic overlay fixture did not draw actual Dots");
+                if (!match_->unit_shown(static_cast<uint8_t>(match_view_player()), enemy))
+                    fail("the classic overlay fixture's enemy is not visible");
+                render_match_surface();
+                render_match_surface();
+                const auto no_countdown = compare_overlay(enhanced, 0);
+                const std::array<uint16_t, 2> countdown_units{selected, enemy};
+                match_->toggle_self_destruct(countdown_units);
+                for (const auto unit : countdown_units)
+                    if (match_->self_destruct_remaining(unit) == 0)
+                        fail("an actual mixed-owner self-destruct countdown did not start");
+                const auto with_countdown = compare_overlay(enhanced, countdown_units.size());
+                if (with_countdown.rgb == no_countdown.rgb)
+                    fail("actual self-destruct countdown labels changed no world pixels");
+                overlay_settings.zoomed_out_units = engine::ZoomedOutUnits::rendered;
+                apply_engine_settings(overlay_settings);
+                set_level(HardwareAcceleration::off);
+                if (dots_frame())
+                    fail("the classic overlay non-Dots control still drew Dots");
+                std::ignore = compare_overlay(false, countdown_units.size());
+                overlay_settings.zoomed_out_units = engine::ZoomedOutUnits::dots;
+                apply_engine_settings(overlay_settings);
+                set_level(HardwareAcceleration::off);
+                match_->toggle_self_destruct(countdown_units);
+                for (const auto unit : countdown_units)
+                    if (match_->self_destruct_remaining(unit) != 0)
+                        fail("an actual mixed-owner self-destruct countdown did not cancel");
+                if (compare_overlay(enhanced, 0).rgb != no_countdown.rgb)
+                    fail("cancelled self-destruct countdowns left classic overlay pixels behind");
+                std::cout << "render tiers check: " << (enhanced ? "Enhanced" : "Off")
+                          << " classic Dots: selected and enemy countdown pixels match the old "
+                             "loop exactly; zero, active, cancelled and non-Dots cases retain "
+                             "canonical state and random streams\n";
+            }
+            leave_match();
+        } catch (...) {
+            restore_overlay_check();
+            throw;
+        }
+        restore_overlay_check();
+    }
     return 0;
 }
 
