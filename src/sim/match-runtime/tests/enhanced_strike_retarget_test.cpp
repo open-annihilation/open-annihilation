@@ -389,7 +389,10 @@ void cohort_loss_refreshes_only_lost_orders() {
         static_cast<int32_t>(ai::Squad::land_army)
     );
     battle.fixture.run(1);
-    CHECK(battle.fixture.match->spawn_slot(waiting_slot).record.squad == strike_squad);
+    CHECK(
+        battle.fixture.match->spawn_slot(waiting_slot).record.squad ==
+        static_cast<int32_t>(strike_squad)
+    );
     CHECK(battle.strike().next_tick == battle.regular_refresh_tick + strike_refresh_ticks);
 }
 
@@ -510,7 +513,7 @@ void cohort_without_an_enemy_keeps_empty_binding_loadable() {
     }
     auto& enemy = fixture.spawn(enemy_player, target_x, target_z);
     hold_fire(enemy);
-    const auto appeared = fixture.match->simulation().tick;
+    const uint32_t appeared = fixture.match->simulation().tick;
     fixture.run(retarget_interval_ticks);
     CHECK(task.next_tick == deadline);
     for (const auto member : members) {

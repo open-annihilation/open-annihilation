@@ -7,6 +7,7 @@
 
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/ai.hpp"
+#include "oa/sim/match_runtime/command.hpp"
 
 #include <algorithm>
 #include <limits>
