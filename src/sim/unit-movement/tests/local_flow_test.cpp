@@ -701,8 +701,12 @@ struct PassingHistoryResult {
 
 /// Offers only a backwards exit after a completed forward passing leg.
 PassingHistoryResult passing_history_backout(
-    bool retained, uint32_t gap, uint32_t motion_age, bool same_goal = true,
-    bool have_history = true, bool restored = false
+    bool retained,
+    uint32_t gap,
+    uint32_t motion_age,
+    bool same_goal = true,
+    bool have_history = true,
+    bool restored = false
 ) {
     Grid grid;
     auto& blocker = grid.add(12, 10, west, 2, 10, {2, 2});
@@ -739,11 +743,17 @@ PassingHistoryResult passing_history_backout(
                                  : local_flow_completed_last_tick(history, grid.tick);
     if (same_goal && recent)
         probe.previous_head = &history;
-    probe.allow_reverse = recover && (!retained || local_flow_stationary_history_due(grid.tick, progress));
+    probe.allow_reverse =
+        recover && (!retained || local_flow_stationary_history_due(grid.tick, progress));
     probe.recovery_yield = recover && grid.tick - progress >= local_flow_retry_ticks;
     PassingHistoryResult result;
     result.decision = choose_local_flow(
-        follower.unit, follower.movement, follower.destination, grid.tick, grid, probe,
+        follower.unit,
+        follower.movement,
+        follower.destination,
+        grid.tick,
+        grid,
+        probe,
         result.counters
     );
     OA_CHECK(result.decision.mobile_blocked);
@@ -772,10 +782,16 @@ void test_retained_passing_history_bounds_backout() {
         OA_CHECK(loaded.counters.yielded_ticks == guarded.counters.yielded_ticks);
         OA_CHECK(loaded.counters.steering_adjustments == guarded.counters.steering_adjustments);
     }
-    OA_CHECK(passing_history_backout(true, local_flow_completed_history_ticks + 1, 1).decision.reverse);
+    OA_CHECK(
+        passing_history_backout(true, local_flow_completed_history_ticks + 1, 1).decision.reverse
+    );
     OA_CHECK(passing_history_backout(true, 43, 1, false).decision.reverse);
-    OA_CHECK(!passing_history_backout(true, 43, local_flow_completed_history_ticks - 1).decision.adjusted);
-    OA_CHECK(passing_history_backout(true, 43, local_flow_completed_history_ticks).decision.reverse);
+    OA_CHECK(
+        !passing_history_backout(true, 43, local_flow_completed_history_ticks - 1).decision.adjusted
+    );
+    OA_CHECK(
+        passing_history_backout(true, 43, local_flow_completed_history_ticks).decision.reverse
+    );
 }
 
 /// Allows a forward rejoin even when it opposes the previous short passing leg.

@@ -188,8 +188,8 @@ void navigation_state_survives_restore(uint32_t version) {
 void retained_passing_history_survives_restore() {
     constexpr auto version = oa::data::enhanced_mode::retained_passing_version;
     constexpr uint32_t now = 220;
-    for (const uint32_t age : {flow::local_flow_completed_history_ticks - 1,
-                               flow::local_flow_completed_history_ticks}) {
+    for (const uint32_t age :
+         {flow::local_flow_completed_history_ticks - 1, flow::local_flow_completed_history_ticks}) {
         Fixture source(options_for(version));
         Fixture loaded(options_for(version));
         const auto unit = source.spawn(0, 64, 64).unit_index;
@@ -215,15 +215,20 @@ void retained_passing_history_survives_restore() {
         }
         const auto* before = source.match->local_flow_head(unit);
         const auto* after = loaded.match->local_flow_head(unit);
-        CHECK(before && after && !after->active && after->count == flow::local_flow_completed_count);
+        CHECK(
+            before && after && !after->active && after->count == flow::local_flow_completed_count
+        );
         CHECK(before->points == after->points && before->tick == after->tick);
         CHECK(before->goal_key == after->goal_key);
         CHECK(flow::local_flow_completed_within_history(*before, now));
         CHECK(flow::local_flow_completed_within_history(*after, now));
-        const auto restored_progress = loaded.match->ground_runtime(unit)->movement.last_motion_tick;
+        const auto restored_progress =
+            loaded.match->ground_runtime(unit)->movement.last_motion_tick;
         CHECK(restored_progress == now - age);
-        CHECK(flow::local_flow_stationary_history_due(now, restored_progress) ==
-              (age == flow::local_flow_completed_history_ticks));
+        CHECK(
+            flow::local_flow_stationary_history_due(now, restored_progress) ==
+            (age == flow::local_flow_completed_history_ticks)
+        );
     }
 }
 

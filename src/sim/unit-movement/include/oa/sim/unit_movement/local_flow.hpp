@@ -131,7 +131,8 @@ local_flow_completed_within_history(const LocalFlowHead& head, uint32_t tick) no
 /// @param tick current simulation tick
 /// @param last_progress last actual progress tick, preferably from the tick-start snapshot
 /// @return whether at least four retry periods have elapsed without actual progress
-[[nodiscard]] bool local_flow_stationary_history_due(uint32_t tick, uint32_t last_progress) noexcept;
+[[nodiscard]] bool
+local_flow_stationary_history_due(uint32_t tick, uint32_t last_progress) noexcept;
 
 /// Records an occupancy result independently of subpixel motion within a cell.
 ///

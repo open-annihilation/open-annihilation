@@ -1280,7 +1280,9 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
             (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 &&
              version != 6 && version != 7 && version != 8 && version != 9))
-            throw std::runtime_error("--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8 or 9");
+            throw std::runtime_error(
+                "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8 or 9"
+            );
         options.benchmark_rules_version = version;
         return true;
     }

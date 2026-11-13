@@ -1316,7 +1316,8 @@ int main(int argc, char** argv) {
             std::cerr << name << ": " << error.what() << '\n';
         }
     };
-    for (const auto version : {battle_version, distributed_version, following_version, retained_version}) {
+    for (const auto version :
+         {battle_version, distributed_version, following_version, retained_version}) {
         const auto run_version = [&](const char* name, void (*test)(uint32_t)) {
             run(name, [&] { test(version); });
         };
