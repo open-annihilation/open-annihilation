@@ -2939,7 +2939,19 @@ void Runtime::check_full_render_tier(
                     continue;
                 at_zoom(zoom);
                 match_models().unit_transition = {};
-                std::ignore = full_frame();
+                if (far_view_frame()) {
+                    // A large physical model can reach its dot boundary
+                    // beyond Full's detail floor. That legal view uses the
+                    // filtered terrain while retaining the Full tier.
+                    terrain_cache_cam_x_ = kUncachedTerrainCamera;
+                    const uint64_t runs = terrain_box_filter_runs_;
+                    std::ignore = presented();
+                    if (terrain_box_filter_runs_ == runs || !full_presentation() || !full_ ||
+                        full_->drawn || full_frame_drawn())
+                        fail("the Unit size boundary did not draw its filtered far view");
+                } else {
+                    std::ignore = full_frame();
+                }
                 const bool unit_models = std::any_of(
                     match_models().draws.models.begin(),
                     match_models().draws.models.end(),
