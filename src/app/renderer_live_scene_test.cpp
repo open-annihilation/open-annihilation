@@ -8412,6 +8412,18 @@ void physical_model_bands() {
         OA_CHECK(std::fegetround() == FE_UPWARD);
         OA_CHECK(std::fesetround(rounding) == 0);
     }
+    // A false-linked draw is an original no-op even with no model references.
+    // Interleave enough of these to break every consecutive drawn run,
+    // while retaining more than 512 ordinary eligible units overall.
+    const auto complete = fixture.many.models;
+    for (std::size_t index = 2; index + 1 < fixture.many.models.size(); index += 2) {
+        auto& draw = fixture.many.models[index];
+        draw.plan.linked.drawn = false;
+        draw.model = {};
+    }
+    compare(true);
+    fixture.many.models = complete;
+    compare(true);
     OA_CHECK(
         std::memcmp(
             canonical.data(), fixture.units.data(), canonical.size() * sizeof(canonical[0])
