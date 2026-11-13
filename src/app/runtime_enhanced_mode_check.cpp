@@ -768,8 +768,16 @@ void Runtime::check_enhanced_mode() {
     require(enhanced_mode_version(*this) == 10, "a new skirmish lost the CLI preset");
     const fs::path cohort_save = options_.preferences_file->parent_path() / "enhanced-cli-v10.sav";
     require(save_match_game(cohort_save, "CLI Enhanced rules", 0), "CLI rules did not save");
+    // A real launch keeps its Options. This fixture changes the version,
+    // so resolve its pending profile explicitly while the live rules stay held.
     options_.enhanced_mode_version = mode::following_flow_version;
     apply_engine_settings(chosen);
+    apply_hack_overrides();
+    const auto* pending_profile = next_match_profile();
+    require(
+        pending_profile != nullptr && mode::rules_version(pending_profile->rules) == 8,
+        "the pending profile did not take the synthetic CLI selection"
+    );
     require(enhanced_mode_version(*this) == 10, "a live match changed its CLI rules");
     leave_match();
     load(Screen::main_menu);
@@ -781,6 +789,10 @@ void Runtime::check_enhanced_mode() {
     require(enhanced_mode_version(*this) == 8, "leaving a saved match lost the CLI selection");
     options_.enhanced_mode_version = mode::cohort_target_version;
     apply_engine_settings(chosen);
+    apply_hack_overrides();
+    require(
+        enhanced_mode_version(*this) == 10, "the CLI fixture did not restore its v10 selection"
+    );
     require(load_saved_game(enhanced_save), "the default save did not load under CLI v10");
     require(enhanced_mode_version(*this) == 4, "the CLI upgraded saved default rules");
     leave_match();

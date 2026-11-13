@@ -532,6 +532,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--install-mod", "a.oamod", {}},
         {"--frames", "10", {}},
         {"--benchmark", "10", {}},
+        {"--enhanced-mode-version", "10", {}},
         {"--battle-benchmark", "report.json", {}},
         {"--benchmark-units", "128", {"--battle-benchmark", "report.json"}},
         {"--benchmark-warmup", "30", {"--battle-benchmark", "report.json"}},
