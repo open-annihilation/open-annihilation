@@ -3,35 +3,11 @@
 
 namespace {
 
-/// Compares complete caster payloads with physical detail selection disabled.
-/// @param inputs the same immutable world and presentation for both emitters
-/// @param index_count the source faces that the casting policy includes
-/// @param cast_count the ordinary picture, cut and sheared records expected
-/// @return the Enhanced frame for additional policy checks
-live::Scene
-caster_index_frame(const live::Inputs& inputs, std::size_t index_count, std::size_t cast_count) {
-    OA_CHECK(inputs.unit_marker_pixels == 0);
-    auto ordinary_inputs = inputs;
-    ordinary_inputs.body_lod_enabled = false;
-    auto enhanced_inputs = inputs;
-    enhanced_inputs.body_lod_enabled = true;
-    live::Scene ordinary, enhanced;
-    std::string ordinary_error, enhanced_error;
-    OA_CHECK(live::build(ordinary_inputs, ordinary, ordinary_error));
-    OA_CHECK(live::build(enhanced_inputs, enhanced, enhanced_error));
-    OA_CHECK(ordinary_error.empty() && enhanced_error.empty());
-    OA_CHECK(enhanced.card_types.draw_types.size() == inputs.draws->models.size());
-    for (const auto type_index : enhanced.card_types.draw_types) {
-        OA_CHECK(type_index >= 0);
-        if (type_index < 0)
-            continue;
-        const auto& type = enhanced.card_types.types[static_cast<std::size_t>(type_index)];
-        OA_CHECK(type.shadow_runs_ready);
-        OA_CHECK(type.piece_shadow_runs.size() == type.objects.size() + 1);
-    }
-    OA_CHECK(ordinary.cards.cast_indices.size() == index_count);
+/// Requires identical shadow placement, instance naming and ordered source corners.
+/// @param ordinary the complete reference emitter's retained payload
+/// @param enhanced the optimized emitter's retained payload
+void check_caster_index_payload(const live::Scene& ordinary, const live::Scene& enhanced) {
     OA_CHECK(enhanced.cards.cast_indices == ordinary.cards.cast_indices);
-    OA_CHECK(ordinary.cards.casts.size() == cast_count);
     OA_CHECK(enhanced.cards.casts.size() == ordinary.cards.casts.size());
     OA_CHECK(enhanced.cards.positions == ordinary.cards.positions);
     OA_CHECK(enhanced.cards.piece_frames == ordinary.cards.piece_frames);
@@ -113,8 +89,39 @@ caster_index_frame(const live::Inputs& inputs, std::size_t index_count, std::siz
             )
         );
     }
-    OA_CHECK(enhanced.body_lod_counts.body_lod_models == 0);
     OA_CHECK(enhanced.body_lod_counts.shadow_vertices == ordinary.body_lod_counts.shadow_vertices);
+}
+
+/// Compares complete caster payloads with physical detail selection disabled.
+/// @param inputs the same immutable world and presentation for both emitters
+/// @param index_count the source faces that the casting policy includes
+/// @param cast_count the ordinary picture, cut and sheared records expected
+/// @return the Enhanced frame for additional policy checks
+live::Scene
+caster_index_frame(const live::Inputs& inputs, std::size_t index_count, std::size_t cast_count) {
+    OA_CHECK(inputs.unit_marker_pixels == 0);
+    auto ordinary_inputs = inputs;
+    ordinary_inputs.body_lod_enabled = false;
+    auto enhanced_inputs = inputs;
+    enhanced_inputs.body_lod_enabled = true;
+    live::Scene ordinary, enhanced;
+    std::string ordinary_error, enhanced_error;
+    OA_CHECK(live::build(ordinary_inputs, ordinary, ordinary_error));
+    OA_CHECK(live::build(enhanced_inputs, enhanced, enhanced_error));
+    OA_CHECK(ordinary_error.empty() && enhanced_error.empty());
+    OA_CHECK(enhanced.card_types.draw_types.size() == inputs.draws->models.size());
+    for (const auto type_index : enhanced.card_types.draw_types) {
+        OA_CHECK(type_index >= 0);
+        if (type_index < 0)
+            continue;
+        const auto& type = enhanced.card_types.types[static_cast<std::size_t>(type_index)];
+        OA_CHECK(type.shadow_runs_ready);
+        OA_CHECK(type.piece_shadow_runs.size() == type.objects.size() + 1);
+    }
+    OA_CHECK(ordinary.cards.cast_indices.size() == index_count);
+    OA_CHECK(ordinary.cards.casts.size() == cast_count);
+    OA_CHECK(enhanced.body_lod_counts.body_lod_models == 0);
+    check_caster_index_payload(ordinary, enhanced);
     return enhanced;
 }
 
@@ -271,6 +278,58 @@ void caster_index_capacity_fallback() {
         );
         OA_CHECK(ordinary.model_count == 0 && enhanced.model_count == 0);
         OA_CHECK(ordinary.shadow_count == 0 && enhanced.shadow_count == 0);
+    }
+}
+
+/// Reduced bodies keep identical shadow streams when only the emitter cache differs.
+void caster_index_coarse_equivalence() {
+    namespace runtime = oa::sim::model_runtime;
+    constexpr auto visible = static_cast<uint16_t>(runtime::PieceFlag::visible);
+    constexpr auto cached = static_cast<uint16_t>(runtime::PieceFlag::cached);
+    for (const auto [scale, expected] :
+         std::array{std::pair{0.5F, uint8_t{1}}, std::pair{0.8F, uint8_t{2}}}) {
+        BodyLodFixture fixture(8);
+        auto& battle = fixture.battle;
+        for (auto& piece : fixture.instance.pieces())
+            piece.flags = visible | cached;
+        fixture.instance.pieces()[1].flags = visible;
+        fixture.projection(scale);
+        live::Scene ordinary, enhanced;
+        OA_CHECK(live::build(battle.inputs, ordinary, battle.error));
+        // This optional cache changes only the index emitter. Both frames
+        // retain Enhanced Mode and the same animated physical body quality.
+        for (auto& type : ordinary.card_types.types)
+            type.shadow_runs_ready = false;
+        OA_CHECK(live::build(battle.inputs, ordinary, battle.error));
+        OA_CHECK(live::build(battle.inputs, enhanced, battle.error));
+        OA_CHECK(ordinary.unit_detail.size() == 1 && enhanced.unit_detail.size() == 1);
+        if (ordinary.unit_detail.size() != 1 || enhanced.unit_detail.size() != 1)
+            continue;
+        OA_CHECK(ordinary.unit_detail[0].body_lod == expected);
+        OA_CHECK(enhanced.unit_detail[0].body_lod == expected);
+        OA_CHECK(
+            ordinary.unit_detail[0].body_piece_mask == enhanced.unit_detail[0].body_piece_mask
+        );
+        OA_CHECK(
+            ordinary.unit_detail[0].body_medium_piece_mask ==
+            enhanced.unit_detail[0].body_medium_piece_mask
+        );
+        if (expected == 1)
+            OA_CHECK(std::popcount(enhanced.unit_detail[0].body_piece_mask) == 6);
+        else
+            OA_CHECK(std::popcount(enhanced.unit_detail[0].body_medium_piece_mask) == 8);
+        OA_CHECK(ordinary.body_lod_counts.body_lod_models == 1);
+        OA_CHECK(enhanced.body_lod_counts.body_lod_models == 1);
+        OA_CHECK(!ordinary.cards.cast_indices.empty());
+        OA_CHECK(ordinary.cards.units.size() == 1 && enhanced.cards.units.size() == 1);
+        if (ordinary.cards.units.size() == 1 && enhanced.cards.units.size() == 1) {
+            const auto& reference = ordinary.cards.units[0];
+            const auto& actual = enhanced.cards.units[0];
+            OA_CHECK(reference.body_lod && actual.body_lod);
+            OA_CHECK(!ordinary.card_types.types[reference.type].shadow_runs_ready);
+            OA_CHECK(enhanced.card_types.types[actual.type].shadow_runs_ready);
+        }
+        check_caster_index_payload(ordinary, enhanced);
     }
 }
 
