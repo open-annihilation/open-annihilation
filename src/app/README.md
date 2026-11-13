@@ -3611,7 +3611,7 @@ prompts, Settings › Updates and the headers name one state with one size.
   and the battle end with the memory report, its peaks the largest the
   system saw (`oa/platform/memory_status.hpp`).
   With `--stage FILE`, the skirmish-battle showcase instead applies that
-  stage under experimental Enhanced rules 6, requires 10,000 live units
+  stage under experimental Enhanced rules 8, requires 10,000 live units
   per side, and plays for a minute on the normal window loop. A stage's
   `view X Z ZOOM YAW PITCH` line sets its presentation in the normal
   window; it is refused in headless runs. `console +stats 1` shows actual

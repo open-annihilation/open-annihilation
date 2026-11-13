@@ -69,7 +69,7 @@ constexpr std::size_t kBattleUnitsPerSide = 50;
 /// Units each side brings to an externally staged battle showcase.
 constexpr uint32_t staged_battle_units_per_side = 10000;
 /// Rules selected before the staged showcase's match is created.
-constexpr uint32_t staged_battle_rules_version = oa::data::enhanced_mode::battle_flow_version;
+constexpr uint32_t staged_battle_rules_version = oa::data::enhanced_mode::following_flow_version;
 // A battle frame longer than five ticks at normal speed, the most a frame
 // catches up, costs the match ticks; the showcase lists the first few.
 constexpr double kSlowFrameSeconds = 5.0 / 30.0;
