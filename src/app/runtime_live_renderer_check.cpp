@@ -3213,7 +3213,7 @@ int Runtime::check_live_renderer() {
         };
         const auto draw_ground_frame = [&] {
             const auto presentation_tick = match_timing_.tick;
-            const auto simulation_tick = match_->simulation().tick;
+            const uint32_t simulation_tick = match_->simulation().tick;
             render_match_surface();
             require(
                 match_timing_.tick == presentation_tick &&
