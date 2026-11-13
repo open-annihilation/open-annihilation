@@ -95,10 +95,11 @@ int Runtime::check_live_renderer() {
         MatchRules rules{};
         rules.setup.enhanced_mode.enabled = true;
         MarkerFramePolicy frame{true, true};
-        for (int32_t version = 0; version <= 9; ++version) {
+        for (int32_t version = 0; version <= 11; ++version) {
             rules.setup.enhanced_mode.version = version;
             require(
-                compact_marker_frame(rules, frame) == (version == 7 || version == 8),
+                compact_marker_frame(rules, frame) ==
+                    (version == 7 || version == 8 || version == 10),
                 "the compact marker production rules gate is wrong"
             );
         }
@@ -3196,19 +3197,18 @@ int Runtime::check_live_renderer() {
         constexpr float ground_check_pitch = -53;
         constexpr float ground_check_angle_step = 5;
         constexpr double ground_check_pan = 16;
-        const auto start_ground_match = [&] {
+        const auto start_ground_match = [&](uint32_t version = mode::following_flow_version) {
             leave_match();
             load(Screen::main_menu);
             require(
-                hold_enhanced_rules_once(mode::following_flow_version),
+                hold_enhanced_rules_once(version),
                 "the ground-query fixture could not select Enhanced rules"
             );
             start_benchmark_skirmish();
             require(match_ != nullptr, "the Enhanced ground-query match did not start");
             const auto& enhanced = match_->rules().setup.enhanced_mode;
             require(
-                enhanced.enabled &&
-                    enhanced.version == static_cast<int32_t>(mode::following_flow_version),
+                enhanced.enabled && enhanced.version == static_cast<int32_t>(version),
                 "the ground-query fixture did not start the requested real Enhanced match"
             );
             select_local_commander();
@@ -3573,8 +3573,14 @@ int Runtime::check_live_renderer() {
         // A real walking rig must enter the caller's from-copies path before
         // any frozen comparison. No record position, piece pose or tick is
         // manufactured to make the visibility proof succeed.
-        for (const float preplan_zoom : {1.0F, 0.35F}) {
-            start_ground_match();
+        constexpr uint32_t deferred_geometry_version = mode::cohort_target_version;
+        for (const auto [preplan_zoom, preplan_version] : std::array{
+                 std::pair{1.0F, mode::following_flow_version},
+                 std::pair{0.35F, mode::following_flow_version},
+                 std::pair{1.0F, deferred_geometry_version},
+                 std::pair{0.35F, deferred_geometry_version}
+             }) {
+            start_ground_match(preplan_version);
             enter_console_check_line("+nowisee");
             constexpr int32_t fixed = 65536;
             constexpr float preplan_pitch = -20;
@@ -4092,6 +4098,25 @@ int Runtime::check_live_renderer() {
                         }
                         return true;
                     };
+                    const auto same_points = [&](const auto& first, const auto& second) {
+                        if (first.pieces().size() != second.pieces().size())
+                            return false;
+                        for (std::size_t piece = 0; piece < first.pieces().size(); ++piece) {
+                            const auto& a = first.pieces()[piece];
+                            const auto& b = second.pieces()[piece];
+                            if (!same_vector(a.transformed_origin, b.transformed_origin) ||
+                                a.transformed_vertices.size() != b.transformed_vertices.size())
+                                return false;
+                            for (std::size_t vertex = 0; vertex < a.transformed_vertices.size();
+                                 ++vertex)
+                                if (!same_vector(
+                                        a.transformed_vertices[vertex],
+                                        b.transformed_vertices[vertex]
+                                    ))
+                                    return false;
+                        }
+                        return true;
+                    };
                     auto& canonical = match_->runtime_state(walker).instance->model();
                     auto& canonical_state = models.units[walker].state;
                     const auto canonical_plan = [&] {
@@ -4113,9 +4138,15 @@ int Runtime::check_live_renderer() {
                     place_match_view(outside_view[0], outside_view[1]);
                     visibility.force_ordinary = true;
                     render_match_surface();
+                    std::size_t lazy_frames{};
+                    constexpr unsigned maximum_lazy_attempts = 8;
                     for (const uint32_t batch : {2U, 3U, 4U}) {
                         advance_slow_frame(batch);
                         const auto before_instance = canonical;
+                        const auto before_deferred =
+                            walker < models.deferred_geometry.units.size()
+                                ? std::optional{models.deferred_geometry.units[walker]}
+                                : std::nullopt;
                         const auto before_state = clone_state(canonical_state);
                         const auto tick = uint32_t{match_->simulation().tick};
                         const auto random = match_->random_state();
@@ -4142,31 +4173,81 @@ int Runtime::check_live_renderer() {
                         // no raw World pose, clock, script or RNG is changed.
                         canonical = before_instance;
                         canonical_state = clone_state(before_state);
+                        if (before_deferred)
+                            models.deferred_geometry.units.at(walker) = *before_deferred;
                         visibility.force_ordinary = false;
                         render_match_surface();
                         const auto* postplan = find_walker();
+                        const auto* waiting = walker < models.deferred_geometry.units.size()
+                                                  ? &models.deferred_geometry.units[walker]
+                                                  : nullptr;
+                        const bool lazy = waiting && waiting->pending;
                         require(
                             canonical_plan() && postplan && postplan->preplan_omitted &&
                                 !postplan->plan.linked.drawn &&
                                 postplan->model.instance == &canonical &&
                                 postplan->model.state == &canonical_state &&
-                                visibility.whole_tick_postplan_omitted_count != 0,
-                            "real slow-frame canonical planning did not activate post-plan omission"
+                                (visibility.whole_tick_postplan_omitted_count != 0 ||
+                                 visibility.deferred_geometry_count != 0),
+                            "real slow-frame canonical planning did not activate omission"
                         );
                         require(
                             match_world_cpu_.rgb == ordinary_picture.rgb &&
                                 bounds_and_picks() == ordinary_bounds &&
-                                same_derived(canonical, ordinary_instance) &&
                                 lifecycle(canonical_state) == ordinary_lifecycle,
-                            "whole-tick omission changed GPU output, derived geometry or "
-                            "image/cache lifecycle"
+                            "whole-tick omission changed GPU output or image/cache lifecycle"
                         );
                         const auto postplan_readback = match_draw_read_back();
-                        if (const char* difference =
-                                draw_read_back_difference(ordinary_readback, postplan_readback))
-                            throw std::runtime_error(
-                                std::string("whole-tick post-plan draw changed ") + difference
+                        if (lazy) {
+                            ++lazy_frames;
+                            require(
+                                visibility.deferred_geometry_count != 0 &&
+                                    same_points(canonical, before_instance) &&
+                                    canonical.materialization_revision() ==
+                                        before_instance.materialization_revision(),
+                                "lazy planning rebuilt the retained canonical vectors"
                             );
+                            auto resolved = canonical;
+                            auto recipe = *waiting;
+                            recipe.instance = &resolved;
+                            require(
+                                recipe.resolve(resolved), "a copied lazy recipe did not resolve"
+                            );
+                            resolved.rebuild_transforms(canonical_state.shift, true);
+                            require(
+                                same_derived(resolved, ordinary_instance),
+                                "explicitly resolved lazy geometry differs from ordinary geometry"
+                            );
+                            const auto retained = canonical;
+                            const auto revision = canonical.materialization_revision();
+                            const auto repeated_readback = match_draw_read_back();
+                            require(
+                                same_derived(canonical, retained) && waiting->pending &&
+                                    canonical.materialization_revision() == revision &&
+                                    repeated_readback.pieces == postplan_readback.pieces,
+                                "raw draw readback materialized pending canonical geometry"
+                            );
+                            require(
+                                std::memcmp(
+                                    ordinary_readback.game.get(),
+                                    postplan_readback.game.get(),
+                                    sizeof(oa::Game)
+                                ) == 0 &&
+                                    ordinary_readback.on_screen == postplan_readback.on_screen &&
+                                    ordinary_readback.world == postplan_readback.world,
+                                "lazy planning changed game state, on-screen order or world digest"
+                            );
+                        } else {
+                            require(
+                                same_derived(canonical, ordinary_instance),
+                                "eager whole-tick omission changed canonical derived geometry"
+                            );
+                            if (const char* difference =
+                                    draw_read_back_difference(ordinary_readback, postplan_readback))
+                                throw std::runtime_error(
+                                    std::string("whole-tick post-plan draw changed ") + difference
+                                );
+                        }
                         capture_unit_pose(
                             match_->world().record.units[walker], canonical, raw_after
                         );
@@ -4177,19 +4258,83 @@ int Runtime::check_live_renderer() {
                             "whole-tick frozen replay changed canonical pose, tick or RNG"
                         );
                     }
+                    const bool lazy_preset = preplan_version == deferred_geometry_version;
+                    require(
+                        lazy_preset ? lazy_frames != 0 : lazy_frames == 0,
+                        "the whole-tick lazy-geometry preset did not match actual activation"
+                    );
+                    if (lazy_preset) {
+                        auto& pending = models.deferred_geometry.units.at(walker);
+                        for (unsigned attempt = 0;
+                             attempt < maximum_lazy_attempts && !pending.pending;
+                             ++attempt) {
+                            advance_slow_frame(2);
+                            render_match_surface();
+                        }
+                        require(
+                            pending.pending && canonical.transforms_dirty(),
+                            "the real walking fixture did not retain dirty geometry for SFX"
+                        );
+                        auto expected_effect = canonical;
+                        const auto& record = match_->world().record.units[walker];
+                        expected_effect.rebuild_transforms(
+                            {record.bank, static_cast<int16_t>(record.heading), record.pitch}
+                        );
+                        const auto effect_revision = canonical.materialization_revision();
+                        const auto effect_tick = uint32_t{match_->simulation().tick};
+                        const auto effect_random = match_->random_state();
+                        // An unhandled code refreshes and reads the real effect origin,
+                        // then emits no particle and consumes no random number.
+                        constexpr int32_t unhandled_origin_effect = 0x100;
+                        offline_effects_.emit_sfx(
+                            match_->world().slots[walker],
+                            canonical.root_piece(),
+                            unhandled_origin_effect
+                        );
+                        require(
+                            canonical.materialization_revision() != effect_revision &&
+                                same_derived(canonical, expected_effect),
+                            "the actual SFX adapter did not refresh retained canonical geometry"
+                        );
+                        const auto effect_geometry = canonical;
+                        const auto refreshed_revision = canonical.materialization_revision();
+                        pending.observe(canonical);
+                        require(
+                            !pending.pending && pending.resolve(canonical) &&
+                                same_derived(canonical, effect_geometry) &&
+                                canonical.materialization_revision() == refreshed_revision &&
+                                match_->simulation().tick == effect_tick &&
+                                match_->random_state() == effect_random,
+                            "an old draw recipe replaced newer SFX geometry or changed simulation"
+                        );
+                        for (unsigned attempt = 0;
+                             attempt < maximum_lazy_attempts && !pending.pending;
+                             ++attempt) {
+                            advance_slow_frame(2);
+                            render_match_surface();
+                        }
+                        require(
+                            pending.pending,
+                            "the walker did not reenter lazy residency before camera ingress"
+                        );
+                    }
                     center_camera_on_unit(walker);
                     render_match_surface();
                     require(
-                        walker_visible() && canonical_plan(),
-                        "whole-tick camera ingress did not show canonical animated geometry"
+                        walker_visible() && canonical_plan() &&
+                            (walker >= models.deferred_geometry.units.size() ||
+                             !models.deferred_geometry.units[walker].pending),
+                        "whole-tick camera ingress did not resolve canonical animated geometry"
                     );
+                    const auto ingress_instance = canonical;
                     const auto whole_ingress = match_world_cpu_;
                     const auto whole_ingress_bounds = bounds_and_picks();
                     visibility.force_ordinary = true;
                     render_match_surface();
                     require(
                         match_world_cpu_.rgb == whole_ingress.rgb &&
-                            bounds_and_picks() == whole_ingress_bounds,
+                            bounds_and_picks() == whole_ingress_bounds &&
+                            same_derived(canonical, ingress_instance),
                         "whole-tick ingress differs from ordinary rendering"
                     );
                     visibility.force_ordinary = false;
@@ -4206,10 +4351,24 @@ int Runtime::check_live_renderer() {
                     );
                     place_match_view(outside_view[0], outside_view[1]);
                     render_match_surface();
+                    if (lazy_preset) {
+                        auto& pending = models.deferred_geometry.units.at(walker);
+                        for (unsigned attempt = 0;
+                             attempt < maximum_lazy_attempts && !pending.pending;
+                             ++attempt) {
+                            advance_slow_frame(2);
+                            render_match_surface();
+                        }
+                        require(
+                            pending.pending,
+                            "the producer-loss fixture did not actually retain lazy geometry"
+                        );
+                    }
                     require(
                         walker_omitted() && canonical_plan() &&
-                            visibility.whole_tick_postplan_omitted_count != 0,
-                        "the whole-tick producer-loss fixture has no actual post-plan omission"
+                            (visibility.whole_tick_postplan_omitted_count != 0 ||
+                             visibility.deferred_geometry_count != 0),
+                        "the whole-tick producer-loss fixture has no actual omission"
                     );
                     const auto postplan_tick = uint32_t{match_->simulation().tick};
                     const auto postplan_random = match_->random_state();
@@ -4223,6 +4382,9 @@ int Runtime::check_live_renderer() {
                     require(
                         visibility.omitted_count == 0 &&
                             visibility.whole_tick_postplan_omitted_count == 0 &&
+                            visibility.deferred_geometry_count == 0 &&
+                            (walker >= models.deferred_geometry.units.size() ||
+                             !models.deferred_geometry.units[walker].pending) &&
                             std::none_of(
                                 models.draws.models.begin(),
                                 models.draws.models.end(),
@@ -4235,9 +4397,12 @@ int Runtime::check_live_renderer() {
                     );
                     std::cout
                         << "live renderer check: real 2/3/4-tick normal-rate batches use "
-                           "production whole presentation and canonical post-plan omission; "
-                           "GPU pixels/bounds/picks, derived readback and image/cache lifecycle "
-                           "match ordinary rendering; ingress and classic fallback pass\n";
+                           "production whole presentation and canonical omission; "
+                           "GPU pixels/bounds/picks and image/cache lifecycle match; eager derived "
+                           "readback and explicitly resolved lazy copies match ordinary geometry; "
+                           "raw readback retains pending vectors; ingress and classic fallback "
+                           "pass; "
+                        << "lazy frames=" << lazy_frames << '\n';
                 }
             } catch (...) {
                 visibility.force_ordinary = false;
@@ -4248,7 +4413,8 @@ int Runtime::check_live_renderer() {
             visibility.force_ordinary = false;
             set_live_models_on_card(true);
             set_presentation_alpha(1);
-            std::cout << "live renderer check: zoom=" << preplan_zoom
+            std::cout << "live renderer check: preset=" << preplan_version
+                      << " zoom=" << preplan_zoom
                       << " real walking/animated ARMPW naturally omitted "
                          "with exact frozen pixels, bounds and picks; camera ingress animates; "
                          "held camera mismatch and omitted-only producer loss request genuine "
