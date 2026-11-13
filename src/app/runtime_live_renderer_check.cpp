@@ -4,6 +4,7 @@
 // Windowless Skirmish coverage of the live camera, rendered world, command
 // picking and orders, camera reset, render target resizing and advancing simulation.
 #include "oa/app/runtime.hpp"
+#include "bench_timers.hpp"
 #include "oa/app/frame_pacing.hpp"
 #include "engine_settings_state.hpp"
 #include "full_presentation.hpp"
@@ -3606,8 +3607,8 @@ int Runtime::check_live_renderer() {
             auto* placed = match_->create(request);
             require(placed && placed->unit, "the pre-planning ARMPW did not spawn");
             placed->unit->object_present = true;
-            const auto walker = placed->unit_index;
-            const auto walker_id = placed->record.id;
+            auto walker = placed->unit_index;
+            auto walker_id = placed->record.id;
             require(match_->takes_move_order(walker), "the pre-planning unit cannot walk");
             match_layout_ = lay_out_match(1280, 800);
             match_zoom_ = match_zoom_target_ = preplan_zoom;
@@ -3701,6 +3702,7 @@ int Runtime::check_live_renderer() {
                     walker_visible() && live_models_on_card(),
                     "the real walking GPU model did not warm on screen"
                 );
+#include "runtime_live_body_lod_check.inc"
                 const auto centered = match_view_place();
                 std::array<double, 2> outside_view{};
                 bool naturally_omitted{};
@@ -3929,10 +3931,56 @@ int Runtime::check_live_renderer() {
                         match_->random_state() == fallback_random && !match_->fault(),
                     "the omitted-frame classic replan changed simulation or RNG"
                 );
-                // Keep the moving-copy controls above literal. Real slow
-                // frames at normal speed present the entire newly run batch,
-                // so the separate completed-canonical path must work too.
-                {
+                // Walking ARMPW limbs are cached: their real image rebuilds
+                // must stay eager. A separately activated stationary ARMJAM
+                // spins an uncached fork and exercises the eligible lazy path.
+                for (const bool stationary : {false, true}) {
+                    if (stationary && preplan_version != deferred_geometry_version)
+                        continue;
+                    if (stationary) {
+                        auto jammer_request = request;
+                        jammer_request.type =
+                            oa::sim::unit_spawn::find_type_index(spawn_type_names_, "ARMJAM");
+                        require(jammer_request.type != 0, "the lazy fixture lacks stock ARMJAM");
+                        const auto origin = match_->world().record.units[walker].position;
+                        oa::sim::unit_spawn::Slot* jammer{};
+                        constexpr std::array<std::array<int32_t, 2>, 4> spawn_offsets{
+                            {{96, 0}, {-96, 0}, {0, 96}, {0, -96}}
+                        };
+                        for (const auto& offset : spawn_offsets) {
+                            const int32_t x = origin.x + offset[0] * fixed;
+                            const int32_t z = origin.z + offset[1] * fixed;
+                            const auto ground = terrain.height(x, z);
+                            if (ground < terrain.sea_level())
+                                continue;
+                            jammer_request.position = {
+                                static_cast<uint32_t>(x),
+                                static_cast<uint32_t>(ground * fixed),
+                                static_cast<uint32_t>(z)
+                            };
+                            jammer = match_->create(jammer_request);
+                            if (jammer && jammer->unit)
+                                break;
+                        }
+                        require(jammer && jammer->unit, "the stock ARMJAM did not spawn");
+                        jammer->unit->object_present = true;
+                        walker = jammer->unit_index;
+                        walker_id = jammer->record.id;
+                        match_->set_unit_state_flags(
+                            walker, oa::present::model::kUnitStateActivated, true
+                        );
+                        set_live_models_on_card(true);
+                        require(
+                            turn_live_camera(ground_check_yaw, preplan_pitch),
+                            "the stationary geometry camera did not restore"
+                        );
+                        center_camera_on_unit(walker);
+                        visibility.force_ordinary = true;
+                        set_presentation_alpha(1);
+                        step_match_simulation();
+                        render_match_surface();
+                        require(walker_visible(), "the activated stock ARMJAM did not warm");
+                    }
                     namespace pacing = frame_pacing;
                     require(
                         match_timing_.actual_rate == oa::base::game_loop::normal_game_speed,
@@ -4141,7 +4189,15 @@ int Runtime::check_live_renderer() {
                     std::size_t lazy_frames{};
                     constexpr unsigned maximum_lazy_attempts = 8;
                     for (const uint32_t batch : {2U, 3U, 4U}) {
+                        const auto fixed_position = match_->world().record.units[walker].position;
                         advance_slow_frame(batch);
+                        if (stationary) {
+                            const auto current = match_->world().record.units[walker].position;
+                            require(
+                                current.x == fixed_position.x && current.z == fixed_position.z,
+                                "the stationary ARMJAM moved during its animation ticks"
+                            );
+                        }
                         const auto before_instance = canonical;
                         const auto before_deferred =
                             walker < models.deferred_geometry.units.size()
@@ -4169,6 +4225,11 @@ int Runtime::check_live_renderer() {
                         const auto ordinary_instance = canonical;
                         const auto ordinary_lifecycle = lifecycle(canonical_state);
                         const auto ordinary_readback = match_draw_read_back();
+                        if (!stationary && preplan_version == deferred_geometry_version)
+                            require(
+                                canonical_state.image_builds > before_state.image_builds,
+                                "the real cached ARMPW animation did not require an image rebuild"
+                            );
                         // Replay exactly the same renderer-owned starting state;
                         // no raw World pose, clock, script or RNG is changed.
                         canonical = before_instance;
@@ -4182,6 +4243,12 @@ int Runtime::check_live_renderer() {
                                                   ? &models.deferred_geometry.units[walker]
                                                   : nullptr;
                         const bool lazy = waiting && waiting->pending;
+                        if (!stationary && preplan_version == deferred_geometry_version)
+                            require(
+                                !lazy,
+                                "cached ARMPW animation incorrectly bypassed its logical image "
+                                "rebuild"
+                            );
                         require(
                             canonical_plan() && postplan && postplan->preplan_omitted &&
                                 !postplan->plan.linked.drawn &&
@@ -4200,6 +4267,10 @@ int Runtime::check_live_renderer() {
                         const auto postplan_readback = match_draw_read_back();
                         if (lazy) {
                             ++lazy_frames;
+                            require(
+                                canonical_state.image_builds == before_state.image_builds,
+                                "eligible uncached animation rebuilt its logical image"
+                            );
                             require(
                                 visibility.deferred_geometry_count != 0 &&
                                     same_points(canonical, before_instance) &&
@@ -4258,7 +4329,7 @@ int Runtime::check_live_renderer() {
                             "whole-tick frozen replay changed canonical pose, tick or RNG"
                         );
                     }
-                    const bool lazy_preset = preplan_version == deferred_geometry_version;
+                    const bool lazy_preset = stationary;
                     require(
                         lazy_preset ? lazy_frames != 0 : lazy_frames == 0,
                         "the whole-tick lazy-geometry preset did not match actual activation"
@@ -4384,7 +4455,7 @@ int Runtime::check_live_renderer() {
                             visibility.whole_tick_postplan_omitted_count == 0 &&
                             visibility.deferred_geometry_count == 0 &&
                             (walker >= models.deferred_geometry.units.size() ||
-                             !models.deferred_geometry.units[walker].pending) &&
+                             !models.deferred_geometry.units[walker].pending || !find_walker()) &&
                             std::none_of(
                                 models.draws.models.begin(),
                                 models.draws.models.end(),
@@ -4395,6 +4466,47 @@ int Runtime::check_live_renderer() {
                             !match_world_cpu_.rgb.empty() && !match_->fault(),
                         "whole-tick producer loss did not complete the ordinary classic replan"
                     );
+                    if (stationary) {
+                        // A classic coarse cull may leave an unused recipe waiting.
+                        // Bring the actor into the real classic consumer before
+                        // requiring resolution, then compare its ordinary redraw.
+                        auto expected_classic = canonical;
+                        auto classic_recipe = models.deferred_geometry.units.at(walker);
+                        classic_recipe.instance = &expected_classic;
+                        require(
+                            classic_recipe.resolve(expected_classic),
+                            "the independent classic recipe did not resolve"
+                        );
+                        expected_classic.rebuild_transforms(canonical_state.shift, true);
+                        center_camera_on_unit(walker);
+                        render_match_surface();
+                        const auto* classic_draw = find_walker();
+                        require(
+                            !live_renderer_active() && classic_draw &&
+                                classic_draw->plan.linked.drawn &&
+                                !models.deferred_geometry.units.at(walker).pending &&
+                                same_derived(canonical, expected_classic),
+                            "the visible classic consumer did not resolve exact ARMJAM geometry"
+                        );
+                        const auto classic_picture = match_world_cpu_;
+                        const auto classic_picks = bounds_and_picks();
+                        const auto classic_readback = match_draw_read_back();
+                        visibility.force_ordinary = true;
+                        render_match_surface();
+                        require(
+                            match_world_cpu_.rgb == classic_picture.rgb &&
+                                bounds_and_picks() == classic_picks &&
+                                match_->simulation().tick == postplan_tick &&
+                                match_->random_state() == postplan_random,
+                            "visible classic geometry differs from the ordinary frozen redraw"
+                        );
+                        if (const char* difference =
+                                draw_read_back_difference(classic_readback, match_draw_read_back()))
+                            throw std::runtime_error(
+                                std::string("classic geometry changed ") + difference
+                            );
+                        visibility.force_ordinary = false;
+                    }
                     std::cout
                         << "live renderer check: real 2/3/4-tick normal-rate batches use "
                            "production whole presentation and canonical omission; "
@@ -4402,7 +4514,8 @@ int Runtime::check_live_renderer() {
                            "readback and explicitly resolved lazy copies match ordinary geometry; "
                            "raw readback retains pending vectors; ingress and classic fallback "
                            "pass; "
-                        << "lazy frames=" << lazy_frames << '\n';
+                        << "actor=" << (stationary ? "ARMJAM" : "ARMPW")
+                        << " lazy frames=" << lazy_frames << '\n';
                 }
             } catch (...) {
                 visibility.force_ordinary = false;
@@ -4415,7 +4528,7 @@ int Runtime::check_live_renderer() {
             set_presentation_alpha(1);
             std::cout << "live renderer check: preset=" << preplan_version
                       << " zoom=" << preplan_zoom
-                      << " real walking/animated ARMPW naturally omitted "
+                      << " real stock walking and animated canonical units naturally omitted "
                          "with exact frozen pixels, bounds and picks; camera ingress animates; "
                          "held camera mismatch and omitted-only producer loss request genuine "
                          "classic replans\n";
