@@ -201,6 +201,10 @@ bool check_pose(
     const auto box = proof::bound_instance(geometry, posed, root, scratch);
     unchanged(posed, saved);
     const auto native = native_oracle(posed, root, names);
+    const auto completed = proof::bound_completed_instance(native, scratch);
+    OA_CHECK(completed.has_value());
+    if (completed)
+        OA_CHECK(encloses(*completed, native));
     if (required)
         OA_CHECK(box.has_value());
     if (box)
@@ -685,6 +689,122 @@ void ownership_topology_wrap_and_allocation_refusals() {
         oa::base::float_precision::restore_float_control(saved_control);
     }
 }
+
+/// Completed bounds read the actual freshly built buffers, with no raw-box approximation.
+void completed_native_geometry_and_refusals() {
+    const auto model = branched_model();
+    auto native = runtime::make_instance(model, 71, cob_order);
+    for (auto& piece : native.pieces()) {
+        piece.flags |= visible;
+        piece.rotation = {2731, -8191, 511};
+        piece.translation = {fixed / 3, -37, fixed / 7};
+    }
+    native.rebuild_transforms({32767, -32768, 123});
+    proof::Scratch scratch;
+    const auto bound = proof::bound_completed_instance(native, scratch);
+    OA_CHECK(bound.has_value());
+    proof::FixedBounds exact{
+        {std::numeric_limits<int32_t>::max(),
+         std::numeric_limits<int32_t>::max(),
+         std::numeric_limits<int32_t>::max()},
+        {std::numeric_limits<int32_t>::min(),
+         std::numeric_limits<int32_t>::min(),
+         std::numeric_limits<int32_t>::min()}
+    };
+    for (const auto& piece : native.pieces())
+        if ((piece.flags & visible) != 0)
+            for (const auto& point : piece.transformed_vertices) {
+                exact.low.x = std::min(exact.low.x, point.x);
+                exact.low.y = std::min(exact.low.y, point.y);
+                exact.low.z = std::min(exact.low.z, point.z);
+                exact.high.x = std::max(exact.high.x, point.x);
+                exact.high.y = std::max(exact.high.y, point.y);
+                exact.high.z = std::max(exact.high.z, point.z);
+            }
+    if (bound)
+        OA_CHECK(same(bound->low, exact.low) && same(bound->high, exact.high));
+    const auto refused = [&](const Instance& altered) {
+        const auto before = altered;
+        OA_CHECK(!proof::bound_completed_instance(altered, scratch));
+        unchanged(altered, before);
+    };
+    auto altered = native;
+    altered.take_pose(native);
+    refused(altered); // Marked dirty even with identical raw locals.
+    altered = native;
+    ++altered.pieces()[0].translation.x;
+    refused(altered); // Raw locals differ from the built locals without a dirty setter.
+    altered = native;
+    ++altered.pieces()[0].rotation.xy;
+    refused(altered);
+    altered = native;
+    altered.pieces()[0].transformed_vertices.pop_back();
+    refused(altered);
+    altered = native;
+    altered.pieces()[0].object_index = altered.pieces()[1].object_index;
+    refused(altered);
+    altered = native;
+    altered.pieces()[0].parent = 99999;
+    refused(altered);
+    altered = native;
+    altered.pieces()[0].transform_marker = 1;
+    refused(altered);
+    const auto allocation_count = refused_allocations;
+    proof::Scratch cold;
+    refuse_allocation = true;
+    OA_CHECK(!proof::bound_completed_instance(native, cold));
+    OA_CHECK(!refuse_allocation && refused_allocations == allocation_count + 1);
+    OA_CHECK(proof::bound_completed_instance(native, cold).has_value());
+
+    FrameFixture fixture;
+    fixture.instance.rebuild_transforms(fixture.root);
+    fixture.state.transforms_dirty = false;
+    oa::app::ModelDraw completed;
+    completed.model = fixture.ref();
+    completed.plan.linked.drawn = true;
+    completed.plan.model.from_image = true;
+    completed.plan.model.ground = fixture.gate.ground_height;
+    completed.shown_position = fixture.unit.position;
+    const auto rejects = [&](const oa::app::ModelDraw& draw) {
+        return proof::completed_rejection_proof(draw, fixture.view, fixture.gate, fixture.scratch);
+    };
+    OA_CHECK(rejects(completed));
+    const auto visible_native =
+        scan_native(fixture.instance, fixture.unit, fixture.view, fixture.gate.ground_height);
+    OA_CHECK(
+        visible_native.body_outside && visible_native.shadow_outside &&
+        visible_native.markers_outside && visible_native.reservation_outside
+    );
+    auto bad = completed;
+    bad.preplan_omitted = true;
+    OA_CHECK(!rejects(bad));
+    bad = completed;
+    bad.plan.linked.drawn = false;
+    OA_CHECK(!rejects(bad));
+    bad = completed;
+    bad.plan.level = drawing::UnitSupersampling::x2;
+    OA_CHECK(!rejects(bad));
+    bad = completed;
+    bad.plan.model.from_image = false;
+    OA_CHECK(!rejects(bad));
+    bad = completed;
+    ++bad.plan.model.ground;
+    OA_CHECK(!rejects(bad));
+    bad = completed;
+    bad.plan.model.carried.emplace_back();
+    OA_CHECK(!rejects(bad));
+    bad = completed;
+    bad.shown_vertices.emplace_back();
+    OA_CHECK(!rejects(bad));
+    bad = completed;
+    bad.shown_position.reset();
+    OA_CHECK(!rejects(bad));
+    bad = completed;
+    ++bad.shown_position->x;
+    OA_CHECK(!rejects(bad));
+    fixture.state.transforms_dirty = true;
+    OA_CHECK(!rejects(completed));
+}
 } // namespace
 
 int main() {
@@ -694,5 +814,6 @@ int main() {
     interpolated_native_projection_oracle();
     unknown_policy_and_identity_keep_the_normal_path();
     ownership_topology_wrap_and_allocation_refusals();
+    completed_native_geometry_and_refusals();
     return oa::test::check_exit_status();
 }

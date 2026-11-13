@@ -39,6 +39,9 @@ struct Geometry {
 /// Reusable topology validation storage; no transformed vertices are retained.
 struct Scratch {
     std::vector<uint32_t> piece_for_object;
+    /// Reused only by completed-geometry validation, never by raw-pose bounds.
+    std::vector<uint8_t> completed_topology_seen;
+    std::vector<std::array<uint32_t, 2>> completed_pending;
 };
 
 namespace detail {
@@ -284,6 +287,110 @@ prepare_geometry(std::shared_ptr<const oa::formats::objects3d::Model> model) {
     return result;
 }
 
+/// Bounds completed native geometry without repeating its hierarchy rotations.
+///
+/// The caller must have completed the ordinary update and model plan for this
+/// exact instance, under its effective root, without subsequently changing its
+/// model, local pose, links or transformed buffers. The instance's private
+/// built-root words are not exposed; clean flags alone do not prove this
+/// caller obligation. Invalid topology, shape or current-pose evidence keeps
+/// the ordinary geometry path. Neither the instance nor its model is changed.
+///
+/// @param instance the exact instance whose ordinary transforms just completed
+/// @param[in,out] scratch reusable topology storage; may change on a refused bound
+/// @return the exact visible-vertex inclusive 16.16 model box, or no value for uncertain input
+[[nodiscard]] inline std::optional<FixedBounds>
+bound_completed_instance(const oa::sim::model_runtime::Instance& instance, Scratch& scratch) {
+    namespace runtime = oa::sim::model_runtime;
+    const auto& handle = instance.model_handle();
+    const auto pieces = instance.pieces();
+    if (!handle || pieces.empty() || pieces.size() != handle->objects.size() ||
+        pieces.size() > std::numeric_limits<uint32_t>::max() || instance.transforms_dirty() ||
+        !oa::base::float_precision::rounds_to_double() || std::fegetround() != FE_TONEAREST ||
+        !oa::base::float_precision::float_control_matches(
+            oa::base::float_precision::program_float_control().saved
+        ))
+        return std::nullopt;
+    try {
+        scratch.piece_for_object.assign(pieces.size(), runtime::kNoPiece);
+        scratch.completed_topology_seen.assign(pieces.size(), 0);
+        scratch.completed_pending.clear();
+        scratch.completed_pending.reserve(pieces.size());
+        scratch.completed_pending.push_back({0, runtime::kNoPiece});
+    } catch (const std::bad_alloc&) {
+        return std::nullopt;
+    }
+    // Validate the same immutable preorder topology accepted by make_instance,
+    // using retained storage rather than allocating a separate hierarchy check.
+    for (std::size_t object = 0; object < handle->objects.size(); ++object) {
+        const auto& source = handle->objects[object];
+        for (const uint32_t link : {source.parent, source.first_child, source.next_sibling})
+            if (link != runtime::kNoPiece && link >= pieces.size())
+                return std::nullopt;
+        if (source.parent != runtime::kNoPiece && source.parent >= object)
+            return std::nullopt;
+    }
+    while (!scratch.completed_pending.empty()) {
+        const auto [object, parent] = scratch.completed_pending.back();
+        scratch.completed_pending.pop_back();
+        if (scratch.completed_topology_seen[object] != 0)
+            return std::nullopt;
+        scratch.completed_topology_seen[object] = 1;
+        const auto& source = handle->objects[object];
+        if (source.parent != parent)
+            return std::nullopt;
+        // Even malformed graphs may only use the already reserved stack.
+        const std::size_t links = (source.next_sibling != runtime::kNoPiece ? 1U : 0U) +
+                                  (source.first_child != runtime::kNoPiece ? 1U : 0U);
+        if (links > pieces.size() - scratch.completed_pending.size())
+            return std::nullopt;
+        if (source.next_sibling != runtime::kNoPiece)
+            scratch.completed_pending.push_back({source.next_sibling, parent});
+        if (source.first_child != runtime::kNoPiece)
+            scratch.completed_pending.push_back({source.first_child, object});
+    }
+    if (std::find(
+            scratch.completed_topology_seen.begin(), scratch.completed_topology_seen.end(), 0
+        ) != scratch.completed_topology_seen.end())
+        return std::nullopt;
+    for (std::size_t index = 0; index < pieces.size(); ++index) {
+        const auto object = pieces[index].object_index;
+        if (object >= pieces.size() || scratch.piece_for_object[object] != runtime::kNoPiece)
+            return std::nullopt;
+        scratch.piece_for_object[object] = static_cast<uint32_t>(index);
+    }
+    if (instance.root_piece() != scratch.piece_for_object[0])
+        return std::nullopt;
+    const auto piece_link = [&](uint32_t object) {
+        return object == runtime::kNoPiece ? runtime::kNoPiece : scratch.piece_for_object[object];
+    };
+    std::optional<FixedBounds> result;
+    for (const auto& piece : pieces) {
+        const auto& source = handle->objects[piece.object_index];
+        if (piece.parent != piece_link(source.parent) ||
+            piece.first_child != piece_link(source.first_child) ||
+            piece.next_sibling != piece_link(source.next_sibling) || piece.transform_marker != 0 ||
+            piece.transformed_vertices.size() != source.vertices.size() ||
+            piece.translation.x != piece.built_translation.x ||
+            piece.translation.y != piece.built_translation.y ||
+            piece.translation.z != piece.built_translation.z ||
+            piece.rotation.xy != piece.built_rotation.xy ||
+            piece.rotation.xz != piece.built_rotation.xz ||
+            piece.rotation.yz != piece.built_rotation.yz)
+            return std::nullopt;
+        if ((piece.flags & static_cast<uint16_t>(runtime::PieceFlag::visible)) == 0)
+            continue;
+        for (const auto& point : piece.transformed_vertices) {
+            const FixedBounds bounds{point, point};
+            if (result)
+                detail::include(*result, bounds);
+            else
+                result = bounds;
+        }
+    }
+    return result;
+}
+
 /// Current-frame projection and rounded shadow-map extent, prepared together.
 struct FrameView {
     std::array<float, 12> projection{};
@@ -311,27 +418,20 @@ struct Eligibility {
     int32_t sea_level{}, ground_height{};
 };
 
-/// Proves the ordinary ground body, possible marker and shadow lie outside this frame.
-///
-/// This is only a geometry proof, not an integrated replacement for planning.
-/// The shown model must hold the exact resolved frame pose and effective root
-/// shift; missing identity, policy or arithmetic evidence keeps the old path.
-/// The ordinary detail classifier must also reserve no surface geometry.
-///
-/// @param geometry the immutable reset bounds of the shown instance's shared model
-/// @param shown the current resolved ordinary ground model and its 16.16 world position
-/// @param effective_root the shown state's thresholded rotation words, 65536 per turn
-/// @param view the same frame's projection to screen pixels and shadow bounds in world pixels
-/// @param gate the proved caller facts, including nonzero frame and matching rig generations
-/// @param[in,out] scratch reusable piece-index storage; may change on a refused proof
-/// @return true only for a complete outside proof; false for visible or uncertain input
-[[nodiscard]] inline bool rejection_proof(
-    const Geometry& geometry,
+namespace detail {
+
+/// Shares the existing rejection arithmetic without choosing a geometry source.
+/// @param shown the exact resolved model and its 16.16 world origin
+/// @param view the current screen projection and rounded shadow-map extent
+/// @param gate the required current-frame policy, ownership and rig evidence
+/// @param bounds a deferred provider of an inclusive 16.16 model-space box
+/// @return true only when all policy, budget, body, marker and shadow checks prove rejection
+template <typename Bounds>
+[[nodiscard]] inline bool rejection_proof_with_bounds(
     const oa::present::model::ModelRef& shown,
-    Rotation effective_root,
     const FrameView& view,
     const Eligibility& gate,
-    Scratch& scratch
+    Bounds&& bounds
 ) {
     if (!gate.enhanced || !gate.local || !gate.rig_resolved || !gate.ground_resolved ||
         !gate.gpu_type_supported || !gate.budget_safe || !gate.native_geometry_resolved ||
@@ -380,7 +480,7 @@ struct Eligibility {
         if (!std::isfinite(camera_across[axis]) || !std::isfinite(camera_down[axis]))
             return false;
     }
-    const auto fixed = bound_instance(geometry, *shown.instance, effective_root, scratch);
+    const auto fixed = bounds();
     if (!fixed)
         return false;
     constexpr float scale = 65536;
@@ -509,6 +609,69 @@ struct Eligibility {
         }))
         return false;
     return right < padded[0] || left > padded[2] || bottom < padded[1] || top > padded[3];
+}
+
+} // namespace detail
+
+/// Proves the ordinary ground body, possible marker and shadow lie outside this frame.
+///
+/// This is only a geometry proof, not an integrated replacement for planning.
+/// The shown model must hold the exact resolved frame pose and effective root
+/// shift; missing identity, policy or arithmetic evidence keeps the old path.
+/// The ordinary detail classifier must also reserve no surface geometry.
+///
+/// @param geometry the immutable reset bounds of the shown instance's shared model
+/// @param shown the current resolved ordinary ground model and its 16.16 world position
+/// @param effective_root the shown state's thresholded rotation words, 65536 per turn
+/// @param view the same frame's projection to screen pixels and shadow bounds in world pixels
+/// @param gate the proved caller facts, including nonzero frame and matching rig generations
+/// @param[in,out] scratch reusable piece-index storage; may change on a refused proof
+/// @return true only for a complete outside proof; false for visible or uncertain input
+[[nodiscard]] inline bool rejection_proof(
+    const Geometry& geometry,
+    const oa::present::model::ModelRef& shown,
+    Rotation effective_root,
+    const FrameView& view,
+    const Eligibility& gate,
+    Scratch& scratch
+) {
+    return detail::rejection_proof_with_bounds(shown, view, gate, [&] {
+        return bound_instance(geometry, *shown.instance, effective_root, scratch);
+    });
+}
+
+/// Proves a completed ordinary whole-tick model contributes no frame geometry.
+///
+/// The caller must just have completed its normal original-instance update
+/// and model planning, preserving every ordinary state/cache/effect side
+/// effect. This function reads the resulting native vertices without raw-pose
+/// interval rotations. Its proof does not authorize resetting the completed
+/// plan or model state; a caller may retain their references and list position
+/// while disabling only the already proved invisible geometry.
+///
+/// @param completed the exact current linked Off plan, without vertex or position overrides
+/// @param view the same frame's screen projection and rounded shadow-map bounds
+/// @param gate the proved policy, owner, generation and actual completed-plan ground height
+/// @param[in,out] scratch reusable topology storage; may change on a refused proof
+/// @return true only when all completed-geometry and shared rejection checks succeed
+[[nodiscard]] inline bool completed_rejection_proof(
+    const ModelDraw& completed, const FrameView& view, const Eligibility& gate, Scratch& scratch
+) {
+    const auto& shown = completed.model;
+    if (completed.preplan_omitted || !completed.plan.linked.drawn ||
+        completed.plan.level != oa::present::model::UnitSupersampling::off ||
+        !completed.plan.model.from_image || !completed.plan.model.carried.empty() ||
+        completed.plan.model.ground != gate.ground_height || !completed.shown_vertices.empty() ||
+        !completed.shown_position || shown.state == nullptr || shown.state->transforms_dirty ||
+        !geometry_shadow_metadata_candidate(completed, gate.sea_level))
+        return false;
+    const auto& position = *completed.shown_position;
+    if (position.x != shown.unit->position.x || position.y != shown.unit->position.y ||
+        position.z != shown.unit->position.z)
+        return false;
+    return detail::rejection_proof_with_bounds(shown, view, gate, [&] {
+        return bound_completed_instance(*shown.instance, scratch);
+    });
 }
 
 } // namespace oa::app::preplanning_visibility

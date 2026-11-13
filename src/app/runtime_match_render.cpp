@@ -686,6 +686,57 @@ bool omit_presented_model(
     return true;
 }
 
+/// Omits completed whole-tick geometry only after ordinary planning's side effects.
+bool omit_completed_model(
+    MatchModels& models,
+    const UnitPlanFrame& frame,
+    UnitPlan& plan,
+    PreplanningVisibility::Worker* worker
+) {
+    if (!worker || !frame.preplanning || !frame.preplanning->view ||
+        !frame.preplanning->budget_safe || !frame.preplanning_sight || plan.from_copies ||
+        models.presentation.fraction != whole_tick || plan.linked || !plan.carried.empty() ||
+        frame.snapshot_unlinked_vertices || !frame.shadow_type_supported ||
+        plan.unit_index == frame.probe_unit || plan.unit_index >= models.presentation.units.size())
+        return false;
+    const auto& shown = plan.draw.model;
+    const auto& motion = models.presentation.units[plan.unit_index];
+    if (!shown.instance || !shown.state || !shown.unit || shown.instance != plan.model.instance ||
+        shown.state != plan.model.state || shown.unit != plan.model.unit || !motion.seen ||
+        !motion.rig_valid || motion.tick != models.presentation.tick ||
+        motion.instance_generation != plan.preplanning_generation ||
+        !frame.shadow_type_supported(frame.shadow_type_context, shown))
+        return false;
+    constexpr float fixed_scale = 65536;
+    const auto& position = shown.unit->position;
+    const auto fog = renderer_live_sight::fog_at(
+        *frame.preplanning_sight,
+        static_cast<int32_t>(position.x / fixed_scale),
+        static_cast<int32_t>(position.z / fixed_scale - position.y / fixed_scale * 0.5F)
+    );
+    preplanning_visibility::Eligibility gate;
+    gate.enhanced = gate.local = gate.rig_resolved = gate.ground_resolved =
+        gate.gpu_type_supported = gate.budget_safe = gate.native_geometry_resolved =
+            gate.ordinary_model_path = true;
+    gate.fog_seen = fog == renderer_live_sight::Fog::seen;
+    gate.frame = models.presentation.draw;
+    gate.owner_token = plan.preplanning_owner;
+    gate.generation = plan.preplanning_generation;
+    gate.rig_generation = motion.instance_generation;
+    gate.sea_level = frame.sea_level;
+    gate.ground_height = plan.draw.plan.model.ground;
+    if (!preplanning_visibility::completed_rejection_proof(
+            plan.draw, *frame.preplanning->view, gate, worker->scratch
+        ))
+        return false;
+    // Keep the original's transforms, image/cache state and completed plan.
+    // Only Scene emission changes; a failed consumer repeats ordinary planning.
+    plan.draw.plan.linked.drawn = false;
+    plan.draw.preplan_omitted = true;
+    ++worker->whole_tick_postplan_omitted_count;
+    return true;
+}
+
 // The units a drawing thread takes at a time to plan: few enough that the
 // threads finish a frame's units together, and enough that taking them
 // costs little.
@@ -942,6 +993,7 @@ void plan_unit_model(
         plan.carried
     );
     plan.adds_draw = true;
+    std::ignore = omit_completed_model(models, frame, plan, preplanning_worker);
 }
 
 /// Plans a run of the frame's units (plan_unit_model) on the drawing
@@ -1020,8 +1072,10 @@ void plan_unit_draws(
     if (preplanning_ready)
         try {
             preplanning_workers.resize(bands);
-            for (auto& worker : preplanning_workers)
+            for (auto& worker : preplanning_workers) {
                 worker.omitted_count = 0;
+                worker.whole_tick_postplan_omitted_count = 0;
+            }
         } catch (const std::bad_alloc&) {
             preplanning_ready = false;
         }
@@ -1078,8 +1132,13 @@ void plan_unit_draws(
         }
     );
     if (preplanning_ready)
-        for (const auto& worker : preplanning_workers)
-            models.preplanning_visibility.omitted_count += worker.omitted_count;
+        for (const auto& worker : preplanning_workers) {
+            models.preplanning_visibility.copy_preplan_omitted_count += worker.omitted_count;
+            models.preplanning_visibility.whole_tick_postplan_omitted_count +=
+                worker.whole_tick_postplan_omitted_count;
+            models.preplanning_visibility.omitted_count +=
+                worker.omitted_count + worker.whole_tick_postplan_omitted_count;
+        }
     const std::pair<uint32_t, std::string>* first_failure = nullptr;
     for (uint32_t band = 0; band < bands; ++band)
         if (!failures[band].second.empty() &&
@@ -1819,6 +1878,8 @@ bool Runtime::draw_match_surface() {
     auto& models = match_models();
     models.preplanning_visibility.view.reset();
     models.preplanning_visibility.omitted_count = 0;
+    models.preplanning_visibility.copy_preplan_omitted_count = 0;
+    models.preplanning_visibility.whole_tick_postplan_omitted_count = 0;
     models.preplanning_visibility.geometry_unavailable = false;
     models.preplanning_visibility.budget_safe = false;
     observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);

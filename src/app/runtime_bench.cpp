@@ -1081,6 +1081,9 @@ void Runtime::play_bench() {
         for (const auto& draw : models.draws.models) {
             // An omitted record retains its ordinary state for a possible
             // same-frame classic replan; that state is not an active image.
+            // The historical total covers both before-Scene omission paths;
+            // the split below distinguishes copy preplanning from whole-tick
+            // records whose complete ordinary plan was already built.
             preplanned_omissions += draw.preplan_omitted;
             deferred_draws += draw.plan.linked.drawn && !draw.preplan_omitted && draw.model.state &&
                               draw.model.state->deferred_image.has_value();
@@ -1102,12 +1105,15 @@ void Runtime::play_bench() {
         std::printf(
             "bench: NATIVE last_frame_planned_models %zu last_frame_deferred_draws %zu "
             "last_frame_preplanned_omissions %zu "
+            "last_frame_copy_preplan_omissions %zu last_frame_whole_tick_postplan_omissions %zu "
             "retained_deferred_original_states %zu retained_deferred_copy_states %zu "
             "retained_pose_workers %zu retained_pose_hits %llu retained_pose_misses %llu "
             "retained_pose_stores %llu retained_pose_overflows %llu retained_pose_bytes %zu\n",
             models.draws.models.size(),
             deferred_draws,
             preplanned_omissions,
+            models.preplanning_visibility.copy_preplan_omitted_count,
+            models.preplanning_visibility.whole_tick_postplan_omitted_count,
             deferred_original,
             deferred_copies,
             models.transform_caches.size(),

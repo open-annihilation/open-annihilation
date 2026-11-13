@@ -4,6 +4,7 @@
 // Windowless Skirmish coverage of the live camera, rendered world, command
 // picking and orders, camera reset, render target resizing and advancing simulation.
 #include "oa/app/runtime.hpp"
+#include "oa/app/frame_pacing.hpp"
 #include "engine_settings_state.hpp"
 #include "full_presentation.hpp"
 #include "match_models.hpp"
@@ -3868,6 +3869,322 @@ int Runtime::check_live_renderer() {
                         match_->random_state() == fallback_random && !match_->fault(),
                     "the omitted-frame classic replan changed simulation or RNG"
                 );
+                // Keep the moving-copy controls above literal. Real slow
+                // frames at normal speed present the entire newly run batch,
+                // so the separate completed-canonical path must work too.
+                {
+                    namespace pacing = frame_pacing;
+                    require(
+                        match_timing_.actual_rate == oa::base::game_loop::normal_game_speed,
+                        "the whole-tick fixture is not running at normal game speed"
+                    );
+                    const auto advance_slow_frame = [&](uint32_t batch) {
+                        const auto before = match_timing_.tick;
+                        for (uint32_t step = 0; step < batch; ++step)
+                            step_match_simulation();
+                        pacing::FrameTicks actual{};
+                        actual.owed = static_cast<int32_t>(batch);
+                        actual.ran = match_timing_.tick - before;
+                        const float alpha = pacing::next_presentation_alpha(
+                            tick_presentation_, match_timing_, actual, frame_time_ns_
+                        );
+                        require(
+                            actual.ran == batch && !actual.whole && alpha == 1.0F,
+                            "production presentation did not hold the real slow batch whole"
+                        );
+                        set_presentation_alpha(alpha);
+                        observe_match_tick(models, *match_, draw_pool_.get());
+                    };
+                    const auto sprite_offset = [&](const present::SpriteBuffer& source,
+                                                   const void* pointer) -> uint64_t {
+                        if (!pointer)
+                            return std::numeric_limits<uint64_t>::max();
+                        const auto start = reinterpret_cast<uintptr_t>(source.pixels.data());
+                        const auto at = reinterpret_cast<uintptr_t>(pointer);
+                        require(
+                            !source.pixels.empty() && at >= start &&
+                                at - start < source.pixels.size(),
+                            "the lifecycle fixture sprite does not own its image plane"
+                        );
+                        return at - start;
+                    };
+                    const auto clone_sprite = [&](const present::SpriteBuffer& source) {
+                        present::SpriteBuffer copy{source.sprite, source.pixels};
+                        const auto relocate = [&](const void* pointer) -> void* {
+                            if (!pointer)
+                                return nullptr;
+                            return copy.pixels.data() + sprite_offset(source, pointer);
+                        };
+                        copy.sprite.data = relocate(source.sprite.data);
+                        copy.sprite.aux = relocate(source.sprite.aux);
+                        return copy;
+                    };
+                    const auto clone_state = [&](const present::model::ModelState& source) {
+                        require(
+                            !source.finer && !source.build_bands,
+                            "the lifecycle fixture unexpectedly has a sampled/build override"
+                        );
+                        present::model::ModelState copy;
+                        copy.cache = source.cache;
+                        copy.transforms_dirty = source.transforms_dirty;
+                        copy.image = clone_sprite(source.image);
+                        copy.deferred_image = source.deferred_image;
+                        copy.deferred_image_depth = source.deferred_image_depth;
+                        copy.image_unfinished = source.image_unfinished;
+                        copy.shadow = clone_sprite(source.shadow);
+                        copy.shift = source.shift;
+                        copy.pieces = source.pieces;
+                        copy.image_builds = source.image_builds;
+                        copy.build_bands = source.build_bands;
+                        return copy;
+                    };
+
+                    struct Lifecycle {
+                        std::vector<uint64_t> fields;
+                        std::vector<uint8_t> image, shadow;
+                        bool operator==(const Lifecycle&) const = default;
+                    };
+
+                    const auto lifecycle = [&](const present::model::ModelState& state) {
+                        Lifecycle out;
+                        const auto add = [&](auto value) {
+                            out.fields.push_back(static_cast<uint64_t>(value));
+                        };
+                        add(state.cache.draws);
+                        add(state.cache.has_image);
+                        add(state.cache.image_has_mask);
+                        add(state.cache.anchor_x);
+                        add(state.cache.anchor_y);
+                        add(state.transforms_dirty);
+                        add(state.deferred_image_depth);
+                        add(state.image_unfinished);
+                        add(state.image_builds);
+                        add(state.shift.xy);
+                        add(state.shift.xz);
+                        add(state.shift.yz);
+                        add(bool(state.deferred_image));
+                        if (state.deferred_image) {
+                            add(state.deferred_image->width);
+                            add(state.deferred_image->height);
+                            add(state.deferred_image->origin_x);
+                            add(state.deferred_image->origin_y);
+                        }
+                        add(bool(state.finer));
+                        add(bool(state.build_bands));
+                        const auto sprite = [&](const present::SpriteBuffer& buffer) {
+                            const auto& header = buffer.sprite;
+                            add(header.width);
+                            add(header.height);
+                            add(header.origin_x);
+                            add(header.origin_y);
+                            add(header.key);
+                            add(header.encoding);
+                            add(header.child_count);
+                            add(header.child_draw_mode);
+                            add(header.reserved_after_child_draw_mode);
+                            add(sprite_offset(buffer, header.data));
+                            add(sprite_offset(buffer, header.aux));
+                        };
+                        sprite(state.image);
+                        sprite(state.shadow);
+                        add(state.pieces.size());
+                        for (const auto& piece : state.pieces) {
+                            add(piece.translation.x);
+                            add(piece.translation.y);
+                            add(piece.translation.z);
+                            add(piece.rotation.xy);
+                            add(piece.rotation.xz);
+                            add(piece.rotation.yz);
+                            add(piece.flags);
+                        }
+                        out.image = state.image.pixels;
+                        out.shadow = state.shadow.pixels;
+                        return out;
+                    };
+                    const auto same_vector = [](const auto& a, const auto& b) {
+                        return a.x == b.x && a.y == b.y && a.z == b.z;
+                    };
+                    const auto same_rotation = [](const auto& a, const auto& b) {
+                        return a.xy == b.xy && a.xz == b.xz && a.yz == b.yz;
+                    };
+                    const auto same_derived = [&](const auto& a, const auto& b) {
+                        if (a.model_handle() != b.model_handle() ||
+                            a.owner_token() != b.owner_token() ||
+                            a.root_piece() != b.root_piece() ||
+                            a.transforms_dirty() != b.transforms_dirty() ||
+                            a.pieces().size() != b.pieces().size())
+                            return false;
+                        for (std::size_t index = 0; index < a.pieces().size(); ++index) {
+                            const auto& x = a.pieces()[index];
+                            const auto& y = b.pieces()[index];
+                            if (x.object_index != y.object_index || x.parent != y.parent ||
+                                x.first_child != y.first_child ||
+                                x.next_sibling != y.next_sibling || x.flags != y.flags ||
+                                x.transform_marker != y.transform_marker ||
+                                !same_vector(x.translation, y.translation) ||
+                                !same_rotation(x.rotation, y.rotation) ||
+                                !same_vector(x.built_translation, y.built_translation) ||
+                                !same_rotation(x.built_rotation, y.built_rotation) ||
+                                !same_vector(x.transformed_origin, y.transformed_origin) ||
+                                x.transformed_vertices.size() != y.transformed_vertices.size())
+                                return false;
+                            for (std::size_t vertex = 0; vertex < x.transformed_vertices.size();
+                                 ++vertex)
+                                if (!same_vector(
+                                        x.transformed_vertices[vertex],
+                                        y.transformed_vertices[vertex]
+                                    ))
+                                    return false;
+                        }
+                        return true;
+                    };
+                    auto& canonical = match_->runtime_state(walker).instance->model();
+                    auto& canonical_state = models.units[walker].state;
+                    const auto canonical_plan = [&] {
+                        const auto plan = std::find_if(
+                            models.unit_plans.plans.begin(),
+                            models.unit_plans.plans.end(),
+                            [&](const auto& candidate) { return candidate.unit_index == walker; }
+                        );
+                        return plan != models.unit_plans.plans.end() && !plan->from_copies &&
+                               plan->model.instance == &canonical &&
+                               plan->shown.instance == &canonical &&
+                               plan->shown.state == &canonical_state;
+                    };
+                    set_live_models_on_card(true);
+                    require(
+                        turn_live_camera(ground_check_yaw, preplan_pitch),
+                        "the whole-tick camera did not restore"
+                    );
+                    place_match_view(outside_view[0], outside_view[1]);
+                    visibility.force_ordinary = true;
+                    render_match_surface();
+                    for (const uint32_t batch : {2U, 3U, 4U}) {
+                        advance_slow_frame(batch);
+                        const auto before_instance = canonical;
+                        const auto before_state = clone_state(canonical_state);
+                        const auto tick = uint32_t{match_->simulation().tick};
+                        const auto random = match_->random_state();
+                        UnitPose raw_before, raw_after;
+                        capture_unit_pose(
+                            match_->world().record.units[walker], canonical, raw_before
+                        );
+                        visibility.force_ordinary = true;
+                        render_match_surface();
+                        const auto* ordinary_draw = find_walker();
+                        require(
+                            canonical_plan() && ordinary_draw && ordinary_draw->plan.linked.drawn &&
+                                ordinary_draw->model.instance == &canonical &&
+                                ordinary_draw->model.state == &canonical_state &&
+                                visibility.whole_tick_postplan_omitted_count == 0,
+                            "slow-frame ordinary reference did not use the canonical model"
+                        );
+                        const auto ordinary_picture = match_world_cpu_;
+                        const auto ordinary_bounds = bounds_and_picks();
+                        const auto ordinary_instance = canonical;
+                        const auto ordinary_lifecycle = lifecycle(canonical_state);
+                        const auto ordinary_readback = match_draw_read_back();
+                        // Replay exactly the same renderer-owned starting state;
+                        // no raw World pose, clock, script or RNG is changed.
+                        canonical = before_instance;
+                        canonical_state = clone_state(before_state);
+                        visibility.force_ordinary = false;
+                        render_match_surface();
+                        const auto* postplan = find_walker();
+                        require(
+                            canonical_plan() && postplan && postplan->preplan_omitted &&
+                                !postplan->plan.linked.drawn &&
+                                postplan->model.instance == &canonical &&
+                                postplan->model.state == &canonical_state &&
+                                visibility.whole_tick_postplan_omitted_count != 0,
+                            "real slow-frame canonical planning did not activate post-plan omission"
+                        );
+                        require(
+                            match_world_cpu_.rgb == ordinary_picture.rgb &&
+                                bounds_and_picks() == ordinary_bounds &&
+                                same_derived(canonical, ordinary_instance) &&
+                                lifecycle(canonical_state) == ordinary_lifecycle,
+                            "whole-tick omission changed GPU output, derived geometry or "
+                            "image/cache lifecycle"
+                        );
+                        const auto postplan_readback = match_draw_read_back();
+                        if (const char* difference =
+                                draw_read_back_difference(ordinary_readback, postplan_readback))
+                            throw std::runtime_error(
+                                std::string("whole-tick post-plan draw changed ") + difference
+                            );
+                        capture_unit_pose(
+                            match_->world().record.units[walker], canonical, raw_after
+                        );
+                        require(
+                            poses_equal(raw_before, raw_after) &&
+                                match_->simulation().tick == tick &&
+                                match_->random_state() == random && !match_->fault(),
+                            "whole-tick frozen replay changed canonical pose, tick or RNG"
+                        );
+                    }
+                    center_camera_on_unit(walker);
+                    render_match_surface();
+                    require(
+                        walker_visible() && canonical_plan(),
+                        "whole-tick camera ingress did not show canonical animated geometry"
+                    );
+                    const auto whole_ingress = match_world_cpu_;
+                    const auto whole_ingress_bounds = bounds_and_picks();
+                    visibility.force_ordinary = true;
+                    render_match_surface();
+                    require(
+                        match_world_cpu_.rgb == whole_ingress.rgb &&
+                            bounds_and_picks() == whole_ingress_bounds,
+                        "whole-tick ingress differs from ordinary rendering"
+                    );
+                    visibility.force_ordinary = false;
+                    bool continued_animation{};
+                    for (unsigned attempt = 0; attempt < 8 && !continued_animation; ++attempt) {
+                        advance_slow_frame(2);
+                        render_match_surface();
+                        continued_animation = walker_visible() && canonical_plan() &&
+                                              models.presentation.units[walker].pieces_moved &&
+                                              match_world_cpu_.rgb != whole_ingress.rgb;
+                    }
+                    require(
+                        continued_animation, "the whole-tick canonical walker stopped animating"
+                    );
+                    place_match_view(outside_view[0], outside_view[1]);
+                    render_match_surface();
+                    require(
+                        walker_omitted() && canonical_plan() &&
+                            visibility.whole_tick_postplan_omitted_count != 0,
+                        "the whole-tick producer-loss fixture has no actual post-plan omission"
+                    );
+                    const auto postplan_tick = uint32_t{match_->simulation().tick};
+                    const auto postplan_random = match_->random_state();
+                    set_live_models_on_card(false);
+                    require(
+                        !render_live_match_surface() && live_renderer_failed() &&
+                            !live_renderer_active(),
+                        "a whole-tick omitted frame lost its producer without requesting replan"
+                    );
+                    render_match_surface();
+                    require(
+                        visibility.omitted_count == 0 &&
+                            visibility.whole_tick_postplan_omitted_count == 0 &&
+                            std::none_of(
+                                models.draws.models.begin(),
+                                models.draws.models.end(),
+                                [](const auto& draw) { return draw.preplan_omitted; }
+                            ) &&
+                            match_->simulation().tick == postplan_tick &&
+                            match_->random_state() == postplan_random &&
+                            !match_world_cpu_.rgb.empty() && !match_->fault(),
+                        "whole-tick producer loss did not complete the ordinary classic replan"
+                    );
+                    std::cout
+                        << "live renderer check: real 2/3/4-tick normal-rate batches use "
+                           "production whole presentation and canonical post-plan omission; "
+                           "GPU pixels/bounds/picks, derived readback and image/cache lifecycle "
+                           "match ordinary rendering; ingress and classic fallback pass\n";
+                }
             } catch (...) {
                 visibility.force_ordinary = false;
                 set_live_models_on_card(true);
