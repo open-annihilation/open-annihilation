@@ -1480,7 +1480,7 @@ struct EngineSettings {
     /// How units are drawn farther out than zoomed_out_after: as at any
     /// zoom, or as dots. Never icons, which the dialog shows but does not
     /// offer yet.
-    ZoomedOutUnits zoomed_out_units{ZoomedOutUnits::rendered};
+    ZoomedOutUnits zoomed_out_units{ZoomedOutUnits::dots};
     /// The model size or zoom farther out than which zoomed_out_units applies.
     ZoomedOutAfter zoomed_out_after{ZoomedOutAfter::unit_size};
     /// When the game's window shows its title bar and borders.

@@ -58,7 +58,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Native pixel density, from the next start | Off, On; always On where the platform opens every window at native density | Off | `open-annihilation.native-density` |
 | | Explosion flash; a mod's profile may draw the flashes lower still (`ui.explosion-flash`), and the lower of the two is drawn | Off, Reduced, Full | Full | `open-annihilation.explosion-flash` (`off`, `reduced` or `full`) |
 | | Fog of War: how the graphics card draws the fog's edges (Hardware acceleration Full); the processor always draws them Classic | Classic, Smooth | Smooth | `open-annihilation.fog-of-war` (`classic` or `smooth`; any other word reads as Smooth) |
-| | Zoomed out units: how units are drawn farther out than After zoom | Rendered, Dots; Icons shown faded, not offered | Rendered | `open-annihilation.zoomed-out-units` (`rendered` or `dots`; any other word, `icons` among them, reads as Rendered) |
+| | Zoomed out units: how units are drawn farther out than After zoom | Rendered, Dots; Icons shown faded, not offered | Dots | `open-annihilation.zoomed-out-units` (`rendered` or `dots`; any other word, `icons` among them, reads as Dots) |
 | | After zoom, a drop-down, locked "Needs Dots" while Zoomed out units is Rendered | Unit size; 2x, 1x, 1/2, 1/3, 1/4, 1/6, 1/8, 1/12, 1/16 of normal size | Unit size | `open-annihilation.zoomed-out-after` (`unit-size`, `2`, `1`, `1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`) |
 | | Allow full 3D mode: whether the camera may turn away from the classic view, with Full hardware acceleration | Off, On | On | `open-annihilation.allow-full-3d` |
 | | Unlocked camera, locked "Needs Allow full 3D mode" while Allow full 3D mode is Off | Off, On | Off | `open-annihilation.unlocked-camera` |
@@ -344,10 +344,11 @@ nothing. After zoom says where Dots begins, so while the dialog shows
 Rendered it is locked, faded with a padlock and "Needs Dots"
 (`Lock::needs_dots`, which the dialog sets itself in
 `Locks::zoomed_out_after`); choosing Dots lifts the lock at once.
-Unit size is the default boundary: models remain while the average unit is
+Dots with Unit size is the fresh default: models remain while the average unit is
 at least 20% larger on screen than its dot. Farther out, units become dots.
 The fixed choices apply dots below the chosen zoom; at that zoom and closer,
-units are models. Saved fixed choices keep the same boundary.
+units are models. Saved fixed choices keep the same boundary, and an explicit
+Rendered choice keeps models at every zoom.
 The 1x and 2x choices can keep dots visible through normal-size views while
 zooming toward a smaller group of units.
 

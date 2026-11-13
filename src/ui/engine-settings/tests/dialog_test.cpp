@@ -3636,7 +3636,9 @@ constexpr int32_t fog_of_war_in_view = 454;
 constexpr int32_t zoomed_out_units_in_view = 454;
 
 void the_graphics_page_scrolls_its_rows() {
-    settings::Dialog dialog = graphics_page();
+    settings::EngineSettings rendered{};
+    rendered.zoomed_out_units = settings::ZoomedOutUnits::rendered;
+    settings::Dialog dialog = graphics_page(rendered);
     const auto open = geometry::open_rows(dialog);
     CHECK(open.rows.rows.size() == 22);
     const std::array<int32_t, 22> tops{54,  119, 178, 255, 314, 361, 420,  479,  538,  597,  656,
@@ -3757,7 +3759,7 @@ void the_graphics_page_scrolls_its_rows() {
     // view's top there, shows at 366, then Smooth motion at 307, Vertical
     // sync at 260, Hardware acceleration at 201, Screen size at 124 and
     // Enhanced anti-aliasing at 65.
-    settings::Dialog keys = graphics_page();
+    settings::Dialog keys = graphics_page(rendered);
     const std::array<std::pair<int32_t, int32_t>, 10> forward{{
         {settings::first_row_control, 0},
         {settings::first_row_control + 1, 0},
@@ -3796,7 +3798,7 @@ void the_graphics_page_scrolls_its_rows() {
     // end included, under every lock: each row is taller than the step, so
     // it is checked at several offsets.
     for (const auto& locks : lock_states()) {
-        settings::Dialog locked = graphics_page({}, locks);
+        settings::Dialog locked = graphics_page(rendered, locks);
         for (int32_t scroll = 0; scroll <= 1047; scroll += 18)
             check_dialog_layout_at(locked, scroll);
     }
@@ -4146,6 +4148,7 @@ void the_new_rows_lock_in_their_own_forms() {
     locks.hardware_acceleration = Lock::unavailable;
     locks.vertical_sync = Lock::unavailable;
     settings::EngineSettings current{};
+    current.zoomed_out_units = settings::ZoomedOutUnits::rendered;
     current.hardware_acceleration = HardwareAcceleration::basic;
     current.vertical_sync = true;
     settings::Dialog dialog =
@@ -8877,11 +8880,11 @@ void zoomed_out_units_show_and_change() {
     CHECK(geometry::strip_caption(Setting::zoomed_out_units, 1) == "Dots");
     CHECK(geometry::strip_caption(Setting::zoomed_out_units, 2) == "Icons");
     CHECK(geometry::kind_of(Setting::zoomed_out_after) == geometry::RowKind::choice);
-    CHECK(settings::EngineSettings{}.zoomed_out_units == settings::ZoomedOutUnits::rendered);
+    CHECK(settings::EngineSettings{}.zoomed_out_units == settings::ZoomedOutUnits::dots);
     CHECK(settings::EngineSettings{}.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
 
-    // Scrolled to the strip: its three captions with Rendered's hint, and
-    // After zoom locked, showing Unit size.
+    // Scrolled to the strip: its three captions with Dots' hint, and
+    // After zoom available, showing the automatic Unit size boundary.
     settings::Dialog dialog = graphics_page();
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = zoomed_out_units_in_view;
     auto parts = settings::dialog_layout(dialog);
@@ -8890,13 +8893,13 @@ void zoomed_out_units_show_and_change() {
           "Rendered",
           "Dots",
           "Icons",
-          "Units are drawn as models at every zoom. Far out",
-          "on a large map, needs a fast CPU.",
+          "Past After zoom, each unit is a dot of its owner's",
+          "colour, framed while selected.",
           "After zoom",
-          "Needs Dots",
           "Unit size"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
-    CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::needs_dots);
+    CHECK(find_part(parts, "Needs Dots", settings::no_control) == nullptr);
+    CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::none);
 
     // A click on a caption of the strip: Icons, faded, changes nothing.
     const auto click_caption = [&](std::string_view caption) {
@@ -8909,7 +8912,14 @@ void zoomed_out_units_show_and_change() {
         return found != nullptr ? click(dialog, centre(found->rect)) : DialogAction::none;
     };
     CHECK(click_caption("Icons") != DialogAction::changed);
+    CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::dots);
+    // Rendered is still an explicit override, and locks the boundary.
+    CHECK(click_caption("Rendered") == DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
+    CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::needs_dots);
+    CHECK(
+        find_part(settings::dialog_layout(dialog), "Needs Dots", settings::no_control) != nullptr
+    );
     CHECK(click_caption("Dots") == DialogAction::changed);
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::dots);
     parts = settings::dialog_layout(dialog);
@@ -8957,10 +8967,9 @@ void zoomed_out_units_show_and_change() {
     CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
     CHECK(geometry::open_rows(dialog).rows.rows[10].lock == Lock::needs_dots);
 
-    // Restore defaults gives Rendered and Unit size; Cancel what it opened with.
-    dialog.chosen.zoomed_out_units = settings::ZoomedOutUnits::dots;
+    // Restore defaults gives Dots and Unit size; Cancel what it opened with.
     CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
-    CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
+    CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::dots);
     CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
     CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
     CHECK(dialog.chosen == dialog.opened);
@@ -9042,7 +9051,7 @@ void enlarged_zoom_thresholds_show_select_and_keep_the_dots_lock() {
         CHECK(dialog.chosen.zoomed_out_after == choice);
     }
     CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
-    CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::rendered);
+    CHECK(dialog.chosen.zoomed_out_units == settings::ZoomedOutUnits::dots);
     CHECK(dialog.chosen.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
 }
 
@@ -10801,7 +10810,7 @@ void the_arrows_move_by_geometry() {
         tab_round(opened(Page::language)) ==
         then_rest({row, row + 1, row + 3, row + 4, row + 5, row + 6})
     );
-    // Graphics: After zoom waits for Dots, and the water's sliders for Full.
+    // Graphics: Unit size is available by default; the water's sliders wait for Full.
     CHECK(
         tab_round(opened(Page::graphics)) == then_rest(
                                                  {row,
@@ -10814,6 +10823,7 @@ void the_arrows_move_by_geometry() {
                                                   row + 7,
                                                   row + 8,
                                                   row + 9,
+                                                  row + 10,
                                                   row + 11,
                                                   row + 12,
                                                   row + 13,

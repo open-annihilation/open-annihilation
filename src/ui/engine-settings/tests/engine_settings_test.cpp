@@ -2262,7 +2262,7 @@ void the_view_past_the_map_edge_defaults_reads_and_round_trips() {
     CHECK(settings::past_map_edge_share(settings::ViewPastMapEdge::one_half) == 0.5);
 }
 
-/// How units look zoomed out: Rendered and Unit size everywhere by default; a
+/// How units look zoomed out: Dots and Unit size everywhere by default; a
 /// file written before them reads the defaults; each word reads its choice,
 /// and any other text, Icons' word among them, the default; each other
 /// choice written alone and read back, and Restore defaults then OK erases
@@ -2276,7 +2276,7 @@ void the_zoomed_out_units_default_read_and_round_trip() {
     light.light_machine = true;
     for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac, light}) {
         const auto defaults = settings::default_settings(inputs);
-        CHECK(defaults.zoomed_out_units == settings::ZoomedOutUnits::rendered);
+        CHECK(defaults.zoomed_out_units == settings::ZoomedOutUnits::dots);
         CHECK(defaults.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
         CHECK(settings::read_settings({}, inputs, false) == defaults);
     }
@@ -2286,7 +2286,7 @@ void the_zoomed_out_units_default_read_and_round_trip() {
         {std::string{settings::key::explosion_flash}, "reduced"},
     };
     const auto read_older = settings::read_settings(older, players_own_on_linux, false);
-    CHECK(read_older.zoomed_out_units == settings::ZoomedOutUnits::rendered);
+    CHECK(read_older.zoomed_out_units == settings::ZoomedOutUnits::dots);
     CHECK(read_older.zoomed_out_after == settings::ZoomedOutAfter::unit_size);
     CHECK(read_older.max_zoom_out == settings::ZoomOutLimit::whole_map);
 
@@ -2299,7 +2299,7 @@ void the_zoomed_out_units_default_read_and_round_trip() {
     CHECK(units("rendered") == settings::ZoomedOutUnits::rendered);
     CHECK(units("dots") == settings::ZoomedOutUnits::dots);
     for (const char* text : {"", "icons", "Dots", "DOTS", "dot", " dots", "1"})
-        CHECK(units(text) == settings::ZoomedOutUnits::rendered);
+        CHECK(units(text) == settings::ZoomedOutUnits::dots);
     constexpr std::array old_ordinals{
         settings::ZoomedOutAfter::one_half,
         settings::ZoomedOutAfter::one_third,
@@ -2337,13 +2337,13 @@ void the_zoomed_out_units_default_read_and_round_trip() {
         CHECK(after(text) == settings::ZoomedOutAfter::unit_size);
 
     const auto defaults = settings::default_settings(players_own_on_linux);
-    auto dots = defaults;
-    dots.zoomed_out_units = settings::ZoomedOutUnits::dots;
+    auto rendered = defaults;
+    rendered.zoomed_out_units = settings::ZoomedOutUnits::rendered;
     Values values;
-    settings::write_settings(values, defaults, dots, defaults, false);
+    settings::write_settings(values, defaults, rendered, defaults, false);
     CHECK(values.size() == 1);
-    CHECK(values.at(std::string{settings::key::zoomed_out_units}) == "dots");
-    CHECK(settings::read_settings(values, players_own_on_linux, false) == dots);
+    CHECK(values.at(std::string{settings::key::zoomed_out_units}) == "rendered");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == rendered);
     for (const auto& [choice, word, zoom] : after_words) {
         auto opened = defaults;
         if (choice == defaults.zoomed_out_after)
@@ -2356,7 +2356,7 @@ void the_zoomed_out_units_default_read_and_round_trip() {
         CHECK(one.at(std::string{settings::key::zoomed_out_after}) == word);
         CHECK(settings::read_settings(one, players_own_on_linux, false) == chosen);
     }
-    auto both = dots;
+    auto both = rendered;
     both.zoomed_out_after = settings::ZoomedOutAfter::one_quarter;
     Values pair;
     settings::write_settings(pair, defaults, both, defaults, false);

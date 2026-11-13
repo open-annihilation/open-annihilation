@@ -755,13 +755,15 @@ void tab_follows_the_dialogs_focus_order() {
             {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, settings::helpers_off_control}
         )
     );
-    // Graphics: After zoom, locked while units are drawn whole, takes none,
-    // nor do the water's sliders, locked below Full; New unit shadows last.
+    // Graphics: Unit size is available by default; the water's sliders
+    // stay locked below Full, with New unit shadows last.
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
     OA_CHECK(
         tab_order(graphics) ==
-        with_footer_and_list({18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 33, 34, 39})
+        with_footer_and_list(
+            {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 39}
+        )
     );
     // Developer with its first area open: its rows, UI kit gallery's SHOW
     // and Update channel last of them, its list's headers, Show Active Only
