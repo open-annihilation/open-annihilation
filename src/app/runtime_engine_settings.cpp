@@ -1604,9 +1604,11 @@ void Runtime::apply_hack_overrides() {
     const auto& settings = state.current;
     std::shared_ptr<const profiles::ModProfile> latest = options_.mod_profile;
     std::vector<std::string> refused;
-    const uint32_t enhanced_version = state.restored_enhanced_version.value_or(
-        settings.enhanced_mode ? oa::data::enhanced_mode::current_version : 0
-    );
+    const uint32_t requested_version = options_.enhanced_mode_version.value_or(0);
+    const uint32_t new_game_version =
+        requested_version != 0 ? requested_version : oa::data::enhanced_mode::current_version;
+    const uint32_t enhanced_version =
+        state.restored_enhanced_version.value_or(settings.enhanced_mode ? new_game_version : 0);
     if (enhanced_version == 0 && options_.mod_profile &&
         oa::data::enhanced_mode::rules_version(options_.mod_profile->rules) != 0)
         throw std::runtime_error("the profile's enhanced rules require Enhanced Mode");

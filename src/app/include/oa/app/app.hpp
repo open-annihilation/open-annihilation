@@ -365,6 +365,8 @@ struct Options {
     std::optional<std::size_t> benchmark_frames;
     /// Overrides Enhanced Mode for this run; absent uses the stored choice.
     std::optional<bool> enhanced_mode{};
+    /// Selects a new game's Enhanced preset for this run; saved games keep their own version.
+    std::optional<uint32_t> enhanced_mode_version{};
     /// A deterministic, simulation-only benchmark writes its JSON report here.
     fs::path battle_benchmark_report{};
     /// Total initial units per side, including each side's commander.

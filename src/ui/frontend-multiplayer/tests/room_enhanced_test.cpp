@@ -100,7 +100,7 @@ void classic_rooms_keep_their_start_rules() {
 }
 
 void matching_machines_can_start() {
-    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u})
+    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u})
         for (bool hosting : {false, true}) {
             Room room(hosting);
             room.presence(0, record(version));
@@ -223,6 +223,25 @@ void enhanced_rules_must_agree() {
     );
 }
 
+/// Requires the explicitly selected cohort preset on every machine before START.
+void cohort_rooms_require_their_own_version() {
+    for (const bool hosting : {false, true}) {
+        Room room(hosting);
+        room.presence(0, record(10));
+        room.presence(1, record(4));
+        expect(!mp::lobby_enhanced_allow_start(room.lobby), "v10 cannot silently upgrade v4");
+        const char* problem = mp::lobby_enhanced_start_problem(room.lobby);
+        expect(
+            problem != nullptr && std::strstr(problem, "version") != nullptr,
+            "the v10/v4 refusal names the version"
+        );
+        room.presence(1, record(10));
+        expect(mp::lobby_enhanced_allow_start(room.lobby), "matching v10 peers may start");
+        room.presence(1, record(10, 8));
+        expect(!mp::lobby_enhanced_allow_start(room.lobby), "v10 peers still need matching rules");
+    }
+}
+
 void guests_do_not_silently_adopt_another_mode() {
     Room host{};
     host.presence(0, record(0));
@@ -307,6 +326,7 @@ int main() {
     swept_ground_rooms_require_their_own_version();
     corridor_rooms_require_their_own_version();
     distributed_rooms_require_their_own_version();
+    cohort_rooms_require_their_own_version();
     guests_do_not_silently_adopt_another_mode();
     watchers_agree_and_computers_use_their_machine();
     the_host_checks_every_machine_and_guests_check_the_host();

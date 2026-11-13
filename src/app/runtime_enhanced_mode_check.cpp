@@ -68,6 +68,8 @@ void Runtime::check_enhanced_mode() {
     namespace input = oa::sim::gameplay_input;
     require(options_.preferences_file.has_value(), "needs an isolated --preferences-file");
     const settings::EngineSettings kept = engine_settings();
+    const auto command_line_version = options_.enhanced_mode_version;
+    options_.enhanced_mode_version.reset();
     auto chosen = kept;
     chosen.enhanced_mode = false;
     apply_engine_settings(chosen);
@@ -731,6 +733,68 @@ void Runtime::check_enhanced_mode() {
         enhanced_mode_version(*this) == mode::off_version, "leaving the campaign kept its mode"
     );
     const auto command_line_mode = options_.enhanced_mode;
+    options_.enhanced_mode = true;
+    options_.enhanced_mode_version = mode::cohort_target_version;
+    chosen.enhanced_mode = true;
+    apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 10, "the command-line preset did not select v10");
+    const std::string cohort_hash = simulation_hash(*this);
+    require(cohort_hash != enhanced_hash, "the command-line preset kept the default identity");
+    for (const auto renderer : renderers) {
+        chosen.hardware_acceleration = renderer;
+        apply_engine_settings(chosen);
+        require(enhanced_mode_version(*this) == 10, "graphics changed the command-line preset");
+        require(simulation_hash(*this) == cohort_hash, "graphics changed the v10 identity");
+    }
+    chosen.enhanced_mode = false;
+    apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 0, "menu Off did not set the CLI preset aside");
+    chosen.enhanced_mode = true;
+    apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 10, "menu On lost the CLI preset");
+    for (const uint32_t held : {0u, 8u}) {
+        require(hold_enhanced_rules_once(held), "a held preset could not override the CLI");
+        require(enhanced_mode_version(*this) == held, "the CLI replaced held rules");
+        release_enhanced_rules_once(true);
+        require(enhanced_mode_version(*this) == 10, "releasing held rules lost the CLI preset");
+    }
+    for (const uint32_t unsupported : {9u, 11u}) {
+        require(!hold_enhanced_rules_once(unsupported), "a held unknown preset was accepted");
+        require(enhanced_mode_version(*this) == 10, "a rejected preset changed the CLI rules");
+    }
+    chosen.hardware_acceleration = settings::HardwareAcceleration::off;
+    apply_engine_settings(chosen);
+    start_benchmark_skirmish_as_chosen();
+    require(enhanced_mode_version(*this) == 10, "a new skirmish lost the CLI preset");
+    const fs::path cohort_save = options_.preferences_file->parent_path() / "enhanced-cli-v10.sav";
+    require(save_match_game(cohort_save, "CLI Enhanced rules", 0), "CLI rules did not save");
+    options_.enhanced_mode_version = mode::following_flow_version;
+    apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 10, "a live match changed its CLI rules");
+    leave_match();
+    load(Screen::main_menu);
+    require(enhanced_mode_version(*this) == 8, "the next game did not take the CLI selection");
+    require(load_saved_game(cohort_save), "the CLI v10 save did not load under v8");
+    require(enhanced_mode_version(*this) == 10, "the CLI downgraded saved v10 rules");
+    leave_match();
+    load(Screen::main_menu);
+    require(enhanced_mode_version(*this) == 8, "leaving a saved match lost the CLI selection");
+    options_.enhanced_mode_version = mode::cohort_target_version;
+    apply_engine_settings(chosen);
+    require(load_saved_game(enhanced_save), "the default save did not load under CLI v10");
+    require(enhanced_mode_version(*this) == 4, "the CLI upgraded saved default rules");
+    leave_match();
+    load(Screen::main_menu);
+    require(enhanced_mode_version(*this) == 10, "leaving default save lost the CLI selection");
+    options_.enhanced_mode_version = 0;
+    options_.enhanced_mode = false;
+    chosen.enhanced_mode = false;
+    apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 0, "CLI zero did not leave Enhanced Mode Off");
+    chosen.enhanced_mode = true;
+    apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 4, "menu On after CLI zero did not select default v4");
+    options_.enhanced_mode_version.reset();
     const std::string mode_key(settings::key::enhanced_mode);
     preference_values_[mode_key] = "1";
     options_.enhanced_mode = false;
@@ -747,8 +811,10 @@ void Runtime::check_enhanced_mode() {
     );
     preference_values_.erase(mode_key);
     options_.enhanced_mode = true;
+    options_.enhanced_mode_version = mode::cohort_target_version;
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 10, "the CLI preference fixture lost its version");
     require(
         !save_engine_settings(chosen, chosen, true),
         "Restore defaults could not write an absent preference"
@@ -756,6 +822,7 @@ void Runtime::check_enhanced_mode() {
     written = oa::platform::preferences::load(*options_.preferences_file);
     require(!written.contains(mode_key), "a command-line On was stored as a preference");
     options_.enhanced_mode = command_line_mode;
+    options_.enhanced_mode_version = command_line_version;
     apply_engine_settings(kept);
     std::puts(
         "Enhanced Mode: preset, graphics independence, frozen matches and save restoration passed"

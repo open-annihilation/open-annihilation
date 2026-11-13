@@ -807,6 +807,88 @@ void showcase_tour_options() {
     }
 }
 
+/// Selects known new-game presets for ordinary play without starting a benchmark.
+void enhanced_new_game_options() {
+    expect(!parse({}).enhanced_mode_version, "normal play keeps the supplied new-game preset");
+    for (const char* version : {"0", "1", "2", "3", "4", "5", "6", "7", "8", "10"}) {
+        const auto chosen = parse({"--enhanced-mode-version", version});
+        const uint32_t expected =
+            std::string_view{version} == "10" ? 10u : static_cast<uint32_t>(version[0] - '0');
+        expect(chosen.enhanced_mode_version == expected, "a normal launch keeps its chosen preset");
+        expect(chosen.enhanced_mode == (expected != 0), "the version implies its mode");
+        expect(
+            !chosen.headless_check && !chosen.fixed_clock && !chosen.unattended &&
+                chosen.battle_benchmark_report.empty() && !chosen.benchmark_options_named &&
+                chosen.bench_file.empty(),
+            "a chosen preset still opens the ordinary game"
+        );
+    }
+    for (const char* acceleration :
+         {"--hardware-acceleration=off", "--hardware-acceleration=full"}) {
+        const auto chosen = parse({"--enhanced-mode-version", "10", acceleration});
+        expect(chosen.enhanced_mode_version == 10, "graphics leave the new-game preset unchanged");
+    }
+    expect(
+        parse({"--enhanced-mode", "--enhanced-mode-version", "10"}).enhanced_mode == true,
+        "a positive preset agrees with an explicit On"
+    );
+    expect(
+        parse({"--enhanced-mode-version", "0", "--no-enhanced-mode"}).enhanced_mode == false,
+        "zero agrees with an explicit Off"
+    );
+    expect(
+        parse({"--enhanced-mode-version", "10", "--enhanced-mode-version", "10"})
+                .enhanced_mode_version == 10,
+        "repeating the same preset is allowed"
+    );
+    expect(
+        parse({"--no-enhanced-mode", "--enhanced-mode", "--enhanced-mode-version", "10"})
+                .enhanced_mode == true,
+        "the final explicit toggle agrees with the chosen version"
+    );
+    const auto benchmark = parse(
+        {"--enhanced-mode-version",
+         "10",
+         "--battle-benchmark",
+         "report.json",
+         "--benchmark-rules-version",
+         "8"}
+    );
+    expect(
+        benchmark.enhanced_mode_version == 10 && benchmark.benchmark_rules_version == 8,
+        "a benchmark may hold another preset without changing the normal new-game selection"
+    );
+    const auto view = parse({"--enhanced-mode-version", "10", "--bench", "gameplay.bench"});
+    expect(
+        view.enhanced_mode_version == 10 && view.bench_file == "gameplay.bench",
+        "a benchmark view retains its separate session rules request"
+    );
+    const char* conflict = "--enhanced-mode-version conflicts with the Enhanced Mode switch";
+    for (const auto& arguments : std::vector<std::vector<const char*>>{
+             {"--no-enhanced-mode", "--enhanced-mode-version", "10"},
+             {"--enhanced-mode-version", "10", "--no-enhanced-mode"},
+             {"--enhanced-mode=off", "--enhanced-mode-version", "10"},
+             {"--enhanced-mode-version", "10", "--enhanced-mode=off"},
+             {"--enhanced-mode", "--enhanced-mode-version", "0"},
+             {"--enhanced-mode-version", "0", "--enhanced-mode"}
+         })
+        expect(rejection(arguments) == conflict, "a conflicting toggle is refused in either order");
+    expect(
+        rejection({"--enhanced-mode-version", "4", "--enhanced-mode-version", "10"}) ==
+            "--enhanced-mode-version cannot name different versions",
+        "two different new-game presets are refused"
+    );
+    const char* invalid = "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8 or 10";
+    for (const char* value : {"9", "11", "-1", "4.5", "4294967296", "on"})
+        expect(
+            rejection({"--enhanced-mode-version", value}) == invalid, "unknown presets are refused"
+        );
+    expect(
+        rejection({"--enhanced-mode-version"}) == "--enhanced-mode-version requires a value",
+        "a preset needs its version"
+    );
+}
+
 // Enhanced rules are independent of graphics; battle benchmarks choose a
 // fixed simulation workload and refuse options belonging to other run modes.
 void enhanced_benchmark_options() {
@@ -1564,6 +1646,7 @@ int main() {
     update_feed_options();
     value_options();
     showcase_tour_options();
+    enhanced_new_game_options();
     enhanced_benchmark_options();
     mutator_options();
     key_layout_options();

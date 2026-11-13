@@ -219,6 +219,9 @@ with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with 
 | `--experimental-3d` | Accepted for older launch scripts; camera access is now controlled by Graphics → Allow Full 3D Mode, On by default. |
 | `--native-density` | Opens the window at the display's own pixel density for this run. |
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
+| `--enhanced-mode[=on\|off]` | Sets Enhanced Mode for this launch; alone it is On and selects the supplied new-game preset. |
+| `--no-enhanced-mode` | Starts this launch with Enhanced Mode Off. |
+| `--enhanced-mode-version N` | Selects a known new-game preset for this launch: 1 through 8 or 10 enables Enhanced Mode, and 0 disables it. A conflicting explicit mode switch is refused. |
 
 None of these is remembered: [settings](settings.md#for-one-run-the-command-line)
 says what each one shows in Settings. 3.1c's `-d` and `-df` choose a window
@@ -238,6 +241,25 @@ settings apply, subject to the preview's rendering limits. The 3D
 renderer needs Full hardware acceleration and a graphics card SDL can draw
 on through Metal or Vulkan. See the [preview notes](development/pluggable-renderers.md#interactive-skirmish-preview)
 for limitations and a weapon-effect test recipe.
+
+For ordinary play with the experimental version-10 rules, run:
+
+```sh
+./run.sh --skip-intro --enhanced-mode-version 10 --hardware-acceleration=full
+```
+
+This opens the normal frontend. Start a Skirmish or campaign as usual;
+the match starts in the classic 2.5D view, and the camera controls above
+switch to 3D independently. The version choice lasts for this launch and
+is not saved in preferences. Saved games and recordings keep their own
+rules, even when this option chooses another version. After leaving one,
+the next new game uses the command-line selection again. Version 4 remains
+the supplied preset when no version is named. With version 0, turning
+Enhanced Mode On later in Settings selects that supplied preset.
+Benchmark selectors remain session overrides: `--benchmark-rules-version`
+with `--battle-benchmark`, and nonzero `rules_version` in a `--bench` file,
+take precedence over the new-game version for their measured match. A
+`--bench` file with `rules_version 0` keeps the normal launch selection.
 
 ### Network play
 
@@ -622,7 +644,7 @@ a comment. Every key may be left out:
 | `label NAME` | The run's name in its lines. | the file's name without its extension |
 | `stage FILE` | A stage played into the match once it starts; a path that is not absolute is taken from the view file's folder. | none |
 | `players N` | The skirmish's players, from 2 to 10. | 2 |
-| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 8; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
+| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 8 or 10; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
 | `menu_seconds S` | Seconds on the main menu first. | 1 |
 | `warmup_ticks N` | The match tick the measured span starts at. | 600 |
 | `warmup_frames N` | Additional rendered warm-up frames after staging and the tick warm-up. | 0 |
@@ -1801,7 +1823,7 @@ independent graphics setting.
 | `--benchmark-scenario idle\|march\|group-march\|combat` | Hold fire, independent cross-map moves, shared destination patches, or explicit attacks | combat |
 | `--benchmark-map NAME` | An installed map with two start positions | Coast To Coast |
 | `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
-| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
+| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8\|10` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
 | `--match-ticks N` | Successful measured ticks required | 300 |
 | `--seed N` | Match random seed | the engine's fixed seed |
 | `--enhanced-mode[=on\|off]` | Enhanced rules for this run; a bare flag means on | stored choice |

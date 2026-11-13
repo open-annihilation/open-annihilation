@@ -359,8 +359,13 @@ Each of these takes effect at once.
   Saved games and recordings keep their own mode. Graphics settings remain
   independent. The first preset permits 10,000 units per participating
   player, a larger projectile pool and more efficient contact scans.
-  Movement and pathfinding improvements remain future work. See
+  Shared routing and swept ground checks are included in the supplied
+  preset; experimental versions add further unit flow and AI policies. See
   [Enhanced Mode](enhanced-mode.md).
+  `--enhanced-mode-version 10` selects the experimental preset for this
+  launch without changing the supplied version 4 or the stored preference.
+  Saved games and recordings keep their recorded rules. Graphics remain
+  separate under Graphics.
 - **Weapon types**, set by the mod. It counts how many weapon types the
   mod allows. The base game allows 256. In a match it shows how many of
   that limit the match loaded, as "312 of 4096". Every player in a game
@@ -1359,6 +1364,8 @@ mod." and turns Play now and Switch off off.
 | `--max-fps N` | Maximum frame rate | N frames a second, 30 to 1000, or 0 for no limit |
 | `--hardware-acceleration=off`, `=basic` or `=full` | Hardware acceleration | that level; `--hardware-acceleration` alone is Full |
 | `--no-hardware-acceleration` | Hardware acceleration | Off |
+| `--enhanced-mode[=on\|off]`, `--no-enhanced-mode` | Enhanced Mode | On or Off; no stored choice changes |
+| `--enhanced-mode-version N` | Enhanced Mode | new-game preset 1 through 8 or 10, or 0 for Off; saved games keep their own version |
 | `--native-density` | Native pixel density | On |
 | `--mod-dir PATH` | the mod (the Library) | plays the mod folder at `PATH` |
 | `--base-game` | the mod (the Library) | plays 3.1c without the mod you chose |

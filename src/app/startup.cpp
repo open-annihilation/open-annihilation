@@ -4,6 +4,7 @@
 // Command-line parsing for oa-game.
 #include "oa/app/app.hpp"
 #include "oa/data/limits.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/app/brain_match.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/app/extension.hpp"
@@ -1255,6 +1256,20 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.enhanced_mode = value == "on";
         return true;
     }
+    if (argument == "--enhanced-mode-version") {
+        const std::string_view text = option_value(cursor);
+        uint32_t version{};
+        const auto parsed = std::from_chars(text.data(), text.data() + text.size(), version);
+        if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
+            !oa::data::enhanced_mode::supported_version(version))
+            throw std::runtime_error(
+                "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8 or 10"
+            );
+        if (options.enhanced_mode_version && *options.enhanced_mode_version != version)
+            throw std::runtime_error("--enhanced-mode-version cannot name different versions");
+        options.enhanced_mode_version = version;
+        return true;
+    }
     if (argument == "--battle-benchmark") {
         options.battle_benchmark_report = path_from_utf8(option_value(cursor));
         return true;
@@ -1954,9 +1969,10 @@ void write_startup_line(std::string_view text) {
                      "[--hardware-acceleration[=off|basic|full] | --no-hardware-acceleration] "
                      "[--experimental-3d] [--native-density] [--display-modes MODES] "
                      "[--enhanced-mode[=on|off] | --no-enhanced-mode] "
+                     "[--enhanced-mode-version 0|1|2|3|4|5|6|7|8|10] "
                      "[--battle-benchmark REPORT.json [--benchmark-units N] "
                      "[--benchmark-scenario idle|march|group-march|combat] [--benchmark-warmup N] "
-                     "[--benchmark-rules-version 1|2|3|4|5|6|7|8] "
+                     "[--benchmark-rules-version 1|2|3|4|5|6|7|8|10] "
                      "[--benchmark-map NAME]] "
                      "[--benchmark FRAMES] [--bench FILE] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
@@ -2023,6 +2039,14 @@ void write_startup_line(std::string_view text) {
         } else {
             switch_words.push_back(argv[index]);
         }
+    }
+    if (result.enhanced_mode_version) {
+        const bool enabled = *result.enhanced_mode_version != 0;
+        if (result.enhanced_mode.has_value() && *result.enhanced_mode != enabled)
+            throw std::runtime_error(
+                "--enhanced-mode-version conflicts with the Enhanced Mode switch"
+            );
+        result.enhanced_mode = enabled;
     }
     GuardedSwitches switches;
     switches.handler = call_hook_or_raise<&Extension::switch_handler>(extension);

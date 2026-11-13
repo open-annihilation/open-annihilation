@@ -12,7 +12,7 @@ Players in the same match may choose different graphics settings.
 ## Current preset
 
 Rules version 4 remains the current preset. Versions 5, 6, 7, 8 and 10 are explicit
-experimental benchmark choices. Version 8 extends version 7's static routing
+experimental choices. Version 8 extends version 7's static routing
 with applied-leg queue checks and planning that ignores temporary unit occupancy.
 Version 10 inherits version 8 and selects AI strike-target distribution
 among spatial cohorts. Version 9 is unsupported. Version 6 derives from
@@ -765,9 +765,23 @@ strike-target assignment. It does not enable the withdrawn version-9 passing
 history policy. Ordinary saves, replays and multiplayer peers still name the
 version selected for their match; versions 0 through 8 keep their rules.
 
-Select version 10 explicitly with `rules_version 10` in a gameplay benchmark
+Select version 10 for ordinary play without changing the supplied preset:
+
+```sh
+./run.sh --skip-intro --enhanced-mode-version 10 --hardware-acceleration=full
+```
+
+Start a new Skirmish or campaign in the normal frontend. The rules choice
+lasts for this launch; saves and recordings retain their recorded versions.
+Graphics stay independent: a match starts in classic 2.5D, Option+drag on
+a Mac (Alt+drag elsewhere) turns it to 3D, and Option+R (Alt+R) returns to
+classic. Full hardware acceleration and Graphics → Allow Full 3D Mode
+are required to turn the camera. See [the command-line reference](command-line.md#display-and-sound).
+
+For measurement, use `rules_version 10` in a gameplay benchmark
 or `--benchmark-rules-version 10` in the native simulation benchmark. The
-new-game switch still selects version 4. A separate identity establishes
+new-game switch without an explicit version still selects version 4.
+A separate identity establishes
 neither better army flow nor a frame-rate result; those require the actual
 moving and fighting comparison.
 
