@@ -324,6 +324,12 @@ steering_target(const sim::unit_movement::Unit& unit, const std::array<Point, 3>
     return {target, distance};
 }
 
+SteeringTargetCache cache_steering_target(
+    const sim::unit_movement::Unit& unit, const std::array<Point, 3>& points
+) noexcept {
+    return {unit.position, points, steering_target(unit, points)};
+}
+
 namespace {
 /// The speed, 16.16 pixels a tick, above which a unit of a match that applied
 /// mutators is held to its route (hold_to_route).
@@ -424,6 +430,7 @@ void hold_to_route(
     m.velocity = sim::unit_movement::aim_velocity(u.heading, 0, m.speed);
 }
 
+/// Steers along route points, reusing a projection only while all inputs match.
 void steer_along(
     sim::unit_movement::Unit& u,
     sim::unit_movement::Movement& m,
@@ -432,7 +439,8 @@ void steer_along(
     Fixed acceleration,
     Fixed deceleration,
     uint8_t sea_level,
-    FastUnitSteering fast_units
+    FastUnitSteering fast_units,
+    const SteeringTargetCache* cache = nullptr
 ) {
     Fixed adjustment = sub(0, deceleration);
     if (!has_route) {
@@ -440,7 +448,9 @@ void steer_along(
         sim::unit_movement::accelerate(u, m, adjustment, sea_level);
         return;
     }
-    const auto projected = steering_target(u, points);
+    const auto projected = cache && cache->position == u.position && cache->points == points
+                               ? cache->target
+                               : steering_target(u, points);
     const auto& target = projected.point;
     const auto distance = projected.distance;
     const auto dx = sub(target[0], u.position[0]), dz = sub(target[2], u.position[2]);
@@ -476,6 +486,30 @@ void steer_along(
     hold_to_route(u, m, ahead, fast_units);
 }
 } // namespace
+
+void steer_ground(
+    sim::unit_movement::Unit& u,
+    sim::unit_movement::Movement& m,
+    const Navigation& n,
+    Fixed acceleration,
+    Fixed deceleration,
+    uint8_t sea_level,
+    FastUnitSteering fast_units,
+    const SteeringTargetCache& cache
+) {
+    const bool has_route = route_present(n) && n.count != 0 && count_fits(n);
+    steer_along(
+        u,
+        m,
+        has_route,
+        has_route ? steering_points(n) : std::array<Point, 3>{},
+        acceleration,
+        deceleration,
+        sea_level,
+        fast_units,
+        &cache
+    );
+}
 
 void steer_ground(
     sim::unit_movement::Unit& u,

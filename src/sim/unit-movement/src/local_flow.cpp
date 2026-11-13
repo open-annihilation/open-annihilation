@@ -199,6 +199,22 @@ LocalFlowDecision choose_local_flow(
     LocalFlowProbe probe,
     LocalFlowCounters& counters
 ) {
+    return choose_local_flow(
+        unit, movement, target, probe_target, tick, host, probe, counters, Fixed{-1}
+    );
+}
+
+LocalFlowDecision choose_local_flow(
+    const Unit& unit,
+    const Movement& movement,
+    std::array<Fixed, 3> target,
+    std::array<Fixed, 3> probe_target,
+    uint32_t tick,
+    Host& host,
+    LocalFlowProbe probe,
+    LocalFlowCounters& counters,
+    Fixed target_distance
+) {
     LocalFlowDecision result{target};
     const auto occupancy = uint8_t(movement.flags & occupancy_mask);
     if (probe.at == nullptr || occupancy != 1 || unit.type.maximum_speed <= 0 ||
@@ -211,7 +227,8 @@ LocalFlowDecision choose_local_flow(
         wide_z <= std::numeric_limits<Fixed>::min() || wide_z > std::numeric_limits<Fixed>::max())
         return result;
     const auto dx = static_cast<Fixed>(wide_x), dz = static_cast<Fixed>(wide_z);
-    const auto unsigned_length = oa::base::game_math::distance(dx, dz);
+    const auto unsigned_length = target_distance >= 0 ? static_cast<uint32_t>(target_distance)
+                                                      : oa::base::game_math::distance(dx, dz);
     if (unsigned_length > uint32_t(std::numeric_limits<Fixed>::max()))
         return result;
     const auto length = static_cast<Fixed>(unsigned_length);

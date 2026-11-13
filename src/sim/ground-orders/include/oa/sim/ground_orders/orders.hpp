@@ -16,6 +16,7 @@
 namespace oa::sim::ground_orders {
 class MovementMap;
 struct OccupancyRectangle;
+struct SteeringTargetCache;
 // Mission kinds: each mission name's index in the case-insensitively sorted
 // mission list.
 inline constexpr uint8_t move_ground_kind = 26, standby_kind = 41,
@@ -269,6 +270,30 @@ void steer_ground(
     Fixed deceleration,
     uint8_t sea_level,
     FastUnitSteering fast_units = FastUnitSteering::as_3_1c
+);
+/// Drives a ground unit while reusing an exact projection of unchanged inputs.
+///
+/// Every position coordinate and all three route points must still match the
+/// cache's value snapshots. Changed, empty or over-full routes take the ordinary
+/// steering path. The cache is produced by cache_steering_target in this update.
+///
+/// @param[in,out] unit unit whose heading changes
+/// @param[in,out] movement movement object whose speed and velocity change
+/// @param n navigator holding the route
+/// @param acceleration signed 16.16 speed gain per tick
+/// @param deceleration signed 16.16 speed loss per tick
+/// @param sea_level map sea level in whole world units
+/// @param fast_units how a unit faster than any stock unit is steered
+/// @param cache exact projection and complete input snapshots from this update
+void steer_ground(
+    sim::unit_movement::Unit& unit,
+    sim::unit_movement::Movement& movement,
+    const Navigation& n,
+    Fixed acceleration,
+    Fixed deceleration,
+    uint8_t sea_level,
+    FastUnitSteering fast_units,
+    const SteeringTargetCache& cache
 );
 /// Drives a ground unit along a mirrored navigator's shared route head.
 ///

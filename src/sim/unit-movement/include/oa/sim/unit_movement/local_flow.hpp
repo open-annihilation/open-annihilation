@@ -205,6 +205,35 @@ bool read_local_flow_heads(std::span<LocalFlowHead> heads, std::span<const uint8
     LocalFlowCounters& counters
 );
 
+/// Inspects traffic while reusing the exact distance to the original target.
+///
+/// The cached distance must be the truncated game hypotenuse of the original
+/// target minus this unit's current position. A negative value requests the
+/// ordinary distance calculation. Coordinate-range and length-domain guards
+/// remain in effect; the projected probe target retains its own distance.
+///
+/// @param unit moving unit
+/// @param movement current motion and actual progress clock
+/// @param target original next route point used for passing direction
+/// @param probe_target actual controller aim used to inspect traffic
+/// @param tick current simulation tick
+/// @param host final occupancy queries
+/// @param probe current traffic occupants
+/// @param[in,out] counters query and yielding counts
+/// @param target_distance exact original target distance, or a negative value to calculate it
+/// @return original target or a clear local passing target
+[[nodiscard]] LocalFlowDecision choose_local_flow(
+    const Unit& unit,
+    const Movement& movement,
+    std::array<Fixed, 3> target,
+    std::array<Fixed, 3> probe_target,
+    uint32_t tick,
+    Host& host,
+    LocalFlowProbe probe,
+    LocalFlowCounters& counters,
+    Fixed target_distance
+);
+
 /// Integrates v2 ground movement while retaining the final occupancy veto.
 ///
 /// The saved last-motion tick advances only on actual position changes. A

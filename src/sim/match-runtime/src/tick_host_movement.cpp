@@ -14,6 +14,7 @@
 #include "oa/sim/world_environment/wind.hpp"
 
 #include <cstdint>
+#include <optional>
 
 namespace oa::sim::match_runtime {
 namespace {
@@ -237,6 +238,11 @@ void TickHost::movement_tick(oa::Unit& record) {
             }
         }
         auto effective_navigation = g.navigation;
+        std::optional<sim::ground_orders::SteeringTargetCache> steering_cache;
+        const bool reuse_steering = match.rules().setup.enhanced_mode.enabled &&
+                                    data::enhanced_mode::uses_cohort_target_distribution(
+                                        match.rules().setup.enhanced_mode.version
+                                    );
         if (match.enhanced_ && match.enhanced_->advisory)
             (void)match.advisory_navigation(s, g, flags, effective_navigation);
         const auto& advisory_navigation = effective_navigation;
@@ -528,7 +534,14 @@ void TickHost::movement_tick(oa::Unit& record) {
                         return result;
                     };
                     const auto points = sim::ground_orders::steering_points(advisory_navigation);
-                    const auto target = sim::ground_orders::steering_target(g.geometry, points);
+                    sim::ground_orders::SteeringTarget target;
+                    if (reuse_steering) {
+                        steering_cache =
+                            sim::ground_orders::cache_steering_target(g.geometry, points);
+                        target = steering_cache->target;
+                    } else {
+                        target = sim::ground_orders::steering_target(g.geometry, points);
+                    }
                     const auto decision = sim::unit_movement::choose_local_flow(
                         g.geometry,
                         g.movement,
@@ -537,7 +550,8 @@ void TickHost::movement_tick(oa::Unit& record) {
                         match.simulation_.tick,
                         *this,
                         probe,
-                        match.enhanced_->local_flow_counters
+                        match.enhanced_->local_flow_counters,
+                        reuse_steering ? target.distance : sim::unit_movement::Fixed{-1}
                     );
                     flow_head->mobile_blocked = decision.mobile_blocked;
                     if (decision.adjusted) {
@@ -582,15 +596,27 @@ void TickHost::movement_tick(oa::Unit& record) {
                 effective_navigation.flags |= sim::ground_orders::route_present_flag;
             }
         }
-        sim::ground_orders::steer_ground(
-            g.geometry,
-            g.movement,
-            effective_navigation,
-            g.acceleration,
-            g.deceleration,
-            match.simulation_.sea_level,
-            fast_unit_steering()
-        );
+        if (steering_cache)
+            sim::ground_orders::steer_ground(
+                g.geometry,
+                g.movement,
+                effective_navigation,
+                g.acceleration,
+                g.deceleration,
+                match.simulation_.sea_level,
+                fast_unit_steering(),
+                *steering_cache
+            );
+        else
+            sim::ground_orders::steer_ground(
+                g.geometry,
+                g.movement,
+                effective_navigation,
+                g.acceleration,
+                g.deceleration,
+                match.simulation_.sea_level,
+                fast_unit_steering()
+            );
     }
     if (parent_index) {
         auto& parent = match.slots_.at(parent_index);
