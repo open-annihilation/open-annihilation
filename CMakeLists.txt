@@ -1164,7 +1164,7 @@ if(BUILD_TESTING)
   # and clipped.
   add_executable(oa-app-far-view-test src/app/far_view_test.cpp src/app/far_view.cpp)
   target_link_libraries(oa-app-far-view-test PRIVATE oa-app-headers oa-formats-tnt oa-formats-hpi
-    oa-formats-objects3d
+    oa-formats-objects3d oa-sim-model-runtime
     oa-platform-job-pool oa-ui-engine-settings oa-test-support oa-options)
   add_test(NAME app-far-view COMMAND oa-app-far-view-test)
   # The battlefield's thin lines drawn band by band: lines of the frame and

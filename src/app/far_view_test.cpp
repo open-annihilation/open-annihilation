@@ -18,6 +18,7 @@
 #include "unit_detail_transition.hpp"
 
 #include "oa/platform/job_pool.hpp"
+#include "oa/sim/model_runtime/instance.hpp"
 #include "oa/test/check.hpp"
 #include "oa/formats/objects3d.hpp"
 
@@ -586,6 +587,104 @@ oa::formats::objects3d::Model physical_size_model() {
     return model;
 }
 
+void mesh_bounds_match_neutral_instance_placements() {
+    namespace detail = oa::app::unit_detail_transition;
+    namespace mesh = oa::formats::objects3d;
+    namespace runtime = oa::sim::model_runtime;
+    constexpr int32_t fixed_scale = mesh::kThreeDoUnitsPerWorldUnit;
+    const auto triangle = [](mesh::Object& object, std::array<mesh::FixedVector3, 3> vertices) {
+        object.vertices.assign(vertices.begin(), vertices.end());
+        auto& polygon = object.primitives.emplace_back();
+        polygon.is_colored = 1;
+        polygon.color_index = 37;
+        polygon.vertex_indices = {0, 1, 2};
+    };
+    auto model = std::make_shared<mesh::Model>();
+    model->objects.resize(4);
+    auto& root = model->objects[0];
+    root.first_child = 1;
+    root.next_sibling = 2;
+    root.offset_from_parent = {
+        std::numeric_limits<int32_t>::max() - fixed_scale, -3 * fixed_scale, 2 * fixed_scale
+    };
+    triangle(
+        root,
+        {{{4 * fixed_scale, fixed_scale, -2 * fixed_scale},
+          {6 * fixed_scale, fixed_scale, -2 * fixed_scale},
+          {4 * fixed_scale, 3 * fixed_scale, 0}}}
+    );
+    auto& child = model->objects[1];
+    child.parent = 0;
+    child.offset_from_parent = {5 * fixed_scale, 4 * fixed_scale, -6 * fixed_scale};
+    triangle(
+        child,
+        {{{-7 * fixed_scale, fixed_scale, 3 * fixed_scale},
+          {-4 * fixed_scale, fixed_scale, 3 * fixed_scale},
+          {-7 * fixed_scale, 2 * fixed_scale, 5 * fixed_scale}}}
+    );
+    auto& sibling = model->objects[2];
+    sibling.first_child = 3;
+    sibling.offset_from_parent = {1000 * fixed_scale, -1000 * fixed_scale, 1000 * fixed_scale};
+    triangle(
+        sibling, {{{0, 0, 0}, {2 * fixed_scale, 0, 0}, {0, 2 * fixed_scale, 3 * fixed_scale}}}
+    );
+    auto& sibling_child = model->objects[3];
+    sibling_child.parent = 2;
+    sibling_child.offset_from_parent = {900 * fixed_scale, 700 * fixed_scale, -1100 * fixed_scale};
+    triangle(
+        sibling_child,
+        {{{4 * fixed_scale, -2 * fixed_scale, 2 * fixed_scale},
+          {6 * fixed_scale, -2 * fixed_scale, 2 * fixed_scale},
+          {4 * fixed_scale, fixed_scale, 4 * fixed_scale}}}
+    );
+    for (const bool wrapped : {false, true}) {
+        root.offset_from_parent.x =
+            wrapped ? std::numeric_limits<int32_t>::max() - fixed_scale : -3 * fixed_scale;
+        auto instance = runtime::make_instance(model);
+        OA_CHECK(instance.pieces().size() == model->objects.size());
+        if (instance.pieces().size() != model->objects.size())
+            return;
+        instance.rebuild_transforms({});
+        // One placement straddles signed wrapping; root siblings retain
+        // their reset vertices, including the sibling's child.
+        OA_CHECK((instance.pieces()[0].transformed_vertices[0].x > 0) == wrapped);
+        OA_CHECK((instance.pieces()[1].transformed_vertices[0].x < 0) == wrapped);
+        std::array<int32_t, 3> least{}, greatest{};
+        least.fill(std::numeric_limits<int32_t>::max());
+        greatest.fill(std::numeric_limits<int32_t>::min());
+        bool found = false;
+        constexpr auto visible = static_cast<uint16_t>(runtime::PieceFlag::visible);
+        for (const auto& piece : instance.pieces()) {
+            if ((piece.flags & visible) == 0)
+                continue;
+            const auto& object = model->objects[piece.object_index];
+            for (std::size_t face = 0; face < object.primitives.size(); ++face) {
+                const auto& polygon = object.primitives[face];
+                if (static_cast<int64_t>(face) == object.selection_primitive ||
+                    !polygon.source_visible() || polygon.vertex_indices.size() < 3)
+                    continue;
+                for (const auto vertex : polygon.vertex_indices) {
+                    const auto& transformed = piece.transformed_vertices[vertex];
+                    const std::array coordinates{transformed.x, transformed.y, transformed.z};
+                    for (std::size_t axis = 0; axis < coordinates.size(); ++axis) {
+                        least[axis] = std::min(least[axis], coordinates[axis]);
+                        greatest[axis] = std::max(greatest[axis], coordinates[axis]);
+                    }
+                    found = true;
+                }
+            }
+        }
+        OA_CHECK(found);
+        std::array<double, 3> expected{};
+        for (std::size_t axis = 0; axis < expected.size(); ++axis)
+            expected[axis] = (static_cast<int64_t>(greatest[axis]) - least[axis]) /
+                             static_cast<double>(fixed_scale);
+        OA_CHECK(wrapped ? expected[0] > 65000 : expected[0] == 11);
+        OA_CHECK(expected[1] == 5 && expected[2] == 5);
+        OA_CHECK(detail::derive_geometry(*model).dimensions == expected);
+    }
+}
+
 void loaded_mesh_size_is_independent_of_collision_bounds() {
     namespace detail = oa::app::unit_detail_transition;
     namespace mesh = oa::formats::objects3d;
@@ -734,6 +833,7 @@ int main() {
     a_dot_covers_the_pixels_drawn_in_its_colour();
     the_view_goes_past_the_map_until_its_edge_reaches_the_middle();
     a_smaller_share_keeps_more_of_the_view_on_the_map();
+    mesh_bounds_match_neutral_instance_placements();
     loaded_mesh_size_is_independent_of_collision_bounds();
     the_automatic_boundary_uses_physical_population_size();
     physical_size_follows_camera_and_unit_turn();
