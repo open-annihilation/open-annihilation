@@ -173,6 +173,27 @@ def unit_detail_transcript(geometry=True, detail=True):
     return "\n".join(lines) + "\n"
 
 
+def body_record(frame, **changes):
+    """Return actual body emissions, including scissored triangles and separate dot reasons."""
+    values = dict(frame=frame, full=3, body=12, distance=2, budget=1,
+                  full_vertices=900, body_vertices=432, shadow=480, deferred=37)
+    values.update(changes)
+    return ("bench: BODY_LOD_FRAME {frame} full_mesh_models {full} body_lod_models {body} "
+            "distance_markers {distance} budget_markers {budget} full_mesh_vertices {full_vertices} "
+            "body_lod_vertices {body_vertices} shadow_vertices {shadow} "
+            "deferred_geometry {deferred}").format(**values)
+
+
+def body_transcript():
+    """Add one actual-emission row after each automatic-size row."""
+    lines = []
+    for line in unit_detail_transcript().splitlines():
+        lines.append(line)
+        if line.startswith("bench: UNIT_DETAIL_FRAME "):
+            lines.append(body_record(int(line.split()[2])))
+    return "\n".join(lines) + "\n"
+
+
 class NativeBenchReceiptTest(unittest.TestCase):
     """Receipts identify the actual preset and remain part of strict transcript validation."""
 
@@ -187,6 +208,57 @@ class NativeBenchReceiptTest(unittest.TestCase):
                 with self.assertRaisesRegex(bench.BenchFailure, message):
                     checker(result, *args, **kwargs)
         self.assertEqual(output.getvalue(), result.stdout + result.stderr)
+
+    def test_body_emissions_preserve_the_other_strict_record_families(self):
+        """Body counts project only after their frame, simulation and detail pairs validate."""
+        text = body_transcript()
+        result = result_for(text)
+        self.assertEqual(bench.check_lines(result, True), text.splitlines())
+        self.assertEqual(bench.check_body_lod_records(result, text.splitlines()),
+                         unit_detail_transcript().splitlines())
+        self.assertEqual(bench.check_renderer_records(result, text.splitlines(), 3, True),
+                         transcript(timers=True).splitlines())
+
+    def test_body_emissions_allow_empty_backends_and_shadow_only_geometry(self):
+        """A backend without body reporting has zeros; a visible shadow need not have a body."""
+        for shadow in (0, 12):
+            text = body_transcript()
+            for frame in range(3):
+                text = text.replace(body_record(frame), body_record(
+                    frame, full=0, body=0, distance=0, budget=0, full_vertices=0,
+                    body_vertices=0, shadow=shadow, deferred=0))
+            self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+
+    def test_body_emissions_reject_invalid_counts_and_nontriangles(self):
+        """Counts retain their source widths and describe actual nonempty triangle emission."""
+        changes = (dict(full=-1), dict(body="1.5"), dict(distance="01"),
+                   dict(budget=1 << 32), dict(deferred=1 << 64),
+                   dict(body_vertices=1 << 64), dict(shadow=7),
+                   dict(full=0), dict(body=0), dict(full_vertices=0),
+                   dict(body_vertices=3), dict(body_vertices=433))
+        for change in changes:
+            with self.subTest(change=change):
+                text = body_transcript().replace(body_record(1), body_record(1, **change))
+                self.assert_rejected(result_for(text), bench.check_lines, True,
+                                     message="body LOD records")
+        for row in (body_record(1) + " extra", body_record(1).replace("shadow_vertices 480 ", "")):
+            text = body_transcript().replace(body_record(1), row)
+            self.assert_rejected(result_for(text), bench.check_lines, True,
+                                 message="body LOD records")
+
+    def test_body_emissions_reject_missing_duplicate_or_misplaced_rows(self):
+        """Body rows cannot lose their unique immediate FRAME/SIM/detail association."""
+        text = body_transcript()
+        variants = (text.replace(body_record(1) + "\n", ""),
+                    text.replace(body_record(1), body_record(1) + "\n" + body_record(1)),
+                    text.replace(body_record(1), body_record(2)),
+                    text.replace(detail_record(1) + "\n" + body_record(1),
+                                 body_record(1) + "\n" + detail_record(1)),
+                    text.replace(detail_record(1) + "\n", ""),
+                    text.replace("BODY_LOD_FRAME 1", "BODY_UNKNOWN 1"))
+        for variant in variants:
+            self.assert_rejected(result_for(variant), bench.check_lines, True,
+                                 message="body LOD records")
 
     def test_unit_detail_families_are_optional_and_project_only_validated_rows(self):
         """Both new families retain strict legacy checks, together or independently."""

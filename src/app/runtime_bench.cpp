@@ -69,6 +69,8 @@ struct FrameSample {
     uint32_t average_unit_count{}; ///< units contributing to that average
     bool automatic_unit_detail{};  ///< the Unit size boundary was selected
     bool units_as_dots{};          ///< the completed frame used the global dot representation
+    BodyLodCounts body{};          ///< actual unit model representations emitted by the frame
+    uint64_t deferred_geometry{};  ///< invisible model updates deferred during this frame
 };
 
 /// Room for one stage's milliseconds in a FRAME line.
@@ -782,6 +784,7 @@ void Runtime::play_bench() {
         double finished{};
         {
             const bench::SimulationFrameScope recording(view.frame_log ? &simulation : nullptr);
+            bench_timers::body_counts = {};
             frame();
             finished = now();
             simulation.tick_after = match_timing_.tick;
@@ -809,6 +812,10 @@ void Runtime::play_bench() {
         {
             const auto& settings = engine_settings();
             auto& sample = samples.back();
+            sample.body = bench_timers::body_counts;
+            if (match_models_ && match_models_->match == match_.get())
+                sample.deferred_geometry =
+                    match_models_->preplanning_visibility.deferred_geometry_count;
             sample.automatic_unit_detail =
                 settings.zoomed_out_units == oa::ui::engine_settings::ZoomedOutUnits::dots &&
                 settings.zoomed_out_after == oa::ui::engine_settings::ZoomedOutAfter::unit_size;
@@ -1266,6 +1273,21 @@ void Runtime::play_bench() {
                 unit_detail_transition::model_to_dot_ratio,
                 samples[index].average_unit_count,
                 samples[index].units_as_dots
+            );
+            const auto& body = samples[index].body;
+            std::printf(
+                "bench: BODY_LOD_FRAME %zu full_mesh_models %u body_lod_models %u "
+                "distance_markers %u budget_markers %u full_mesh_vertices %llu "
+                "body_lod_vertices %llu shadow_vertices %llu deferred_geometry %llu\n",
+                index,
+                body.full_mesh_models,
+                body.body_lod_models,
+                body.distance_markers,
+                body.budget_markers,
+                static_cast<unsigned long long>(body.full_mesh_vertices),
+                static_cast<unsigned long long>(body.body_lod_vertices),
+                static_cast<unsigned long long>(body.shadow_vertices),
+                static_cast<unsigned long long>(samples[index].deferred_geometry)
             );
             std::printf(
                 "bench: GROUND_INDEX_FRAME %zu builds %.0f hits %.0f triangles %.0f wall_ms %.3f\n",

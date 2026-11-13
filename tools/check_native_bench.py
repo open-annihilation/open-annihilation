@@ -118,6 +118,13 @@ UNIT_DETAIL_FRAME = re.compile(
     rf"^bench: UNIT_DETAIL_FRAME (?P<frame>{UNSIGNED}) automatic (?P<automatic>[01]) "
     r"average_pixels (?P<average>\d+\.\d{4}) dot_pixels (?P<dot>\d+\.\d) "
     rf"model_ratio (?P<ratio>\d+\.\d{{2}}) reference_units (?P<units>{UNSIGNED}) dots (?P<dots>[01])$")
+BODY_LOD_FRAME = re.compile(
+    rf"^bench: BODY_LOD_FRAME (?P<frame>{UNSIGNED}) full_mesh_models (?P<full>{UNSIGNED}) "
+    rf"body_lod_models (?P<body>{UNSIGNED}) distance_markers (?P<distance>{UNSIGNED}) "
+    rf"budget_markers (?P<budget>{UNSIGNED}) full_mesh_vertices (?P<full_vertices>{UNSIGNED}) "
+    rf"body_lod_vertices (?P<body_vertices>{UNSIGNED}) shadow_vertices (?P<shadow>{UNSIGNED}) "
+    rf"deferred_geometry (?P<deferred>{UNSIGNED})$")
+UINT64_MASK = (1 << 64) - 1
 UNIT_DOT_PIXELS = 5.0
 UNIT_MODEL_TO_DOT_RATIO = 1.2
 FRAME_RESULT = re.compile(RESULT.pattern.replace("label=check", r"label=\S+"))
@@ -303,8 +310,58 @@ def check_unit_detail_records(result, lines):
     return [line for line, tag in zip(lines, tags) if tag not in UNIT_DETAIL_TAGS]
 
 
+def check_body_lod_records(result, lines):
+    """Validate actual emitted body counts and remove only their complete frame family."""
+    tags = [line.split()[1] for line in lines]
+    if any(tag.startswith("BODY_") and tag != "BODY_LOD_FRAME" for tag in tags):
+        fail(result, "body LOD records: unknown body metadata tag")
+    body_positions = [index for index, tag in enumerate(tags) if tag == "BODY_LOD_FRAME"]
+    if not body_positions:
+        return lines
+
+    def require(condition, message):
+        if not condition:
+            fail(result, "body LOD records: " + message)
+
+    positions = [index for index, tag in enumerate(tags) if tag == "FRAME"]
+    results = [FRAME_RESULT.fullmatch(line) for line in lines if line.startswith("bench: RESULT ")]
+    require(len(results) == 1 and results[0] is not None, "missing or malformed RESULT")
+    frames = int(results[0].group(2))
+    require(frames > 0 and len(positions) == len(body_positions) == frames,
+            "each FRAME needs exactly one BODY_LOD_FRAME")
+    for frame, position in enumerate(positions):
+        require(position + 3 < len(lines), "missing body row after unit detail")
+        regular = FRAME.fullmatch(lines[position])
+        simulation = SIM_FRAME.fullmatch(lines[position + 1])
+        detail = UNIT_DETAIL_FRAME.fullmatch(lines[position + 2])
+        require(regular is not None and int(regular.group(1)) == frame,
+                "FRAME indices are not complete and ordered")
+        require(simulation is not None and int(simulation.group("frame")) == frame and
+                detail is not None and int(detail.group("frame")) == frame,
+                "body rows need adjacent FRAME, SIM_FRAME and UNIT_DETAIL_FRAME records")
+        require(body_positions[frame] == position + 3,
+                "BODY_LOD_FRAME must immediately follow UNIT_DETAIL_FRAME")
+        match = BODY_LOD_FRAME.fullmatch(lines[body_positions[frame]])
+        require(match is not None and int(match.group("frame")) == frame,
+                "a BODY_LOD_FRAME line does not read or has the wrong frame")
+        row = {key: int(value) for key, value in match.groupdict().items()}
+        require(all(row[key] <= UINT32_MASK for key in ("full", "body", "distance", "budget")),
+                "model count exceeds uint32")
+        require(all(row[key] <= UINT64_MASK
+                    for key in ("full_vertices", "body_vertices", "shadow", "deferred")),
+                "geometry count exceeds uint64")
+        for models, vertices in (("full", "full_vertices"), ("body", "body_vertices")):
+            require(row[vertices] % 3 == 0 and
+                    ((row[models] == 0 and row[vertices] == 0) or
+                     (row[models] > 0 and row[vertices] >= row[models] * 3)),
+                    "emitted model and triangle counts disagree")
+        require(row["shadow"] % 3 == 0, "shadow count is not triangle corners")
+    return [line for line, tag in zip(lines, tags) if tag != "BODY_LOD_FRAME"]
+
+
 def check_simulation_records(result, lines, frames=None):
     """Validate paired simulation rows before projecting the unchanged FRAME transcript."""
+    lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
     positions = [index for index, line in enumerate(lines) if line.startswith("bench: FRAME")]
     simulation = [line for line in lines if line.startswith("bench: SIM_FRAME")]
@@ -371,6 +428,7 @@ def check_simulation_records(result, lines, frames=None):
 
 def check_renderer_records(result, lines, frames, timers):
     """Validate optional renderer families, returning the unchanged legacy transcript."""
+    lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
     legacy = [line for line in lines if line.split()[1] not in RENDERER_TAGS]
     lines = check_simulation_records(result, lines, frames)
@@ -549,6 +607,7 @@ def check_lines(result, timers, rules_version=0, requested_rules_version=0):
         fail(result, f"the AWAY line does not read: {away[0]}")
     lines = [line for line in lines if not line.startswith("bench: AWAY")]
     original = lines
+    lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
     simulation_checked = check_simulation_records(result, lines)
     kinds = [line.split()[1] for line in simulation_checked if line.split()[1] not in RENDERER_TAGS]

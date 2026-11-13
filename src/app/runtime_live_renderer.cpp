@@ -3,6 +3,7 @@
 
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "unit_bounds.hpp"
 #include "renderer_marker_policy.hpp"
 #include "oa/app/camera_inversion.hpp"
@@ -1099,6 +1100,10 @@ bool Runtime::render_live_match_surface() {
         // it adds the lights too: the processor's lights find their
         // surfaces among the frame's own triangles.
         inputs.models_on_card = live_models_on_card();
+        const auto& enhanced = match_->rules().setup.enhanced_mode;
+        inputs.body_lod_enabled = enhanced.enabled &&
+                                  enhanced.version == data::enhanced_mode::cohort_target_version &&
+                                  director_ == nullptr;
         // Keep this policy enabled through a resource failure: any image
         // already deferred must force a genuine-pixel replan if its type
         // can no longer cast the frame's shadow on the card.
@@ -1276,6 +1281,8 @@ bool Runtime::render_live_match_surface() {
             note_scene();
             result = draw();
         }
+        if (result == renderer_live_gpu::Result::success)
+            bench_timers::body_counts = live.scene.body_lod_counts;
         auto* check = options_.check_live_renderer && ground_query_observations.watching
                           ? &ground_query_observations
                           : nullptr;
