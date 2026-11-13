@@ -184,8 +184,15 @@ struct StrikeFixture {
         auto& first = fixture.spawn(enemy_player, target_x, target_z);
         hold_fire(first);
         target = first.unit_index;
+        // Keep an actual split when members may choose another selected front.
+        // The short-range fixture retains separate targets at its shared Z.
+        const bool nearby_fronts =
+            !short_range_weapon &&
+            oa::data::enhanced_mode::uses_cohort_target_distribution(version);
         auto& second = fixture.spawn(
-            enemy_player, replacement_x, short_range_weapon ? target_z : replacement_z
+            enemy_player,
+            nearby_fronts ? target_x : replacement_x,
+            short_range_weapon ? target_z : replacement_z
         );
         hold_fire(second);
         replacement = second.unit_index;
@@ -214,11 +221,19 @@ struct StrikeFixture {
         regular_refresh_tick = initial_issue_tick + strike_refresh_ticks;
         CHECK(strike().next_tick == regular_refresh_tick);
         if (oa::data::enhanced_mode::uses_cohort_target_distribution(version)) {
+            std::size_t first_members = 0;
+            std::size_t second_members = 0;
             for (const auto member : members) {
                 const auto record = head_record(fixture, member);
                 CHECK(record.kind == attack_chase_order);
                 CHECK(record.target == target || record.target == replacement);
                 CHECK(record.issue_tick == initial_issue_tick);
+                first_members += record.target == target;
+                second_members += record.target == replacement;
+            }
+            if (nearby_fronts) {
+                CHECK(first_members >= 2);
+                CHECK(second_members != 0);
             }
         } else {
             check_attack(target, initial_issue_tick);
