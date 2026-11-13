@@ -43,6 +43,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -4172,6 +4173,66 @@ int Runtime::check_live_renderer() {
                     };
                     auto& canonical = match_->runtime_state(walker).instance->model();
                     auto& canonical_state = models.units[walker].state;
+                    const auto far_geometry =
+                        preplanning_visibility::prepare_geometry(canonical.model_handle());
+                    preplanning_visibility::Scratch far_scratch;
+                    std::size_t far_bound_frames{};
+                    std::size_t far_rejected_frames{};
+                    const auto check_far_geometry = [&] {
+                        const auto box = preplanning_visibility::bound_far_instance(
+                            far_geometry, canonical, far_scratch
+                        );
+                        require(bool(box), "the real stock pose refused the integer-radius bound");
+                        std::vector<std::string_view> names;
+                        names.reserve(canonical.pieces().size());
+                        for (const auto& piece : canonical.pieces())
+                            names.push_back(
+                                canonical.model_handle()->objects[piece.object_index].name
+                            );
+                        auto fresh = oa::sim::model_runtime::make_instance(
+                            canonical.model_handle(), canonical.owner_token(), names
+                        );
+                        require(
+                            fresh.pieces().size() == canonical.pieces().size(),
+                            "the fresh stock radius oracle changed the piece count"
+                        );
+                        for (std::size_t piece = 0; piece < canonical.pieces().size(); ++piece) {
+                            const auto& raw = canonical.pieces()[piece];
+                            auto& target = fresh.pieces()[piece];
+                            require(
+                                raw.object_index == target.object_index,
+                                "the fresh stock radius oracle changed the COB piece order"
+                            );
+                            target.translation = raw.translation;
+                            target.rotation = raw.rotation;
+                            target.flags = raw.flags;
+                        }
+                        present::model::ModelState fresh_state;
+                        fresh_state.shift = canonical_state.shift;
+                        present::model::ModelRef reference;
+                        reference.instance = &fresh;
+                        reference.state = &fresh_state;
+                        reference.unit = &match_->world().record.units[walker];
+                        present::model::set_model_shift(
+                            reference,
+                            {reference.unit->bank,
+                             static_cast<int16_t>(reference.unit->heading),
+                             reference.unit->pitch}
+                        );
+                        fresh.rebuild_transforms(fresh_state.shift);
+                        constexpr auto visible =
+                            static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
+                        for (const auto& piece : fresh.pieces())
+                            if ((piece.flags & visible) != 0)
+                                for (const auto& vertex : piece.transformed_vertices)
+                                    require(
+                                        vertex.x >= box->low.x && vertex.x <= box->high.x &&
+                                            vertex.y >= box->low.y && vertex.y <= box->high.y &&
+                                            vertex.z >= box->low.z && vertex.z <= box->high.z,
+                                        "the integer-radius cube missed a fresh stock vertex"
+                                    );
+                        ++far_bound_frames;
+                    };
                     // Build an independent current-pose oracle. No retained recipe
                     // or production deferred-image resolver participates in it.
                     const auto current_geometry = [&](const auto& source, const auto& state) {
@@ -4327,6 +4388,16 @@ int Runtime::check_live_renderer() {
                                 ? std::optional{models.deferred_geometry.units[walker]}
                                 : std::nullopt;
                         const auto before_state = clone_state(canonical_state);
+                        if (preplan_version == deferred_geometry_version) {
+                            check_far_geometry();
+                            require(
+                                same_derived(canonical, before_instance) &&
+                                    canonical.materialization_revision() ==
+                                        before_instance.materialization_revision() &&
+                                    lifecycle(canonical_state) == lifecycle(before_state),
+                                "the stock radius oracle materialized canonical renderer state"
+                            );
+                        }
                         const auto tick = uint32_t{match_->simulation().tick};
                         const auto random = match_->random_state();
                         UnitPose raw_before, raw_after;
@@ -4349,6 +4420,39 @@ int Runtime::check_live_renderer() {
                         const auto ordinary_instance = canonical;
                         const auto ordinary_lifecycle = lifecycle(canonical_state);
                         const auto ordinary_readback = match_draw_read_back();
+                        if (preplan_version == deferred_geometry_version) {
+                            preplanning_visibility::FrameView far_view;
+                            require(
+                                prepare_preplanning_visibility_frame(far_view),
+                                "the real stock radius proof lacks its current native frame"
+                            );
+                            const auto plan = std::find_if(
+                                models.unit_plans.plans.begin(),
+                                models.unit_plans.plans.end(),
+                                [&](const auto& candidate) {
+                                    return candidate.unit_index == walker;
+                                }
+                            );
+                            require(
+                                plan != models.unit_plans.plans.end(),
+                                "the real stock radius proof lost its canonical plan"
+                            );
+                            preplanning_visibility::Eligibility gate;
+                            gate.enhanced = gate.local = gate.rig_resolved = gate.ground_resolved =
+                                gate.gpu_type_supported = gate.budget_safe =
+                                    gate.native_geometry_resolved = gate.fog_seen =
+                                        gate.ordinary_model_path = true;
+                            gate.frame = models.presentation.draw;
+                            gate.owner_token = plan->preplanning_owner;
+                            gate.generation = plan->preplanning_generation;
+                            gate.rig_generation =
+                                models.presentation.units[walker].instance_generation;
+                            gate.sea_level = match_->state().game.sea_level;
+                            gate.ground_height = ordinary_draw->plan.model.ground;
+                            far_rejected_frames += preplanning_visibility::far_rejection_proof(
+                                far_geometry, ordinary_draw->model, far_view, gate, far_scratch
+                            );
+                        }
                         if (!stationary && preplan_version == deferred_geometry_version)
                             require(
                                 canonical_state.image_builds > before_state.image_builds,
@@ -4459,6 +4563,11 @@ int Runtime::check_live_renderer() {
                         );
                     }
                     const bool lazy_preset = preplan_version == deferred_geometry_version;
+                    if (lazy_preset)
+                        require(
+                            far_bound_frames == 3 && far_rejected_frames != 0,
+                            "the real stock radius bound did not enclose and reject actual frames"
+                        );
                     require(
                         lazy_preset ? lazy_frames != 0 : lazy_frames == 0,
                         "the whole-tick lazy-geometry preset did not match actual activation"
@@ -4682,7 +4791,9 @@ int Runtime::check_live_renderer() {
                            "classic fallback build fresh current images; "
                            "pass; "
                         << "actor=" << (stationary ? "ARMJAM" : "ARMPW")
-                        << " lazy frames=" << lazy_frames << '\n';
+                        << " lazy frames=" << lazy_frames
+                        << " stock radius bounds=" << far_bound_frames
+                        << " stock helper rejections=" << far_rejected_frames << '\n';
                 }
             } catch (...) {
                 visibility.force_ordinary = false;
