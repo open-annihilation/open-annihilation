@@ -19,6 +19,7 @@
 #include "renderer_live_gpu.hpp"
 #include "renderer_live_overlay.hpp"
 #include "renderer_live_scene.hpp"
+#include "runtime_ground_query_check.hpp"
 #include "renderer_water_surface.hpp"
 #include "xrgb_conversion.hpp"
 #include "oa/platform/job_pool.hpp"
@@ -42,6 +43,98 @@ namespace oa::app {
 namespace render_probe = oa::platform::render_probe;
 
 namespace {
+/// Dedicated windowless-check state; ordinary frames never record observations.
+thread_local ground_query_check::State ground_query_observations{};
+
+/// Hashes the same live object's emitted and picking inputs around a check-only attempt.
+/// Object bytes, including unchanged padding, are compared only before/after that call.
+/// @param live the private renderer whose completed frame the check observes
+/// @return a digest of Scene-owned GPU payload, projection, readback and picking storage
+template <class Live>
+uint64_t ground_query_frame_digest(const Live& live) noexcept {
+    constexpr uint64_t factor = 1099511628211ULL;
+    uint64_t hash = 14695981039346656037ULL;
+    const auto bytes = [&](const auto& values) {
+        for (const auto byte : std::as_bytes(std::span(values)))
+            hash = (hash ^ std::to_integer<uint8_t>(byte)) * factor;
+    };
+    const auto word = [&](const auto& value) { bytes(std::span(&value, 1)); };
+    const auto range = [&](const auto& values) {
+        word(values.size());
+        bytes(values);
+    };
+    const auto& scene = live.scene;
+    range(scene.vertices);
+    range(scene.translucent_vertices);
+    range(scene.unit_ranges);
+    range(scene.translucent_ranges);
+    range(scene.texture_rgba);
+    word(scene.texture_width);
+    word(scene.texture_height);
+    word(scene.texture_revision);
+    word(scene.ground_revision);
+    word(scene.kept_ground_revision);
+    word(scene.ground_points_revision);
+    word(scene.terrain_vertex_count);
+    word(scene.card_ground.vertex_count);
+    word(scene.card_ground.revision);
+    word(scene.card_ground.next_revision);
+    word(scene.card_ground.next_first);
+    word(scene.card_ground.next_count);
+    range(scene.card_ground.next);
+    const auto& atlas = scene.atlas_update;
+    word(atlas.previous_revision);
+    word(atlas.first_row);
+    word(atlas.end_row);
+    word(atlas.frame_first_row);
+    word(atlas.frame_end_row);
+    range(atlas.regions);
+    const auto cards = renderer_live_scene::card_draws(scene.card_types, scene.cards);
+    range(cards.corners);
+    word(cards.corners_revision);
+    range(cards.instances);
+    range(cards.positions);
+    range(cards.piece_frames);
+    range(cards.textures);
+    range(cards.indices);
+    range(cards.runs);
+    range(cards.casts);
+    range(cards.cast_indices);
+    range(cards.cast_runs);
+    word(cards.shadow_map.left);
+    word(cards.shadow_map.top);
+    word(cards.shadow_map.scale);
+    word(cards.shadow_map.width);
+    word(cards.shadow_map.height);
+    word(cards.shadow_vertex);
+    word(cards.shadow_ground);
+    range(cards.markers);
+    range(cards.marker_runs);
+    range(cards.marker_uv);
+    range(scene.cards.units);
+    range(live.projection);
+    range(live.rgba);
+    range(live.projected);
+    range(live.triangle_units);
+    range(live.card_bounds);
+    range(live.pick_blocks);
+    range(live.picked_projection);
+    word(live.picked_ground_revision);
+    word(live.picked_ground_vertices);
+    for (uint32_t slot = 0; slot < UnitBounds::max_slots; ++slot) {
+        const auto* bounds = live.unit_bounds.find(static_cast<uint16_t>(slot));
+        word(bounds != nullptr);
+        if (bounds != nullptr) {
+            word(slot);
+            word(bounds->x1);
+            word(bounds->y1);
+            word(bounds->x2);
+            word(bounds->y2);
+        }
+    }
+    return hash;
+}
+
 /// Camera rotation per logical mouse pixel.
 constexpr float orbit_degrees_per_pixel = 0.25F;
 /// Painted height cell edge and the classic projection's height lift.
@@ -85,12 +178,29 @@ struct VisibilityReach {
 };
 } // namespace
 
+void ground_query_check::begin(bool simulate_failure) noexcept {
+    ground_query_observations = {};
+    ground_query_observations.watching = true;
+    ground_query_observations.fail_next = simulate_failure;
+}
+
+void ground_query_check::end() noexcept {
+    ground_query_observations.watching = false;
+    ground_query_observations.fail_next = false;
+}
+
+ground_query_check::State ground_query_check::read() noexcept {
+    return ground_query_observations;
+}
+
 struct Runtime::LiveRenderer {
     renderer_live_camera::State camera{};
     renderer_live_camera::Matrix projection{};
     renderer_live_camera::View view{};
     bool pivot_held{};
     renderer_live_scene::Scene scene{};
+    /// One initial retained-ground preparation attempt in this Scene/match lifetime.
+    bool initial_ground_queries_attempted{};
     bool scene_built{}; ///< the last frame's scene was built
     renderer_live_gpu::Context gpu{};
     std::vector<uint8_t> rgba{};
@@ -202,6 +312,8 @@ void Runtime::release_live_renderer() noexcept {
         SDL_DestroyTexture(turned_world_tex_);
     turned_world_tex_ = nullptr;
     turned_world_source_ = nullptr;
+    if (options_.check_live_renderer && ground_query_observations.watching && live_renderer_)
+        ++ground_query_observations.destructions;
     live_renderer_.reset();
 }
 
@@ -807,6 +919,9 @@ bool Runtime::render_live_match_surface() {
     auto& live = *live_renderer_;
     if (live.match != match_.get()) {
         live.scene = {};
+        live.initial_ground_queries_attempted = false;
+        if (options_.check_live_renderer && ground_query_observations.watching)
+            ++ground_query_observations.scenes;
         live.drawn = {};
         live.pivot_held = false;
         live.match = match_.get();
@@ -1091,6 +1206,74 @@ bool Runtime::render_live_match_surface() {
             live.scene_built = built;
             note_scene();
             result = draw();
+        }
+        auto* check = options_.check_live_renderer && ground_query_observations.watching
+                          ? &ground_query_observations
+                          : nullptr;
+        const bool initial_ground_queries =
+            match_->rules().setup.enhanced_mode.enabled && !live.initial_ground_queries_attempted;
+        if (result == renderer_live_gpu::Result::success && (initial_ground_queries || check)) {
+            const auto& scene = live.scene;
+            const auto count = scene.terrain_vertex_count;
+            const bool retained_base = scene.ground_revision == scene.kept_ground_revision &&
+                                       scene.ground_vertices.size() == count;
+            const bool retained_cut = scene.cut_source == scene.kept_ground_revision &&
+                                      scene.cut_revision == scene.ground_revision &&
+                                      scene.cut_ground.size() == count;
+            const bool retained = scene.frame_palette == nullptr && scene.ground_kept &&
+                                  scene.kept_ground_revision != 0 && scene.ground_revision != 0 &&
+                                  (retained_base || retained_cut) && count != 0 && count % 3 == 0 &&
+                                  count <= renderer_live_gpu::largest_vertex_count &&
+                                  count <= scene.vertices.size() &&
+                                  scene.card_ground.revision == scene.ground_revision &&
+                                  scene.card_ground.vertex_count == count;
+            if (check != nullptr) {
+                check->retained = retained;
+                check->cache_valid = scene.ground_index_cache.valid;
+                check->index_attempts = scene.ground_index_cache.attempts;
+                check->ground_revision = scene.ground_revision;
+                check->query_revision = scene.ground_index_cache.key.revision;
+                check->terrain_vertices = count;
+            }
+            if (initial_ground_queries) {
+                if (retained) {
+                    // This initial transition owns one attempt, including an
+                    // optional allocation failure. Ordinary later invalidation
+                    // and recovery remain at the first real effect query.
+                    live.initial_ground_queries_attempted = true;
+                    const uint64_t before = check != nullptr ? ground_query_frame_digest(live) : 0;
+                    if (check != nullptr) {
+                        ++check->attempts;
+                        check->last_attempt_scene = check->scenes;
+                        check->consumed_before_call = live.initial_ground_queries_attempted;
+                    }
+                    if (check != nullptr && check->fail_next) {
+                        // A caller-boundary simulation, not an API invocation
+                        // or an actual failed allocation. The CPU Scene suite
+                        // separately refuses each real allocation in the API.
+                        check->fail_next = false;
+                        ++check->simulated_failures;
+                    } else {
+                        if (check != nullptr)
+                            ++check->api_calls;
+                        const bool prepared = renderer_live_scene::prepare_ground_queries(
+                            live.scene, inputs.view_direction, inputs.pool
+                        );
+                        if (check != nullptr) {
+                            check->successes += prepared;
+                            check->failures += !prepared;
+                        }
+                    }
+                    if (check != nullptr) {
+                        check->unchanged &= ground_query_frame_digest(live) == before;
+                        check->cache_valid = scene.ground_index_cache.valid;
+                        check->index_attempts = scene.ground_index_cache.attempts;
+                        check->query_revision = scene.ground_index_cache.key.revision;
+                    }
+                } else if (check != nullptr) {
+                    ++check->waiting_frames;
+                }
+            }
         }
         bench_timers::note_supersample(live.gpu.actual_supersample);
         const auto& last = live.drawn;
