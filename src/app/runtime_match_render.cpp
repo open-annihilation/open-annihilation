@@ -2108,9 +2108,10 @@ bool Runtime::draw_match_surface() {
                                  draw_list.shadow_level == 0 &&
                                  (renderer.graphics_flags & model_render::graphics_shadows) == 0;
     const bool geometry_shadow_metadata =
-        match_->rules().setup.enhanced_mode.enabled && live_world && director_ == nullptr &&
-        models.presentation.playout == nullptr && live_models_on_card() &&
-        !models.unit_plans.snapshot_unlinked_vertices &&
+        local_geometry_shadow_frame(
+            world_record.game, match_->rules().setup.enhanced_mode.enabled, director_ != nullptr
+        ) &&
+        live_world && live_models_on_card() && !models.unit_plans.snapshot_unlinked_vertices &&
         unit_level == model_render::UnitSupersampling::off;
     const UnitPlanFrame plan_frame{
         unit_level,

@@ -10,6 +10,7 @@
 #include "bench_timers.hpp"
 #include "director_state.hpp"
 #include "match_models.hpp"
+#include "model_shadow_metadata.hpp"
 #include "engine_settings_state.hpp"
 #include "renderer_effects.hpp"
 #include "graphics_report.hpp"
@@ -1030,9 +1031,10 @@ bool Runtime::render_live_match_surface() {
         // Keep this policy enabled through a resource failure: any image
         // already deferred must force a genuine-pixel replan if its type
         // can no longer cast the frame's shadow on the card.
-        inputs.geometry_shadow_metadata = match_->rules().setup.enhanced_mode.enabled &&
-                                          director_ == nullptr &&
-                                          models.presentation.playout == nullptr;
+        inputs.geometry_shadow_metadata = local_geometry_shadow_frame(
+            match_->state().game, match_->rules().setup.enhanced_mode.enabled, director_ != nullptr
+        );
+        inputs.geometry_shadows_in_view = inputs.geometry_shadow_metadata;
         inputs.markers_on_card = compact_marker_frame(
             match_->rules(),
             {frame_draws_.units_as_dots,

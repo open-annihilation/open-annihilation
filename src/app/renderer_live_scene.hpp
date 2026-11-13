@@ -251,6 +251,8 @@ struct UnitDetail {
     std::array<float, 3> center{};
     bool eligible{};
     bool marker{};
+    /// The ordinary ground shadow is wholly outside the active shadow map.
+    bool shadow_outside{};
 };
 
 /// Texture choices that affect whether a local pose has a drawable face.
@@ -739,6 +741,9 @@ struct Inputs {
     /// shadows cast from the current GPU model type. A missing type makes
     /// the frame fail so its caller can plan genuine pixels instead.
     bool geometry_shadow_metadata{};
+    /// Omit only ordinary ground geometry shadows proven outside their
+    /// active shadow map, before both geometry budgeting and emission.
+    bool geometry_shadows_in_view{};
     /// Draw explicit strategic markers from their exact four CPU corners.
     /// False retains the ordinary vertices and picking ranges.
     bool markers_on_card{};

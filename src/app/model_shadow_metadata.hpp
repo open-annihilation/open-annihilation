@@ -9,6 +9,21 @@
 
 namespace oa::app {
 
+/// Selects an undirected Enhanced frame whose players are simulated locally.
+/// @param game the canonical player slots
+/// @param enhanced whether this match enables Enhanced Mode
+/// @param directed whether a recording director controls the view
+/// @return false for Off, directed frames or any active mirrored player
+[[nodiscard]] inline bool
+local_geometry_shadow_frame(const oa::Game& game, bool enhanced, bool directed) noexcept {
+    if (!enhanced || directed)
+        return false;
+    for (const auto& player : game.players)
+        if (player.in_use != 0 && player.status == OA_PLAYER_STATUS_MIRRORED)
+            return false;
+    return true;
+}
+
 /// Selects completed ground units whose geometry can supply an ordinary shadow.
 ///
 /// This only bounds the image policy. The caller must also prove that the

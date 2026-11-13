@@ -51,6 +51,8 @@ constexpr uint64_t digest_prime_2 = 0xC2B2AE3D27D4EB4FULL;
 constexpr uint64_t digest_prime_4 = 0x85EBCA77C2B2AE63ULL;
 constexpr uint64_t digest_prime_5 = 0x27D4EB2F165667C5ULL;
 constexpr std::size_t maximum_vertices = renderer_live_gpu::largest_vertex_count;
+/// The most shadows with distinct depths in the map's 16-bit depth target.
+constexpr uint32_t most_cast_depths = 65000;
 /// Surface vertices available to a unit's reflected geometry.
 constexpr std::size_t reflection_vertex_allowance = 24576;
 constexpr uint32_t maximum_atlas_edge = 4096;
@@ -5305,6 +5307,66 @@ struct DetailPoseMemo {
     std::size_t detail_pose_hits{};
 };
 
+/// Returns the active shadow-map rectangle, including its rounded edge texels.
+/// @param in the frame's world crop
+/// @return the map drawn by the shadow pass
+renderer_live_gpu::ShadowMap shadow_map_for(const Inputs& in);
+
+/// Proves an ordinary ground shadow lies beyond one shadow-map clipping plane.
+///
+/// Every visible vertex is enclosed, including pieces not in the cached
+/// shadow. The world addition, subtraction and floor order follows the
+/// cast's placement. Wider bounds and two texels of margin keep uncertain
+/// edge and filtering cases on their ordinary path.
+///
+/// @param in the frame and its conservative shadow policy
+/// @param draw the completed unlinked ground draw
+/// @param shadow the ordinary geometry shadow
+/// @param map the actual active shadow map
+/// @param origin the instance's world origin
+/// @param low least translated coordinates of all visible vertices
+/// @param high greatest translated coordinates of all visible vertices
+/// @return true only when the complete laid bounds cannot touch the map
+bool ground_shadow_outside(
+    const Inputs& in,
+    const ModelDraw& draw,
+    const DrawShadow& shadow,
+    const renderer_live_gpu::ShadowMap& map,
+    const std::array<float, 3>& origin,
+    const std::array<float, 3>& low,
+    const std::array<float, 3>& high
+) noexcept {
+    if (!in.geometry_shadows_in_view || !shadow.casts || shadow.building || shadow.digger ||
+        shadow.soft || !geometry_shadow_metadata_candidate(draw, in.sea_level) ||
+        in.translucent_units || (draw.model.unit->state_flags & model::unit_state_cloaked) != 0 ||
+        map.width == 0 || map.height == 0 || !std::isfinite(map.scale) || !(map.scale > 0))
+        return false;
+    constexpr float coordinate_limit = 32768;
+    for (std::size_t axis = 0; axis < low.size(); ++axis)
+        if (!std::isfinite(low[axis]) || !std::isfinite(high[axis]) ||
+            low[axis] < -coordinate_limit || high[axis] > coordinate_limit)
+            return false;
+    std::array<float, 3> least{}, greatest{};
+    for (std::size_t axis = 0; axis < least.size(); ++axis) {
+        least[axis] = std::floor(low[axis] - origin[axis]);
+        greatest[axis] = std::floor(high[axis] - origin[axis]);
+    }
+    const float ground_half = static_cast<float>(draw.plan.model.ground) * height_lift;
+    const float across = origin[0] + 0.0F;
+    const float down = origin[2] + -ground_half;
+    const float left = across + (model::shadow_offset_x + least[0]);
+    const float right = across + (model::shadow_offset_x + greatest[0]);
+    const float top = down + (least[2] - std::floor(greatest[1] * 0.5F));
+    const float bottom = down + (greatest[2] - std::floor(least[1] * 0.5F));
+    constexpr float margin_texels = 2;
+    constexpr float margin_world = 1;
+    const float margin = margin_texels * map.scale + margin_world;
+    const float map_right = map.left + map.width * map.scale;
+    const float map_bottom = map.top + map.height * map.scale;
+    return right < map.left - margin || left > map_right + margin || bottom < map.top - margin ||
+           top > map_bottom + margin;
+}
+
 /// Classifies a disjoint range without changing materials, model types or
 /// canonical state. Each range owns its pose memo and corner scratch.
 template <typename Memo>
@@ -5313,6 +5375,14 @@ bool plan_unit_details(
 ) {
     clear_detail_poses(memo);
     const auto& draws = in.draws->models;
+    // Removing an invisible cast must not admit a later draw past the
+    // depth-slot or instance limit. A model contributes at most one slot.
+    const bool bounded_shadows =
+        in.geometry_shadows_in_view &&
+        draws.size() < std::min<std::size_t>(
+                           most_cast_depths, renderer_live_gpu::largest_model_instance_count
+                       );
+    const auto shadow_map = bounded_shadows ? shadow_map_for(in) : renderer_live_gpu::ShadowMap{};
     std::unordered_map<const model::PreparedModel*, ModelAllowance> allowances;
     std::vector<Vertex> corners;
     bool eligible{};
@@ -5378,6 +5448,11 @@ bool plan_unit_details(
         if (!valid) {
             detail.surface = detail.shadow = 0;
             continue;
+        }
+        if (bounded_shadows && detail.shadow != 0 &&
+            ground_shadow_outside(in, draw, shadow, shadow_map, origin, low, high)) {
+            detail.shadow_outside = true;
+            detail.shadow = 0;
         }
         const auto& p = in.clip_projection;
         // Project the containing box, using all three axes; animated
@@ -5818,10 +5893,6 @@ int64_t card_instance(
     );
     return cards.draw_instance;
 }
-
-/// The most shadows a frame casts, each at a depth of its own in the
-/// shadows' map's 16-bit depth.
-constexpr uint32_t most_cast_depths = 65000;
 
 /// Casts the shadow of the draw the models pass is listing into the
 /// shadows' map, where the card casts it (shadow_on_card): a building's
@@ -6382,7 +6453,9 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             in.models_on_card && draw_index < draw_types.size() ? draw_types[draw_index] : -1;
         if (card_type_index >= 0) {
             const auto shadow = shadow_of_draw(in, draw);
-            if (shadow_on_card(in, pass.scene, draw_index, shadow))
+            const bool outside = draw_index < pass.scene.unit_detail.size() &&
+                                 pass.scene.unit_detail[draw_index].shadow_outside;
+            if (!outside && shadow_on_card(in, pass.scene, draw_index, shadow))
                 cast_on_card(in, pass, draw, shadow, static_cast<uint32_t>(card_type_index));
         }
         // A cloaked unit, or every unit under the debug overlay, is blended
