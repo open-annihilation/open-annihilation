@@ -1922,6 +1922,63 @@ void test_direct_body_frame_append() {
         }
 }
 
+/// A native triangle followed by a warped quad crosses each strip limit exactly.
+std::shared_ptr<Model> triangle_strip_model() {
+    auto model = trapezoid_model();
+    auto& object = model->objects.front();
+    const auto first = static_cast<uint16_t>(object.vertices.size());
+    object.vertices.insert(
+        object.vertices.end(),
+        {{24 * unit, 0, -8 * unit},
+         {40 * unit, 0, -8 * unit},
+         {40 * unit, 0, 8 * unit},
+         {24 * unit, 0, 8 * unit}}
+    );
+    object.primitives.insert(
+        object.primitives.begin(),
+        primitive({first, uint16_t(first + 3), uint16_t(first + 2)}, ink, nullptr)
+    );
+    return model;
+}
+
+/// Direct triangles retain every packet field and the following quad's exact strip choice.
+void test_direct_triangle_strip_boundaries() {
+    constexpr float zoom = 0.75F;
+    constexpr std::array<size_t, 4> below_limit{4, 3, 2, 0};
+    for (const bool index_limit : {false, true})
+        for (const bool shared_materials : {false, true})
+            for (const auto below : below_limit) {
+                TextureFixture textures;
+                Scene scene(gray_palette(), std::move(textures.library));
+                scene.share_solid_materials = shared_materials;
+                auto& actor = scene.add_unit(triangle_strip_model(), 1, unit_x, unit_z);
+                ProcessorPicture processor;
+                scene.begin_frame(processor, 0);
+                scene.plan_unit(actor);
+                const size_t vertices = index_limit ? 1 : body_cull_vertex_prefix - below;
+                const size_t indices = index_limit ? body_cull_index_prefix - below : 0;
+                Card reference(scene, zoom), candidate(scene, zoom);
+                reference.stage.set_body_lod_enabled(true);
+                candidate.stage.set_body_lod_enabled(true);
+                full::SceneView view;
+                view.zoom = zoom;
+                view.width = candidate.canvas.width;
+                view.height = candidate.canvas.height;
+                const auto ordinary =
+                    raster_seeded_body_view(reference, scene, view, vertices, indices, true);
+                const auto direct =
+                    raster_seeded_body_view(candidate, scene, view, vertices, indices, false);
+                OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 0);
+                OA_CHECK(reference.stage.counts().strip_quads == (below == 4 ? 1 : 0));
+                OA_CHECK(
+                    candidate.stage.counts().strip_quads == reference.stage.counts().strip_quads
+                );
+                check_body_frame_suffix(candidate.frame, reference.frame, vertices, indices);
+                OA_CHECK(direct.rgba == ordinary.rgba);
+                OA_CHECK(pixels_with_alpha(direct, 255) > 0);
+            }
+}
+
 /// Preserves cut, hole and wet paths beside the post-limit direct-body path.
 void test_direct_body_cut_and_hole_fallbacks() {
     const std::array<std::shared_ptr<Model>, 3> models{
@@ -4096,6 +4153,36 @@ void test_body_lod_drawable_bounds() {
     OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == 1);
 }
 
+/// Each piece's shared source ordinals retain their own live posed extent.
+void test_body_lod_piece_bounds() {
+    constexpr float zoom = 0.5F;
+    Scene scene;
+    auto& actor = scene.add_unit(body_lod_model(), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    actor.instance.pieces()[0].flags |= piece_cached;
+    actor.instance.pieces()[1].flags &= static_cast<uint16_t>(~piece_cached);
+    Card candidate(scene, zoom);
+    candidate.stage.set_body_lod_enabled(true);
+    ProcessorPicture processor;
+    size_t warm_bytes{};
+    for (uint32_t frame = 0; frame < 8; ++frame) {
+        const bool extended = frame % 2 == 0;
+        actor.instance.pieces()[1].translation.x = extended ? 50 * unit : 0;
+        actor.instance.rebuild_transforms();
+        ++scene.tick;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(actor);
+        candidate.stage.begin_frame();
+        std::ignore = candidate.raster(scene, zoom);
+        OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == (extended ? 0 : 1));
+        OA_CHECK(candidate.stage.body_lod_counts().full_mesh_models == (extended ? 1 : 0));
+        if (frame == 1)
+            warm_bytes = candidate.stage.mesh_bytes();
+        if (frame > 1)
+            OA_CHECK(candidate.stage.mesh_bytes() == warm_bytes);
+    }
+}
+
 /// Coarse faces keep bounded texture sampling and moving pieces' running frames.
 void test_body_lod_textures() {
     constexpr float zoom = 0.5F;
@@ -4297,6 +4384,7 @@ int main(int argc, char** argv) {
     } else {
         test_animated_body_lod();
         test_body_lod_drawable_bounds();
+        test_body_lod_piece_bounds();
         test_body_lod_textures();
         test_body_lod_shadows();
         test_body_lod_fallbacks();
@@ -4317,6 +4405,7 @@ int main(int argc, char** argv) {
         test_offscreen_body_preserves_strip_transition();
         test_offscreen_body_preserves_later_material_pixels();
         test_direct_body_frame_append();
+        test_direct_triangle_strip_boundaries();
         test_direct_body_cut_and_hole_fallbacks();
         test_back_face();
         test_textured();

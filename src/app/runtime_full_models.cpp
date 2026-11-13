@@ -359,10 +359,19 @@ struct BodyEmission {
     }
 };
 
+/// Drawable source references visited once when measuring a posed body.
+struct BodySources {
+    std::vector<std::vector<uint16_t>> pieces;
+    size_t bytes{};
+    bool attempted{};
+    bool retained{};
+};
+
 /// A model's full mesh and its bounded distance variants.
 struct MeshEntry {
     gw::ModelMesh mesh;
     std::array<BodyMesh, 2> body_meshes{};
+    BodySources body_sources{};
     std::weak_ptr<const Model> owner;
     bool refused{};
 };
@@ -1514,6 +1523,7 @@ struct ModelStage::Impl {
     bool body_lod_enabled{};
     BodyLodCounts body_lod_counts{};
     size_t body_mesh_bytes{};
+    size_t body_source_bytes{};
     uint64_t body_frame{1};
     std::vector<BodyChoice> body_choices{};
 
@@ -1579,6 +1589,7 @@ struct ModelStage::Impl {
         keyed_texels.clear();
         meshes.clear();
         body_mesh_bytes = 0;
+        body_source_bytes = 0;
         ++body_frame;
     }
 };
@@ -1840,6 +1851,9 @@ class Emitter {
     /// @return an immutable cached mesh, or the original on any uncertain state
     [[nodiscard]] const gw::ModelMesh&
     body_mesh(const ModelDraw& drawn, const draw::ModelRef& model, const gw::ModelMesh& mesh);
+    /// Returns bounded unique drawable references, or none to scan the original corners.
+    [[nodiscard]] const BodySources*
+    body_sources(const draw::ModelRef& model, const gw::ModelMesh& mesh);
     /// Builds one bounded type/quality variant with original material references.
     [[nodiscard]] const gw::ModelMesh&
     reduced_mesh(const draw::ModelRef& model, const gw::ModelMesh& mesh, uint8_t quality);
@@ -2001,6 +2015,8 @@ class Emitter {
     float pan_y_{};
     int32_t camera_x_{}; ///< the camera, 16.16
     int32_t camera_z_{};
+    /// The current unit's coarse mesh, already qualified against physical water heights.
+    const gw::ModelMesh* body_lod_mesh_{};
 
     struct BodyPage {
         uint32_t index{};
@@ -2148,6 +2164,8 @@ const gw::ModelMesh* Emitter::mesh_of(const draw::ModelRef& model) {
         for (const auto& body : entry.body_meshes)
             impl_.body_mesh_bytes -= std::min(impl_.body_mesh_bytes, body.bytes);
         entry.body_meshes = {};
+        impl_.body_source_bytes -= std::min(impl_.body_source_bytes, entry.body_sources.bytes);
+        entry.body_sources = {};
         entry.owner = handle;
         entry.refused = false;
         const gw::MeshBuildError error = gw::build_model_mesh(
@@ -2165,6 +2183,8 @@ const gw::ModelMesh* Emitter::mesh_of(const draw::ModelRef& model) {
 
 /// The two coarse tiers bound type-cache storage and distance transitions.
 constexpr size_t maximum_body_mesh_bytes = size_t{32} * 1024 * 1024;
+/// Bounds references have a separate limit so their admission never displaces body geometry.
+constexpr size_t maximum_body_source_bytes = size_t{4} * 1024 * 1024;
 constexpr size_t maximum_body_pieces = 256;
 constexpr size_t maximum_body_primitives = 4096;
 constexpr size_t maximum_body_corners = 65536;
@@ -2187,6 +2207,41 @@ constexpr float full_body_pixels = 20.0F;
     for (const auto& texture : mesh.textures)
         bytes += texture.name.capacity();
     return bytes;
+}
+
+const BodySources* Emitter::body_sources(const draw::ModelRef& model, const gw::ModelMesh& mesh) {
+    auto& cached = impl_.meshes.at(&model.instance->model()).body_sources;
+    if (cached.attempted)
+        return cached.retained ? &cached : nullptr;
+    cached.attempted = true;
+    if (mesh.pieces.size() > maximum_body_pieces ||
+        mesh.source_vertex.size() > maximum_body_corners)
+        return nullptr;
+    BodySources sources;
+    sources.pieces.resize(mesh.pieces.size());
+    for (size_t object = 0; object < mesh.pieces.size(); ++object) {
+        const auto& piece = mesh.pieces[object];
+        if (piece.first_vertex > mesh.source_vertex.size() ||
+            piece.vertex_count > mesh.source_vertex.size() - piece.first_vertex)
+            return nullptr;
+        auto& kept = sources.pieces[object];
+        const auto first = mesh.source_vertex.begin() + piece.first_vertex;
+        kept.assign(first, first + piece.vertex_count);
+        std::sort(kept.begin(), kept.end());
+        kept.erase(std::unique(kept.begin(), kept.end()), kept.end());
+    }
+    size_t bytes = sizeof(BodySources) + sources.pieces.capacity() * sizeof(std::vector<uint16_t>);
+    for (const auto& piece : sources.pieces)
+        bytes += piece.capacity() * sizeof(uint16_t);
+    if (bytes >
+        maximum_body_source_bytes - std::min(maximum_body_source_bytes, impl_.body_source_bytes))
+        return nullptr;
+    sources.bytes = bytes;
+    sources.attempted = true;
+    sources.retained = true;
+    cached = std::move(sources);
+    impl_.body_source_bytes += bytes;
+    return &cached;
 }
 
 bool Emitter::body_materials(
@@ -2415,6 +2470,7 @@ const gw::ModelMesh& Emitter::body_mesh(
     int32_t left = std::numeric_limits<int32_t>::max(), top = left;
     int32_t right = std::numeric_limits<int32_t>::min(), bottom = right;
     bool any = false;
+    const auto* sources = body_sources(model, mesh);
     for (const auto& piece : model.instance->pieces()) {
         if ((piece.flags & piece_visible) == 0)
             continue;
@@ -2424,8 +2480,11 @@ const gw::ModelMesh& Emitter::body_mesh(
         if (run.first_vertex > mesh.source_vertex.size() ||
             run.vertex_count > mesh.source_vertex.size() - run.first_vertex)
             return mesh;
-        for (uint32_t at = run.first_vertex; at < run.first_vertex + run.vertex_count; ++at) {
-            const auto source = mesh.source_vertex[at];
+        const auto references = sources != nullptr
+                                    ? std::span<const uint16_t>(sources->pieces[piece.object_index])
+                                    : std::span<const uint16_t>(mesh.source_vertex)
+                                          .subspan(run.first_vertex, run.vertex_count);
+        for (const auto source : references) {
             if (source >= piece.transformed_vertices.size())
                 return mesh;
             const auto& point = piece.transformed_vertices[source];
@@ -3551,9 +3610,14 @@ bool Emitter::append_dry_polygon(
     const PlacedFrame& placed,
     std::span<const Corner> corners
 ) {
+    // A triangle cannot use quad strips, so writing it directly preserves
+    // the exact frame counts which select the following quads' strip path.
+    const bool direct_triangle = impl_.body_lod_enabled && polygon.corner_count == 3;
+    const bool dry_body_triangle =
+        direct_triangle && body_lod_mesh_ != nullptr && polygon.mesh == body_lod_mesh_;
     if (polygon.cut || polygon.hole_count != 0 || polygon.underwater || polygon.water_geometry ||
-        in_.water_shimmer > 0 || in_.vertex_heights != nullptr ||
-        (frame_.vertices.size() < most_strip_frame_vertices &&
+        (in_.water_shimmer > 0 && !dry_body_triangle) || in_.vertex_heights != nullptr ||
+        (!direct_triangle && frame_.vertices.size() < most_strip_frame_vertices &&
          frame_.indices.size() < most_strip_frame_indices))
         return false;
     const gw::MeshPrimitive* run = nullptr;
@@ -3970,6 +4034,7 @@ void Emitter::draw_model(const ModelDraw& drawn) {
         return;
     const auto* original_mesh = mesh;
     mesh = &body_mesh(drawn, model, *mesh);
+    body_lod_mesh_ = mesh != original_mesh ? mesh : nullptr;
     const BodyEmission emission{
         impl_.body_lod_counts,
         frame_,
@@ -4973,7 +5038,7 @@ std::size_t ModelStage::mesh_bytes() const noexcept {
     for (const auto& [model, entry] : impl_->meshes)
         if (!entry.refused)
             bytes += gw::mesh_bytes(entry.mesh);
-    bytes += impl_->body_mesh_bytes;
+    bytes += impl_->body_mesh_bytes + impl_->body_source_bytes;
     return bytes;
 }
 
