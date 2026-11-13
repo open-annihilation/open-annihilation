@@ -124,6 +124,11 @@ BODY_LOD_FRAME = re.compile(
     rf"budget_markers (?P<budget>{UNSIGNED}) full_mesh_vertices (?P<full_vertices>{UNSIGNED}) "
     rf"body_lod_vertices (?P<body_vertices>{UNSIGNED}) shadow_vertices (?P<shadow>{UNSIGNED}) "
     rf"deferred_geometry (?P<deferred>{UNSIGNED})$")
+SCENE_WORK_FRAME = re.compile(
+    rf"^bench: SCENE_WORK_FRAME (?P<frame>{UNSIGNED}) candidate_bands (?P<candidate_bands>{UNSIGNED}) "
+    rf"candidate_slots (?P<candidate_slots>{UNSIGNED}) accepted_bands (?P<accepted_bands>{UNSIGNED}) "
+    rf"accepted_slots (?P<accepted_slots>{UNSIGNED}) fallback_frames (?P<fallback_frames>{UNSIGNED})$")
+SCENE_WORK_MAX_BANDS = 4
 UINT64_MASK = (1 << 64) - 1
 UNIT_DOT_PIXELS = 5.0
 UNIT_MODEL_TO_DOT_RATIO = 1.2
@@ -310,6 +315,65 @@ def check_unit_detail_records(result, lines):
     return [line for line, tag in zip(lines, tags) if tag not in UNIT_DETAIL_TAGS]
 
 
+def check_scene_work_records(result, lines):
+    """Validate retained worker ranges independently of optional detail and body companions."""
+    tags = [line.split()[1] for line in lines]
+    if any(tag.startswith("SCENE_WORK") and tag != "SCENE_WORK_FRAME" for tag in tags):
+        fail(result, "scene work records: unknown scene work metadata tag")
+    work_positions = [index for index, tag in enumerate(tags) if tag == "SCENE_WORK_FRAME"]
+    if not work_positions:
+        return lines
+
+    def require(condition, message):
+        if not condition:
+            fail(result, "scene work records: " + message)
+
+    positions = [index for index, tag in enumerate(tags) if tag == "FRAME"]
+    results = [FRAME_RESULT.fullmatch(line) for line in lines if line.startswith("bench: RESULT ")]
+    require(len(results) == 1 and results[0] is not None, "missing or malformed RESULT")
+    frames = int(results[0].group(2))
+    require(frames > 0 and len(positions) == len(work_positions) == frames,
+            "each FRAME needs exactly one SCENE_WORK_FRAME")
+    for frame, position in enumerate(positions):
+        require(position + 2 < len(lines), "missing work row after SIM_FRAME")
+        regular = FRAME.fullmatch(lines[position])
+        simulation = SIM_FRAME.fullmatch(lines[position + 1])
+        require(regular is not None and int(regular.group(1)) == frame,
+                "FRAME indices are not complete and ordered")
+        require(simulation is not None and int(simulation.group("frame")) == frame,
+                "work rows need adjacent FRAME and SIM_FRAME records")
+        cursor = position + 2
+        for tag, pattern in (("UNIT_DETAIL_FRAME", UNIT_DETAIL_FRAME),
+                             ("BODY_LOD_FRAME", BODY_LOD_FRAME)):
+            if cursor < len(lines) and tags[cursor] == tag:
+                companion = pattern.fullmatch(lines[cursor])
+                require(companion is not None and int(companion.group("frame")) == frame,
+                        "a detail or body companion does not read or has the wrong frame")
+                cursor += 1
+        require(work_positions[frame] == cursor,
+                "SCENE_WORK_FRAME must immediately follow its frame companions")
+        require(cursor + 1 == len(lines) or
+                tags[cursor + 1] not in ("UNIT_DETAIL_FRAME", "BODY_LOD_FRAME"),
+                "detail and body companions must precede SCENE_WORK_FRAME")
+        match = SCENE_WORK_FRAME.fullmatch(lines[cursor])
+        require(match is not None and int(match.group("frame")) == frame,
+                "a SCENE_WORK_FRAME line does not read or has the wrong frame")
+        row = {key: int(value) for key, value in match.groupdict().items() if key != "frame"}
+        require(all(value <= UINT32_MASK for value in row.values()), "work count exceeds uint32")
+        bands, slots = row["candidate_bands"], row["candidate_slots"]
+        accepted = row["accepted_bands"], row["accepted_slots"]
+        fallback = row["fallback_frames"]
+        require(bands == 0 or 2 <= bands <= SCENE_WORK_MAX_BANDS,
+                "candidate band count is outside the parallel range")
+        require((bands == 0 and slots == 0) or (bands != 0 and slots >= bands),
+                "candidate slots disagree with their bands")
+        require(accepted == (0, 0) or accepted == (bands, slots),
+                "accepted work must retain the complete candidate range")
+        require(fallback in (0, 1) and fallback == int(bands != 0 and accepted == (0, 0)),
+                "fallback must identify a rejected nonempty candidate range")
+    return [line for line, tag in zip(lines, tags) if tag != "SCENE_WORK_FRAME"]
+
+
 def check_body_lod_records(result, lines):
     """Validate actual emitted body counts and remove only their complete frame family."""
     tags = [line.split()[1] for line in lines]
@@ -361,6 +425,7 @@ def check_body_lod_records(result, lines):
 
 def check_simulation_records(result, lines, frames=None):
     """Validate paired simulation rows before projecting the unchanged FRAME transcript."""
+    lines = check_scene_work_records(result, lines)
     lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
     positions = [index for index, line in enumerate(lines) if line.startswith("bench: FRAME")]
@@ -428,6 +493,7 @@ def check_simulation_records(result, lines, frames=None):
 
 def check_renderer_records(result, lines, frames, timers):
     """Validate optional renderer families, returning the unchanged legacy transcript."""
+    lines = check_scene_work_records(result, lines)
     lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
     legacy = [line for line in lines if line.split()[1] not in RENDERER_TAGS]
@@ -607,6 +673,7 @@ def check_lines(result, timers, rules_version=0, requested_rules_version=0):
         fail(result, f"the AWAY line does not read: {away[0]}")
     lines = [line for line in lines if not line.startswith("bench: AWAY")]
     original = lines
+    lines = check_scene_work_records(result, lines)
     lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
     simulation_checked = check_simulation_records(result, lines)

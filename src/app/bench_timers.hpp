@@ -13,6 +13,7 @@
 
 #include "body_lod_counts.hpp"
 #include "ground_index_build.hpp"
+#include "scene_model_work_counts.hpp"
 
 #include <array>
 #include <chrono>
@@ -249,6 +250,9 @@ inline Timers timers{};
 
 /// Unit representations emitted by the last completed benchmark frame.
 inline BodyLodCounts body_counts{};
+
+/// Independent model packets retained by the last completed benchmark frame.
+inline SceneModelWorkCounts scene_model_work_counts{};
 
 /// Reads the steady clock the timers measure by.
 ///

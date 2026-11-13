@@ -65,12 +65,13 @@ struct FrameSample {
     double full_execute{}; ///< classic Full's first executor call
     bench::SimulationFrame simulation{};
     renderer_live_scene::GroundIndexBuilds index_builds{}; ///< bounded build-only diagnostics
-    double average_unit_pixels{};  ///< automatic transition's owned model diameter
-    uint32_t average_unit_count{}; ///< units contributing to that average
-    bool automatic_unit_detail{};  ///< the Unit size boundary was selected
-    bool units_as_dots{};          ///< the completed frame used the global dot representation
-    BodyLodCounts body{};          ///< actual unit model representations emitted by the frame
-    uint64_t deferred_geometry{};  ///< invisible model updates deferred during this frame
+    double average_unit_pixels{};      ///< automatic transition's owned model diameter
+    uint32_t average_unit_count{};     ///< units contributing to that average
+    bool automatic_unit_detail{};      ///< the Unit size boundary was selected
+    bool units_as_dots{};              ///< the completed frame used the global dot representation
+    BodyLodCounts body{};              ///< actual unit model representations emitted by the frame
+    SceneModelWorkCounts scene_work{}; ///< independent model packets retained by the frame
+    uint64_t deferred_geometry{};      ///< invisible model updates deferred during this frame
 };
 
 /// Room for one stage's milliseconds in a FRAME line.
@@ -785,6 +786,7 @@ void Runtime::play_bench() {
         {
             const bench::SimulationFrameScope recording(view.frame_log ? &simulation : nullptr);
             bench_timers::body_counts = {};
+            bench_timers::scene_model_work_counts = {};
             frame();
             finished = now();
             simulation.tick_after = match_timing_.tick;
@@ -813,6 +815,7 @@ void Runtime::play_bench() {
             const auto& settings = engine_settings();
             auto& sample = samples.back();
             sample.body = bench_timers::body_counts;
+            sample.scene_work = bench_timers::scene_model_work_counts;
             if (match_models_ && match_models_->match == match_.get())
                 sample.deferred_geometry =
                     match_models_->preplanning_visibility.deferred_geometry_count;
@@ -1288,6 +1291,17 @@ void Runtime::play_bench() {
                 static_cast<unsigned long long>(body.body_lod_vertices),
                 static_cast<unsigned long long>(body.shadow_vertices),
                 static_cast<unsigned long long>(samples[index].deferred_geometry)
+            );
+            const auto& scene_work = samples[index].scene_work;
+            std::printf(
+                "bench: SCENE_WORK_FRAME %zu candidate_bands %u candidate_slots %u "
+                "accepted_bands %u accepted_slots %u fallback_frames %u\n",
+                index,
+                scene_work.candidate_bands,
+                scene_work.candidate_slots,
+                scene_work.accepted_bands,
+                scene_work.accepted_slots,
+                scene_work.fallback_frames
             );
             std::printf(
                 "bench: GROUND_INDEX_FRAME %zu builds %.0f hits %.0f triangles %.0f wall_ms %.3f\n",

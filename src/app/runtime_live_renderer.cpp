@@ -1281,8 +1281,10 @@ bool Runtime::render_live_match_surface() {
             note_scene();
             result = draw();
         }
-        if (result == renderer_live_gpu::Result::success)
+        if (result == renderer_live_gpu::Result::success) {
             bench_timers::body_counts = live.scene.body_lod_counts;
+            bench_timers::scene_model_work_counts = live.scene.model_work_counts;
+        }
         auto* check = options_.check_live_renderer && ground_query_observations.watching
                           ? &ground_query_observations
                           : nullptr;

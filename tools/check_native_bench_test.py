@@ -194,6 +194,29 @@ def body_transcript():
     return "\n".join(lines) + "\n"
 
 
+def scene_work_record(frame, **changes):
+    """Return prepared input ranges and the complete worker packets retained by the frame."""
+    values = dict(frame=frame, candidate_bands=4, candidate_slots=1200,
+                  accepted_bands=4, accepted_slots=1200, fallback_frames=0)
+    values.update(changes)
+    return ("bench: SCENE_WORK_FRAME {frame} candidate_bands {candidate_bands} "
+            "candidate_slots {candidate_slots} accepted_bands {accepted_bands} "
+            "accepted_slots {accepted_slots} fallback_frames {fallback_frames}").format(**values)
+
+
+def scene_work_transcript(companions="body"):
+    """Add complete worker-range rows beside optional detail and body record families."""
+    source, predecessor = {"body": (body_transcript(), "BODY_LOD_FRAME"),
+                           "detail": (unit_detail_transcript(), "UNIT_DETAIL_FRAME"),
+                           "plain": (renderer_transcript(), "SIM_FRAME")}[companions]
+    lines = []
+    for line in source.splitlines():
+        lines.append(line)
+        if line.split()[1] == predecessor:
+            lines.append(scene_work_record(int(line.split()[2])))
+    return "\n".join(lines) + "\n"
+
+
 class NativeBenchReceiptTest(unittest.TestCase):
     """Receipts identify the actual preset and remain part of strict transcript validation."""
 
@@ -208,6 +231,108 @@ class NativeBenchReceiptTest(unittest.TestCase):
                 with self.assertRaisesRegex(bench.BenchFailure, message):
                     checker(result, *args, **kwargs)
         self.assertEqual(output.getvalue(), result.stdout + result.stderr)
+
+    def test_scene_work_projects_only_its_complete_independent_frame_family(self):
+        """Worker-range validation preserves all existing strict metadata and legacy projections."""
+        for companions, original in (("body", body_transcript()),
+                                     ("detail", unit_detail_transcript()),
+                                     ("plain", renderer_transcript())):
+            with self.subTest(companions=companions):
+                text = scene_work_transcript(companions)
+                result, lines = result_for(text), text.splitlines()
+                self.assertEqual(bench.check_lines(result, True), lines)
+                self.assertEqual(bench.check_scene_work_records(result, lines), original.splitlines())
+                self.assertEqual(bench.check_renderer_records(result, lines, 3, True),
+                                 transcript(timers=True).splitlines())
+                self.assertEqual(bench.check_simulation_records(result, lines),
+                                 bench.check_simulation_records(result_for(original), original.splitlines()))
+
+    def test_scene_work_accepts_unused_retained_and_rejected_ranges(self):
+        """Retained bands describe complete input ranges; a failed candidate identifies a retry."""
+        rows = (dict(candidate_bands=0, candidate_slots=0, accepted_bands=0, accepted_slots=0),
+                dict(candidate_bands=2, candidate_slots=512, accepted_bands=2, accepted_slots=512),
+                dict(candidate_bands=3, candidate_slots=1000, accepted_bands=3, accepted_slots=1000),
+                dict(accepted_bands=0, accepted_slots=0, fallback_frames=1),
+                dict(candidate_slots=bench.UINT32_MASK, accepted_slots=bench.UINT32_MASK))
+        for changes in rows:
+            with self.subTest(changes=changes):
+                text = scene_work_transcript()
+                for frame in range(3):
+                    text = text.replace(scene_work_record(frame), scene_work_record(frame, **changes))
+                self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+
+    def test_scene_work_rejects_invalid_fields_widths_and_range_relationships(self):
+        """Strict unsigned source widths cannot conceal partial accepted work or a false retry."""
+        changes = (dict(candidate_bands=-1), dict(candidate_slots="1.5"),
+                   dict(candidate_slots="01200"), dict(candidate_slots=1 << 32),
+                   dict(accepted_slots=1 << 32), dict(candidate_bands=1),
+                   dict(candidate_bands=5), dict(candidate_bands=0),
+                   dict(candidate_slots=0), dict(candidate_slots=3),
+                   dict(accepted_bands=3), dict(accepted_slots=1199),
+                   dict(accepted_bands=0), dict(accepted_slots=0),
+                   dict(fallback_frames=1), dict(fallback_frames=2),
+                   dict(accepted_bands=0, accepted_slots=0),
+                   dict(candidate_bands=0, candidate_slots=0, accepted_bands=0,
+                        accepted_slots=0, fallback_frames=1))
+        for change in changes:
+            with self.subTest(change=change):
+                text = scene_work_transcript().replace(scene_work_record(1), scene_work_record(1, **change))
+                self.assert_rejected(result_for(text), bench.check_lines, True,
+                                     message="scene work records")
+        for row in (scene_work_record(1) + " extra",
+                    scene_work_record(1).replace("accepted_slots 1200 ", "")):
+            text = scene_work_transcript().replace(scene_work_record(1), row)
+            self.assert_rejected(result_for(text), bench.check_lines, True,
+                                 message="scene work records")
+
+    def test_scene_work_rejects_incomplete_misplaced_and_unknown_rows_at_all_entrypoints(self):
+        """Optional rows need a unique adjacent FRAME and SIM span before any projection."""
+        text = scene_work_transcript()
+        variants = (text.replace(scene_work_record(1) + "\n", ""),
+                    text.replace(scene_work_record(1), scene_work_record(1) + "\n" + scene_work_record(1)),
+                    text.replace(scene_work_record(1), scene_work_record(2)),
+                    text.replace(body_record(1) + "\n" + scene_work_record(1),
+                                 scene_work_record(1) + "\n" + body_record(1)),
+                    text.replace(simulation_record(1) + "\n", ""),
+                    text.replace("SCENE_WORK_FRAME 1", "SCENE_WORK_UNKNOWN 1"))
+        for variant, changed in enumerate(variants):
+            for checker, args in ((bench.check_lines, (True,)),
+                                  (bench.check_renderer_records, (changed.splitlines(), 3, True)),
+                                  (bench.check_simulation_records, (changed.splitlines(),))):
+                with self.subTest(checker=checker.__name__, variant=variant):
+                    self.assert_rejected(result_for(changed), checker, *args,
+                                         message="scene work records")
+
+    def test_scene_work_keeps_nonzero_coverage_in_timers_off_logs(self):
+        """Coverage counts remain actual range facts when stage timings are disabled."""
+        lines = []
+        for line in scene_work_transcript().splitlines():
+            tag = line.split()[1]
+            if tag in (*RENDERER_FAMILIES, "STAGE", "SLOW") or tag.startswith("GROUND_INDEX_BUILD_"):
+                continue
+            if tag == "GROUND_INDEX_FRAME":
+                line = f"bench: {tag} {line.split()[2]} builds 0 hits 0 triangles 0 wall_ms 0.000"
+            elif tag == "POSE_FRAME":
+                line = f"bench: {tag} {line.split()[2]} units 0 pieces 0 vm_triplets 0"
+            elif tag == "MATERIAL_FRAME":
+                line = f"bench: {tag} {line.split()[2]} {line.split()[3]} insertions 0 texels 0 row_texels 0"
+            lines.append(line.replace("label=check", "label=paused"))
+        text = "\n".join(lines) + "\n"
+        projected = bench.check_renderer_records(result_for(text), lines, 3, False)
+        self.assertFalse(any(line.split()[1].startswith("SCENE_WORK") for line in projected))
+        self.assertEqual(len([line for line in projected if line.startswith("bench: SIM_FRAME ")]), 3)
+        malformed = text.replace(scene_work_record(1), scene_work_record(1, accepted_bands=3))
+        self.assert_rejected(result_for(malformed), bench.check_renderer_records,
+                             malformed.splitlines(), 3, False, message="scene work records")
+
+    def test_scene_work_projection_keeps_other_families_strict(self):
+        """Valid coverage metadata cannot hide malformed body, detail or legacy output."""
+        text = scene_work_transcript()
+        variants = (text.replace(body_record(1), body_record(1, shadow=7)),
+                    text.replace(detail_record(1), detail_record(1, units=0)),
+                    text.replace("bench: GROUND revisions", "bench: UNKNOWN junk\nbench: GROUND revisions"))
+        for changed in variants:
+            self.assert_rejected(result_for(changed), bench.check_lines, True)
 
     def test_body_emissions_preserve_the_other_strict_record_families(self):
         """Body counts project only after their frame, simulation and detail pairs validate."""
