@@ -3931,9 +3931,9 @@ int Runtime::check_live_renderer() {
                         match_->random_state() == fallback_random && !match_->fault(),
                     "the omitted-frame classic replan changed simulation or RNG"
                 );
-                // Walking ARMPW limbs are cached: their real image rebuilds
-                // must stay eager. A separately activated stationary ARMJAM
-                // spins an uncached fork and exercises the eligible lazy path.
+                // Preset 8 keeps cached ARMPW image history. Preset 10 may
+                // leave invisible cached limbs and an uncached ARMJAM fork
+                // waiting, then rebuild current geometry and fresh images.
                 for (const bool stationary : {false, true}) {
                     if (stationary && preplan_version != deferred_geometry_version)
                         continue;
@@ -4053,23 +4053,28 @@ int Runtime::check_live_renderer() {
                         bool operator==(const Lifecycle&) const = default;
                     };
 
-                    const auto lifecycle = [&](const present::model::ModelState& state) {
+                    const auto lifecycle = [&](const present::model::ModelState& state,
+                                               bool image_history_only = false) {
                         Lifecycle out;
                         const auto add = [&](auto value) {
                             out.fields.push_back(static_cast<uint64_t>(value));
                         };
-                        add(state.cache.draws);
+                        if (!image_history_only)
+                            add(state.cache.draws);
                         add(state.cache.has_image);
                         add(state.cache.image_has_mask);
                         add(state.cache.anchor_x);
                         add(state.cache.anchor_y);
-                        add(state.transforms_dirty);
+                        if (!image_history_only)
+                            add(state.transforms_dirty);
                         add(state.deferred_image_depth);
                         add(state.image_unfinished);
                         add(state.image_builds);
-                        add(state.shift.xy);
-                        add(state.shift.xz);
-                        add(state.shift.yz);
+                        if (!image_history_only) {
+                            add(state.shift.xy);
+                            add(state.shift.xz);
+                            add(state.shift.yz);
+                        }
                         add(bool(state.deferred_image));
                         if (state.deferred_image) {
                             add(state.deferred_image->width);
@@ -4167,6 +4172,28 @@ int Runtime::check_live_renderer() {
                     };
                     auto& canonical = match_->runtime_state(walker).instance->model();
                     auto& canonical_state = models.units[walker].state;
+                    // Build an independent current-pose oracle. No retained recipe
+                    // or production deferred-image resolver participates in it.
+                    const auto current_geometry = [&](const auto& source, const auto& state) {
+                        auto current = source;
+                        present::model::ModelState fresh;
+                        fresh.shift = state.shift;
+                        present::model::ModelRef reference;
+                        reference.instance = &current;
+                        reference.state = &fresh;
+                        reference.unit = &match_->world().record.units[walker];
+                        present::model::update_model_transforms(reference);
+                        return current;
+                    };
+                    const auto fresh_image_state = [&](const auto& state) {
+                        present::model::ModelState fresh;
+                        fresh.shift = state.shift;
+                        fresh.image_builds = state.image_builds;
+                        return fresh;
+                    };
+                    const auto draw_count_waited = [](uint32_t current, uint32_t previous) {
+                        return current == previous || current == 0;
+                    };
                     const auto canonical_plan = [&] {
                         const auto plan = std::find_if(
                             models.unit_plans.plans.begin(),
@@ -4188,6 +4215,102 @@ int Runtime::check_live_renderer() {
                     render_match_surface();
                     std::size_t lazy_frames{};
                     constexpr unsigned maximum_lazy_attempts = 8;
+                    const auto copied_plan = [&] {
+                        const auto found = std::find_if(
+                            models.unit_plans.plans.begin(),
+                            models.unit_plans.plans.end(),
+                            [&](const auto& candidate) { return candidate.unit_index == walker; }
+                        );
+                        return found != models.unit_plans.plans.end() && found->from_copies &&
+                               found->model.instance == &canonical &&
+                               found->shown.instance == &models.presentation.units[walker].instance;
+                    };
+                    if (preplan_version == deferred_geometry_version && !stationary) {
+                        // Each attempt starts a real tick and draws the optimized
+                        // copy first. Effects may already have refreshed one tick's
+                        // geometry; require an actual geometry deferral within the bound.
+                        auto original_before_copy = canonical;
+                        auto state_before_copy = clone_state(canonical_state);
+                        uint32_t copy_tick{};
+                        auto copy_random = match_->random_state();
+                        auto copy_world = match_draw_read_back().world;
+                        UnitPose copy_pose_before, copy_pose_after;
+                        bool geometry_waited{};
+                        for (unsigned attempt = 0;
+                             attempt < maximum_lazy_attempts && !geometry_waited;
+                             ++attempt) {
+                            step_match_simulation();
+                            observe_match_tick(models, *match_, draw_pool_.get());
+                            set_presentation_alpha(0.5F);
+                            visibility.force_ordinary = false;
+                            original_before_copy = canonical;
+                            state_before_copy = clone_state(canonical_state);
+                            const auto copy_builds =
+                                models.presentation.units[walker].state.image_builds;
+                            const auto copy_draws =
+                                models.presentation.units[walker].state.cache.draws;
+                            copy_tick = match_->simulation().tick;
+                            copy_random = match_->random_state();
+                            copy_world = match_draw_read_back().world;
+                            capture_unit_pose(
+                                match_->world().record.units[walker], canonical, copy_pose_before
+                            );
+                            render_match_surface();
+                            const auto& fresh = models.deferred_geometry.units.at(walker);
+                            require(
+                                copied_plan() && walker_omitted() && fresh.fresh_original_images &&
+                                    fresh.fresh_copy_images &&
+                                    visibility.copy_preplan_omitted_count != 0 &&
+                                    same_points(canonical, original_before_copy) &&
+                                    canonical.materialization_revision() ==
+                                        original_before_copy.materialization_revision() &&
+                                    lifecycle(canonical_state, true) ==
+                                        lifecycle(state_before_copy, true) &&
+                                    draw_count_waited(
+                                        canonical_state.cache.draws, state_before_copy.cache.draws
+                                    ) &&
+                                    models.presentation.units[walker].state.image_builds ==
+                                        copy_builds &&
+                                    models.presentation.units[walker].state.cache.draws <=
+                                        copy_draws &&
+                                    match_->simulation().tick == copy_tick &&
+                                    match_->random_state() == copy_random,
+                                "the optimized-first copy did not defer both image plans"
+                            );
+                            geometry_waited = fresh.fresh_geometry;
+                        }
+                        require(
+                            geometry_waited,
+                            "the optimized-first copy never deferred current canonical geometry"
+                        );
+                        set_presentation_alpha(1);
+                        render_match_surface();
+                        const auto& fresh = models.deferred_geometry.units.at(walker);
+                        require(
+                            canonical_plan() && walker_omitted() && fresh.fresh_geometry &&
+                                fresh.fresh_original_images && fresh.fresh_copy_images &&
+                                same_points(canonical, original_before_copy) &&
+                                canonical.materialization_revision() ==
+                                    original_before_copy.materialization_revision() &&
+                                lifecycle(canonical_state, true) ==
+                                    lifecycle(state_before_copy, true) &&
+                                draw_count_waited(
+                                    canonical_state.cache.draws, state_before_copy.cache.draws
+                                ),
+                            "copy-to-whole invisibility advanced geometry or stale image history"
+                        );
+                        capture_unit_pose(
+                            match_->world().record.units[walker], canonical, copy_pose_after
+                        );
+                        require(
+                            poses_equal(copy_pose_before, copy_pose_after) &&
+                                match_draw_read_back().world == copy_world &&
+                                match_->simulation().tick == copy_tick &&
+                                match_->random_state() == copy_random,
+                            "copy-to-whole rendering changed raw pose, world, clock or RNG"
+                        );
+                        visibility.force_ordinary = true;
+                    }
                     for (const uint32_t batch : {2U, 3U, 4U}) {
                         const auto fixed_position = match_->world().record.units[walker].position;
                         advance_slow_frame(batch);
@@ -4217,7 +4340,8 @@ int Runtime::check_live_renderer() {
                             canonical_plan() && ordinary_draw && ordinary_draw->plan.linked.drawn &&
                                 ordinary_draw->model.instance == &canonical &&
                                 ordinary_draw->model.state == &canonical_state &&
-                                visibility.whole_tick_postplan_omitted_count == 0,
+                                visibility.whole_tick_postplan_omitted_count == 0 &&
+                                visibility.whole_tick_preplan_omitted_count == 0,
                             "slow-frame ordinary reference did not use the canonical model"
                         );
                         const auto ordinary_picture = match_world_cpu_;
@@ -4242,12 +4366,11 @@ int Runtime::check_live_renderer() {
                         const auto* waiting = walker < models.deferred_geometry.units.size()
                                                   ? &models.deferred_geometry.units[walker]
                                                   : nullptr;
-                        const bool lazy = waiting && waiting->pending;
-                        if (!stationary && preplan_version == deferred_geometry_version)
+                        const bool fresh_images = waiting && waiting->fresh_original_images;
+                        const bool lazy = waiting && waiting->fresh_geometry;
+                        if (preplan_version == deferred_geometry_version)
                             require(
-                                !lazy,
-                                "cached ARMPW animation incorrectly bypassed its logical image "
-                                "rebuild"
+                                fresh_images, "preset 10 did not defer the offscreen image planning"
                             );
                         require(
                             canonical_plan() && postplan && postplan->preplan_omitted &&
@@ -4255,45 +4378,50 @@ int Runtime::check_live_renderer() {
                                 postplan->model.instance == &canonical &&
                                 postplan->model.state == &canonical_state &&
                                 (visibility.whole_tick_postplan_omitted_count != 0 ||
-                                 visibility.deferred_geometry_count != 0),
+                                 visibility.whole_tick_preplan_omitted_count != 0),
                             "real slow-frame canonical planning did not activate omission"
                         );
                         require(
                             match_world_cpu_.rgb == ordinary_picture.rgb &&
-                                bounds_and_picks() == ordinary_bounds &&
-                                lifecycle(canonical_state) == ordinary_lifecycle,
-                            "whole-tick omission changed GPU output or image/cache lifecycle"
+                                bounds_and_picks() == ordinary_bounds,
+                            "whole-tick omission changed GPU output or picking"
                         );
                         const auto postplan_readback = match_draw_read_back();
-                        if (lazy) {
-                            ++lazy_frames;
+                        if (fresh_images) {
+                            lazy_frames += lazy;
                             require(
-                                canonical_state.image_builds == before_state.image_builds,
-                                "eligible uncached animation rebuilt its logical image"
+                                draw_count_waited(
+                                    canonical_state.cache.draws, before_state.cache.draws
+                                ) && lifecycle(canonical_state, true) ==
+                                         lifecycle(before_state, true),
+                                "fresh-image deferral advanced invisible image/cache planning"
                             );
                             require(
-                                visibility.deferred_geometry_count != 0 &&
+                                (!lazy || visibility.deferred_geometry_count != 0) &&
                                     same_points(canonical, before_instance) &&
                                     canonical.materialization_revision() ==
                                         before_instance.materialization_revision(),
                                 "lazy planning rebuilt the retained canonical vectors"
                             );
-                            auto resolved = canonical;
-                            auto recipe = *waiting;
-                            recipe.instance = &resolved;
-                            require(
-                                recipe.resolve(resolved), "a copied lazy recipe did not resolve"
-                            );
-                            resolved.rebuild_transforms(canonical_state.shift, true);
-                            require(
-                                same_derived(resolved, ordinary_instance),
-                                "explicitly resolved lazy geometry differs from ordinary geometry"
-                            );
+                            if (lazy) {
+                                const auto resolved = current_geometry(canonical, canonical_state);
+                                require(
+                                    same_derived(resolved, ordinary_instance),
+                                    "independent current geometry differs from the eager geometry"
+                                );
+                            } else {
+                                require(
+                                    same_derived(canonical, ordinary_instance),
+                                    "fresh effects geometry changed during image-only deferral"
+                                );
+                            }
                             const auto retained = canonical;
                             const auto revision = canonical.materialization_revision();
                             const auto repeated_readback = match_draw_read_back();
                             require(
-                                same_derived(canonical, retained) && waiting->pending &&
+                                same_derived(canonical, retained) &&
+                                    waiting->fresh_original_images &&
+                                    waiting->fresh_geometry == lazy &&
                                     canonical.materialization_revision() == revision &&
                                     repeated_readback.pieces == postplan_readback.pieces,
                                 "raw draw readback materialized pending canonical geometry"
@@ -4310,8 +4438,9 @@ int Runtime::check_live_renderer() {
                             );
                         } else {
                             require(
-                                same_derived(canonical, ordinary_instance),
-                                "eager whole-tick omission changed canonical derived geometry"
+                                same_derived(canonical, ordinary_instance) &&
+                                    lifecycle(canonical_state) == ordinary_lifecycle,
+                                "eager omission changed derived geometry or image/cache history"
                             );
                             if (const char* difference =
                                     draw_read_back_difference(ordinary_readback, postplan_readback))
@@ -4329,7 +4458,7 @@ int Runtime::check_live_renderer() {
                             "whole-tick frozen replay changed canonical pose, tick or RNG"
                         );
                     }
-                    const bool lazy_preset = stationary;
+                    const bool lazy_preset = preplan_version == deferred_geometry_version;
                     require(
                         lazy_preset ? lazy_frames != 0 : lazy_frames == 0,
                         "the whole-tick lazy-geometry preset did not match actual activation"
@@ -4337,13 +4466,13 @@ int Runtime::check_live_renderer() {
                     if (lazy_preset) {
                         auto& pending = models.deferred_geometry.units.at(walker);
                         for (unsigned attempt = 0;
-                             attempt < maximum_lazy_attempts && !pending.pending;
+                             attempt < maximum_lazy_attempts && !pending.fresh_geometry;
                              ++attempt) {
                             advance_slow_frame(2);
                             render_match_surface();
                         }
                         require(
-                            pending.pending && canonical.transforms_dirty(),
+                            pending.fresh_geometry && canonical.transforms_dirty(),
                             "the real walking fixture did not retain dirty geometry for SFX"
                         );
                         auto expected_effect = canonical;
@@ -4369,9 +4498,9 @@ int Runtime::check_live_renderer() {
                         );
                         const auto effect_geometry = canonical;
                         const auto refreshed_revision = canonical.materialization_revision();
-                        pending.observe(canonical);
+                        pending.observe_fresh(canonical);
                         require(
-                            !pending.pending && pending.resolve(canonical) &&
+                            !pending.fresh_geometry && pending.fresh_original_images &&
                                 same_derived(canonical, effect_geometry) &&
                                 canonical.materialization_revision() == refreshed_revision &&
                                 match_->simulation().tick == effect_tick &&
@@ -4379,13 +4508,13 @@ int Runtime::check_live_renderer() {
                             "an old draw recipe replaced newer SFX geometry or changed simulation"
                         );
                         for (unsigned attempt = 0;
-                             attempt < maximum_lazy_attempts && !pending.pending;
+                             attempt < maximum_lazy_attempts && !pending.fresh_geometry;
                              ++attempt) {
                             advance_slow_frame(2);
                             render_match_surface();
                         }
                         require(
-                            pending.pending,
+                            pending.fresh_geometry,
                             "the walker did not reenter lazy residency before camera ingress"
                         );
                     }
@@ -4394,13 +4523,16 @@ int Runtime::check_live_renderer() {
                     require(
                         walker_visible() && canonical_plan() &&
                             (walker >= models.deferred_geometry.units.size() ||
-                             !models.deferred_geometry.units[walker].pending),
+                             (!models.deferred_geometry.units[walker].fresh_geometry &&
+                              !models.deferred_geometry.units[walker].fresh_original_images)),
                         "whole-tick camera ingress did not resolve canonical animated geometry"
                     );
                     const auto ingress_instance = canonical;
                     const auto whole_ingress = match_world_cpu_;
                     const auto whole_ingress_bounds = bounds_and_picks();
                     visibility.force_ordinary = true;
+                    if (lazy_preset)
+                        canonical_state = fresh_image_state(canonical_state);
                     render_match_surface();
                     require(
                         match_world_cpu_.rgb == whole_ingress.rgb &&
@@ -4409,6 +4541,43 @@ int Runtime::check_live_renderer() {
                         "whole-tick ingress differs from ordinary rendering"
                     );
                     visibility.force_ordinary = false;
+                    if (lazy_preset && !stationary) {
+                        require(
+                            models.deferred_geometry.units.at(walker).fresh_copy_images,
+                            "a whole-frame consumer discarded the unused copy-image obligation"
+                        );
+                        step_match_simulation();
+                        observe_match_tick(models, *match_, draw_pool_.get());
+                        set_presentation_alpha(0.5F);
+                        render_match_surface();
+                        auto& motion = models.presentation.units[walker];
+                        require(
+                            copied_plan() && walker_visible() &&
+                                !models.deferred_geometry.units.at(walker).fresh_geometry &&
+                                !models.deferred_geometry.units.at(walker).fresh_copy_images,
+                            "the visible copy did not consume its fresh image and geometry"
+                        );
+                        const auto copy_picture = match_world_cpu_;
+                        const auto copy_picks = bounds_and_picks();
+                        const auto copy_geometry = motion.instance;
+                        const auto copy_tick = uint32_t{match_->simulation().tick};
+                        const auto copy_random = match_->random_state();
+                        const auto copy_world = match_draw_read_back().world;
+                        motion.state = fresh_image_state(motion.state);
+                        visibility.force_ordinary = true;
+                        render_match_surface();
+                        require(
+                            match_world_cpu_.rgb == copy_picture.rgb &&
+                                bounds_and_picks() == copy_picks &&
+                                same_derived(motion.instance, copy_geometry) &&
+                                match_draw_read_back().world == copy_world &&
+                                match_->simulation().tick == copy_tick &&
+                                match_->random_state() == copy_random,
+                            "fresh visible copy differs from independently fresh frozen rendering"
+                        );
+                        visibility.force_ordinary = false;
+                        set_presentation_alpha(1);
+                    }
                     bool continued_animation{};
                     for (unsigned attempt = 0; attempt < 8 && !continued_animation; ++attempt) {
                         advance_slow_frame(2);
@@ -4425,20 +4594,20 @@ int Runtime::check_live_renderer() {
                     if (lazy_preset) {
                         auto& pending = models.deferred_geometry.units.at(walker);
                         for (unsigned attempt = 0;
-                             attempt < maximum_lazy_attempts && !pending.pending;
+                             attempt < maximum_lazy_attempts && !pending.fresh_geometry;
                              ++attempt) {
                             advance_slow_frame(2);
                             render_match_surface();
                         }
                         require(
-                            pending.pending,
+                            pending.fresh_geometry,
                             "the producer-loss fixture did not actually retain lazy geometry"
                         );
                     }
                     require(
                         walker_omitted() && canonical_plan() &&
                             (visibility.whole_tick_postplan_omitted_count != 0 ||
-                             visibility.deferred_geometry_count != 0),
+                             visibility.whole_tick_preplan_omitted_count != 0),
                         "the whole-tick producer-loss fixture has no actual omission"
                     );
                     const auto postplan_tick = uint32_t{match_->simulation().tick};
@@ -4453,9 +4622,11 @@ int Runtime::check_live_renderer() {
                     require(
                         visibility.omitted_count == 0 &&
                             visibility.whole_tick_postplan_omitted_count == 0 &&
+                            visibility.whole_tick_preplan_omitted_count == 0 &&
                             visibility.deferred_geometry_count == 0 &&
                             (walker >= models.deferred_geometry.units.size() ||
-                             !models.deferred_geometry.units[walker].pending || !find_walker()) &&
+                             !models.deferred_geometry.units[walker].fresh_geometry ||
+                             !find_walker()) &&
                             std::none_of(
                                 models.draws.models.begin(),
                                 models.draws.models.end(),
@@ -4466,32 +4637,27 @@ int Runtime::check_live_renderer() {
                             !match_world_cpu_.rgb.empty() && !match_->fault(),
                         "whole-tick producer loss did not complete the ordinary classic replan"
                     );
-                    if (stationary) {
-                        // A classic coarse cull may leave an unused recipe waiting.
-                        // Bring the actor into the real classic consumer before
-                        // requiring resolution, then compare its ordinary redraw.
-                        auto expected_classic = canonical;
-                        auto classic_recipe = models.deferred_geometry.units.at(walker);
-                        classic_recipe.instance = &expected_classic;
-                        require(
-                            classic_recipe.resolve(expected_classic),
-                            "the independent classic recipe did not resolve"
-                        );
-                        expected_classic.rebuild_transforms(canonical_state.shift, true);
+                    if (lazy_preset) {
+                        // A classic coarse cull may leave an unused actor pending.
+                        // Its visible consumer must build current geometry and a
+                        // fresh image, independently of invisible image history.
+                        const auto expected_classic = current_geometry(canonical, canonical_state);
                         center_camera_on_unit(walker);
                         render_match_surface();
                         const auto* classic_draw = find_walker();
                         require(
                             !live_renderer_active() && classic_draw &&
                                 classic_draw->plan.linked.drawn &&
-                                !models.deferred_geometry.units.at(walker).pending &&
+                                !models.deferred_geometry.units.at(walker).fresh_geometry &&
+                                !models.deferred_geometry.units.at(walker).fresh_original_images &&
                                 same_derived(canonical, expected_classic),
-                            "the visible classic consumer did not resolve exact ARMJAM geometry"
+                            "the visible classic consumer did not resolve current actor geometry"
                         );
                         const auto classic_picture = match_world_cpu_;
                         const auto classic_picks = bounds_and_picks();
                         const auto classic_readback = match_draw_read_back();
                         visibility.force_ordinary = true;
+                        canonical_state = fresh_image_state(canonical_state);
                         render_match_surface();
                         require(
                             match_world_cpu_.rgb == classic_picture.rgb &&
@@ -4510,9 +4676,10 @@ int Runtime::check_live_renderer() {
                     std::cout
                         << "live renderer check: real 2/3/4-tick normal-rate batches use "
                            "production whole presentation and canonical omission; "
-                           "GPU pixels/bounds/picks and image/cache lifecycle match; eager derived "
-                           "readback and explicitly resolved lazy copies match ordinary geometry; "
-                           "raw readback retains pending vectors; ingress and classic fallback "
+                           "GPU pixels/bounds/picks match; legacy image history stays exact; "
+                           "preset-10 invisible images wait and current geometry matches an "
+                           "independent copy; raw readback retains pending vectors; ingress and "
+                           "classic fallback build fresh current images; "
                            "pass; "
                         << "actor=" << (stationary ? "ARMJAM" : "ARMPW")
                         << " lazy frames=" << lazy_frames << '\n';
