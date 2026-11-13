@@ -32,6 +32,7 @@ constexpr uint8_t enemy_player = 0;
 constexpr uint32_t retarget_version = oa::data::enhanced_mode::battle_flow_version;
 constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
 constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
+constexpr uint32_t cohort_version = 10;
 constexpr uint32_t strike_refresh_ticks = 300;
 constexpr uint32_t retarget_interval_ticks = 6;
 constexpr uint32_t target_loss_tick = 55;
@@ -212,7 +213,16 @@ struct StrikeFixture {
         initial_issue_tick = head_record(fixture, members.front()).issue_tick;
         regular_refresh_tick = initial_issue_tick + strike_refresh_ticks;
         CHECK(strike().next_tick == regular_refresh_tick);
-        check_attack(target, initial_issue_tick);
+        if (oa::data::enhanced_mode::uses_cohort_target_distribution(version)) {
+            for (const auto member : members) {
+                const auto record = head_record(fixture, member);
+                CHECK(record.kind == attack_chase_order);
+                CHECK(record.target == target || record.target == replacement);
+                CHECK(record.issue_tick == initial_issue_tick);
+            }
+        } else {
+            check_attack(target, initial_issue_tick);
+        }
     }
 
     /// Returns the strike task kept by the real built-in controller.
@@ -300,6 +310,217 @@ struct StrikeFixture {
         return issued;
     }
 };
+
+/// Finds an actual cohort target other than the last issued target in the saved tracker.
+uint16_t untracked_cohort_target(StrikeFixture& battle) {
+    const auto bytes = retarget_bytes(battle.fixture);
+    const auto tracked = static_cast<uint16_t>(read_integer(bytes, land_target_record, 2));
+    CHECK(tracked != 0);
+    for (const auto member : battle.members) {
+        const auto target = head_record(battle.fixture, member).target;
+        if (target != tracked)
+            return target;
+    }
+    CHECK(false);
+    return 0;
+}
+
+/// Selects the live strike members attacking one actual target.
+std::vector<uint16_t> cohort_target_members(StrikeFixture& battle, uint16_t target) {
+    std::vector<uint16_t> result;
+    for (const auto member : battle.members)
+        if (head_record(battle.fixture, member).target == target)
+            result.push_back(member);
+    return result;
+}
+
+/// Refreshes a lost non-last target while keeping busy orders and recruitment untouched.
+void cohort_loss_refreshes_only_lost_orders() {
+    StrikeFixture battle(cohort_version);
+    const auto lost_target = untracked_cohort_target(battle);
+    const auto remaining_target = lost_target == battle.target ? battle.replacement : battle.target;
+    auto affected = cohort_target_members(battle, lost_target);
+    CHECK(affected.size() >= 2);
+    battle.run_until(target_loss_tick);
+    const auto busy = affected.back();
+    affected.pop_back();
+    const sim::ground_orders::Point destination{64 * fixed_one, 0, 240 * fixed_one};
+    (void)battle.fixture.match->issue_ground_move(busy, destination, false);
+    const auto* busy_head = battle.fixture.match->spawn_slot(busy).unit->primary;
+    CHECK(busy_head != nullptr);
+    CHECK(head_record(battle.fixture, busy).kind == sim::ground_orders::move_ground_kind);
+    const auto healthy = cohort_target_members(battle, remaining_target);
+    CHECK(!healthy.empty());
+    std::vector<sim::simulation_state::Order*> healthy_heads;
+    for (const auto member : healthy)
+        healthy_heads.push_back(battle.fixture.match->spawn_slot(member).unit->primary);
+    auto& waiting = battle.fixture.spawn(computer_player, 24, 208);
+    hold_fire(waiting);
+    battle.fixture.match->set_unit_squad(
+        waiting.unit_index, static_cast<uint32_t>(ai::Squad::land_army)
+    );
+    const auto waiting_slot = waiting.unit_index;
+    battle.kill_target(lost_target);
+    for (uint32_t step = 0; step < retarget_interval_ticks; ++step) {
+        battle.fixture.run(1);
+        CHECK(battle.strike().next_tick == battle.regular_refresh_tick);
+        CHECK(
+            battle.fixture.match->spawn_slot(waiting_slot).record.squad ==
+            static_cast<int32_t>(ai::Squad::land_army)
+        );
+        CHECK(battle.fixture.match->spawn_slot(busy).unit->primary == busy_head);
+        for (std::size_t at = 0; at < healthy.size(); ++at)
+            CHECK(battle.fixture.match->spawn_slot(healthy[at]).unit->primary == healthy_heads[at]);
+    }
+    for (const auto member : affected) {
+        const auto record = head_record(battle.fixture, member);
+        CHECK(record.kind == attack_chase_order && record.target == remaining_target);
+        CHECK(record.issue_tick > target_loss_tick);
+        CHECK(record.issue_tick <= target_loss_tick + retarget_interval_ticks);
+    }
+    const auto bytes = retarget_bytes(battle.fixture);
+    CHECK(
+        read_integer(bytes, land_target_record + native_next_tick_offset) ==
+        battle.regular_refresh_tick
+    );
+    battle.run_until(battle.regular_refresh_tick - 1);
+    CHECK(
+        battle.fixture.match->spawn_slot(waiting_slot).record.squad ==
+        static_cast<int32_t>(ai::Squad::land_army)
+    );
+    battle.fixture.run(1);
+    CHECK(battle.fixture.match->spawn_slot(waiting_slot).record.squad == strike_squad);
+    CHECK(battle.strike().next_tick == battle.regular_refresh_tick + strike_refresh_ticks);
+}
+
+/// Gives a reused target slot a fresh command instead of retaining the disappearing target.
+void cohort_slot_reuse_requires_a_fresh_attack() {
+    StrikeFixture battle(cohort_version);
+    const auto lost_target = untracked_cohort_target(battle);
+    const auto affected = cohort_target_members(battle, lost_target);
+    CHECK(!affected.empty());
+    battle.run_until(target_loss_tick);
+    const auto old_generation =
+        battle.fixture.match->runtime_state(lost_target).instance_generation;
+    battle.kill_target(lost_target);
+    auto* created = battle.fixture.match->create(
+        {enemy_player,
+         fixture_unit_type,
+         {target_x * fixed_one, 32u * fixed_one, target_z * fixed_one},
+         true,
+         1,
+         lost_target}
+    );
+    CHECK(created != nullptr && created->unit != nullptr && created->unit_index == lost_target);
+    hold_fire(*created);
+    CHECK(battle.fixture.match->runtime_state(lost_target).instance_generation > old_generation);
+    battle.run_until(target_loss_tick + retarget_interval_ticks);
+    for (const auto member : affected) {
+        const auto record = head_record(battle.fixture, member);
+        CHECK(record.kind == attack_chase_order);
+        CHECK(record.target == battle.target || record.target == battle.replacement);
+        CHECK(record.issue_tick > target_loss_tick);
+    }
+    CHECK(battle.strike().next_tick == battle.regular_refresh_tick);
+}
+
+/// Recreates the built-in AI heap while leaving native task clocks uninitialized.
+void recreate_ai_without_task_clocks(StrikeFixture& battle);
+
+/// Continues cohort loss scanning from the existing saved cooldown and task clock.
+void cohort_cooldown_continues_after_rule_restore() {
+    StrikeFixture first(cohort_version);
+    StrikeFixture restored(cohort_version);
+    first.run_until(target_loss_tick);
+    restored.run_until(target_loss_tick);
+    const auto lost_target = untracked_cohort_target(first);
+    CHECK(untracked_cohort_target(restored) == lost_target);
+    const auto affected = cohort_target_members(first, lost_target);
+    first.kill_target(lost_target);
+    restored.kill_target(lost_target);
+    const auto saved = retarget_bytes(first.fixture);
+    CHECK(saved.size() == state_byte_count);
+    CHECK(read_integer(saved, schema_offset) == state_schema);
+    CHECK(read_integer(saved, next_early_offset) > target_loss_tick);
+    Fixture fresh(options_for(cohort_version));
+    restore_retarget(restored.fixture, retarget_bytes(fresh));
+    recreate_ai_without_task_clocks(restored);
+    CHECK(restored.strike().next_tick == 0 && restored.strike().attacking == 0);
+    restore_retarget(restored.fixture, saved);
+    for (uint32_t step = 0; step <= retarget_interval_ticks; ++step) {
+        first.fixture.run(1);
+        restored.fixture.run(1);
+        CHECK(retarget_bytes(first.fixture) == retarget_bytes(restored.fixture));
+        CHECK(first.strike().next_tick == first.regular_refresh_tick);
+        CHECK(restored.strike().next_tick == restored.regular_refresh_tick);
+        for (const auto member : first.members) {
+            const auto left = primary_record(first.fixture, member);
+            const auto right = primary_record(restored.fixture, member);
+            CHECK(left.has_value() == right.has_value());
+            if (left && right) {
+                CHECK(left->kind == right->kind && left->target == right->target);
+                CHECK(left->issue_tick == right->issue_tick);
+            }
+        }
+    }
+    for (const auto member : affected) {
+        const auto record = head_record(first.fixture, member);
+        CHECK(record.issue_tick > target_loss_tick);
+    }
+}
+
+/// Keeps never-bound state loadable while checking empty orders at the shared cadence.
+void cohort_without_an_enemy_keeps_empty_binding_loadable() {
+    Fixture fixture(options_for(cohort_version));
+    std::array<uint16_t, strike_members> members{};
+    for (std::size_t index = 0; index < members.size(); ++index) {
+        auto& member = fixture.spawn(computer_player, member_x, member_z[index]);
+        hold_fire(member);
+        members[index] = member.unit_index;
+        fixture.match->set_unit_squad(member.unit_index, strike_squad);
+    }
+    fixture.match->simulation().players[computer_player].status = OA_PLAYER_STATUS_COMPUTER;
+    ai::prepare_match_computer_players(*fixture.match);
+    auto* players = ai::match_computer_players(*fixture.match);
+    CHECK(players != nullptr);
+    auto& controller = players->players[computer_player];
+    controller.sort_countdown = static_cast<int32_t>(strike_refresh_ticks * 10);
+    for (auto& task : controller.tasks)
+        task.kind = ai::TaskKind::none;
+    auto& task = controller.tasks[strike_squad];
+    task.kind = ai::TaskKind::strike;
+    task.squad = ai::Squad::land_strike;
+    task.next_tick = fixture.match->simulation().tick;
+    task.min_size = static_cast<int32_t>(strike_members - 1);
+    task.launch_size = static_cast<int32_t>(strike_members);
+    task.merge_radius = merge_radius;
+    task.source_squad = ai::Squad::land_army;
+    task.attacking = 1;
+    fixture.run(1);
+    const auto deadline = task.next_tick;
+    for (uint32_t elapsed = 0; elapsed < retry_observation_ticks; ++elapsed) {
+        fixture.run(1);
+        CHECK(task.next_tick == deadline);
+        const auto bytes = retarget_bytes(fixture);
+        CHECK(bytes[land_target_record + target_binding_offset] == empty_binding);
+        CHECK(read_integer(bytes, land_target_record, 2) == 0);
+        CHECK(read_integer(bytes, land_target_record + target_issue_offset) == 0);
+        CHECK(read_integer(bytes, land_target_record + target_retry_offset) == 0);
+        restore_retarget(fixture, bytes);
+    }
+    auto& enemy = fixture.spawn(enemy_player, target_x, target_z);
+    hold_fire(enemy);
+    const auto appeared = fixture.match->simulation().tick;
+    fixture.run(retarget_interval_ticks);
+    CHECK(task.next_tick == deadline);
+    for (const auto member : members) {
+        const auto order = head_record(fixture, member);
+        CHECK(order.kind == attack_chase_order && order.target == enemy.unit_index);
+        CHECK(
+            order.issue_tick > appeared && order.issue_tick <= appeared + retarget_interval_ticks
+        );
+    }
+}
 
 /// Keeps all earlier presets on the existing regular strike refresh.
 void old_presets_keep_the_regular_refresh() {
@@ -1111,6 +1332,11 @@ int run_case(std::string_view name, Function function) {
 /// Runs the actual-match strike target lifetime and scheduling checks.
 int main() {
     int failures = 0;
+    failures += run_case("cohort non-last target loss", cohort_loss_refreshes_only_lost_orders);
+    failures += run_case("cohort slot reuse", cohort_slot_reuse_requires_a_fresh_attack);
+    failures += run_case("cohort saved cooldown", cohort_cooldown_continues_after_rule_restore);
+    failures +=
+        run_case("cohort never-bound save", cohort_without_an_enemy_keeps_empty_binding_loadable);
     failures += run_case("earlier presets", old_presets_keep_the_regular_refresh);
     failures += run_case(
         "earlier pending-target selection", earlier_presets_keep_the_pending_target_selection

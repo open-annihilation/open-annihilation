@@ -178,7 +178,10 @@ void Match::EnhancedState::prepare_ai_retarget(Match& match, uint8_t player) {
                 target.binding = AiStrikeBinding::lost;
         }
     }
-    if (state.next_early_tick <= tick) {
+    const bool cohorts = data::enhanced_mode::uses_cohort_target_distribution(
+        match.rules().setup.enhanced_mode.version
+    );
+    if (!cohorts && state.next_early_tick <= tick) {
         for (size_t step = 0; step < state.targets.size(); ++step) {
             const size_t index = (state.selection_cursor + step) % state.targets.size();
             auto& target = state.targets[index];
@@ -209,6 +212,94 @@ void Match::EnhancedState::prepare_ai_retarget(Match& match, uint8_t player) {
         if (target.binding != AiStrikeBinding::empty && task.kind == sim::ai::TaskKind::strike &&
             task.next_tick <= tick)
             target.retry_not_before = tick + ai_retarget_cooldown_ticks;
+    }
+}
+
+void Match::EnhancedState::refresh_ai_cohort_targets(Match& match, uint8_t player) {
+    const auto& mode = match.rules().setup.enhanced_mode;
+    if (!mode.enabled || !data::enhanced_mode::uses_cohort_target_distribution(mode.version))
+        return;
+    auto* computers = static_cast<sim::ai::ComputerPlayers*>(match.computer_player_state().get());
+    if (computers == nullptr || !computers->players[player].present)
+        return;
+    auto& state = ai_retarget;
+    const uint32_t tick = match.simulation_.tick;
+    if (state.next_early_tick > tick)
+        return;
+    for (size_t step = 0; step < state.targets.size(); ++step) {
+        const size_t index = (state.selection_cursor + step) % state.targets.size();
+        const size_t owner = index / ai_strike_tasks_per_player;
+        const auto& record = match_player(match, owner);
+        if (record.in_use == 0 || record.status != OA_PLAYER_STATUS_COMPUTER ||
+            !sim::ai::player_has_controller(record) || !computers->players[owner].present ||
+            (state.builtin_players & (uint16_t(1) << owner)) == 0)
+            continue;
+        auto& task =
+            computers->players[owner].tasks[strike_squad(index % ai_strike_tasks_per_player)];
+        auto& retained = state.targets[index];
+        if (task.kind != sim::ai::TaskKind::strike || task.attacking == 0 ||
+            task.next_tick <= tick || retained.retry_not_before > tick ||
+            !retained.native_clock_valid || retained.native_next_tick != task.next_tick ||
+            match.squad_members(static_cast<uint8_t>(owner), static_cast<uint32_t>(task.squad))
+                .empty())
+            continue;
+        // The next eligible seat keeps the shared budget until its built-in
+        // controller actually runs. One squad is inspected per cooldown.
+        if (owner != player)
+            break;
+        state.next_early_tick = tick + ai_retarget_cooldown_ticks;
+        state.selection_cursor = static_cast<uint8_t>((index + 1) % state.targets.size());
+        std::array<uint64_t, sim::ai::strike_refresh_mask_words> sources{};
+        uint32_t count = 0;
+        uint32_t unit_count = 0;
+        const auto* units = oa::world_player_units(&match.state(), &record, &unit_count);
+        for (uint32_t at = 0; units != nullptr && at < unit_count; ++at) {
+            const auto& unit = units[at];
+            if (unit.type_index == 0 || unit.owner_index != owner ||
+                unit.squad != static_cast<int32_t>(task.squad) ||
+                !oa::unit_is_live_target(unit.flags) || unit.health <= 0 ||
+                unit.build_remaining != 0)
+                continue;
+            const auto slot = oa::world_unit_slot(&match.state(), &unit);
+            if (slot >= match.slots_.size() || match.slots_[slot].unit == nullptr)
+                continue;
+            const auto* current = match.runtime_order(match.slots_[slot].unit->primary);
+            bool lost = match.slots_[slot].unit->primary == nullptr;
+            if (current != nullptr && current->unit == match.slots_[slot].unit &&
+                current->order.kind == attack_chase_kind && current->order.next == nullptr &&
+                current->attack.leash == 0 &&
+                (current->extra.command_flags & command_has_target) != 0 &&
+                (current->extra.command_flags & command_has_point) == 0) {
+                const auto* target = current->attack.target;
+                lost = target == nullptr;
+                if (target != nullptr) {
+                    const auto target_slot = oa::world_unit_slot(&match.state(), &target->record);
+                    lost = target_slot >= match.slots_.size() ||
+                           match.slots_[target_slot].unit != target ||
+                           target->record.type_index == 0 ||
+                           !oa::unit_is_live_target(target->record.flags) ||
+                           target->record.health <= 0 ||
+                           match.allied(player, target->record.owner_index);
+                }
+            }
+            if (!lost)
+                continue;
+            constexpr size_t mask_bits = std::numeric_limits<uint64_t>::digits;
+            if (slot / mask_bits >= sources.size())
+                continue;
+            sources[slot / mask_bits] |= uint64_t(1) << (slot % mask_bits);
+            ++count;
+        }
+        if (count != 0) {
+            // Empty bindings must keep their empty codec representation.
+            // Successful callbacks retain their own target and retry deadline.
+            if (retained.binding != AiStrikeBinding::empty)
+                retained.retry_not_before = tick + ai_retarget_cooldown_ticks;
+            (void)sim::ai::computer_player_refresh_strike_targets(
+                computers, sim::ai::match_computer_host(match), player, task.squad, sources
+            );
+        }
+        break;
     }
 }
 

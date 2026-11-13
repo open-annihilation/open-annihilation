@@ -25,6 +25,12 @@ struct Match::EnhancedState {
     /// @param player the built-in controller about to run
     void prepare_ai_retarget(Match& match, uint8_t player);
 
+    /// Refreshes lost cohort attacks without recruiting or moving strike deadlines.
+    ///
+    /// @param[in,out] match the match and its canonical strike orders
+    /// @param player the built-in controller that just ran
+    void refresh_ai_cohort_targets(Match& match, uint8_t player);
+
     /// Retains a strike target issued within the built-in controller scope.
     ///
     /// @param[in,out] match the match containing the source and target
