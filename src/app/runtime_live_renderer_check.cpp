@@ -95,10 +95,11 @@ int Runtime::check_live_renderer() {
         MatchRules rules{};
         rules.setup.enhanced_mode.enabled = true;
         MarkerFramePolicy frame{true, true};
-        for (int32_t version = 0; version <= 9; ++version) {
+        for (int32_t version = 0; version <= 10; ++version) {
             rules.setup.enhanced_mode.version = version;
             require(
-                compact_marker_frame(rules, frame) == (version == 7 || version == 8),
+                compact_marker_frame(rules, frame) ==
+                    (version == 7 || version == 8 || version == 9),
                 "the compact marker production rules gate is wrong"
             );
         }
