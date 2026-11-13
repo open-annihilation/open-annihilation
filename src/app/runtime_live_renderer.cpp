@@ -18,6 +18,7 @@
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
 #include "renderer_live_overlay.hpp"
+#include "renderer_live_picking.hpp"
 #include "renderer_live_scene.hpp"
 #include "runtime_ground_query_check.hpp"
 #include "renderer_water_surface.hpp"
@@ -1428,7 +1429,9 @@ void Runtime::rebuild_live_picking() {
     const std::size_t blocks = (triangles + pick_block_triangles - 1) / pick_block_triangles;
     live.pick_blocks.resize(blocks);
     const std::size_t first_projected = ground_held ? ground / 3 / pick_block_triangles : 0;
-    const auto& m = live.projection;
+    const auto coordinates = renderer_live_picking::ground_coordinates(
+        live.scene, match_ && match_->rules().setup.enhanced_mode.enabled
+    );
     oa::platform::job_pool::run_bands(
         draw_pool_.get(),
         static_cast<uint32_t>(
@@ -1438,34 +1441,11 @@ void Runtime::rebuild_live_picking() {
             const std::size_t first_block = first_projected + std::size_t{band} * pick_band_blocks;
             const std::size_t end_block = std::min(blocks, first_block + pick_band_blocks);
             for (std::size_t block = first_block; block < end_block; ++block) {
-                constexpr float none = std::numeric_limits<float>::infinity();
-                std::array<float, 4> bounds{none, none, -none, -none};
-                bool bounded = true;
                 const std::size_t first = block * pick_block_triangles * 3;
                 const std::size_t end = std::min(triangles * 3, first + pick_block_triangles * 3);
-                for (std::size_t index = first; index < end; ++index) {
-                    const auto& vertex = vertices[index];
-                    auto& point = live.projected[index];
-                    point = {
-                        m[0] * vertex.x + m[1] * vertex.height + m[2] * vertex.z + m[3],
-                        m[4] * vertex.x + m[5] * vertex.height + m[6] * vertex.z + m[7],
-                        m[8] * vertex.x + m[9] * vertex.height + m[10] * vertex.z + m[11]
-                    };
-                    // A corner not finite makes no hit; it is left out.
-                    if (point[0] < bounds[0])
-                        bounds[0] = point[0];
-                    if (point[1] < bounds[1])
-                        bounds[1] = point[1];
-                    if (point[0] > bounds[2])
-                        bounds[2] = point[0];
-                    if (point[1] > bounds[3])
-                        bounds[3] = point[1];
-                    if (index % 3 == 2 && bounded)
-                        bounded = renderer_live_camera::triangle_hit_bounded(
-                            {live.projected[index - 2], live.projected[index - 1], point}
-                        );
-                }
-                live.pick_blocks[block] = bounded ? bounds : std::array{-none, -none, none, none};
+                live.pick_blocks[block] = renderer_live_picking::project_block(
+                    vertices, coordinates, live.projection, first, end, live.projected
+                );
             }
         }
     );

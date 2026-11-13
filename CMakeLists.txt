@@ -638,7 +638,7 @@ if(OA_BUILD_PLATFORM)
     oa-app-renderer-effects
     PRIVATE oa-present oa-sim-visibility-state oa-base-float-precision oa-options)
   if(BUILD_TESTING)
-    foreach(oa_live_part camera scene gpu lights overlay)
+    foreach(oa_live_part camera scene gpu lights overlay picking)
       add_executable(oa-app-renderer-live-${oa_live_part}-test
         src/app/renderer_live_${oa_live_part}_test.cpp)
       target_link_libraries(oa-app-renderer-live-${oa_live_part}-test PRIVATE

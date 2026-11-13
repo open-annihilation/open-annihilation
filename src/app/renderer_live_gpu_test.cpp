@@ -4,6 +4,7 @@
 // Exercise persistent GPU resources, atlas revisions, resizing and invalid input without a window.
 #include "renderer_live_gpu.hpp"
 #include "renderer_live_scene.hpp"
+#include "renderer_live_picking.hpp"
 #include "renderer_effects.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_water_appearance.hpp"
@@ -4281,6 +4282,30 @@ void contained_ground_readback() {
             in.ground_holds_contained_views = index == 0;
             OA_CHECK(live::build(in, scenes[index], error));
             auto& scene = scenes[index];
+            std::array<std::vector<std::array<float, 3>>, 2> picking_points;
+            for (auto& points : picking_points)
+                points.resize(scene.vertices.size());
+            const auto coordinates =
+                oa::app::renderer_live_picking::ground_coordinates(scene, true);
+            constexpr std::size_t picking_block_vertices = 32 * 3;
+            for (std::size_t first = 0; first < scene.vertices.size();
+                 first += picking_block_vertices) {
+                const auto end = std::min(scene.vertices.size(), first + picking_block_vertices);
+                const auto a = oa::app::renderer_live_picking::project_block(
+                    scene.vertices, {}, in.clip_projection, first, end, picking_points[0]
+                );
+                const auto b = oa::app::renderer_live_picking::project_block(
+                    scene.vertices, coordinates, in.clip_projection, first, end, picking_points[1]
+                );
+                OA_CHECK(std::memcmp(a.data(), b.data(), sizeof(a)) == 0);
+            }
+            OA_CHECK(
+                std::memcmp(
+                    picking_points[0].data(),
+                    picking_points[1].data(),
+                    picking_points[0].size() * sizeof(picking_points[0][0])
+                ) == 0
+            );
             OA_CHECK(
                 render(
                     contexts[index],
