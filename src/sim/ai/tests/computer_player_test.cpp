@@ -1829,6 +1829,219 @@ void test_masked_cohort_refresh_keeps_task_state() {
     }
 }
 
+/// Places one member near the edge of a broad group with two selected enemy fronts.
+struct FrontRun : RecruitRun {
+    static constexpr uint32_t members_count = 7;
+    static constexpr uint16_t boundary = first + 3;
+    static constexpr int32_t fixed_one = 65536;
+
+    /// Keeps the nearby anchors in one group and distant anchors in separate groups.
+    explicit FrontRun(uint32_t version = CohortRun::cohort_version)
+        : RecruitRun(version, 0, members_count) {
+        host.map_cells_x = host.map_cells_z = 1024;
+        state.players[player].tasks[static_cast<uint32_t>(destination)].merge_radius = 1000000;
+        for (uint16_t slot = first; slot < boundary; ++slot)
+            place(slot, 1004, 1000);
+        place(boundary, 1000, 1000);
+        place(first + 4, 1000, 601);
+        place(first + 5, 1000, 1399);
+        place(first + 6, 1100, 1399);
+        enemy(1, 1001, 1002);
+        enemy(2, 1000, 1002);
+    }
+
+    /// Moves one canonical record to whole-world coordinates.
+    void place(uint16_t slot, int32_t x, int32_t z) {
+        fake.units[slot].position = {x * fixed_one, 0, z * fixed_one};
+    }
+
+    /// Replaces one live canonical enemy record without retaining a target handle.
+    void enemy(uint16_t slot, int32_t x, int32_t z) {
+        auto& unit =
+            fake.spawn(slot, 0, ARMLLT, x, z, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS);
+        unit.id = slot;
+        unit.health = 1000;
+    }
+
+    /// Dispatches the actual task and checks its callback order and random stream.
+    std::vector<std::pair<uint16_t, uint16_t>> assign(uint32_t at) {
+        fake.orders.clear();
+        const auto random_before = fake.roll;
+        tick(at);
+        check(fake.roll == random_before, "selected fronts: no random draws");
+        check(fake.joined.empty(), "selected fronts: no waiting recruits");
+        std::vector<std::pair<uint16_t, uint16_t>> result;
+        for (const auto& order : fake.orders) {
+            check(
+                order.kind == "attack" && !order.queue, "selected fronts: ordinary attack callbacks"
+            );
+            result.emplace_back(order.unit, order.arg);
+        }
+        check(result.size() == members_count, "selected fronts: every existing member ordered");
+        for (std::size_t index = 0; index < result.size(); ++index)
+            check(
+                result[index].first == first + index,
+                "selected fronts: callbacks stay in canonical unit-slot order"
+            );
+        return result;
+    }
+
+    /// Returns one actor's dispatched target, or zero when its callback is absent.
+    static uint16_t
+    target(const std::vector<std::pair<uint16_t, uint16_t>>& orders, uint16_t slot) {
+        const auto found = std::find_if(orders.begin(), orders.end(), [=](const auto& order) {
+            return order.first == slot;
+        });
+        return found == orders.end() ? 0 : found->second;
+    }
+};
+
+/// Redirects a broad group's boundary member only to an already selected closer front.
+void test_selected_front_fallback_crosses_coarse_group_boundary() {
+    FrontRun run;
+    for (uint16_t slot = FrontRun::first; slot < FrontRun::boundary; ++slot)
+        run.place(slot, 1000, 1000);
+    run.place(FrontRun::boundary, 1000, 1099);
+    for (uint16_t slot = FrontRun::first + 4; slot < FrontRun::first + FrontRun::members_count;
+         ++slot)
+        run.place(slot, 1000, 1399);
+    run.enemy(1, 1000, 1000);
+    run.enemy(2, 1000, 1100);
+    run.enemy(3, 1000, 1099);
+    const auto orders = run.assign(300);
+    // The inclusive 1000..1399 extent puts 1099 in the first band's
+    // centroid at 1024, whose own target is 1. Only targets 1 and 2
+    // are selected by the occupied groups; the exact-position enemy 3 is not.
+    check(
+        FrontRun::target(orders, FrontRun::boundary) == 2,
+        "selected fronts: the boundary member uses the nearer selected front"
+    );
+    check(
+        FrontRun::target(orders, FrontRun::first) == 1 &&
+            FrontRun::target(orders, FrontRun::first + 4) == 2,
+        "selected fronts: near and distant anchors retain their selected fronts"
+    );
+    check(
+        std::none_of(
+            orders.begin(), orders.end(), [](const auto& order) { return order.second == 3; }
+        ),
+        "selected fronts: an unselected enemy is not a per-member candidate"
+    );
+}
+
+/// Preserves group coherence at equality and changes only materially longer assignments.
+void test_selected_front_fallback_keeps_exact_distance_threshold() {
+    struct Case {
+        int32_t own_x, other_x, target_z;
+        uint16_t own_slot, expected;
+    };
+
+    // At the boundary actor (1000,1000), the squared distances are
+    // 10:9, 5:4 and 13:10. Equality at 4*5 == 5*4 keeps the group's
+    // target, including when the nearer alternate has a lower slot.
+    constexpr Case cases[] = {
+        {1001, 1000, 1003, 1, 1},
+        {1001, 1000, 1002, 1, 1},
+        {1001, 1000, 1002, 2, 2},
+        {1002, 1001, 1003, 1, 2},
+    };
+    for (const auto& item : cases) {
+        FrontRun run;
+        run.enemy(item.own_slot, item.own_x, item.target_z);
+        run.enemy(3 - item.own_slot, item.other_x, item.target_z);
+        const auto orders = run.assign(300);
+        check(
+            FrontRun::target(orders, FrontRun::boundary) == item.expected,
+            "selected fronts: the strict squared-distance threshold is preserved"
+        );
+        check(
+            FrontRun::target(orders, FrontRun::first) == item.own_slot,
+            "selected fronts: nearby anchors retain their cohort target"
+        );
+    }
+}
+
+/// Resolves equally close alternate fronts by slot while excluding an ineligible enemy.
+void test_selected_front_fallback_keeps_candidate_filter_and_tie() {
+    FrontRun run;
+    run.enemy(1, 1002, 1000);
+    run.enemy(2, 1000, 1001);
+    run.enemy(3, 1000, 999);
+    run.enemy(4, 1000, 1000);
+    run.fake.units[4].health = 0;
+    const auto orders = run.assign(300);
+    // The southern, middle and northern groups choose 3, 1 and 2.
+    // The boundary actor is equally close to 2 and 3, although 3 is selected first.
+    check(
+        FrontRun::target(orders, FrontRun::boundary) == 2,
+        "selected fronts: equally close alternatives use the lower canonical slot"
+    );
+    check(
+        FrontRun::target(orders, FrontRun::first + 4) == 3 &&
+            FrontRun::target(orders, FrontRun::first + 5) == 2,
+        "selected fronts: both alternate fronts are selected by their nearby groups"
+    );
+    check(
+        std::none_of(
+            orders.begin(), orders.end(), [](const auto& order) { return order.second == 4; }
+        ),
+        "selected fronts: an ineligible exact-position enemy stays excluded"
+    );
+}
+
+/// Leaves earlier presets on their single whole-strike target and random stream.
+void test_selected_front_fallback_preserves_earlier_presets() {
+    for (uint32_t version = 0; version <= 8; ++version) {
+        FrontRun run(version);
+        run.enemy(1, 1002, 1002);
+        const auto orders = run.assign(300);
+        for (const auto& [unit, target] : orders) {
+            (void)unit;
+            check(target == 1, "selected fronts: earlier presets keep one centroid target");
+        }
+    }
+}
+
+/// Applies the closer-front fallback only to selected refresh sources without task changes.
+void test_selected_front_fallback_respects_refresh_source_mask() {
+    FrontRun run;
+    run.enemy(1, 1002, 1002);
+    run.fake.world.game.tick = 100;
+    run.fake.running[FrontRun::first] = "patrol";
+    const auto running = run.fake.running;
+    const auto members = run.members();
+    const auto random_before = run.fake.roll;
+    const auto& task =
+        run.state.players[FrontRun::player].tasks[static_cast<uint32_t>(run.destination)];
+    const auto deadline = task.next_tick;
+    const auto attacking = task.attacking;
+    std::array<uint64_t, strike_refresh_mask_words> sources{};
+    sources[FrontRun::boundary / strike_refresh_word_bits] |=
+        uint64_t{1} << (FrontRun::boundary % strike_refresh_word_bits);
+    check(
+        computer_player_refresh_strike_targets(
+            &run.state, run.host, FrontRun::player, run.destination, sources
+        ),
+        "selected front refresh: a selected boundary member receives an order"
+    );
+    check(
+        run.fake.orders.size() == 1 && run.fake.orders.front().unit == FrontRun::boundary &&
+            run.fake.orders.front().arg == 2,
+        "selected front refresh: only the selected boundary member changes front"
+    );
+    for (uint16_t slot = FrontRun::first; slot < FrontRun::first + FrontRun::members_count; ++slot)
+        if (slot != FrontRun::boundary)
+            check(
+                run.fake.running[slot] == running[slot],
+                "selected front refresh: healthy unselected orders remain unchanged"
+            );
+    check(
+        task.next_tick == deadline && task.attacking == attacking && run.members() == members &&
+            run.fake.joined.empty() && run.fake.roll == random_before,
+        "selected front refresh: task state, membership and random stream unchanged"
+    );
+}
+
 /// Admits at most 256 new members per ordinary land or naval dispatch.
 void test_distributed_strike_recruitment_budget() {
     constexpr uint32_t version = RecruitRun::distributed_version;
@@ -2184,6 +2397,11 @@ int main(int argc, char** argv) {
     test_cohort_targets_keep_canonical_callback_order();
     test_cohort_targets_break_ties_by_slot();
     test_masked_cohort_refresh_keeps_task_state();
+    test_selected_front_fallback_crosses_coarse_group_boundary();
+    test_selected_front_fallback_keeps_exact_distance_threshold();
+    test_selected_front_fallback_keeps_candidate_filter_and_tie();
+    test_selected_front_fallback_preserves_earlier_presets();
+    test_selected_front_fallback_respects_refresh_source_mask();
     test_distributed_strike_recruitment_budget();
     test_earlier_recruitment_keeps_its_seed_and_limit();
     test_recruitment_rereads_reused_source_slots();
