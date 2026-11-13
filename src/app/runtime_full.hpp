@@ -563,6 +563,14 @@ class ModelStage {
     /// @return completed body and shadow emission counts
     [[nodiscard]] const BodyLodCounts& body_lod_counts() const noexcept;
 
+    /// Admits current cached images for this view and uploads each dirty page once.
+    /// @param inputs immutable frame state shared with subsequent model emission
+    /// @param view the view subsequent emission uses
+    /// @param executor the executor receiving the pages
+    void prepare_body_images(
+        const ModelFrameInputs& inputs, const SceneView& view, card::Executor& executor
+    );
+
     /// Emits the frame's shadows: every drawn unit's and 3D feature's
     /// silhouette and every projectile's shadow sprite into the shadow
     /// target, cleared first, then one resolve that composes the target over

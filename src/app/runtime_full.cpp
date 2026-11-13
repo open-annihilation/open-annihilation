@@ -1951,6 +1951,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     water_rules
                 );
             };
+            full.models.prepare_body_images(model_inputs, scene, full.executor);
             {
                 full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);
                 std::size_t before = frame.vertices.size();

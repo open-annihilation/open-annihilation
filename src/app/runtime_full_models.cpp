@@ -330,6 +330,9 @@ struct BodyChoice {
     float zoom{};
     uint8_t quality{}; ///< zero for the original mesh, one for low and two for medium
     float pixels{};    ///< current drawable diameter in window pixels
+    uint64_t geometry_revision{};
+    uint64_t prepared_serial{};
+    int32_t height{};
 };
 
 /// Counts only geometry actually appended by a unit body or its shadow pass.
@@ -376,12 +379,84 @@ struct BodyImage {
     const void* pixels{};
     uint64_t fingerprint{};
     uint64_t used_frame{};
+    uint64_t prepared_serial{};
+    uint32_t prepared_page{};
+    gw::TexelRect prepared_rect{};
+    FixedVector3 prepared_position{};
+    int32_t prepared_bank{}, prepared_heading{}, prepared_pitch{};
     uint32_t image_builds{};
     uint32_t type{};
     uint16_t width{}, height{};
     int16_t origin_x{}, origin_y{};
     uint8_t owner_index{};
 };
+
+/// Values whose changes invalidate image preparation for this view.
+[[nodiscard]] auto
+body_image_batch_key(const ModelFrameInputs& in, const SceneView& view) noexcept {
+    return std::tuple{
+        in.draws,
+        in.world,
+        in.library,
+        in.display,
+        in.vertex_heights,
+        in.water_shimmer,
+        in.water_sea_level,
+        in.water_seconds,
+        in.graphics_flags,
+        in.build_pulse_tick,
+        in.moving_pieces_once_built,
+        in.team_colors,
+        in.light,
+        in.light_scale,
+        in.projectile_shadow,
+        in.new_unit_shadows,
+        in.share_solid_materials,
+        view.origin_x,
+        view.origin_y,
+        view.scale,
+        view.zoom,
+        view.offset.x,
+        view.offset.y,
+        view.width,
+        view.height,
+        view.camera_x,
+        view.camera_y,
+        view.target,
+        in.world ? int32_t(in.world->game.sea_level) : 0,
+        in.world ? int32_t(in.world->game.debug_overlay) : 0,
+        in.world ? int32_t(in.world->game.viewpoint_player) : 0
+    };
+}
+
+/// A successfully uploaded page at the end of whole-view image admission.
+struct BodyImagePageReady {
+    uint64_t revision{};
+    card::PageHandle handle{};
+    bool uploaded{};
+    bool requested{};
+};
+
+/// A preparation remains active even when an image or its page was refused.
+struct BodyImageBatch {
+    decltype(body_image_batch_key(ModelFrameInputs{}, SceneView{})) key{};
+    uint64_t frame{};
+    uint64_t serial{};
+    const card::Executor* executor{};
+    std::vector<BodyImagePageReady> pages;
+};
+
+/// Returns whether the prepared image still describes this unit's placed pose.
+[[nodiscard]] bool
+body_image_pose_matches(const BodyImage& image, const draw::ModelRef& model) noexcept {
+    const auto& unit = *model.unit;
+    return image.instance == model.instance && image.state == model.state &&
+           image.image_builds == model.state->image_builds && image.type == unit.type_index &&
+           image.owner_index == unit.owner_index && image.prepared_position.x == unit.position.x &&
+           image.prepared_position.y == unit.position.y &&
+           image.prepared_position.z == unit.position.z && image.prepared_bank == unit.bank &&
+           image.prepared_heading == unit.heading && image.prepared_pitch == unit.pitch;
+}
 
 /// Cached images use their own bounded pool, leaving material textures available.
 constexpr uint32_t body_image_page_side = 256;
@@ -1556,6 +1631,8 @@ struct ModelStage::Impl {
     /// At most one record per uint16 unit slot; atlas cells may be evicted independently.
     std::unordered_map<uint16_t, BodyImage> body_image_records;
     gw::GrowthHooks body_image_growth{};
+    uint64_t body_prepare_serial{};
+    std::optional<BodyImageBatch> body_image_batch;
 
     /// Cached soft-edged aircraft silhouettes; at most 256 pages of 256 square texels.
     struct AircraftShadow {
@@ -1619,6 +1696,7 @@ struct ModelStage::Impl {
         keyed_texels.clear();
         meshes.clear();
         body_image_records.clear();
+        body_image_batch.reset();
         body_mesh_bytes = 0;
         body_source_bytes = 0;
         ++body_frame;
@@ -1787,6 +1865,9 @@ class Emitter {
     ///
     /// @param entry the draw
     void emit(const WorldDraw& entry);
+
+    /// Admits current images for this view, then uploads each page once.
+    void prepare_body_images();
 
   private:
 
@@ -2053,6 +2134,7 @@ class Emitter {
     int32_t camera_z_{};
     /// The current unit's coarse mesh, already qualified against physical water heights.
     const gw::ModelMesh* body_lod_mesh_{};
+    bool preparing_body_images_{};
 
     struct BodyPage {
         uint32_t index{};
@@ -2498,11 +2580,23 @@ const gw::ModelMesh& Emitter::body_mesh(
     if (impl_.body_choices.empty())
         impl_.body_choices.resize(body_choice_count);
     auto& choice = impl_.body_choices[unit.id];
-    if (choice.frame == impl_.body_frame && choice.draw == &drawn &&
-        choice.instance == model.instance && choice.zoom == view_.zoom)
+    bool reuse_choice = !preparing_body_images_;
+    if (reuse_choice && impl_.body_image_batch &&
+        impl_.body_image_batch->frame == impl_.body_frame) {
+        const auto& batch = *impl_.body_image_batch;
+        reuse_choice =
+            choice.prepared_serial == batch.serial && batch.key == body_image_batch_key(in_, view_);
+    }
+    if (reuse_choice && choice.frame == impl_.body_frame && choice.draw == &drawn &&
+        choice.instance == model.instance && choice.zoom == view_.zoom &&
+        choice.geometry_revision == model.instance->materialization_revision() &&
+        choice.height == unit.position.y)
         return choice.quality == 0 ? mesh : reduced_mesh(model, mesh, choice.quality);
     const auto previous = choice.instance == model.instance ? choice.quality : uint8_t{};
     choice = {&drawn, model.instance, impl_.body_frame, view_.zoom, 0};
+    choice.geometry_revision = model.instance->materialization_revision();
+    choice.height = unit.position.y;
+    choice.prepared_serial = impl_.body_image_batch ? impl_.body_image_batch->serial : 0;
     int32_t left = std::numeric_limits<int32_t>::max(), top = left;
     int32_t right = std::numeric_limits<int32_t>::min(), bottom = right;
     bool any = false;
@@ -2553,6 +2647,79 @@ const gw::ModelMesh& Emitter::body_mesh(
     return mesh;
 }
 
+void Emitter::prepare_body_images() {
+    impl_.body_image_batch.emplace();
+    auto& batch = *impl_.body_image_batch;
+    batch.key = body_image_batch_key(in_, view_);
+    batch.frame = impl_.body_frame;
+    batch.executor = &executor_;
+    if (++impl_.body_prepare_serial == 0) {
+        impl_.body_prepare_serial = 1;
+        for (auto& [slot, image] : impl_.body_image_records)
+            image.prepared_serial = 0;
+    }
+    batch.serial = impl_.body_prepare_serial;
+    if (!impl_.body_lod_enabled || in_.draws == nullptr || in_.world == nullptr)
+        return;
+    preparing_body_images_ = true;
+    try {
+        for (const auto& entry : in_.draws->draws) {
+            if (entry.kind != WorldDrawKind::model || entry.index >= in_.draws->models.size())
+                continue;
+            const auto& drawn = in_.draws->models[entry.index];
+            const auto& model = drawn.model;
+            if (drawn.on_map || drawn.stand_in >= 0 || !drawn.plan.linked.drawn ||
+                !drawn.plan.model.from_image || model.instance == nullptr ||
+                model.prepared == nullptr || model.state == nullptr || model.unit == nullptr)
+                continue;
+            const auto pieces = model.instance->pieces();
+            if (model.state->deferred_image || model.state->image.sprite.data == nullptr ||
+                model.state->pieces.size() != pieces.size() ||
+                std::any_of(pieces.begin(), pieces.end(), [](const PieceState& piece) {
+                    return (piece.flags & piece_cached) == 0;
+                }))
+                continue;
+            // Cached image bounds cheaply reject offscreen records before
+            // their distance or material geometry needs inspection.
+            const auto& image = model.state->image.sprite;
+            const auto surface = battlefield();
+            const float left =
+                surface.origin_x +
+                float(hi(wrap_sub(model.unit->position.x, camera_x_)) - image.origin_x) * scale_;
+            const float top =
+                surface.origin_y + float(
+                                       hi(wrap_sub(model.unit->position.z, camera_z_)) -
+                                       (hi(model.unit->position.y) >> 1) - image.origin_y
+                                   ) * scale_;
+            if (surface.scissored && (left + image.width * scale_ < surface.scissor.x ||
+                                      top + image.height * scale_ < surface.scissor.y ||
+                                      left > double(surface.scissor.x) + surface.scissor.width ||
+                                      top > double(surface.scissor.y) + surface.scissor.height))
+                continue;
+            if (const auto* mesh = mesh_of(model)) {
+                (void)body_mesh(drawn, model, *mesh);
+                (void)body_image(drawn, model, surface);
+            }
+        }
+        batch.pages.resize(impl_.body_images.pages().size());
+        for (uint32_t index = 0; index < batch.pages.size(); ++index) {
+            if (!batch.pages[index].requested || !body_image_page(index))
+                continue;
+            batch.pages[index] = {
+                impl_.body_images.pages()[index].revision,
+                impl_.body_image_slots[index].handle,
+                true,
+                true
+            };
+        }
+    } catch (const std::bad_alloc&) {
+        // Keep the preparation active: every missing readiness record
+        // retains geometry instead of resuming per-unit image uploads.
+        batch.pages.clear();
+    }
+    preparing_body_images_ = false;
+}
+
 bool Emitter::body_image_page(uint32_t index) {
     const auto pages = impl_.body_images.pages();
     if (index >= pages.size() || pages[index].size == 0)
@@ -2590,6 +2757,12 @@ bool Emitter::body_image(
 ) try {
     if (!impl_.body_lod_enabled || impl_.body_choices.empty() || !drawn.plan.model.from_image ||
         !(scale_ > 0) || !std::isfinite(scale_))
+        return false;
+    const auto* batch = impl_.body_image_batch && impl_.body_image_batch->frame == impl_.body_frame
+                            ? &*impl_.body_image_batch
+                            : nullptr;
+    if (batch != nullptr && !preparing_body_images_ &&
+        (batch->executor != &executor_ || batch->key != body_image_batch_key(in_, view_)))
         return false;
     const auto& unit = *model.unit;
     // These guards precede reuse of a shadow pass's distance choice too.
@@ -2675,47 +2848,92 @@ bool Emitter::body_image(
         return false;
     const uint64_t frame_id = uint64_t{unit.id} + 1;
     auto placed = same ? impl_.body_images.find(frame_id, gw::DrawMode::opaque) : gw::FrameResult{};
-    if (!same || placed.status != gw::FrameStatus::ok) {
-        if (impl_.body_image_growth.allow != nullptr &&
-            impl_.body_images.memory().page_bytes == 0 &&
-            !impl_.body_image_growth.allow(
-                impl_.body_image_growth.context, 2 * body_image_page_bytes
-            ))
+    const bool prepared_draw = batch != nullptr && !preparing_body_images_;
+    if (prepared_draw) {
+        if (!same || old->second.prepared_serial != batch->serial ||
+            !body_image_pose_matches(old->second, model) || placed.status != gw::FrameStatus::ok ||
+            old->second.prepared_page != placed.record.page ||
+            std::tie(
+                old->second.prepared_rect.x,
+                old->second.prepared_rect.y,
+                old->second.prepared_rect.width,
+                old->second.prepared_rect.height
+            ) !=
+                std::tie(
+                    placed.record.rect.x,
+                    placed.record.rect.y,
+                    placed.record.rect.width,
+                    placed.record.rect.height
+                ) ||
+            placed.record.page >= batch->pages.size())
             return false;
-        if (!same)
-            impl_.body_images.forget(frame_id);
-        render_texture(image, false, impl_.rendered);
-        placed = impl_.body_images.frame(frame_id, gw::DrawMode::opaque, impl_.rendered);
-        if (placed.status != gw::FrameStatus::ok)
+        const auto& ready = batch->pages[placed.record.page];
+        const auto pages = impl_.body_images.pages();
+        if (!ready.uploaded || placed.record.page >= pages.size() ||
+            pages[placed.record.page].revision != ready.revision ||
+            !pages[placed.record.page].dirty.empty() ||
+            placed.record.page >= impl_.body_image_slots.size() ||
+            impl_.body_image_slots[placed.record.page].handle != ready.handle ||
+            !executor_.page_alive(ready.handle))
             return false;
-        ++counts_.frames_placed;
+    } else {
+        if (!same || placed.status != gw::FrameStatus::ok) {
+            if (impl_.body_image_growth.allow != nullptr &&
+                impl_.body_images.memory().page_bytes == 0 &&
+                !impl_.body_image_growth.allow(
+                    impl_.body_image_growth.context, 2 * body_image_page_bytes
+                ))
+                return false;
+            if (!same)
+                impl_.body_images.forget(frame_id);
+            render_texture(image, false, impl_.rendered);
+            placed = impl_.body_images.frame(frame_id, gw::DrawMode::opaque, impl_.rendered);
+            if (placed.status != gw::FrameStatus::ok)
+                return false;
+            ++counts_.frames_placed;
+        }
+        BodyImage admitted;
+        admitted.owner = model.instance->model_handle();
+        admitted.instance = model.instance;
+        admitted.state = model.state;
+        admitted.pixels = image.data;
+        admitted.fingerprint = fingerprint;
+        admitted.used_frame = same ? old->second.used_frame : 0;
+        admitted.image_builds = state.image_builds;
+        admitted.type = unit.type_index;
+        admitted.width = image.width;
+        admitted.height = image.height;
+        admitted.origin_x = image.origin_x;
+        admitted.origin_y = image.origin_y;
+        admitted.owner_index = unit.owner_index;
+        // Associate the CPU atlas cell with its new identity even if the GPU
+        // upload fails. A later reversion must not find these pixels under the
+        // previous identity. A failed record allocation drops only this unused cell.
+        try {
+            impl_.body_image_records[unit.id] = std::move(admitted);
+        } catch (const std::bad_alloc&) {
+            if (!same)
+                impl_.body_images.forget(frame_id);
+            throw;
+        }
+        if (preparing_body_images_) {
+            auto& prepared = impl_.body_image_records.at(unit.id);
+            prepared.prepared_serial = batch->serial;
+            prepared.prepared_page = placed.record.page;
+            prepared.prepared_rect = placed.record.rect;
+            prepared.prepared_position = {unit.position.x, unit.position.y, unit.position.z};
+            prepared.prepared_bank = unit.bank;
+            prepared.prepared_heading = unit.heading;
+            prepared.prepared_pitch = unit.pitch;
+            auto& pages = impl_.body_image_batch->pages;
+            if (pages.size() <= placed.record.page)
+                pages.resize(size_t{placed.record.page} + 1);
+            pages[placed.record.page].requested = true;
+            return true;
+        }
+        if (!body_image_page(placed.record.page))
+            return false;
     }
-    BodyImage admitted;
-    admitted.owner = model.instance->model_handle();
-    admitted.instance = model.instance;
-    admitted.state = model.state;
-    admitted.pixels = image.data;
-    admitted.fingerprint = fingerprint;
-    admitted.used_frame = same ? old->second.used_frame : 0;
-    admitted.image_builds = state.image_builds;
-    admitted.type = unit.type_index;
-    admitted.width = image.width;
-    admitted.height = image.height;
-    admitted.origin_x = image.origin_x;
-    admitted.origin_y = image.origin_y;
-    admitted.owner_index = unit.owner_index;
-    // Associate the CPU atlas cell with its new identity even if the GPU
-    // upload fails. A later reversion must not find these pixels under the
-    // previous identity. A failed record allocation drops only this unused cell.
-    try {
-        impl_.body_image_records[unit.id] = std::move(admitted);
-    } catch (const std::bad_alloc&) {
-        if (!same)
-            impl_.body_images.forget(frame_id);
-        throw;
-    }
-    if (!body_image_page(placed.record.page))
-        return false;
     const auto& page = impl_.body_images.pages()[placed.record.page];
     const auto& rect = placed.record.rect;
     const float side = float(page.size);
@@ -5220,6 +5438,7 @@ void ModelStage::begin_frame() noexcept {
     pages_.begin_frame();
     bright_pages_.begin_frame();
     impl_->body_images.begin_frame();
+    impl_->body_image_batch.reset();
     ++impl_->aircraft_shadow_frame;
     impl_->body_lod_counts = {};
     if (++impl_->body_frame == 0) {
@@ -5246,6 +5465,14 @@ void ModelStage::set_growth_hooks(const gw::GrowthHooks& hooks) noexcept {
                                              return growth.allow != nullptr &&
                                                     growth.allow(growth.context, 2 * bytes);
                                          }});
+}
+
+void ModelStage::prepare_body_images(
+    const ModelFrameInputs& inputs, const SceneView& view, card::Executor& executor
+) {
+    card::CardFrame unused;
+    Emitter emitter(*impl_, pages_, bright_pages_, counts_, error_, inputs, view, executor, unused);
+    emitter.prepare_body_images();
 }
 
 void ModelStage::emit_shadows(
