@@ -2792,6 +2792,9 @@ void Runtime::check_full_render_tier(
         const engine::EngineSettings saved = engine_settings();
         engine::EngineSettings whole_map = saved;
         whole_map.max_zoom_out = engine::ZoomOutLimit::whole_map;
+        // This part checks the explicit zoom choice independently of the
+        // owned army's physical size.
+        whole_map.zoomed_out_after = engine::ZoomedOutAfter::one_sixth;
         for (const auto units : {engine::ZoomedOutUnits::rendered, engine::ZoomedOutUnits::dots})
             for (const auto level :
                  {HardwareAcceleration::off,
@@ -2911,6 +2914,44 @@ void Runtime::check_full_render_tier(
                         frame_draws_.units_drawn == 0)
                         fail("the normal-size After zoom boundary did not draw the chosen units");
                 }
+            }
+        }
+        // The automatic boundary uses the physical model dimensions of
+        // the actual owned army. Check both representations through a
+        // real frame wherever the map's legal zoom range reaches them.
+        auto automatic_defaults = engine::EngineSettings{};
+        automatic_defaults.max_zoom_out = whole_map.max_zoom_out;
+        automatic_defaults.max_zoom_in = whole_map.max_zoom_in;
+        apply_engine_settings(automatic_defaults);
+        const unit_detail_transition::Projection classic_projection{1, 0, 0, 0, -0.5F, 1};
+        const auto average = unit_detail_transition::average_model_pixels(
+            match_->world().record, classic_projection
+        );
+        if (average.units != 0 && average.pixels > 0) {
+            const double boundary_pixels =
+                unit_detail_transition::dot_pixels * unit_detail_transition::model_to_dot_ratio;
+            const float threshold = static_cast<float>(boundary_pixels / average.pixels);
+            constexpr float away_from_boundary = 0.1F;
+            for (const bool dots : {false, true}) {
+                const float zoom =
+                    threshold * (dots ? 1 - away_from_boundary : 1 + away_from_boundary);
+                if (zoom < least_match_zoom() || zoom > kMaxBattlefieldZoom)
+                    continue;
+                at_zoom(zoom);
+                match_models().unit_transition = {};
+                std::ignore = full_frame();
+                const bool unit_models = std::any_of(
+                    match_models().draws.models.begin(),
+                    match_models().draws.models.end(),
+                    [](const ModelDraw& model) { return model.stand_in < 0; }
+                );
+                if (match_zoom() != zoom || frame_draws_.units_as_dots != dots ||
+                    unit_models == dots || frame_draws_.units_drawn == 0)
+                    fail("the Unit size boundary did not draw the chosen physical detail");
+                std::cout << "render tiers check: Unit size: " << average.units
+                          << " owned units average " << average.pixels * zoom << " pixels, dot "
+                          << unit_detail_transition::dot_pixels << ", "
+                          << (dots ? "dots" : "physical models") << '\n';
             }
         }
         const auto after_thresholds = canonical();

@@ -1394,12 +1394,7 @@ void Runtime::place_tracking_camera() {
     if (oa::world_unit_at(&world, tracked_match_unit_) == nullptr)
         return;
     auto& models = match_models();
-    const auto& graphics = engine_settings();
-    const bool dots =
-        live_renderer_active()
-            ? graphics.zoomed_out_units == oa::ui::engine_settings::ZoomedOutUnits::dots &&
-                  match_zoom() < oa::ui::engine_settings::zoomed_out_zoom(graphics.zoomed_out_after)
-            : dots_frame();
+    const bool dots = live_renderer_active() ? zoomed_out_units_frame() : dots_frame();
     // Explicit debug queries keep the full snapshot at its original instant.
     observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
     const FixedVec3 shown = shown_unit_position(
@@ -1804,10 +1799,7 @@ bool Runtime::draw_match_surface() {
     // The live view's dots follow the explicit graphics choice; its unit
     // geometry does not need the processor's model bridge memory fallback.
     const auto& graphics = engine_settings();
-    const bool live_dots =
-        !directed && live_renderer_active() &&
-        graphics.zoomed_out_units == oa::ui::engine_settings::ZoomedOutUnits::dots &&
-        match_zoom() < oa::ui::engine_settings::zoomed_out_zoom(graphics.zoomed_out_after);
+    const bool live_dots = !directed && live_renderer_active() && zoomed_out_units_frame();
     bool dots = !directed && (live_dots || (!live_renderer_active() && dots_frame()));
     // The map the view shows: the fill below draws nothing beyond it. The
     // player's camera is held within the view's limits, which let it go

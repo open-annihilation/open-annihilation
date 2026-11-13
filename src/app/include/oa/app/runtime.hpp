@@ -11793,6 +11793,15 @@ class Runtime final : public menu::Host,
     /// @return true when the far view is drawn
     [[nodiscard]] bool far_view_frame() const noexcept;
 
+    /// Tells whether the chosen zoomed-out units setting requests dots.
+    ///
+    /// Unit size compares the owned army's average projected physical model
+    /// diameter with its dot, with a short interval retaining the last choice.
+    /// Fixed After zoom choices keep their explicit boundary.
+    ///
+    /// @return true when the graphics choice requests strategic dots
+    [[nodiscard]] bool zoomed_out_units_frame() const noexcept;
+
     /// Tells whether the match's next frame draws its units as dots: a
     /// frame of the player's view zoomed out farther than After zoom with
     /// Zoomed out units at Dots, or any zoom where the models' drawing would

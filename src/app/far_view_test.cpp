@@ -15,6 +15,7 @@
 // the map's edges the view's centre goes, and how a view and a camera are
 // held there.
 #include "oa/app/far_view.hpp"
+#include "unit_detail_transition.hpp"
 
 #include "oa/platform/job_pool.hpp"
 #include "oa/test/check.hpp"
@@ -24,6 +25,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <memory>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -492,6 +495,120 @@ void a_smaller_share_keeps_more_of_the_view_on_the_map() {
     OA_CHECK(held_view(0.0, 3000.0, 1000.0, none, std::nullopt) == -1000.0);
 }
 
+/// Known physical sizes mixed with rare large units and a hidden enemy.
+struct UnitSizeArmy {
+    std::unique_ptr<oa::World> world{std::make_unique<oa::World>()};
+    std::array<oa::Unit, 12> units{};
+    std::array<oa::UnitDef, 6> types{};
+
+    UnitSizeArmy() {
+        world->units = units.data();
+        world->unit_slot_count = static_cast<uint32_t>(units.size());
+        world->unit_defs = types.data();
+        world->unit_def_count = static_cast<uint32_t>(types.size());
+        constexpr int32_t fixed_scale = 65536;
+        const auto size = [&](std::size_t type, int32_t x, int32_t y, int32_t z) {
+            types[type].size_x = x * fixed_scale;
+            types[type].size_y = y * fixed_scale;
+            types[type].size_z = z * fixed_scale;
+        };
+        size(0, 20, 10, 10);
+        size(1, 40, 20, 20);
+        size(2, 200, 200, 200);
+        types[2].abilities = OA_UNIT_DEF_ABILITY_COMMANDER;
+        size(3, 1000, 1000, 1000);
+        size(4, 500, 500, 500);
+        for (uint32_t slot = 1; slot <= 7; ++slot) {
+            units[slot].flags = OA_UNIT_FLAG_LIVE;
+            units[slot].health = 100;
+            units[slot].def = 1;
+        }
+        units[4].def = 2;
+        units[5].def = 3;
+        units[6].def = 4;
+        units[6].flags |= OA_UNIT_FLAG_BUILDING;
+        units[7].def = 5;
+        units[7].owner_index = 1;
+    }
+};
+
+void the_automatic_boundary_uses_physical_population_size() {
+    namespace detail = oa::app::unit_detail_transition;
+    const detail::Projection classic{1, 0, 0, 0, -0.5F, 1};
+    UnitSizeArmy army;
+    auto average = detail::average_model_pixels(*army.world, classic);
+    // Three 20-pixel units and one 40-pixel unit contribute by population.
+    // The commander, building and hidden enemy cannot dominate that army.
+    OA_CHECK(average.units == 4 && average.pixels == 25);
+    army.types[4].size_x *= 4;
+    OA_CHECK(detail::average_model_pixels(*army.world, classic).pixels == 25);
+    army.units[4].flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    average = detail::average_model_pixels(*army.world, classic);
+    OA_CHECK(average.units == 3 && average.pixels == 20);
+    army.units[1].health = 0;
+    army.units[2].build_remaining = 0.5F;
+    army.units[3].flags = 0;
+    average = detail::average_model_pixels(*army.world, classic);
+    OA_CHECK(average.units == 2 && average.pixels == 900);
+    army.units[5].flags = army.units[6].flags = 0;
+    OA_CHECK(detail::average_model_pixels(*army.world, classic).units == 0);
+}
+
+void physical_size_follows_camera_and_unit_turn() {
+    namespace detail = oa::app::unit_detail_transition;
+    oa::UnitDef type{};
+    constexpr int32_t fixed_scale = 65536;
+    type.size_x = 40 * fixed_scale;
+    type.size_y = 5 * fixed_scale;
+    type.size_z = 10 * fixed_scale;
+    const detail::Projection side{1, 0, 0, 0, 1, 0};
+    constexpr uint16_t quarter_turn = 16384;
+    OA_CHECK(detail::model_pixels(type, side) == 40);
+    OA_CHECK(std::abs(detail::model_pixels(type, side, quarter_turn) - 10) < 0.001);
+    // A camera looking along x gives the opposite apparent sizes.
+    const detail::Projection other_side{0, 0, 1, 0, 1, 0};
+    OA_CHECK(detail::model_pixels(type, other_side) == 10);
+    OA_CHECK(std::abs(detail::model_pixels(type, other_side, quarter_turn) - 40) < 0.001);
+    auto invalid = side;
+    invalid[0] = std::numeric_limits<float>::infinity();
+    OA_CHECK(detail::model_pixels(type, invalid) == 0);
+    type.size_x = -1;
+    OA_CHECK(detail::model_pixels(type, side) == 0);
+}
+
+void unit_size_keeps_models_farther_out_and_does_not_flicker() {
+    namespace detail = oa::app::unit_detail_transition;
+    const detail::Projection classic{1, 0, 0, 0, -0.5F, 1};
+    UnitSizeArmy army;
+    // An exact 24-pixel population mean reaches six pixels at zoom 1/4.
+    army.types[1].size_x = 36 * 65536;
+    detail::State before;
+    OA_CHECK(detail::as_dots(before, *army.world, 10, classic, 0.249F));
+    detail::State at;
+    OA_CHECK(!detail::as_dots(at, *army.world, 10, classic, 0.25F));
+    // The old fixed 1/3 choice would already show dots at these zooms.
+    detail::State moving;
+    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.26F));
+    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.249F));
+    OA_CHECK(detail::as_dots(moving, *army.world, 10, classic, 0.24F));
+    OA_CHECK(detail::as_dots(moving, *army.world, 10, classic, 0.25F));
+    OA_CHECK(!detail::as_dots(moving, *army.world, 10, classic, 0.26F));
+    OA_CHECK(moving.average.units == 4 && moving.average.pixels == 24);
+    // Tick and viewpoint changes refresh the representative population.
+    army.units[4].flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    OA_CHECK(detail::as_dots(moving, *army.world, 11, classic, 0.26F));
+    OA_CHECK(moving.average.units == 3 && moving.average.pixels == 20);
+    army.world->game.viewpoint_player = 1;
+    OA_CHECK(!detail::as_dots(moving, *army.world, 11, classic, 0.26F));
+    OA_CHECK(moving.average.units == 1 && moving.average.pixels == 750);
+    // A match with no owned physical model retains the earlier fallback.
+    oa::World empty{};
+    detail::State fallback;
+    OA_CHECK(detail::as_dots(fallback, empty, 0, classic, 0.1F));
+    OA_CHECK(!detail::as_dots(fallback, empty, 0, classic, 0.2F));
+    OA_CHECK(!detail::as_dots(fallback, empty, 0, classic, 0));
+}
+
 } // namespace
 
 int main() {
@@ -506,5 +623,8 @@ int main() {
     a_dot_covers_the_pixels_drawn_in_its_colour();
     the_view_goes_past_the_map_until_its_edge_reaches_the_middle();
     a_smaller_share_keeps_more_of_the_view_on_the_map();
+    the_automatic_boundary_uses_physical_population_size();
+    physical_size_follows_camera_and_unit_turn();
+    unit_size_keeps_models_farther_out_and_does_not_flicker();
     return oa::test::check_exit_status();
 }

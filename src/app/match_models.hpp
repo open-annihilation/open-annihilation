@@ -24,6 +24,7 @@
 #include "presentation_capture.hpp"
 #include "model_transform_cache.hpp"
 #include "preplanning_visibility_bounds.hpp"
+#include "unit_detail_transition.hpp"
 #include "world_draws.hpp"
 
 #include <cstddef>
@@ -190,6 +191,8 @@ struct MatchModels {
     // The frame's units, planned before the draws are worked out in order.
     UnitPlans unit_plans;
     PreplanningVisibility preplanning_visibility;
+    /// Cached owned-army dimensions and the automatic dot/model boundary.
+    unit_detail_transition::State unit_transition{};
     /// Exact model-space transform caches, one per unit-planning worker.
     /// Each is reset for the run under that worker's floating-point control.
     std::vector<ModelTransformCache> transform_caches;

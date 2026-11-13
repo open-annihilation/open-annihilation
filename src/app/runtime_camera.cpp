@@ -10,6 +10,9 @@
 #include "oa/app/full_screen.hpp"
 #include "oa/core/map_plot.h"
 #include "engine_settings_state.hpp"
+#include "match_models.hpp"
+#include "renderer_live_camera.hpp"
+#include "unit_detail_transition.hpp"
 #include "oa/sim/feature_runtime.hpp"
 #include "oa/sim/selection.hpp"
 #include "oa/platform/memory_status.hpp"
@@ -621,14 +624,37 @@ bool Runtime::far_view_frame() const noexcept {
            far_view_zoom(match_zoom_, detail_zoom_floor());
 }
 
-bool Runtime::dots_frame() const noexcept {
+bool Runtime::zoomed_out_units_frame() const noexcept {
     namespace settings = oa::ui::engine_settings;
     if (screen_ != Screen::match || director_mode() || !(match_zoom_ > 0.0F))
         return false;
     const settings::EngineSettings chosen =
         engine_settings_ ? engine_settings_->current : settings::EngineSettings{};
-    if (chosen.zoomed_out_units == settings::ZoomedOutUnits::dots &&
-        match_zoom_ < settings::zoomed_out_zoom(chosen.zoomed_out_after))
+    if (chosen.zoomed_out_units != settings::ZoomedOutUnits::dots)
+        return false;
+    if (chosen.zoomed_out_after != settings::ZoomedOutAfter::unit_size || !match_)
+        return match_zoom_ < settings::zoomed_out_zoom(chosen.zoomed_out_after);
+    const auto angles = live_renderer_active() ? live_camera_angles() : std::array<float, 2>{};
+    const renderer_live_camera::State camera{angles[0], angles[1], live_renderer_unlocked()};
+    renderer_live_camera::Matrix projection{};
+    if (!renderer_live_camera::projection(camera, {}, projection))
+        return match_zoom_ < unit_detail_transition::unknown_size_zoom;
+    const unit_detail_transition::Projection axes{
+        projection[0], projection[1], projection[2], projection[4], projection[5], projection[6]
+    };
+    unit_detail_transition::State first;
+    auto& state = match_models_ && match_models_->match == match_.get()
+                      ? match_models_->unit_transition
+                      : first;
+    return unit_detail_transition::as_dots(
+        state, match_->world().record, match_->simulation().tick, axes, match_zoom_
+    );
+}
+
+bool Runtime::dots_frame() const noexcept {
+    if (screen_ != Screen::match || director_mode() || !(match_zoom_ > 0.0F))
+        return false;
+    if (zoomed_out_units_frame())
         return true;
     // At every zoom, models whose drawing would take more of the machine's
     // memory than it can spare are drawn as dots. Past the drawing's floor,

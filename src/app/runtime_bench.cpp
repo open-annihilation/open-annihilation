@@ -65,6 +65,10 @@ struct FrameSample {
     double full_execute{}; ///< classic Full's first executor call
     bench::SimulationFrame simulation{};
     renderer_live_scene::GroundIndexBuilds index_builds{}; ///< bounded build-only diagnostics
+    double average_unit_pixels{};  ///< automatic transition's owned model diameter
+    uint32_t average_unit_count{}; ///< units contributing to that average
+    bool automatic_unit_detail{};  ///< the Unit size boundary was selected
+    bool units_as_dots{};          ///< the completed frame used the global dot representation
 };
 
 /// Room for one stage's milliseconds in a FRAME line.
@@ -802,6 +806,20 @@ void Runtime::play_bench() {
              ms((phase_times_.upload - phases.upload) + (phase_times_.present - phases.present))}
         );
         samples.back().simulation = simulation;
+        {
+            const auto& settings = engine_settings();
+            auto& sample = samples.back();
+            sample.automatic_unit_detail =
+                settings.zoomed_out_units == oa::ui::engine_settings::ZoomedOutUnits::dots &&
+                settings.zoomed_out_after == oa::ui::engine_settings::ZoomedOutAfter::unit_size;
+            sample.units_as_dots = frame_draws_.units_as_dots;
+            if (sample.automatic_unit_detail && match_models_ &&
+                match_models_->match == match_.get()) {
+                const auto& average = match_models_->unit_transition.average;
+                sample.average_unit_pixels = average.pixels * match_zoom();
+                sample.average_unit_count = average.units;
+            }
+        }
         if (bench_timers::timers.ground_index_builds.size != 0 ||
             bench_timers::timers.ground_index_builds.dropped != 0)
             samples.back().index_builds = bench_timers::timers.ground_index_builds;
@@ -1197,6 +1215,17 @@ void Runtime::play_bench() {
                 "%s\n",
                 bench::simulation_frame_line(index, samples[index].sim, samples[index].simulation)
                     .c_str()
+            );
+            std::printf(
+                "bench: UNIT_DETAIL_FRAME %zu automatic %d average_pixels %.4f dot_pixels %.1f "
+                "model_ratio %.2f reference_units %u dots %d\n",
+                index,
+                samples[index].automatic_unit_detail,
+                samples[index].average_unit_pixels,
+                unit_detail_transition::dot_pixels,
+                unit_detail_transition::model_to_dot_ratio,
+                samples[index].average_unit_count,
+                samples[index].units_as_dots
             );
             std::printf(
                 "bench: GROUND_INDEX_FRAME %zu builds %.0f hits %.0f triangles %.0f wall_ms %.3f\n",
