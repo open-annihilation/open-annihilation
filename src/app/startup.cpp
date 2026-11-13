@@ -352,6 +352,7 @@ void check_game_files_options(Options& options) {
         {options.check_side_data_per_match, "--check-side-data-per-match"},
         {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
         {options.check_picture_frames, "--check-picture-frames"},
+        {options.check_build_page_fallback, "--check-build-page-fallback"},
         {options.check_download_builds, "--check-download-builds"},
         {options.check_stockpile_builds, "--check-stockpile-builds"},
         {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -723,6 +724,7 @@ void check_director_options(Options& options) {
         {options.check_side_data_per_match, "--check-side-data-per-match"},
         {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
         {options.check_picture_frames, "--check-picture-frames"},
+        {options.check_build_page_fallback, "--check-build-page-fallback"},
         {options.check_download_builds, "--check-download-builds"},
         {options.check_stockpile_builds, "--check-stockpile-builds"},
         {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -856,6 +858,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_side_data_per_match, "--check-side-data-per-match"},
             {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
             {options.check_picture_frames, "--check-picture-frames"},
+            {options.check_build_page_fallback, "--check-build-page-fallback"},
             {options.check_download_builds, "--check-download-builds"},
             {options.check_stockpile_builds, "--check-stockpile-builds"},
             {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -1155,6 +1158,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-side-data-per-match", &Options::check_side_data_per_match},
     {"--check-gadget-art-per-match", &Options::check_gadget_art_per_match},
     {"--check-picture-frames", &Options::check_picture_frames},
+    {"--check-build-page-fallback", &Options::check_build_page_fallback},
     {"--check-download-builds", &Options::check_download_builds},
     {"--check-stockpile-builds", &Options::check_stockpile_builds},
     {"--check-unit-page-memory", &Options::check_unit_page_memory},
@@ -1915,6 +1919,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-replay-loadout] "
                      "[--check-side-data-per-match] "
                      "[--check-gadget-art-per-match] [--check-picture-frames] "
+                     "[--check-build-page-fallback] "
                      "[--check-download-builds] [--check-stockpile-builds] "
                      "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
                      "[--check-unit-pages whole|scaled:TYPE,...] "
@@ -2309,7 +2314,8 @@ void write_startup_line(std::string_view text) {
         result.check_mutator_prompts || result.check_map_pack_lists ||
         result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||
         result.check_mod_limits || result.check_click_snap || result.check_build_past_edge ||
-        result.check_selection_keys || result.check_factory_departure;
+        result.check_selection_keys || result.check_factory_departure ||
+        result.check_build_page_fallback;
     // The Library's Replays section, a replay opened into it, a replay that
     // fetches what it needs and Core Prime's replays are walked on the fixed
     // clock too.

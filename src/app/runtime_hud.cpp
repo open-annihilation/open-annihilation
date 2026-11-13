@@ -75,6 +75,25 @@ constexpr int32_t kOverlayProgressBusy = -1;
 constexpr int32_t kBusyStripeSpacing = 12;
 constexpr int32_t kBusyStripeWidth = 5;
 constexpr uint32_t kBusyStripeOpacity = 102;
+/// How many turns of a unit's page a turn may take to reach a page that can
+/// be shown: one for each value of the 3-bit page field and one for the
+/// order page, so a turn comes round to where it started.
+constexpr int kBuildPageTurns = 9;
+
+/// Names a unit type for a log line: its unit name, and its name in the
+/// game's words after it.
+///
+/// @param definition the type
+/// @return "ARMCK (Construction Kbot)", or the unit name alone without a name
+std::string unit_type_label(const oa::UnitDef& definition) {
+    std::string label(
+        definition.unit_name, strnlen(definition.unit_name, sizeof definition.unit_name)
+    );
+    const std::string name(definition.name, strnlen(definition.name, sizeof definition.name));
+    if (!name.empty())
+        label += " (" + name + ")";
+    return label;
+}
 
 /// Divides, rounding towards negative infinity.
 ///
@@ -219,7 +238,7 @@ void Runtime::show_match_build_page(int page) {
     open_match_build_page(static_cast<int>(hud::build_page(flags)));
 }
 
-void Runtime::open_match_build_page(int page) {
+bool Runtime::open_match_build_page(int page) {
     namespace hud = oa::ui::hud;
     auto* unit = match_ && selected_match_unit_ != 0
                      ? oa::world_unit_at(&match_->state(), selected_match_unit_)
@@ -228,11 +247,11 @@ void Runtime::open_match_build_page(int page) {
     const auto* def = unit != nullptr ? hud::unit_def(table, *unit) : nullptr;
     if (def == nullptr) {
         status_ = "Select a builder to open the build menu";
-        return;
+        return true;
     }
     if (unit->build_remaining != 0.0F) {
         show_match_orders_page();
-        return;
+        return true;
     }
     page = std::max(1, page);
     char name[64];
@@ -254,11 +273,47 @@ void Runtime::open_match_build_page(int page) {
         // The HUD layer takes the page at once; the frame draws the match,
         // the page with it, once.
         compose_match_hud();
-    } else {
-        match_build_page_ = previous_page;
-        match_build_page_unit_ = previous_page_unit;
-        show_unsupported("Build GUI " + std::string(name) + " is not available.");
+        return true;
     }
+    match_build_page_ = previous_page;
+    match_build_page_unit_ = previous_page_unit;
+    // The page's own file, or the side's download page standing in for it
+    // when it has none (load_build_page), could not be read: the mod's data
+    // fault, logged once, never an alert; the match plays on.
+    const auto page_file = oa::data::defs::gui_path(name);
+    std::string line = "match HUD: " + unit_type_label(*def) + " build page " +
+                       std::to_string(page) + " is not shown: ";
+    if (assets_.file_size(page_file) != 0)
+        line += page_file + " could not be read";
+    else
+        line += page_file + " is missing or empty, and " +
+                oa::data::defs::gui_path(prefix + "DL.GUI") +
+                ", the side's download page that stands in for it, could not be read";
+    report_data_fault(line);
+    status_ = "Build page " + std::to_string(page) + " is not shown";
+    return false;
+}
+
+void Runtime::turn_match_build_page(oa::Unit& unit, bool forward, bool cycle) {
+    namespace hud = oa::ui::hud;
+    const auto& world = match_->state();
+    const auto page_count = world.unit_defs[unit.type_index].gui_page_count;
+    // A page that cannot be shown is passed over for the next in the turn's
+    // direction, so the pages beyond it stay in reach.
+    for (int turn = 0; turn < kBuildPageTurns; ++turn) {
+        unit.flags = forward ? hud::build_menu_forward(unit.flags, page_count, cycle)
+                             : hud::build_menu_back(unit.flags, page_count, cycle);
+        const auto page = match_panel_page();
+        if (page == 0) {
+            show_match_orders_page();
+            return;
+        }
+        if (open_match_build_page(page))
+            return;
+    }
+    // None of the unit's pages can be shown: its order page is.
+    unit.flags &= ~hud::kUnitFlagBuildMenu;
+    show_match_orders_page();
 }
 
 void Runtime::show_match_page_by_key(int page) {
@@ -324,17 +379,9 @@ void Runtime::press_match_panel_page(oa::ui::hud::BuildPanelClick press, bool cy
     default:
         return;
     }
-    const bool forward = press == hud::BuildPanelClick::page_forward;
     // The unit's page turns among its type's pages, and with `cycle` the
     // order page takes its turn between the last page and the first.
-    const auto page_count = world.unit_defs[unit->type_index].gui_page_count;
-    unit->flags = forward ? hud::build_menu_forward(unit->flags, page_count, cycle)
-                          : hud::build_menu_back(unit->flags, page_count, cycle);
-    const auto page = match_panel_page();
-    if (page == 0)
-        show_match_orders_page();
-    else
-        open_match_build_page(page);
+    turn_match_build_page(*unit, press == hud::BuildPanelClick::page_forward, cycle);
 }
 
 void Runtime::load_match_chrome() {

@@ -1732,7 +1732,9 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     try {
         laid_out = renderer::read_screen_layout(assets_, layout);
     } catch (const std::exception& error) {
-        std::cerr << "match HUD '" << layout << "' unavailable: " << error.what() << '\n';
+        // A page asked for again, as a unit's page is each time it is
+        // selected, is logged the first time.
+        report_data_fault("match HUD '" + layout + "' unavailable: " + error.what());
         return false;
     }
     match_hud_ = renderer::lay_out_screen(take_match_hud_art(*art), std::move(laid_out));

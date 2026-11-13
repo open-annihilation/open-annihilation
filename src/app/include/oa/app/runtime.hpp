@@ -11407,12 +11407,33 @@ class Runtime final : public menu::Host,
     ///
     /// Unlike show_match_build_page(), the page is no step from the page
     /// shown. It is loaded through the build-orders panel, which falls back
-    /// to the side's download page and links the download buttons; an
-    /// unfinished builder, which has no build page, shows the order page
-    /// instead. A page that does not load leaves the panel as it was.
+    /// to the side's download page and links the download buttons, as 3.1c
+    /// does for a page with no GUI file of its own; an unfinished builder,
+    /// which has no build page, shows the order page instead. A page that
+    /// does not load, its own file or the side's download page standing in
+    /// for it unreadable, leaves the panel as it was: the mod's data fault is
+    /// logged once (report_data_fault), naming the unit, the page and the
+    /// files, no alert is put up and the match plays on.
     ///
     /// @param page page number from 1
-    void open_match_build_page(int page);
+    /// @return false when the page could not be loaded; true when it shows,
+    ///         and when the order page or nothing was asked for instead
+    bool open_match_build_page(int page);
+
+    /// Turns a unit's build page as PREV and NEXT do until a page shows.
+    ///
+    /// The unit's page turns among its type's pages (build_menu_forward(),
+    /// build_menu_back()); a page that cannot be loaded
+    /// (open_match_build_page()) is passed over for the next in the same
+    /// direction, so the pages beyond it stay in reach, and the unit keeps
+    /// the page shown. With `cycle` the order page takes its turn between
+    /// the last page and the first. When none of the unit's pages can be
+    /// shown the unit leaves its build pages for its order page.
+    ///
+    /// @param unit the panel unit (match_panel_unit())
+    /// @param forward true to turn as NEXT does, false as PREV does
+    /// @param cycle whether the order page takes a turn among the build pages
+    void turn_match_build_page(oa::Unit& unit, bool forward, bool cycle);
 
     /// Shows a page as the digit keys pick it, with the nextbuildmenu sound.
     ///
@@ -11453,7 +11474,8 @@ class Runtime final : public menu::Host,
     /// the unit kept. With `cycle`, as the ',' and '.' keys turn it, a turn
     /// for each repeat of a held one, the order page takes its turn between
     /// the last page and the first, so from the order page '.' opens the
-    /// first page and ',' the last. On a page taller than the side column
+    /// first page and ',' the last. A page that cannot be loaded is passed
+    /// over (turn_match_build_page()). On a page taller than the side column
     /// the turn steps through its parts first, which the unit does not keep,
     /// and a page turned back to opens at its last part. Selecting the unit
     /// again opens what it shows, and a save keeps it. Nothing changes with
@@ -18576,6 +18598,30 @@ class Runtime final : public menu::Host,
     /// pressed picture threw.
     void check_picture_frames();
 
+    /// Plays a skirmish with a builder whose second build page has no GUI
+    /// file of its own.
+    ///
+    /// Needs --mod-dir on a folder that holds none of the files this check
+    /// writes: units/OAPAGES.FBI, a construction kbot of the base game's
+    /// model, with the Construction Kbot's script as scripts/OAPAGES.COB;
+    /// its page 1, guis/OAPAGES1.GUI, with PREV, NEXT, the ORDERS and
+    /// BUILD tabs and a Solar Collector; and download/OAPAGES.TDF, whose two
+    /// entries put the Advanced Kbot Lab and the Advanced Vehicle Plant on
+    /// its page 2 (MENU 3), which raises the type's first missing page to 3.
+    /// The unit is placed beside the commander and selected. NEXT shows the
+    /// side's download page in place of page 2, as 3.1c does,
+    /// with the two units linked into its first two patches, live, and a
+    /// click on the lab places it. NEXT comes back to page 1. Then an empty
+    /// download page written into the mod folder hides the game's: NEXT,
+    /// PREV and the page key 2 pass page 2 over and leave page 1 shown, as
+    /// does selecting the unit, which keeps page 2, while the commander's
+    /// page shows. No alert is put up, the match plays on and the fault is
+    /// logged once, naming the unit, the page, its missing file and the
+    /// download page. The check removes what it wrote. Prints
+    /// "build page fallback check: passed". Throws std::runtime_error on a
+    /// failure.
+    void check_build_page_fallback();
+
     /// Places a finished structure of the local player's on the first free site in the rings of
     /// cells around a unit.
     ///
@@ -20463,7 +20509,9 @@ class Runtime final : public menu::Host,
     /// unit shows (match_panel_page()), which every unit of a type with a
     /// build page shows from its creation until ORDERS, BUILD or the page
     /// keys change it, else the order page. With several units selected it
-    /// shows the general page. The page shown keeps the part it shows.
+    /// shows the general page. The page shown keeps the part it shows. A
+    /// kept page that cannot be loaded is passed over for the unit's next
+    /// page that can (turn_match_build_page()), which the unit then keeps.
     ///
     /// Nothing while an in-game menu or the outcome is up (match_paused_): the
     /// menu keeps its panel, and resume_match_pause() shows the selection's.

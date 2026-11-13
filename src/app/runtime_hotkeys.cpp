@@ -2309,8 +2309,13 @@ void Runtime::apply_match_hud_for_selection() {
         show_match_orders_page();
         return;
     }
-    // The unit's page opens as it is, not as a step from the page shown.
-    open_match_build_page(page);
+    // The unit's page opens as it is, not as a step from the page shown. A
+    // kept page that cannot be shown is passed over for the next that can,
+    // which the unit keeps instead.
+    if (open_match_build_page(page))
+        return;
+    if (auto* unit = match_panel_unit())
+        turn_match_build_page(*unit, true, false);
 }
 
 } // namespace oa::app

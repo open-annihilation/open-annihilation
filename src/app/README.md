@@ -3474,7 +3474,14 @@ prompts, Settings › Updates and the headers name one state with one size.
   `window_edges`, `pointer_place`), so that a log tells why an edge stopped
   scrolling ([`--trace-input`](../../docs/command-line.md#--trace-input));
   `app-full-screen` checks the lines.
-- `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD.
+- `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD. A unit's build page
+  with no GUI file of its own is drawn on the side's download page with the
+  download entries that name it, as 3.1c draws it (`open_match_build_page`).
+  A page that cannot be loaded, its file or that download page unreadable,
+  is the mod's data fault: it is logged once (`report_data_fault`), naming
+  the unit, the page and the files, never put up as an alert, and PREV,
+  NEXT, the page keys and a selection pass it over for the unit's next page
+  (`turn_match_build_page`).
 - `runtime_messages.cpp`: the in-game message log (`Game.chat_lines`) drawn
   over the battlefield, and the speed and message part of `--check-navigation`.
 - `runtime_seat_chat.cpp`: chat a computer seat on this machine reads and
@@ -3561,6 +3568,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   after its own and is drawn without a picture, the match playing on; the
   fault is logged once (`report_match_hud_faults`), naming the page, the
   unit and the GAF.
+- `runtime_build_page_fallback_check.cpp`: `--check-build-page-fallback`
+  (`native-build-page-fallback`): a construction kbot written into the mod
+  folder whose page 2 is only download entries. The side's download page
+  stands in for it with the Advanced Kbot Lab and the Advanced Vehicle
+  Plant linked; with an empty download page hiding the game's, page 2 is
+  passed over, the match plays on and the fault is logged once.
 - `runtime_match_menus.cpp` also registers the load-game overlay
   (`register_load_game_screens`).
 - The Open Annihilation settings ([oa/ui/engine_settings.hpp](../ui/engine-settings/README.md)):

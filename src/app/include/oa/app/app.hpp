@@ -567,6 +567,11 @@ struct Options {
     // picture has one frame, presses the picture and checks the match plays
     // on with the button drawn without it and the fault logged once.
     bool check_picture_frames = false;
+    // Plays a skirmish over a --mod-dir folder with a builder whose second
+    // page has no GUI file, checks the side's download page stands in for it
+    // and, with that page unreadable too, that the page is passed over, the
+    // match plays on and the fault is logged once.
+    bool check_build_page_fallback = false;
     // Opens a download page through the SDL presenter and builds a download
     // unit from it.
     bool check_download_builds = false;

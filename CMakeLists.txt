@@ -1555,6 +1555,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_gadget_art_check.cpp
   src/app/runtime_picture_frames_check.cpp
   src/app/runtime_build_page_check.cpp
+  src/app/runtime_build_page_fallback_check.cpp
   src/app/runtime_language_check.cpp src/app/runtime_language_switch_check.cpp
   src/app/runtime_language_registry_check.cpp
   src/app/runtime_language_notice_check.cpp
@@ -2365,6 +2366,23 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_picture_frames_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         PASS_REGULAR_EXPRESSION "picture frames check: passed")
+      # A builder whose page 2 has no GUI file: the side's download page stands
+      # in, with the download entries' units; with that page unreadable too,
+      # page 2 is passed over, the match plays on and the fault is logged
+      # once. The scratch mod folder starts empty; the check writes the unit,
+      # its page 1, its download entries and the empty download page there,
+      # and removes them.
+      set(oa_build_page_fallback_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/build-page-fallback")
+      file(MAKE_DIRECTORY "${oa_build_page_fallback_dir}")
+      file(MAKE_DIRECTORY "${oa_build_page_fallback_dir}/mod")
+      add_test(NAME native-build-page-fallback COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-build-page-fallback
+        --mod-dir "${oa_build_page_fallback_dir}/mod"
+        --preferences-file "${oa_build_page_fallback_dir}/build-page-fallback.conf")
+      set_tests_properties(native-build-page-fallback PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_build_page_fallback_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "build page fallback check: passed")
       # SINGLE.GUI when a side has a campaign, and when a folder hides every
       # campaign file with an empty file of the same name. New Campaign stays
       # shown and is greyed only when neither side has a campaign; Any Mission

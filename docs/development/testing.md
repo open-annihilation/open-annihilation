@@ -445,6 +445,17 @@ not have: the button is drawn without a picture while the press is held,
 as 3.1c draws it, the match plays on and the fault is logged once, naming
 the page, the unit and the GAF. The check removes what it wrote.
 
+`native-build-page-fallback` (`--check-build-page-fallback`) needs
+`--mod-dir` on an empty folder. It writes a construction kbot there with a
+page 1 of its own and two download entries for its page 2, which has no GUI
+file: the Advanced Kbot Lab and the Advanced Vehicle Plant. NEXT shows the
+side's download page in place of page 2, as 3.1c does, with the two units
+linked into its first patches, and the lab can be placed from it. Then an
+empty download page in the mod folder hides the game's: NEXT, PREV, the
+page key and selecting the unit again pass page 2 over to page 1, no alert
+is put up, the match plays on and the fault is logged once, naming the unit,
+the page and both files. The check removes what it wrote.
+
 ### The demo's installer
 
 `OA_DEMO_INSTALLER` names the installer of the Total Annihilation demo (1997):

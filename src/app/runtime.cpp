@@ -1044,6 +1044,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_build_page_fallback) {
+            check_build_page_fallback();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_download_builds) {
             check_download_builds();
             flush_preferences();
