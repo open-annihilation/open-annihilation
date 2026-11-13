@@ -64,9 +64,15 @@ pass to the next.
   water filters and positive live health. A target's squared whole-world
   distance, plus one, is multiplied by one plus the number of earlier groups
   assigned to it. Nearby alternatives can therefore receive separate groups.
-  Equal weighted distances choose the lower unit slot. The three member walks
-  and at most eight enemy walks use bounded local arrays, no new random draws
-  and no retained target handles. Attack callbacks remain in unit-slot order.
+  Equal weighted distances choose the lower unit slot. A dispatched member keeps
+  that group's target unless its squared distance exceeds the nearest already
+  selected front's by more than 25% (`4 * own > 5 * nearest`). Equal nearest
+  fronts choose the lower unit slot; the exact threshold keeps the group target.
+  This lets a member at a group's edge use a closer front without another enemy
+  search. The three member walks, at most eight enemy walks and at most eight
+  selected-front comparisons per dispatched member use bounded local arrays,
+  no new random draws and no retained target handles. A masked refresh still
+  commands only its selected sources. Attack callbacks remain in unit-slot order.
   Earlier presets keep the whole-squad nearest-enemy command.
 - A pick whose unit name holds `MAKENUKE` or `MAKEANTI` is a round for the
   builder's first weapon. The structures task queues it with `order_factory`,

@@ -30,6 +30,9 @@ constexpr uint32_t strike_cohort_depths = 2;
 constexpr uint32_t strike_cohort_count = strike_cohort_bands * strike_cohort_depths;
 /// Keeps an exactly coincident target's weighted distance responsive to load.
 constexpr uint64_t strike_target_distance_floor = 1;
+/// Keeps a group's target until its squared distance exceeds the nearest by 25%.
+constexpr uint64_t strike_front_distance_denominator = 4;
+constexpr uint64_t strike_front_distance_numerator = 5;
 static_assert(
     distributed_recruits_per_dispatch > 0 && distributed_recruits_per_dispatch <= max_recruits
 );
@@ -280,12 +283,13 @@ struct StrikeExtent {
     bool along_x{};
 };
 
-/// Holds one spatial group's centroid sums and selected canonical target slot.
+/// Holds one spatial group's centroid sums and selected target's slot and position.
 struct StrikeCohort {
     int64_t sum_x{};
     int64_t sum_z{};
     uint32_t members{};
     uint16_t target{};
+    std::array<int32_t, 2> target_position{}; // selected target's whole-world X/Z
 };
 
 /// Keeps a cohort search's selected record and bounded work summary.
@@ -409,6 +413,52 @@ CohortChoice choose_cohort_target(
     return choice;
 }
 
+/// Measures a member's squared whole-world distance from a selected front.
+///
+/// @param unit canonical member whose integer world position is compared
+/// @param front selected target's integer world position
+/// @return squared X/Z distance, widened before multiplication
+uint64_t strike_front_distance(const oa::Unit& unit, const StrikeCohort& front) noexcept {
+    const int64_t dx = static_cast<int64_t>(word(unit.position.x)) - front.target_position[0];
+    const int64_t dz = static_cast<int64_t>(word(unit.position.z)) - front.target_position[1];
+    return static_cast<uint64_t>(dx * dx + dz * dz);
+}
+
+/// Retains the group's target unless another selected front is materially closer.
+///
+/// Only the at most eight targets already selected for the strike are compared.
+/// The group's squared distance must exceed the nearest front's by more than
+/// 25%: four times the group's distance must exceed five times the nearest
+/// front's. Equality retains the group's target; equal nearest fronts
+/// choose the lower canonical slot. No enemy record is searched or reread here.
+///
+/// @param unit canonical member about to receive an attack callback
+/// @param own the member's spatial group and its selected front
+/// @param fronts the strike's selected targets and whole-world positions
+/// @return canonical target slot, or zero when the group has no target
+uint16_t strike_member_target(
+    const oa::Unit& unit, const StrikeCohort& own, std::span<const StrikeCohort> fronts
+) noexcept {
+    if (own.target == 0)
+        return 0;
+    const auto own_distance = strike_front_distance(unit, own);
+    auto best_distance = own_distance;
+    auto best_target = own.target;
+    for (const auto& front : fronts) {
+        if (front.target == 0)
+            continue;
+        const auto distance = strike_front_distance(unit, front);
+        if (distance < best_distance || (distance == best_distance && front.target < best_target)) {
+            best_distance = distance;
+            best_target = front.target;
+        }
+    }
+    return strike_front_distance_denominator * own_distance >
+                   strike_front_distance_numerator * best_distance
+               ? best_target
+               : own.target;
+}
+
 /// Orders live strike members toward nearby targets shared by spatial groups.
 ///
 /// Three unit-slot walks find the extent, form at most eight centroids and
@@ -482,6 +532,7 @@ bool order_strike_cohorts(
         );
         if (choice.unit != nullptr) {
             cohort.target = static_cast<uint16_t>(oa::world_unit_slot(host.world, choice.unit));
+            cohort.target_position = {word(choice.unit->position.x), word(choice.unit->position.z)};
             targeted = true;
         }
     }
@@ -496,7 +547,8 @@ bool order_strike_cohorts(
         if (!sources.empty() && (sources[slot / strike_refresh_word_bits] &
                                  (uint64_t{1} << (slot % strike_refresh_word_bits))) == 0)
             continue;
-        const auto target = cohorts[strike_cohort(unit, extent)].target;
+        const auto target =
+            strike_member_target(unit, cohorts[strike_cohort(unit, extent)], cohorts);
         if (target != 0) {
             issued = host.order_attack(host.context, slot, target) || issued;
         }
