@@ -3573,7 +3573,7 @@ int Runtime::check_live_renderer() {
         // A real walking rig must enter the caller's from-copies path before
         // any frozen comparison. No record position, piece pose or tick is
         // manufactured to make the visibility proof succeed.
-        {
+        for (const float preplan_zoom : {1.0F, 0.35F}) {
             start_ground_match();
             enter_console_check_line("+nowisee");
             constexpr int32_t fixed = 65536;
@@ -3604,7 +3604,7 @@ int Runtime::check_live_renderer() {
             const auto walker_id = placed->record.id;
             require(match_->takes_move_order(walker), "the pre-planning unit cannot walk");
             match_layout_ = lay_out_match(1280, 800);
-            match_zoom_ = match_zoom_target_ = 1;
+            match_zoom_ = match_zoom_target_ = preplan_zoom;
             require(
                 turn_live_camera(ground_check_yaw, preplan_pitch),
                 "the pre-planning camera did not turn"
@@ -3706,8 +3706,8 @@ int Runtime::check_live_renderer() {
                 const auto frozen_random = match_->random_state();
                 for (const auto& offset : offsets) {
                     place_match_view(
-                        centered[0] + offset[0] * match_layout_.battlefield_width(),
-                        centered[1] + offset[1] * match_layout_.battlefield_height()
+                        centered[0] + offset[0] * match_layout_.battlefield_width() / preplan_zoom,
+                        centered[1] + offset[1] * match_layout_.battlefield_height() / preplan_zoom
                     );
                     visibility.force_ordinary = true;
                     for (unsigned warm = 0; warm < 4; ++warm)
@@ -3733,19 +3733,73 @@ int Runtime::check_live_renderer() {
                 );
                 const auto ordinary = match_world_cpu_;
                 const auto ordinary_picks = bounds_and_picks();
+                const auto ordinary_readback = match_draw_read_back();
                 visibility.force_ordinary = false;
                 render_match_surface();
                 require(
                     walker_omitted() && match_world_cpu_.rgb == ordinary.rgb &&
-                        bounds_and_picks() == ordinary_picks && !live_renderer_failed(),
+                        bounds_and_picks() == ordinary_picks && !live_renderer_failed() &&
+                        visibility.copy_preplan_omitted_count != 0 &&
+                        visibility.whole_tick_postplan_omitted_count == 0 && visibility.view &&
+                        visibility.view->width == match_world_cpu_.width &&
+                        visibility.view->height == match_world_cpu_.height &&
+                        match_zoom() == preplan_zoom,
                     "natural pre-planning omission changed frozen pixels, bounds or picks"
                 );
+                const auto copied_readback = match_draw_read_back();
+                if (const char* difference =
+                        draw_read_back_difference(ordinary_readback, copied_readback))
+                    throw std::runtime_error(
+                        std::string("copied-pose omission changed derived readback: ") + difference
+                    );
                 require(
                     match_->simulation().tick == frozen_tick &&
                         match_timing_.tick == frozen_presentation &&
                         match_->random_state() == frozen_random,
                     "pre-planning frozen comparisons changed simulation, presentation or RNG"
                 );
+                if (preplan_zoom < 1) {
+                    // Hold the actual omitted input while the target changes;
+                    // the old projection must not reach the resized consumer.
+                    const auto held_layout = match_layout_;
+                    match_layout_ = lay_out_match(resized_width, resized_height);
+                    require(
+                        !render_live_match_surface() && !live_renderer_active() &&
+                            live_renderer_failed(),
+                        "a low-zoom resized target accepted the held omitted frame"
+                    );
+                    render_match_surface();
+                    require(
+                        visibility.omitted_count == 0 &&
+                            std::none_of(
+                                models.draws.models.begin(),
+                                models.draws.models.end(),
+                                [](const auto& draw) { return draw.preplan_omitted; }
+                            ) &&
+                            match_world_cpu_.width ==
+                                static_cast<uint32_t>(match_layout_.battlefield_width()) &&
+                            match_world_cpu_.height ==
+                                static_cast<uint32_t>(match_layout_.battlefield_height()) &&
+                            match_->simulation().tick == frozen_tick &&
+                            match_->random_state() == frozen_random && !match_->fault(),
+                        "low-zoom target resize did not finish an ordinary unchanged-state replan"
+                    );
+                    match_layout_ = held_layout;
+                    require(
+                        turn_live_camera(ground_check_yaw, preplan_pitch),
+                        "the low-zoom camera did not restore after target resize"
+                    );
+                    place_match_view(outside_view[0], outside_view[1]);
+                    for (unsigned warm = 0; warm < maximum_preparation_frames && !walker_omitted();
+                         ++warm)
+                        render_match_surface();
+                    require(
+                        walker_omitted() && visibility.view &&
+                            visibility.view->width == match_world_cpu_.width &&
+                            visibility.view->height == match_world_cpu_.height,
+                        "low-zoom resized-target recovery did not restore current-frame omission"
+                    );
+                }
                 // A HELD RENDERER INPUT control changes the camera only
                 // after the natural caller produced tagged omissions. The
                 // late consumer must reject that exact stale frame contract.
@@ -4194,7 +4248,8 @@ int Runtime::check_live_renderer() {
             visibility.force_ordinary = false;
             set_live_models_on_card(true);
             set_presentation_alpha(1);
-            std::cout << "live renderer check: real walking/animated ARMPW naturally omitted "
+            std::cout << "live renderer check: zoom=" << preplan_zoom
+                      << " real walking/animated ARMPW naturally omitted "
                          "with exact frozen pixels, bounds and picks; camera ingress animates; "
                          "held camera mismatch and omitted-only producer loss request genuine "
                          "classic replans\n";

@@ -2304,7 +2304,7 @@ bool Runtime::draw_match_surface() {
         unit_level == model_render::UnitSupersampling::off;
     full::SightView preplanning_sight;
     if (geometry_shadow_metadata && !dots && !far && !directed && !scaling.apart &&
-        match_zoom() >= 1.0F && !options_.debug_order_lines &&
+        std::isfinite(match_zoom()) && match_zoom() > 0.0F && !options_.debug_order_lines &&
         world_record.game.debug_overlay == 0 && !models.preplanning_visibility.force_ordinary) {
         preplanning_visibility::FrameView prepared;
         if (prepare_preplanning_visibility_frame(prepared)) {
