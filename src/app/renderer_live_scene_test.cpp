@@ -4,6 +4,7 @@
 // Live terrain preserves painted coordinates, visibility and bounded atlas reuse.
 #include "renderer_live_scene.hpp"
 #include "model_shadow_metadata.hpp"
+#include "parallel_model_cards.hpp"
 #include "bench_timers.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_water_surface.hpp"
@@ -8285,6 +8286,139 @@ struct ShadowViewFixture {
     }
 };
 
+/// Independent packet bands retain the exact ordered surfaces and unit picks.
+void physical_model_bands() {
+    constexpr uint32_t population = 1100;
+    ShadowViewFixture fixture(population);
+    fixture.source->objects[0].primitives.resize(4);
+    fixture.prepared.objects[0].primitives.resize(4);
+    auto& in = fixture.inputs;
+    in.geometry_shadow_metadata = true;
+    in.geometry_shadows_in_view = true;
+    in.draws = &fixture.many;
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& unit = fixture.units[index];
+        unit.position = {
+            (fixture.view_origin + 16 + int32_t(index % 16)) * fixture.fixed,
+            0,
+            (fixture.view_origin + 16 + int32_t(index / 16 % 16)) * fixture.fixed
+        };
+    }
+    // Serial records on either side of the parallel interval retain their
+    // ordinary opacity and consume the same shadow depth slots.
+    fixture.units.front().flags |= OA_UNIT_FLAG_BUILDING;
+    fixture.units.back().state_flags |= oa::present::model::unit_state_cloaked;
+    const auto canonical = fixture.units;
+    oa::platform::job_pool::Pool pool(4);
+    live::Scene serial, parallel;
+    std::string error;
+    const auto compare = [&](bool expect_parallel) {
+        in.pool = nullptr;
+        OA_CHECK(live::build(in, serial, error));
+        in.pool = &pool;
+        OA_CHECK(live::build(in, parallel, error));
+        OA_CHECK(serial.model_count == parallel.model_count);
+        OA_CHECK(serial.texture_rgba == parallel.texture_rgba);
+        OA_CHECK(serial.terrain_vertex_count == parallel.terrain_vertex_count);
+        const auto same_range = [](const auto& a, const auto& b) {
+            return a.unit_id == b.unit_id && a.first_vertex == b.first_vertex &&
+                   a.vertex_count == b.vertex_count;
+        };
+        OA_CHECK(
+            std::equal(
+                serial.unit_ranges.begin(),
+                serial.unit_ranges.end(),
+                parallel.unit_ranges.begin(),
+                parallel.unit_ranges.end(),
+                same_range
+            )
+        );
+        OA_CHECK(
+            std::equal(
+                serial.translucent_ranges.begin(),
+                serial.translucent_ranges.end(),
+                parallel.translucent_ranges.begin(),
+                parallel.translucent_ranges.end(),
+                same_range
+            )
+        );
+        OA_CHECK(serial.translucent_vertices.size() == parallel.translucent_vertices.size());
+        if (serial.translucent_vertices.size() == parallel.translucent_vertices.size() &&
+            !serial.translucent_vertices.empty())
+            OA_CHECK(
+                std::memcmp(
+                    serial.translucent_vertices.data(),
+                    parallel.translucent_vertices.data(),
+                    serial.translucent_vertices.size() * sizeof(serial.translucent_vertices[0])
+                ) == 0
+            );
+        const auto expected = card_frame(serial), actual = card_frame(parallel);
+        OA_CHECK(expected.units == actual.units);
+        OA_CHECK(expected.vertices.size() == actual.vertices.size());
+        if (expected.vertices.size() == actual.vertices.size() && !expected.vertices.empty())
+            OA_CHECK(
+                std::memcmp(
+                    expected.vertices.data(),
+                    actual.vertices.data(),
+                    expected.vertices.size() * sizeof(expected.vertices[0])
+                ) == 0
+            );
+        OA_CHECK(serial.cards.units.size() == parallel.cards.units.size());
+        for (std::size_t index = 0;
+             index < std::min(serial.cards.units.size(), parallel.cards.units.size());
+             ++index) {
+            const auto& a = serial.cards.units[index];
+            const auto& b = parallel.cards.units[index];
+            OA_CHECK(a.unit_id == b.unit_id && a.type == b.type && a.index_count == b.index_count);
+            OA_CHECK(
+                a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom &&
+                a.bounded == b.bounded && a.marker == b.marker
+            );
+        }
+        OA_CHECK(serial.cards.casts.size() == parallel.cards.casts.size());
+        for (std::size_t index = 0;
+             index < std::min(serial.cards.casts.size(), parallel.cards.casts.size());
+             ++index) {
+            const auto& a = serial.cards.casts[index];
+            const auto& b = parallel.cards.casts[index];
+            OA_CHECK(a.depth == b.depth && a.kind == b.kind && a.light == b.light);
+            const auto& left = serial.cards.instances[a.instance];
+            const auto& right = parallel.cards.instances[b.instance];
+            OA_CHECK(left.origin == right.origin && left.position_count == right.position_count);
+        }
+        OA_CHECK(serial.cards.vertices == parallel.cards.vertices);
+        // Every worker remembers its own posed range. A warm all-shared
+        // model therefore proves the packet bands actually ran.
+        if (expect_parallel)
+            OA_CHECK(parallel.cards.positions.size() > serial.cards.positions.size());
+        else
+            OA_CHECK(parallel.cards.positions.size() == serial.cards.positions.size());
+    };
+    compare(false); // Missing materials retain the exact serial retry.
+    compare(true);
+    fixture.palette[2 * oa::palette_entry_bytes] ^= uint8_t{17};
+    compare(false);
+    compare(true);
+    fixture.instance.pieces()[0].translation.x = fixture.fixed / 3;
+    fixture.instance.rebuild_transforms();
+    compare(true);
+    in.geometry_shadow_metadata = false;
+    compare(false);
+    in.geometry_shadow_metadata = true;
+    compare(true);
+    const int rounding = std::fegetround();
+    if (rounding != -1 && std::fesetround(FE_UPWARD) == 0) {
+        compare(true);
+        OA_CHECK(std::fegetround() == FE_UPWARD);
+        OA_CHECK(std::fesetround(rounding) == 0);
+    }
+    OA_CHECK(
+        std::memcmp(
+            canonical.data(), fixture.units.data(), canonical.size() * sizeof(canonical[0])
+        ) == 0
+    );
+}
+
 /// Selects local Enhanced frames independently of the presence of a playout object.
 void geometry_shadow_frame_policy() {
     using oa::app::local_geometry_shadow_frame;
@@ -9629,6 +9763,8 @@ void underwater_features() {
 
 } // namespace
 
+#include "parallel_model_cards_test.inc"
+
 int main() {
     water_surface_bounds();
     sea_bed_follows_swells();
@@ -9723,6 +9859,8 @@ int main() {
     ground_shadows_in_view();
     preplanned_omission_validation();
     geometry_shadow_frame_policy();
+    physical_model_bands();
+    parallel_model_card_join();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();
     flash_masks_and_effect_altitude();

@@ -11,6 +11,7 @@
 #include "renderer_water_appearance.hpp"
 #include "renderer_water_surface.hpp"
 #include "model_shadow_metadata.hpp"
+#include "parallel_model_cards.hpp"
 
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
@@ -8853,6 +8854,200 @@ void append_marker_cards(ModelCards& into, const ModelCards& from, std::size_t v
     into.vertices += from.vertices;
 }
 
+/// Retained packet storage for at most four independent unit ranges.
+/// No scene or game pointers survive an invocation.
+struct ParallelModelLists {
+    static constexpr uint32_t maximum_bands = 4;
+    std::array<PassList, maximum_bands> lists{};
+};
+
+/// One completed parallel range beside the draws before and after it.
+struct ParallelModelRange {
+    ParallelModelLists* storage{};
+    std::array<std::size_t, ParallelModelLists::maximum_bands + 1> ends{};
+    uint32_t bands{};
+    uint64_t nanoseconds{};
+};
+
+/// Selects an ordinary, independently owned GPU unit, or a draw already omitted.
+/// Complex and marker draws stay on the serial side of the range.
+bool parallel_model_candidate(const Inputs& in, const Scene& scene, std::size_t index) {
+    const auto& draw = in.draws->models[index];
+    if (!draw.plan.linked.drawn)
+        return true;
+    return index < scene.unit_detail.size() && !scene.unit_detail[index].marker &&
+           index < scene.card_types.draw_types.size() && scene.card_types.draw_types[index] >= 0 &&
+           geometry_shadow_metadata_candidate(draw, in.sea_level) &&
+           !draw.model.state->image_unfinished &&
+           (draw.model.unit->state_flags & model::unit_state_cloaked) == 0;
+}
+
+/// Finds and prepares one large contiguous unit range while the pool is free.
+/// Workers only read the atlas. Any retry, CPU fallback or marker packet leaves
+/// the complete ordinary model pass responsible for the frame instead.
+ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool timing) {
+    ParallelModelRange result;
+    constexpr std::size_t minimum_draws_per_band = 256;
+    if (!in.geometry_shadow_metadata || !in.models_on_card || in.translucent_units ||
+        in.pool == nullptr || in.pool->threads() < 2 || !scene.unit_detail_active ||
+        in.draws->models.size() >=
+            std::min<std::size_t>(
+                most_cast_depths, renderer_live_gpu::largest_model_instance_count
+            ))
+        return result;
+    const uint64_t started = pass_clock(timing);
+    // A segmented pass must not reset the original shared reflection allowance.
+    for (const auto& draw : in.draws->models)
+        if (draw.plan.linked.drawn && draw.model.def != nullptr &&
+            (draw.model.def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0)
+            return result;
+    std::size_t first{}, last{}, run_first{}, run_drawn{};
+    uint64_t weight{}, run_weight{};
+    const auto draw_weight = [&](std::size_t index) {
+        if (!in.draws->models[index].plan.linked.drawn)
+            return uint64_t{0};
+        const auto& detail = scene.unit_detail[index];
+        return uint64_t{1} + detail.surface + detail.shadow;
+    };
+    for (std::size_t index = 0; index <= in.draws->models.size(); ++index) {
+        if (index != in.draws->models.size() && parallel_model_candidate(in, scene, index)) {
+            run_weight += draw_weight(index);
+            run_drawn += in.draws->models[index].plan.linked.drawn;
+            continue;
+        }
+        if (run_drawn >= 2 * minimum_draws_per_band && run_weight > weight) {
+            first = run_first;
+            last = index;
+            weight = run_weight;
+        }
+        run_first = index + 1;
+        run_drawn = 0;
+        run_weight = 0;
+    }
+    if (first == last)
+        return result;
+    const auto bands = static_cast<uint32_t>(std::min<std::size_t>(
+        {ParallelModelLists::maximum_bands,
+         in.pool->threads(),
+         (last - first) / minimum_draws_per_band}
+    ));
+    if (bands < 2)
+        return result;
+    // Each invocation clears all records; only bounded packet capacities remain.
+    thread_local ParallelModelLists storage;
+    result.storage = &storage;
+    result.bands = bands;
+    result.ends[0] = first;
+    uint64_t preceding{};
+    std::size_t next = first;
+    for (uint32_t band = 1; band < bands; ++band) {
+        const uint64_t target = weight * band / bands;
+        const std::size_t limit = last - (bands - band);
+        while (next < limit && preceding < target) {
+            preceding += draw_weight(next);
+            ++next;
+        }
+        result.ends[band] = std::max(result.ends[band - 1] + 1, next);
+    }
+    result.ends[bands] = last;
+    const auto control = base::float_precision::save_float_control();
+    platform::job_pool::run_bands(in.pool, bands, [&](uint32_t band) noexcept {
+        const auto previous = base::float_precision::save_float_control();
+        base::float_precision::restore_float_control(control);
+        run_beside(scene, storage.lists[band], result.ends[band + 1], timing, [&](Pass& pass) {
+            models(in, pass, result.ends[band], result.ends[band + 1]);
+        });
+        base::float_precision::restore_float_control(previous);
+    });
+    for (uint32_t band = 0; band < bands; ++band) {
+        const auto& list = storage.lists[band];
+        if (list.failure || list.stopped != result.ends[band + 1] || !list.vertices.empty() ||
+            !list.translucent_vertices.empty() || !list.unit_ranges.empty() ||
+            !list.translucent_ranges.empty() || !list.cards.markers.empty() ||
+            !list.cards.marker_runs.empty() || list.materials_packed != 0 ||
+            list.texels_packed != 0) {
+            // A partial worker allocation must not consume the memory
+            // the ordinary serial retry needs.
+            for (auto& temporary : storage.lists)
+                temporary = {};
+            result.bands = 0;
+            break;
+        }
+    }
+    result.nanoseconds = pass_clock(timing) - started;
+    return result;
+}
+
+/// Keeps at most sixteen MiB of packet capacity for each idle worker band.
+/// Larger frames may use their ordinary bounded geometry while being built,
+/// but their temporary storage is released once the ordered list owns it.
+void trim_parallel_model_lists(const ParallelModelRange& range, bool release = false) {
+    if (range.storage == nullptr)
+        return;
+    constexpr std::size_t retained_bytes = 16 * 1024 * 1024;
+    for (auto& list : range.storage->lists) {
+        std::size_t bytes{};
+        const auto holds = [&]<typename T>(const std::vector<T>& values) {
+            if (values.capacity() > (retained_bytes - bytes) / sizeof(T))
+                return false;
+            bytes += values.capacity() * sizeof(T);
+            return true;
+        };
+        const auto& cards = list.cards;
+        const bool bounded =
+            !release && holds(list.vertices) && holds(list.unit_ranges) &&
+            holds(list.translucent_vertices) && holds(list.translucent_ranges) &&
+            holds(list.cut_vertices) && holds(cards.instances) && holds(cards.positions) &&
+            holds(cards.piece_frames) && holds(cards.textures) && holds(cards.slot_states) &&
+            holds(cards.tables) && holds(cards.indices) && holds(cards.runs) &&
+            holds(cards.units) && holds(cards.markers) && holds(cards.marker_runs) &&
+            holds(cards.casts) && holds(cards.cast_indices) && holds(cards.cast_runs) &&
+            holds(cards.poses) && holds(cards.pose_points) && holds(cards.pose_slots) &&
+            holds(cards.recent_poses);
+        if (!bounded)
+            list = {};
+    }
+}
+
+/// Lists the serial prefix, completed packet bands and serial suffix in order.
+/// A rejected join is discarded before the ordinary complete pass is retried.
+bool models_with_parallel_range(
+    const Inputs& in, Pass& pass, std::size_t end, const ParallelModelRange& range
+) {
+    if (range.bands == 0) {
+        models(in, pass, 0, end);
+        return false;
+    }
+    try {
+        models(in, pass, 0, range.ends[0]);
+        for (uint32_t band = 0; band < range.bands; ++band) {
+            const auto& from = range.storage->lists[band];
+            const auto held = pass.list.vertices.size() + pass.list.cards.vertices;
+            if (from.cards.vertices > maximum_vertices - std::min(maximum_vertices, held) ||
+                !append_parallel_model_cards(
+                    pass.list.cards, from.cards, pass.list.vertices.size()
+                )) {
+                clear_list(pass.list, end);
+                models(in, pass, 0, end);
+                return false;
+            }
+            pass.list.drawn += from.drawn;
+            pass.list.nano_particles += from.nano_particles;
+            (void)listing(pass, 0);
+        }
+        models(in, pass, range.ends[range.bands], end);
+        // The complete ordered result now uses the independent packet bands.
+        return true;
+    } catch (const std::bad_alloc&) {
+        // Worker packets are only temporary. Give their memory back before
+        // the ordinary pass retries the complete draw order.
+        trim_parallel_model_lists(range, true);
+        clear_list(pass.list, end);
+        models(in, pass, 0, end);
+        return false;
+    }
+}
+
 /// Builds what the frame draws after its terrain: the cards laid on the
 /// ground, the units' shadows, the foundations, the models, the
 /// projectiles, the standing cards and the particles, each pass listing
@@ -9439,9 +9634,12 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
             scene,
             listed + scene.detail_water.size() + draws.unit_markers.size() * marker_vertices
         );
+        const auto parallel = prepare_parallel_models(in, scene, timing);
         run_beside(scene, passes.models, model_draws, timing, [&](Pass& pass) {
-            models(in, pass, 0, model_draws);
+            (void)models_with_parallel_range(in, pass, model_draws, parallel);
         });
+        passes.models.nanoseconds += parallel.nanoseconds;
+        trim_parallel_model_lists(parallel);
         take_models();
         if (passes.models.cards.cast_indices.size() > maximum_vertices)
             throw GeometryFull();
