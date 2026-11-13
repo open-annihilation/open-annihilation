@@ -12,6 +12,8 @@
 #include "renderer_live_scene.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_marker_policy.hpp"
+#include "runtime_ground_query_check.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 #include "oa/present/model/shadow_fade.hpp"
 #include "renderer_water.hpp"
@@ -52,6 +54,13 @@ namespace {
 /// Exit code where SDL makes no graphics device the live renderer can draw with.
 constexpr int unavailable_exit = 77;
 
+/// Keeps observations confined to the dedicated windowless renderer check.
+struct GroundQueryObservations {
+    GroundQueryObservations() { ground_query_check::begin(); }
+
+    ~GroundQueryObservations() { ground_query_check::end(); }
+};
+
 /// Ends the native check with a specific explanation.
 [[maybe_unused]] void require(bool condition, const char* message) {
     if (!condition)
@@ -76,6 +85,7 @@ constexpr int unavailable_exit = 77;
 } // namespace
 
 int Runtime::check_live_renderer() {
+    const GroundQueryObservations ground_query_observations;
     // Check the actual production gate independently of the check-only
     // headless override, without changing the running match's rules.
     {
@@ -129,6 +139,10 @@ int Runtime::check_live_renderer() {
     }
     start_benchmark_skirmish();
     require(match_ != nullptr, "Skirmish did not create a match");
+    require(
+        !match_->rules().setup.enhanced_mode.enabled,
+        "the released renderer fixtures did not start with Enhanced Mode off"
+    );
     select_local_commander();
     require(selected_match_unit_ != 0, "Skirmish did not select a commander");
     const auto commander = selected_match_unit_;
@@ -3158,6 +3172,247 @@ int Runtime::check_live_renderer() {
         borrowed_vertex_frames != 0 && borrowed_vertex_models != 0,
         "no exclusive unit instance exercised borrowed vertex planning"
     );
+    require(
+        ground_query_check::read().attempts == 0 && ground_query_check::read().api_calls == 0,
+        "released matches attempted initial ground-query preparation"
+    );
+    // The actual caller waits for retained terrain, prepares one frozen
+    // Enhanced frame without changing its inputs or picks, and never
+    // rearms on ordinary presentation changes within that Scene lifetime.
+    const bool ground_check_headless = options_.headless_check;
+    options_.headless_check = true;
+    const auto finish_ground_check = [&] {
+        release_enhanced_rules_once(true);
+        options_.headless_check = ground_check_headless;
+    };
+    try {
+        namespace mode = oa::data::enhanced_mode;
+        constexpr unsigned maximum_preparation_frames = 8;
+        constexpr unsigned held_preparation_frames = 4;
+        constexpr float ground_check_yaw = 20;
+        constexpr float ground_check_pitch = -53;
+        constexpr float ground_check_angle_step = 5;
+        constexpr double ground_check_pan = 16;
+        const auto start_ground_match = [&] {
+            leave_match();
+            load(Screen::main_menu);
+            require(
+                hold_enhanced_rules_once(mode::following_flow_version),
+                "the ground-query fixture could not select Enhanced rules"
+            );
+            start_benchmark_skirmish();
+            require(match_ != nullptr, "the Enhanced ground-query match did not start");
+            const auto& enhanced = match_->rules().setup.enhanced_mode;
+            require(
+                enhanced.enabled &&
+                    enhanced.version == static_cast<int32_t>(mode::following_flow_version),
+                "the ground-query fixture did not start the requested real Enhanced match"
+            );
+            select_local_commander();
+            require(selected_match_unit_ != 0, "the Enhanced match has no selected commander");
+        };
+        const auto draw_ground_frame = [&] {
+            const auto presentation_tick = match_timing_.tick;
+            const auto simulation_tick = match_->simulation().tick;
+            render_match_surface();
+            require(
+                match_timing_.tick == presentation_tick &&
+                    match_->simulation().tick == simulation_tick,
+                "initial ground-query preparation advanced simulation"
+            );
+            require(match_->fault() == nullptr, "initial ground-query rendering raised a fault");
+            require(!live_renderer_failed(), "the Enhanced ground-query frame failed");
+            if (live_renderer_active()) {
+                const auto* models = drawn_match_models();
+                require(
+                    models != nullptr &&
+                        std::none_of(
+                            models->draws.sprites.begin(),
+                            models->draws.sprites.end(),
+                            [](const auto& sprite) { return sprite.surface_effect; }
+                        ),
+                    "the query-free ground fixture already has a surface effect"
+                );
+            }
+        };
+        const auto reach_ground_attempt = [&](uint64_t expected) {
+            for (unsigned frame = 0; frame < maximum_preparation_frames &&
+                                     ground_query_check::read().attempts < expected;
+                 ++frame)
+                draw_ground_frame();
+            require(
+                ground_query_check::read().attempts == expected,
+                "the actual retained Enhanced frame did not consume exactly one attempt"
+            );
+        };
+        ground_query_check::begin();
+        start_ground_match();
+        require(!live_renderer_active(), "the Enhanced match did not start in classic view");
+        draw_ground_frame();
+        require(
+            ground_query_check::read().attempts == 0 && ground_query_check::read().api_calls == 0,
+            "a classic Enhanced frame attempted ground-query preparation"
+        );
+        require(
+            turn_live_camera(ground_check_yaw, ground_check_pitch),
+            "the initial ground-query camera did not turn"
+        );
+        // One production render, without snapshot()'s paired reference
+        // draws, observes the cold retained/unretained boundary itself.
+        draw_ground_frame();
+        const auto cold_ground = ground_query_check::read();
+        require(
+            cold_ground.attempts == static_cast<uint64_t>(cold_ground.retained),
+            "an initial ground-query attempt preceded retained publication"
+        );
+        require(
+            cold_ground.retained || cold_ground.waiting_frames != 0,
+            "the initial unretained frame did not remain pending"
+        );
+        reach_ground_attempt(1);
+        const auto prepared_ground = ground_query_check::read();
+        require(
+            prepared_ground.api_calls == 1 && prepared_ground.successes == 1 &&
+                prepared_ground.failures == 0 && prepared_ground.simulated_failures == 0 &&
+                prepared_ground.retained && prepared_ground.cache_valid &&
+                prepared_ground.consumed_before_call && prepared_ground.unchanged &&
+                prepared_ground.ground_revision != 0 &&
+                prepared_ground.query_revision == prepared_ground.ground_revision &&
+                prepared_ground.terrain_vertices != 0 &&
+                prepared_ground.last_attempt_scene == prepared_ground.scenes,
+            "the actual initial preparation did not preserve and prepare its published frame"
+        );
+        const auto held_ground_picture = snapshot();
+        const auto held_ground_picks = bounds_and_picks();
+        const auto held_ground_tick = match_timing_.tick;
+        for (unsigned frame = 0; frame < held_preparation_frames; ++frame) {
+            require(
+                snapshot().rgb == held_ground_picture.rgb &&
+                    bounds_and_picks() == held_ground_picks,
+                "initial preparation changed a held Enhanced picture, bounds or picks"
+            );
+            require(
+                ground_query_check::read().attempts == 1 &&
+                    ground_query_check::read().api_calls == 1,
+                "held query-free frames repeated initial preparation"
+            );
+        }
+        require(match_timing_.tick == held_ground_tick, "held ground checks advanced simulation");
+        const auto held_ground_layout = match_layout_;
+        const auto held_ground_view = match_view_place();
+        const auto retained_ground_revision = ground_query_check::read().ground_revision;
+        require(
+            turn_live_camera(
+                ground_check_yaw + ground_check_angle_step,
+                ground_check_pitch + ground_check_angle_step
+            ),
+            "the ground-query camera-axis fixture did not turn"
+        );
+        draw_ground_frame();
+        place_match_view(
+            held_ground_view[0] + ground_check_pan, held_ground_view[1] + ground_check_pan
+        );
+        draw_ground_frame();
+        match_layout_ = lay_out_match(resized_width, resized_height);
+        draw_ground_frame();
+        require(
+            ground_query_check::read().ground_revision != retained_ground_revision,
+            "the ground-query fixture did not replace its geometry"
+        );
+        reset_live_renderer();
+        require(!live_renderer_active(), "the ground-query reset did not restore classic view");
+        draw_ground_frame();
+        match_layout_ = held_ground_layout;
+        place_match_view(held_ground_view[0], held_ground_view[1]);
+        require(
+            turn_live_camera(ground_check_yaw, ground_check_pitch),
+            "the ground-query camera did not leave classic view again"
+        );
+        draw_ground_frame();
+        require(
+            ground_query_check::read().attempts == 1 && ground_query_check::read().api_calls == 1 &&
+                ground_query_check::read().scenes == prepared_ground.scenes &&
+                ground_query_check::read().destructions == prepared_ground.destructions,
+            "camera, geometry or classic-view changes rearmed initial preparation"
+        );
+
+        // The check simulates a false result at the caller boundary. It
+        // deliberately makes no API call or failed allocation; the CPU
+        // Scene suite independently refuses each real API allocation.
+        ground_query_check::begin(true);
+        start_ground_match();
+        require(
+            turn_live_camera(ground_check_yaw, ground_check_pitch),
+            "the false-boundary ground-query camera did not turn"
+        );
+        reach_ground_attempt(1);
+        const auto refused_ground = ground_query_check::read();
+        require(
+            refused_ground.api_calls == 0 && refused_ground.successes == 0 &&
+                refused_ground.failures == 0 && refused_ground.simulated_failures == 1 &&
+                refused_ground.consumed_before_call && refused_ground.unchanged &&
+                refused_ground.retained && !refused_ground.fail_next &&
+                refused_ground.index_attempts == 0,
+            "the false-boundary simulation was confused with an API call or index build"
+        );
+        const auto refused_ground_picture = snapshot();
+        const auto refused_ground_picks = bounds_and_picks();
+        const auto refused_ground_tick = match_timing_.tick;
+        for (unsigned frame = 0; frame < held_preparation_frames; ++frame) {
+            require(
+                snapshot().rgb == refused_ground_picture.rgb &&
+                    bounds_and_picks() == refused_ground_picks,
+                "a false preparation boundary changed held pixels, bounds or picks"
+            );
+            const auto held = ground_query_check::read();
+            require(
+                held.attempts == 1 && held.api_calls == 0 && held.simulated_failures == 1 &&
+                    held.index_attempts == 0,
+                "a false preparation boundary retried on a later query-free frame"
+            );
+        }
+        require(
+            match_timing_.tick == refused_ground_tick,
+            "the false-boundary ground check advanced simulation"
+        );
+        const auto prior_ground_lifetime = ground_query_check::read();
+        start_ground_match();
+        require(
+            ground_query_check::read().scenes > prior_ground_lifetime.scenes &&
+                ground_query_check::read().destructions > prior_ground_lifetime.destructions,
+            "the new Enhanced match did not replace its private Scene lifetime"
+        );
+        draw_ground_frame();
+        require(
+            ground_query_check::read().attempts == 1 && ground_query_check::read().api_calls == 0,
+            "a new classic frame consumed the next Scene's initial preparation"
+        );
+        require(
+            turn_live_camera(ground_check_yaw, ground_check_pitch),
+            "the replacement Scene's ground-query camera did not turn"
+        );
+        reach_ground_attempt(2);
+        const auto replacement_ground = ground_query_check::read();
+        require(
+            replacement_ground.api_calls == 1 && replacement_ground.successes == 1 &&
+                replacement_ground.failures == 0 && replacement_ground.simulated_failures == 1 &&
+                replacement_ground.consumed_before_call && replacement_ground.unchanged &&
+                replacement_ground.cache_valid &&
+                replacement_ground.query_revision == replacement_ground.ground_revision &&
+                replacement_ground.last_attempt_scene > prior_ground_lifetime.last_attempt_scene,
+            "a replacement Scene did not receive exactly one fresh preparation"
+        );
+        std::cout << "live renderer check: initial ground queries: Off 0 calls; Enhanced "
+                  << prepared_ground.api_calls << " real call; caller-boundary simulation "
+                  << refused_ground.simulated_failures << " without an API call; new Scene "
+                  << replacement_ground.api_calls
+                  << " real call, with exact pixels, inputs, bounds and picks preserved\n";
+        leave_match();
+    } catch (...) {
+        finish_ground_check();
+        throw;
+    }
+    finish_ground_check();
     std::cout << "live renderer check: " << borrowed_vertex_frames
               << " borrowed-vertex frames match captured pixels, bounds and picks\n";
     reset_live_renderer();
