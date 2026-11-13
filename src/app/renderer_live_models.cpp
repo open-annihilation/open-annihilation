@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 #include "renderer_live_models.hpp"
+#include "oa/present/model/model_draw.hpp"
 
 #include <algorithm>
 #include <atomic>

@@ -11,6 +11,7 @@ void body_lod_card_tests() {
     namespace drawing = oa::present::model;
     namespace runtime = oa::sim::model_runtime;
     constexpr int32_t fixed = geometry::kThreeDoUnitsPerWorldUnit;
+    constexpr uint8_t body_color = 2;
     auto source = std::make_shared<geometry::Model>();
     source->objects.resize(2);
     auto& root = source->objects[0];
@@ -53,7 +54,7 @@ void body_lod_card_tests() {
             auto& polygon = prepared.objects[object].primitives.emplace_back();
             polygon.source_index = face;
             polygon.flags = drawing::primitive_colored;
-            polygon.color = 1;
+            polygon.color = body_color;
         }
     auto instance = runtime::make_instance(source);
     instance.rebuild_transforms({});
