@@ -7443,8 +7443,11 @@ struct StandingAxes {
     std::array<float, 3> right{}, up{};
 };
 
-StandingAxes standing_axes(const Inputs& in) {
-    auto direction = in.view_direction;
+/// Computes the same basis for preparation and each standing-effect query.
+/// @param view_direction direction toward the camera, in x,height,z order
+/// @return the exact across and above vectors used by standing effects
+StandingAxes standing_axes(const std::array<float, 3>& view_direction) {
+    auto direction = view_direction;
     float horizontal = std::hypot(direction[0], direction[2]);
     if (horizontal < 0.0001F) {
         direction = {0, 1, height_lift};
@@ -7955,7 +7958,7 @@ void sprites(const Inputs& in, Pass& pass, bool ground_pass, std::size_t first, 
         const float origin_z = sprite.world_position ? sprite.world_position->z / fixed_scale
                                                      : y + ground * height_lift;
         // Effects face the camera at their actual altitude. Scenery keeps its upright card.
-        const auto basis = standing_axes(in);
+        const auto basis = standing_axes(in.view_direction);
         const auto& right = basis.right;
         const auto& up = basis.up;
         const float surface_lift =
@@ -8949,7 +8952,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
                                cut_ground.size() >= parallel_index_vertices;
     const bool surface_query = prepare_frame_effects(in, scene, prepare_index);
     if (surface_query) {
-        const auto basis = standing_axes(in);
+        const auto basis = standing_axes(in.view_direction);
         const auto projected = surface_axes(basis.right, basis.up);
         const auto* axes = projected.facing ? &projected.card : nullptr;
         const auto key = ground_index_key(standing_ground.revision, cut_ground.size(), axes);
@@ -9701,6 +9704,50 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
         scene.particle_count = 0;
         scene.nano_particle_count = 0;
         error = exception.what();
+        return false;
+    }
+}
+
+bool prepare_ground_queries(
+    Scene& scene, const std::array<float, 3>& view_direction, platform::job_pool::Pool* pool
+) noexcept {
+    const auto count = scene.terrain_vertex_count;
+    const auto revision = scene.ground_revision;
+    const bool retained_base =
+        revision == scene.kept_ground_revision && scene.ground_vertices.size() == count;
+    const bool retained_cut = scene.cut_source == scene.kept_ground_revision &&
+                              scene.cut_revision == revision && scene.cut_ground.size() == count;
+    if (scene.frame_palette != nullptr || !scene.ground_kept || scene.kept_ground_revision == 0 ||
+        revision == 0 || (!retained_base && !retained_cut) || count == 0 || count % 3 != 0 ||
+        count > maximum_vertices || count > scene.vertices.size() ||
+        scene.card_ground.revision != revision || scene.card_ground.vertex_count != count ||
+        !std::all_of(view_direction.begin(), view_direction.end(), [](float value) {
+            return std::isfinite(value);
+        }))
+        return false;
+    try {
+        const auto basis = standing_axes(view_direction);
+        const auto finite = [](const auto& axis) {
+            return std::all_of(axis.begin(), axis.end(), [](float value) {
+                return std::isfinite(value);
+            });
+        };
+        if (!finite(basis.right) || !finite(basis.up))
+            return false;
+        const auto projected = surface_axes(basis.right, basis.up);
+        const auto* axes = projected.facing ? &projected.card : nullptr;
+        GroundIndices indices;
+        indices.revision = revision;
+        list_ground(
+            scene, std::span<const Vertex>(scene.vertices).first(count), axes, indices, pool
+        );
+        const auto key = ground_index_key(revision, count, axes);
+        return indices.world.has_value() && (!axes || indices.card.has_value()) &&
+               scene.ground_index_cache.valid && scene.ground_index_cache.key == key;
+    } catch (...) {
+        // No query can observe a partially prepared index bundle. The first
+        // actual effect retains its ordinary build and failure order.
+        scene.ground_index_cache.valid = false;
         return false;
     }
 }

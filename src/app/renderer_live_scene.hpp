@@ -762,4 +762,26 @@ struct Inputs {
 /// @return true when the frame can be rendered
 [[nodiscard]] bool build(const Inputs& inputs, Scene& scene, std::string& error);
 
+/// Prepares ground-effect query indices from one successfully published retained frame.
+///
+/// This explicit preparation changes only the Scene's owned query cache and its
+/// work counters. It does not build a frame, read the World or submit GPU work.
+/// The caller owns the Scene exclusively after build has returned; no drawing
+/// job or query may still use its index buffers. Ordinary build calls remain
+/// lazy. Later geometry, view-axis or floating-point changes retain the normal
+/// exact-key invalidation and first-query rebuild.
+///
+/// Preparation spends the index build cost here, including bounded allocation,
+/// rather than at a later effect. Failure leaves the ordinary lazy path available.
+///
+/// @param[in,out] scene the successful frame and its owned retained terrain prefix
+/// @param view_direction the actual effect view's direction, in x,height,z order
+/// @param pool a free drawing pool, or null to prepare on the calling thread
+/// @return true only when both required indices match the exact current key
+[[nodiscard]] bool prepare_ground_queries(
+    Scene& scene,
+    const std::array<float, 3>& view_direction,
+    platform::job_pool::Pool* pool = nullptr
+) noexcept;
+
 } // namespace oa::app::renderer_live_scene

@@ -20,13 +20,57 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <new>
 #include <optional>
 #include <string>
 #include <tuple>
 #include <vector>
+
+namespace {
+thread_local bool watch_ground_allocations{};
+thread_local std::size_t ground_allocations{}, refused_ground_allocations{};
+thread_local std::size_t ground_allocation_to_refuse = std::numeric_limits<std::size_t>::max();
+} // namespace
+
+/// Refuses one selected ordinary allocation only during an explicit preparation check.
+void* operator new(std::size_t bytes) {
+    if (watch_ground_allocations && ground_allocations++ == ground_allocation_to_refuse) {
+        ++refused_ground_allocations;
+        throw std::bad_alloc{};
+    }
+    if (void* result = std::malloc(bytes == 0 ? 1 : bytes))
+        return result;
+    throw std::bad_alloc{};
+}
+
+/// Routes array allocation through the same bounded failure check.
+void* operator new[](std::size_t bytes) {
+    return ::operator new(bytes);
+}
+
+/// Releases ordinary allocation storage.
+void operator delete(void* pointer) noexcept {
+    std::free(pointer);
+}
+
+/// Releases array allocation storage.
+void operator delete[](void* pointer) noexcept {
+    std::free(pointer);
+}
+
+/// Releases sized ordinary allocation storage.
+void operator delete(void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
+
+/// Releases sized array allocation storage.
+void operator delete[](void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
 
 namespace {
 namespace live = oa::app::renderer_live_scene;
@@ -5601,6 +5645,274 @@ void check_marker_card_frame(const live::Scene& actual, const live::Scene& expec
     OA_CHECK(card_draws.marker_uv == actual.cards.marker_uv);
 }
 
+/// One retained ground and marker, compared against the ordinary lazy query path.
+struct GroundPreparationFixture {
+    GroundIndexThreadsFixture pair{4};
+    oa::Unit marker{};
+
+    GroundPreparationFixture() {
+        constexpr int32_t fixed = oa::formats::objects3d::kThreeDoUnitsPerWorldUnit;
+        marker.id = 7;
+        marker.type_index = 1;
+        marker.position = {64 * fixed, 32 * fixed, 64 * fixed};
+        auto& in = pair.fixture.inputs;
+        in.unit_marker_pixels = 5;
+        in.markers_on_card = true;
+        in.owner_colors[0] = {240, 30, 90};
+        pair.fixture.draws.unit_markers.push_back({&marker, marker.position});
+    }
+
+    /// Builds real frames with and without a surface effect, retaining their own camera bounds.
+    /// @param effect whether the standing sprite queries the rendered ground
+    /// @param pool the candidate's drawing pool; the reference stays on its caller
+    void build(bool effect, oa::platform::job_pool::Pool* pool = nullptr) {
+        auto& fixture = pair.fixture;
+        fixture.draws.sprites[0].surface_effect = effect;
+        fixture.inputs.pool = nullptr;
+        OA_CHECK(live::build(fixture.inputs, pair.ordinary, fixture.error));
+        fixture.inputs.pool = pool;
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.error.empty());
+        OA_CHECK(same_frame(fixture.scene, pair.ordinary));
+        check_marker_frames(fixture.scene, pair.ordinary);
+        OA_CHECK(!fixture.scene.cards.units.empty());
+    }
+
+    /// Produces real retained geometry without requesting or preparing any query index.
+    void retain() {
+        for (unsigned frame = 0; frame < 3; ++frame)
+            build(false);
+        OA_CHECK(pair.fixture.scene.ground_kept);
+        OA_CHECK(pair.fixture.scene.ground_revision != 0);
+    }
+};
+
+/// Requires preparation to leave every emitted input and exact ground descriptor unchanged.
+/// @param actual the prepared Scene
+/// @param before the same Scene immediately before preparation
+void check_prepared_frame(const live::Scene& actual, const live::Scene& before) {
+    OA_CHECK(same_frame(actual, before));
+    check_marker_frames(actual, before);
+    OA_CHECK(actual.ground_revision == before.ground_revision);
+    OA_CHECK(actual.kept_ground_revision == before.kept_ground_revision);
+    OA_CHECK(actual.ground_points_revision == before.ground_points_revision);
+    OA_CHECK(actual.card_ground.revision == before.card_ground.revision);
+    OA_CHECK(actual.card_ground.next_revision == before.card_ground.next_revision);
+}
+
+/// Explicit preparation relocates one build; later ordinary query-free frames do no index work.
+void ground_query_preparation() {
+    namespace timers = oa::app::bench_timers;
+    timers::reset(false);
+    GroundPreparationFixture fixture;
+    auto& pair = fixture.pair;
+    auto& scene = pair.fixture.scene;
+    auto& in = pair.fixture.inputs;
+    fixture.build(false);
+    OA_CHECK(scene.ground_revision != 0 && !scene.ground_kept);
+    OA_CHECK(!live::prepare_ground_queries(scene, in.view_direction));
+    OA_CHECK(scene.ground_index_cache.attempts == 0);
+    fixture.retain();
+    OA_CHECK(!scene.ground_index_cache.valid && scene.ground_index_cache.attempts == 0);
+    const auto before = scene;
+    const auto canonical = fixture.marker;
+    OA_CHECK(live::prepare_ground_queries(scene, in.view_direction, &pair.four));
+    check_prepared_frame(scene, before);
+    OA_CHECK(scene.ground_index_cache.valid && scene.ground_index_cache.attempts == 1);
+    OA_CHECK(scene.passes.ground_indices.builds == 1);
+    const auto ready = scene.ground_index_cache.key;
+    OA_CHECK(
+        ready.revision == scene.ground_revision && ready.vertices == scene.terrain_vertex_count
+    );
+    OA_CHECK(live::prepare_ground_queries(scene, in.view_direction));
+    OA_CHECK(scene.ground_index_cache.attempts == 1);
+    for (unsigned frame = 0; frame < 5; ++frame) {
+        fixture.build(false);
+        OA_CHECK(scene.passes.ground_indices.builds == 0 && scene.passes.ground_indices.hits == 0);
+        OA_CHECK(pair.ordinary.ground_index_cache.attempts == 0);
+        OA_CHECK(scene.ground_index_cache.attempts == 1 && scene.ground_index_cache.key == ready);
+    }
+    // The first real ground query, including its lifted effect vertices and
+    // the marker's nonempty picking records, must match a cold lazy build.
+    fixture.build(true);
+    pair.check_indices();
+    OA_CHECK(scene.passes.ground_indices.builds == 0 && scene.passes.ground_indices.hits == 1);
+    OA_CHECK(pair.ordinary.passes.ground_indices.builds == 1);
+    OA_CHECK(std::memcmp(&fixture.marker, &canonical, sizeof(canonical)) == 0);
+    // No automatic preparation follows an ordinary camera-axis change.
+    in.view_direction = {-0.25F, 1, 0.5F};
+    fixture.build(false);
+    OA_CHECK(scene.ground_index_cache.key == ready && scene.passes.ground_indices.builds == 0);
+    fixture.build(true);
+    pair.check_indices();
+    OA_CHECK(scene.passes.ground_indices.builds == 1);
+    OA_CHECK(scene.ground_index_cache.key.card_axes != ready.card_axes);
+}
+
+/// Readiness is tied to the final retained base or cut, with ordinary key invalidation.
+void ground_query_preparation_sources() {
+    GroundPreparationFixture fixture;
+    auto& pair = fixture.pair;
+    auto& scene = pair.fixture.scene;
+    auto& in = pair.fixture.inputs;
+    fixture.retain();
+    const auto unprepared = scene;
+    const auto reject = [&](auto change) {
+        auto invalid = unprepared;
+        change(invalid);
+        const auto attempts = invalid.ground_index_cache.attempts;
+        OA_CHECK(!live::prepare_ground_queries(invalid, in.view_direction));
+        OA_CHECK(invalid.ground_index_cache.attempts == attempts);
+    };
+    reject([&](auto& value) { value.frame_palette = &pair.fixture.palette; });
+    reject([](auto& value) { value.ground_kept = false; });
+    reject([](auto& value) { value.kept_ground_revision = 0; });
+    reject([](auto& value) { value.ground_revision = 0; });
+    reject([](auto& value) { ++value.ground_revision; });
+    reject([](auto& value) { ++value.card_ground.revision; });
+    reject([](auto& value) { --value.card_ground.vertex_count; });
+    reject([](auto& value) { ++value.terrain_vertex_count; });
+    reject([](auto& value) { value.vertices.resize(value.terrain_vertex_count - 1); });
+    reject([](auto& value) { value.ground_vertices.clear(); });
+    OA_CHECK(!live::prepare_ground_queries(scene, {std::numeric_limits<float>::quiet_NaN(), 1, 1}));
+    OA_CHECK(!live::prepare_ground_queries(scene, {1, std::numeric_limits<float>::infinity(), 1}));
+    OA_CHECK(scene.ground_index_cache.attempts == 0);
+    OA_CHECK(live::prepare_ground_queries(scene, in.view_direction));
+    for (unsigned stale = 0; stale < 4; ++stale) {
+        auto copied = scene;
+        if (stale == 0)
+            ++copied.ground_index_cache.key.revision;
+        else if (stale == 1)
+            copied.ground_index_cache.key.vertices -= 3;
+        else if (stale == 2)
+            copied.ground_index_cache.key.card_axes[0] ^= uint64_t{1};
+        else
+            copied.ground_index_cache.key.float_control[0] ^= uint64_t{1};
+        const auto attempts = copied.ground_index_cache.attempts;
+        OA_CHECK(live::prepare_ground_queries(copied, in.view_direction));
+        OA_CHECK(copied.ground_index_cache.attempts == attempts + 1);
+        OA_CHECK(copied.ground_index_cache.key == scene.ground_index_cache.key);
+        OA_CHECK(same_frame(copied, scene));
+    }
+    // A changed height produces a new retained generation before explicit preparation.
+    pair.fixture.map.attributes[3].height = 12;
+    fixture.retain();
+    OA_CHECK(live::prepare_ground_queries(scene, in.view_direction));
+    fixture.build(true);
+    pair.check_indices();
+    OA_CHECK(scene.passes.ground_indices.builds == 0);
+    // A fresh foundation cut publishes its final revision only after all passes.
+    oa::Unit building{};
+    building.flags = OA_UNIT_FLAG_BUILDING;
+    building.footprint_x = building.footprint_z = 2;
+    building.position = {64 * 65536, 8 * 65536, 64 * 65536};
+    pair.fixture.draws.models.resize(1);
+    pair.fixture.draws.models[0].model.unit = &building;
+    pair.fixture.draws.models[0].plan.linked.drawn = true;
+    fixture.retain();
+    OA_CHECK(scene.cut_source == scene.kept_ground_revision);
+    OA_CHECK(scene.cut_revision == scene.ground_revision);
+    OA_CHECK(live::prepare_ground_queries(scene, in.view_direction));
+    fixture.build(true);
+    pair.check_indices();
+    OA_CHECK(scene.passes.ground_indices.builds == 0);
+    pair.fixture.draws.models.clear();
+    fixture.retain();
+    discard_ground_points(scene);
+    OA_CHECK(live::prepare_ground_queries(scene, in.view_direction));
+    fixture.build(true);
+    pair.check_indices();
+    OA_CHECK(scene.passes.ground_indices.builds == 0);
+    // A real query under another FP key rebuilds lazily, rather than using
+    // bounds prepared under a different caller's arithmetic environment.
+    const int rounding = std::fegetround();
+    const int altered_rounding = rounding == FE_UPWARD ? FE_DOWNWARD : FE_UPWARD;
+    if (rounding != -1 && std::fesetround(altered_rounding) == 0) {
+        OA_CHECK(live::prepare_ground_queries(scene, in.view_direction));
+        const auto controls = scene.ground_index_cache.key.float_control;
+        OA_CHECK(std::fesetround(rounding) == 0);
+        fixture.build(true);
+        pair.check_indices();
+        OA_CHECK(scene.passes.ground_indices.builds == 1);
+        OA_CHECK(scene.ground_index_cache.key.float_control != controls);
+    }
+    // A vertical card without projected ground axes still prepares the
+    // world-only index used by its ordinary query path.
+    in.view_direction = {0, 0, 1};
+    OA_CHECK(live::prepare_ground_queries(scene, in.view_direction));
+    OA_CHECK(!scene.ground_index_cache.key.card);
+    fixture.build(true);
+    pair.check_indices();
+    OA_CHECK(scene.passes.ground_indices.builds == 0);
+    // Selected nonfinite compact data cannot publish an old valid bundle.
+    auto invalid = scene;
+    invalid.ground_index_cache.valid = false;
+    invalid.ground_points.resize(invalid.terrain_vertex_count);
+    for (std::size_t index = 0; index < invalid.ground_points.size(); ++index) {
+        const auto& vertex = invalid.vertices[index];
+        invalid.ground_points[index] = {vertex.x, vertex.z, vertex.height};
+    }
+    invalid.ground_points_revision = invalid.ground_revision;
+    invalid.ground_points[0].x = std::numeric_limits<float>::quiet_NaN();
+    OA_CHECK(!live::prepare_ground_queries(invalid, in.view_direction));
+    OA_CHECK(!invalid.ground_index_cache.valid);
+    live::Scene empty;
+    OA_CHECK(!live::prepare_ground_queries(empty, in.view_direction));
+}
+
+/// Preparation consumes owned Scene geometry after all original frame inputs are gone.
+void ground_query_preparation_owns_sources() {
+    live::Scene detached;
+    std::array<float, 3> direction{};
+    {
+        GroundPreparationFixture fixture;
+        fixture.retain();
+        direction = fixture.pair.fixture.inputs.view_direction;
+        detached = std::move(fixture.pair.fixture.scene);
+    }
+    const auto before = detached;
+    OA_CHECK(live::prepare_ground_queries(detached, direction));
+    check_prepared_frame(detached, before);
+    OA_CHECK(detached.ground_index_cache.valid);
+}
+
+/// A partial optional allocation never publishes indices or changes the Scene's picture.
+void ground_query_preparation_allocation_recovery() {
+    GroundPreparationFixture fixture;
+    fixture.retain();
+    auto& pair = fixture.pair;
+    auto& in = pair.fixture.inputs;
+    const auto unprepared = pair.fixture.scene;
+    auto counted = unprepared;
+    ground_allocations = 0;
+    ground_allocation_to_refuse = std::numeric_limits<std::size_t>::max();
+    watch_ground_allocations = true;
+    const bool ready = live::prepare_ground_queries(counted, in.view_direction);
+    watch_ground_allocations = false;
+    const auto allocations = ground_allocations;
+    constexpr std::size_t maximum_failure_probes = 64;
+    OA_CHECK(ready && allocations != 0 && allocations <= maximum_failure_probes);
+    for (std::size_t fail = 0; fail < std::min(allocations, maximum_failure_probes); ++fail) {
+        // Fresh baseline buffers preserve each probe's allocation sequence.
+        auto candidate = unprepared;
+        auto ordinary = unprepared;
+        pair.fixture.scene = std::move(candidate);
+        pair.ordinary = std::move(ordinary);
+        ground_allocations = refused_ground_allocations = 0;
+        ground_allocation_to_refuse = fail;
+        watch_ground_allocations = true;
+        const bool prepared = live::prepare_ground_queries(pair.fixture.scene, in.view_direction);
+        watch_ground_allocations = false;
+        OA_CHECK(!prepared && refused_ground_allocations == 1);
+        OA_CHECK(!pair.fixture.scene.ground_index_cache.valid);
+        check_prepared_frame(pair.fixture.scene, unprepared);
+        fixture.build(true);
+        pair.check_indices();
+        OA_CHECK(pair.fixture.scene.passes.ground_indices.builds == 1);
+    }
+    ground_allocation_to_refuse = std::numeric_limits<std::size_t>::max();
+}
+
 /// Marker workers keep exact geometry, atlas updates and picking identities through moving armies.
 void strategic_unit_markers_on_threads() {
     namespace camera = oa::app::renderer_live_camera;
@@ -8743,6 +9055,10 @@ int main() {
     ground_points_preserve_queries();
     ground_index_bounds_on_threads();
     ground_index_bounds_revision_reuse();
+    ground_query_preparation();
+    ground_query_preparation_sources();
+    ground_query_preparation_owns_sources();
+    ground_query_preparation_allocation_recovery();
     passes_on_threads();
     ground_drawn_ahead_on_threads();
     moving_camera_comes_back_to_its_picture();
