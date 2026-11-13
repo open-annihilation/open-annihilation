@@ -8954,9 +8954,12 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
     platform::job_pool::run_bands(in.pool, bands, [&](uint32_t band) noexcept {
         const auto previous = base::float_precision::save_float_control();
         base::float_precision::restore_float_control(control);
-        run_beside(scene, storage.lists[band], result.ends[band + 1], timing, [&](Pass& pass) {
-            models(in, pass, result.ends[band], result.ends[band + 1]);
-        });
+        // Resolve the caller's TLS once, rather than each worker's own storage.
+        run_beside(
+            scene, result.storage->lists[band], result.ends[band + 1], timing, [&](Pass& pass) {
+                models(in, pass, result.ends[band], result.ends[band + 1]);
+            }
+        );
         base::float_precision::restore_float_control(previous);
     });
     for (uint32_t band = 0; band < bands; ++band) {
