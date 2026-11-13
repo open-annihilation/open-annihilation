@@ -15,6 +15,7 @@
 #include <limits>
 #include <span>
 #include <cstdio>
+#include <vector>
 
 namespace movement = oa::sim::unit_movement;
 namespace ground = oa::sim::ground_orders;
@@ -507,6 +508,381 @@ void test_history_in_actual_opposing_and_crossing_steering() {
     }
 }
 
+/// Compares every field movement exposes, including the type and unchanged inputs.
+bool same_unit(const movement::Unit& a, const movement::Unit& b) {
+    return a.position == b.position && a.cell == b.cell && a.footprint == b.footprint &&
+           a.id == b.id && a.heading == b.heading && a.pitch == b.pitch && a.flags == b.flags &&
+           a.type.maximum_speed == b.type.maximum_speed &&
+           a.type.maximum_turn == b.type.maximum_turn && a.type.flags == b.type.flags;
+}
+
+/// Compares all motion fields without depending on padding bytes.
+bool same_motion(const movement::Movement& a, const movement::Movement& b) {
+    return a.velocity == b.velocity && a.speed == b.speed && a.turn == b.turn &&
+           a.last_motion_tick == b.last_motion_tick && a.flags == b.flags;
+}
+
+/// Compares all local steering work counters, including those this call must preserve.
+bool same_counters(const movement::LocalFlowCounters& a, const movement::LocalFlowCounters& b) {
+    return a.probes == b.probes && a.moving_blockers == b.moving_blockers &&
+           a.steering_adjustments == b.steering_adjustments && a.yielded_ticks == b.yielded_ticks &&
+           a.blocked_ticks == b.blocked_ticks && a.deferred_replans == b.deferred_replans;
+}
+
+/// Builds a nonzero movement state so parity checks cover fields not changed by steering.
+movement::Unit parity_unit() {
+    movement::Unit unit{};
+    unit.position = {72 * fixed_one + 7, 6 * fixed_one + 11, 72 * fixed_one + 13};
+    unit.cell = {4, 4};
+    unit.footprint = {1, 1};
+    unit.id = 3;
+    unit.heading = east;
+    unit.pitch = -511;
+    unit.flags = movement::position_dirty | 1;
+    unit.type.maximum_speed = 3 * fixed_one;
+    unit.type.maximum_turn = 1024;
+    unit.type.flags = movement::water_speed_exemption_mask;
+    return unit;
+}
+
+/// Builds a nonzero motion record with an actual progress clock.
+movement::Movement parity_motion() {
+    movement::Movement motion{};
+    motion.velocity = {3 * fixed_one + 17, 23, -29};
+    motion.speed = 2 * fixed_one;
+    motion.turn = -91;
+    motion.last_motion_tick = 90;
+    motion.flags = 1 | movement::collision_blocked;
+    return motion;
+}
+
+/// Requires the cached and ordinary controllers to change exactly the same fields.
+void check_steering_pair(
+    const movement::Unit& initial,
+    const movement::Movement& motion,
+    const ground::Navigation& navigation,
+    ground::FastUnitSteering fast_units,
+    const ground::SteeringTargetCache& cache
+) {
+    auto ordinary_unit = initial;
+    auto cached_unit = initial;
+    auto ordinary_motion = motion;
+    auto cached_motion = motion;
+    ground::steer_ground(
+        ordinary_unit, ordinary_motion, navigation, acceleration, acceleration, 10, fast_units
+    );
+    ground::steer_ground(
+        cached_unit, cached_motion, navigation, acceleration, acceleration, 10, fast_units, cache
+    );
+    OA_CHECK(same_unit(ordinary_unit, cached_unit));
+    OA_CHECK(same_motion(ordinary_motion, cached_motion));
+}
+
+/// Keeps exact projection reuse identical across near, projected, empty and wrapping routes.
+void test_cached_ground_steering_matches_all_fields() {
+    constexpr int16_t lowest = std::numeric_limits<int16_t>::min();
+    constexpr int16_t highest = std::numeric_limits<int16_t>::max();
+    constexpr std::array<std::array<ground::RoutePoint, 3>, 7> routes{{
+        {{{72, 72}, {80, 74}, {80, 74}}},
+        {{{72, 72}, {400, 250}, {450, 280}}},
+        {{{400, 250}, {400, 250}, {450, 280}}},
+        {{{72, 72}, {72, 72}, {72, 72}}},
+        {{{lowest, highest}, {highest, lowest}, {highest, highest}}},
+        {{{highest, lowest}, {lowest, highest}, {lowest, lowest}}},
+        {{{0, 0}, {highest, highest}, {0, 0}}},
+    }};
+    for (const auto& points : routes)
+        for (const auto fast_units :
+             {ground::FastUnitSteering::as_3_1c, ground::FastUnitSteering::held_to_route})
+            for (const auto speed : {movement::Fixed{0}, 2 * fixed_one, 9 * fixed_one}) {
+                auto unit = parity_unit();
+                unit.type.maximum_speed = speed == 9 * fixed_one ? speed : 3 * fixed_one;
+                auto motion = parity_motion();
+                motion.speed = speed;
+                ground::Navigation navigation{};
+                std::copy(points.begin(), points.end(), navigation.points.begin());
+                navigation.count = 3;
+                navigation.flags = ground::route_present_flag;
+                const auto cache =
+                    ground::cache_steering_target(unit, ground::steering_points(navigation));
+                OA_CHECK(cache.position == unit.position);
+                OA_CHECK(cache.points == ground::steering_points(navigation));
+                const auto direct = ground::steering_target(unit, cache.points);
+                OA_CHECK(
+                    cache.target.point == direct.point && cache.target.distance == direct.distance
+                );
+                check_steering_pair(unit, motion, navigation, fast_units, cache);
+                unit.type.maximum_turn = 0;
+                check_steering_pair(unit, motion, navigation, fast_units, cache);
+                navigation.count = 0;
+                check_steering_pair(unit, motion, navigation, fast_units, cache);
+                navigation.count = ground::navigation_capacity + 1;
+                check_steering_pair(unit, motion, navigation, fast_units, cache);
+                navigation.count = 3;
+                navigation.flags = 0;
+                check_steering_pair(unit, motion, navigation, fast_units, cache);
+            }
+
+    for (const auto position :
+         {std::numeric_limits<movement::Fixed>::min(),
+          std::numeric_limits<movement::Fixed>::max()}) {
+        auto unit = parity_unit();
+        unit.position = {position, position, position};
+        ground::Navigation navigation{};
+        std::copy(routes[4].begin(), routes[4].end(), navigation.points.begin());
+        navigation.count = 3;
+        navigation.flags = ground::route_present_flag;
+        const auto cache = ground::cache_steering_target(unit, ground::steering_points(navigation));
+        check_steering_pair(
+            unit, parity_motion(), navigation, ground::FastUnitSteering::as_3_1c, cache
+        );
+    }
+}
+
+/// Keeps cache inputs as values when a retained head or the unit pose changes in place.
+void test_cached_ground_steering_rechecks_changed_inputs() {
+    auto unit = parity_unit();
+    ground::Navigation navigation{};
+    navigation.points = {{{72, 72}, {400, 250}, {450, 280}}};
+    navigation.count = 3;
+    navigation.flags = ground::route_present_flag;
+    auto points = ground::steering_points(navigation);
+    const auto saved_points = points;
+    const auto saved_position = unit.position;
+    const auto cache = ground::cache_steering_target(unit, points);
+    for (size_t point = 0; point < saved_points.size(); ++point) {
+        auto changed = navigation;
+        changed.points[point] = {100, 600};
+        points = ground::steering_points(changed);
+        OA_CHECK(cache.points == saved_points && cache.points != points);
+        check_steering_pair(
+            unit, parity_motion(), changed, ground::FastUnitSteering::held_to_route, cache
+        );
+    }
+    for (size_t coordinate = 0; coordinate < unit.position.size(); ++coordinate) {
+        auto changed = unit;
+        changed.position[coordinate] += 33 * fixed_one;
+        OA_CHECK(cache.position == saved_position && cache.position != changed.position);
+        check_steering_pair(
+            changed, parity_motion(), navigation, ground::FastUnitSteering::held_to_route, cache
+        );
+    }
+}
+
+enum class FlowCallKind { probe, clearance, remove, insert, spatial };
+
+struct FlowCall {
+    FlowCallKind kind{};
+    movement::Unit unit{};
+    std::array<int16_t, 2> cell{};
+    uint8_t occupancy{};
+
+    bool operator==(const FlowCall& other) const {
+        return kind == other.kind && same_unit(unit, other.unit) && cell == other.cell &&
+               occupancy == other.occupancy;
+    }
+};
+
+enum class FlowClearance { clear, blocked, behind };
+
+/// Records the exact traffic-query and occupancy-call order for one decision.
+struct FlowParityHost : movement::Host {
+    std::vector<FlowCall> calls{};
+    std::array<uint32_t, 32> progress{};
+    movement::LocalFlowBlocker blocker{};
+    FlowClearance clearance{};
+
+    bool can_occupy(
+        const movement::Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy
+    ) override {
+        calls.push_back({FlowCallKind::clearance, unit, cell, occupancy});
+        return clearance == FlowClearance::clear ||
+               (clearance == FlowClearance::behind && cell[0] < unit.cell[0]);
+    }
+
+    void remove_occupancy(movement::Unit& unit) override {
+        calls.push_back({FlowCallKind::remove, unit, unit.cell, 0});
+    }
+
+    void insert_occupancy(movement::Unit& unit) override {
+        calls.push_back({FlowCallKind::insert, unit, unit.cell, 0});
+    }
+
+    void update_spatial_membership(movement::Unit& unit) override {
+        calls.push_back({FlowCallKind::spatial, unit, unit.cell, 0});
+    }
+
+    movement::LocalFlowProbe probe() {
+        progress.fill(90);
+        return {
+            this,
+            [](void* context,
+               const movement::Unit& unit,
+               std::array<int16_t, 2> cell,
+               uint8_t occupancy) {
+                auto& host = *static_cast<FlowParityHost*>(context);
+                host.calls.push_back({FlowCallKind::probe, unit, cell, occupancy});
+                return host.blocker;
+            },
+            progress
+        };
+    }
+};
+
+/// Compares decisions, complete state and exact host/probe sequences for one cached distance.
+movement::LocalFlowDecision check_flow_pair(
+    const movement::Unit& unit,
+    const movement::Movement& motion,
+    ground::Point target,
+    ground::Point probe_target,
+    movement::LocalFlowBlocker blocker,
+    FlowClearance clearance,
+    movement::Fixed distance
+) {
+    FlowParityHost ordinary_host;
+    FlowParityHost cached_host;
+    ordinary_host.blocker = cached_host.blocker = blocker;
+    ordinary_host.clearance = cached_host.clearance = clearance;
+    auto ordinary_unit = unit;
+    auto cached_unit = unit;
+    auto ordinary_motion = motion;
+    auto cached_motion = motion;
+    movement::LocalFlowCounters ordinary_counters{11, 12, 13, 14, 15, 16};
+    auto cached_counters = ordinary_counters;
+    const auto ordinary = movement::choose_local_flow(
+        ordinary_unit,
+        ordinary_motion,
+        target,
+        probe_target,
+        100,
+        ordinary_host,
+        ordinary_host.probe(),
+        ordinary_counters
+    );
+    const auto cached = movement::choose_local_flow(
+        cached_unit,
+        cached_motion,
+        target,
+        probe_target,
+        100,
+        cached_host,
+        cached_host.probe(),
+        cached_counters,
+        distance
+    );
+    OA_CHECK(ordinary.target == cached.target);
+    OA_CHECK(ordinary.adjusted == cached.adjusted);
+    OA_CHECK(ordinary.reverse == cached.reverse);
+    OA_CHECK(ordinary.mobile_blocked == cached.mobile_blocked);
+    OA_CHECK(same_unit(ordinary_unit, unit) && same_unit(cached_unit, unit));
+    OA_CHECK(same_motion(ordinary_motion, motion) && same_motion(cached_motion, motion));
+    OA_CHECK(same_counters(ordinary_counters, cached_counters));
+    OA_CHECK(ordinary_host.calls == cached_host.calls);
+    return cached;
+}
+
+/// Retains traffic outcomes and call ordering when the original target distance is reused.
+void test_cached_local_flow_distance_matches_queries_and_decisions() {
+    auto unit = parity_unit();
+    const auto motion = parity_motion();
+    const ground::Point target{400 * fixed_one, unit.position[1], 72 * fixed_one + 13};
+    const std::array<ground::Point, 3> points{unit.position, target, target};
+    const auto cache = ground::cache_steering_target(unit, points);
+    OA_CHECK(cache.target.point != target && cache.target.distance > 80 * fixed_one);
+    const movement::LocalFlowBlocker moving{movement::LocalFlowObstacle::moving, 20, west, 20};
+    const std::array<movement::LocalFlowBlocker, 5> blockers{{
+        {},
+        {movement::LocalFlowObstacle::stationary},
+        moving,
+        {movement::LocalFlowObstacle::moving, 20, east, 0},
+        {movement::LocalFlowObstacle::moving, 20, west, 20, true},
+    }};
+    for (const auto& blocker : blockers)
+        for (const auto clearance :
+             {FlowClearance::clear, FlowClearance::blocked, FlowClearance::behind})
+            for (const auto distance :
+                 {cache.target.distance,
+                  movement::Fixed{-1},
+                  movement::Fixed{-7},
+                  std::numeric_limits<movement::Fixed>::min()})
+                (void)check_flow_pair(
+                    unit, motion, target, cache.target.point, blocker, clearance, distance
+                );
+    const auto adjusted = check_flow_pair(
+        unit,
+        motion,
+        target,
+        cache.target.point,
+        moving,
+        FlowClearance::clear,
+        cache.target.distance
+    );
+    OA_CHECK(adjusted.mobile_blocked && adjusted.adjusted && !adjusted.reverse);
+    const auto reverse = check_flow_pair(
+        unit, motion, target, target, moving, FlowClearance::behind, cache.target.distance
+    );
+    OA_CHECK(reverse.mobile_blocked && reverse.adjusted && reverse.reverse);
+
+    constexpr auto minimum = std::numeric_limits<movement::Fixed>::min();
+    constexpr auto maximum = std::numeric_limits<movement::Fixed>::max();
+    constexpr std::array<ground::Point, 6> targets{{
+        {72 * fixed_one + 7, 0, 72 * fixed_one + 13},
+        {80 * fixed_one, 0, 72 * fixed_one},
+        {400 * fixed_one, 0, 400 * fixed_one},
+        {minimum, 0, maximum},
+        {maximum, 0, minimum},
+        {0, 0, 0},
+    }};
+    for (const auto& next : targets) {
+        const std::array<ground::Point, 3> route{unit.position, next, next};
+        const auto projected = ground::cache_steering_target(unit, route);
+        (void)check_flow_pair(
+            unit,
+            motion,
+            next,
+            projected.target.point,
+            moving,
+            FlowClearance::clear,
+            projected.target.distance
+        );
+        (void)check_flow_pair(
+            unit, motion, next, next, moving, FlowClearance::blocked, movement::Fixed{-7}
+        );
+    }
+    // A supplied positive distance cannot bypass the ordinary wide-delta guard.
+    unit.position = {0, 0, 0};
+    for (const auto next : {ground::Point{minimum, 0, 0}, ground::Point{0, 0, minimum}}) {
+        const auto decision = check_flow_pair(
+            unit, motion, next, next, moving, FlowClearance::clear, 100 * fixed_one
+        );
+        OA_CHECK(decision.target == next && !decision.adjusted && !decision.mobile_blocked);
+    }
+    const ground::Point diagonal_limit{maximum, 0, maximum};
+    const std::array<ground::Point, 3> limit_route{unit.position, diagonal_limit, diagonal_limit};
+    const auto limit_cache = ground::cache_steering_target(unit, limit_route);
+    OA_CHECK(limit_cache.target.distance < 0);
+    const auto long_diagonal = check_flow_pair(
+        unit,
+        motion,
+        diagonal_limit,
+        diagonal_limit,
+        moving,
+        FlowClearance::clear,
+        limit_cache.target.distance
+    );
+    OA_CHECK(!long_diagonal.adjusted && !long_diagonal.mobile_blocked);
+    const ground::Point axis_limit{maximum, 0, 0};
+    (void)check_flow_pair(
+        unit, motion, axis_limit, axis_limit, moving, FlowClearance::clear, maximum
+    );
+    unit.position = {minimum, 0, maximum};
+    const ground::Point across{maximum, 0, minimum};
+    const auto refused = check_flow_pair(
+        unit, motion, across, across, moving, FlowClearance::clear, 100 * fixed_one
+    );
+    OA_CHECK(!refused.adjusted && !refused.mobile_blocked);
+}
+
 /// Keeps real opposing and crossing traffic legal with the controller's projected scan.
 void test_controller_probe_in_opposing_and_crossing_traffic() {
     constexpr uint32_t maximum_queries = 128;
@@ -540,5 +916,8 @@ int main() {
     test_sustained_opposing_cohorts();
     test_history_in_actual_opposing_and_crossing_steering();
     test_controller_probe_in_opposing_and_crossing_traffic();
+    test_cached_ground_steering_matches_all_fields();
+    test_cached_ground_steering_rechecks_changed_inputs();
+    test_cached_local_flow_distance_matches_queries_and_decisions();
     return oa::test::check_exit_status();
 }
