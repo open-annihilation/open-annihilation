@@ -44,7 +44,7 @@ RUN_TIMEOUT = 300
 WARMUP_TICKS = 30
 MEASURE_SECONDS = 3
 CURRENT_RULES_VERSION = 4
-SUPPORTED_RULES_VERSIONS = frozenset(range(8))
+SUPPORTED_RULES_VERSIONS = frozenset(range(9))
 VIEW = """label check
 stage {stage}
 menu_seconds 0
@@ -171,6 +171,18 @@ def run_bench(native, game_dir, workdir, name, view_text, enhanced=False):
 def fail(result, message):
     print(result.stdout + result.stderr, end="")
     raise BenchFailure(message)
+
+
+def check_rules_rejection(result, expected):
+    """Checks invalid rules stop at their error before the battle begins."""
+    lines = result.stdout.splitlines()
+    if result.returncode != 1 or expected not in lines:
+        fail(result, "an unsupported rules version was not refused at its line")
+    started = ("Offline match world prepared", "stage: ", "bench: INITIAL ",
+               "bench: WARMUP ", "bench: MEASURING ", "bench: SEC ",
+               "bench: STATIC ", "bench: FRAME ", "bench: RESULT ", "bench: DONE ")
+    if any(line.startswith(started) for line in lines + result.stderr.splitlines()):
+        fail(result, "unsupported rules started a battle before being refused")
 
 
 def ordered(values):
@@ -616,7 +628,7 @@ def main():
                     "bench: FAILED the live unit roster differs from expected_live_units" \
                     not in wrong_population.stdout:
                 fail(wrong_population, "a wrong rendering population was not refused")
-            for version in (0, 4, 6, 7):
+            for version in (0, 4, 6, 7, 8):
                 rules_view = paused_view + (f"rules_version {version}\n" if version else "")
                 selected = run_bench(
                     arguments.native, arguments.game_dir, workdir, f"rules-{version}",
@@ -638,12 +650,11 @@ def main():
                 fail(mode_off, "explicit rules without Enhanced Mode were not refused")
             unsupported = run_bench(
                 arguments.native, arguments.game_dir, workdir, "rules-unsupported",
-                "label rules-unsupported\nrules_version 8\n", enhanced=True)
+                "label rules-unsupported\nrules_version 9\n", enhanced=True)
             view = workdir / "rules-unsupported" / "rules-unsupported.bench"
             expected = (f"bench: FAILED {view}: line 2: rules_version takes 0 or a supported "
                         "Enhanced Mode rules version")
-            if unsupported.returncode != 1 or expected not in unsupported.stdout.splitlines():
-                fail(unsupported, "an unsupported rules version was not refused at its line")
+            check_rules_rejection(unsupported, expected)
     except BenchFailure as failure:
         raise SystemExit(f"bench check: {failure}")
     print(f"bench check: the battle played, measured and reported {len(lines)} well-formed lines")

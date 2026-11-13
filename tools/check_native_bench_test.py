@@ -157,8 +157,8 @@ class NativeBenchReceiptTest(unittest.TestCase):
         self.assertEqual(output.getvalue(), result.stdout + result.stderr)
 
     def test_initial_accepts_default_current_and_explicit_versions(self):
-        """Off, the current preset without a request, and explicit versions 0..7 identify themselves."""
-        for actual, requested in ((4, 0), *((version, version) for version in range(8))):
+        """Off, the current preset without a request, and explicit versions 0..8 identify themselves."""
+        for actual, requested in ((4, 0), *((version, version) for version in range(9))):
             with self.subTest(actual=actual, requested=requested):
                 bench.check_initial(result_for(initial_line(actual, requested) + "\n"),
                                     rules_version=actual, requested_rules_version=requested)
@@ -182,7 +182,10 @@ class NativeBenchReceiptTest(unittest.TestCase):
                  ("bench: INITIAL enhanced_mode 0 rules_version 4 requested_rules_version 4", 4, 4),
                  (initial_line(6, 6), 4, 6),
                  (initial_line(4, 0), 4, 4),
-                 (initial_line(4, 6), 4, 4))
+                 (initial_line(4, 6), 4, 4),
+                 (initial_line(4, 8), 4, 8),
+                 (initial_line(8, 7), 8, 7),
+                 ("bench: INITIAL enhanced_mode 0 rules_version 8 requested_rules_version 8", 8, 8))
         for line, actual, requested in cases:
             with self.subTest(line=line, actual=actual, requested=requested):
                 self.assert_rejected(result_for(line + "\n"), bench.check_initial,
@@ -190,7 +193,7 @@ class NativeBenchReceiptTest(unittest.TestCase):
 
     def test_initial_refuses_unsupported_versions_even_when_expected(self):
         """An unsupported actual or requested version cannot pass by matching an expectation."""
-        for actual, requested in ((8, 0), (8, 8), (4, 8)):
+        for actual, requested in ((9, 0), (9, 9), (4, 9)):
             with self.subTest(actual=actual, requested=requested):
                 self.assert_rejected(result_for(initial_line(actual, requested) + "\n"),
                                      bench.check_initial, rules_version=actual,
@@ -198,12 +201,46 @@ class NativeBenchReceiptTest(unittest.TestCase):
 
     def test_complete_timers_off_transcripts_pass(self):
         """Receipt checks preserve the complete three-second, three-frame validation path."""
-        for actual, requested in ((0, 0), (4, 0), (4, 4), (6, 6), (7, 7)):
+        for actual, requested in ((0, 0), (4, 0), (4, 4), (6, 6), (7, 7), (8, 8)):
             with self.subTest(actual=actual, requested=requested):
                 text = transcript(actual, requested)
                 self.assertEqual(bench.check_lines(result_for(text), False, rules_version=actual,
                                                    requested_rules_version=requested),
                                  text.splitlines())
+
+    def test_complete_eight_timers_on_transcript_passes(self):
+        """Experimental eight retains all timed transcript and simulation checks."""
+        text = transcript(8, 8, timers=True)
+        self.assertEqual(bench.check_lines(result_for(text), True, rules_version=8,
+                                           requested_rules_version=8), text.splitlines())
+
+    def test_unsupported_rules_stop_before_the_battle(self):
+        """The exact error and exit code cannot hide a battle that already started."""
+        expected = ("bench: FAILED fixture.bench: line 2: rules_version takes 0 or a supported "
+                    "Enhanced Mode rules version")
+        rejected = result_for(expected + "\n")
+        rejected.returncode = 1
+        bench.check_rules_rejection(rejected, expected)
+        self.assert_rejected(result_for(expected + "\n"), bench.check_rules_rejection, expected)
+        missing = result_for("bench: FAILED another reason\n")
+        missing.returncode = 1
+        self.assert_rejected(missing, bench.check_rules_rejection, expected)
+        for progress in ("Offline match world prepared for a map.",
+                         "stage: unit 1 queues 1 armpw", initial_line(8, 8),
+                         "bench: WARMUP label=check to tick 30",
+                         "bench: MEASURING label=check tick=30 seconds=3",
+                         "bench: SEC 0 frames 1", "bench: STATIC tick 0",
+                         "bench: FRAME 0", "bench: RESULT label=check",
+                         "bench: DONE label=check"):
+            with self.subTest(progress=progress):
+                late = result_for(progress + "\n" + expected + "\n")
+                late.returncode = 1
+                self.assert_rejected(late, bench.check_rules_rejection, expected)
+                for diagnostic in (expected + "\n", expected):
+                    stderr_progress = result_for(diagnostic)
+                    stderr_progress.returncode = 1
+                    stderr_progress.stderr = progress + "\n"
+                    self.assert_rejected(stderr_progress, bench.check_rules_rejection, expected)
 
     def test_complete_transcript_checks_initial_receipt(self):
         """Missing and wrong receipts fail through the full checker as well as its helper."""
@@ -577,8 +614,8 @@ class NativeBenchReceiptTest(unittest.TestCase):
 
     def test_unsupported_rules_are_rejected_in_complete_transcripts(self):
         """Matching expectations cannot allow an unsupported version through the full checker."""
-        self.assert_rejected(result_for(transcript(8, 8)), bench.check_lines, False,
-                             rules_version=8, requested_rules_version=8)
+        self.assert_rejected(result_for(transcript(9, 9)), bench.check_lines, False,
+                             rules_version=9, requested_rules_version=9)
 
 
 if __name__ == "__main__":
