@@ -54,6 +54,17 @@ struct CardPolygon {
     bool body_lod{}; ///< body_vertices replace the source polygon corners
 };
 
+/// Consecutive type-local triangle corners with the same shadow eligibility.
+struct CardCornerRun {
+    uint32_t first{};
+    uint32_t count{};
+
+    /// Compares the first type-local corner and its count.
+    /// @param other the other run
+    /// @return true for identical corner ranges
+    [[nodiscard]] bool operator==(const CardCornerRun& other) const = default;
+};
+
 /// A model type the card keeps: a model, with its pieces in an instance's
 /// order, and the textures its primitives were prepared with.
 struct CardType {
@@ -75,6 +86,11 @@ struct CardType {
     std::vector<CardSlot> slots{};
     uint32_t first_record{}; ///< its first triangle corner in CardTypes::records
     uint32_t record_count{};
+    /// Per-piece ordinary shadow corners, excluding clear image-key polygons.
+    /// Empty pieces retain an offset; adjacent runs never cross a piece boundary.
+    std::vector<CardCornerRun> shadow_runs{};
+    std::vector<uint32_t> piece_shadow_runs{};
+    bool shadow_runs_ready{}; ///< all polygon ranges were validated before caching
     /// The card draws the model; one it cannot is kept, its pieces alone,
     /// so that a frame finds that at once.
     bool drawable{};
@@ -274,6 +290,15 @@ struct CardCorner {
     const sim::model_runtime::Instance& instance,
     const present::model::PreparedModel& prepared
 ) noexcept;
+
+/// Prepares optional, bounded per-piece ordinary shadow corner ranges.
+///
+/// Every polygon, including clear image-key walls, must cover the next
+/// contiguous type-local range. Unsupported data or allocation failure leaves
+/// shadow_runs_ready false so the ordinary polygon path remains responsible.
+///
+/// @param[in,out] type the immutable drawable topology receiving derived ranges
+void prepare_shadow_runs(CardType& type) noexcept;
 
 /// The most triangle corners the types keep: past it, a frame forgets them
 /// all before it draws (trim_card_types).

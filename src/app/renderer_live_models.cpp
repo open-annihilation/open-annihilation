@@ -7,7 +7,9 @@
 #include <atomic>
 #include <cstring>
 #include <map>
+#include <new>
 #include <span>
+#include <stdexcept>
 #include <utility>
 
 namespace oa::app::renderer_live_scene {
@@ -300,6 +302,62 @@ bool fill_body_type(
 
 } // namespace
 
+void prepare_shadow_runs(CardType& type) noexcept {
+    type.shadow_runs_ready = false;
+    type.shadow_runs.clear();
+    type.piece_shadow_runs.clear();
+    constexpr uint32_t triangle_corners = 3;
+    constexpr uint32_t type_corners = corner_mask + 1;
+    if (!type.drawable || type.record_count > type_corners || type.objects.size() > field_limit ||
+        type.polygons.size() > type.record_count / triangle_corners ||
+        type.piece_polygons.size() != type.objects.size() + 1 || type.piece_polygons.front() != 0 ||
+        type.piece_polygons.back() != type.polygons.size())
+        return;
+    try {
+        std::vector<CardCornerRun> runs;
+        std::vector<uint32_t> pieces;
+        runs.reserve(type.polygons.size());
+        pieces.reserve(type.piece_polygons.size());
+        uint32_t next_corner{};
+        for (uint32_t piece = 0; piece < type.objects.size(); ++piece) {
+            const auto first = type.piece_polygons[piece];
+            const auto last = type.piece_polygons[piece + 1];
+            if (first > last || last > type.polygons.size())
+                return;
+            pieces.push_back(static_cast<uint32_t>(runs.size()));
+            const auto first_run = runs.size();
+            for (uint32_t at = first; at < last; ++at) {
+                const auto& polygon = type.polygons[at];
+                if (polygon.piece != piece || polygon.record != next_corner ||
+                    polygon.corners < triangle_corners ||
+                    polygon.corners - 2 > type_corners / triangle_corners)
+                    return;
+                const uint32_t count = (polygon.corners - 2) * triangle_corners;
+                if (count > type.record_count - next_corner)
+                    return;
+                next_corner += count;
+                if (polygon.colored && polygon.color == model::image_key)
+                    continue;
+                if (runs.size() > first_run &&
+                    runs.back().first + runs.back().count == polygon.record)
+                    runs.back().count += count;
+                else
+                    runs.push_back({polygon.record, count});
+            }
+        }
+        if (next_corner != type.record_count)
+            return;
+        pieces.push_back(static_cast<uint32_t>(runs.size()));
+        type.shadow_runs = std::move(runs);
+        type.piece_shadow_runs = std::move(pieces);
+        type.shadow_runs_ready = true;
+    } catch (const std::bad_alloc&) {
+        // Optional metadata cannot turn a drawable model into a failed frame.
+    } catch (const std::length_error&) {
+        // The checked source limits normally prevent an oversized allocation.
+    }
+}
+
 int32_t card_type(
     CardTypes& types,
     const sim::model_runtime::Instance& instance,
@@ -347,6 +405,8 @@ int32_t card_type(
     }
     type.first_record = static_cast<uint32_t>(types.records.size() / 2);
     type.record_count = static_cast<uint32_t>(records.size() / 2);
+    if (type.drawable)
+        prepare_shadow_runs(type);
     if (types.revision == 0)
         types.revision = new_revision();
     types.records.insert(types.records.end(), records.begin(), records.end());
