@@ -212,6 +212,87 @@ void image_metadata_gate() {
     state.deferred_image.reset();
     OA_CHECK(!oa::app::deferred_model_cache_step(reference, false));
 }
+
+/// Checks that current-pose freezes never replay an older pose or validate stale images.
+void current_pose_obligations() {
+    auto instance = runtime::make_instance(model(), 17, order);
+    Host host(instance);
+    instance.rebuild_transforms();
+    oa::app::DeferredModelGeometries table;
+    table.units.resize(2);
+    table.prepare(1, 3, instance, false);
+    auto& kept = table.units[1];
+    OA_CHECK(kept.poses.empty() && table.bytes == 0);
+    const auto old = instance;
+    const auto revision = instance.materialization_revision();
+    host.set_piece_angle(0, 1, 0x4567);
+    kept.freeze_current(instance, true, true);
+    OA_CHECK(kept.fresh_geometry && kept.fresh_original_images && kept.fresh_copy_images);
+    OA_CHECK(!kept.pending && kept.poses.empty());
+    OA_CHECK(instance.materialization_revision() == revision && same_geometry(instance, old));
+    // Later raw state is authoritative when a visible consumer actually rebuilds.
+    host.set_piece_position(2, 0, 3 * fixed);
+    const runtime::RotationWords root{13, 2711, -42};
+    auto expected = instance;
+    expected.rebuild_transforms(root);
+    instance.rebuild_transforms(root, true);
+    kept.observe_fresh(instance);
+    OA_CHECK(!kept.fresh_geometry && kept.fresh_original_images && kept.fresh_copy_images);
+    OA_CHECK(same_geometry(instance, expected));
+    // Fresh SFX geometry does not make an old image current.
+    kept.freeze_current(instance, false, false);
+    OA_CHECK(!kept.fresh_geometry && kept.fresh_original_images && kept.fresh_copy_images);
+    table.prepare(1, 4, instance, false);
+    OA_CHECK(!kept.fresh_geometry && !kept.fresh_original_images && !kept.fresh_copy_images);
+}
+
+/// Checks that optional ingress allocation has both frame and match limits.
+void snapshot_warm_budget() {
+    oa::app::DeferredModelGeometries table;
+    draw::ModelState state;
+    size_t room = table.snapshot_warm_frame_limit;
+    OA_CHECK(table.prewarm_snapshots(state, 15, room));
+    OA_CHECK(state.pieces.empty() && state.pieces.capacity() >= 15);
+    const auto used = table.snapshot_warm_frame_limit - room;
+    OA_CHECK(used == table.snapshot_warm_bytes);
+    OA_CHECK(!table.prewarm_snapshots(state, 15, room));
+    draw::ModelState another;
+    size_t exhausted{};
+    OA_CHECK(!table.prewarm_snapshots(another, 15, exhausted));
+    table.snapshot_warm_bytes = table.snapshot_warm_limit;
+    OA_CHECK(!table.prewarm_snapshots(another, 15, room));
+    OA_CHECK(another.pieces.empty() && another.pieces.capacity() == 0);
+}
+
+/// Checks bounded ingress buffer reuse without discarding current root or revisions.
+void fresh_image_invalidation() {
+    draw::ModelState state;
+    state.shift = {17, -211, 41};
+    state.transforms_dirty = true;
+    state.image_builds = 23;
+    state.cache.draws = 9;
+    state.cache.has_image = state.cache.image_has_mask = true;
+    state.image.pixels.resize(4096);
+    state.image.sprite.data = state.image.pixels.data();
+    state.image.sprite.width = state.image.sprite.height = 32;
+    state.shadow.pixels.resize(65537);
+    state.shadow.sprite.data = state.shadow.pixels.data();
+    state.deferred_image = draw::ImageFrame{12, 13, 3, 4};
+    state.deferred_image_depth = state.image_unfinished = true;
+    state.pieces.resize(4);
+    state.finer = std::make_unique<draw::FinerModel>();
+    const auto image_capacity = state.image.pixels.capacity();
+    const auto piece_capacity = state.pieces.capacity();
+    oa::app::invalidate_model_images(state);
+    OA_CHECK(state.cache.draws == 0 && !state.cache.has_image && !state.cache.image_has_mask);
+    OA_CHECK(!state.image.sprite.data && !state.shadow.sprite.data && !state.deferred_image);
+    OA_CHECK(!state.deferred_image_depth && !state.image_unfinished && !state.finer);
+    OA_CHECK(state.image.pixels.empty() && state.image.pixels.capacity() == image_capacity);
+    OA_CHECK(state.shadow.pixels.empty() && state.shadow.pixels.capacity() == 0);
+    OA_CHECK(state.pieces.empty() && state.pieces.capacity() == piece_capacity);
+    OA_CHECK(state.shift.xy == 17 && state.shift.xz == -211 && state.shift.yz == 41);
+    OA_CHECK(state.transforms_dirty && state.image_builds == 23);
+}
 } // namespace
 
 int main() {
@@ -219,5 +300,8 @@ int main() {
     external_materialization_wins();
     root_only_and_refusal();
     image_metadata_gate();
+    current_pose_obligations();
+    fresh_image_invalidation();
+    snapshot_warm_budget();
     return oa::test::check_exit_status();
 }

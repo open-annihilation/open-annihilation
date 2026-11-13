@@ -147,13 +147,17 @@ struct PreplanningVisibility {
         preplanning_visibility::Scratch scratch;
         std::size_t omitted_count{};
         std::size_t whole_tick_postplan_omitted_count{};
+        std::size_t whole_tick_preplan_omitted_count{};
         std::size_t deferred_geometry_count{};
+        std::size_t copy_deferred_geometry_count{};
     };
 
     std::optional<preplanning_visibility::FrameView> view;
     /// All proved records omitted before Scene consumption, from either planner path.
     std::size_t omitted_count{};
     std::size_t copy_preplan_omitted_count{};
+    std::size_t whole_tick_preplan_omitted_count{};
+    std::size_t copy_deferred_geometry_count{};
     std::size_t deferred_geometry_count{};
     std::size_t whole_tick_postplan_omitted_count{};
     bool geometry_unavailable{};

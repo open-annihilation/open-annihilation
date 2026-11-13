@@ -163,23 +163,45 @@ void hold_unit_draw_states(MatchModels& models) {
         } catch (const std::bad_alloc&) {
             // Slots without admitted storage keep ordinary planning.
         }
+    size_t snapshot_warm_room = DeferredModelGeometries::snapshot_warm_frame_limit;
     for (size_t slot = 1; slot < deferred.units.size(); ++slot) {
         auto& kept = deferred.units[slot];
         if (slot >= slots) {
             kept.pending = false;
+            kept.fresh_geometry = kept.fresh_original_images = kept.fresh_copy_images = false;
             continue;
         }
         auto& runtime = models.offline->runtime_state(static_cast<uint16_t>(slot));
         if (!runtime.instance) {
             kept.pending = false;
+            kept.fresh_geometry = kept.fresh_original_images = kept.fresh_copy_images = false;
             continue;
         }
         auto& instance = runtime.instance->model();
-        deferred.prepare(slot, runtime.instance_generation, instance);
+        deferred.prepare(slot, runtime.instance_generation, instance, false);
+        if (enhanced.enabled &&
+            enhanced.version == oa::data::enhanced_mode::cohort_target_version) {
+            auto& draw_state = unit_draw_state(
+                models.units, static_cast<uint16_t>(slot), runtime.instance_generation
+            );
+            std::ignore = deferred.prewarm_snapshots(
+                draw_state, instance.pieces().size(), snapshot_warm_room
+            );
+        }
         const auto& unit = models.offline->world().record.units[slot];
         // A carrier can reach children before their own plan is visited.
-        if ((unit.attach_parent != 0 || unit.attach_first_child != 0) && !kept.resolve(instance))
-            throw std::runtime_error("A linked model's retained geometry could not be restored");
+        if (unit.attach_parent != 0 || unit.attach_first_child != 0) {
+            const auto model = unit_model(models, static_cast<uint16_t>(slot));
+            if (kept.fresh_original_images) {
+                invalidate_model_images(*model.state);
+                kept.fresh_original_images = false;
+            }
+            if (kept.fresh_geometry)
+                model.state->transforms_dirty = true;
+            model_render::update_model_transforms(model);
+            kept.fresh_geometry = false;
+            kept.revision = instance.materialization_revision();
+        }
     }
 }
 
@@ -361,6 +383,11 @@ model_render::ModelRef presented_unit(MatchModels& models, uint16_t slot) {
                 models, world.record, slot, playout_moment(presentation, presentation.fraction)
             )
         );
+    if (slot < models.deferred_geometry.units.size() &&
+        models.deferred_geometry.units[slot].fresh_copy_images) {
+        invalidate_model_images(motion.state);
+        models.deferred_geometry.units[slot].fresh_copy_images = false;
+    }
     return {
         &motion.instance,
         &model_render::prepare_model(models.library, motion.instance.model_handle()),
@@ -651,7 +678,7 @@ preplanning_geometry(MatchModels& models, const model_render::ModelRef& model) {
     }
 }
 
-/// Omits only a presentation copy after its original's ordinary update ran.
+/// Omits an invisible presentation copy; the caller resolves its original when required.
 bool omit_presented_model(
     MatchModels& models,
     model_render::ModelRenderer& renderer,
@@ -767,8 +794,8 @@ bool omit_completed_model(
     return true;
 }
 
-/// Advances an invisible original's cache metadata while its vectors wait.
-/// Only a no-rebuild metadata plan is admitted; historical image frames stay intact.
+/// Freezes an invisible original's presentation until a real consumer needs it.
+/// Cached animation does not build images or vectors while every contribution is outside.
 bool defer_invisible_model(
     MatchModels& models,
     model_render::ModelRenderer& renderer,
@@ -789,16 +816,13 @@ bool defer_invisible_model(
     if (!motion.seen || !motion.rig_valid || motion.tick != models.presentation.tick ||
         motion.instance_generation != plan.preplanning_generation ||
         deferred->generation != plan.preplanning_generation ||
-        deferred->poses.size() != model.instance->pieces().size() ||
+        model.instance->pieces().size() > DeferredModelGeometries::maximum_pieces ||
+        model.state->finer || model.state->build_bands || model.state->image_unfinished ||
         !frame.shadow_type_supported(frame.shadow_type_context, model))
         return false;
-    model_render::note_piece_changes(model);
     model_render::set_model_shift(
         model, {model.unit->bank, static_cast<int16_t>(model.unit->heading), model.unit->pitch}
     );
-    const auto step = deferred_model_cache_step(model, plan.idle);
-    if (!step)
-        return false;
     constexpr float fixed_scale = 65536;
     const auto& position = model.unit->position;
     const auto fog = renderer_live_sight::fog_at(
@@ -817,40 +841,43 @@ bool defer_invisible_model(
     gate.rig_generation = motion.instance_generation;
     gate.sea_level = frame.sea_level;
     gate.ground_height = renderer.ground_height(renderer.user, position);
-    if (!preplanning_visibility::rejection_proof(
-            *plan.preplanning_geometry,
-            model,
-            model.state->shift,
-            *frame.preplanning->view,
-            gate,
-            worker->scratch
-        ))
+    const bool geometry_needed = deferred->fresh_geometry || model.state->transforms_dirty ||
+                                 model.instance->transforms_dirty();
+    // A newer effect can leave current geometry at its exact root rotation.
+    // When no update is due, prove against those actual vectors, not an older shift.
+    const bool outside = geometry_needed
+                             ? preplanning_visibility::rejection_proof(
+                                   *plan.preplanning_geometry,
+                                   model,
+                                   model.state->shift,
+                                   *frame.preplanning->view,
+                                   gate,
+                                   worker->scratch
+                               )
+                             : preplanning_visibility::detail::rejection_proof_with_bounds(
+                                   model, *frame.preplanning->view, gate, [&] {
+                                       return preplanning_visibility::bound_completed_instance(
+                                           *model.instance, worker->scratch
+                                       );
+                                   }
+                               );
+    if (!outside)
         return false;
-    if (!deferred->pending && !model.state->transforms_dirty && !model.instance->transforms_dirty())
-        return false;
-    if (!deferred->retain(*model.instance, model.state->shift))
-        return false;
-    auto& state = *model.state;
-    state.cache.has_image = true;
-    state.cache.image_has_mask = state.image.sprite.data != nullptr
-                                     ? state.image.sprite.aux != nullptr
-                                     : state.deferred_image_depth;
-    std::ignore = model_render::prepare_unit_sprite(*model.unit, state.cache, plan.idle);
-    // This flag follows the logical presentation update. Instance's built
-    // inputs stay truthful; the separate recipe names the waiting vectors.
-    state.transforms_dirty = false;
+    deferred->freeze_current(*model.instance, geometry_needed, false);
+    model.state->transforms_dirty = false;
     plan.draw = {};
     plan.draw.model = model;
     plan.draw.shown_position = position;
     plan.draw.plan.level = model_render::UnitSupersampling::off;
     plan.draw.plan.covered = {0, 0, -1, -1};
-    plan.draw.plan.model.from_image = true;
     plan.draw.plan.model.ground = gate.ground_height;
-    plan.draw.plan.linked.unlit = step->unlit;
+    plan.draw.plan.linked.unlit = plan.idle;
     plan.draw.preplan_omitted = true;
     plan.carried.clear();
     plan.adds_draw = true;
-    ++worker->deferred_geometry_count;
+    ++worker->whole_tick_preplan_omitted_count;
+    if (geometry_needed)
+        ++worker->deferred_geometry_count;
     return true;
 }
 
@@ -1034,13 +1061,7 @@ void plan_unit_model(
                          ? &models.deferred_geometry.units[plan.unit_index]
                          : nullptr;
     if (deferred)
-        deferred->observe(*model.instance);
-    if (defer_invisible_model(models, renderer, frame, plan, preplanning_worker, deferred))
-        return;
-    // Restore previous logical geometry before classic/sampled region reads.
-    // An intervening effect's newer revision has already superseded the recipe.
-    if (deferred && !deferred->resolve(*model.instance))
-        throw std::runtime_error("A model's retained geometry could not be restored");
+        deferred->observe_fresh(*model.instance);
     const auto update = [&](const model_render::ModelRef& shown) {
         if (plan.linked || transforms == nullptr) {
             model_render::update_linked_transforms(renderer, shown);
@@ -1072,30 +1093,82 @@ void plan_unit_model(
             shown.state->transforms_dirty = false;
         }
     };
-    if (plan.from_copies) {
-        // The unit's own transforms are rebuilt as a draw of the whole tick
-        // rebuilds them, so that the next such draw measures the region it
-        // may touch from them as before, and the unit draws from its copies
-        // placed between the ticks, which take its pieces' poses but keep
-        // their own transforms. The image cache of the unit's own draw
-        // state waits for a draw of a whole tick, which leaves it as it
-        // would have been.
-        // A carried unit is drawn, and its transforms rebuilt, by its
-        // carrier (draw_linked_model).
-        const bool carried = model.unit->attach_parent != 0;
-        model_render::note_piece_changes(model);
-        if (!carried)
+    // Resolve only current inputs. Frozen offscreen image history is discarded
+    // before a genuine image or a classic/sample region can consume the model.
+    const auto consume_original = [&] {
+        if (!deferred)
+            return;
+        const bool fresh = deferred->fresh_geometry || deferred->fresh_original_images;
+        if (deferred->fresh_original_images) {
+            invalidate_model_images(*model.state);
+            deferred->fresh_original_images = false;
+        }
+        if (deferred->fresh_geometry)
+            model.state->transforms_dirty = true;
+        if (fresh)
             update(model);
-        // While a unit draws from its copies, the units it carries draw
-        // from theirs (carried_model).
+        deferred->fresh_geometry = false;
+        deferred->revision = model.instance->materialization_revision();
+    };
+    const auto consume_copy = [&] {
+        if (deferred && deferred->fresh_copy_images) {
+            invalidate_model_images(*plan.shown.state);
+            deferred->fresh_copy_images = false;
+        }
+    };
+    if (plan.from_copies) {
+        const bool carried = model.unit->attach_parent != 0;
+        const bool may_freeze =
+            frame.defer_geometry && frame.level == model_render::UnitSupersampling::off &&
+            frame.live_world && !plan.linked && !frame.snapshot_unlinked_vertices &&
+            frame.preplanning && frame.preplanning->view && frame.preplanning->budget_safe &&
+            deferred && deferred->generation == plan.preplanning_generation &&
+            model.instance->pieces().size() <= DeferredModelGeometries::maximum_pieces &&
+            !model.state->finer && !model.state->build_bands && !model.state->image_unfinished;
+        if (!may_freeze) {
+            consume_original();
+            model_render::note_piece_changes(model);
+            if (!carried)
+                update(model);
+        } else {
+            // Tracking the inexpensive effective root keeps the rejection proof
+            // and fresh ingress on the same thresholded orientation.
+            model_render::set_model_shift(
+                model,
+                {model.unit->bank, static_cast<int16_t>(model.unit->heading), model.unit->pitch}
+            );
+        }
         std::optional<Blending> blending;
         if (plan.linked)
             blending.emplace(models.presentation);
         plan.shown = unit_copies(models, plan.unit_index, model, plan.pose);
-        model_render::note_piece_changes(plan.shown);
+        if (!may_freeze) {
+            consume_copy();
+            model_render::note_piece_changes(plan.shown);
+        }
         if (carried)
             return;
-        if (omit_presented_model(models, renderer, frame, plan, preplanning_worker))
+        const bool omitted =
+            omit_presented_model(models, renderer, frame, plan, preplanning_worker);
+        if (omitted && may_freeze) {
+            const bool needed = deferred->fresh_geometry || model.state->transforms_dirty ||
+                                model.instance->transforms_dirty();
+            deferred->freeze_current(*model.instance, needed, true);
+            model.state->transforms_dirty = false;
+            if (needed) {
+                ++preplanning_worker->deferred_geometry_count;
+                ++preplanning_worker->copy_deferred_geometry_count;
+            }
+            return;
+        }
+        if (may_freeze) {
+            consume_original();
+            model_render::note_piece_changes(model);
+            update(model);
+            consume_copy();
+            model_render::note_piece_changes(plan.shown);
+        }
+        if (omitted)
             return;
         update(plan.shown);
         plan_model(
@@ -1114,6 +1187,9 @@ void plan_unit_model(
         plan.adds_draw = true;
         return;
     }
+    if (defer_invisible_model(models, renderer, frame, plan, preplanning_worker, deferred))
+        return;
+    consume_original();
     model_render::note_piece_changes(model);
     if (!plan.linked && transforms != nullptr)
         update(model);
@@ -1213,7 +1289,9 @@ void plan_unit_draws(
             for (auto& worker : preplanning_workers) {
                 worker.omitted_count = 0;
                 worker.whole_tick_postplan_omitted_count = 0;
+                worker.whole_tick_preplan_omitted_count = 0;
                 worker.deferred_geometry_count = 0;
+                worker.copy_deferred_geometry_count = 0;
             }
         } catch (const std::bad_alloc&) {
             preplanning_ready = false;
@@ -1273,12 +1351,16 @@ void plan_unit_draws(
     if (preplanning_ready)
         for (const auto& worker : preplanning_workers) {
             models.preplanning_visibility.copy_preplan_omitted_count += worker.omitted_count;
+            models.preplanning_visibility.whole_tick_preplan_omitted_count +=
+                worker.whole_tick_preplan_omitted_count;
             models.preplanning_visibility.deferred_geometry_count += worker.deferred_geometry_count;
+            models.preplanning_visibility.copy_deferred_geometry_count +=
+                worker.copy_deferred_geometry_count;
             models.preplanning_visibility.whole_tick_postplan_omitted_count +=
                 worker.whole_tick_postplan_omitted_count;
             models.preplanning_visibility.omitted_count +=
                 worker.omitted_count + worker.whole_tick_postplan_omitted_count +
-                worker.deferred_geometry_count;
+                worker.whole_tick_preplan_omitted_count;
         }
     const std::pair<uint32_t, std::string>* first_failure = nullptr;
     for (uint32_t band = 0; band < bands; ++band)
@@ -2013,7 +2095,9 @@ bool Runtime::draw_match_surface() {
     models.preplanning_visibility.omitted_count = 0;
     models.preplanning_visibility.copy_preplan_omitted_count = 0;
     models.preplanning_visibility.deferred_geometry_count = 0;
+    models.preplanning_visibility.copy_deferred_geometry_count = 0;
     models.preplanning_visibility.whole_tick_postplan_omitted_count = 0;
+    models.preplanning_visibility.whole_tick_preplan_omitted_count = 0;
     models.preplanning_visibility.geometry_unavailable = false;
     models.preplanning_visibility.budget_safe = false;
     observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
