@@ -32,6 +32,14 @@ if(NOT TARGET oa-options)
       target_compile_options(oa-options INTERFACE -Werror)
     endif()
   endif()
+  # A Visual Studio project compiles its sources one at a time unless /MP
+  # is on; with it, the compiler takes a target's sources on every
+  # processor, which matters most for oa-game's few hundred sources. Ninja
+  # already runs a compiler for each processor, one source each, so only
+  # the Visual Studio generators take /MP.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND CMAKE_GENERATOR MATCHES "^Visual Studio")
+    target_compile_options(oa-options INTERFACE /MP)
+  endif()
   # Each basic floating-point operation is rounded as written: never fused
   # into a multiply-add, which GCC and Clang do by default wherever the CPU
   # has the instruction (arm64 has it; baseline x86-64 does not), and never
