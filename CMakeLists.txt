@@ -1119,7 +1119,8 @@ if(BUILD_TESTING)
   # rejected draw obtains current native vectors and actual image pixels.
   add_executable(oa-app-root-prefix-model-plan-test src/app/root_prefix_model_plan_test.cpp)
   target_link_libraries(oa-app-root-prefix-model-plan-test PRIVATE oa-app-headers
-    oa-present-model oa-sim-model-runtime oa-base-game-math oa-test-support oa-options)
+    oa-present-model oa-present-world-renderer oa-sim-model-runtime oa-base-game-math
+    oa-test-support oa-options)
   add_test(NAME app-root-prefix-model-plan COMMAND oa-app-root-prefix-model-plan-test)
   add_executable(oa-app-deferred-model-geometry-test src/app/deferred_model_geometry_test.cpp)
   target_link_libraries(oa-app-deferred-model-geometry-test PRIVATE oa-app-headers
