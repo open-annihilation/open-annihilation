@@ -2,8 +2,9 @@
 
 `--prototype-root-prefix` is off by default. It permits a different body
 rendering and picking policy in Full, undirected, locally simulated Enhanced
-10 and 11 matches. It does not choose a camera, change the default preset, or
-change simulation, unit scripts, effects geometry, saves, or random numbers.
+10, 11 and private experimental 13 matches. It does not choose a camera,
+change the default preset, or change simulation, unit scripts, effects
+geometry, saves, or random numbers.
 
 The renderer retains an owned exact model prefix with the final root XZ turn
 removed. It supplies a signed Q30 sine/cosine pair and root placement for each

@@ -219,8 +219,9 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `10` or `11` with Enhanced Mode to compare the
-presets on the same seed. The report includes simulation phase timings and
+Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `10`,
+`11` or private experimental `13` with Enhanced Mode to compare the presets
+on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
 

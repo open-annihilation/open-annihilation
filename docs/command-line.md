@@ -217,7 +217,7 @@ with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with 
 | `--hardware-acceleration[=off\|basic\|full]` | Sets Hardware acceleration for this run; alone it is `full`. |
 | `--no-hardware-acceleration` | Turns Hardware acceleration off for this run. |
 | `--experimental-3d` | Accepted for older launch scripts; camera access is now controlled by Graphics → Allow Full 3D Mode, On by default. |
-| `--prototype-root-prefix` | Enables the experimental [Q30 body rendering policy](development/root-prefix-rendering.md) for eligible local ground units in Enhanced 10 or 11 matches using Full 3D. Off by default; its GPU transforms and picking follow the linked policy. |
+| `--prototype-root-prefix` | Enables the experimental [Q30 body rendering policy](development/root-prefix-rendering.md) for eligible local ground units in Enhanced 10, 11 or private experimental 13 matches using Full 3D. Off by default; its GPU transforms and picking follow the linked policy. |
 | `--native-density` | Opens the window at the display's own pixel density for this run. |
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
 | `--enhanced-mode[=on\|off]` | Sets Enhanced Mode for this launch; alone it is On and selects the supplied new-game preset. |
@@ -653,7 +653,7 @@ a comment. Every key may be left out:
 | `label NAME` | The run's name in its lines. | the file's name without its extension |
 | `stage FILE` | A stage played into the match once it starts; a path that is not absolute is taken from the view file's folder. | none |
 | `players N` | The skirmish's players, from 2 to 10. | 2 |
-| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 8, 10 or 11; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
+| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 8, 10, 11 or private experimental 13; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
 | `menu_seconds S` | Seconds on the main menu first. | 1 |
 | `warmup_ticks N` | The match tick the measured span starts at. | 600 |
 | `warmup_frames N` | Additional rendered warm-up frames after staging and the tick warm-up. | 0 |
@@ -1832,7 +1832,7 @@ independent graphics setting.
 | `--benchmark-scenario idle\|march\|group-march\|combat` | Hold fire, independent cross-map moves, shared destination patches, or explicit attacks | combat |
 | `--benchmark-map NAME` | An installed map with two start positions | Coast To Coast |
 | `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
-| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8\|10\|11` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
+| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8\|10\|11\|13` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
 | `--match-ticks N` | Successful measured ticks required | 300 |
 | `--seed N` | Match random seed | the engine's fixed seed |
 | `--enhanced-mode[=on\|off]` | Enhanced rules for this run; a bare flag means on | stored choice |
