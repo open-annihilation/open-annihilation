@@ -108,6 +108,54 @@ struct TexturedBodyLodFixture : BodyLodFixture {
     }
 };
 
+/// Material readiness controls retain the same physical payload and per-unit choices.
+/// @param expected the reference frame
+/// @param actual the memoized or independently partitioned frame
+void check_body_material_frame(const live::Scene& expected, const live::Scene& actual) {
+    const auto left = card_frame(expected), right = card_frame(actual);
+    OA_CHECK(left.units == right.units && left.vertices.size() == right.vertices.size());
+    if (left.vertices.size() == right.vertices.size() && !left.vertices.empty())
+        OA_CHECK(
+            std::memcmp(
+                left.vertices.data(),
+                right.vertices.data(),
+                left.vertices.size() * sizeof(left.vertices[0])
+            ) == 0
+        );
+    OA_CHECK(expected.texture_rgba == actual.texture_rgba);
+    const auto& a = expected.body_lod_counts;
+    const auto& b = actual.body_lod_counts;
+    OA_CHECK(
+        std::tie(
+            a.full_mesh_models,
+            a.body_lod_models,
+            a.distance_markers,
+            a.budget_markers,
+            a.full_mesh_vertices,
+            a.body_lod_vertices,
+            a.shadow_vertices
+        ) ==
+        std::tie(
+            b.full_mesh_models,
+            b.body_lod_models,
+            b.distance_markers,
+            b.budget_markers,
+            b.full_mesh_vertices,
+            b.body_lod_vertices,
+            b.shadow_vertices
+        )
+    );
+    OA_CHECK(expected.unit_detail.size() == actual.unit_detail.size());
+    for (std::size_t index = 0;
+         index < std::min(expected.unit_detail.size(), actual.unit_detail.size());
+         ++index) {
+        OA_CHECK(
+            expected.unit_detail[index].body_available == actual.unit_detail[index].body_available
+        );
+        OA_CHECK(expected.unit_detail[index].body_lod == actual.unit_detail[index].body_lod);
+    }
+}
+
 /// A new build rechecks changed texture frames instead of retaining prior readiness.
 void body_lod_material_changes() {
     TexturedBodyLodFixture fixture;
@@ -249,60 +297,17 @@ void body_lod_material_bands() {
         else
             fixture.prepared.owner.reset();
     };
-    const auto compare = [&](const live::Scene& actual) {
-        const auto& expected = scenes[0];
-        const auto left = card_frame(expected), right = card_frame(actual);
-        OA_CHECK(left.units == right.units && left.vertices.size() == right.vertices.size());
-        if (left.vertices.size() == right.vertices.size() && !left.vertices.empty())
-            OA_CHECK(
-                std::memcmp(
-                    left.vertices.data(),
-                    right.vertices.data(),
-                    left.vertices.size() * sizeof(left.vertices[0])
-                ) == 0
-            );
-        const auto& a = expected.body_lod_counts;
-        const auto& b = actual.body_lod_counts;
-        OA_CHECK(
-            std::tie(
-                a.full_mesh_models,
-                a.body_lod_models,
-                a.distance_markers,
-                a.budget_markers,
-                a.full_mesh_vertices,
-                a.body_lod_vertices,
-                a.shadow_vertices
-            ) ==
-            std::tie(
-                b.full_mesh_models,
-                b.body_lod_models,
-                b.distance_markers,
-                b.budget_markers,
-                b.full_mesh_vertices,
-                b.body_lod_vertices,
-                b.shadow_vertices
-            )
-        );
-        OA_CHECK(expected.unit_detail.size() == actual.unit_detail.size());
-        for (std::size_t index = 0;
-             index < std::min(expected.unit_detail.size(), actual.unit_detail.size());
-             ++index)
-            OA_CHECK(
-                expected.unit_detail[index].body_available ==
-                actual.unit_detail[index].body_available
-            );
-    };
     OA_CHECK(live::build(battle.inputs, scenes[0], battle.error));
     OA_CHECK(scenes[0].body_lod_counts.full_mesh_models == population / 3);
     OA_CHECK(scenes[0].body_lod_counts.body_lod_models == population - population / 3);
     ownership(false);
     OA_CHECK(live::build(battle.inputs, scenes[1], battle.error));
-    compare(scenes[1]);
+    check_body_material_frame(scenes[0], scenes[1]);
     ownership(true);
     oa::platform::job_pool::Pool four(4);
     battle.inputs.pool = &four;
     OA_CHECK(live::build(battle.inputs, scenes[2], battle.error));
-    compare(scenes[2]);
+    check_body_material_frame(scenes[0], scenes[2]);
     // A palette edit also exercises material re-packing after a warm frame.
     const auto old_atlas = scenes[0].texture_rgba;
     battle.palette[alternate_index * oa::palette_entry_bytes] ^= uint8_t{17};
@@ -310,8 +315,73 @@ void body_lod_material_bands() {
     OA_CHECK(live::build(battle.inputs, scenes[0], battle.error));
     ownership(false);
     OA_CHECK(live::build(battle.inputs, scenes[1], battle.error));
-    compare(scenes[1]);
+    check_body_material_frame(scenes[0], scenes[1]);
     OA_CHECK(scenes[0].texture_rgba != old_atlas);
+}
+
+/// A bounded memo preserves distinct readiness as many independently owned types collide.
+void body_lod_material_capacity() {
+    constexpr uint32_t population = 128;
+    constexpr uint32_t first_unready = 43;
+    constexpr uint32_t last_unready = population - 1;
+    std::vector<std::unique_ptr<TexturedBodyLodFixture>> fixtures;
+    fixtures.reserve(population);
+    oa::app::WorldDrawList draws;
+    for (uint32_t index = 0; index < population; ++index) {
+        auto& fixture = *fixtures.emplace_back(std::make_unique<TexturedBodyLodFixture>());
+        fixture.unit.id = static_cast<uint16_t>(index + 1);
+        for (auto& piece : fixture.instance.pieces())
+            piece.flags |= static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached);
+        draws.models.push_back(fixture.battle.draws.models[0]);
+    }
+    draws.shadow_level = oa::present::model::shadow_full_level;
+    auto inputs = fixtures[0]->battle.inputs;
+    inputs.draws = &draws;
+    // Their first frames remain valid, so full meshes draw successfully;
+    // unused running slots must reject coarse bodies for these later types.
+    fixtures[first_unready]->texture.frames[1].width = 0;
+    fixtures[last_unready]->texture.frames[1].width = 0;
+    live::Scene memoized, ordinary;
+    std::string error;
+    OA_CHECK(live::build(inputs, memoized, error));
+    OA_CHECK(memoized.body_lod_counts.body_lod_models == population - 2);
+    OA_CHECK(memoized.body_lod_counts.full_mesh_models == 2);
+    OA_CHECK(memoized.unit_detail.size() == population);
+    for (uint32_t index = 0; index < std::min<std::size_t>(population, memoized.unit_detail.size());
+         ++index)
+        OA_CHECK(
+            memoized.unit_detail[index].body_available ==
+            (index != first_unready && index != last_unready)
+        );
+    for (auto& fixture : fixtures)
+        fixture->prepared.owner.reset();
+    OA_CHECK(live::build(inputs, ordinary, error));
+    check_body_material_frame(ordinary, memoized);
+}
+
+/// Live metadata from a different model or ownership group keeps ordinary material checks.
+void body_lod_material_owner_mismatch() {
+    TexturedBodyLodFixture fixture, other;
+    auto& battle = fixture.battle;
+    live::Scene expected;
+    OA_CHECK(live::build(battle.inputs, expected, battle.error));
+    auto anchor = std::make_shared<uint8_t>(0);
+    const std::shared_ptr<const oa::formats::objects3d::Model> alias(anchor, fixture.source.get());
+    fixture.prepared.owner = alias;
+    OA_CHECK(
+        fixture.prepared.owner.owner_before(fixture.source) ||
+        fixture.source.owner_before(fixture.prepared.owner)
+    );
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    check_body_material_frame(expected, battle.scene);
+    fixture.prepared.owner = fixture.source;
+    fixture.prepared.model = other.source.get();
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    check_body_material_frame(expected, battle.scene);
+    fixture.prepared.owner = other.source;
+    fixture.prepared.model = fixture.source.get();
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    check_body_material_frame(expected, battle.scene);
 }
 
 /// Physical hulls follow moving visible pieces and retain actual GPU pick geometry.
@@ -320,6 +390,8 @@ void animated_body_lod_scene() {
     body_lod_material_teams();
     body_lod_material_types();
     body_lod_material_bands();
+    body_lod_material_capacity();
+    body_lod_material_owner_mismatch();
     namespace runtime = oa::sim::model_runtime;
     BodyLodFixture fixture;
     auto& battle = fixture.battle;
