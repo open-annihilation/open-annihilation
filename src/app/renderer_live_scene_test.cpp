@@ -10328,6 +10328,407 @@ std::vector<std::array<float, 3>> root_prefix_shadow_points(const live::Scene& s
     return result;
 }
 
+/// Captures fixed and float bounds without retaining recipe owners or padding bytes.
+std::vector<uint64_t> root_prefix_bounds_payload(const live::RootPrefixBoundsMemo& memo) {
+    std::vector<uint64_t> result;
+    const auto floats = [&](const auto& values) {
+        for (const auto value : values)
+            result.push_back(std::bit_cast<uint32_t>(value));
+    };
+    result.push_back(memo.epoch);
+    result.push_back(memo.draws.size());
+    result.push_back(memo.pieces.size());
+    for (const auto& record : memo.draws) {
+        for (const auto value : record.origin)
+            result.push_back(std::bit_cast<uint32_t>(value));
+        result.insert(
+            result.end(),
+            {record.visible_mask,
+             record.nonempty_mask,
+             record.epoch,
+             record.first_piece,
+             record.piece_count,
+             record.domain,
+             record.full_view_valid}
+        );
+        floats(record.full_view.low);
+        floats(record.full_view.high);
+        floats(record.full_view.picture);
+    }
+    for (const auto& piece : memo.pieces) {
+        for (const auto point : {piece.fixed.low, piece.fixed.high})
+            for (const auto value : {point.x, point.y, point.z})
+                result.push_back(std::bit_cast<uint32_t>(value));
+        floats(piece.low);
+        floats(piece.high);
+        result.push_back(piece.valid);
+    }
+    return result;
+}
+
+/// Compares rendered triangles and the scalar decisions affected by exact bounds.
+void check_root_prefix_bounds_frame(const live::Scene& expected, const live::Scene& actual) {
+    check_body_material_frame(expected, actual);
+    OA_CHECK(root_prefix_shadow_points(expected) == root_prefix_shadow_points(actual));
+    OA_CHECK(expected.cards.units.size() == actual.cards.units.size());
+    for (size_t at = 0; at < std::min(expected.cards.units.size(), actual.cards.units.size());
+         ++at) {
+        const auto& a = expected.cards.units[at];
+        const auto& b = actual.cards.units[at];
+        OA_CHECK(
+            std::tie(
+                a.unit_id,
+                a.vertex,
+                a.index_count,
+                a.left,
+                a.top,
+                a.right,
+                a.bottom,
+                a.bounded,
+                a.marker,
+                a.body_lod,
+                a.root_prefix,
+                a.displayed_anchor
+            ) ==
+            std::tie(
+                b.unit_id,
+                b.vertex,
+                b.index_count,
+                b.left,
+                b.top,
+                b.right,
+                b.bottom,
+                b.bounded,
+                b.marker,
+                b.body_lod,
+                b.root_prefix,
+                b.displayed_anchor
+            )
+        );
+    }
+    OA_CHECK(expected.cards.casts.size() == actual.cards.casts.size());
+    for (size_t at = 0; at < std::min(expected.cards.casts.size(), actual.cards.casts.size());
+         ++at) {
+        const auto& a = expected.cards.casts[at];
+        const auto& b = actual.cards.casts[at];
+        OA_CHECK(
+            std::tie(
+                a.kind, a.base, a.ground_half, a.least_height, a.light, a.depth, a.across, a.down
+            ) ==
+            std::tie(
+                b.kind, b.base, b.ground_half, b.least_height, b.light, b.depth, b.across, b.down
+            )
+        );
+    }
+    for (size_t at = 0; at < std::min(expected.unit_detail.size(), actual.unit_detail.size());
+         ++at) {
+        const auto& a = expected.unit_detail[at];
+        const auto& b = actual.unit_detail[at];
+        OA_CHECK(std::bit_cast<uint32_t>(a.pixels) == std::bit_cast<uint32_t>(b.pixels));
+        for (size_t axis = 0; axis < a.center.size(); ++axis)
+            OA_CHECK(
+                std::bit_cast<uint32_t>(a.center[axis]) == std::bit_cast<uint32_t>(b.center[axis])
+            );
+        OA_CHECK(
+            std::tie(
+                a.pixels,
+                a.center,
+                a.body_piece_mask,
+                a.body_medium_piece_mask,
+                a.surface_outside,
+                a.shadow_outside
+            ) ==
+            std::tie(
+                b.pixels,
+                b.center,
+                b.body_piece_mask,
+                b.body_medium_piece_mask,
+                b.surface_outside,
+                b.shadow_outside
+            )
+        );
+    }
+}
+
+/// Keeps fractional, signed and sparse body bounds identical to uncached arithmetic.
+void root_prefix_bounds_exact_frames() {
+    bool strict_subset = false;
+    for (const size_t pieces : {size_t{2}, size_t{8}, size_t{64}})
+        for (const float scale : {0.4F, 0.8F, 1.6F}) {
+            RootPrefixSceneFixture fixture(pieces);
+            auto& battle = fixture.battle;
+            auto& draw = battle.draws.models[0];
+            constexpr int32_t fixed = oa::app::root_prefix_fixed_scale;
+            draw.shown_position =
+                oa::FixedVec3{16 * fixed + fixed / 3, fixed / 7, 16 * fixed - fixed / 5};
+            fixture.recipe.placement.x += fixed / 11;
+            draw.root_prefix = fixture.recipe;
+            if (pieces == 64)
+                for (size_t piece = 1; piece + 1 < pieces; ++piece)
+                    fixture.instance.pieces()[piece].flags &=
+                        ~static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
+            battle.inputs.clip_projection = {
+                scale,
+                -0.0F,
+                -0.21F * scale,
+                48.375F,
+                -0.17F * scale,
+                -0.5F * scale,
+                scale,
+                49.8125F,
+                0,
+                -0.001F,
+                0,
+                0.5F
+            };
+            battle.inputs.detail_scale = 0.5F;
+            live::Scene cached, ordinary;
+            auto cached_inputs = battle.inputs;
+            live::begin_root_prefix_bounds(cached_inputs, cached);
+            OA_CHECK(live::root_prefix_supported(cached_inputs, draw, *draw.root_prefix));
+            OA_CHECK(cached.root_prefix_bounds.draws.size() == 1);
+            if (cached.root_prefix_bounds.draws.empty())
+                continue;
+            const auto& record = cached.root_prefix_bounds.draws[0];
+            OA_CHECK(record.epoch == cached.root_prefix_bounds.epoch && record.full_view_valid);
+            if (pieces == 64)
+                OA_CHECK(record.visible_mask == (uint64_t{1} | (uint64_t{1} << 63)));
+            const auto payload = root_prefix_bounds_payload(cached.root_prefix_bounds);
+            auto ordinary_inputs = battle.inputs;
+            live::begin_root_prefix_bounds(ordinary_inputs, ordinary, 0);
+            OA_CHECK(live::build(ordinary_inputs, ordinary, battle.error));
+            OA_CHECK(live::build(cached_inputs, cached, battle.error));
+            check_root_prefix_bounds_frame(ordinary, cached);
+            if (pieces == 8 && cached.unit_detail.size() == 1) {
+                const auto& detail = cached.unit_detail[0];
+                const auto selected =
+                    detail.body_lod == 1 ? detail.body_piece_mask : detail.body_medium_piece_mask;
+                strict_subset |= detail.body_lod != 0 && selected != record.visible_mask;
+            }
+            OA_CHECK(root_prefix_bounds_payload(cached.root_prefix_bounds) == payload);
+            OA_CHECK(!cached.root_prefix_bounds.draws[0].recipe.geometry);
+            OA_CHECK(ordinary.root_prefix_bounds.draws.empty());
+        }
+    OA_CHECK(strict_subset);
+}
+
+/// Every changed key bypasses poisoned bounds rather than reusing an earlier recipe.
+void root_prefix_bounds_key_misses() {
+    for (unsigned change = 0; change < 9; ++change) {
+        RootPrefixSceneFixture fixture;
+        auto& battle = fixture.battle;
+        auto& draw = battle.draws.models[0];
+        live::Scene cached, ordinary;
+        auto inputs = battle.inputs;
+        live::begin_root_prefix_bounds(inputs, cached);
+        OA_CHECK(live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+        OA_CHECK(cached.root_prefix_bounds.draws.size() == 1);
+        if (cached.root_prefix_bounds.draws.empty())
+            continue;
+        auto& record = cached.root_prefix_bounds.draws[0];
+        record.full_view.low.fill(-2000);
+        record.full_view.high.fill(-1900);
+        record.full_view.picture.fill(-2000);
+        for (auto& piece : cached.root_prefix_bounds.pieces) {
+            piece.fixed = {
+                {-100 * 65536, -100 * 65536, -100 * 65536}, {-90 * 65536, -90 * 65536, -90 * 65536}
+            };
+            piece.low.fill(-2000);
+            piece.high.fill(-1900);
+        }
+        auto& recipe = *draw.root_prefix;
+        switch (change) {
+        case 0:
+            recipe.geometry = std::make_shared<oa::app::RootPrefixGeometry>(*recipe.geometry);
+            break;
+        case 1:
+            ++recipe.rotation.sine;
+            break;
+        case 2:
+            --recipe.rotation.cosine;
+            break;
+        case 3:
+            ++recipe.placement.x;
+            break;
+        case 4:
+            draw.shown_position = fixture.unit.position;
+            ++draw.shown_position->x;
+            break;
+        case 5:
+            inputs.clip_projection[1] = -0.0F;
+            break;
+        case 6:
+            inputs.clip_projection[0] = std::nextafter(inputs.clip_projection[0], 1.0F);
+            break;
+        case 7:
+            fixture.instance.pieces()[1].flags &=
+                ~static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
+            break;
+        case 8:
+            ++inputs.root_prefix_bounds_epoch;
+            break;
+        }
+        auto ordinary_inputs = inputs;
+        live::begin_root_prefix_bounds(ordinary_inputs, ordinary, 0);
+        OA_CHECK(live::build(ordinary_inputs, ordinary, battle.error));
+        OA_CHECK(live::build(inputs, cached, battle.error));
+        check_root_prefix_bounds_frame(ordinary, cached);
+    }
+}
+
+/// Admission keeps live map and unit gates, and foreign draws cannot seed an epoch.
+void root_prefix_bounds_live_admission() {
+    RootPrefixSceneFixture fixture;
+    auto& battle = fixture.battle;
+    auto& draw = battle.draws.models[0];
+    live::Scene scene;
+    auto inputs = battle.inputs;
+    live::begin_root_prefix_bounds(inputs, scene);
+    const auto copied = draw;
+    OA_CHECK(live::root_prefix_supported(inputs, copied, *copied.root_prefix));
+    OA_CHECK(scene.root_prefix_bounds.draws.size() == 1);
+    if (scene.root_prefix_bounds.draws.empty())
+        return;
+    OA_CHECK(scene.root_prefix_bounds.draws[0].epoch == 0);
+    OA_CHECK(live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    fixture.unit.state_flags |= oa::present::model::unit_state_cloaked;
+    OA_CHECK(!live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    fixture.unit.state_flags &= ~oa::present::model::unit_state_cloaked;
+    const auto attributes = battle.map.attributes;
+    battle.map.attributes.clear();
+    OA_CHECK(!live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    battle.map.attributes = attributes;
+    fixture.unit.position.y = 4 * oa::app::root_prefix_fixed_scale;
+    inputs.sea_level = 2;
+    for (auto& attribute : battle.map.attributes)
+        attribute.height = 3;
+    live::begin_root_prefix_bounds(inputs, scene);
+    OA_CHECK(live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    for (auto& attribute : battle.map.attributes)
+        attribute.height = 0;
+    OA_CHECK(!live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    for (auto& attribute : battle.map.attributes)
+        attribute.height = 3;
+    auto replacement = std::make_shared<oa::app::RootPrefixGeometry>(*fixture.recipe.geometry);
+    draw.root_prefix->geometry = replacement;
+    live::begin_root_prefix_bounds(inputs, scene);
+    OA_CHECK(live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    std::weak_ptr<const oa::app::RootPrefixGeometry> old_owner = replacement;
+    replacement.reset();
+    draw.root_prefix->geometry = fixture.recipe.geometry;
+    live::begin_root_prefix_bounds(inputs, scene);
+    OA_CHECK(old_owner.expired());
+    replacement = std::make_shared<oa::app::RootPrefixGeometry>(*fixture.recipe.geometry);
+    draw.root_prefix->geometry = replacement;
+    live::begin_root_prefix_bounds(inputs, scene);
+    OA_CHECK(live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    std::weak_ptr<const oa::app::RootPrefixGeometry> aborted_owner = replacement;
+    replacement.reset();
+    draw.root_prefix->geometry = fixture.recipe.geometry;
+    inputs.root_prefix_enabled = false;
+    live::begin_root_prefix_bounds(inputs, scene);
+    OA_CHECK(aborted_owner.expired() && !scene.root_prefix_bounds.prepared);
+    OA_CHECK(inputs.root_prefix_bounds == nullptr && inputs.root_prefix_bounds_epoch == 0);
+}
+
+/// Epochs, moved Scenes and refused allocations retain the uncached frame.
+void root_prefix_bounds_lifecycle() {
+    RootPrefixSceneFixture fixture;
+    auto& battle = fixture.battle;
+    const auto& draw = battle.draws.models[0];
+    live::Scene ordinary;
+    auto ordinary_inputs = battle.inputs;
+    live::begin_root_prefix_bounds(ordinary_inputs, ordinary, 0);
+    OA_CHECK(live::build(ordinary_inputs, ordinary, battle.error));
+    live::Scene capped;
+    auto capped_inputs = battle.inputs;
+    live::begin_root_prefix_bounds(
+        capped_inputs,
+        capped,
+        sizeof(live::RootPrefixBoundsMemo) + sizeof(live::RootPrefixBoundsRecord)
+    );
+    OA_CHECK(capped.root_prefix_bounds.draws.empty() && capped.root_prefix_bounds.pieces.empty());
+    OA_CHECK(live::build(capped_inputs, capped, battle.error));
+    check_root_prefix_bounds_frame(ordinary, capped);
+    for (const size_t failed_allocation : {size_t{0}, size_t{1}}) {
+        live::Scene scene;
+        auto inputs = battle.inputs;
+        ground_allocations = refused_ground_allocations = 0;
+        ground_allocation_to_refuse = failed_allocation;
+        watch_ground_allocations = true;
+        live::begin_root_prefix_bounds(inputs, scene);
+        watch_ground_allocations = false;
+        ground_allocation_to_refuse = std::numeric_limits<size_t>::max();
+        OA_CHECK(refused_ground_allocations == 1);
+        OA_CHECK(scene.root_prefix_bounds.draws.empty() && scene.root_prefix_bounds.pieces.empty());
+        OA_CHECK(live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+        OA_CHECK(live::build(inputs, scene, battle.error));
+        check_root_prefix_bounds_frame(ordinary, scene);
+    }
+    live::Scene consumed;
+    auto consumed_inputs = battle.inputs;
+    live::begin_root_prefix_bounds(consumed_inputs, consumed);
+    const auto prepared = consumed.root_prefix_bounds.epoch;
+    OA_CHECK(live::build(consumed_inputs, consumed, battle.error));
+    OA_CHECK(
+        consumed.root_prefix_bounds.epoch == prepared && !consumed.root_prefix_bounds.prepared
+    );
+    OA_CHECK(live::build(consumed_inputs, consumed, battle.error));
+    OA_CHECK(consumed.root_prefix_bounds.epoch != prepared);
+    check_root_prefix_bounds_frame(ordinary, consumed);
+    consumed = live::Scene{};
+    OA_CHECK(live::build(consumed_inputs, consumed, battle.error));
+    check_root_prefix_bounds_frame(ordinary, consumed);
+    live::Scene source;
+    auto inputs = battle.inputs;
+    live::begin_root_prefix_bounds(inputs, source);
+    OA_CHECK(live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    const auto epoch = source.root_prefix_bounds.epoch;
+    live::Scene moved = std::move(source);
+    OA_CHECK(live::build(inputs, moved, battle.error));
+    OA_CHECK(moved.root_prefix_bounds.epoch != epoch);
+    check_root_prefix_bounds_frame(ordinary, moved);
+    const auto consumed_epoch = moved.root_prefix_bounds.epoch;
+    OA_CHECK(live::build(inputs, moved, battle.error));
+    OA_CHECK(moved.root_prefix_bounds.epoch != consumed_epoch);
+    check_root_prefix_bounds_frame(ordinary, moved);
+}
+
+/// A changed floating-point control cannot reuse earlier floating bounds.
+void root_prefix_bounds_rounding() {
+    const int saved = std::fegetround();
+    OA_CHECK(saved != -1);
+    if (saved == -1)
+        return;
+
+    struct RestoreRounding {
+        int mode{};
+
+        ~RestoreRounding() { std::fesetround(mode); }
+    } restore{saved};
+
+    const bool nearest = std::fesetround(FE_TONEAREST) == 0;
+    OA_CHECK(nearest);
+    if (!nearest)
+        return;
+    RootPrefixSceneFixture fixture;
+    auto& battle = fixture.battle;
+    const auto& draw = battle.draws.models[0];
+    live::Scene cached, ordinary;
+    auto inputs = battle.inputs;
+    live::begin_root_prefix_bounds(inputs, cached);
+    OA_CHECK(live::root_prefix_supported(inputs, draw, *draw.root_prefix));
+    if (cached.root_prefix_bounds.draws.empty())
+        return;
+    cached.root_prefix_bounds.draws[0].full_view.picture.fill(-2000);
+    OA_CHECK(std::fesetround(FE_UPWARD) == 0);
+    auto ordinary_inputs = inputs;
+    live::begin_root_prefix_bounds(ordinary_inputs, ordinary, 0);
+    OA_CHECK(live::build(ordinary_inputs, ordinary, battle.error));
+    OA_CHECK(live::build(inputs, cached, battle.error));
+    check_root_prefix_bounds_frame(ordinary, cached);
+}
+
 /// Keeps owned recipes through separated worker intervals and actual material pauses.
 void root_prefix_scene_multiple_ranges() {
     MultipleModelRangeFixture fixture;
@@ -10361,9 +10762,16 @@ void root_prefix_scene_multiple_ranges() {
     live::Scene serial, parallel;
     const auto compare = [&] {
         battle.inputs.pool = nullptr;
+        live::begin_root_prefix_bounds(battle.inputs, serial, 0);
         OA_CHECK(live::build(battle.inputs, serial, battle.error));
         battle.inputs.pool = &pool;
+        live::begin_root_prefix_bounds(battle.inputs, parallel);
+        for (const auto& draw : battle.draws.models)
+            if (draw.root_prefix)
+                OA_CHECK(live::root_prefix_supported(battle.inputs, draw, *draw.root_prefix));
+        const auto payload = root_prefix_bounds_payload(parallel.root_prefix_bounds);
         OA_CHECK(live::build(battle.inputs, parallel, battle.error));
+        OA_CHECK(root_prefix_bounds_payload(parallel.root_prefix_bounds) == payload);
         OA_CHECK(battle.error.empty());
         check_body_material_frame(serial, parallel);
         OA_CHECK(serial.model_count == parallel.model_count);
@@ -10509,6 +10917,11 @@ void root_prefix_scene_multiple_ranges() {
 } // namespace
 
 int main() {
+    root_prefix_bounds_exact_frames();
+    root_prefix_bounds_key_misses();
+    root_prefix_bounds_live_admission();
+    root_prefix_bounds_lifecycle();
+    root_prefix_bounds_rounding();
     root_prefix_scene_owned_geometry();
     root_prefix_scene_proxy_symmetry();
     root_prefix_scene_clear_geometry();
