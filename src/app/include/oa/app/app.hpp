@@ -1023,6 +1023,9 @@ struct Options {
     std::optional<oa::ui::engine_settings::HardwareAcceleration> hardware_acceleration;
     /// Accepts the legacy 3D launch flag; Graphics settings now control camera access.
     bool experimental_3d{};
+    /// Requests the root-prefix prototype for eligible Enhanced Full frames for this run.
+    /// Renderer and game rules remain selected separately; this request is never saved.
+    bool prototype_root_prefix{};
     // --force-capable, which only --check-render-tiers, --check-build-preview,
     // --check-dialog-backdrop, --check-engine-settings and --check-kill-board
     // take: the renderer

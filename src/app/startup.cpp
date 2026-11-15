@@ -1070,6 +1070,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-renderer-proof", &Options::check_renderer_proof},
     {"--check-live-renderer", &Options::check_live_renderer},
     {"--experimental-3d", &Options::experimental_3d},
+    {"--prototype-root-prefix", &Options::prototype_root_prefix},
     {"--check-briefing-narration", &Options::check_briefing_narration},
     {"--check-match-layers", &Options::check_match_layers},
     {"--check-render-tiers", &Options::check_render_tiers},
@@ -1967,7 +1968,8 @@ void write_startup_line(std::string_view text) {
                   << "[--debug-order-lines] "
                      "[--max-fps N] "
                      "[--hardware-acceleration[=off|basic|full] | --no-hardware-acceleration] "
-                     "[--experimental-3d] [--native-density] [--display-modes MODES] "
+                     "[--experimental-3d] [--prototype-root-prefix] "
+                     "[--native-density] [--display-modes MODES] "
                      "[--enhanced-mode[=on|off] | --no-enhanced-mode] "
                      "[--enhanced-mode-version 0|1|2|3|4|5|6|7|8|10|11] "
                      "[--battle-benchmark REPORT.json [--benchmark-units N] "

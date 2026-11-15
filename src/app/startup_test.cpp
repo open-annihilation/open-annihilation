@@ -425,6 +425,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-renderer-proof", &Options::check_renderer_proof, {}},
         {"--check-live-renderer", &Options::check_live_renderer, {}},
         {"--experimental-3d", &Options::experimental_3d, {}},
+        {"--prototype-root-prefix", &Options::prototype_root_prefix, {}},
         {"--check-briefing-narration", &Options::check_briefing_narration, {}},
         {"--check-match-layers", &Options::check_match_layers, {}},
         {"--check-render-tiers", &Options::check_render_tiers, {}},
@@ -806,6 +807,44 @@ void showcase_tour_options() {
             );
         }
     }
+}
+
+/// Keeps the root-prefix request independent of renderer and new-game choices.
+void prototype_root_prefix_options() {
+    const auto plain = parse({});
+    const auto requested = parse({"--prototype-root-prefix"});
+    expect(!plain.prototype_root_prefix, "root-prefix rendering stays unrequested by default");
+    expect(requested.prototype_root_prefix, "the root-prefix flag requests its prototype");
+    expect(
+        requested.hardware_acceleration == plain.hardware_acceleration &&
+            requested.enhanced_mode == plain.enhanced_mode &&
+            requested.enhanced_mode_version == plain.enhanced_mode_version &&
+            requested.experimental_3d == plain.experimental_3d,
+        "the root-prefix request leaves renderer, camera and game-rule choices unchanged"
+    );
+    expect(
+        requested.headless_check == plain.headless_check &&
+            requested.fixed_clock == plain.fixed_clock &&
+            requested.unattended == plain.unattended && requested.skip_intro == plain.skip_intro,
+        "the root-prefix request keeps the ordinary launch"
+    );
+    const auto disabled =
+        parse({"--prototype-root-prefix", "--hardware-acceleration=off", "--no-enhanced-mode"});
+    expect(
+        disabled.prototype_root_prefix &&
+            disabled.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::off &&
+            disabled.enhanced_mode == false && !disabled.enhanced_mode_version,
+        "an unqualified renderer or game mode does not change the prototype request"
+    );
+    const auto enabled = parse(
+        {"--prototype-root-prefix", "--hardware-acceleration=full", "--enhanced-mode-version", "10"}
+    );
+    expect(
+        enabled.prototype_root_prefix &&
+            enabled.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full &&
+            enabled.enhanced_mode == true && enabled.enhanced_mode_version == 10,
+        "the prototype request accompanies separately selected Full and Enhanced Mode"
+    );
 }
 
 /// Selects known new-game presets for ordinary play without starting a benchmark.
@@ -1664,6 +1703,7 @@ int main() {
     update_feed_options();
     value_options();
     showcase_tour_options();
+    prototype_root_prefix_options();
     enhanced_new_game_options();
     enhanced_benchmark_options();
     mutator_options();
