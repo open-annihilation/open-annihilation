@@ -10489,13 +10489,21 @@ void root_prefix_bounds_exact_frames() {
             OA_CHECK(cached.root_prefix_bounds.draws.size() == 1);
             if (cached.root_prefix_bounds.draws.empty())
                 continue;
-            const auto& record = cached.root_prefix_bounds.draws[0];
+            auto& record = cached.root_prefix_bounds.draws[0];
             OA_CHECK(record.epoch == cached.root_prefix_bounds.epoch && record.full_view_valid);
             if (pieces == 64)
                 OA_CHECK(record.visible_mask == (uint64_t{1} | (uint64_t{1} << 63)));
-            const auto payload = root_prefix_bounds_payload(cached.root_prefix_bounds);
             auto ordinary_inputs = battle.inputs;
             live::begin_root_prefix_bounds(ordinary_inputs, ordinary, 0);
+            // A matching key must consume the retained numeric view, rather
+            // than silently measuring every request through the uncached path.
+            const auto saved_view = record.full_view;
+            constexpr float outside_picture_limit = 2097152;
+            record.full_view.picture.fill(outside_picture_limit);
+            OA_CHECK(!live::root_prefix_supported(cached_inputs, draw, *draw.root_prefix));
+            OA_CHECK(live::root_prefix_supported(ordinary_inputs, draw, *draw.root_prefix));
+            record.full_view = saved_view;
+            const auto payload = root_prefix_bounds_payload(cached.root_prefix_bounds);
             OA_CHECK(live::build(ordinary_inputs, ordinary, battle.error));
             OA_CHECK(live::build(cached_inputs, cached, battle.error));
             check_root_prefix_bounds_frame(ordinary, cached);
