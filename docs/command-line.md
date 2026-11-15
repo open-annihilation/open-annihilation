@@ -217,6 +217,7 @@ with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with 
 | `--hardware-acceleration[=off\|basic\|full]` | Sets Hardware acceleration for this run; alone it is `full`. |
 | `--no-hardware-acceleration` | Turns Hardware acceleration off for this run. |
 | `--experimental-3d` | Accepted for older launch scripts; camera access is now controlled by Graphics → Allow Full 3D Mode, On by default. |
+| `--prototype-root-prefix` | Enables the experimental [Q30 body rendering policy](development/root-prefix-rendering.md) for eligible local ground units in Enhanced 10 or 11 matches using Full 3D. Off by default; its GPU transforms and picking follow the linked policy. |
 | `--native-density` | Opens the window at the display's own pixel density for this run. |
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
 | `--enhanced-mode[=on\|off]` | Sets Enhanced Mode for this launch; alone it is On and selects the supplied new-game preset. |
