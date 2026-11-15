@@ -70,6 +70,7 @@
 
 namespace {
 thread_local bool watch_emission_allocations{};
+thread_local bool refuse_next_emission_allocation{};
 thread_local size_t emission_allocation_count{};
 thread_local size_t emission_allocation_bytes{};
 } // namespace
@@ -79,6 +80,10 @@ void* operator new(size_t size) {
     if (watch_emission_allocations) {
         ++emission_allocation_count;
         emission_allocation_bytes += size;
+    }
+    if (refuse_next_emission_allocation) {
+        refuse_next_emission_allocation = false;
+        throw std::bad_alloc{};
     }
     if (void* result = std::malloc(size == 0 ? 1 : size))
         return result;
@@ -4960,6 +4965,7 @@ int main(int argc, char** argv) {
         test_polygon_shape_serialization();
         test_polygon_shape_frame_references();
         test_polygon_shape_animated_frames();
+        test_polygon_shape_disabled_control();
         test_cached_body_image();
         test_cached_body_image_revisions();
         test_cached_body_image_identity();

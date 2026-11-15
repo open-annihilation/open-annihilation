@@ -104,6 +104,28 @@ void test_polygon_shape_serialization() {
     OA_CHECK(
         shapes::required_words(std::span<const ShapePolygon>{extreme_polygons}, exact) == exact
     );
+    const std::array<ShapePolygon, 2> sparse{{{3, 1}, {1, 1}}};
+    check_shape_words(extremes, sparse, actual);
+    OA_CHECK(
+        actual == (std::vector<int64_t>{2, 1, 0, 0, 217, 1, 2147483648LL, -2147483648LL, most})
+    );
+
+    struct Count32Polygon {
+        size_t first_corner{};
+        uint32_t corner_count{};
+    };
+
+    const std::array<Count32Polygon, 1> count32{{{0, std::numeric_limits<uint32_t>::max()}}};
+    constexpr uint64_t count32_words = 2 + 3ULL * std::numeric_limits<uint32_t>::max();
+    if constexpr (std::numeric_limits<size_t>::max() >= count32_words) {
+        const auto limit = static_cast<size_t>(count32_words);
+        OA_CHECK(shapes::required_words(std::span<const Count32Polygon>{count32}, limit) == limit);
+        OA_CHECK(!shapes::required_words(std::span<const Count32Polygon>{count32}, limit - 1));
+    } else {
+        OA_CHECK(!shapes::required_words(
+            std::span<const Count32Polygon>{count32}, std::numeric_limits<size_t>::max()
+        ));
+    }
 
     std::array<ShapeCorner, 4> moving{{{-27, 16, -9}, {3, -42, 71}, {19, 8, -87}, {5, 0, 3}}};
     const auto digest = check_shape_words(moving, extreme_polygons, actual);
@@ -152,6 +174,34 @@ void test_polygon_shape_serialization() {
     }
     OA_CHECK(length_rejected && actual == before);
     OA_CHECK(actual.data() == storage && actual.capacity() == capacity);
+    std::vector<int64_t> refused{101, -207};
+    const auto refused_before = refused;
+    const auto* refused_storage = refused.data();
+    const auto refused_capacity = refused.capacity();
+    bool allocation_rejected = false;
+    emission_allocation_count = 0;
+    emission_allocation_bytes = 0;
+    watch_emission_allocations = true;
+    refuse_next_emission_allocation = true;
+    try {
+        (void)shapes::write(
+            std::span<const ShapeCorner>{extremes},
+            std::span<const ShapePolygon>{extreme_polygons},
+            refused,
+            shape_test_start,
+            shape_test_multiplier,
+            shape_test_fold_shift
+        );
+    } catch (const std::bad_alloc&) {
+        allocation_rejected = true;
+    }
+    watch_emission_allocations = false;
+    const bool refusal_consumed = !refuse_next_emission_allocation;
+    refuse_next_emission_allocation = false;
+    OA_CHECK(allocation_rejected && refusal_consumed);
+    OA_CHECK(emission_allocation_count == 1 && emission_allocation_bytes != 0);
+    OA_CHECK(refused == refused_before);
+    OA_CHECK(refused.data() == refused_storage && refused.capacity() == refused_capacity);
 }
 
 /// Keeps a dense shared mesh beside the same ordered corners with separate source indices.
@@ -234,6 +284,8 @@ void plan_shape_piece(Scene& scene, SceneUnit& actor, bool flat) {
     if (!flat) {
         scene.plan_unit(actor);
         retain_planned_body(scene);
+        OA_CHECK(scene.list.models.front().plan.model.from_image);
+        OA_CHECK(actor.state.image.sprite.aux != nullptr);
         return;
     }
     ModelDraw drawn;
@@ -386,6 +438,8 @@ void test_polygon_shape_animated_frames() {
             scene.begin_frame(processor, 0);
             scene.list.shadow_level = 0;
             scene.plan_unit(actor);
+            OA_CHECK(scene.list.models.back().plan.model.from_image);
+            OA_CHECK(actor.state.image.sprite.aux != nullptr);
             if (pose == 2)
                 for (auto& point : actor.instance.pieces()[1].transformed_vertices)
                     point.x += unit / 3;
@@ -409,6 +463,46 @@ void test_polygon_shape_animated_frames() {
             );
         }
     }
+}
+
+/// A full physical model retains its complete frame with Enhanced Mode disabled.
+void test_polygon_shape_disabled_control() {
+    Scene scene;
+    auto& actor = scene.add_unit(shape_frame_grid_model(false), 1, unit_x, unit_z);
+    actor.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    actor.unit->heading = 0x2300;
+    actor.instance.pieces()[0].flags |= piece_cached;
+    actor.instance.rebuild_transforms({0, 0x2300, 0});
+    Card ordinary(scene), enhanced(scene);
+    ordinary.stage.set_body_lod_enabled(false);
+    enhanced.stage.set_body_lod_enabled(true);
+    full::SceneView view;
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.list.shadow_level = 0;
+    scene.plan_unit(actor);
+    retain_planned_body(scene);
+    OA_CHECK(scene.list.models.front().plan.model.from_image);
+    OA_CHECK(actor.state.image.sprite.aux != nullptr);
+    const auto actual = raster_shape_frame(ordinary, scene, view);
+    scene.begin_frame(processor, 0);
+    scene.list.shadow_level = 0;
+    scene.plan_unit(actor);
+    retain_planned_body(scene);
+    OA_CHECK(scene.list.models.front().plan.model.from_image);
+    OA_CHECK(actor.state.image.sprite.aux != nullptr);
+    const auto expected = raster_shape_frame(enhanced, scene, view);
+    check_body_frame_suffix(ordinary.frame, enhanced.frame, 0, 0);
+    OA_CHECK(actual.rgba == expected.rgba);
+    OA_CHECK(pixels_with_alpha(actual, 255) > 0);
+    for (const auto* stage : {&ordinary.stage, &enhanced.stage}) {
+        const auto& counts = stage->body_lod_counts();
+        OA_CHECK(counts.full_mesh_models == 1 && counts.body_lod_models == 0);
+    }
+    std::printf(
+        "POLYGON_SHAPE_SIGNATURE enhanced-off %016llx\n",
+        static_cast<unsigned long long>(shape_frame_signature(ordinary.frame, actual))
+    );
 }
 
 } // namespace
