@@ -282,6 +282,27 @@ void shadow_index_procedural_readback() {
         );
     }
 
+    // One frame switches from a procedural full run to a nonempty indexed tail.
+    ProceduralShadowFixture mixed(16, 2, 257);
+    const auto& tail = mixed.local[0];
+    mixed.sources.back() = {
+        static_cast<uint32_t>(mixed.dynamic_words.size()), static_cast<uint32_t>(tail.size()), 0
+    };
+    mixed.dynamic_words.insert(mixed.dynamic_words.end(), tail.begin(), tail.end());
+    mixed.ordinary.cast_indices.insert(mixed.ordinary.cast_indices.end(), tail.begin(), tail.end());
+    mixed.ordinary.cast_runs.back().index_count = static_cast<uint32_t>(tail.size());
+    mixed.runs.back().index_count = static_cast<uint32_t>(tail.size());
+    Context mixed_context;
+    OA_CHECK(procedural_shadow_frame(legacy, mixed, false, expected, error) == Result::success);
+    OA_CHECK(procedural_shadow_frame(mixed_context, mixed, true, pixels, error) == Result::success);
+    OA_CHECK(pixels == expected);
+    OA_CHECK(mixed_context.shadow_index_counts.cached_runs == 1);
+    OA_CHECK(mixed_context.shadow_index_counts.cached_indices == mixed.warm_words());
+    OA_CHECK(mixed_context.shadow_index_counts.dynamic_indices >= tail.size());
+    OA_CHECK(
+        mixed_context.shadow_index_counts.mapping_uploaded_words == 4 * model_run_instances + 4
+    );
+
     struct Stopped {};
 
     Context interrupted;
