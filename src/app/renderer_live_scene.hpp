@@ -714,6 +714,8 @@ struct Inputs {
     float unit_marker_pixels{};
     /// Preserve articulated physical bodies at middle distance and under budget pressure.
     bool body_lod_enabled{};
+    /// Retains exact uniform shadow index runs; false keeps expanded packets.
+    bool shadow_index_templates{};
     std::array<std::array<uint8_t, 3>, full::team_colour_players> owner_colors{};
     /// Painted map rectangle needed by the camera, clipped to the map.
     int32_t left{};

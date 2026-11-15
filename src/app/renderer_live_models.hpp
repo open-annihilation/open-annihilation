@@ -96,6 +96,45 @@ struct CardType {
     bool drawable{};
 };
 
+/// The exact ordinary piece selection of one immutable shadow index pattern.
+struct ShadowIndexKey {
+    uint32_t type{};
+    uint64_t selected_mask{};
+    bool walls{};
+
+    /// Compares the type, selected pieces and image-key wall rule.
+    [[nodiscard]] bool operator==(const ShadowIndexKey&) const = default;
+};
+
+/// An immutable snapshot, retaining IDs and complete prefixes when patterns append.
+/// A new type registry or reset receives a different revision and snapshot.
+struct ShadowIndexPatterns {
+    uint64_t revision{};
+    uint64_t type_revision{};
+    std::vector<ShadowIndexKey> keys{};
+    std::vector<renderer_live_gpu::ShadowIndexPattern> patterns{};
+    std::vector<uint32_t> indices{};
+};
+
+/// One frame's compact shadow stream. Immutable snapshots also keep older
+/// frame references valid while the following frame admits a new pattern.
+struct ShadowIndexStream {
+    bool enabled{};
+    std::shared_ptr<const ShadowIndexPatterns> patterns{};
+    std::vector<uint32_t> indices{};
+    std::vector<renderer_live_gpu::ShadowIndexRun> runs{};
+    std::size_t logical_indices{};
+    std::array<ShadowIndexKey, renderer_live_gpu::shadow_template_pattern_limit> candidates{};
+    uint32_t candidate_count{};
+};
+
+/// Compact stream state before a draw that can pause for missing materials.
+struct ShadowIndexMark {
+    std::size_t indices{}, runs{}, logical_indices{};
+    uint32_t candidates{};
+    renderer_live_gpu::ShadowIndexRun last_run{};
+};
+
 /// The model types the card keeps, and their triangle corners, as
 /// renderer_live_gpu::ModelDraws::corners holds them.
 struct CardTypes {
@@ -113,6 +152,8 @@ struct CardTypes {
     /// Coarse variants found before workers start; -1 where unavailable.
     std::vector<int32_t> body_draw_types_low{};
     std::vector<int32_t> body_draw_types_medium{};
+    /// Published only between completed frames; worker passes retain a snapshot.
+    std::shared_ptr<const ShadowIndexPatterns> shadow_patterns{};
 };
 
 /// A type and team whose textures a frame has found: where they start in
@@ -166,6 +207,7 @@ struct CardMark {
     std::size_t marker_runs{};
     uint32_t marker_first_index{};
     std::array<float, 2> marker_uv{};
+    ShadowIndexMark shadow_indices{};
 };
 
 /// A posed vertex range shared by instances of one type within a frame.
@@ -236,7 +278,49 @@ struct ModelCards {
     std::vector<CardPoseSlot> pose_slots{};
     std::vector<CardPoseRecent> recent_poses{};
     uint32_t pose_epoch{};
+    /// Disabled retains the original cast_indices/cast_runs representation.
+    ShadowIndexStream shadow_indices{};
 };
+
+/// Returns the unchanged logical shadow budget for either representation.
+/// @param cards the frame or worker's owned packets
+/// @return shadow triangle corners, including template-backed corners
+[[nodiscard]] inline std::size_t shadow_index_count(const ModelCards& cards) noexcept {
+    return cards.shadow_indices.enabled ? cards.shadow_indices.logical_indices
+                                        : cards.cast_indices.size();
+}
+
+/// Starts a cache snapshot for the current immutable type registry, if possible.
+/// Allocation failure leaves ordinary dynamic shadows available.
+/// @param[in,out] types the retained registry and optional shadow patterns
+void prepare_shadow_index_patterns(CardTypes& types) noexcept;
+
+/// Publishes a bounded set of new patterns after a successful frame. The
+/// completed frame keeps its previous snapshot, so cold casts stay dynamic.
+/// @param[in,out] types the immutable type registry and next-frame cache
+/// @param candidates exact keys collected in ordinary drawing order
+void admit_shadow_index_patterns(
+    CardTypes& types, std::span<const ShadowIndexKey> candidates
+) noexcept;
+
+/// Finds an exact warm pattern in this frame's immutable snapshot.
+/// @param stream the frame's compact packets and retained pattern snapshot
+/// @param key current type and selected ordinary pieces
+/// @return descriptor index plus one, or zero for a cold/unknown pattern
+[[nodiscard]] uint32_t
+shadow_index_pattern(const ShadowIndexStream& stream, ShadowIndexKey key) noexcept;
+
+/// Remembers a cold key without allocating or exceeding the fixed candidate list.
+/// @param[in,out] stream the frame or worker's compact packets
+/// @param key exact ordinary selection to consider after a successful frame
+void remember_shadow_index_key(ShadowIndexStream& stream, ShadowIndexKey key) noexcept;
+
+/// Converts a pending whole run to its exact original packed dynamic words.
+/// Allocation failure precedes changes to the run or its logical budget.
+/// @param[in,out] stream this frame's owned packets
+/// @param run the existing run to flush, normally the final pending run
+/// @return false for an invalid snapshot/range; true after exact expansion
+[[nodiscard]] bool materialize_shadow_index_run(ShadowIndexStream& stream, std::size_t run);
 
 /// A model draw's triangle corner, as the card draws it: its world place and
 /// its atlas place.
