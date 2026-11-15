@@ -5,6 +5,7 @@ namespace {
 
 namespace joined_cards = oa::app::renderer_live_scene;
 namespace joined_gpu = oa::app::renderer_live_gpu;
+constexpr size_t joined_batch_vertex_base = 23;
 
 /// Makes ordinary model records with a different pose, texture and pick for each unit.
 joined_cards::ModelCards joined_card_fixture(uint32_t count, uint16_t first_unit, bool buildings) {
@@ -124,6 +125,397 @@ joined_shadow_triangles(const joined_cards::ModelCards& cards, std::size_t verte
             );
         }
     return result;
+}
+
+/// Captures every owned record and cache field, excluding vector capacities and padding.
+std::vector<uint64_t> joined_card_records(const joined_cards::ModelCards& cards) {
+    std::vector<uint64_t> result;
+    const auto word = [&](uint64_t value) { result.push_back(value); };
+    const auto number = [&](float value) { word(std::bit_cast<uint32_t>(value)); };
+    const auto words = [&](const auto& values) {
+        word(values.size());
+        for (const auto value : values)
+            word(value);
+    };
+    const auto numbers = [&](const auto& values) {
+        word(values.size());
+        for (const auto value : values)
+            number(value);
+    };
+    word(cards.instances.size());
+    for (const auto& instance : cards.instances) {
+        for (const auto value : std::array{
+                 instance.corners,
+                 instance.corner_count,
+                 instance.positions,
+                 instance.position_count,
+                 instance.pieces,
+                 instance.piece_count,
+                 instance.textures,
+                 instance.texture_count
+             })
+            word(value);
+        number(instance.brightness);
+        numbers(instance.origin);
+    }
+    numbers(cards.positions);
+    words(cards.piece_frames);
+    numbers(cards.textures);
+    words(cards.slot_states);
+    word(cards.tables.size());
+    for (const auto& table : cards.tables) {
+        word(table.type);
+        word(table.team);
+        word(table.first);
+    }
+    words(cards.indices);
+    const auto runs = [&](const auto& values) {
+        word(values.size());
+        for (const auto& run : values) {
+            word(run.vertex);
+            word(run.first_index);
+            word(run.index_count);
+            word(run.first_instance);
+        }
+    };
+    runs(cards.runs);
+    word(cards.units.size());
+    for (const auto& unit : cards.units) {
+        word(unit.unit_id);
+        word(unit.vertex);
+        word(unit.instance);
+        word(unit.type);
+        word(unit.first_index);
+        word(unit.index_count);
+        for (const auto value : std::array{unit.left, unit.top, unit.right, unit.bottom})
+            number(value);
+        word(unit.bounded);
+        word(unit.marker);
+        word(unit.body_lod);
+    }
+    word(cards.markers.size());
+    for (const auto& marker : cards.markers) {
+        for (const auto& corner : marker.corners)
+            numbers(corner);
+        number(marker.brightness);
+        numbers(marker.color);
+    }
+    word(cards.marker_runs.size());
+    for (const auto& run : cards.marker_runs) {
+        word(run.vertex);
+        word(run.first_instance);
+        word(run.instance_count);
+    }
+    numbers(cards.marker_uv);
+    word(cards.marker_first_index);
+    word(cards.vertices);
+    word(cards.casts.size());
+    for (const auto& cast : cards.casts) {
+        word(cast.instance);
+        word(cast.kind);
+        for (const auto value : std::array{
+                 cast.base,
+                 cast.ground_half,
+                 cast.least_height,
+                 cast.light,
+                 cast.depth,
+                 cast.across,
+                 cast.down
+             })
+            number(value);
+    }
+    words(cards.cast_indices);
+    runs(cards.cast_runs);
+    word(cards.cast_depths);
+    for (const auto value :
+         std::array{cards.shadow_map.left, cards.shadow_map.top, cards.shadow_map.scale})
+        number(value);
+    word(cards.shadow_map.width);
+    word(cards.shadow_map.height);
+    word(cards.shadow_vertex);
+    word(cards.shadow_ground);
+    word(static_cast<uint64_t>(cards.draw_instance));
+    const auto& mark = cards.mark;
+    for (const auto value : std::array<uint64_t, 14>{
+             mark.instances,
+             mark.positions,
+             mark.piece_frames,
+             mark.indices,
+             mark.runs,
+             mark.units,
+             mark.casts,
+             mark.cast_indices,
+             mark.cast_runs,
+             mark.cast_depths,
+             mark.vertices,
+             mark.markers,
+             mark.marker_runs,
+             mark.marker_first_index
+         })
+        word(value);
+    numbers(mark.marker_uv);
+    word(cards.poses.size());
+    for (const auto& pose : cards.poses) {
+        word(pose.type);
+        word(pose.first_position);
+        word(pose.first_point);
+        word(pose.point_count);
+    }
+    word(cards.pose_points.size());
+    for (const auto& point : cards.pose_points) {
+        word(static_cast<uint32_t>(point.x));
+        word(static_cast<uint32_t>(point.y));
+        word(static_cast<uint32_t>(point.z));
+    }
+    word(cards.pose_slots.size());
+    for (const auto& slot : cards.pose_slots) {
+        word(slot.digest);
+        word(slot.pose);
+        word(slot.epoch);
+    }
+    word(cards.recent_poses.size());
+    for (const auto& recent : cards.recent_poses) {
+        word(recent.pose);
+        word(recent.epoch);
+    }
+    word(cards.pose_epoch);
+    return result;
+}
+
+/// Exercises command-hit interpolation on each actual model triangle and pick identity.
+std::vector<std::array<float, 6>> joined_unit_hits(const joined_cards::ModelCards& cards) {
+    std::vector<std::array<float, 6>> result;
+    for (const auto& unit : cards.units) {
+        std::array<std::array<float, 3>, 3> triangle{};
+        if (unit.marker) {
+            for (size_t corner = 0; corner < triangle.size(); ++corner)
+                triangle[corner] =
+                    cards.markers[unit.instance].corners[cards.indices[unit.first_index + corner]];
+        } else {
+            const auto run =
+                std::find_if(cards.runs.begin(), cards.runs.end(), [&](const auto& candidate) {
+                    return unit.first_index >= candidate.first_index &&
+                           unit.first_index + 3 <= candidate.first_index + candidate.index_count;
+                });
+            OA_CHECK(run != cards.runs.end());
+            if (run == cards.runs.end())
+                continue;
+            constexpr uint32_t mask = (uint32_t{1} << joined_gpu::model_corner_bits) - 1;
+            for (size_t corner = 0; corner < triangle.size(); ++corner) {
+                const auto encoded = cards.indices[unit.first_index + corner];
+                const auto index = run->first_instance + (encoded >> joined_gpu::model_corner_bits);
+                OA_CHECK(index == unit.instance);
+                const auto& instance = cards.instances[index];
+                for (size_t axis = 0; axis < triangle[corner].size(); ++axis)
+                    triangle[corner][axis] =
+                        cards.positions[(instance.positions + (encoded & mask)) * 3 + axis] +
+                        instance.origin[axis];
+            }
+        }
+        const float x = triangle[0][0] * 0.5F + triangle[1][0] * 0.25F + triangle[2][0] * 0.25F;
+        const float y = triangle[0][1] * 0.5F + triangle[1][1] * 0.25F + triangle[2][1] * 0.25F;
+        std::array<float, 3> weights{};
+        float depth{};
+        const bool hit =
+            oa::app::renderer_live_camera::triangle_hit(triangle, x, y, weights, depth);
+        OA_CHECK(hit);
+        result.push_back(
+            {float(unit.unit_id), float(hit), depth, weights[0], weights[1], weights[2]}
+        );
+    }
+    return result;
+}
+
+/// Makes a serial prefix with a real marker and lookup caches that joins must preserve.
+joined_cards::ModelCards joined_marker_prefix() {
+    auto prefix = joined_card_fixture(2, 10, false);
+    prefix.markers.resize(1);
+    prefix.markers[0].corners = {{{11, 12, 13}, {12, 12, 13}, {12, 13, 13}, {11, 13, 13}}};
+    prefix.marker_runs.push_back({9, 0, 1});
+    prefix.marker_uv = {0.25F, 0.75F};
+    prefix.marker_first_index = static_cast<uint32_t>(prefix.indices.size());
+    prefix.indices.insert(prefix.indices.end(), {0, 1, 2, 0, 2, 3});
+    auto marker = prefix.units[0];
+    marker.marker = true;
+    marker.instance = 0;
+    marker.unit_id = 99;
+    marker.vertex = 9;
+    marker.left = 11;
+    marker.top = 12;
+    marker.right = 12;
+    marker.bottom = 13;
+    marker.first_index = prefix.marker_first_index;
+    marker.index_count = 6;
+    prefix.units.push_back(marker);
+    prefix.vertices += 6;
+    prefix.draw_instance = 1;
+    prefix.mark.instances = 1;
+    prefix.mark.marker_first_index = 77;
+    prefix.mark.marker_uv = {0.1F, 0.9F};
+    prefix.poses.push_back({0, 0, 0, 3});
+    prefix.pose_points.push_back({7, 8, 9});
+    prefix.pose_slots.push_back({37, 0, 1});
+    prefix.recent_poses.push_back({0, 1});
+    prefix.pose_epoch = 1;
+    return prefix;
+}
+
+/// Batch validation, rebasing and reservation preserve the sequential join's exact records.
+void parallel_model_card_batch_join() {
+    const auto prefix = joined_marker_prefix();
+    const auto first = joined_card_fixture(257, 100, false);
+    const auto second = joined_card_fixture(260, 400, true);
+    joined_cards::ModelCards empty;
+    auto shadow_only = joined_card_fixture(1, 800, false);
+    shadow_only.indices.clear();
+    shadow_only.runs.clear();
+    shadow_only.units.clear();
+    shadow_only.vertices = 0;
+    const std::array<const joined_cards::ModelCards*, 4> bands{
+        &first, &empty, &second, &shadow_only
+    };
+    const auto first_before = joined_card_records(first);
+    const auto second_before = joined_card_records(second);
+    const auto shadow_before = joined_card_records(shadow_only);
+    constexpr size_t vertex_base = joined_batch_vertex_base;
+    const auto compare = [&](const auto& initial, const auto& sources) {
+        auto sequential = initial;
+        for (const auto* band : sources)
+            OA_CHECK(joined_cards::append_parallel_model_cards(sequential, *band, vertex_base));
+        auto batch = initial;
+        OA_CHECK(joined_cards::append_parallel_model_card_bands(batch, sources, vertex_base));
+        OA_CHECK(joined_card_records(batch) == joined_card_records(sequential));
+        OA_CHECK(joined_body_triangles(batch) == joined_body_triangles(sequential));
+        OA_CHECK(joined_shadow_triangles(batch) == joined_shadow_triangles(sequential));
+        OA_CHECK(joined_unit_hits(batch) == joined_unit_hits(sequential));
+    };
+    compare(prefix, bands);
+    compare(
+        prefix, std::array<const joined_cards::ModelCards*, 4>{&first, &first, &empty, &shadow_only}
+    );
+    compare(prefix, std::array<const joined_cards::ModelCards*, 2>{&empty, &empty});
+    auto no_bands = prefix;
+    OA_CHECK(joined_cards::append_parallel_model_card_bands(no_bands, {}, vertex_base));
+    OA_CHECK(joined_card_records(no_bands) == joined_card_records(prefix));
+    OA_CHECK(joined_card_records(first) == first_before);
+    OA_CHECK(joined_card_records(second) == second_before);
+    OA_CHECK(joined_card_records(shadow_only) == shadow_before);
+
+    // A bad later band must be rejected before any reservation or earlier append.
+    const auto refuses =
+        [&](auto& destination, const auto& sources, size_t base = joined_batch_vertex_base) {
+            const auto before = joined_card_records(destination);
+            ground_allocations = refused_ground_allocations = 0;
+            ground_allocation_to_refuse = std::numeric_limits<size_t>::max();
+            watch_ground_allocations = true;
+            const bool appended =
+                joined_cards::append_parallel_model_card_bands(destination, sources, base);
+            watch_ground_allocations = false;
+            OA_CHECK(!appended && ground_allocations == 0);
+            OA_CHECK(joined_card_records(destination) == before);
+        };
+    auto checked = prefix;
+    refuses(checked, std::array<const joined_cards::ModelCards*, 2>{&first, nullptr});
+    refuses(checked, std::array<const joined_cards::ModelCards*, 2>{&first, &checked});
+    refuses(checked, std::array<const joined_cards::ModelCards*, 2>{&first, &prefix});
+    refuses(
+        checked,
+        std::array<const joined_cards::ModelCards*, 5>{&empty, &empty, &empty, &empty, &empty}
+    );
+    auto invalid = joined_card_fixture(1, 900, false);
+    invalid.units[0].first_index = 9;
+    refuses(checked, std::array<const joined_cards::ModelCards*, 2>{&first, &invalid});
+    invalid = joined_card_fixture(1, 900, false);
+    invalid.casts[0].depth = std::nextafter(invalid.casts[0].depth, 0.0F);
+    refuses(checked, std::array<const joined_cards::ModelCards*, 2>{&first, &invalid});
+    invalid = joined_card_fixture(1, 900, false);
+    invalid.indices[0] = 3;
+    refuses(checked, std::array<const joined_cards::ModelCards*, 2>{&first, &invalid});
+    invalid = joined_card_fixture(1, 900, false);
+    refuses(
+        checked,
+        std::array<const joined_cards::ModelCards*, 2>{&first, &invalid},
+        std::numeric_limits<size_t>::max()
+    );
+
+    // Each source fits separately. Their cumulative logical vertices do not.
+    const auto one = joined_card_fixture(1, 1000, false);
+    const std::array<const joined_cards::ModelCards*, 3> three{&one, &one, &one};
+    auto vertex_full = joined_card_fixture(1, 1, false);
+    vertex_full.vertices = joined_gpu::largest_vertex_count - 6;
+    OA_CHECK(joined_cards::can_append_parallel_model_cards(vertex_full, one, 0));
+    refuses(vertex_full, three, 0);
+    {
+        auto instance_full =
+            joined_card_fixture(joined_gpu::largest_model_instance_count - 1, 1, false);
+        OA_CHECK(joined_cards::can_append_parallel_model_cards(instance_full, one, 0));
+        refuses(instance_full, three, 0);
+    }
+    {
+        auto depth_full = joined_card_fixture(1, 1, false);
+        constexpr uint32_t depth_count = 64999;
+        depth_full.casts.resize(depth_count, depth_full.casts[0]);
+        depth_full.cast_runs.clear();
+        depth_full.cast_indices.clear();
+        depth_full.cast_depths = depth_count;
+        for (uint32_t index = 0; index < depth_count; ++index)
+            depth_full.casts[index].depth = static_cast<float>(65534U - index) / 65535.0F;
+        OA_CHECK(joined_cards::can_append_parallel_model_cards(depth_full, one, 0));
+        refuses(depth_full, std::array<const joined_cards::ModelCards*, 2>{&one, &one}, 0);
+    }
+
+    // Probe every allocation in a successful join. Failed reserve operations
+    // may grow capacities, but no owned size, record, marker or cache may change.
+    auto counted = prefix;
+    ground_allocations = 0;
+    ground_allocation_to_refuse = std::numeric_limits<size_t>::max();
+    watch_ground_allocations = true;
+    const bool counted_success =
+        joined_cards::append_parallel_model_card_bands(counted, bands, vertex_base);
+    watch_ground_allocations = false;
+    const auto allocations = ground_allocations;
+    constexpr size_t maximum_reservations = 12;
+    OA_CHECK(counted_success && allocations != 0 && allocations <= maximum_reservations);
+    for (size_t fail = 0; fail < std::min(allocations, maximum_reservations); ++fail) {
+        auto candidate = prefix;
+        const auto before = joined_card_records(candidate);
+        ground_allocations = refused_ground_allocations = 0;
+        ground_allocation_to_refuse = fail;
+        bool appended{};
+        watch_ground_allocations = true;
+        try {
+            appended =
+                joined_cards::append_parallel_model_card_bands(candidate, bands, vertex_base);
+        } catch (const std::bad_alloc&) {
+        } catch (...) {
+            watch_ground_allocations = false;
+            throw;
+        }
+        watch_ground_allocations = false;
+        OA_CHECK(!appended && refused_ground_allocations == 1);
+        OA_CHECK(joined_card_records(candidate) == before);
+    }
+    ground_allocation_to_refuse = std::numeric_limits<size_t>::max();
+    const int original_mode = std::fegetround();
+    for (const int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+        OA_CHECK(std::fesetround(mode) == 0);
+        const auto rounded_prefix = joined_marker_prefix();
+        const auto rounded_first = joined_card_fixture(257, 100, false);
+        const auto rounded_second = joined_card_fixture(260, 400, true);
+        auto rounded_shadow = joined_card_fixture(1, 800, false);
+        rounded_shadow.indices.clear();
+        rounded_shadow.runs.clear();
+        rounded_shadow.units.clear();
+        rounded_shadow.vertices = 0;
+        compare(
+            rounded_prefix,
+            std::array<const joined_cards::ModelCards*, 4>{
+                &rounded_first, &empty, &rounded_second, &rounded_shadow
+            }
+        );
+        OA_CHECK(std::fegetround() == mode);
+    }
+    OA_CHECK(std::fesetround(original_mode) == 0);
 }
 
 /// Model bands retain exact triangles, shared shadow depths and unit picks after joining.
@@ -253,6 +645,7 @@ void parallel_model_card_join() {
         }
     }
     OA_CHECK(std::fesetround(original_mode) == 0);
+    parallel_model_card_batch_join();
 }
 
 } // namespace
