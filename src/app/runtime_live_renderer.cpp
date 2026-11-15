@@ -1181,6 +1181,7 @@ bool Runtime::render_live_match_surface() {
         inputs.top = prepared.crop[1];
         inputs.right = prepared.crop[2];
         inputs.bottom = prepared.crop[3];
+        renderer_live_scene::begin_root_prefix_bounds(inputs, live.scene);
         resolve_root_prefix_fallbacks(models, inputs);
         std::string error;
         Span building(Stage::scene_build);
