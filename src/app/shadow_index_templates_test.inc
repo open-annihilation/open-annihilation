@@ -118,7 +118,10 @@ void shadow_index_template_piece_policy() {
     constexpr auto cached = static_cast<uint16_t>(runtime::PieceFlag::cached);
     for (const float scale : {0.5F, 0.8F, 2.0F}) {
         BodyLodFixture fixture(8);
+        oa::UnitDef definition{};
         auto& battle = fixture.battle;
+        fixture.unit.type_index = 1;
+        battle.draws.models[0].model.def = &definition;
         fixture.projection(scale);
         for (auto& piece : fixture.instance.pieces())
             piece.flags = visible | cached;
