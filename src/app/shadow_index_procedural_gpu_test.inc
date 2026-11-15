@@ -193,6 +193,48 @@ void shadow_index_procedural_validation() {
     for (auto& source : empty.sources)
         source = {};
     OA_CHECK(invoke(empty) == Result::unavailable);
+
+    // A small retained source still pays the complete logical geometry budget.
+    constexpr uint32_t corners = 96;
+    constexpr uint32_t casts_at_limit = 32768;
+    OA_CHECK(size_t{casts_at_limit} * corners == largest_vertex_count);
+    auto budget = valid;
+    budget.dynamic_words.clear();
+    budget.patterns = {{0, corners, 0, 6, 1}};
+    budget.pattern_words.clear();
+    for (uint32_t cast = 0; cast < model_run_instances; ++cast)
+        for (uint32_t triangle = 0; triangle < corners / 3; ++triangle)
+            for (const uint32_t corner : {2U, 0U, 1U})
+                budget.pattern_words.push_back((cast << model_corner_bits) | corner);
+    auto shadow = budget.ordinary.casts.front();
+    shadow.instance = 0;
+    budget.ordinary.casts.assign(casts_at_limit, shadow);
+    budget.sources.assign(casts_at_limit, {0, corners, 1});
+    budget.runs.clear();
+    for (uint32_t first = 0; first < casts_at_limit; first += model_run_instances)
+        budget.runs.push_back({0, first, model_run_instances, 0, corners * model_run_instances, 0});
+    auto accepted = budget.draws(true);
+    accepted.instances = accepted.instances.first(1);
+    accepted.logical_shadow_index_count = largest_vertex_count;
+    OA_CHECK(shadow_index_detail::valid_procedural_draws(accepted));
+    OA_CHECK(budget.pattern_words.size() * sizeof(uint32_t) == 96 * 1024);
+    budget.ordinary.casts.push_back(shadow);
+    budget.sources.push_back({0, corners, 1});
+    budget.runs.push_back({0, casts_at_limit, 1, 0, corners, 0});
+    for (const auto declared : {largest_vertex_count + corners, largest_vertex_count}) {
+        auto rejected = budget.draws(true);
+        rejected.instances = rejected.instances.first(1);
+        rejected.logical_shadow_index_count = declared;
+        OA_CHECK(!shadow_index_detail::valid_procedural_draws(rejected));
+        pixels.assign(channels, full_channel);
+        context.shadow_index_counts.logical_indices = 1;
+        OA_CHECK(
+            shadow_template_draws(context, budget.surface, rejected, pixels, error) ==
+            Result::failed
+        );
+        OA_CHECK(pixels.empty() && !error.empty());
+        OA_CHECK(context.shadow_index_counts.logical_indices == 0);
+    }
 }
 
 /// Variable local lengths and empty casts preserve every pixel at the 15/16 boundary.
