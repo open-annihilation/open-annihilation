@@ -8,6 +8,7 @@
 #include "renderer_effects.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_water_appearance.hpp"
+#include "shadow_index_validation.hpp"
 #include "oa/test/check.hpp"
 
 #include <SDL3/SDL.h>

@@ -208,6 +208,17 @@ void shadow_index_stream_validation() {
     OA_CHECK(shadow_template_draws(
         context, valid, hidden_draws, pixels, error
     ) == Result::unavailable);
+    // A post-plan resource failure leaves residency intact but chooses dynamic
+    // uploads. Final-path accounting must replace the earlier planned hit.
+    std::array<bool, shadow_template_pattern_limit> resident{}, admitted{};
+    resident[0] = true;
+    const auto planned = shadow_index_detail::draw_counts(valid.draws(true), resident, admitted, true);
+    OA_CHECK(planned.cache_hits == 1 && planned.cached_runs == 1);
+    const auto retried = shadow_index_detail::draw_counts(valid.draws(true), resident, admitted, false);
+    OA_CHECK(retried.cache_hits == 0 && retried.cache_misses == 1);
+    OA_CHECK(retried.cached_runs == 0 && retried.cached_indices == 0);
+    OA_CHECK(retried.fallback_runs == 1);
+    OA_CHECK(retried.dynamic_indices == valid.ordinary.cast_indices.size());
 }
 
 /// Retained templates, bounded admissions and capability fallback preserve every pixel.
@@ -260,6 +271,17 @@ void shadow_index_stream_readback() {
         OA_CHECK(fallback_counts.fallback_runs == 1 && fallback_counts.admitted_patterns == 0);
         OA_CHECK(fallback_counts.template_uploaded_indices == 0);
     }
+    // Capability rejection also reclassifies an already resident request as a
+    // dynamic fallback; retained residency alone is not a successful cache hit.
+    context.shadow_templates_allowed = false;
+    OA_CHECK(shadow_template_frame(context, fixture, true, pixels, error) == Result::success);
+    OA_CHECK(shadow_template_frame(legacy_context, fixture, false, expected, error) == Result::success);
+    OA_CHECK(pixels == expected);
+    OA_CHECK(context.shadow_index_counts.cache_hits == 0);
+    OA_CHECK(context.shadow_index_counts.cache_misses == 1);
+    OA_CHECK(context.shadow_index_counts.cached_runs == 0);
+    OA_CHECK(context.shadow_index_counts.fallback_runs == 1);
+    context.shadow_templates_allowed = true;
     // Appending descriptors preserves the resident prefix and its exact old pixels.
     fixture.add_pattern();
     fixture.runs[1].pattern = 2;
@@ -278,6 +300,8 @@ void shadow_index_stream_readback() {
     OA_CHECK(shadow_template_frame(context, fixture, false, pixels, error) == Result::success);
     OA_CHECK(pixels == expected);
     OA_CHECK(context.shadow_index_counts.cached_indices == 0);
+    OA_CHECK(context.shadow_index_counts.cached_patterns == 1);
+    OA_CHECK(context.shadow_index_counts.cache_bytes == template_words * sizeof(uint32_t));
 
     // Only two new patterns may enter per frame; the remaining run uses the
     // same dynamic fallback as capability rejection, then enters next frame.
@@ -297,6 +321,50 @@ void shadow_index_stream_readback() {
     OA_CHECK(budget_context.shadow_index_counts.cached_runs == 3);
     OA_CHECK(budget_context.shadow_index_counts.cache_hits == 2);
     OA_CHECK(budget_context.shadow_index_counts.fallback_runs == 0);
+
+    // Two individually admissible templates together exceed the byte allowance,
+    // so the second request remains dynamic despite the two-pattern allowance.
+    ShadowTemplateFixture byte_budget(2);
+    constexpr uint32_t repeated_indices = 600;
+    byte_budget.pattern_indices.clear();
+    for (auto& pattern : byte_budget.patterns) {
+        pattern.first_index = static_cast<uint32_t>(byte_budget.pattern_indices.size());
+        pattern.indices_per_cast = repeated_indices;
+        for (uint32_t relative = 0; relative < model_run_instances; ++relative)
+            for (uint32_t at = 0; at < repeated_indices; ++at)
+                byte_budget.pattern_indices.push_back(
+                    relative << model_corner_bits | at % ShadowTemplateFixture::corners_per_cast
+                );
+    }
+    for (auto& run : byte_budget.runs)
+        if (run.pattern != 0)
+            run.index_count = repeated_indices * run.cast_count;
+    byte_budget.ordinary.cast_indices.clear();
+    for (uint32_t cast = 0; cast < byte_budget.ordinary.casts.size(); ++cast) {
+        const auto count = cast > 0 && cast <= 2 * ShadowTemplateFixture::hot_casts
+                               ? repeated_indices
+                               : ShadowTemplateFixture::corners_per_cast;
+        for (uint32_t at = 0; at < count; ++at)
+            byte_budget.ordinary.cast_indices.push_back(
+                cast << model_corner_bits | at % ShadowTemplateFixture::corners_per_cast
+            );
+    }
+    byte_budget.ordinary.cast_runs[0].index_count =
+        static_cast<uint32_t>(byte_budget.ordinary.cast_indices.size());
+    Context byte_context;
+    OA_CHECK(shadow_template_frame(legacy_context, byte_budget, false, expected, error) == Result::success);
+    OA_CHECK(shadow_template_frame(byte_context, byte_budget, true, pixels, error) == Result::success);
+    OA_CHECK(pixels == expected);
+    OA_CHECK(byte_context.shadow_index_counts.admitted_patterns == 1);
+    OA_CHECK(byte_context.shadow_index_counts.cached_runs == 1);
+    OA_CHECK(byte_context.shadow_index_counts.fallback_runs == 1);
+    OA_CHECK(byte_context.shadow_index_counts.template_uploaded_indices * sizeof(uint32_t) <=
+             shadow_template_admission_bytes);
+    OA_CHECK(shadow_template_frame(byte_context, byte_budget, true, pixels, error) == Result::success);
+    OA_CHECK(pixels == expected);
+    OA_CHECK(byte_context.shadow_index_counts.admitted_patterns == 1);
+    OA_CHECK(byte_context.shadow_index_counts.cached_runs == 2);
+    OA_CHECK(byte_context.shadow_index_counts.fallback_runs == 0);
 
     // Complete repetitions are independently checked when an immutable pattern
     // first enters. The unused last relative cast cannot hide malformed words.
