@@ -9823,6 +9823,7 @@ int main() {
     shadow_index_template_piece_policy();
     shadow_index_template_lifecycle();
     shadow_index_template_candidates();
+    shadow_index_template_registry_copies();
     water_surface_bounds();
     sea_bed_follows_swells();
     water_disturbance_visibility();

@@ -260,4 +260,60 @@ void shadow_index_template_candidates() {
         OA_CHECK((stream.candidates[at] == live::ShadowIndexKey{23, at, 1, false}));
 }
 
+/// Copied registries append under separate revisions without changing retained prefixes.
+void shadow_index_template_registry_copies() {
+    BodyLodFixture fixture;
+    fixture.projection(2);
+    OA_CHECK(live::build(fixture.battle.inputs, fixture.battle.scene, fixture.battle.error));
+    auto& types = fixture.battle.scene.card_types;
+    OA_CHECK(types.draw_types.size() == 1 && types.draw_types[0] >= 0);
+    const auto type = static_cast<uint32_t>(types.draw_types[0]);
+    const live::ShadowIndexKey base_key{types.revision, type, 1, false};
+    live::admit_shadow_index_patterns(types, {&base_key, 1});
+    const auto original = types.shadow_patterns;
+    OA_CHECK(original && original->keys.size() == 1);
+    if (!original)
+        return;
+    const auto original_indices = original->indices;
+    OA_CHECK(original->patterns.size() == 1 && !original_indices.empty());
+    auto left = types;
+    auto right = types;
+    live::prepare_shadow_index_patterns(left);
+    live::prepare_shadow_index_patterns(right);
+    OA_CHECK(left.shadow_patterns && right.shadow_patterns);
+    if (!left.shadow_patterns || !right.shadow_patterns)
+        return;
+    OA_CHECK(left.shadow_patterns->revision != 0 && right.shadow_patterns->revision != 0);
+    OA_CHECK(left.shadow_patterns->revision != original->revision);
+    OA_CHECK(right.shadow_patterns->revision != original->revision);
+    OA_CHECK(left.shadow_patterns->revision != right.shadow_patterns->revision);
+    OA_CHECK(left.shadow_patterns->indices == original_indices);
+    OA_CHECK(right.shadow_patterns->indices == original_indices);
+    const live::ShadowIndexKey left_key{types.revision, type, 3, false};
+    const live::ShadowIndexKey right_key{types.revision, type, 1, true};
+    live::admit_shadow_index_patterns(left, {&left_key, 1});
+    live::admit_shadow_index_patterns(right, {&right_key, 1});
+    OA_CHECK((left.shadow_patterns->keys == std::vector<live::ShadowIndexKey>{base_key, left_key}));
+    OA_CHECK(
+        (right.shadow_patterns->keys == std::vector<live::ShadowIndexKey>{base_key, right_key})
+    );
+    OA_CHECK((original->keys == std::vector<live::ShadowIndexKey>{base_key}));
+    OA_CHECK(original->indices == original_indices);
+    OA_CHECK(left.shadow_patterns->indices.size() >= original_indices.size());
+    OA_CHECK(right.shadow_patterns->indices.size() >= original_indices.size());
+    if (left.shadow_patterns->indices.size() < original_indices.size() ||
+        right.shadow_patterns->indices.size() < original_indices.size())
+        return;
+    OA_CHECK(
+        std::equal(
+            original_indices.begin(), original_indices.end(), left.shadow_patterns->indices.begin()
+        )
+    );
+    OA_CHECK(
+        std::equal(
+            original_indices.begin(), original_indices.end(), right.shadow_patterns->indices.begin()
+        )
+    );
+}
+
 } // namespace
