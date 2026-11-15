@@ -6,6 +6,7 @@
 #include "renderer_live_overlay.hpp"
 #include "renderer_proof_gpu.hpp"
 #include "renderer_water.hpp"
+#include "shadow_index_counts.hpp"
 
 #include <array>
 #include <cstddef>
@@ -118,6 +119,12 @@ struct Context {
     /// Whether render() may draw strategic markers from their exact four corners.
     /// False retains the caller's ordinary triangle path.
     bool markers_allowed{true};
+    /// Whether immutable shadow index buffers may be used. False retains the
+    /// same frame's validated compact stream through ordinary dynamic uploads.
+    bool shadow_templates_allowed{true};
+    /// Actual shadow draws and uploads of the last successful render; cleared
+    /// before every attempt, including one that fails.
+    oa::app::ShadowIndexCounts shadow_index_counts{};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.
@@ -266,6 +273,38 @@ struct ShadowCast {
     float down{};
 };
 
+/// The frame's shadow index representation, with identical triangle ordering.
+enum class ShadowIndexEncoding : uint8_t { expanded, compact };
+
+inline constexpr std::size_t shadow_template_byte_limit = 8 * 1024 * 1024;
+inline constexpr uint32_t shadow_template_pattern_limit = 64;
+inline constexpr uint32_t shadow_template_minimum_casts = 16;
+inline constexpr uint32_t shadow_template_admissions_per_frame = 2;
+inline constexpr std::size_t shadow_template_admission_bytes = 1024 * 1024;
+
+/// One immutable local corner sequence, expanded for relative casts 0 through 255.
+/// Every expanded word is (relative_cast << model_corner_bits) | local_corner.
+struct ShadowIndexPattern {
+    uint32_t first_index{};       ///< first expanded word in shadow_pattern_indices
+    uint32_t indices_per_cast{};  ///< the exact nonempty local sequence, triangle-aligned
+    uint32_t type_corners{};      ///< first corner of its immutable model type
+    uint32_t type_corner_count{}; ///< complete corner range of that model type
+    uint64_t selected_mask{};     ///< selected visible/cached pieces, at most 64
+};
+
+/// One unchanged ordinary shadow run in the compact stream.
+/// A zero pattern names dynamic indices; otherwise pattern-1 names an immutable
+/// template and first_index is zero. index_count is always the complete logical
+/// count, including every cast; no run is split or reordered.
+struct ShadowIndexRun {
+    std::size_t vertex{};   ///< retained ordinary run metadata; unused by the cast shader
+    uint32_t first_cast{};  ///< first cast in ModelDraws::casts
+    uint32_t cast_count{};  ///< consecutive casts, from 1 through model_run_instances
+    uint32_t first_index{}; ///< first dynamic word, or zero for a template prefix
+    uint32_t index_count{};
+    uint32_t pattern{}; ///< zero for dynamic, otherwise descriptor index plus one
+};
+
 /// The map the units' shadows are cast into (ModelDraws::casts), over the
 /// part of the map as the game paints it (a row down is half a pixel up)
 /// the frame shows.
@@ -331,6 +370,19 @@ struct ModelDraws {
     /// toward the same geometry limit as the ordinary triangle path.
     std::span<const MarkerRun> marker_runs{};
     std::array<float, 2> marker_uv{}; ///< the shared ordinary white material's centre
+    /// Expanded preserves the original cast_indices/cast_runs contract. Compact
+    /// instead uses the typed runs and dynamic words below, even when empty.
+    ShadowIndexEncoding shadow_index_encoding{ShadowIndexEncoding::expanded};
+    std::span<const ShadowIndexRun> shadow_index_runs{};
+    std::span<const uint32_t> shadow_dynamic_indices{};
+    /// Immutable descriptors and complete 256-cast templates. Existing prefixes
+    /// never change within a revision; appended patterns retain their IDs.
+    std::span<const ShadowIndexPattern> shadow_patterns{};
+    std::span<const uint32_t> shadow_pattern_indices{};
+    uint64_t shadow_patterns_revision{};      ///< unique across stores, nonzero for a template
+    uint64_t shadow_patterns_type_revision{}; ///< the matching corners_revision
+    /// Sum of compact run index_count values, preserving the ordinary budget.
+    std::size_t logical_shadow_index_count{};
 };
 
 /// Whether render() draws model draws on the card: once a frame has made
