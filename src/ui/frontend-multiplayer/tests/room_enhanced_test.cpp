@@ -100,7 +100,7 @@ void classic_rooms_keep_their_start_rules() {
 }
 
 void matching_machines_can_start() {
-    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u})
+    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u})
         for (bool hosting : {false, true}) {
             Room room(hosting);
             room.presence(0, record(version));
@@ -242,6 +242,32 @@ void cohort_rooms_require_their_own_version() {
     }
 }
 
+/// Requires the retained cohort rules to agree in both room roles.
+void cohort_retention_rooms_require_their_own_version() {
+    for (const bool hosting : {false, true}) {
+        Room room(hosting);
+        room.presence(0, record(11));
+        for (const uint32_t other : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 12u}) {
+            room.presence(1, record(other));
+            expect(!mp::lobby_enhanced_allow_start(room.lobby), "v11 requires its own version");
+            const char* problem = mp::lobby_enhanced_start_problem(room.lobby);
+            expect(
+                problem != nullptr && std::strstr(problem, "version") != nullptr,
+                "the v11 refusal names the version"
+            );
+        }
+        room.presence(1, record(11));
+        expect(mp::lobby_enhanced_allow_start(room.lobby), "matching v11 peers may start");
+        room.presence(1, record(11, 8));
+        expect(!mp::lobby_enhanced_allow_start(room.lobby), "v11 peers still need matching rules");
+        const char* problem = mp::lobby_enhanced_start_problem(room.lobby);
+        expect(
+            problem != nullptr && std::strstr(problem, "rules") != nullptr,
+            "the v11 rules refusal names the rules"
+        );
+    }
+}
+
 void guests_do_not_silently_adopt_another_mode() {
     Room host{};
     host.presence(0, record(0));
@@ -327,6 +353,7 @@ int main() {
     corridor_rooms_require_their_own_version();
     distributed_rooms_require_their_own_version();
     cohort_rooms_require_their_own_version();
+    cohort_retention_rooms_require_their_own_version();
     guests_do_not_silently_adopt_another_mode();
     watchers_agree_and_computers_use_their_machine();
     the_host_checks_every_machine_and_guests_check_the_host();
