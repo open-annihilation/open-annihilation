@@ -98,6 +98,7 @@ struct CardType {
 
 /// The exact ordinary piece selection of one immutable shadow index pattern.
 struct ShadowIndexKey {
+    uint64_t type_revision{};
     uint32_t type{};
     uint64_t selected_mask{};
     bool walls{};
