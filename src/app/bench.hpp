@@ -55,6 +55,7 @@ struct View {
     double hold_after{};       ///< seconds the match plays on after the span
     bool stage_timers = true;  ///< whether the stage timers measure
     bool frame_log{};          ///< whether a FRAME line is printed for each frame of the span
+    bool plan_work{};          ///< whether model planning work is recorded with the frame log
 };
 
 /// Reads a view file's text: one "KEY VALUE" a line; blank lines and lines

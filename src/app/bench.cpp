@@ -249,8 +249,8 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
         } else if (key == "hold_after") {
             read = seconds(view.hold_after);
         } else if (
-            key == "stage_timers" || key == "frame_log" || key == "require_paused" ||
-            key == "require_gameplay"
+            key == "stage_timers" || key == "frame_log" || key == "plan_work" ||
+            key == "require_paused" || key == "require_gameplay"
         ) {
             if (value != "0" && value != "1") {
                 error = where + std::string(key) + " takes 0 or 1";
@@ -258,6 +258,7 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
             }
             (key == "stage_timers"       ? view.stage_timers
              : key == "frame_log"        ? view.frame_log
+             : key == "plan_work"        ? view.plan_work
              : key == "require_gameplay" ? view.require_gameplay
                                          : view.require_paused) = value == "1";
         } else {

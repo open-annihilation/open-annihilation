@@ -92,7 +92,8 @@ void view_reads_every_key() {
                        "turn_rate 6\n"
                        "hold_after 2\n"
                        "stage_timers 0\n"
-                       "frame_log 1";
+                       "frame_log 1\n"
+                       "plan_work 1";
     OA_CHECK(bench::parse_view(text, view, error));
     OA_CHECK(view.label == "low-across");
     OA_CHECK(oa::platform::path_to_generic_utf8(view.stage) == "battle.stage");
@@ -104,6 +105,7 @@ void view_reads_every_key() {
     OA_CHECK(near(view.yaw, 20) && near(view.pitch, -53) && near(view.zoom, 0));
     OA_CHECK(near(view.turn_rate, 6) && near(view.hold_after, 2) && !view.stage_timers);
     OA_CHECK(view.frame_log && !defaults.frame_log);
+    OA_CHECK(view.plan_work && !defaults.plan_work);
 
     bench::View paused;
     OA_CHECK(
@@ -116,6 +118,20 @@ void view_reads_every_key() {
     );
     OA_CHECK(paused.warmup_frames == 30 && paused.measure_frames == 60);
     OA_CHECK(paused.expected_live_units == 20000 && paused.require_paused);
+}
+
+/// Model planning measurements are opt-in and independent of the frame log key.
+void view_plan_work_is_opt_in() {
+    bench::View view;
+    std::string error;
+    OA_CHECK(!view.plan_work);
+    OA_CHECK(bench::parse_view("plan_work 1", view, error));
+    OA_CHECK(view.plan_work && !view.frame_log);
+    OA_CHECK(bench::parse_view("plan_work 0\nframe_log 1", view, error));
+    OA_CHECK(!view.plan_work && view.frame_log);
+    for (const std::string_view value : {"2", "-1", "true", "01", "1.0"})
+        OA_CHECK(refusal("plan_work " + std::string(value)) == "line 1: plan_work takes 0 or 1");
+    OA_CHECK(refusal("plan_work 0\nplan_work 1") == "line 2: plan_work is given twice");
 }
 
 /// An absent or zero rules request keeps the version selected by the match;
@@ -646,6 +662,7 @@ void totals_of_a_frame_add_up() {
 
 int main() {
     view_reads_every_key();
+    view_plan_work_is_opt_in();
     rules_requests_preserve_defaults_and_require_enhanced_mode();
     started_rules_must_match_explicit_requests();
     view_refuses_invalid_rules_versions();
