@@ -7,6 +7,7 @@
 {
     const auto stock_settings_kept = engine_settings();
     const auto stock_limit_kept = frontend_game().max_units_setting;
+    const auto stock_map_kept = skirmish_settings_.map_name;
     auto stock_settings = stock_settings_kept;
     constexpr uint16_t stock_unit_limit = 1000;
     stock_settings.unit_limit = std::max(stock_settings.unit_limit, stock_unit_limit);
@@ -25,7 +26,7 @@
         constexpr int32_t stock_view_margin_z = 768;
         for (const auto version : {mode::cohort_target_version, mode::cohort_retention_version}) {
             for (const std::string_view stock_name : {"ARMPW", "CORAK"}) {
-                start_ground_match(version);
+                start_ground_match(version, "Core Prime Industrial Area");
                 enter_console_check_line("+nowisee");
                 clear_local_selection();
                 const auto type = sim::unit_spawn::find_type_index(spawn_type_names_, stock_name);
@@ -327,8 +328,10 @@
     } catch (...) {
         apply_engine_settings(stock_settings_kept);
         frontend_game().max_units_setting = stock_limit_kept;
+        skirmish_settings_.map_name = stock_map_kept;
         throw;
     }
     apply_engine_settings(stock_settings_kept);
     frontend_game().max_units_setting = stock_limit_kept;
+    skirmish_settings_.map_name = stock_map_kept;
 }

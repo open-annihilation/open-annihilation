@@ -3199,14 +3199,26 @@ int Runtime::check_live_renderer() {
         constexpr float ground_check_pitch = -53;
         constexpr float ground_check_angle_step = 5;
         constexpr double ground_check_pan = 16;
-        const auto start_ground_match = [&](uint32_t version = mode::following_flow_version) {
+        const auto start_ground_match = [&](uint32_t version = mode::following_flow_version,
+                                            std::string_view map = {}) {
             leave_match();
             load(Screen::main_menu);
             require(
                 hold_enhanced_rules_once(version),
                 "the ground-query fixture could not select Enhanced rules"
             );
-            start_benchmark_skirmish();
+            if (map.empty()) {
+                start_benchmark_skirmish();
+            } else {
+                exercise_click(menu::resource_name(menu::Button::single_player));
+                exercise_click(entry::resource_name(entry::Button::skirmish));
+                skirmish_settings_.map_name = std::string{map};
+                require(select_map(map) != 0, "the stock shadow-cache map is unavailable");
+                state_.player_count = 2;
+                require(map_player_capacity() >= 2, "the stock map lacks two start positions");
+                exercise_click(skirmish::resource_name(skirmish::Button::start));
+                require(screen_ == Screen::match, "the stock map did not enter the match");
+            }
             require(match_ != nullptr, "the Enhanced ground-query match did not start");
             const auto& enhanced = match_->rules().setup.enhanced_mode;
             require(
