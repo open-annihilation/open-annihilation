@@ -1112,6 +1112,7 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-deferred-model-geometry-test PRIVATE oa-app-headers
     oa-present-model oa-sim-model-runtime oa-test-support oa-options)
   add_test(NAME app-deferred-model-geometry COMMAND oa-app-deferred-model-geometry-test)
+  find_package(Threads REQUIRED)
   add_executable(oa-app-plan-work-counts-test src/app/plan_work_counts_test.cpp)
   target_link_libraries(oa-app-plan-work-counts-test PRIVATE oa-test-support Threads::Threads
     oa-options)
