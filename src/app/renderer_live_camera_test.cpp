@@ -186,6 +186,109 @@ bool triangle_hit_reference(
     return true;
 }
 
+/// Bounded surface picks retain ordinary hits, weights and depth in either winding.
+void surface_triangle_picking() {
+    using Triangle = std::array<std::array<float, 3>, 3>;
+    const std::array triangles{
+        Triangle{{{0, 0, 10}, {16, 0, 42}, {0, 8, -6}}},
+        Triangle{{{91.125F, -17.25F, -300}, {3.5F, 87.625F, 0.125F}, {17, 1.25F, 850}}},
+        // A very thin triangle with no cancelling area terms is still usable.
+        Triangle{{{0, 0, 0}, {1024, 0, 4}, {0, 1e-7F, 8}}},
+    };
+    for (auto triangle : triangles) {
+        for (int winding = 0; winding < 2; ++winding) {
+            std::swap(triangle[0], triangle[2]);
+            const auto compare = [&](float x, float y) {
+                std::array<float, 3> expected_weights{11, 22, 33};
+                auto weights = expected_weights;
+                float expected_depth = 44, depth = expected_depth;
+                const bool expected =
+                    triangle_hit_reference(triangle, x, y, expected_weights, expected_depth);
+                OA_CHECK(triangle_hit_inside_bounds(triangle, x, y, weights, depth) == expected);
+                OA_CHECK(weights == expected_weights);
+                OA_CHECK(depth == expected_depth);
+            };
+            for (const auto& vertex : triangle) {
+                compare(vertex[0], vertex[1]);
+                compare(
+                    std::nextafter(vertex[0], std::numeric_limits<float>::infinity()), vertex[1]
+                );
+            }
+            for (const std::array<float, 3> weights : {
+                     std::array<float, 3>{0.5F, 0.25F, 0.25F},
+                     std::array<float, 3>{0, 0.5F, 0.5F},
+                     std::array<float, 3>{-0.0000005F, 0.5F, 0.5000005F},
+                     std::array<float, 3>{-0.01F, 0.5F, 0.51F},
+                 })
+                compare(
+                    weights[0] * triangle[0][0] + weights[1] * triangle[1][0] +
+                        weights[2] * triangle[2][0],
+                    weights[0] * triangle[0][1] + weights[1] * triangle[1][1] +
+                        weights[2] * triangle[2][1]
+                );
+        }
+    }
+    std::array<float, 3> weights{};
+    float depth{};
+    OA_CHECK(triangle_hit_inside_bounds(triangles[0], 4, 2, weights, depth));
+    OA_CHECK((weights == std::array<float, 3>{0.5F, 0.25F, 0.25F}));
+    OA_CHECK(depth == 14);
+    OA_CHECK(triangle_hit_inside_bounds(triangles[2], 256, 2.5e-8F, weights, depth));
+    OA_CHECK((weights == std::array<float, 3>{0.5F, 0.25F, 0.25F}));
+    OA_CHECK(depth == 3);
+}
+
+/// Surface picks reject invalid geometry and distant sliver hits without changing outputs.
+void rejected_surface_triangle_picking() {
+    using Triangle = std::array<std::array<float, 3>, 3>;
+    const Triangle ordinary{{{0, 0, 10}, {16, 0, 42}, {0, 8, -6}}};
+    const auto rejected = [&](const Triangle& triangle, float x, float y) {
+        const std::array<float, 3> saved_weights{11, 22, 33};
+        auto weights = saved_weights;
+        constexpr float saved_depth = 44;
+        float depth = saved_depth;
+        OA_CHECK(!triangle_hit_inside_bounds(triangle, x, y, weights, depth));
+        OA_CHECK(weights == saved_weights);
+        OA_CHECK(depth == saved_depth);
+    };
+    rejected(ordinary, -1, 2);
+    rejected(ordinary, 4, -1);
+    rejected(ordinary, 17, 2);
+    rejected(ordinary, 4, 9);
+    rejected(ordinary, 12, 6);
+    rejected({}, 0, 0);
+    rejected(Triangle{{{0, 0, 0}, {1, 1, 1}, {2, 2, 2}}}, 1, 1);
+    rejected(Triangle{{{0, 0, 0}, {1e-7F, 0, 1}, {0, 1e-7F, 2}}}, 0, 0);
+    // These integer vertices have nonzero area, but almost cancelling terms.
+    const Triangle thin{{{0, 0, 10}, {832040, 514229, 20}, {1346269, 832040, 30}}};
+    std::array<float, 3> weights{};
+    float depth{};
+    OA_CHECK(triangle_hit(thin, 0, 0, weights, depth));
+    rejected(thin, 0, 0);
+    // Rounded barycentrics can accept a far-away point as the last corner.
+    // The bounded surface policy rejects this phantom while the legacy query stays unchanged.
+    const Triangle phantom{
+        {{0x1.0f999ep-8F, 0x1.c2abc8p-11F, 10},
+         {4144288, 859586.75F, 20},
+         {1036072, 214896.6875F, 30}}
+    };
+    OA_CHECK(triangle_hit(phantom, -16577152, -3438347, weights, depth));
+    OA_CHECK((weights == std::array<float, 3>{0, 0, 1}));
+    OA_CHECK(depth == 30);
+    rejected(phantom, -16577152, -3438347);
+    constexpr float infinity = std::numeric_limits<float>::infinity();
+    for (float value : {invalid, infinity, -infinity}) {
+        rejected(ordinary, value, 2);
+        rejected(ordinary, 4, value);
+        for (std::size_t vertex = 0; vertex < ordinary.size(); ++vertex)
+            for (std::size_t axis = 0; axis < ordinary[vertex].size(); ++axis) {
+                auto changed = ordinary;
+                changed[vertex][axis] = value;
+                rejected(changed, 4, 2);
+            }
+    }
+}
+
 /// Bounding rejection retains tolerant edges and the prepared query's exact hit results.
 void bounded_triangle_picking() {
     using Triangle = std::array<std::array<float, 3>, 3>;
@@ -593,6 +696,8 @@ int main() {
     camera_limits();
     invalid_input();
     triangle_picking();
+    surface_triangle_picking();
+    rejected_surface_triangle_picking();
     prepared_triangle_picking();
     bounded_triangle_picking();
     narrowed_rows();
