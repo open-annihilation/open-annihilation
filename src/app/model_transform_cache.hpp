@@ -26,7 +26,7 @@ class ModelTransformCache {
     static constexpr size_t storage_limit = 512U * 1024U;
     static constexpr size_t piece_limit = 64;
     static constexpr size_t vertex_limit = 2048;
-    /// Maximum immutable prefix bytes retained by this worker in one frame.
+    /// Maximum immutable prefix bytes retained by this worker in one planning run.
     static constexpr size_t prefix_storage_limit = storage_limit;
 
     /// Counts the bounded lookups and copies of the current frame.
@@ -37,7 +37,7 @@ class ModelTransformCache {
     /// Sets the admission limits, clamped to the cache's fixed capacities.
     /// @param entries the most exact poses retained in a frame
     /// @param bytes the most bytes of cache and owned transform storage
-    /// @param prefix_bytes the most immutable prefix payload bytes retained this frame
+    /// @param prefix_bytes the most immutable prefix payload bytes retained this planning run
     explicit ModelTransformCache(
         size_t entries = entry_capacity,
         size_t bytes = storage_limit,
@@ -124,7 +124,7 @@ class ModelTransformCache {
     ///
     /// Only a registered exact zero-XZ prefix can supply the points. The
     /// receiver keeps its raw pose, flags, transformed buffers and revision.
-    /// Source points are copied once per cache entry and frame, within a
+    /// Source points are copied once per cache entry and planning run, within a
     /// separate bounded packet budget; returned handles survive later frames.
     ///
     /// @param instance current ordinary or resolved presentation instance
