@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -822,6 +823,186 @@ std::shared_ptr<const Model> far_model() {
     return source;
 }
 
+/// Validates the complete mapping and topology before computing any path radius.
+std::optional<proof::FixedBounds> separate_far_bound(
+    const proof::Geometry& geometry, const Instance& instance, proof::Scratch& scratch
+) {
+    constexpr std::size_t maximum_pieces = 256;
+    constexpr uint64_t coordinate_limit = std::numeric_limits<int32_t>::max();
+    const auto& handle = instance.model_handle();
+    if (!geometry.model || !handle || geometry.model.get() != handle.get() ||
+        geometry.model.owner_before(handle) || handle.owner_before(geometry.model) ||
+        geometry.objects.size() != geometry.model->objects.size() ||
+        !oa::base::float_precision::rounds_to_double() || std::fegetround() != FE_TONEAREST ||
+        !oa::base::float_precision::float_control_matches(
+            oa::base::float_precision::program_float_control().saved
+        ))
+        return std::nullopt;
+    const auto pieces = instance.pieces();
+    if (pieces.empty() || pieces.size() != geometry.objects.size() ||
+        pieces.size() > maximum_pieces)
+        return std::nullopt;
+    auto& mapping = scratch.piece_for_object;
+    mapping.assign(pieces.size(), runtime::kNoPiece);
+    for (std::size_t index = 0; index < pieces.size(); ++index) {
+        const auto object = pieces[index].object_index;
+        if (object >= pieces.size() || mapping[object] != runtime::kNoPiece)
+            return std::nullopt;
+        mapping[object] = static_cast<uint32_t>(index);
+    }
+    const auto linked_piece = [&](uint32_t object) {
+        return object == runtime::kNoPiece || object >= pieces.size() ? runtime::kNoPiece
+                                                                      : mapping[object];
+    };
+    if (instance.root_piece() != mapping[0])
+        return std::nullopt;
+    for (const auto& piece : pieces) {
+        const auto& object = geometry.model->objects[piece.object_index];
+        if ((object.parent != runtime::kNoPiece && object.parent >= piece.object_index) ||
+            (object.parent != runtime::kNoPiece && object.parent >= pieces.size()) ||
+            (object.first_child != runtime::kNoPiece && object.first_child >= pieces.size()) ||
+            (object.next_sibling != runtime::kNoPiece && object.next_sibling >= pieces.size()) ||
+            piece.parent != linked_piece(object.parent) ||
+            piece.first_child != linked_piece(object.first_child) ||
+            piece.next_sibling != linked_piece(object.next_sibling))
+            return std::nullopt;
+    }
+    if (geometry.model->objects[0].next_sibling != runtime::kNoPiece)
+        return std::nullopt;
+    const auto magnitude = [](int32_t word) -> uint64_t {
+        return word < 0 ? static_cast<uint64_t>(-static_cast<int64_t>(word))
+                        : static_cast<uint64_t>(word);
+    };
+    auto& paths = scratch.far_radius_path;
+    paths.resize(pieces.size());
+    uint64_t radius{};
+    bool nonempty{};
+    for (std::size_t index = 0; index < pieces.size(); ++index) {
+        const auto& object = geometry.model->objects[index];
+        const auto& piece = pieces[mapping[index]];
+        const auto& raw = geometry.objects[index];
+        if (!raw.radius_ready || (index != 0 && object.parent == runtime::kNoPiece))
+            return std::nullopt;
+        const uint64_t parent = object.parent == runtime::kNoPiece ? 0 : paths[object.parent];
+        const uint64_t translation =
+            magnitude(object.offset_from_parent.x) + magnitude(object.offset_from_parent.y) +
+            magnitude(object.offset_from_parent.z) + magnitude(piece.translation.x) +
+            magnitude(piece.translation.y) + magnitude(piece.translation.z);
+        const uint64_t added = translation + 6;
+        if (added >= coordinate_limit || parent >= coordinate_limit - added)
+            return std::nullopt;
+        paths[index] = parent + added;
+        if ((piece.flags & visible) == 0 || !raw.nonempty)
+            continue;
+        if (raw.l1_radius >= coordinate_limit - paths[index])
+            return std::nullopt;
+        radius = std::max(radius, raw.l1_radius + paths[index]);
+        nonempty = true;
+    }
+    if (!nonempty)
+        return std::nullopt;
+    const auto bound = static_cast<int32_t>(radius);
+    return proof::FixedBounds{{-bound, -bound, -bound}, {bound, bound, bound}};
+}
+
+/// Compares exact boxes and refusals with separate topology and radius passes.
+void far_mapping_and_radius_reference_parity() {
+    const auto source = far_model();
+    const auto geometry = proof::prepare_geometry(source);
+    proof::Scratch scratch, reference_scratch;
+    const auto compare = [&](const proof::Geometry& bounds, const Instance& instance) {
+        const auto expected = separate_far_bound(bounds, instance, reference_scratch);
+        const auto actual = proof::bound_far_instance(bounds, instance, scratch);
+        OA_CHECK(actual.has_value() == expected.has_value());
+        if (actual && expected) {
+            OA_CHECK(same(actual->low, expected->low));
+            OA_CHECK(same(actual->high, expected->high));
+        }
+    };
+    uint32_t words = 0x6943a17dU;
+    for (const bool reordered : {false, true}) {
+        const auto names = reordered ? std::span<const std::string_view>(cob_order)
+                                     : std::span<const std::string_view>{};
+        const auto original = runtime::make_instance(source, 31, names);
+        compare(geometry, original);
+        for (unsigned sample = 0; sample < 128; ++sample) {
+            auto posed = original;
+            for (auto& piece : posed.pieces()) {
+                const auto coordinate = [&] {
+                    return static_cast<int32_t>(next_word(words) % (64U * fixed)) - 32 * fixed;
+                };
+                piece.translation = {coordinate(), coordinate(), coordinate()};
+                piece.rotation = {
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(words))),
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(words))),
+                    std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(words)))
+                };
+                piece.flags = sample % 8 == 0 || (next_word(words) & 1U) == 0 ? 0 : visible;
+            }
+            compare(geometry, posed);
+        }
+        for (std::size_t index = 0; index < original.pieces().size(); ++index) {
+            auto changed = original;
+            changed.pieces()[index].parent = 999;
+            compare(geometry, changed);
+            changed = original;
+            changed.pieces()[index].first_child = static_cast<uint32_t>(index);
+            compare(geometry, changed);
+            changed = original;
+            changed.pieces()[index].next_sibling = static_cast<uint32_t>(index);
+            compare(geometry, changed);
+            changed = original;
+            changed.pieces()[index].object_index = runtime::kNoPiece;
+            compare(geometry, changed);
+            changed = original;
+            changed.pieces()[index].object_index =
+                original.pieces()[(index + 1) % original.pieces().size()].object_index;
+            compare(geometry, changed);
+            for (const int32_t coordinate :
+                 {std::numeric_limits<int32_t>::min(),
+                  std::numeric_limits<int32_t>::max(),
+                  std::numeric_limits<int32_t>::max() / 2}) {
+                changed = original;
+                changed.pieces()[index].translation = {coordinate, coordinate, coordinate};
+                compare(geometry, changed);
+            }
+            auto missing = geometry;
+            missing.objects[index].radius_ready = false;
+            compare(missing, original);
+            missing = geometry;
+            missing.objects[index].l1_radius = std::numeric_limits<uint64_t>::max();
+            compare(missing, original);
+            missing = geometry;
+            missing.objects[index].nonempty = false;
+            compare(missing, original);
+        }
+        auto root_mismatch = original;
+        const auto root = root_mismatch.root_piece();
+        const auto other = (root + 1) % root_mismatch.pieces().size();
+        std::swap(root_mismatch.pieces()[root], root_mismatch.pieces()[other]);
+        compare(geometry, root_mismatch);
+        auto hidden = original;
+        for (auto& piece : hidden.pieces())
+            piece.flags = 0;
+        compare(geometry, hidden);
+        auto missing = geometry;
+        missing.objects.pop_back();
+        compare(missing, original);
+        missing = geometry;
+        missing.model.reset();
+        compare(missing, original);
+        const auto control = oa::base::float_precision::save_float_control();
+        for (const int rounding : {FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO}) {
+            if (std::fesetround(rounding) == 0)
+                compare(geometry, original);
+            oa::base::float_precision::restore_float_control(control);
+        }
+    }
+    const auto sibling = runtime::make_instance(branched_model(), 31, cob_order);
+    compare(proof::prepare_geometry(sibling.model_handle()), sibling);
+    compare(geometry, Instance{});
+}
+
 /// Checks the integer rounding margin at every angle word and large coordinates.
 void far_plane_rounding_margin() {
     const auto squared = [](FixedVector3 point) {
@@ -1368,6 +1549,7 @@ int main() {
     completed_native_geometry_and_refusals();
     far_plane_rounding_margin();
     far_hierarchy_and_wrap_domains();
+    far_mapping_and_radius_reference_parity();
     far_projection_and_translation_signs();
     combined_raw_far_and_exact_fallbacks();
     combined_raw_scratch_progression_and_poses();
