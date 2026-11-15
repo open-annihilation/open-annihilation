@@ -2994,6 +2994,7 @@ void card_shadows() {
 }
 
 #include "shadow_index_backend_test.inc"
+#include "shadow_index_procedural_gpu_test.inc"
 
 /// Scene policy preserves full composition and gives distant units stable,
 /// owner-coloured pixels through the ordinary retained GPU readback path.
@@ -4748,6 +4749,7 @@ int main() {
     invalid_input();
     model_origin_validation();
     shadow_index_stream_validation();
+    shadow_index_procedural_validation();
     marker_packet_validation();
     if (oa::test::check_exit_status() != 0)
         return oa::test::check_exit_status();
@@ -4771,6 +4773,7 @@ int main() {
         card_models();
         card_shadows();
         shadow_index_stream_readback();
+        shadow_index_procedural_readback();
         deferred_geometry_shadow_readback();
         ground_shadow_view_readback();
         scene_marker_readback();

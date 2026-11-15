@@ -9804,6 +9804,7 @@ void underwater_features() {
 #include "interior_model_cull_test.inc"
 #include "body_detail_pose_test.inc"
 #include "shadow_index_templates_test.inc"
+#include "shadow_index_procedural_scene_test.inc"
 
 int main() {
     interior_model_cull_tests();
@@ -9826,6 +9827,7 @@ int main() {
     shadow_index_template_lifecycle();
     shadow_index_template_candidates();
     shadow_index_template_registry_copies();
+    shadow_index_procedural_scene();
     water_surface_bounds();
     sea_bed_follows_swells();
     water_disturbance_visibility();
