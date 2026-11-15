@@ -1716,7 +1716,7 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
     for (std::size_t at = 0; at < cards.units.size(); ++at) {
         const auto& drawn = cards.units[at];
         if (drawn.index_count != 0 &&
-            (!drawn.bounded ||
+            ((!drawn.root_prefix && !drawn.bounded) ||
              pick_bounds_hold(
                  {drawn.left, drawn.top, drawn.right, drawn.bottom}, picture_x, picture_y
              )))
@@ -1745,10 +1745,24 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
                 }
                 std::array<float, 3> weights{};
                 float depth{};
-                if (!renderer_live_camera::triangle_hit(
-                        points, picture_x, picture_y, weights, depth
-                    ) ||
-                    depth <= best_depth)
+                if (drawn.root_prefix) {
+                    // The recipe's surface draws only clockwise triangles.
+                    // Picture coordinates run down, so their signed area is positive.
+                    const double area = (double(points[1][0]) - points[0][0]) *
+                                            (double(points[2][1]) - points[0][1]) -
+                                        (double(points[1][1]) - points[0][1]) *
+                                            (double(points[2][0]) - points[0][0]);
+                    if (!(area > 0))
+                        continue;
+                }
+                const bool hit = drawn.root_prefix
+                                     ? renderer_live_camera::triangle_hit_inside_bounds(
+                                           points, picture_x, picture_y, weights, depth
+                                       )
+                                     : renderer_live_camera::triangle_hit(
+                                           points, picture_x, picture_y, weights, depth
+                                       );
+                if (!hit || depth <= best_depth)
                     continue;
                 float u{}, v{}, opacity{};
                 for (std::size_t corner = 0; corner < weights.size(); ++corner) {

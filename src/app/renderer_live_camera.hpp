@@ -265,6 +265,23 @@ triangle_hit_bounded(const std::array<std::array<float, 3>, 3>& triangle) noexce
     float& depth
 ) noexcept;
 
+/// Intersects a finite, well-conditioned triangle only inside its widened bounds.
+/// This bounded picking policy rejects ill-conditioned triangles rather than
+/// accepting their barycentric hits outside the displayed geometry.
+/// @param triangle three screen x, screen y, depth vertices
+/// @param screen_x pointer column in pixels
+/// @param screen_y pointer row in pixels
+/// @param[out] weights barycentric weights, unchanged on a miss
+/// @param[out] depth interpolated depth, unchanged on a miss
+/// @return whether the point hits within triangle_bounds_tolerance of the bounds
+[[nodiscard]] bool triangle_hit_inside_bounds(
+    const std::array<std::array<float, 3>, 3>& triangle,
+    float screen_x,
+    float screen_y,
+    std::array<float, 3>& weights,
+    float& depth
+) noexcept;
+
 /// Orbit within the current camera limits; ignore nonfinite deltas.
 /// @param[in,out] state camera angles and unlock setting
 /// @param yaw_delta_degrees horizontal rotation in degrees

@@ -114,6 +114,33 @@ bool triangle_hit(
            triangle_hit_prepared(prepared, screen_x, screen_y, weights, depth);
 }
 
+bool triangle_hit_inside_bounds(
+    const std::array<std::array<float, 3>, 3>& triangle,
+    float screen_x,
+    float screen_y,
+    std::array<float, 3>& weights,
+    float& depth
+) noexcept {
+    if (!std::isfinite(screen_x) || !std::isfinite(screen_y))
+        return false;
+    PreparedTriangle prepared;
+    if (!prepare_triangle(triangle, prepared) || !triangle_hit_bounded(triangle))
+        return false;
+    const auto& a = triangle[0];
+    const auto& b = triangle[1];
+    const auto& c = triangle[2];
+    const double left = std::min({a[0], b[0], c[0]});
+    const double right = std::max({a[0], b[0], c[0]});
+    const double top = std::min({a[1], b[1], c[1]});
+    const double bottom = std::max({a[1], b[1], c[1]});
+    const double margin_x = (right - left) * triangle_bounds_tolerance;
+    const double margin_y = (bottom - top) * triangle_bounds_tolerance;
+    if (screen_x < left - margin_x || screen_x > right + margin_x || screen_y < top - margin_y ||
+        screen_y > bottom + margin_y)
+        return false;
+    return triangle_hit_prepared(prepared, screen_x, screen_y, weights, depth);
+}
+
 void orbit(State& state, float yaw_delta_degrees, float pitch_delta_degrees) noexcept {
     if (!std::isfinite(yaw_delta_degrees) || !std::isfinite(pitch_delta_degrees))
         return;
