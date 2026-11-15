@@ -156,7 +156,8 @@ void hold_unit_draw_states(MatchModels& models) {
         models.units.resize(static_cast<std::size_t>(highest) + 1);
     auto& deferred = models.deferred_geometry;
     const auto& enhanced = models.offline->rules().setup.enhanced_mode;
-    if (enhanced.enabled && enhanced.version == oa::data::enhanced_mode::cohort_target_version &&
+    if (enhanced.enabled &&
+        oa::data::enhanced_mode::uses_enhanced_unit_rendering(enhanced.version) &&
         deferred.units.size() <= highest)
         try {
             deferred.units.resize(static_cast<size_t>(highest) + 1);
@@ -180,7 +181,7 @@ void hold_unit_draw_states(MatchModels& models) {
         auto& instance = runtime.instance->model();
         deferred.prepare(slot, runtime.instance_generation, instance, false);
         if (enhanced.enabled &&
-            enhanced.version == oa::data::enhanced_mode::cohort_target_version) {
+            oa::data::enhanced_mode::uses_enhanced_unit_rendering(enhanced.version)) {
             auto& draw_state = unit_draw_state(
                 models.units, static_cast<uint16_t>(slot), runtime.instance_generation
             );
@@ -2647,8 +2648,9 @@ bool Runtime::draw_match_surface() {
         frame_draws_.probe_unit,
         match_->rules().setup.enhanced_mode.enabled,
         match_->rules().setup.enhanced_mode.enabled &&
-            match_->rules().setup.enhanced_mode.version ==
-                oa::data::enhanced_mode::cohort_target_version
+            oa::data::enhanced_mode::uses_enhanced_unit_rendering(
+                match_->rules().setup.enhanced_mode.version
+            )
     };
     if (live_world && dots)
         for (auto& cache : models.transform_caches)
