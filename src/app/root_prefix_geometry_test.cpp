@@ -196,7 +196,7 @@ void test_owned_recipe_and_boxes() {
     auto model = model_with();
     auto source = zero_prefix(model);
     OA_CHECK(source.root_piece() != 0);
-    const auto unchanged = source;
+    auto unchanged = source;
     const auto old_placement = oa::app::root_prefix_placement(source);
     OA_CHECK(old_placement.has_value());
     if (!old_placement)
@@ -252,6 +252,7 @@ void test_owned_recipe_and_boxes() {
     check_unchanged(source, unchanged);
     const auto saved_first = geometry->points.front();
     const std::weak_ptr<const Model> retained_model = geometry->model;
+    unchanged = {};
     model.reset();
     source = {};
     OA_CHECK(!retained_model.expired());
