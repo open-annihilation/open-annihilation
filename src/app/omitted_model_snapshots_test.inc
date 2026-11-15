@@ -33,12 +33,13 @@ void check_omitted_model_snapshot(const live::Scene& scene, std::size_t end) {
     const auto& pass = scene.passes.models;
     OA_CHECK(pass.stopped == end && !pass.failure);
     OA_CHECK(pass.draw_vertices == pass.vertices.size());
-    OA_CHECK(pass.draw_translucent == pass.translucent_vertices.size());
+    OA_CHECK(pass.draw_translucent == scene.translucent_vertices.size());
     OA_CHECK(pass.draw_ranges == pass.unit_ranges.size());
-    OA_CHECK(pass.cards.draw_instance == -1);
-    auto remarked = pass.cards;
+    // The completed model payload is swapped into Scene after the pass joins.
+    OA_CHECK(scene.cards.draw_instance == -1);
+    auto remarked = scene.cards;
     live::mark_cards(remarked);
-    OA_CHECK(procedural_shadow_records(pass.cards) == procedural_shadow_records(remarked));
+    OA_CHECK(procedural_shadow_records(scene.cards) == procedural_shadow_records(remarked));
 }
 
 /// Omitted tails retain complete snapshots, including a short warm shadow run.
@@ -59,7 +60,7 @@ void omitted_model_snapshots() {
                 check_omitted_model_snapshot(scene, OmittedModelFixture::population);
             }
             if (encoding != 0) {
-                const auto& stream = scene.passes.models.cards.shadow_indices;
+                const auto& stream = scene.cards.shadow_indices;
                 OA_CHECK(stream.runs.size() == 1);
                 if (stream.runs.size() != 1)
                     continue;
@@ -75,7 +76,7 @@ void omitted_model_snapshots() {
                 for (uint32_t at = 0; at < OmittedModelFixture::population; ++at)
                     battle.draws.models[at].plan.linked.drawn = at >= 4 && at < 7;
                 OA_CHECK(live::build(battle.inputs, scene, battle.error));
-                const auto& cards = scene.passes.models.cards;
+                const auto& cards = scene.cards;
                 const auto& mark = cards.mark.shadow_indices;
                 OA_CHECK(scene.cards.casts.size() == 3 && mark.last_run.cast_count == 3);
                 OA_CHECK(mark.logical_indices == cards.shadow_indices.logical_indices);
@@ -83,7 +84,7 @@ void omitted_model_snapshots() {
                 const auto& pass = scene.passes.models;
                 OA_CHECK(pass.stopped == OmittedModelFixture::population);
                 OA_CHECK(pass.draw_vertices == pass.vertices.size());
-                OA_CHECK(pass.draw_translucent == pass.translucent_vertices.size());
+                OA_CHECK(pass.draw_translucent == scene.translucent_vertices.size());
                 OA_CHECK(pass.draw_ranges == pass.unit_ranges.size());
                 if (cards.shadow_indices.runs.size() != 1)
                     continue;
