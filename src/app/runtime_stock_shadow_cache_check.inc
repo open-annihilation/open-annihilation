@@ -22,6 +22,12 @@
         constexpr int32_t stock_fixed = 65536;
         constexpr unsigned stock_walk_ticks = 180;
         constexpr unsigned stock_warm_frames = 16;
+        constexpr uint32_t stock_foreign_draw_limit = 2;
+        constexpr uint32_t stock_casts_per_foreign_draw = 3;
+        static_assert(
+            stock_foreign_draw_limit * stock_casts_per_foreign_draw <
+            renderer_live_gpu::shadow_template_minimum_casts
+        );
         constexpr int32_t stock_view_margin_x = 256;
         constexpr int32_t stock_view_margin_z = 768;
         for (const auto version : {mode::cohort_target_version, mode::cohort_retention_version}) {
@@ -31,6 +37,26 @@
                 clear_local_selection();
                 const auto type = sim::unit_spawn::find_type_index(spawn_type_names_, stock_name);
                 require(type != 0, "the stock shadow-cache type is unavailable");
+                const auto arm_commander =
+                    sim::unit_spawn::find_type_index(spawn_type_names_, "ARMCOM");
+                const auto core_commander =
+                    sim::unit_spawn::find_type_index(spawn_type_names_, "CORCOM");
+                std::vector<std::pair<uint16_t, uint16_t>> original_commanders;
+                for (const auto& slot : match_->world().slots) {
+                    if (!slot.unit || slot.record.type_index == 0)
+                        continue;
+                    const uint16_t commander_type = slot.record.type_index;
+                    require(
+                        commander_type == arm_commander || commander_type == core_commander,
+                        "a non-commander unit preceded the stock shadow-cache actors"
+                    );
+                    const uint16_t commander_id = slot.record.id;
+                    original_commanders.emplace_back(commander_id, commander_type);
+                }
+                require(
+                    original_commanders.size() == stock_foreign_draw_limit,
+                    "the stock shadow-cache world did not start with exactly two commanders"
+                );
                 const auto& definition = spawn_types_[type];
                 require(
                     definition.footprint_x > 0 && definition.footprint_x <= 2 &&
@@ -211,6 +237,7 @@
                 renderer::Surface cold_picture;
                 bool saw_cold{}, saw_upload{}, saw_hit{};
                 bool reported_foreign_non_caster{};
+                uint32_t most_foreign_casts{};
                 for (unsigned frame = 0; frame < stock_warm_frames && !saw_hit; ++frame) {
                     bench_timers::shadow_index_counts = {};
                     render_match_surface();
@@ -252,6 +279,7 @@
                         "the stock shadow-cache frame has no complete GPU shadow/readback account"
                     );
                     const auto& draws = match_models().draws.models;
+                    uint32_t foreign_draws{};
                     for (const auto& draw : draws) {
                         if (!draw.plan.linked.drawn || draw.preplan_omitted)
                             continue;
@@ -290,11 +318,36 @@
                                       << " proven_non_caster=" << non_caster << '\n';
                             reported_foreign_non_caster = non_caster;
                         }
+                        if (non_caster)
+                            continue;
                         require(
-                            non_caster,
-                            "another possible shadow caster entered the legitimate stock cache view"
+                            unit != nullptr && draw.stand_in < 0 &&
+                                std::any_of(
+                                    original_commanders.begin(),
+                                    original_commanders.end(),
+                                    [&](const auto& commander) {
+                                        return unit->id == commander.first &&
+                                               unit->type_index == commander.second;
+                                    }
+                                ),
+                            "an unknown possible shadow caster entered the stock cache view"
+                        );
+                        require(
+                            ++foreign_draws <= stock_foreign_draw_limit,
+                            "too many possible foreign shadow draws entered the stock cache view"
                         );
                     }
+                    // A building emits two card casts and another model emits one;
+                    // count three for each possible foreign draw conservatively.
+                    // Compact runs require at least sixteen casts of one type/mask
+                    // pattern. Fewer foreign casts cannot form an admitted run, so
+                    // the actual backend upload and hit below must cover stock actors.
+                    const auto foreign_casts = foreign_draws * stock_casts_per_foreign_draw;
+                    require(
+                        foreign_casts < renderer_live_gpu::shadow_template_minimum_casts,
+                        "foreign casts could supply the stock shadow-cache witness"
+                    );
+                    most_foreign_casts = std::max(most_foreign_casts, foreign_casts);
                     for (const auto slot : actors) {
                         const auto id = match_->world().record.units[slot].id;
                         const auto draw =
@@ -354,6 +407,7 @@
                           << " cached_runs=" << warm.cached_runs
                           << " cached_indices=" << warm.cached_indices
                           << " hits=" << warm.cache_hits
+                          << " foreign_cast_bound=" << most_foreign_casts
                           << " dynamic_upload=" << warm.dynamic_uploaded_indices
                           << " logical=" << warm.logical_indices
                           << "; actual offscreen GPU; world, clocks, poses, pixels, bounds, picks "
