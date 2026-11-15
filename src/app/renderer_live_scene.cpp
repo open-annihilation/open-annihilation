@@ -9640,11 +9640,17 @@ struct ParallelModelLists {
     std::array<PassList, maximum_bands> lists{};
 };
 
-/// One completed parallel range beside the draws before and after it.
+/// One independently prepared interval in the original draw order.
+struct ParallelModelSpan {
+    std::size_t first{}, last{};
+};
+
+/// Completed packet intervals beside the ordinary draws between them.
 struct ParallelModelRange {
     ParallelModelLists* storage{};
-    std::array<std::size_t, ParallelModelLists::maximum_bands + 1> ends{};
+    std::array<ParallelModelSpan, ParallelModelLists::maximum_bands> spans{};
     uint32_t bands{};
+    uint32_t slots{};
     uint64_t nanoseconds{};
 };
 
@@ -9661,7 +9667,8 @@ bool parallel_model_candidate(const Inputs& in, const Scene& scene, std::size_t 
            (draw.model.unit->state_flags & model::unit_state_cloaked) == 0;
 }
 
-/// Finds and prepares one large contiguous unit range while the pool is free.
+/// Prepares substantial unit intervals while the pool is free, with at most
+/// four packets in total. Smaller intervening draws keep their ordinary path.
 /// Workers only read the atlas. Any retry, CPU fallback or marker packet leaves
 /// the complete ordinary model pass responsible for the frame instead.
 ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool timing) {
@@ -9680,8 +9687,18 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
         if (draw.plan.linked.drawn && draw.model.def != nullptr &&
             (draw.model.def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0)
             return result;
-    std::size_t first{}, last{}, run_first{}, run_drawn{};
-    uint64_t weight{}, run_weight{};
+
+    struct Candidate {
+        std::size_t first{}, last{};
+        uint64_t weight{};
+    };
+
+    constexpr auto maximum_bands = ParallelModelLists::maximum_bands;
+    const auto available = std::min(maximum_bands, in.pool->threads());
+    std::array<Candidate, maximum_bands> candidates{};
+    std::size_t candidate_count{};
+    std::size_t run_first{}, run_drawn{};
+    uint64_t run_weight{};
     const auto draw_weight = [&](std::size_t index) {
         if (!in.draws->models[index].plan.linked.drawn)
             return uint64_t{0};
@@ -9697,22 +9714,62 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
             run_drawn += in.draws->models[index].plan.linked.drawn;
             continue;
         }
-        if (run_drawn >= 2 * minimum_draws_per_band && run_weight > weight) {
-            first = run_first;
-            last = index;
-            weight = run_weight;
+        if (run_drawn >= minimum_draws_per_band) {
+            const Candidate candidate{run_first, index, run_weight};
+            std::size_t at{};
+            while (at < candidate_count && candidates[at].weight >= candidate.weight)
+                ++at;
+            if (at < available) {
+                const auto count = std::min<std::size_t>(candidate_count + 1, available);
+                for (auto move = count; move-- > at + 1;)
+                    candidates[move] = candidates[move - 1];
+                candidates[at] = candidate;
+                candidate_count = count;
+            }
         }
         run_first = index + 1;
         run_drawn = 0;
         run_weight = 0;
     }
-    if (first == last)
-        return result;
-    const auto bands = static_cast<uint32_t>(std::min<std::size_t>(
-        {ParallelModelLists::maximum_bands,
-         in.pool->threads(),
-         (last - first) / minimum_draws_per_band}
-    ));
+    // Minimise estimated worker work plus the candidate work left serial.
+    // Giving every small interval a packet could leave the largest army on
+    // one worker. The fixed packet limit makes these allocations bounded.
+    std::array<uint32_t, maximum_bands> proposed{}, chosen{};
+    uint32_t bands{};
+    uint64_t saved{};
+    const auto allocate = [&](auto&& self,
+                              std::size_t at,
+                              uint32_t assigned,
+                              uint64_t selected,
+                              uint64_t longest) -> void {
+        if (at == candidate_count) {
+            if (assigned >= 2 &&
+                (selected - longest > saved || (selected - longest == saved && assigned > bands))) {
+                chosen = proposed;
+                bands = assigned;
+                saved = selected - longest;
+            }
+            return;
+        }
+        const auto& candidate = candidates[at];
+        const auto capacity = static_cast<uint32_t>(std::min<std::size_t>(
+            available - assigned, (candidate.last - candidate.first) / minimum_draws_per_band
+        ));
+        for (uint32_t count = 0; count <= capacity; ++count) {
+            proposed[at] = count;
+            const auto work =
+                count == 0 ? uint64_t{}
+                           : candidate.weight / count + (candidate.weight % count != 0 ? 1 : 0);
+            self(
+                self,
+                at + 1,
+                assigned + count,
+                selected + (count == 0 ? 0 : candidate.weight),
+                std::max(longest, work)
+            );
+        }
+    };
+    allocate(allocate, 0, 0, 0, 0);
     if (bands < 2)
         return result;
     // Each invocation clears all records; only bounded packet capacities remain.
@@ -9720,35 +9777,56 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
     result.storage = &storage;
     result.bands = bands;
     scene.model_work_counts.candidate_bands = bands;
-    scene.model_work_counts.candidate_slots = static_cast<uint32_t>(last - first);
-    result.ends[0] = first;
-    uint64_t preceding{};
-    std::size_t next = first;
-    for (uint32_t band = 1; band < bands; ++band) {
-        const uint64_t target = weight * band / bands;
-        const std::size_t limit = last - (bands - band);
-        while (next < limit && preceding < target) {
-            preceding += draw_weight(next);
-            ++next;
+    std::array<std::size_t, maximum_bands> order{};
+    for (std::size_t at = 0; at < candidate_count; ++at)
+        order[at] = at;
+    std::sort(
+        order.begin(),
+        order.begin() + static_cast<std::ptrdiff_t>(candidate_count),
+        [&](std::size_t a, std::size_t b) { return candidates[a].first < candidates[b].first; }
+    );
+    uint32_t packet{};
+    for (std::size_t at = 0; at < candidate_count; ++at) {
+        const auto choice = order[at];
+        const auto count = chosen[choice];
+        if (count == 0)
+            continue;
+        const auto& candidate = candidates[choice];
+        std::size_t first = candidate.first, next = first;
+        uint64_t preceding{};
+        for (uint32_t band = 0; band < count; ++band) {
+            auto last = candidate.last;
+            if (band + 1 < count) {
+                const uint64_t target = candidate.weight / count * (band + 1) +
+                                        candidate.weight % count * (band + 1) / count;
+                const auto limit = candidate.last - (count - band - 1);
+                while (next < limit && (preceding < target || next == first)) {
+                    preceding += draw_weight(next);
+                    ++next;
+                }
+                last = next;
+            }
+            result.spans[packet++] = {first, last};
+            result.slots += static_cast<uint32_t>(last - first);
+            first = last;
         }
-        result.ends[band] = std::max(result.ends[band - 1] + 1, next);
     }
-    result.ends[bands] = last;
+    scene.model_work_counts.candidate_slots = result.slots;
     const auto control = base::float_precision::save_float_control();
     platform::job_pool::run_bands(in.pool, bands, [&](uint32_t band) noexcept {
         const auto previous = base::float_precision::save_float_control();
         base::float_precision::restore_float_control(control);
         // Resolve the caller's TLS once, rather than each worker's own storage.
         run_beside(
-            scene, result.storage->lists[band], result.ends[band + 1], timing, [&](Pass& pass) {
-                models(in, pass, result.ends[band], result.ends[band + 1]);
+            scene, result.storage->lists[band], result.spans[band].last, timing, [&](Pass& pass) {
+                models(in, pass, result.spans[band].first, result.spans[band].last);
             }
         );
         base::float_precision::restore_float_control(previous);
     });
     for (uint32_t band = 0; band < bands; ++band) {
         const auto& list = storage.lists[band];
-        if (list.failure || list.stopped != result.ends[band + 1] || !list.vertices.empty() ||
+        if (list.failure || list.stopped != result.spans[band].last || !list.vertices.empty() ||
             !list.translucent_vertices.empty() || !list.unit_ranges.empty() ||
             !list.translucent_ranges.empty() || !list.cards.markers.empty() ||
             !list.cards.marker_runs.empty() || list.materials_packed != 0 ||
@@ -9798,7 +9876,7 @@ void trim_parallel_model_lists(const ParallelModelRange& range, bool release = f
     }
 }
 
-/// Lists the serial prefix, completed packet bands and serial suffix in order.
+/// Lists serial gaps and completed packet intervals in their original order.
 /// A rejected join is discarded before the ordinary complete pass is retried.
 bool models_with_parallel_range(
     const Inputs& in, Pass& pass, std::size_t end, const ParallelModelRange& range
@@ -9809,90 +9887,100 @@ bool models_with_parallel_range(
         models(in, pass, 0, end);
         return false;
     }
-    try {
-        models(in, pass, 0, range.ends[0]);
-        bool batch_joined = false;
-        if (in.body_lod_enabled || pass.list.cards.shadow_indices.enabled) {
-            std::array<const ModelCards*, ParallelModelLists::maximum_bands> cards{};
-            auto held = pass.list.vertices.size() + pass.list.cards.vertices;
-            const auto allowance =
-                maximum_vertices - std::min(maximum_vertices, pass.listed_before);
-            bool admitted = true;
-            for (uint32_t band = 0; band < range.bands; ++band) {
-                const auto& from = range.storage->lists[band].cards;
-                cards[band] = &from;
-                if (from.vertices > maximum_vertices - std::min(maximum_vertices, held)) {
-                    admitted = false;
-                    break;
-                }
-                held += from.vertices;
-                if (held > allowance) {
-                    admitted = false;
-                    break;
-                }
-            }
-            // Budget failures retain the original per-band admission and
-            // first-crossing peak/GeometryFull behavior below.
-            if (admitted) {
-                if (!append_parallel_model_card_bands(
-                        pass.list.cards,
-                        std::span<const ModelCards* const>{cards.data(), range.bands},
-                        pass.list.vertices.size()
-                    )) {
-                    work.fallback_frames = 1;
-                    clear_list(pass.list, end);
-                    models(in, pass, 0, end);
-                    return false;
-                }
-                batch_joined = true;
-            }
-        }
-        for (uint32_t band = 0; band < range.bands; ++band) {
-            const auto& from = range.storage->lists[band];
-            if (!batch_joined) {
-                const auto held = pass.list.vertices.size() + pass.list.cards.vertices;
-                const std::array<const ModelCards*, 1> one{&from.cards};
-                const auto append = [&] {
-                    return pass.list.cards.shadow_indices.enabled
-                               ? append_parallel_model_card_bands(
-                                     pass.list.cards, one, pass.list.vertices.size()
-                                 )
-                               : append_parallel_model_cards(
-                                     pass.list.cards, from.cards, pass.list.vertices.size()
-                                 );
-                };
-                if (from.cards.vertices > maximum_vertices - std::min(maximum_vertices, held) ||
-                    !append()) {
-                    work.fallback_frames = 1;
-                    clear_list(pass.list, end);
-                    models(in, pass, 0, end);
-                    return false;
-                }
-            }
-            pass.list.drawn += from.drawn;
-            pass.list.nano_particles += from.nano_particles;
-            add_body_counts(pass.list.body_lod_counts, from.body_lod_counts);
-            (void)listing(pass, 0);
-        }
-        // These exact worker packets remain in the ordered list even if a
-        // later serial suffix pauses to pack its own missing material.
-        work.accepted_bands = range.bands;
-        work.accepted_slots = static_cast<uint32_t>(range.ends[range.bands] - range.ends[0]);
-        models(in, pass, range.ends[range.bands], end);
-        // The complete ordered result now uses the independent packet bands.
-        return true;
-    } catch (const std::bad_alloc&) {
-        // Worker packets are only temporary. Give their memory back before
-        // the ordinary pass retries the complete draw order.
+    const auto serial_retry = [&] {
         work.accepted_bands = work.accepted_slots = 0;
         work.fallback_frames = 1;
         trim_parallel_model_lists(range, true);
         clear_list(pass.list, end);
         models(in, pass, 0, end);
         return false;
+    };
+    try {
+        std::size_t next{};
+        for (uint32_t first_band = 0; first_band < range.bands;) {
+            models(in, pass, next, range.spans[first_band].first);
+            auto last_band = first_band + 1;
+            while (last_band < range.bands &&
+                   range.spans[last_band - 1].last == range.spans[last_band].first)
+                ++last_band;
+            bool batch_joined = false;
+            if (in.body_lod_enabled || pass.list.cards.shadow_indices.enabled) {
+                std::array<const ModelCards*, ParallelModelLists::maximum_bands> cards{};
+                auto held = pass.list.vertices.size() + pass.list.cards.vertices;
+                const auto allowance =
+                    maximum_vertices - std::min(maximum_vertices, pass.listed_before);
+                bool admitted = true;
+                for (uint32_t band = first_band; band < last_band; ++band) {
+                    const auto& from = range.storage->lists[band].cards;
+                    cards[band - first_band] = &from;
+                    if (from.vertices > maximum_vertices - std::min(maximum_vertices, held)) {
+                        admitted = false;
+                        break;
+                    }
+                    held += from.vertices;
+                    if (held > allowance) {
+                        admitted = false;
+                        break;
+                    }
+                }
+                // Budget failures retain per-packet admission and the
+                // original first-crossing peak/GeometryFull behavior.
+                if (admitted) {
+                    if (!append_parallel_model_card_bands(
+                            pass.list.cards,
+                            std::span<const ModelCards* const>{
+                                cards.data(), last_band - first_band
+                            },
+                            pass.list.vertices.size()
+                        ))
+                        return serial_retry();
+                    batch_joined = true;
+                }
+            }
+            for (uint32_t band = first_band; band < last_band; ++band) {
+                const auto& from = range.storage->lists[band];
+                if (!batch_joined) {
+                    const auto held = pass.list.vertices.size() + pass.list.cards.vertices;
+                    const std::array<const ModelCards*, 1> one{&from.cards};
+                    const auto append = [&] {
+                        return pass.list.cards.shadow_indices.enabled
+                                   ? append_parallel_model_card_bands(
+                                         pass.list.cards, one, pass.list.vertices.size()
+                                     )
+                                   : append_parallel_model_cards(
+                                         pass.list.cards, from.cards, pass.list.vertices.size()
+                                     );
+                    };
+                    if (from.cards.vertices > maximum_vertices - std::min(maximum_vertices, held) ||
+                        !append())
+                        return serial_retry();
+                }
+                pass.list.drawn += from.drawn;
+                pass.list.nano_particles += from.nano_particles;
+                add_body_counts(pass.list.body_lod_counts, from.body_lod_counts);
+                (void)listing(pass, 0);
+            }
+            next = range.spans[last_band - 1].last;
+            first_band = last_band;
+        }
+        // Only complete coverage is published. These exact packets remain
+        // retained if the serial suffix pauses for its own missing material.
+        work.accepted_bands = range.bands;
+        work.accepted_slots = range.slots;
+        models(in, pass, next, end);
+        return true;
+    } catch (const Unpacked&) {
+        // A middle material pause cannot leave an unreported subset of the
+        // proposed packets retained. Its ordinary retry may pause again;
+        // that exception then reaches the original ordered packing path.
+        if (work.accepted_bands == 0)
+            return serial_retry();
+        throw;
+    } catch (const std::bad_alloc&) {
+        // Worker packets are only temporary. Give their memory back before
+        // the ordinary pass retries the complete draw order.
+        return serial_retry();
     } catch (...) {
-        // A missing prefix material sends the ordinary continuation through
-        // the candidate range serially. Joined packets survive suffix pauses.
         if (work.accepted_bands == 0)
             work.fallback_frames = 1;
         throw;

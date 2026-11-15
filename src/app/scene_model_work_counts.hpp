@@ -8,10 +8,10 @@ namespace oa::app {
 
 /// Counts independent model ranges prepared for a completed scene build.
 ///
-/// Slots are input draw records in the contiguous candidate range, including
-/// records already omitted before scene emission. Accepted bands and slots
-/// describe worker packets retained in the final ordered model pass, not
-/// the number of threads that ran or models emitted.
+/// Slots are input draw records in the selected packet intervals, excluding
+/// serial gaps and including records already omitted before scene emission.
+/// Accepted bands and slots describe worker packets retained in the final
+/// ordered model pass, not the number of threads that ran or models emitted.
 struct SceneModelWorkCounts {
     uint32_t candidate_bands{}; ///< independent bands prepared before worker validation
     uint32_t candidate_slots{}; ///< input records assigned to those candidate bands
