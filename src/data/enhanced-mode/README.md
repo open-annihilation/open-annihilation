@@ -69,7 +69,7 @@ Resolve before allocating a match and retain its rules for the match's
 lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
-`data-enhanced-mode` checks pinned Off and version-1 through version-7
-canonical and simulation hashes, distinct version-8, version-10 and version-11 identities,
+`data-enhanced-mode` checks pinned Off, version-1 through version-8 and
+version-10 canonical and simulation hashes, a distinct version-11 identity,
 preservation of selected mod rules and match choices, and refusals of
 unsupported versions or rules that require Enhanced Mode while Off.

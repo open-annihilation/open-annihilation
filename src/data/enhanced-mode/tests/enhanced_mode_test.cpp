@@ -55,6 +55,15 @@ constexpr std::string_view distributed_sim_hash =
     "afd8bfcd5bad8e5eb9ae9daee0df8cc007d65635d588c5e97f3bfb9f2b67d4dc";
 constexpr std::string_view distributed_canonical_hash =
     "70ff3d27c4a6df5ddf94153fe59e6ecfd8d5fd1f4f9ed90534b4842fdca24ad7";
+// Versions 8 and 10 retain their original rules and complete canonical profiles.
+constexpr std::string_view following_sim_hash =
+    "713a68f3b5fe06431b65864aa0bf63ed0d9b87a14ced88b81df968f25c9c4ddc";
+constexpr std::string_view following_canonical_hash =
+    "0240ac7df34f56ff4361817488a11e957b3f3dba8b81ddd029b2084f5c080075";
+constexpr std::string_view cohort_sim_hash =
+    "eb041e276e60a34b69b2bb442bb760ecedc20f7bac82a23df5b06854a398653c";
+constexpr std::string_view cohort_canonical_hash =
+    "149a37363be305c9cbc9d0d503b3aeed8a757ab95dfe1d09a23c54f2fb6f97f3";
 
 /// A chosen mod with its own unit capacity and unrelated gameplay rule.
 constexpr std::string_view mod_text =
@@ -324,6 +333,10 @@ void check_following_flow_identity() {
     OA_CHECK(distributed.resolution && following.resolution);
     if (!distributed.resolution || !following.resolution)
         return;
+    OA_CHECK(profiles::digest_text(following.resolution->profile.sim_hash) == following_sim_hash);
+    OA_CHECK(
+        profiles::digest_text(following.resolution->profile.full_hash) == following_canonical_hash
+    );
     OA_CHECK(
         enhanced::rules_version(following.resolution->profile.rules) ==
         enhanced::following_flow_version
@@ -361,6 +374,8 @@ void check_cohort_target_identity() {
     OA_CHECK(following.resolution && cohort.resolution);
     if (!following.resolution || !cohort.resolution)
         return;
+    OA_CHECK(profiles::digest_text(cohort.resolution->profile.sim_hash) == cohort_sim_hash);
+    OA_CHECK(profiles::digest_text(cohort.resolution->profile.full_hash) == cohort_canonical_hash);
     OA_CHECK(
         enhanced::rules_version(cohort.resolution->profile.rules) == enhanced::cohort_target_version
     );
