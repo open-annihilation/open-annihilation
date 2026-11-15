@@ -7,7 +7,7 @@
 // limb coordinates. Frozen comparisons retain the same physical LOD policy.
 {
     namespace mode = oa::data::enhanced_mode;
-    if (preplan_version != mode::cohort_target_version) {
+    if (!mode::uses_enhanced_unit_rendering(preplan_version)) {
         require(
             bench_timers::body_counts.body_lod_models == 0 &&
                 bench_timers::body_counts.body_lod_vertices == 0,
@@ -30,7 +30,7 @@
                     counts.full_mesh_models + counts.body_lod_models != 0 &&
                     counts.body_lod_models != 0 && counts.body_lod_vertices != 0 &&
                     counts.distance_markers == 0 && counts.budget_markers == 0,
-                "the actual low-zoom rules-10 frame did not emit aggregate physical body geometry"
+                "the actual low-zoom enhanced frame did not emit aggregate physical body geometry"
             );
         };
         require_bodies();
@@ -89,7 +89,7 @@
             );
         const auto& counts = bench_timers::body_counts;
         std::cout
-            << "live renderer check: aggregate stock rules-10 physical bodies at zoom "
+            << "live renderer check: aggregate stock rules-" << preplan_version << " physical bodies at zoom "
             << match_zoom() << ": " << counts.body_lod_models << "; logical body vertices " << counts.body_lod_vertices
             << "; zero distance/budget markers; real walking/source-pose animation; frozen pixels, "
                "picks, pose, clocks and RNG preserved\n";

@@ -1004,14 +1004,14 @@ def self_test():
     if number_parts(0.7) != (False, 7, -1, False) or number_parts(1500) != (False, 15, 2, True):
         failures.append("numbers are split wrong")
 
-    choices = {"type": "int", "min": 1, "max": 10,
-               "values": ["1", "2", "3", "4", "5", "6", "7", "8", "10"]}
-    for value in (1, 4, 8, 10):
+    choices = {"type": "int", "min": 1, "max": 11,
+               "values": ["1", "2", "3", "4", "5", "6", "7", "8", "10", "11"]}
+    for value in (1, 4, 8, 10, 11):
         try:
             check_value(choices, value, "integer choices")
         except RegistryError as error:
             failures.append(str(error))
-    for value in (0, 9, 11, 1.0, True):
+    for value in (0, 9, 12, 1.0, True):
         try:
             check_value(choices, value, "integer choices")
             failures.append(f"integer choices accepted {value!r}")

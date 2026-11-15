@@ -1868,8 +1868,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         full.sprite_pages.begin_frame();
         full.models.set_body_lod_enabled(
             match_->rules().setup.enhanced_mode.enabled &&
-            match_->rules().setup.enhanced_mode.version ==
-                data::enhanced_mode::cohort_target_version &&
+            data::enhanced_mode::uses_enhanced_unit_rendering(
+                match_->rules().setup.enhanced_mode.version
+            ) &&
             director_ == nullptr
         );
         full.models.begin_frame();

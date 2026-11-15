@@ -11,11 +11,12 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 4 remains the current preset. Versions 5, 6, 7, 8 and 10 are explicit
+Rules version 4 remains the current preset. Versions 5, 6, 7, 8, 10 and 11 are explicit
 experimental choices. Version 8 extends version 7's static routing
 with applied-leg queue checks and planning that ignores temporary unit occupancy.
 Version 10 inherits version 8 and selects AI strike-target distribution
-among spatial cohorts. Version 9 is unsupported. Version 6 derives from
+among spatial cohorts. Version 11 inherits version 10 and adds bounded
+retention of compatible current cohort targets. Version 9 is unsupported. Version 6 derives from
 version 4 and keeps version 5's advisory corridor lanes
 separate. The presets retain a capacity of 10,000 units per participating
 player. The engine allocates ranges only for participating players, with at
@@ -215,7 +216,7 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6`, `7`, `8` or `10` with Enhanced Mode to compare the
+Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `10` or `11` with Enhanced Mode to compare the
 presets on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
@@ -756,6 +757,37 @@ also substantial. Sampled host activity and the different version-6
 movement and combat workload prevent a causal comparison with the earlier
 version-4 timing. A previous attempt lost focus at tick 1,205 and is
 excluded. These measurements precede the later minimap and recording changes.
+
+## Experimental cohort target retention (version 11)
+
+Version 11 inherits version 10's movement, cohort distribution and unit
+rendering policies. It may retain a target named by a strict majority of
+the cohort's current strike members when their compatible owned attack
+heads still name an eligible enemy. Members without a compatible head
+remain in the majority denominator and cast no vote. This uses the current
+heads; it does not establish who originally issued an order.
+
+The retained target's weighted squared-distance cost may be at most
+12.5% above the fresh best target's cost. Earlier cohorts' final choices
+contribute to those costs, including retained choices. Existing per-member
+distance fallback, six-tick target inspection, 300-tick natural strike
+cadence and recruitment limits remain unchanged. The policy derives prior
+targets from canonical match state and adds no saved state or random draws.
+Version 10 retains its original targeting behavior and rules identity.
+
+For ordinary play, opt in explicitly:
+
+```sh
+./run.sh --skip-intro --enhanced-mode-version 11 --hardware-acceleration=full
+```
+
+The normal frontend opens and the rules choice lasts for this launch.
+Loaded games and recordings keep their own version; multiplayer peers
+must agree on the version and simulation rules. Graphics choices remain
+independent, and version 11 inherits version 10's animated body detail and
+deferred unit geometry. The supplied new-game preset remains version 4.
+This separate identity does not establish better battle flow or 60 FPS;
+those require fresh moving-and-fighting measurements.
 
 ## Experimental cohort targets (version 10)
 

@@ -379,23 +379,62 @@ void check_cohort_target_identity() {
         canonical.replace(at, cohort_rule.size(), following_rule);
         OA_CHECK(canonical == following.resolution->canonical);
     }
-    for (uint32_t version = 0; version <= enhanced::cohort_target_version + 1; ++version) {
+    for (uint32_t version = 0; version <= enhanced::cohort_retention_version + 1; ++version) {
         OA_CHECK(
             enhanced::uses_distributed_battle_flow(version) ==
-            (version == 7 || version == 8 || version == 10)
+            (version == 7 || version == 8 || version == 10 || version == 11)
         );
-        OA_CHECK(enhanced::uses_following_battle_flow(version) == (version == 8 || version == 10));
-        OA_CHECK(enhanced::uses_cohort_target_distribution(version) == (version == 10));
+        OA_CHECK(
+            enhanced::uses_following_battle_flow(version) ==
+            (version == 8 || version == 10 || version == 11)
+        );
+        OA_CHECK(
+            enhanced::uses_cohort_target_distribution(version) == (version == 10 || version == 11)
+        );
+        OA_CHECK(enhanced::uses_cohort_target_retention(version) == (version == 11));
+        OA_CHECK(
+            enhanced::uses_enhanced_unit_rendering(version) == (version == 10 || version == 11)
+        );
     }
-    for (const auto version : {9u, 11u, std::numeric_limits<uint32_t>::max()}) {
+    for (const auto version : {9u, 12u, std::numeric_limits<uint32_t>::max()}) {
         OA_CHECK(!enhanced::uses_following_battle_flow(version));
         OA_CHECK(!enhanced::uses_cohort_target_distribution(version));
+        OA_CHECK(!enhanced::uses_cohort_target_retention(version));
+        OA_CHECK(!enhanced::uses_enhanced_unit_rendering(version));
     }
     // Raw profiles and match overrides use the same sparse version choices.
-    for (const auto version : {9u, 11u}) {
+    for (const auto version : {9u, 12u}) {
         const std::string profile =
             std::string{mod_text} + "  setup.enhanced-mode: " + std::to_string(version) + "\n";
         OA_CHECK(!profiles::resolve_profile(bytes(profile), "unsupported", {}).resolution);
+    }
+}
+
+/// Gives cohort retention a distinct identity without changing the inherited static rules.
+void check_cohort_retention_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto cohort =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::cohort_target_version);
+    const auto retained =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::cohort_retention_version);
+    OA_CHECK(cohort.resolution && retained.resolution);
+    if (!cohort.resolution || !retained.resolution)
+        return;
+    OA_CHECK(enhanced::rules_version(retained.resolution->profile.rules) == 11);
+    OA_CHECK(retained.resolution->profile.sim_hash != cohort.resolution->profile.sim_hash);
+    OA_CHECK(retained.resolution->profile.full_hash != cohort.resolution->profile.full_hash);
+    OA_CHECK(retained.resolution->profile.limits == cohort.resolution->profile.limits);
+    auto earlier_rules = retained.resolution->profile.rules;
+    earlier_rules.setup.enhanced_mode.version = enhanced::cohort_target_version;
+    OA_CHECK(earlier_rules == cohort.resolution->profile.rules);
+    auto canonical = retained.resolution->canonical;
+    constexpr std::string_view retained_rule = "\"setup.enhanced-mode\":{\"version\":11}";
+    constexpr std::string_view cohort_rule = "\"setup.enhanced-mode\":{\"version\":10}";
+    const auto at = canonical.find(retained_rule);
+    OA_CHECK(at != std::string::npos);
+    if (at != std::string::npos) {
+        canonical.replace(at, retained_rule.size(), cohort_rule);
+        OA_CHECK(canonical == cohort.resolution->canonical);
     }
 }
 
@@ -478,7 +517,7 @@ void check_refusals() {
     const profiles::ResolveOptions options{};
     for (const uint32_t version :
          {enhanced::following_flow_version + 1,
-          enhanced::cohort_target_version + 1,
+          enhanced::cohort_retention_version + 1,
           std::numeric_limits<uint32_t>::max()}) {
         const auto result = enhanced::resolve_profile(bytes(mod_text), "chosen", options, version);
         OA_CHECK(!result.resolution);
@@ -533,6 +572,7 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::distributed_battle_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::following_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::cohort_target_version));
+    OA_CHECK(enhanced::supported_version(enhanced::cohort_retention_version));
     OA_CHECK(enhanced::current_version == enhanced::swept_ground_version);
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
     OA_CHECK(!enhanced::supported_version(enhanced::following_flow_version + 1));
@@ -546,6 +586,7 @@ int main() {
     check_distributed_battle_flow_identity();
     check_following_flow_identity();
     check_cohort_target_identity();
+    check_cohort_retention_identity();
     check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();
