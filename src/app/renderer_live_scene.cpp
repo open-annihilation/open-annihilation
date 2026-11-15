@@ -5552,6 +5552,7 @@ void measure_body_geometry(
     geometry.low_type = &low_type;
     geometry.medium_type = &medium_type;
     geometry.measured = true;
+
     struct PieceSize {
         std::size_t piece{};
         float pixels{};
