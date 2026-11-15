@@ -633,6 +633,11 @@ bool materialize_shadow_index_run(ShadowIndexStream& stream, std::size_t named) 
 void clear_cards(ModelCards& cards) noexcept {
     cards.instances.clear();
     cards.positions.clear();
+    cards.root_prefix_points.clear();
+    cards.root_prefix_poses.clear();
+    cards.root_prefix_recipes.clear();
+    cards.root_prefix_ranges.clear();
+    std::fill(cards.root_prefix_slots.begin(), cards.root_prefix_slots.end(), 0);
     cards.piece_frames.clear();
     cards.textures.clear();
     cards.slot_states.clear();
@@ -694,12 +699,22 @@ void mark_cards(ModelCards& cards) noexcept {
         shadow.runs.empty() ? gpu::ShadowIndexRun{} : shadow.runs.back(),
         shadow.casts.size()
     };
+    cards.mark.root_prefix_points = cards.root_prefix_points.size();
+    cards.mark.root_prefix_poses = cards.root_prefix_poses.size();
+    cards.mark.root_prefix_ranges = cards.root_prefix_ranges.size();
 }
 
 void unmark_cards(ModelCards& cards) noexcept {
     const auto& mark = cards.mark;
     cards.instances.resize(mark.instances);
     cards.positions.resize(mark.positions);
+    cards.root_prefix_points.resize(mark.root_prefix_points);
+    cards.root_prefix_poses.resize(mark.root_prefix_poses);
+    cards.root_prefix_recipes.resize(mark.root_prefix_poses);
+    cards.root_prefix_ranges.resize(mark.root_prefix_ranges);
+    for (auto& slot : cards.root_prefix_slots)
+        if (slot > mark.root_prefix_ranges)
+            slot = std::numeric_limits<uint32_t>::max();
     cards.piece_frames.resize(mark.piece_frames);
     cards.indices.resize(mark.indices);
     cards.runs.resize(mark.runs);
@@ -955,6 +970,110 @@ int64_t card_positions(
     return static_cast<int64_t>(first);
 }
 
+int64_t card_root_prefix(
+    ModelCards& cards, uint32_t type_index, const CardType& type, const RootPrefixRecipe& recipe
+) {
+    const auto& geometry = recipe.geometry;
+    if (!geometry || type.objects.size() != geometry->objects.size() ||
+        type.piece_vertices.size() != geometry->piece_vertices.size() ||
+        type.piece_vertices.empty() || type.piece_vertices.front() != 0 ||
+        geometry->piece_vertices.empty() || geometry->piece_vertices.front() != 0 ||
+        geometry->piece_vertices.back() != geometry->points.size() ||
+        cards.root_prefix_poses.size() != cards.root_prefix_recipes.size() ||
+        cards.root_prefix_poses.size() >= gpu::largest_model_instance_count)
+        return -1;
+    const auto count = type.piece_vertices.back();
+    if (count == 0 ||
+        (type.body_detail && (type.source_vertices.size() != count ||
+                              type.source_vertex_counts.size() != geometry->objects.size())))
+        return -1;
+    uint32_t first_point{};
+    bool found = false;
+    if (cards.root_prefix_slots.empty())
+        cards.root_prefix_slots.resize(pose_lookup_slots);
+    constexpr unsigned digest_half_bits = 32;
+    uint64_t digest =
+        (pose_digest_start ^ static_cast<uint64_t>(reinterpret_cast<uintptr_t>(geometry.get()))) *
+        pose_digest_factor;
+    digest ^= digest >> digest_half_bits;
+    digest = (digest ^ type_index) * pose_digest_factor;
+    digest ^= digest >> digest_half_bits;
+    std::size_t vacant = cards.root_prefix_slots.size();
+    for (std::size_t probe = 0; probe < pose_lookup_probes; ++probe) {
+        const auto slot = (digest + probe) & (cards.root_prefix_slots.size() - 1);
+        const auto named = cards.root_prefix_slots[slot];
+        if (named == 0 || named > cards.root_prefix_ranges.size()) {
+            if (vacant == cards.root_prefix_slots.size())
+                vacant = slot;
+            if (named == 0)
+                break;
+            continue;
+        }
+        const auto& range = cards.root_prefix_ranges[named - 1];
+        if (range.type == type_index && range.geometry.get() == geometry.get() &&
+            !range.geometry.owner_before(geometry) && !geometry.owner_before(range.geometry)) {
+            if (range.point_count != count)
+                return -1;
+            first_point = range.first_point;
+            found = true;
+            break;
+        }
+    }
+    const bool memoize = vacant != cards.root_prefix_slots.size() &&
+                         cards.root_prefix_ranges.size() < shared_pose_count;
+    if (!found) {
+        for (std::size_t piece = 0; piece < geometry->objects.size(); ++piece) {
+            const auto source_first = geometry->piece_vertices[piece];
+            const auto source_last = geometry->piece_vertices[piece + 1];
+            const auto first = type.piece_vertices[piece], last = type.piece_vertices[piece + 1];
+            if (type.objects[piece] != geometry->objects[piece] || source_first > source_last ||
+                source_last > geometry->points.size() || first > last || last > count ||
+                (type.body_detail ? type.source_vertex_counts[piece] != source_last - source_first
+                                  : last - first != source_last - source_first))
+                return -1;
+            if (type.body_detail)
+                for (auto point = first; point < last; ++point)
+                    if (type.source_vertices[point] >= source_last - source_first)
+                        return -1;
+        }
+        if (count > gpu::largest_vertex_count ||
+            cards.root_prefix_points.size() > gpu::largest_vertex_count - count)
+            return -1;
+        first_point = static_cast<uint32_t>(cards.root_prefix_points.size());
+        cards.root_prefix_points.reserve(cards.root_prefix_points.size() + count);
+        if (memoize)
+            cards.root_prefix_ranges.reserve(cards.root_prefix_ranges.size() + 1);
+    }
+    cards.root_prefix_poses.reserve(cards.root_prefix_poses.size() + 1);
+    cards.root_prefix_recipes.reserve(cards.root_prefix_recipes.size() + 1);
+    if (!found) {
+        for (std::size_t piece = 0; piece < geometry->objects.size(); ++piece) {
+            const auto source_first = geometry->piece_vertices[piece];
+            for (auto point = type.piece_vertices[piece]; point < type.piece_vertices[piece + 1];
+                 ++point) {
+                const auto source = type.body_detail ? type.source_vertices[point]
+                                                     : point - type.piece_vertices[piece];
+                cards.root_prefix_points.push_back(geometry->points[source_first + source]);
+            }
+        }
+        if (memoize) {
+            cards.root_prefix_ranges.push_back({geometry, type_index, first_point, count});
+            cards.root_prefix_slots[vacant] =
+                static_cast<uint32_t>(cards.root_prefix_ranges.size());
+        }
+    }
+    const auto index = static_cast<int64_t>(cards.root_prefix_poses.size());
+    cards.root_prefix_poses.push_back(
+        {first_point,
+         count,
+         recipe.rotation.sine,
+         recipe.rotation.cosine,
+         {recipe.placement.x, recipe.placement.y, recipe.placement.z}}
+    );
+    cards.root_prefix_recipes.push_back(recipe);
+    return index;
+}
+
 CardCorner card_corner(
     const CardTypes& types, const ModelCards& cards, const CardUnit& unit, uint32_t index
 ) noexcept {
@@ -966,17 +1085,30 @@ CardCorner card_corner(
     const std::size_t record = (std::size_t{instance.corners} + (index & corner_mask)) * 2;
     const uint32_t place = types.records[record];
     const uint32_t drawn = types.records[record + 1];
-    const std::size_t vertex = (std::size_t{instance.positions} + (place & vertex_mask)) * 3;
+    const std::size_t point_index = place & vertex_mask;
     const bool first = cards.piece_frames[instance.pieces + (place >> gpu::model_piece_shift)] != 0;
     const uint32_t slot =
         first ? drawn & slot_mask : (drawn >> gpu::model_texture_bits) & slot_mask;
     const std::size_t texture = (std::size_t{instance.textures} + slot) * 4;
     const uint32_t corner = (drawn >> gpu::model_polygon_corner_shift) & polygon_corner_mask;
     // Corners 1 and 2 take the second place across, 2 and 3 the second down.
+    std::array<float, 3> local{};
+    if (instance.root_prefix != 0) {
+        const auto& prefix = cards.root_prefix_poses[instance.root_prefix - 1];
+        const auto point = place_root_prefix_point(
+            cards.root_prefix_points[prefix.first_point + point_index],
+            {prefix.sine, prefix.cosine},
+            {prefix.placement[0], prefix.placement[1], prefix.placement[2]}
+        );
+        local = {point.x / fixed_scale, point.y / fixed_scale, -(point.z / fixed_scale)};
+    } else {
+        const std::size_t vertex = (std::size_t{instance.positions} + point_index) * 3;
+        local = {cards.positions[vertex], cards.positions[vertex + 1], cards.positions[vertex + 2]};
+    }
     return {
-        instance.origin[0] + cards.positions[vertex],
-        instance.origin[1] + cards.positions[vertex + 1],
-        instance.origin[2] + cards.positions[vertex + 2],
+        instance.origin[0] + local[0],
+        instance.origin[1] + local[1],
+        instance.origin[2] + local[2],
         cards.textures[texture + (corner == 1 || corner == 2 ? 2 : 0)],
         cards.textures[texture + (corner >= 2 ? 3 : 1)]
     };
@@ -1009,6 +1141,8 @@ renderer_live_gpu::ModelDraws card_draws(const CardTypes& types, const ModelCard
     draws.corners_revision = types.revision;
     draws.instances = cards.instances;
     draws.positions = cards.positions;
+    draws.root_prefix_points = cards.root_prefix_points;
+    draws.root_prefix_poses = cards.root_prefix_poses;
     draws.piece_frames = cards.piece_frames;
     draws.textures = cards.textures;
     draws.indices = cards.indices;

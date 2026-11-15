@@ -10,6 +10,7 @@
 // the textures their teams draw and the triangles they show.
 
 #include "renderer_live_gpu.hpp"
+#include "root_prefix_geometry.hpp"
 #include "body_lod_geometry.hpp"
 #include "oa/formats/objects3d.hpp"
 #include "oa/present/model/model_library.hpp"
@@ -216,8 +217,10 @@ struct CardUnit {
     /// triangle's; false where one is a sliver, which the pick tests
     /// wherever the pointer is.
     bool bounded{true};
-    bool marker{};   ///< instance names ModelCards::markers rather than a model
-    bool body_lod{}; ///< the emitted draw uses a coarse animated body type
+    bool marker{};      ///< instance names ModelCards::markers rather than a model
+    bool body_lod{};    ///< the emitted draw uses a coarse animated body type
+    bool root_prefix{}; ///< the declared body-triangle picking policy uses an owned root recipe
+    std::array<float, 2> displayed_anchor{}; ///< rounded displayed origin in picture pixels
 };
 
 /// The sizes of a frame's model draws as a draw began, which a draw that
@@ -239,6 +242,14 @@ struct CardMark {
     uint32_t marker_first_index{};
     std::array<float, 2> marker_uv{};
     ShadowIndexMark shadow_indices{};
+    std::size_t root_prefix_points{}, root_prefix_poses{}, root_prefix_ranges{};
+};
+
+/// One immutable prefix gathered once in a complete or coarse type's point order.
+struct CardRootPrefixRange {
+    std::shared_ptr<const RootPrefixGeometry> geometry{};
+    uint32_t type{};
+    uint32_t first_point{}, point_count{};
 };
 
 /// A posed vertex range shared by instances of one type within a frame.
@@ -267,6 +278,14 @@ struct CardPoseRecent {
 struct ModelCards {
     std::vector<renderer_live_gpu::ModelInstance> instances{};
     std::vector<float> positions{};
+    /// Unplaced raw points shared by recipe instances, in each retained type's point order.
+    std::vector<formats::objects3d::FixedVector3> root_prefix_points{};
+    /// One GPU descriptor and one owned CPU recipe for every one-based prefix reference.
+    std::vector<renderer_live_gpu::RootPrefixPose> root_prefix_poses{};
+    std::vector<RootPrefixRecipe> root_prefix_recipes{};
+    std::vector<CardRootPrefixRange> root_prefix_ranges{};
+    /// At most eight probes find one of 1,024 owner/type ranges; UINT32_MAX is a tombstone.
+    std::vector<uint32_t> root_prefix_slots{};
     std::vector<uint32_t> piece_frames{};
     /// The textures of each type and team the frame draws, four atlas places
     /// a slot, in CardTable order.
@@ -462,6 +481,16 @@ void unmark_cards(ModelCards& cards) noexcept;
     const CardType& type,
     std::span<const sim::model_runtime::PieceState> pieces,
     std::span<const std::vector<formats::objects3d::FixedVector3>> shown
+);
+
+/// Retains a compact unplaced prefix range and one owned draw recipe.
+/// @param[in,out] cards the frame or worker's owned card packets
+/// @param type_index the retained complete or coarse type
+/// @param type immutable point mapping of that type
+/// @param recipe owned Q30 root geometry for this draw
+/// @return zero-based descriptor index, or -1 when shape or bounded storage refuses it
+[[nodiscard]] int64_t card_root_prefix(
+    ModelCards& cards, uint32_t type_index, const CardType& type, const RootPrefixRecipe& recipe
 );
 
 /// Returns a triangle corner of a frame's model draw as the card draws it.

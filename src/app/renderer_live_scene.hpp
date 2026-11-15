@@ -726,6 +726,8 @@ struct Inputs {
     float unit_marker_pixels{};
     /// Preserve articulated physical bodies at middle distance and under budget pressure.
     bool body_lod_enabled{};
+    /// Private Enhanced Full prototype; ordinary frames retain native geometry and picking.
+    bool root_prefix_enabled{};
     /// Retains exact uniform shadow index runs; false keeps expanded packets.
     bool shadow_index_templates{};
     /// Keeps each ordinary cast run while sharing its individual local corner
@@ -785,6 +787,20 @@ struct Inputs {
     /// False retains the ordinary vertices and picking ranges.
     bool markers_on_card{};
 };
+
+/// Checks an owned root recipe against the completed frame's declared body policy.
+///
+/// The caller resolves refused recipes through ordinary model planning before
+/// parallel Scene workers begin. This check reads piece bounds and at most the
+/// frame's sixteen sampled construction lights; it never reads posed points.
+///
+/// @param inputs completed immutable frame policy, map, camera and effects
+/// @param draw the ordinary ground unit whose recipe may replace posed vertices
+/// @param recipe owned unplaced prefix and Q30 root placement
+/// @return true when Scene can consume the recipe without an eager vertex fallback
+[[nodiscard]] bool root_prefix_supported(
+    const Inputs& inputs, const ModelDraw& draw, const RootPrefixRecipe& recipe
+) noexcept;
 
 /// Rebuilds live terrain, visible models and GAF cutouts from a frame's plan.
 ///

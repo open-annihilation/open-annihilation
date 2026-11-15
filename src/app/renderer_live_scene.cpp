@@ -3979,6 +3979,166 @@ void decal(
         }
 }
 
+/// Conservative world and picture bounds of selected visible recipe pieces.
+struct RootPrefixViewBounds {
+    std::array<float, 3> low{}, high{};
+    std::array<float, 4> picture{};
+};
+
+/// Qualifies every packet point through its global raw box, including hidden pieces.
+/// The GPU validates that box after its four-corner turn; per-piece boxes alone
+/// could admit a wider global-box corner beyond the same local or world limits.
+bool root_prefix_packet_in_domain(const ModelDraw& draw, const RootPrefixRecipe& recipe) noexcept {
+    const auto& geometry = recipe.geometry;
+    if (!geometry || !draw.model.unit || geometry->objects.empty() ||
+        geometry->piece_bounds.size() != geometry->objects.size() ||
+        geometry->piece_vertices.size() != geometry->objects.size() + 1 ||
+        geometry->piece_vertices.front() != 0 ||
+        geometry->piece_vertices.back() != geometry->points.size() ||
+        !root_prefix_detail::valid_rotation(recipe.rotation))
+        return false;
+    RootPrefixBounds raw{};
+    bool found = false;
+    for (std::size_t piece = 0; piece < geometry->objects.size(); ++piece) {
+        const auto first = geometry->piece_vertices[piece];
+        const auto last = geometry->piece_vertices[piece + 1];
+        if (first > last || last > geometry->points.size())
+            return false;
+        if (first == last)
+            continue;
+        const auto& box = geometry->piece_bounds[piece];
+        if (!root_prefix_detail::bounded_point(box.low) ||
+            !root_prefix_detail::bounded_point(box.high) || box.low.x > box.high.x ||
+            box.low.y > box.high.y || box.low.z > box.high.z)
+            return false;
+        if (!found)
+            raw = box;
+        else {
+            raw.low = {
+                std::min(raw.low.x, box.low.x),
+                std::min(raw.low.y, box.low.y),
+                std::min(raw.low.z, box.low.z)
+            };
+            raw.high = {
+                std::max(raw.high.x, box.high.x),
+                std::max(raw.high.y, box.high.y),
+                std::max(raw.high.z, box.high.z)
+            };
+        }
+        found = true;
+    }
+    if (!found)
+        return false;
+    std::array<int64_t, 3> low{
+        std::numeric_limits<int64_t>::max(),
+        int64_t{raw.low.y} + recipe.placement.y,
+        std::numeric_limits<int64_t>::max()
+    };
+    std::array<int64_t, 3> high{
+        std::numeric_limits<int64_t>::min(),
+        int64_t{raw.high.y} + recipe.placement.y,
+        std::numeric_limits<int64_t>::min()
+    };
+    for (const auto x : {raw.low.x, raw.high.x})
+        for (const auto z : {raw.low.z, raw.high.z}) {
+            const auto point = rotate_root_prefix_point({x, 0, z}, recipe.rotation);
+            const int64_t placed_x = int64_t{point.x} + recipe.placement.x;
+            const int64_t placed_z = int64_t{point.z} + recipe.placement.z;
+            low[0] = std::min(low[0], placed_x);
+            high[0] = std::max(high[0], placed_x);
+            low[2] = std::min(low[2], placed_z);
+            high[2] = std::max(high[2], placed_z);
+        }
+    for (std::size_t axis = 0; axis < low.size(); ++axis)
+        if (low[axis] < -root_prefix_local_limit || high[axis] > root_prefix_local_limit)
+            return false;
+    const auto position = draw.shown_position.value_or(draw.model.unit->position);
+    const std::array origin{
+        position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+    };
+    const std::array placed_low{
+        static_cast<float>(low[0]) / fixed_scale,
+        static_cast<float>(low[1]) / fixed_scale,
+        -(static_cast<float>(high[2]) / fixed_scale)
+    };
+    const std::array placed_high{
+        static_cast<float>(high[0]) / fixed_scale,
+        static_cast<float>(high[1]) / fixed_scale,
+        -(static_cast<float>(low[2]) / fixed_scale)
+    };
+    constexpr float world_limit = 32768;
+    for (std::size_t axis = 0; axis < origin.size(); ++axis)
+        if (origin[axis] < -world_limit || origin[axis] > world_limit ||
+            origin[axis] + placed_low[axis] < -world_limit ||
+            origin[axis] + placed_high[axis] > world_limit)
+            return false;
+    return true;
+}
+
+/// Encloses a recipe through piece boxes, without resolving source points.
+std::optional<RootPrefixViewBounds> root_prefix_view_bounds(
+    const Inputs& in,
+    const ModelDraw& draw,
+    const RootPrefixRecipe& recipe,
+    uint64_t mask = std::numeric_limits<uint64_t>::max()
+) noexcept {
+    if (!recipe.geometry || !draw.model.instance || !draw.model.unit ||
+        recipe.geometry->objects.size() != draw.model.instance->pieces().size() ||
+        recipe.geometry->piece_vertices.size() != recipe.geometry->objects.size() + 1)
+        return std::nullopt;
+    const auto position = draw.shown_position.value_or(draw.model.unit->position);
+    const std::array origin{
+        position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+    };
+    RootPrefixViewBounds result;
+    result.low.fill(std::numeric_limits<float>::infinity());
+    result.high.fill(-std::numeric_limits<float>::infinity());
+    const auto pieces = draw.model.instance->pieces();
+    bool found = false;
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        if (piece >= root_prefix_piece_limit || (mask & (uint64_t{1} << piece)) == 0 ||
+            (pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
+                0 ||
+            recipe.geometry->piece_vertices[piece] == recipe.geometry->piece_vertices[piece + 1])
+            continue;
+        const auto bounds = root_prefix_piece_bounds(recipe, static_cast<uint32_t>(piece));
+        if (!bounds)
+            return std::nullopt;
+        const std::array low{
+            origin[0] + bounds->low.x / fixed_scale,
+            origin[1] + bounds->low.y / fixed_scale,
+            origin[2] - bounds->high.z / fixed_scale
+        };
+        const std::array high{
+            origin[0] + bounds->high.x / fixed_scale,
+            origin[1] + bounds->high.y / fixed_scale,
+            origin[2] - bounds->low.z / fixed_scale
+        };
+        for (std::size_t axis = 0; axis < low.size(); ++axis) {
+            if (!std::isfinite(low[axis]) || !std::isfinite(high[axis]))
+                return std::nullopt;
+            result.low[axis] = std::min(result.low[axis], low[axis]);
+            result.high[axis] = std::max(result.high[axis], high[axis]);
+        }
+        found = true;
+    }
+    if (!found)
+        return std::nullopt;
+    for (std::size_t row = 0; row < 2; ++row) {
+        float low = in.clip_projection[row * 4 + 3], high = low;
+        for (std::size_t axis = 0; axis < result.low.size(); ++axis) {
+            const auto coefficient = in.clip_projection[row * 4 + axis];
+            low += coefficient * (coefficient < 0 ? result.high[axis] : result.low[axis]);
+            high += coefficient * (coefficient < 0 ? result.low[axis] : result.high[axis]);
+        }
+        if (!std::isfinite(low) || !std::isfinite(high))
+            return std::nullopt;
+        result.picture[row] = low;
+        result.picture[row + 2] = high;
+    }
+    return result;
+}
+
 /// How a model's draw casts its shadow, as the game lays it from its
 /// picture (read_shadows), before the picture is read.
 struct DrawShadow {
@@ -4000,7 +4160,8 @@ struct DrawShadow {
 /// Returns how a model's draw casts its shadow, if it casts one: with the
 /// shadows on, a type that casts one, a building, a digger, or a vehicle
 /// with vehicle shadows on that neither floats nor hovers, not a feature's
-/// building sunk under the sea, drawn from a picture that has pixels.
+/// building sunk under the sea. Ordinary draws require picture pixels or
+/// verified metadata; owned root bodies cast their declared physical mesh.
 ///
 /// @param in the frame
 /// @param draw the model's draw
@@ -4013,7 +4174,8 @@ DrawShadow shadow_of_draw(const Inputs& in, const ModelDraw& draw) {
     const Unit* unit = ref.unit;
     if (draw.stand_in >= 0 && static_cast<std::size_t>(draw.stand_in) < in.draws->stand_ins.size())
         unit = &in.draws->stand_ins[static_cast<std::size_t>(draw.stand_in)];
-    if (!draw.plan.linked.drawn || !draw.plan.model.from_image || unit == nullptr ||
+    const bool prefix = in.root_prefix_enabled && draw.root_prefix.has_value();
+    if (!draw.plan.linked.drawn || (!draw.plan.model.from_image && !prefix) || unit == nullptr ||
         ref.state == nullptr)
         return shadow;
     const uint32_t flags = ref.def ? ref.def->flags : 0;
@@ -4027,6 +4189,17 @@ DrawShadow shadow_of_draw(const Inputs& in, const ModelDraw& draw) {
         return shadow;
     if (building && unit->type_index == 0 && unit->position.y / fixed_scale < in.sea_level)
         return shadow;
+    if (prefix) {
+        shadow.casts = true;
+        shadow.unit = unit;
+        shadow.position = draw.shown_position.value_or(unit->position);
+        shadow.receiver = std::max(
+            height_at(*in.map, shadow.position.x / 65536, shadow.position.z / 65536),
+            float(in.sea_level)
+        );
+        shadow.altitude = std::max(0.0F, shadow.position.y / fixed_scale - shadow.receiver);
+        return shadow;
+    }
     const auto& source = building ? ref.state->shadow : ref.state->image;
     const auto& image = source.sprite;
     const auto* deferred = in.geometry_shadow_metadata && ref.state->deferred_image &&
@@ -5038,16 +5211,20 @@ void naval_reflection(
     }
 }
 
-/// Whether the classic draw uses a cached image, including one whose pixels
-/// wait until a renderer needs them.
+/// Whether the draw follows cached-image material rules. Owned root bodies
+/// retain those rules without claiming that their frozen native image is current.
 bool uses_model_image(const ModelDraw& draw) {
     const auto* state = draw.model.state;
-    return draw.plan.model.from_image && state != nullptr &&
-           (state->image.sprite.data != nullptr || state->deferred_image.has_value());
+    return draw.root_prefix.has_value() ||
+           (draw.plan.model.from_image && state != nullptr &&
+            (state->image.sprite.data != nullptr || state->deferred_image.has_value()));
 }
 
 /// Whether an image draw keeps depth for construction, water and attachments.
 bool model_image_has_depth(const ModelDraw& draw) {
+    if (draw.root_prefix)
+        return draw.model.unit != nullptr &&
+               (draw.model.unit->flags2 & OA_UNIT_FLAG2_Z_BUFFER) != 0;
     const auto& state = *draw.model.state;
     return state.image.sprite.data != nullptr ? state.image.sprite.aux != nullptr
                                               : state.deferred_image_depth;
@@ -5539,7 +5716,7 @@ std::size_t body_allowance(const CardType& type, uint64_t mask) noexcept {
     return count;
 }
 
-/// Measures the physical piece choices with the same local float projections.
+/// Measures physical piece choices from native points or declared root-piece boxes.
 /// A read-only detail range fixes the view and types for every measured pose.
 void measure_body_geometry(
     const Inputs& in,
@@ -5567,21 +5744,41 @@ void measure_body_geometry(
                 0 ||
             low_type.piece_polygons[piece] == low_type.piece_polygons[piece + 1])
             continue;
-        const auto points = detail_points(draw, piece);
         std::array<float, 2> least{
             std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()
         };
         std::array<float, 2> greatest{-least[0], -least[1]};
-        for (const auto& point : points) {
-            const std::array position{
-                point.x / fixed_scale, point.y / fixed_scale, -(point.z / fixed_scale)
+        if (draw.root_prefix) {
+            const auto box =
+                root_prefix_piece_bounds(*draw.root_prefix, static_cast<uint32_t>(piece));
+            if (!box)
+                return;
+            const std::array low{
+                box->low.x / fixed_scale, box->low.y / fixed_scale, -(box->high.z / fixed_scale)
+            };
+            const std::array high{
+                box->high.x / fixed_scale, box->high.y / fixed_scale, -(box->low.z / fixed_scale)
             };
             for (std::size_t row = 0; row < least.size(); ++row) {
-                float projected{};
-                for (std::size_t axis = 0; axis < position.size(); ++axis)
-                    projected += in.clip_projection[row * 4 + axis] * position[axis];
-                least[row] = std::min(least[row], projected);
-                greatest[row] = std::max(greatest[row], projected);
+                least[row] = greatest[row] = 0;
+                for (std::size_t axis = 0; axis < low.size(); ++axis) {
+                    const auto coefficient = in.clip_projection[row * 4 + axis];
+                    least[row] += coefficient * (coefficient < 0 ? high[axis] : low[axis]);
+                    greatest[row] += coefficient * (coefficient < 0 ? low[axis] : high[axis]);
+                }
+            }
+        } else {
+            for (const auto& point : detail_points(draw, piece)) {
+                const std::array position{
+                    point.x / fixed_scale, point.y / fixed_scale, -(point.z / fixed_scale)
+                };
+                for (std::size_t row = 0; row < least.size(); ++row) {
+                    float projected{};
+                    for (std::size_t axis = 0; axis < position.size(); ++axis)
+                        projected += in.clip_projection[row * 4 + axis] * position[axis];
+                    least[row] = std::min(least[row], projected);
+                    greatest[row] = std::max(greatest[row], projected);
+                }
             }
         }
         const auto pixels = std::max(greatest[0] - least[0], greatest[1] - least[1]);
@@ -5666,7 +5863,10 @@ void plan_body_detail(
     // Hidden points are not part of the shared visible-pose key, but their
     // layout still has to match before a physical body can use this type.
     for (std::size_t piece = 0; piece < low_type.source_vertex_counts.size(); ++piece)
-        if (detail_points(draw, piece).size() != low_type.source_vertex_counts[piece])
+        if ((draw.root_prefix
+                 ? draw.root_prefix->geometry->piece_vertices[piece + 1] -
+                       draw.root_prefix->geometry->piece_vertices[piece]
+                 : detail_points(draw, piece).size()) != low_type.source_vertex_counts[piece])
             return;
     auto& geometry = pose.body_geometry;
     if (!geometry.measured || geometry.low_type != &low_type ||
@@ -5687,6 +5887,70 @@ void plan_body_detail(
                                   : uint8_t{};
         detail.desired_body_lod = desired_body_detail(detail.pixels, previous);
     }
+}
+
+/// Summarizes the declared root-body policy from at most one box per visible piece.
+DetailPose root_prefix_detail_pose(
+    const Inputs& in, const Scene& scene, const ModelDraw& draw, const Unit& unit, std::size_t index
+) {
+    DetailPose result;
+    result.least.fill(std::numeric_limits<int32_t>::max());
+    result.greatest.fill(std::numeric_limits<int32_t>::min());
+    if (!draw.root_prefix || !draw.root_prefix->geometry)
+        return result;
+    const auto pieces = draw.model.instance->pieces();
+    const auto& geometry = *draw.root_prefix->geometry;
+    const auto named =
+        index < scene.card_types.draw_types.size() ? scene.card_types.draw_types[index] : -1;
+    const auto* type =
+        named >= 0 ? &scene.card_types.types[static_cast<std::size_t>(named)] : nullptr;
+    const auto team = in.team_colors[unit.owner_index % in.team_colors.size()];
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+        if ((pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
+                0 ||
+            geometry.piece_vertices[piece] == geometry.piece_vertices[piece + 1])
+            continue;
+        const auto box = root_prefix_piece_bounds(*draw.root_prefix, static_cast<uint32_t>(piece));
+        if (!box)
+            return {};
+        const std::array low{box->low.x, box->low.y, box->low.z};
+        const std::array high{box->high.x, box->high.y, box->high.z};
+        for (std::size_t axis = 0; axis < low.size(); ++axis) {
+            result.least[axis] = std::min(result.least[axis], low[axis]);
+            result.greatest[axis] = std::max(result.greatest[axis], high[axis]);
+        }
+        result.bounded = true;
+        if (result.has_face || type == nullptr || piece + 1 >= type->piece_polygons.size())
+            continue;
+        const bool first = shows_first_frame(
+            draw,
+            unit,
+            (pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) !=
+                0,
+            in.moving_pieces_once_built
+        );
+        for (auto polygon = type->piece_polygons[piece]; polygon < type->piece_polygons[piece + 1];
+             ++polygon) {
+            const auto& face = type->polygons[polygon];
+            if (face.colored) {
+                result.has_face = face.color != model::image_key;
+            } else {
+                const auto slot = first ? face.first_slot : face.running_slot;
+                if (slot < type->slots.size() && type->slots[slot].primitive) {
+                    const auto& material = type->slots[slot];
+                    const auto* frame =
+                        model::primitive_texture(*material.primitive, material.first_frame, team);
+                    result.has_face = frame && frame->data && frame->encoding == OA_SPRITE_RAW &&
+                                      frame->width > 0 && frame->height > 0;
+                }
+            }
+            if (result.has_face)
+                break;
+        }
+    }
+    // This policy submits visible source fans for GPU triangle-facing tests.
+    result.face_checked = true;
+    return result;
 }
 
 /// Classifies a disjoint range without changing materials, model types or
@@ -5752,7 +6016,9 @@ bool plan_unit_details(
         }
         detail.brightness = brightness_at(in.sight, origin[0], origin[2] - origin[1] * height_lift);
         DetailPose unshared;
-        auto& pose = detail_pose(in, memo, draw, *unit, unshared);
+        if (draw.root_prefix)
+            unshared = root_prefix_detail_pose(in, scene, draw, *unit, index);
+        auto& pose = draw.root_prefix ? unshared : detail_pose(in, memo, draw, *unit, unshared);
         // Translate the extrema before finding their centre or extent. This
         // keeps the same rounding as translating every vertex separately.
         const std::array low{
@@ -5837,9 +6103,9 @@ bool plan_unit_details(
     return eligible;
 }
 
-/// Classifies from the actual presented vertices, before shadow decoding,
-/// card positions or triangle emission. Static footprint/radius bounds do
-/// not contain arbitrary animated piece translations, so cannot be used.
+/// Classifies presented vertices or owned animated piece boxes before shadow
+/// decoding, card positions or triangle emission. Static footprint bounds do
+/// not contain arbitrary current piece translations and cannot replace either.
 void plan_unit_detail(const Inputs& in, Scene& scene) {
     scene.unit_detail.clear();
     scene.unit_detail_active = false;
@@ -6314,8 +6580,11 @@ int64_t card_instance(
     const float x = position.x / fixed_scale;
     const float h = position.y / fixed_scale;
     const float z = position.z / fixed_scale;
+    const int64_t prefix =
+        draw.root_prefix ? card_root_prefix(cards, type_index, type, *draw.root_prefix) : -1;
     const int64_t first_position =
-        card_positions(cards, type_index, type, pieces, draw.shown_vertices);
+        draw.root_prefix ? (prefix >= 0 ? 0 : -1)
+                         : card_positions(cards, type_index, type, pieces, draw.shown_vertices);
     if (first_position < 0)
         return -1;
     // Each piece's first frame or its running one.
@@ -6341,7 +6610,8 @@ int64_t card_instance(
          table,
          static_cast<uint32_t>(type.slots.size()),
          1.0F,
-         {x, h, z}}
+         {x, h, z},
+         draw.root_prefix ? static_cast<uint32_t>(prefix + 1) : 0U}
     );
     return cards.draw_instance;
 }
@@ -6450,8 +6720,11 @@ void cast_on_card(
     if (cards.cast_depths >= most_cast_depths)
         return;
     const int64_t made = card_instance(in, pass, draw, *shadow.unit, type_index);
-    if (made < 0)
+    if (made < 0) {
+        if (draw.root_prefix)
+            throw GeometryFull();
         return;
+    }
     const auto instance = static_cast<uint32_t>(made);
     const auto& type = pass.scene.card_types.types[type_index];
     const auto pieces = draw.model.instance->pieces();
@@ -6472,17 +6745,27 @@ void cast_on_card(
         float top = left;
         float right = -left;
         float bottom = -left;
-        for (std::size_t at = std::size_t{record.positions} * 3;
-             at < (std::size_t{record.positions} + record.position_count) * 3;
-             at += 3) {
-            const float corner_across = record.origin[0] + cards.positions[at];
-            const float corner_height = record.origin[1] + cards.positions[at + 1];
-            const float corner_z = record.origin[2] + cards.positions[at + 2];
-            const float corner_down = corner_z - (corner_height - base) * 0.5F;
-            left = std::min(left, corner_across);
-            right = std::max(right, corner_across);
-            top = std::min(top, corner_down);
-            bottom = std::max(bottom, corner_down);
+        if (draw.root_prefix) {
+            const auto bounds = root_prefix_view_bounds(in, draw, *draw.root_prefix, piece_mask);
+            if (!bounds)
+                return;
+            left = bounds->low[0];
+            right = bounds->high[0];
+            top = bounds->low[2] - (bounds->high[1] - base) * 0.5F;
+            bottom = bounds->high[2] - (bounds->low[1] - base) * 0.5F;
+        } else {
+            for (std::size_t at = std::size_t{record.positions} * 3;
+                 at < (std::size_t{record.positions} + record.position_count) * 3;
+                 at += 3) {
+                const float corner_across = record.origin[0] + cards.positions[at];
+                const float corner_height = record.origin[1] + cards.positions[at + 1];
+                const float corner_z = record.origin[2] + cards.positions[at + 2];
+                const float corner_down = corner_z - (corner_height - base) * 0.5F;
+                left = std::min(left, corner_across);
+                right = std::max(right, corner_across);
+                top = std::min(top, corner_down);
+                bottom = std::max(bottom, corner_down);
+            }
         }
         const float diameter = std::min(right - left, bottom - top) * in.detail_scale;
         opacity *= std::clamp((diameter - 0.25F) / 0.75F, 0.0F, 1.0F);
@@ -6495,10 +6778,12 @@ void cast_on_card(
     constexpr float every_height = -std::numeric_limits<float>::max();
     float least_height = every_height;
     const int32_t lift = std::max(0, in.sea_level - shadow.position.y / 65536);
-    if (!shadow.building && state.image.sprite.aux != nullptr && (shadow.digger || lift > 0))
+    if (!draw.root_prefix && !shadow.building && state.image.sprite.aux != nullptr &&
+        (shadow.digger || lift > 0))
         least_height = shadow.digger ? 0.0F : static_cast<float>(lift);
     // The pieces the cached picture holds.
-    const bool every_piece = unit.build_remaining != 0.0F || state.image_unfinished;
+    const bool every_piece =
+        draw.root_prefix.has_value() || unit.build_remaining != 0.0F || state.image_unfinished;
     const auto add_cast = [&](uint32_t kind, float light, bool cached_only, bool walls) {
         const auto cast = static_cast<uint32_t>(cards.casts.size());
         cards.casts.push_back(
@@ -6714,6 +6999,8 @@ void find_card_types(const Inputs& in, CardTypes& types) {
         if ((models[index].plan.linked.drawn || models[index].preplan_omitted) &&
             reference.instance != nullptr && reference.prepared != nullptr)
             types.draw_types[index] = card_type(types, *reference.instance, *reference.prepared);
+        if (models[index].root_prefix && types.draw_types[index] < 0)
+            throw std::runtime_error("Root prefix draw has no supported GPU type");
         if (index < physical && models[index].plan.linked.drawn && reference.instance != nullptr &&
             reference.prepared != nullptr &&
             reference.instance->pieces().size() <= body_lod_piece_limit) {
@@ -6768,6 +7055,8 @@ void verify_geometry_shadow_metadata(const Inputs& in, const CardTypes& types) {
     const auto& draws = in.draws->models;
     for (std::size_t index = 0; index < draws.size(); ++index) {
         const auto& draw = draws[index];
+        if (draw.root_prefix)
+            continue;
         if (draw.preplan_omitted)
             continue;
         if (draw.model.state == nullptr || !draw.model.state->deferred_image)
@@ -6857,6 +7146,8 @@ struct CardVertexCache {
 /// with the textures they would have taken, from its vertices placed as
 /// they would have been. The caller has found it drawn whole, unlit by its
 /// build, uncloaked, unreflected and unshaded.
+/// Owned root bodies instead submit every visible fan for GPU triangle-facing
+/// tests and retain a symmetric selection proxy without CPU corner projection.
 ///
 /// @param in the frame
 /// @param[in,out] pass the models pass
@@ -6904,7 +7195,7 @@ bool draw_on_card(
     // it; such a model's surface stays in the vertices. A particle that far
     // from the box around the vertices reaches none of them, as the
     // vertices' distances are worked out.
-    if (!lights.empty()) {
+    if (!draw.root_prefix && !lights.empty()) {
         std::array<float, 3> low{place};
         std::array<float, 3> high{place};
         for (std::size_t at = first_position; at < end_position; at += 3)
@@ -6943,8 +7234,9 @@ bool draw_on_card(
     const uint32_t named = (instance - run.first_instance) << renderer_live_gpu::model_corner_bits;
     const auto first_index = static_cast<uint32_t>(cards.indices.size());
     const auto& source = reference.instance->model();
-    const float* positions = cards.positions.data() + first_position;
-    vertices.begin(cards.instances[instance].position_count);
+    const float* positions = draw.root_prefix ? nullptr : cards.positions.data() + first_position;
+    if (!draw.root_prefix)
+        vertices.begin(cards.instances[instance].position_count);
     // The bounds the pick takes, through the camera as it projects vertices.
     const auto& camera = in.clip_projection;
     std::array<float, 4> bounds{
@@ -6974,6 +7266,13 @@ bool draw_on_card(
                 find_card_slot(in, pass, materials, type.slots[slot - table], slot, team);
             if (cards.slot_states[slot] != 1)
                 continue;
+            if (draw.root_prefix) {
+                const std::size_t count = (polygon.corners - 2) * 3;
+                count_on_card(pass, count);
+                for (uint32_t corner = 0; corner < count; ++corner)
+                    cards.indices.push_back(named | (polygon.record + corner));
+                continue;
+            }
             const std::span<const uint16_t> indices =
                 polygon.body_lod ? std::span<const uint16_t>{polygon.body_vertices}
                                  : std::span<const uint16_t>{
@@ -7018,6 +7317,43 @@ bool draw_on_card(
     drawn.first_index = first_index;
     drawn.index_count = index_count;
     drawn.body_lod = type.body_detail.has_value() && index_count != 0;
+    drawn.root_prefix = draw.root_prefix.has_value();
+    if (draw.root_prefix) {
+        drawn.displayed_anchor = {
+            std::round(
+                camera[0] * origin[0] + camera[1] * origin[1] + camera[2] * origin[2] + camera[3]
+            ),
+            std::round(
+                camera[4] * origin[0] + camera[5] * origin[1] + camera[6] * origin[2] + camera[7]
+            )
+        };
+        if (index_count != 0) {
+            const auto proxy = root_prefix_view_bounds(in, draw, *draw.root_prefix, piece_mask);
+            if (!proxy)
+                throw std::runtime_error("Root prefix draw has no bounded selection proxy");
+            constexpr float margin = 1;
+            const float radius_x = std::ceil(
+                std::max(
+                    std::abs(proxy->picture[0] - drawn.displayed_anchor[0]),
+                    std::abs(proxy->picture[2] - drawn.displayed_anchor[0])
+                ) +
+                margin
+            );
+            const float radius_y = std::ceil(
+                std::max(
+                    std::abs(proxy->picture[1] - drawn.displayed_anchor[1]),
+                    std::abs(proxy->picture[3] - drawn.displayed_anchor[1])
+                ) +
+                margin
+            );
+            bounds = {
+                drawn.displayed_anchor[0] - radius_x,
+                drawn.displayed_anchor[1] - radius_y,
+                drawn.displayed_anchor[0] + radius_x,
+                drawn.displayed_anchor[1] + radius_y
+            };
+        }
+    }
     if (index_count != 0) {
         drawn.left = bounds[0];
         drawn.top = bounds[1];
@@ -7087,7 +7423,7 @@ void marker_range(
     }
 }
 
-/// Uses the actual animated, rotated model vertices prepared for this frame.
+/// Lists the animated model geometry, including owned GPU root recipes.
 ///
 /// @param in the frame
 /// @param[in,out] pass the models pass
@@ -7246,6 +7582,40 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(z - h * height_lift));
         if (fog == Fog::black)
             continue;
+        if (draw.root_prefix) {
+            if (card_type_index < 0)
+                throw std::runtime_error("Root prefix draw needs its retained GPU type");
+            const auto proxy =
+                root_prefix_view_bounds(in, draw, *draw.root_prefix, body_piece_mask);
+            if (!proxy)
+                throw std::runtime_error("Root prefix draw has no finite piece bounds");
+            constexpr float proxy_margin = 1;
+            if (proxy->picture[2] + proxy_margin < 0 ||
+                proxy->picture[0] - proxy_margin > in.clip_width ||
+                proxy->picture[3] + proxy_margin < 0 ||
+                proxy->picture[1] - proxy_margin > in.clip_height)
+                continue;
+            const float brightness = brightness_at(in.sight, x, z - h * height_lift);
+            if (!draw_on_card(
+                    in,
+                    pass,
+                    materials,
+                    draw,
+                    *unit,
+                    static_cast<uint32_t>(card_type_index),
+                    {x, h, z},
+                    brightness,
+                    true,
+                    {},
+                    card_corners,
+                    card_points,
+                    card_vertices,
+                    body_piece_mask
+                ))
+                throw std::runtime_error("Root prefix draw exceeds its bounded GPU packet");
+            ++list.drawn;
+            continue;
+        }
         const bool reflects =
             !draw.on_map && reference.def &&
             (reference.def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0 &&
@@ -9872,13 +10242,16 @@ void trim_parallel_model_lists(const ParallelModelRange& range, bool release = f
             !release && holds(list.vertices) && holds(list.unit_ranges) &&
             holds(list.translucent_vertices) && holds(list.translucent_ranges) &&
             holds(list.cut_vertices) && holds(cards.instances) && holds(cards.positions) &&
-            holds(cards.piece_frames) && holds(cards.textures) && holds(cards.slot_states) &&
-            holds(cards.tables) && holds(cards.indices) && holds(cards.runs) &&
-            holds(cards.units) && holds(cards.markers) && holds(cards.marker_runs) &&
-            holds(cards.casts) && holds(cards.cast_indices) && holds(cards.cast_runs) &&
-            holds(cards.shadow_indices.indices) && holds(cards.shadow_indices.runs) &&
-            holds(cards.shadow_indices.casts) && holds(cards.poses) && holds(cards.pose_points) &&
-            holds(cards.pose_slots) && holds(cards.recent_poses);
+            holds(cards.root_prefix_points) && holds(cards.root_prefix_poses) &&
+            holds(cards.root_prefix_recipes) && holds(cards.root_prefix_ranges) &&
+            holds(cards.root_prefix_slots) && holds(cards.piece_frames) && holds(cards.textures) &&
+            holds(cards.slot_states) && holds(cards.tables) && holds(cards.indices) &&
+            holds(cards.runs) && holds(cards.units) && holds(cards.markers) &&
+            holds(cards.marker_runs) && holds(cards.casts) && holds(cards.cast_indices) &&
+            holds(cards.cast_runs) && holds(cards.shadow_indices.indices) &&
+            holds(cards.shadow_indices.runs) && holds(cards.shadow_indices.casts) &&
+            holds(cards.poses) && holds(cards.pose_points) && holds(cards.pose_slots) &&
+            holds(cards.recent_poses);
         if (!bounded)
             list = {};
     }
@@ -10724,6 +11097,103 @@ void grow_frame_rows(Scene& scene) {
 }
 } // namespace
 
+bool root_prefix_supported(
+    const Inputs& in, const ModelDraw& draw, const RootPrefixRecipe& recipe
+) noexcept {
+    if (!in.root_prefix_enabled || !in.models_on_card || !in.map || !in.draws ||
+        in.clip_width == 0 || in.clip_height == 0 || in.translucent_units ||
+        !draw.shown_vertices.empty() || draw.plan.level != present::model::UnitSupersampling::off ||
+        !draw.plan.model.carried.empty() || !geometry_shadow_metadata_candidate(draw, in.sea_level))
+        return false;
+    const auto& map = *in.map;
+    if (map.attribute_width == 0 || map.attribute_height == 0 ||
+        map.attribute_width > formats::tnt::limit::attribute_dimension ||
+        map.attribute_height > formats::tnt::limit::attribute_dimension ||
+        map.attributes.size() <
+            static_cast<std::size_t>(map.attribute_width) * map.attribute_height)
+        return false;
+    const auto& ref = draw.model;
+    const auto& unit = *ref.unit;
+    const auto& handle = ref.instance->model_handle();
+    if (!recipe.geometry || !recipe.geometry->model || !handle ||
+        recipe.geometry->model.get() != handle.get() ||
+        recipe.geometry->model.owner_before(handle) ||
+        handle.owner_before(recipe.geometry->model) ||
+        recipe.geometry->objects.size() != ref.instance->pieces().size() ||
+        recipe.geometry->objects.size() > root_prefix_piece_limit ||
+        (unit.state_flags & present::model::unit_state_cloaked) != 0 || ref.state->finer ||
+        ref.state->build_bands || ref.state->image_unfinished ||
+        !std::all_of(
+            in.clip_projection.begin(),
+            in.clip_projection.end(),
+            [](float value) { return std::isfinite(value); }
+        ) ||
+        !root_prefix_packet_in_domain(draw, recipe))
+        return false;
+    const auto bounds = root_prefix_view_bounds(in, draw, recipe);
+    if (!bounds)
+        return false;
+    // Integer proxy endpoints and their symmetric centres stay exactly representable.
+    constexpr float picture_limit = 1048576;
+    for (const auto value : bounds->picture)
+        if (std::abs(value) > picture_limit)
+            return false;
+    const auto position = draw.shown_position.value_or(unit.position);
+    const float x = position.x / fixed_scale, y = position.y / fixed_scale;
+    const float z = position.z / fixed_scale;
+    for (std::size_t row = 0; row < 2; ++row) {
+        const float anchor = in.clip_projection[row * 4] * x + in.clip_projection[row * 4 + 1] * y +
+                             in.clip_projection[row * 4 + 2] * z + in.clip_projection[row * 4 + 3];
+        if (!std::isfinite(anchor) || std::abs(anchor) > picture_limit)
+            return false;
+        float magnitude = std::abs(in.clip_projection[row * 4 + 3]);
+        for (std::size_t axis = 0; axis < bounds->low.size(); ++axis)
+            magnitude += std::abs(in.clip_projection[row * 4 + axis]) *
+                         std::max(std::abs(bounds->low[axis]), std::abs(bounds->high[axis]));
+        // Leave half a pixel for affine rounding inside the one-pixel proxy margin.
+        constexpr float rounding_allowance = 0.5F;
+        constexpr float rounding_operations = 16;
+        if (rounding_operations * std::numeric_limits<float>::epsilon() * magnitude >
+            rounding_allowance)
+            return false;
+    }
+    if (water_depth(in, x, z) > 0 ||
+        fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(z - y * height_lift)) !=
+            Fog::seen)
+        return false;
+    if (!in.nanolathe_lighting)
+        return true;
+    constexpr std::size_t samples = 16;
+    constexpr float radius = 32;
+    const auto& particles = in.draws->spatial_particles;
+    const auto stride = std::max<std::size_t>(1, particles.size() / samples);
+    for (std::size_t at = 0, count = 0; at < particles.size() && count < samples;
+         at += stride, ++count) {
+        const auto& light = particles[at];
+        if (!light.emissive ||
+            fog_at(
+                in.sight,
+                light.position.x / 65536,
+                static_cast<int32_t>((light.position.z - light.position.y * 0.5F) / fixed_scale)
+            ) != Fog::seen)
+            continue;
+        const std::array point{
+            light.position.x / fixed_scale,
+            light.position.y / fixed_scale,
+            light.position.z / fixed_scale
+        };
+        float distance{};
+        for (std::size_t axis = 0; axis < point.size(); ++axis) {
+            const float gap =
+                std::max({0.0F, bounds->low[axis] - point[axis], point[axis] - bounds->high[axis]});
+            distance += gap * gap;
+        }
+        if (distance < radius * radius)
+            return false;
+    }
+    return true;
+}
+
 bool build(const Inputs& inputs, Scene& scene, std::string& error) {
     auto& update = scene.atlas_update;
     update.previous_revision = scene.texture_revision;
@@ -10748,6 +11218,9 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             map.tile_height < (map.attribute_height + 1) / 2 ||
             map.tile_indices.size() < static_cast<std::size_t>(map.tile_width) * map.tile_height)
             throw std::runtime_error("experimental renderer received incomplete terrain");
+        for (const auto& draw : inputs.draws->models)
+            if (draw.root_prefix && !root_prefix_supported(inputs, draw, *draw.root_prefix))
+                throw std::runtime_error("Root prefix draw needs ordinary model preparation");
         if (inputs.left > inputs.right || inputs.top > inputs.bottom)
             throw std::runtime_error("experimental renderer received a reversed terrain crop");
         if (scene.texture_width == 0 || scene.texture_height == 0 ||
