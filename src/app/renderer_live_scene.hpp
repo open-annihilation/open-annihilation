@@ -516,6 +516,53 @@ struct PassLists {
     PassList particles{};
 };
 
+/// World and picture extrema of a selected set of owned root pieces.
+struct RootPrefixViewBounds {
+    std::array<float, 3> low{}, high{};
+    std::array<float, 4> picture{};
+};
+
+/// One visible piece's unchanged fixed bounds and translated world endpoints.
+struct RootPrefixPieceView {
+    RootPrefixBounds fixed{};
+    std::array<float, 3> low{}, high{}; ///< world endpoints, including displayed origin
+    bool valid{};
+};
+
+/// One draw's exact scalar key and serially prepared bounds for the current epoch.
+struct RootPrefixBoundsRecord {
+    RootPrefixRecipe recipe{};
+    std::array<int32_t, 3> origin{};
+    uint64_t visible_mask{};
+    uint64_t nonempty_mask{};
+    uint64_t epoch{};
+    uint32_t first_piece{}, piece_count{};
+    RootPrefixViewBounds full_view{};
+    bool domain{};
+    bool full_view_valid{};
+};
+
+/// Same-frame CPU bounds only; workers never change its owned records.
+struct RootPrefixBoundsMemo {
+    static constexpr std::size_t storage_limit = 32U * 1024U * 1024U;
+    std::vector<RootPrefixBoundsRecord> draws{};
+    std::vector<RootPrefixPieceView> pieces{};
+    uintptr_t first_draw{}; ///< numeric identity of the current immutable draw array
+    std::array<uint32_t, 12> projection{};
+    std::array<uint64_t, 3> float_control{};
+    uint64_t epoch{};
+    bool prepared{}; ///< one caller preflight awaits build's consumption
+
+    /// Returns retained bytes, excluding allocator bookkeeping.
+    /// @return the memo and its owned buffer capacities
+    [[nodiscard]] std::size_t storage_bytes() const noexcept {
+        return sizeof(*this) + draws.capacity() * sizeof(RootPrefixBoundsRecord) +
+               pieces.capacity() * sizeof(RootPrefixPieceView);
+    }
+};
+
+static_assert(sizeof(RootPrefixBoundsMemo) < RootPrefixBoundsMemo::storage_limit);
+
 /// Presentation geometry and cached pixels; no simulation state is retained.
 struct Scene {
     std::vector<renderer_live_gpu::Vertex> vertices{};
@@ -668,6 +715,7 @@ struct Scene {
     /// its ModelRun::vertex, which the pick takes too.
     CardTypes card_types{};
     ModelCards cards{};
+    RootPrefixBoundsMemo root_prefix_bounds{};
     /// Per-draw detail decisions, read by the model and shadow workers.
     std::vector<UnitDetail> unit_detail{};
     /// Distance hysteresis by the complete unit ID; no unit or model is retained.
@@ -728,6 +776,9 @@ struct Inputs {
     bool body_lod_enabled{};
     /// Private Enhanced Full prototype; ordinary frames retain native geometry and picking.
     bool root_prefix_enabled{};
+    /// Optional same-frame CPU sidecar, seeded by caller-thread admission only.
+    RootPrefixBoundsMemo* root_prefix_bounds{};
+    uint64_t root_prefix_bounds_epoch{};
     /// Retains exact uniform shadow index runs; false keeps expanded packets.
     bool shadow_index_templates{};
     /// Keeps each ordinary cast run while sharing its individual local corner
@@ -788,11 +839,23 @@ struct Inputs {
     bool markers_on_card{};
 };
 
+/// Starts an exact bounds epoch before recipe admission; flag-off calls do no draw work.
+/// Allocation or the bounded byte allowance may decline caching without refusing a draw.
+/// Build consumes a prepared epoch once; standalone builds start their own epoch.
+/// @param[in,out] inputs immutable draw context and the optional CPU memo reference
+/// @param[in,out] scene the owner of the bounded, serially seeded records
+/// @param byte_limit allowed retained bytes, capped by RootPrefixBoundsMemo::storage_limit
+void begin_root_prefix_bounds(
+    Inputs& inputs, Scene& scene, std::size_t byte_limit = RootPrefixBoundsMemo::storage_limit
+) noexcept;
+
 /// Checks an owned root recipe against the completed frame's declared body policy.
 ///
 /// The caller resolves refused recipes through ordinary model planning before
 /// parallel Scene workers begin. This check reads piece bounds and at most the
 /// frame's sixteen sampled construction lights; it never reads posed points.
+/// A matching optional bounds epoch is seeded here on the calling thread;
+/// Scene workers only read it. All other admission gates are checked each time.
 ///
 /// @param inputs completed immutable frame policy, map, camera and effects
 /// @param draw the ordinary ground unit whose recipe may replace posed vertices

@@ -3979,12 +3979,6 @@ void decal(
         }
 }
 
-/// Conservative world and picture bounds of selected visible recipe pieces.
-struct RootPrefixViewBounds {
-    std::array<float, 3> low{}, high{};
-    std::array<float, 4> picture{};
-};
-
 /// Qualifies every packet point through its global raw box, including hidden pieces.
 /// The GPU validates that box after its four-corner turn; per-piece boxes alone
 /// could admit a wider global-box corner beyond the same local or world limits.
@@ -4076,7 +4070,7 @@ bool root_prefix_packet_in_domain(const ModelDraw& draw, const RootPrefixRecipe&
 }
 
 /// Encloses a recipe through piece boxes, without resolving source points.
-std::optional<RootPrefixViewBounds> root_prefix_view_bounds(
+std::optional<RootPrefixViewBounds> root_prefix_view_bounds_uncached(
     const Inputs& in,
     const ModelDraw& draw,
     const RootPrefixRecipe& recipe,
@@ -4137,6 +4131,195 @@ std::optional<RootPrefixViewBounds> root_prefix_view_bounds(
         result.picture[row + 2] = high;
     }
     return result;
+}
+
+/// Checks the frame identity and arithmetic before looking at any retained draw.
+bool root_prefix_bounds_context(const Inputs& in) noexcept {
+    const auto* memo = in.root_prefix_bounds;
+    if (!in.root_prefix_enabled || !memo || !in.draws ||
+        in.root_prefix_bounds_epoch != memo->epoch || memo->epoch == 0 ||
+        memo->draws.size() != in.draws->models.size() ||
+        memo->first_draw != reinterpret_cast<uintptr_t>(in.draws->models.data()))
+        return false;
+    for (std::size_t at = 0; at < memo->projection.size(); ++at)
+        if (memo->projection[at] != std::bit_cast<uint32_t>(in.clip_projection[at]))
+            return false;
+    const auto control = base::float_precision::save_float_control();
+    return memo->float_control ==
+           std::array<uint64_t, 3>{control.older_unit, control.vector_unit, control.arm_unit};
+}
+
+/// Maps only an actual current draw-array element; copied references stay uncached.
+std::optional<std::size_t>
+root_prefix_bounds_index(const Inputs& in, const ModelDraw& draw) noexcept {
+    if (!root_prefix_bounds_context(in))
+        return std::nullopt;
+    const auto address = reinterpret_cast<uintptr_t>(&draw);
+    const auto first = in.root_prefix_bounds->first_draw;
+    if (address < first || (address - first) % sizeof(ModelDraw) != 0)
+        return std::nullopt;
+    const auto index = (address - first) / sizeof(ModelDraw);
+    return index < in.root_prefix_bounds->draws.size() ? std::optional<std::size_t>{index}
+                                                       : std::nullopt;
+}
+
+/// Names every piece whose visibility can affect a bounds request.
+uint64_t root_prefix_visible_mask(const ModelDraw& draw) noexcept {
+    uint64_t mask{};
+    const auto pieces = draw.model.instance->pieces();
+    for (std::size_t piece = 0; piece < pieces.size(); ++piece)
+        if ((pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) !=
+            0)
+            mask |= uint64_t{1} << piece;
+    return mask;
+}
+
+/// Returns only a complete matching record; an epoch key never changes under workers.
+const RootPrefixBoundsRecord* root_prefix_bounds_record(
+    const Inputs& in, const ModelDraw& draw, const RootPrefixRecipe& recipe
+) noexcept {
+    if (!recipe.geometry || !draw.model.instance || !draw.model.unit ||
+        recipe.geometry->objects.size() != draw.model.instance->pieces().size() ||
+        recipe.geometry->objects.size() > root_prefix_piece_limit ||
+        recipe.geometry->piece_vertices.size() != recipe.geometry->objects.size() + 1)
+        return nullptr;
+    const auto index = root_prefix_bounds_index(in, draw);
+    if (!index)
+        return nullptr;
+    const auto& memo = *in.root_prefix_bounds;
+    const auto& record = memo.draws[*index];
+    const auto position = draw.shown_position.value_or(draw.model.unit->position);
+    const auto& owned = record.recipe.geometry;
+    if (record.epoch != memo.epoch || !owned || owned.get() != recipe.geometry.get() ||
+        owned.owner_before(recipe.geometry) || recipe.geometry.owner_before(owned) ||
+        record.recipe.rotation.sine != recipe.rotation.sine ||
+        record.recipe.rotation.cosine != recipe.rotation.cosine ||
+        !root_prefix_detail::same_point(record.recipe.placement, recipe.placement) ||
+        record.origin != std::array<int32_t, 3>{position.x, position.y, position.z} ||
+        record.visible_mask != root_prefix_visible_mask(draw) ||
+        record.piece_count != recipe.geometry->objects.size() ||
+        record.first_piece > memo.pieces.size() ||
+        record.piece_count > memo.pieces.size() - record.first_piece)
+        return nullptr;
+    return &record;
+}
+
+/// Merges world endpoints in original piece order, then projects the same containing box.
+std::optional<RootPrefixViewBounds> merge_root_prefix_bounds(
+    const Inputs& in, const RootPrefixBoundsRecord& record, uint64_t mask
+) noexcept {
+    RootPrefixViewBounds result;
+    result.low.fill(std::numeric_limits<float>::infinity());
+    result.high.fill(-std::numeric_limits<float>::infinity());
+    const uint64_t selected = mask & record.visible_mask & record.nonempty_mask;
+    if (selected == 0)
+        return std::nullopt;
+    for (std::size_t piece = 0; piece < record.piece_count; ++piece) {
+        if ((selected & (uint64_t{1} << piece)) == 0)
+            continue;
+        const auto& bounds = in.root_prefix_bounds->pieces[record.first_piece + piece];
+        if (!bounds.valid)
+            return std::nullopt;
+        for (std::size_t axis = 0; axis < bounds.low.size(); ++axis) {
+            if (!std::isfinite(bounds.low[axis]) || !std::isfinite(bounds.high[axis]))
+                return std::nullopt;
+            result.low[axis] = std::min(result.low[axis], bounds.low[axis]);
+            result.high[axis] = std::max(result.high[axis], bounds.high[axis]);
+        }
+    }
+    for (std::size_t row = 0; row < 2; ++row) {
+        float low = in.clip_projection[row * 4 + 3], high = low;
+        for (std::size_t axis = 0; axis < result.low.size(); ++axis) {
+            const auto coefficient = in.clip_projection[row * 4 + axis];
+            low += coefficient * (coefficient < 0 ? result.high[axis] : result.low[axis]);
+            high += coefficient * (coefficient < 0 ? result.low[axis] : result.high[axis]);
+        }
+        if (!std::isfinite(low) || !std::isfinite(high))
+            return std::nullopt;
+        result.picture[row] = low;
+        result.picture[row + 2] = high;
+    }
+    return result;
+}
+
+/// Seeds only an unused slot on the caller thread, before any Scene worker starts.
+const RootPrefixBoundsRecord* seed_root_prefix_bounds(
+    const Inputs& in, const ModelDraw& draw, const RootPrefixRecipe& recipe
+) noexcept {
+    if (const auto* existing = root_prefix_bounds_record(in, draw, recipe))
+        return existing;
+    const auto index = root_prefix_bounds_index(in, draw);
+    if (!index || !recipe.geometry || !draw.model.instance || !draw.model.unit ||
+        recipe.geometry->objects.size() != draw.model.instance->pieces().size() ||
+        recipe.geometry->objects.size() > root_prefix_piece_limit ||
+        recipe.geometry->piece_vertices.size() != recipe.geometry->objects.size() + 1)
+        return nullptr;
+    auto& memo = *in.root_prefix_bounds;
+    auto& record = memo.draws[*index];
+    // A scalar mutation during this epoch deliberately keeps the old uncached path.
+    if (record.epoch == memo.epoch || record.piece_count != recipe.geometry->objects.size() ||
+        record.first_piece > memo.pieces.size() ||
+        record.piece_count > memo.pieces.size() - record.first_piece)
+        return nullptr;
+    record.recipe = recipe;
+    const auto position = draw.shown_position.value_or(draw.model.unit->position);
+    record.origin = {position.x, position.y, position.z};
+    record.visible_mask = root_prefix_visible_mask(draw);
+    record.nonempty_mask = 0;
+    record.domain = root_prefix_packet_in_domain(draw, recipe);
+    record.full_view_valid = false;
+    record.epoch = memo.epoch;
+    if (!record.domain)
+        return &record;
+    const std::array origin{
+        position.x / fixed_scale, position.y / fixed_scale, position.z / fixed_scale
+    };
+    for (std::size_t piece = 0; piece < record.piece_count; ++piece) {
+        auto& cached = memo.pieces[record.first_piece + piece];
+        cached = {};
+        const auto bit = uint64_t{1} << piece;
+        if (recipe.geometry->piece_vertices[piece] == recipe.geometry->piece_vertices[piece + 1])
+            continue;
+        record.nonempty_mask |= bit;
+        if ((record.visible_mask & bit) == 0)
+            continue;
+        const auto box = root_prefix_piece_bounds(recipe, static_cast<uint32_t>(piece));
+        if (!box)
+            continue;
+        cached.fixed = *box;
+        cached.low = {
+            origin[0] + box->low.x / fixed_scale,
+            origin[1] + box->low.y / fixed_scale,
+            origin[2] - box->high.z / fixed_scale
+        };
+        cached.high = {
+            origin[0] + box->high.x / fixed_scale,
+            origin[1] + box->high.y / fixed_scale,
+            origin[2] - box->low.z / fixed_scale
+        };
+        cached.valid = true;
+    }
+    const auto full = merge_root_prefix_bounds(in, record, std::numeric_limits<uint64_t>::max());
+    if (full) {
+        record.full_view = *full;
+        record.full_view_valid = true;
+    }
+    return &record;
+}
+
+/// Reuses serially seeded pieces without changing worker-owned state or float order.
+std::optional<RootPrefixViewBounds> root_prefix_view_bounds(
+    const Inputs& in,
+    const ModelDraw& draw,
+    const RootPrefixRecipe& recipe,
+    uint64_t mask = std::numeric_limits<uint64_t>::max()
+) noexcept {
+    if (const auto* record = root_prefix_bounds_record(in, draw, recipe)) {
+        if ((mask & record->visible_mask) == record->visible_mask)
+            return record->full_view_valid ? std::optional{record->full_view} : std::nullopt;
+        return merge_root_prefix_bounds(in, *record, mask);
+    }
+    return root_prefix_view_bounds_uncached(in, draw, recipe, mask);
 }
 
 /// How a model's draw casts its shadow, as the game lays it from its
@@ -5739,6 +5922,8 @@ void measure_body_geometry(
     std::array<PieceSize, body_lod_piece_limit> visible{};
     std::size_t count{};
     const auto pieces = draw.model.instance->pieces();
+    const auto* cached =
+        draw.root_prefix ? root_prefix_bounds_record(in, draw, *draw.root_prefix) : nullptr;
     for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
         if ((pieces[piece].flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
                 0 ||
@@ -5750,7 +5935,10 @@ void measure_body_geometry(
         std::array<float, 2> greatest{-least[0], -least[1]};
         if (draw.root_prefix) {
             const auto box =
-                root_prefix_piece_bounds(*draw.root_prefix, static_cast<uint32_t>(piece));
+                cached && in.root_prefix_bounds->pieces[cached->first_piece + piece].valid
+                    ? std::optional{in.root_prefix_bounds->pieces[cached->first_piece + piece]
+                                        .fixed}
+                    : root_prefix_piece_bounds(*draw.root_prefix, static_cast<uint32_t>(piece));
             if (!box)
                 return;
             const std::array low{
@@ -5900,6 +6088,7 @@ DetailPose root_prefix_detail_pose(
         return result;
     const auto pieces = draw.model.instance->pieces();
     const auto& geometry = *draw.root_prefix->geometry;
+    const auto* cached = root_prefix_bounds_record(in, draw, *draw.root_prefix);
     const auto named =
         index < scene.card_types.draw_types.size() ? scene.card_types.draw_types[index] : -1;
     const auto* type =
@@ -5910,7 +6099,10 @@ DetailPose root_prefix_detail_pose(
                 0 ||
             geometry.piece_vertices[piece] == geometry.piece_vertices[piece + 1])
             continue;
-        const auto box = root_prefix_piece_bounds(*draw.root_prefix, static_cast<uint32_t>(piece));
+        const auto box =
+            cached && in.root_prefix_bounds->pieces[cached->first_piece + piece].valid
+                ? std::optional{in.root_prefix_bounds->pieces[cached->first_piece + piece].fixed}
+                : root_prefix_piece_bounds(*draw.root_prefix, static_cast<uint32_t>(piece));
         if (!box)
             return {};
         const std::array low{box->low.x, box->low.y, box->low.z};
@@ -11097,6 +11289,85 @@ void grow_frame_rows(Scene& scene) {
 }
 } // namespace
 
+void begin_root_prefix_bounds(Inputs& inputs, Scene& scene, std::size_t byte_limit) noexcept {
+    inputs.root_prefix_bounds = nullptr;
+    inputs.root_prefix_bounds_epoch = 0;
+    if (!inputs.root_prefix_enabled || !inputs.draws)
+        return;
+    auto& memo = scene.root_prefix_bounds;
+    memo.prepared = true;
+    if (++memo.epoch == 0)
+        ++memo.epoch;
+    memo.first_draw = reinterpret_cast<uintptr_t>(inputs.draws->models.data());
+    for (std::size_t at = 0; at < memo.projection.size(); ++at)
+        memo.projection[at] = std::bit_cast<uint32_t>(inputs.clip_projection[at]);
+    const auto control = base::float_precision::save_float_control();
+    memo.float_control = {control.older_unit, control.vector_unit, control.arm_unit};
+    inputs.root_prefix_bounds = &memo;
+    inputs.root_prefix_bounds_epoch = memo.epoch;
+    const auto release = [&] {
+        memo.draws = std::vector<RootPrefixBoundsRecord>{};
+        memo.pieces = std::vector<RootPrefixPieceView>{};
+    };
+    const auto limit = std::min(byte_limit, RootPrefixBoundsMemo::storage_limit);
+    const auto count = inputs.draws->models.size();
+    if (limit < sizeof(memo) || count > (limit - sizeof(memo)) / sizeof(RootPrefixBoundsRecord)) {
+        release();
+        return;
+    }
+    const auto piece_limit = (limit - sizeof(memo) - count * sizeof(RootPrefixBoundsRecord)) /
+                             sizeof(RootPrefixPieceView);
+    std::size_t pieces{};
+    for (const auto& draw : inputs.draws->models) {
+        if (!draw.root_prefix || !draw.root_prefix->geometry)
+            continue;
+        const auto size = draw.root_prefix->geometry->objects.size();
+        if (size > root_prefix_piece_limit)
+            continue;
+        if (size > piece_limit - pieces) {
+            release();
+            return;
+        }
+        pieces += size;
+    }
+    try {
+        const auto draw_capacity = std::max(count, memo.draws.capacity());
+        const auto piece_capacity = std::max(pieces, memo.pieces.capacity());
+        if (draw_capacity > (limit - sizeof(memo)) / sizeof(RootPrefixBoundsRecord) ||
+            piece_capacity >
+                (limit - sizeof(memo) - draw_capacity * sizeof(RootPrefixBoundsRecord)) /
+                    sizeof(RootPrefixPieceView))
+            release();
+        memo.draws.reserve(count);
+        memo.pieces.reserve(pieces);
+        if (memo.storage_bytes() > limit) {
+            release();
+            return;
+        }
+        memo.draws.resize(count);
+        memo.pieces.resize(pieces);
+        uint32_t first{};
+        for (std::size_t at = 0; at < count; ++at) {
+            auto& record = memo.draws[at];
+            record.recipe = {};
+            record.epoch = 0;
+            record.first_piece = first;
+            record.piece_count = 0;
+            const auto& draw = inputs.draws->models[at];
+            if (!draw.root_prefix || !draw.root_prefix->geometry)
+                continue;
+            const auto size = draw.root_prefix->geometry->objects.size();
+            if (size > root_prefix_piece_limit)
+                continue;
+            record.piece_count = static_cast<uint32_t>(size);
+            first += record.piece_count;
+        }
+    } catch (...) {
+        // Cache storage never changes whether the original bounds recipe can draw.
+        release();
+    }
+}
+
 bool root_prefix_supported(
     const Inputs& in, const ModelDraw& draw, const RootPrefixRecipe& recipe
 ) noexcept {
@@ -11123,12 +11394,12 @@ bool root_prefix_supported(
         recipe.geometry->objects.size() > root_prefix_piece_limit ||
         (unit.state_flags & present::model::unit_state_cloaked) != 0 || ref.state->finer ||
         ref.state->build_bands || ref.state->image_unfinished ||
-        !std::all_of(
-            in.clip_projection.begin(),
-            in.clip_projection.end(),
-            [](float value) { return std::isfinite(value); }
-        ) ||
-        !root_prefix_packet_in_domain(draw, recipe))
+        !std::all_of(in.clip_projection.begin(), in.clip_projection.end(), [](float value) {
+            return std::isfinite(value);
+        }))
+        return false;
+    const auto* cached = seed_root_prefix_bounds(in, draw, recipe);
+    if (cached ? !cached->domain : !root_prefix_packet_in_domain(draw, recipe))
         return false;
     const auto bounds = root_prefix_view_bounds(in, draw, recipe);
     if (!bounds)
@@ -11194,7 +11465,31 @@ bool root_prefix_supported(
     return true;
 }
 
-bool build(const Inputs& inputs, Scene& scene, std::string& error) {
+bool build(const Inputs& supplied, Scene& scene, std::string& error) {
+    std::optional<Inputs> owned_inputs;
+    const Inputs* selected = &supplied;
+    if (supplied.root_prefix_enabled) {
+        const auto& memo = scene.root_prefix_bounds;
+        if (supplied.root_prefix_bounds != &memo ||
+            supplied.root_prefix_bounds_epoch != memo.epoch || !memo.prepared) {
+            owned_inputs.emplace(supplied);
+            begin_root_prefix_bounds(*owned_inputs, scene);
+            selected = &*owned_inputs;
+        }
+        scene.root_prefix_bounds.prepared = false;
+    }
+    const auto& inputs = *selected;
+
+    struct BoundsLease {
+        RootPrefixBoundsMemo* memo{};
+
+        ~BoundsLease() {
+            if (memo)
+                for (auto& record : memo->draws)
+                    record.recipe = {};
+        }
+    } bounds_lease{inputs.root_prefix_enabled ? &scene.root_prefix_bounds : nullptr};
+
     auto& update = scene.atlas_update;
     update.previous_revision = scene.texture_revision;
     update.first_row = update.frame_first_row = scene.texture_height;
