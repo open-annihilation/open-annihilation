@@ -49,6 +49,23 @@ slot_viewing(std::span<sim::unit_spawn::Slot> slots, const sim::simulation_state
             return &candidate;
     return nullptr;
 }
+
+/// Finds the canonical slot viewing a unit without changing the pool.
+///
+/// @param slots The pool's slots.
+/// @param unit Unit to find.
+/// @return Its slot, or null when no slot views it.
+const sim::unit_spawn::Slot* slot_viewing(
+    std::span<const sim::unit_spawn::Slot> slots, const sim::simulation_state::Unit& unit
+) {
+    const auto id = unit.record.id;
+    if (id < slots.size() && slots[id].unit == &unit)
+        return &slots[id];
+    for (const auto& candidate : slots)
+        if (candidate.unit == &unit)
+            return &candidate;
+    return nullptr;
+}
 } // namespace
 
 class TargetHost final : public sim::combat_state::IntelligenceHost,
@@ -528,6 +545,64 @@ bool Match::issue_attack(uint16_t source_index, uint16_t target_index, bool forc
         static_cast<uint16_t>(fields(from).definition->maneuver_leash_length)
     };
     return sim::combat_state::issue_attack_order(request, *target, forced, host);
+}
+
+uint16_t Match::owned_attack_target(uint8_t player, uint16_t source_index) const noexcept {
+    if (player >= OA_PLAYER_COUNT || source_index == 0 || source_index >= slots_.size() ||
+        source_index >= units_.size() || source_index >= movement_.size())
+        return 0;
+    const auto& from = slots_[source_index];
+    const auto& world = state();
+    if (from.unit != &units_[source_index] || &from.unit->record != &from.record ||
+        &from.record != oa::world_unit_at(&world, source_index) || from.record.type_index == 0 ||
+        from.record.owner_index != player ||
+        oa::world_unit_owner(&world, &from.record) != &world.game.players[player] ||
+        !oa::unit_is_live_target(from.record.flags) || from.record.health <= 0 ||
+        from.record.build_remaining != 0 || from.record.attach_parent != 0 ||
+        !sim::simulation_state::locally_simulated(world, from.record) ||
+        from.unit->type == nullptr || (from.unit->type->flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 ||
+        (from.record.flags & OA_UNIT_FLAG_OCCUPANCY_MASK) != ground_occupancy)
+        return 0;
+    const auto* current = runtime_order(from.unit->primary);
+    const auto* movement = movement_[source_index].get();
+    constexpr uint32_t interrupted_goal_events = sim::ground_orders::arrived_event |
+                                                 sim::ground_orders::path_failed_event |
+                                                 sim::ground_orders::goal_replaced_event;
+    if (current == nullptr || current->unit != from.unit || current->order.next != nullptr ||
+        current->order.kind != attack_chase_kind ||
+        current->order.phase > last_attack_chase_phase || current->attack.leash != 0 ||
+        (current->extra.command_flags & command_has_target) == 0 ||
+        (current->extra.command_flags & (command_has_point | command_overlay)) != 0 ||
+        (current->order.raised_events & (interrupted_attack_events | interrupted_goal_events)) !=
+            0 ||
+        current->attack.target == nullptr ||
+        current->attack.target != current->construction.target || movement == nullptr ||
+        movement->mirrored_driver)
+        return 0;
+    const auto* aimed = current->attack.target;
+    const auto* target = slot_viewing(std::span<const sim::unit_spawn::Slot>(slots_), *aimed);
+    if (target == nullptr)
+        return 0;
+    const auto target_index = static_cast<std::size_t>(target - slots_.data());
+    if (target_index == 0 || target_index >= units_.size() || &units_[target_index] != aimed ||
+        &target->record != &aimed->record || target->record.type_index == 0 ||
+        aimed->type == nullptr || !oa::unit_is_live_target(target->record.flags) ||
+        target->record.health <= 0 || target->record.owner_index >= OA_PLAYER_COUNT ||
+        oa::world_unit_owner(&world, &target->record) !=
+            &world.game.players[target->record.owner_index] ||
+        target->record.owner_index == player || allied(player, target->record.owner_index))
+        return 0;
+    const auto* goal = current->extra.goal.get();
+    const auto& search = search_.controller.active();
+    const bool same_goal =
+        movement->navigation.goal == goal && (goal == nullptr || goal->order == &current->order);
+    const bool same_search =
+        search.unit == nullptr ||
+        (search.unit != from.unit && search.navigation != &movement->navigation) ||
+        (goal != nullptr && search.unit == from.unit &&
+         search.navigation == &movement->navigation && search.goal == goal &&
+         search.movement_map != nullptr);
+    return same_goal && same_search ? static_cast<uint16_t>(target_index) : 0;
 }
 
 bool Match::issue_attack_command(

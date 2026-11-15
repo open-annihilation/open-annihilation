@@ -65,6 +65,11 @@ bool host_primary_order(void* context, uint16_t unit, uint8_t* preserve, uint8_t
     return true;
 }
 
+/// Reads a compatible owned chase through the Match's canonical continuation checks.
+uint16_t host_owned_attack_target(void* context, uint8_t player, uint16_t source) {
+    return match_of(context).owned_attack_target(player, source);
+}
+
 /// Tells whether a unit's secondary order queue holds an order.
 bool host_secondary_order(void* context, uint16_t unit) {
     return match_of(context).orders(unit).secondary != nullptr;
@@ -252,6 +257,7 @@ ComputerHost make_host(Match& match) noexcept {
     host.sightings = host_sightings;
     host.weapon_reaches = host_weapon_reaches;
     host.order_attack_point = host_order_attack_point;
+    host.owned_attack_target = host_owned_attack_target;
     return host;
 }
 
@@ -428,6 +434,14 @@ bool cap_primary(void* context, uint16_t unit, uint8_t* preserve, uint8_t* queue
     return cap->inner.primary_order(cap->inner.context, unit, preserve, queue);
 }
 
+/// Forwards the chase lookup with the inner host's context.
+uint16_t cap_owned_attack_target(void* context, uint8_t player, uint16_t source) {
+    auto* cap = static_cast<SetupCap*>(context);
+    return cap->inner.owned_attack_target != nullptr
+               ? cap->inner.owned_attack_target(cap->inner.context, player, source)
+               : 0;
+}
+
 bool cap_secondary(void* context, uint16_t unit) {
     auto* cap = static_cast<SetupCap*>(context);
     if (cap->inner.secondary_order == nullptr)
@@ -590,6 +604,7 @@ void arm_setup(SetupCap& cap) noexcept {
     cap.host.weapon_reaches = cap_weapon_reaches;
     cap.host.order_attack_point = cap_attack_point;
     cap.host.note_section = cap_note_section;
+    cap.host.owned_attack_target = cap_owned_attack_target;
 }
 
 bool any_setup_hook(const Match& match) noexcept {

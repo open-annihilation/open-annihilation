@@ -1683,6 +1683,18 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     bool issue_attack_command(
         uint16_t source, uint16_t target, bool queue, const sim::ground_orders::Point* point
     );
+
+    /// Returns the target of one compatible, Match-owned ground chase.
+    ///
+    /// Reads the source's sole primary head and its canonical continuation;
+    /// ownership describes the Match and source, not the command's issuer
+    /// or whether the command was originally queued.
+    ///
+    /// @param player Expected source owner, 0..9.
+    /// @param source Source unit slot.
+    /// @return Canonical hostile target slot, or zero for an unsupported head.
+    [[nodiscard]] uint16_t owned_attack_target(uint8_t player, uint16_t source) const noexcept;
+
     /// Flips state flags as the HUD On/Off button does: sets them when none of
     /// the mask is set, else clears them.
     ///
