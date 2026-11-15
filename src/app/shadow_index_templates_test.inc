@@ -145,8 +145,26 @@ void shadow_index_template_piece_policy() {
         OA_CHECK(compact.body_lod_counts.body_lod_models == (scale < 1 ? 16 : 0));
         OA_CHECK(compact.body_lod_counts.full_mesh_models == (scale < 1 ? 0 : 16));
         OA_CHECK(compact.cards.shadow_indices.runs.size() == 1);
-        OA_CHECK(compact.cards.shadow_indices.runs[0].pattern != 0);
         OA_CHECK(!ordinary.cards.cast_indices.empty());
+        OA_CHECK(ordinary.cards.cast_indices.size() % units.size() == 0);
+        const auto corners_per_cast = ordinary.cards.cast_indices.size() / units.size();
+        const auto pattern_bytes =
+            corners_per_cast * oa::app::renderer_live_gpu::model_run_instances * sizeof(uint32_t);
+        if (scale < 1) {
+            OA_CHECK(pattern_bytes <= oa::app::renderer_live_gpu::shadow_template_admission_bytes);
+            OA_CHECK(compact.cards.shadow_indices.runs[0].pattern != 0);
+        } else {
+            size_t source_corners{};
+            for (size_t piece = 0; piece < fixture.source->objects.size(); ++piece)
+                if ((fixture.instance.pieces()[piece].flags & cached) != 0)
+                    for (const auto& face : fixture.source->objects[piece].primitives)
+                        source_corners += (face.vertex_indices.size() - 2) * 3;
+            OA_CHECK(source_corners == 2016 && corners_per_cast == source_corners);
+            OA_CHECK(pattern_bytes > oa::app::renderer_live_gpu::shadow_template_admission_bytes);
+            OA_CHECK(pattern_bytes <= oa::app::renderer_live_gpu::shadow_template_byte_limit);
+            OA_CHECK(compact.cards.shadow_indices.runs[0].pattern == 0);
+            OA_CHECK(compact.cards.shadow_indices.indices == ordinary.cards.cast_indices);
+        }
         // A cut and its cached silhouette use different image-key rules.
         for (auto& unit : units)
             unit.flags = OA_UNIT_FLAG_BUILDING;
