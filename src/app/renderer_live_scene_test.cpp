@@ -9805,6 +9805,7 @@ void underwater_features() {
 #include "body_detail_pose_test.inc"
 #include "shadow_index_templates_test.inc"
 #include "shadow_index_procedural_scene_test.inc"
+#include "physical_model_multirange_test.inc"
 
 int main() {
     interior_model_cull_tests();
@@ -9922,6 +9923,7 @@ int main() {
     preplanned_omission_validation();
     geometry_shadow_frame_policy();
     physical_model_bands();
+    physical_model_multiple_ranges();
     parallel_model_card_join();
     aircraft_shadow_altitude();
     aircraft_shadow_as_the_game_casts_it();

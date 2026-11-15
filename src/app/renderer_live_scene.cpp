@@ -9887,7 +9887,9 @@ bool models_with_parallel_range(
         models(in, pass, 0, end);
         return false;
     }
+    bool retrying_serial = false;
     const auto serial_retry = [&] {
+        retrying_serial = true;
         work.accepted_bands = work.accepted_slots = 0;
         work.fallback_frames = 1;
         trim_parallel_model_lists(range, true);
@@ -9973,7 +9975,7 @@ bool models_with_parallel_range(
         // A middle material pause cannot leave an unreported subset of the
         // proposed packets retained. Its ordinary retry may pause again;
         // that exception then reaches the original ordered packing path.
-        if (work.accepted_bands == 0)
+        if (work.accepted_bands == 0 && !retrying_serial)
             return serial_retry();
         throw;
     } catch (const std::bad_alloc&) {
