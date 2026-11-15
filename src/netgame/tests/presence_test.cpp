@@ -1707,7 +1707,7 @@ void enhanced_mode_version_round_trip() {
     CHECK(decode_presence(bytes, written, &back) == WireError::ok);
     CHECK(back.enhanced_mode_version == record.enhanced_mode_version);
     CHECK(presence_enhanced_mode_version(bytes, written) == 1);
-    for (const uint32_t version : {2u, 3u, 4u, 5u, 6u, 7u, 8u}) {
+    for (const uint32_t version : {2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u}) {
         record.enhanced_mode_version = version;
         CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
         CHECK(decode_presence(bytes, written, &back) == WireError::ok);

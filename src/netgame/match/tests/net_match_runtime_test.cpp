@@ -887,7 +887,9 @@ void local_traffic_heads_keep_their_copies() {
           5u,
           6u,
           7u,
-          8u}) {
+          8u,
+          10u,
+          11u}) {
         Pair pair(0, traffic_map_cells, false, false, false, false, version);
         auto& host = *pair.host;
         auto& joiner = *pair.joiner;
