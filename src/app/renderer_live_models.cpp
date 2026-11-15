@@ -607,6 +607,8 @@ bool materialize_shadow_index_run(ShadowIndexStream& stream, std::size_t named) 
     auto& run = stream.runs[named];
     if (run.pattern == 0)
         return true;
+    if (named + 1 != stream.runs.size())
+        return false;
     const auto& store = stream.patterns;
     if (!store || run.pattern > store->patterns.size() || run.cast_count == 0 ||
         run.cast_count > gpu::model_run_instances)

@@ -346,7 +346,7 @@ void remember_shadow_index_key(ShadowIndexStream& stream, ShadowIndexKey key) no
 /// Converts a pending whole run to its exact original packed dynamic words.
 /// Allocation failure precedes changes to the run or its logical budget.
 /// @param[in,out] stream this frame's owned packets
-/// @param run the existing run to flush, normally the final pending run
+/// @param run the final pending run; earlier dynamic runs are already materialized
 /// @return false for an invalid snapshot/range; true after exact expansion
 [[nodiscard]] bool materialize_shadow_index_run(ShadowIndexStream& stream, std::size_t run);
 
