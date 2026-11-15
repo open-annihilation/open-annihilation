@@ -2444,6 +2444,253 @@ void test_cohort_retention_respects_mask_and_native_task_state() {
     );
 }
 
+/// Compares public dispatch with a full enemy search for eight known spatial groups.
+struct FullEnemyRun : RetentionRun {
+    static constexpr uint16_t enemies = 9;
+    static constexpr uint16_t groups = 8;
+    static constexpr uint32_t excluded_movement_flags = 0xau;
+    static constexpr uint32_t move_rate_upper_tiers = 0x8u;
+    using Orders = std::vector<std::pair<uint16_t, uint16_t>>;
+
+    struct Reference {
+        std::array<uint16_t, groups> fronts{};
+        Orders orders;
+    };
+
+    /// Gives each group one source, with nine enemies sharing an exactly tied position.
+    explicit FullEnemyRun(uint32_t version, bool naval = false)
+        : RetentionRun(version, groups, 0, naval) {
+        for (uint16_t group = 0; group < groups; ++group)
+            place(first + group, 1000 + 200 * (group % 2), 1000 + 200 * (group / 2));
+        for (uint16_t slot = 1; slot <= enemies; ++slot)
+            enemy(slot, 1300, 1300);
+    }
+
+    /// Reads signed whole coordinates without depending on the policy's local helpers.
+    static int32_t whole(oa_fixed value) { return value / fixed_one - (value % fixed_one < 0); }
+
+    /// Ranks current eligible enemies, without limiting their number or querying the host.
+    bool eligible(uint16_t slot) const {
+        const auto& unit = fake.units[slot];
+        const auto& owner = fake.world.game.players[unit.owner_index];
+        if (!owner.in_use || owner.status < 1 || owner.status > 3 ||
+            owner.index == OA_PLAYER_COUNT || fake.allies[player][owner.index] ||
+            (unit.flags & OA_UNIT_FLAG_LIVE) == 0 ||
+            (unit.flags & OA_UNIT_FLAG_DEATH_PENDING) != 0 || unit.health <= 0 ||
+            (unit.state_flags & OA_UNIT_STATE_CLOAKED) != 0 ||
+            (unit.flags & OA_UNIT_FLAG_NOT_SELECTABLE) != 0)
+            return false;
+        const bool widened = rules.ai.nearest_enemy_filter.rules ==
+                             oa::data::match_rules::AiNearestEnemyFilterRules::skip_submerged;
+        if (widened ? (unit.flags & excluded_movement_flags) != 0
+                    : (unit.flags & OA_UNIT_FLAG_OCCUPANCY_MASK) == 2)
+            return false;
+        uint32_t occupy{};
+        std::memcpy(&occupy, unit.last_occupy_code, sizeof occupy);
+        return !widened || source == Squad::navy || occupy != 3;
+    }
+
+    /// Measures complete signed coordinate differences in a wide integer.
+    uint64_t distance(uint16_t actor, uint16_t target) const {
+        const int64_t dx = static_cast<int64_t>(whole(fake.units[actor].position.x)) -
+                           whole(fake.units[target].position.x);
+        const int64_t dz = static_cast<int64_t>(whole(fake.units[actor].position.z)) -
+                           whole(fake.units[target].position.z);
+        return static_cast<uint64_t>(dx * dx + dz * dz);
+    }
+
+    /// Exhaustively selects all fronts before applying the independent member fallback.
+    Reference reference(uint8_t selected = 0xffu) const {
+        Reference result;
+        std::array<uint32_t, enemies + 1> assignments{};
+        for (uint16_t group = 0; group < groups; ++group) {
+            const auto actor = static_cast<uint16_t>(first + group);
+            uint16_t best{};
+            uint64_t best_cost{};
+            for (uint16_t target = 1; target <= enemies; ++target) {
+                if (!eligible(target))
+                    continue;
+                const auto cost = (distance(actor, target) + 1) * (assignments[target] + 1);
+                if (best == 0 || std::pair{cost, target} < std::pair{best_cost, best}) {
+                    best = target;
+                    best_cost = cost;
+                }
+            }
+            const uint16_t prior =
+                fake.running[actor] == "attack" ? fake.owned_targets[actor] : uint16_t{0};
+            if (rules.setup.enhanced_mode.version == retention_version && prior != 0 &&
+                prior <= enemies && eligible(prior)) {
+                const auto prior_cost = (distance(actor, prior) + 1) * (assignments[prior] + 1);
+                if (8 * prior_cost <= 9 * best_cost)
+                    best = prior;
+            }
+            result.fronts[group] = best;
+            if (best != 0)
+                ++assignments[best];
+        }
+        for (uint16_t group = 0; group < groups; ++group) {
+            if ((selected & (1u << group)) == 0 || result.fronts[group] == 0)
+                continue;
+            const auto actor = static_cast<uint16_t>(first + group);
+            const auto own = result.fronts[group];
+            auto nearest = own;
+            for (const auto front : result.fronts)
+                if (front != 0 && std::pair{distance(actor, front), front} <
+                                      std::pair{distance(actor, nearest), nearest})
+                    nearest = front;
+            const auto target =
+                4 * distance(actor, own) > 5 * distance(actor, nearest) ? nearest : own;
+            result.orders.emplace_back(actor, target);
+        }
+        return result;
+    }
+
+    /// Checks periodic or masked public commands against the unbounded reference search.
+    void compare(bool periodic = true, uint8_t selected = 0xffu, uint32_t at = 300) {
+        const auto expected = reference(selected);
+        if (periodic) {
+            check(
+                assign(at, 0, !expected.orders.empty()) == expected.orders,
+                "full enemy reference: periodic target arguments agree"
+            );
+            return;
+        }
+        const auto before = state.players[player].tasks[static_cast<uint32_t>(destination)];
+        const auto random_before = fake.roll;
+        const auto membership = members();
+        fake.orders.clear();
+        fake.prior_reads.clear();
+        fake.prior_read_after_callback = false;
+        fake.world.game.tick = at;
+        std::array<uint64_t, strike_refresh_mask_words> mask{};
+        for (uint16_t group = 0; group < groups; ++group)
+            if ((selected & (1u << group)) != 0)
+                mask[(first + group) / strike_refresh_word_bits] |=
+                    uint64_t{1} << ((first + group) % strike_refresh_word_bits);
+        check(
+            computer_player_refresh_strike_targets(&state, host, player, destination, mask) ==
+                !expected.orders.empty(),
+            "full enemy reference: refresh acceptance agrees"
+        );
+        Orders actual;
+        for (const auto& order : fake.orders) {
+            check(order.kind == "attack" && !order.queue, "full enemy reference: normal callback");
+            actual.emplace_back(order.unit, order.arg);
+        }
+        check(actual == expected.orders, "full enemy reference: masked target arguments agree");
+        const auto& after = state.players[player].tasks[static_cast<uint32_t>(destination)];
+        check(
+            after.next_tick == before.next_tick && after.attacking == before.attacking &&
+                members() == membership && fake.joined.empty() && fake.roll == random_before &&
+                !fake.prior_read_after_callback && fake.prior_reads.size() <= 2 * groups,
+            "full enemy reference: refresh preserves clocks, membership, RNG and read order"
+        );
+    }
+};
+
+/// Exercises every three-position layout of four enemies against the full scan.
+void test_full_enemy_reference_exhausts_small_layouts() {
+    constexpr std::array<std::array<int32_t, 2>, 3> points{
+        {{1100, 1100}, {1200, 1300}, {1300, 1100}}
+    };
+    constexpr uint32_t layouts = 3 * 3 * 3 * 3;
+    for (const uint32_t version : {10u, 11u})
+        for (const bool with_priors : {false, true})
+            for (uint32_t layout = 0; layout < layouts; ++layout) {
+                FullEnemyRun run(version);
+                auto digits = layout;
+                for (uint16_t target = 1; target <= 4; ++target) {
+                    const auto& point = points[digits % points.size()];
+                    run.enemy(target, point[0], point[1]);
+                    digits /= points.size();
+                }
+                if (with_priors)
+                    for (uint16_t group = 0; group < FullEnemyRun::groups; ++group)
+                        run.prior(run.first + group, group % 3 == 0 ? 9 : group % 2 == 0 ? 1 : 0);
+                run.compare();
+            }
+}
+
+/// Requires the eighth fresh candidate and a separately eligible ninth majority prior.
+void test_full_enemy_reference_keeps_eighth_and_outside_prior() {
+    for (const uint32_t version : {10u, 11u}) {
+        FullEnemyRun run(version);
+        run.prior(run.first + 7, 9);
+        check(
+            run.reference().fronts[7] == (version == 11 ? 9 : 8),
+            "full enemy reference: seven penalties expose eighth fresh or ninth retained front"
+        );
+        run.compare();
+        for (uint16_t group = 0; group < 7; ++group)
+            check(
+                run.fake.owned_targets[run.first + group] == group + 1,
+                "full enemy reference: every earlier tied front receives its finalized load"
+            );
+        check(
+            run.fake.owned_targets[run.first + 7] == (version == 11 ? 9 : 8),
+            "full enemy reference: public dispatch preserves eighth-rank and outside-prior cases"
+        );
+    }
+}
+
+/// Checks complete eligibility masks, water policy and player-range tie ordering.
+void test_full_enemy_reference_keeps_filtered_candidate_domain() {
+    for (const uint32_t version : {10u, 11u})
+        for (const bool naval : {false, true})
+            for (uint32_t unavailable = 0; unavailable < 16; ++unavailable) {
+                FullEnemyRun run(version, naval);
+                run.rules.ai.nearest_enemy_filter.rules =
+                    oa::data::match_rules::AiNearestEnemyFilterRules::skip_submerged;
+                for (uint16_t target = 1; target <= 4; ++target)
+                    if ((unavailable & (1u << (target - 1))) != 0)
+                        run.fake.units[target].health = 0;
+                run.fake.units[5].flags |= OA_UNIT_FLAG_DEATH_PENDING;
+                run.fake.units[6].state_flags |= OA_UNIT_STATE_CLOAKED;
+                run.fake.units[7].flags |= OA_UNIT_FLAG_NOT_SELECTABLE;
+                run.fake.units[8].flags |= FullEnemyRun::move_rate_upper_tiers;
+                const uint32_t submerged = 3;
+                std::memcpy(run.fake.units[9].last_occupy_code, &submerged, sizeof submerged);
+                run.prior(run.first + 7, 9);
+                run.compare();
+            }
+    for (const uint32_t version : {10u, 11u}) {
+        FullEnemyRun run(version);
+        run.fake.player(0, OA_PLAYER_STATUS_LOCAL, 4, 9);
+        run.fake.player(2, OA_PLAYER_STATUS_LOCAL, 1, 3);
+        for (uint16_t target = 1; target <= 3; ++target) {
+            run.fake.units[target].owner_index = 2;
+            run.fake.units[target].owner = oa::oa_ref_from_index(2);
+        }
+        run.prior(run.first + 7, 1);
+        run.compare();
+        run.fake.allies[run.player][2] = true;
+        run.compare(true, 0xffu, 600);
+        run.fake.allies[run.player][2] = false;
+        run.fake.world.game.players[2].in_use = 0;
+        run.compare(true, 0xffu, 900);
+    }
+}
+
+/// Covers signed extrema, partial refresh masks and repeatable canonical decisions.
+void test_full_enemy_reference_keeps_wide_masked_decisions() {
+    for (const uint32_t version : {10u, 11u}) {
+        FullEnemyRun run(version);
+        constexpr std::array<int32_t, 4> z{-32768, -10000, 10000, 32767};
+        for (uint16_t group = 0; group < run.groups; ++group) {
+            // Z spans one more whole unit than X, retaining the known four Z bands.
+            run.place(run.first + group, group % 2 == 0 ? -32768 : 32766, z[group / 2]);
+            run.prior(run.first + group, group % 3 == 0 ? 9 : 0);
+        }
+        run.enemy(1, 32767, 32767);
+        run.enemy(2, 32766, 32767);
+        run.compare(false, 0xa5u, 55);
+        auto& membership = run.fake.squads[{run.player, static_cast<int>(run.destination)}];
+        std::reverse(membership.begin(), membership.end());
+        run.compare(false, 0x5au, 61);
+        run.compare(false, 0xffu, 67);
+    }
+}
+
 /// Applies the closer-front fallback only to selected refresh sources without task changes.
 void test_selected_front_fallback_respects_refresh_source_mask() {
     FrontRun run;
@@ -2854,6 +3101,10 @@ int main(int argc, char** argv) {
     test_cohort_retention_is_repeatable();
     test_cohort_retention_preserves_earlier_presets_and_null_reader();
     test_cohort_retention_respects_mask_and_native_task_state();
+    test_full_enemy_reference_exhausts_small_layouts();
+    test_full_enemy_reference_keeps_eighth_and_outside_prior();
+    test_full_enemy_reference_keeps_filtered_candidate_domain();
+    test_full_enemy_reference_keeps_wide_masked_decisions();
     test_distributed_strike_recruitment_budget();
     test_earlier_recruitment_keeps_its_seed_and_limit();
     test_recruitment_rereads_reused_source_slots();
