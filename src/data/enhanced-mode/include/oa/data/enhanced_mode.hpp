@@ -36,6 +36,8 @@ inline constexpr uint32_t following_flow_version = 8;
 inline constexpr uint32_t cohort_target_version = 10;
 /// The experimental preset retaining verified cohort targets near the best weighted cost.
 inline constexpr uint32_t cohort_retention_version = 11;
+/// The private experimental preset trying cardinal exits from a mature local queue.
+inline constexpr uint32_t cardinal_queue_escape_version = 13;
 /// The Enhanced Mode preset supplied by this build.
 inline constexpr uint32_t current_version = swept_ground_version;
 
@@ -45,7 +47,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// @return true only for known presets retaining distributed battle flow
 [[nodiscard]] inline constexpr bool uses_distributed_battle_flow(uint32_t version) noexcept {
     return version == distributed_battle_flow_version || version == following_flow_version ||
-           version == cohort_target_version || version == cohort_retention_version;
+           version == cohort_target_version || version == cohort_retention_version ||
+           version == cardinal_queue_escape_version;
 }
 
 /// Selects the known presets following an applied local movement leg.
@@ -54,7 +57,7 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// @return true only for known presets retaining local following
 [[nodiscard]] inline constexpr bool uses_following_battle_flow(uint32_t version) noexcept {
     return version == following_flow_version || version == cohort_target_version ||
-           version == cohort_retention_version;
+           version == cohort_retention_version || version == cardinal_queue_escape_version;
 }
 
 /// Selects deterministic AI strike-target distribution among spatial cohorts.
@@ -62,7 +65,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// @param version the recorded preset version
 /// @return true only for known presets retaining cohort-target distribution
 [[nodiscard]] inline constexpr bool uses_cohort_target_distribution(uint32_t version) noexcept {
-    return version == cohort_target_version || version == cohort_retention_version;
+    return version == cohort_target_version || version == cohort_retention_version ||
+           version == cardinal_queue_escape_version;
 }
 
 /// Selects bounded retention of verified prior targets for spatial cohorts.
@@ -73,12 +77,21 @@ inline constexpr uint32_t current_version = swept_ground_version;
     return version == cohort_retention_version;
 }
 
+/// Selects bounded cardinal exits after a mature local queue's existing choices.
+///
+/// @param version the recorded preset version
+/// @return true only for the explicit cardinal queue escape preset
+[[nodiscard]] inline constexpr bool uses_cardinal_queue_escape(uint32_t version) noexcept {
+    return version == cardinal_queue_escape_version;
+}
+
 /// Selects the enhanced unit rendering policies shared by known experimental presets.
 ///
 /// @param version the recorded preset version
 /// @return true only for known presets permitting animated body detail and deferred geometry
 [[nodiscard]] inline constexpr bool uses_enhanced_unit_rendering(uint32_t version) noexcept {
-    return version == cohort_target_version || version == cohort_retention_version;
+    return version == cohort_target_version || version == cohort_retention_version ||
+           version == cardinal_queue_escape_version;
 }
 
 /// Tells whether this build can resolve a preset, including Off.
@@ -108,7 +121,9 @@ inline constexpr uint32_t current_version = swept_ground_version;
 /// Version 8 retains version 7's static routing for experimental local following.
 /// Version 10 inherits version 8 and distributes AI strike targets among spatial cohorts.
 /// Version 11 inherits version 10 and retains verified prior cohort targets within a cost margin.
-/// Version 9 is unsupported. Rendering remains independent. Errors leave no usable resolution.
+/// Version 13 inherits version 10 and permits bounded cardinal exits from mature local queues.
+/// Versions 9, 12 and 14 are unsupported. Rendering remains independent.
+/// Errors leave no usable resolution.
 ///
 /// @param text the chosen game's profile bytes
 /// @param source the name used by profile diagnostics

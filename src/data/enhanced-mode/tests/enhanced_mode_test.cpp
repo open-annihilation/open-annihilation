@@ -394,35 +394,82 @@ void check_cohort_target_identity() {
         canonical.replace(at, cohort_rule.size(), following_rule);
         OA_CHECK(canonical == following.resolution->canonical);
     }
-    for (uint32_t version = 0; version <= enhanced::cohort_retention_version + 1; ++version) {
+    for (uint32_t version = 0; version <= enhanced::cardinal_queue_escape_version + 1; ++version) {
         OA_CHECK(
             enhanced::uses_distributed_battle_flow(version) ==
-            (version == 7 || version == 8 || version == 10 || version == 11)
+            (version == 7 || version == 8 || version == 10 || version == 11 || version == 13)
         );
         OA_CHECK(
             enhanced::uses_following_battle_flow(version) ==
-            (version == 8 || version == 10 || version == 11)
+            (version == 8 || version == 10 || version == 11 || version == 13)
         );
         OA_CHECK(
-            enhanced::uses_cohort_target_distribution(version) == (version == 10 || version == 11)
+            enhanced::uses_cohort_target_distribution(version) ==
+            (version == 10 || version == 11 || version == 13)
         );
         OA_CHECK(enhanced::uses_cohort_target_retention(version) == (version == 11));
+        OA_CHECK(enhanced::uses_cardinal_queue_escape(version) == (version == 13));
         OA_CHECK(
-            enhanced::uses_enhanced_unit_rendering(version) == (version == 10 || version == 11)
+            enhanced::uses_enhanced_unit_rendering(version) ==
+            (version == 10 || version == 11 || version == 13)
         );
     }
-    for (const auto version : {9u, 12u, std::numeric_limits<uint32_t>::max()}) {
+    for (const auto version : {9u, 12u, 14u, std::numeric_limits<uint32_t>::max()}) {
         OA_CHECK(!enhanced::uses_following_battle_flow(version));
         OA_CHECK(!enhanced::uses_cohort_target_distribution(version));
         OA_CHECK(!enhanced::uses_cohort_target_retention(version));
+        OA_CHECK(!enhanced::uses_cardinal_queue_escape(version));
         OA_CHECK(!enhanced::uses_enhanced_unit_rendering(version));
     }
     // Raw profiles and match overrides use the same sparse version choices.
-    for (const auto version : {9u, 12u}) {
+    for (const auto version : {9u, 12u, 14u}) {
         const std::string profile =
             std::string{mod_text} + "  setup.enhanced-mode: " + std::to_string(version) + "\n";
         OA_CHECK(!profiles::resolve_profile(bytes(profile), "unsupported", {}).resolution);
     }
+}
+
+/// Gives cardinal queue escape a distinct identity with version 10's static rules.
+void check_cardinal_queue_escape_identity() {
+    const auto text = profiles::base_game_profile_text();
+    const auto cohort =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::cohort_target_version);
+    const auto cardinal =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::cardinal_queue_escape_version);
+    const auto repeated =
+        enhanced::resolve_profile(bytes(text), "base", {}, enhanced::cardinal_queue_escape_version);
+    OA_CHECK(cohort.resolution && cardinal.resolution && repeated.resolution);
+    if (!cohort.resolution || !cardinal.resolution || !repeated.resolution)
+        return;
+    OA_CHECK(
+        enhanced::rules_version(cardinal.resolution->profile.rules) ==
+        enhanced::cardinal_queue_escape_version
+    );
+    OA_CHECK(cardinal.resolution->profile.sim_hash != cohort.resolution->profile.sim_hash);
+    OA_CHECK(cardinal.resolution->profile.full_hash != cohort.resolution->profile.full_hash);
+    OA_CHECK(cardinal.resolution->profile.limits == cohort.resolution->profile.limits);
+    OA_CHECK(cardinal.resolution->canonical == repeated.resolution->canonical);
+    OA_CHECK(cardinal.resolution->profile.sim_hash == repeated.resolution->profile.sim_hash);
+    auto earlier_rules = cardinal.resolution->profile.rules;
+    earlier_rules.setup.enhanced_mode.version = enhanced::cohort_target_version;
+    OA_CHECK(earlier_rules == cohort.resolution->profile.rules);
+    auto canonical = cardinal.resolution->canonical;
+    constexpr std::string_view cardinal_rule = "\"setup.enhanced-mode\":{\"version\":13}";
+    constexpr std::string_view cohort_rule = "\"setup.enhanced-mode\":{\"version\":10}";
+    const auto at = canonical.find(cardinal_rule);
+    OA_CHECK(at != std::string::npos);
+    if (at != std::string::npos) {
+        canonical.replace(at, cardinal_rule.size(), cohort_rule);
+        OA_CHECK(canonical == cohort.resolution->canonical);
+    }
+    const std::string profile = std::string{mod_text} + "  setup.enhanced-mode: 13\n";
+    const auto raw = profiles::resolve_profile(bytes(profile), "cardinal", {});
+    OA_CHECK(raw.resolution);
+    if (raw.resolution)
+        OA_CHECK(
+            enhanced::rules_version(raw.resolution->profile.rules) ==
+            enhanced::cardinal_queue_escape_version
+        );
 }
 
 /// Gives cohort retention a distinct identity without changing the inherited static rules.
@@ -533,6 +580,7 @@ void check_refusals() {
     for (const uint32_t version :
          {enhanced::following_flow_version + 1,
           enhanced::cohort_retention_version + 1,
+          enhanced::cardinal_queue_escape_version + 1,
           std::numeric_limits<uint32_t>::max()}) {
         const auto result = enhanced::resolve_profile(bytes(mod_text), "chosen", options, version);
         OA_CHECK(!result.resolution);
@@ -588,6 +636,7 @@ int main() {
     OA_CHECK(enhanced::supported_version(enhanced::following_flow_version));
     OA_CHECK(enhanced::supported_version(enhanced::cohort_target_version));
     OA_CHECK(enhanced::supported_version(enhanced::cohort_retention_version));
+    OA_CHECK(enhanced::supported_version(enhanced::cardinal_queue_escape_version));
     OA_CHECK(enhanced::current_version == enhanced::swept_ground_version);
     OA_CHECK(enhanced::supported_version(enhanced::current_version));
     OA_CHECK(!enhanced::supported_version(enhanced::following_flow_version + 1));
@@ -602,6 +651,7 @@ int main() {
     check_following_flow_identity();
     check_cohort_target_identity();
     check_cohort_retention_identity();
+    check_cardinal_queue_escape_identity();
     check_profile_default_version();
     check_enabled_composition();
     check_enhanced_capacity();

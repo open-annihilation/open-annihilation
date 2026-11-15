@@ -100,7 +100,7 @@ void classic_rooms_keep_their_start_rules() {
 }
 
 void matching_machines_can_start() {
-    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u})
+    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u, 13u})
         for (bool hosting : {false, true}) {
             Room room(hosting);
             room.presence(0, record(version));
@@ -247,7 +247,7 @@ void cohort_retention_rooms_require_their_own_version() {
     for (const bool hosting : {false, true}) {
         Room room(hosting);
         room.presence(0, record(11));
-        for (const uint32_t other : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 12u}) {
+        for (const uint32_t other : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 12u, 13u, 14u}) {
             room.presence(1, record(other));
             expect(!mp::lobby_enhanced_allow_start(room.lobby), "v11 requires its own version");
             const char* problem = mp::lobby_enhanced_start_problem(room.lobby);
@@ -264,6 +264,32 @@ void cohort_retention_rooms_require_their_own_version() {
         expect(
             problem != nullptr && std::strstr(problem, "rules") != nullptr,
             "the v11 rules refusal names the rules"
+        );
+    }
+}
+
+/// Requires the private cardinal queue rules and hashes to agree in both room roles.
+void cardinal_queue_rooms_require_their_own_version() {
+    for (const bool hosting : {false, true}) {
+        Room room(hosting);
+        room.presence(0, record(13));
+        for (const uint32_t other : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u, 14u}) {
+            room.presence(1, record(other));
+            expect(!mp::lobby_enhanced_allow_start(room.lobby), "v13 requires its own version");
+            const char* problem = mp::lobby_enhanced_start_problem(room.lobby);
+            expect(
+                problem != nullptr && std::strstr(problem, "version") != nullptr,
+                "the v13 refusal names the version"
+            );
+        }
+        room.presence(1, record(13));
+        expect(mp::lobby_enhanced_allow_start(room.lobby), "matching v13 peers may start");
+        room.presence(1, record(13, 8));
+        expect(!mp::lobby_enhanced_allow_start(room.lobby), "v13 peers still need matching rules");
+        const char* problem = mp::lobby_enhanced_start_problem(room.lobby);
+        expect(
+            problem != nullptr && std::strstr(problem, "rules") != nullptr,
+            "the v13 rules refusal names the rules"
         );
     }
 }
@@ -354,6 +380,7 @@ int main() {
     distributed_rooms_require_their_own_version();
     cohort_rooms_require_their_own_version();
     cohort_retention_rooms_require_their_own_version();
+    cardinal_queue_rooms_require_their_own_version();
     guests_do_not_silently_adopt_another_mode();
     watchers_agree_and_computers_use_their_machine();
     the_host_checks_every_machine_and_guests_check_the_host();

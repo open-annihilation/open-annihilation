@@ -38,16 +38,24 @@ it inherits version 7's static `fine_regions` routes, format-3 saved fields,
 reserves an experimental local-following policy; metadata alone does not
 implement that policy or establish better large-battle flow. The new-game
 default remains 4. `uses_distributed_battle_flow` selects only the known
-versions 7, 8, 10 and 11, so an unsupported future version does not inherit them.
+versions 7, 8, 10, 11 and 13, so an unsupported future version does not inherit them.
 `cohort_target_version` is ten: it inherits version 8's movement and adds
-AI strike-target distribution among spatial cohorts. Version 9 is not
-supported. `cohort_retention_version` is eleven: it inherits version 10 and
+AI strike-target distribution among spatial cohorts. Versions 9, 12 and 14
+are unsupported. `cohort_retention_version` is eleven: it inherits version 10 and
 retains compatible current cohort targets within the bounded weighted-cost
 margin. It derives those prior targets from current owned attack heads and
 adds no persistent state. `uses_following_battle_flow` selects only versions
-8, 10 and 11; `uses_cohort_target_distribution` selects only 10 and 11.
+8, 10, 11 and 13; `uses_cohort_target_distribution` selects only 10, 11 and 13.
 `uses_cohort_target_retention` selects only 11.
-`uses_enhanced_unit_rendering` selects versions 10 and 11 for their shared
+`cardinal_queue_escape_version` is thirteen, a private, unpromoted experiment
+inheriting version 10. `uses_cardinal_queue_escape` selects only 13. It
+permits bounded cardinal adjacent-origin cell centres after a mature local
+queue's existing chooser returns an unadjusted or in-origin result, only on
+an existing retry with fresh moving neighbours. Existing real crossings
+and the old result when no legal cardinal exit exists are preserved. It
+adds no persistent state and does not inherit version 11's target retention.
+No large-battle benefit is established by this preset's admission.
+`uses_enhanced_unit_rendering` selects versions 10, 11 and 13 for their shared
 animated body detail and deferred geometry policies. The new-game default
 remains version 4 while the explicit experiment is validated.
 Graphics settings are
@@ -70,6 +78,7 @@ lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
 `data-enhanced-mode` checks pinned Off, version-1 through version-8 and
-version-10 canonical and simulation hashes, a distinct version-11 identity,
+version-10 canonical and simulation hashes, distinct version-11 and
+version-13 identities,
 preservation of selected mod rules and match choices, and refusals of
 unsupported versions or rules that require Enhanced Mode while Off.

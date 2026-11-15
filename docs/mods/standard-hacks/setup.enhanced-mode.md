@@ -80,7 +80,7 @@ Hack id `setup.enhanced-mode`, written under the profile's `hacks` block.
 
 | Parameter | Type | Unit | Allowed | Length | Baseline (3.1c) | Default | Adjustable | Scope | Overridden by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `version` | `int` | - | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `10`, `11`; `1` to `11` | - | `1` | `1` | `match` | `sim` | - |
+| `version` | `int` | - | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `10`, `11`, `13`; `1` to `13` | - | `1` | `1` | `match` | `sim` | - |
 
 Adjustable: `match`: as `install`, and the host may also change it for one game.
 
