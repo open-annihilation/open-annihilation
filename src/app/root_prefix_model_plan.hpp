@@ -3,6 +3,7 @@
 #pragma once
 
 #include "deferred_model_geometry.hpp"
+#include "plan_work_counts.hpp"
 #include "root_prefix_geometry.hpp"
 #include "world_draws.hpp"
 
@@ -38,13 +39,12 @@ namespace oa::app {
     ModelDraw& draw
 ) {
     if (!original.instance || !original.state || !original.unit ||
-        deferred.instance != original.instance || !shown.instance || !shown.state ||
-        !shown.unit || !shown.prepared || !recipe.geometry || !recipe.geometry->model)
+        deferred.instance != original.instance || !shown.instance || !shown.state || !shown.unit ||
+        !shown.prepared || !recipe.geometry || !recipe.geometry->model)
         return false;
     const auto& model = shown.instance->model_handle();
     if (!model || recipe.geometry->model.get() != model.get() ||
-        recipe.geometry->model.owner_before(model) ||
-        model.owner_before(recipe.geometry->model) ||
+        recipe.geometry->model.owner_before(model) || model.owner_before(recipe.geometry->model) ||
         recipe.geometry->objects.size() != shown.instance->pieces().size())
         return false;
     const bool copied = shown.instance != original.instance;
@@ -68,6 +68,7 @@ namespace oa::app {
     draw.plan.model.from_image = true;
     draw.plan.model.ground = ground;
     draw.plan.linked = {true, idle};
+    plan_work::count(plan_work::Work::root_prefix_recipe_publishes);
     return true;
 }
 
@@ -89,8 +90,8 @@ namespace oa::app {
     DeferredModelGeometry* deferred = nullptr
 ) {
     const auto model = draw.model;
-    if (!draw.root_prefix || !model.instance || !model.state || !model.unit ||
-        !model.prepared || model.unit->attach_parent != 0 || model.unit->attach_first_child != 0)
+    if (!draw.root_prefix || !model.instance || !model.state || !model.unit || !model.prepared ||
+        model.unit->attach_parent != 0 || model.unit->attach_first_child != 0)
         return false;
     const auto position = draw.shown_position.value_or(model.unit->position);
     const bool idle = draw.plan.linked.unlit;

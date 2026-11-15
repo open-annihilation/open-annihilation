@@ -67,6 +67,7 @@ enum class Work : uint8_t {
     transform_rebuilds,     ///< direct rebuild calls; linked native updates remain opaque
     metadata_image_builds,
     pixel_image_builds,
+    root_prefix_recipe_publishes,
     count
 };
 
@@ -84,7 +85,8 @@ inline constexpr std::array<std::string_view, work_count> work_names{
     "root_prefix_hits",
     "transform_rebuilds",
     "metadata_image_builds",
-    "pixel_image_builds"
+    "pixel_image_builds",
+    "root_prefix_recipe_publishes"
 };
 
 /// Raw observations of one boundary; durations cover only its timed samples.

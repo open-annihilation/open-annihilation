@@ -13,6 +13,7 @@
 #include "full_presentation.hpp"
 #include "match_models.hpp"
 #include "plan_work_counts.hpp"
+#include "root_prefix_counts.hpp"
 #include "oa/app/frame_coordinates.hpp"
 
 #include "oa/core/unit.h"
@@ -73,8 +74,9 @@ struct FrameSample {
     BodyLodCounts body{};               ///< actual unit model representations emitted by the frame
     SceneModelWorkCounts scene_work{};  ///< independent model packets retained by the frame
     ShadowIndexCounts shadow_indices{}; ///< successful backend shadow draws and uploads
-    plan_work::PlanWorkCounts plan_work{}; ///< raw optional planner diagnostics
-    uint64_t deferred_geometry{};          ///< invisible model updates deferred during this frame
+    plan_work::PlanWorkCounts plan_work{};    ///< raw optional planner diagnostics
+    RootPrefixActivationCounts root_prefix{}; ///< completed Scene and backend recipe ownership
+    uint64_t deferred_geometry{}; ///< invisible model updates deferred during this frame
 };
 
 /// Enables planner clocks only within an explicitly requested diagnostic frame.
@@ -93,7 +95,12 @@ struct PlanWorkFrame {
 /// Prints raw sampled planner sums after the measured span has completed.
 /// @param frame the measured frame's index
 /// @param work the final attempt's planner snapshot
-void print_plan_work(std::size_t frame, const plan_work::PlanWorkCounts& work) {
+/// @param root_prefix the completed live frame's owned recipe and draw counts
+void print_plan_work(
+    std::size_t frame,
+    const plan_work::PlanWorkCounts& work,
+    const RootPrefixActivationCounts& root_prefix
+) {
     const auto word = [](uint64_t value) { return static_cast<unsigned long long>(value); };
     std::printf(
         "bench: PLAN_WORK_FRAME %zu source_frame %llu completed %u sampling_stride %u",
@@ -104,6 +111,13 @@ void print_plan_work(std::size_t frame, const plan_work::PlanWorkCounts& work) {
     );
     for (std::size_t index = 0; index < plan_work::work_count; ++index)
         std::printf(" %s %llu", plan_work::work_names[index].data(), word(work.work[index]));
+    std::printf(
+        " root_prefix_scene_instances %llu root_prefix_gpu_instances %llu "
+        "root_prefix_gpu_surface_indices %llu",
+        word(root_prefix.scene_instances),
+        word(root_prefix.gpu_instances),
+        word(root_prefix.gpu_surface_indices)
+    );
     std::printf(" phases");
     for (std::size_t index = 0; index < plan_work::phase_count; ++index) {
         const auto& phase = work.phases[index];
@@ -893,8 +907,10 @@ void Runtime::play_bench() {
             sample.body = bench_timers::body_counts;
             sample.scene_work = bench_timers::scene_model_work_counts;
             sample.shadow_indices = bench_timers::shadow_index_counts;
-            if (view.frame_log && view.plan_work)
+            if (view.frame_log && view.plan_work) {
                 sample.plan_work = plan_work::frame_counts;
+                sample.root_prefix = live_root_prefix_activation_counts(sample.plan_work.frame_id);
+            }
             if (match_models_ && match_models_->match == match_.get())
                 sample.deferred_geometry =
                     match_models_->preplanning_visibility.deferred_geometry_count;
@@ -1384,7 +1400,7 @@ void Runtime::play_bench() {
             );
             print_shadow_indices(index, samples[index].shadow_indices);
             if (view.plan_work)
-                print_plan_work(index, samples[index].plan_work);
+                print_plan_work(index, samples[index].plan_work, samples[index].root_prefix);
             std::printf(
                 "bench: GROUND_INDEX_FRAME %zu builds %.0f hits %.0f triangles %.0f wall_ms %.3f\n",
                 index,

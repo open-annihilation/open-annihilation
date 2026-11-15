@@ -9,6 +9,8 @@
 #include "oa/app/camera_inversion.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "bench_timers.hpp"
+#include "plan_work_counts.hpp"
+#include "root_prefix_counts.hpp"
 #include "director_state.hpp"
 #include "match_models.hpp"
 #include "model_shadow_metadata.hpp"
@@ -233,7 +235,8 @@ struct Runtime::LiveRenderer {
     renderer_live_scene::Scene scene{};
     /// One initial retained-ground preparation attempt in this Scene/match lifetime.
     bool initial_ground_queries_attempted{};
-    bool scene_built{}; ///< the last frame's scene was built
+    bool scene_built{};                  ///< the last frame's scene was built
+    uint64_t root_prefix_source_frame{}; ///< observed planner frame successfully drawn by the GPU
     renderer_live_gpu::Context gpu{};
     std::vector<uint8_t> rgba{};
     std::vector<std::array<float, 3>> projected{};
@@ -698,6 +701,19 @@ std::size_t Runtime::live_renderer_card_model_count() const noexcept {
         return 0;
     const auto& cards = live_renderer_->scene.cards;
     return cards.units.size() - std::min(cards.units.size(), cards.markers.size());
+}
+
+RootPrefixActivationCounts
+Runtime::live_root_prefix_activation_counts(uint64_t source_frame) const noexcept {
+    if (!live_renderer_active() || live_renderer_->failed || !live_renderer_->scene_built ||
+        source_frame == 0 || source_frame != live_renderer_->root_prefix_source_frame)
+        return {};
+    const auto& live = *live_renderer_;
+    return {
+        static_cast<uint64_t>(live.scene.cards.root_prefix_poses.size()),
+        live.gpu.root_prefix_counts.instances,
+        live.gpu.root_prefix_counts.surface_indices
+    };
 }
 
 std::size_t Runtime::live_renderer_marker_count() const noexcept {
@@ -1290,6 +1306,7 @@ bool Runtime::render_live_match_surface() {
             result = draw();
         }
         if (result == renderer_live_gpu::Result::success) {
+            live.root_prefix_source_frame = plan_work::source_frame();
             bench_timers::body_counts = live.scene.body_lod_counts;
             bench_timers::scene_model_work_counts = live.scene.model_work_counts;
             bench_timers::shadow_index_counts = live.gpu.shadow_index_counts;

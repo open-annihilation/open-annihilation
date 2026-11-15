@@ -268,6 +268,7 @@ PaletteBytes load_active_palette(const AssetStore& assets);
 
 struct MatchConsole;
 struct MatchModels;
+struct RootPrefixActivationCounts;
 struct WorldDrawList;
 class GafFrameCache;
 class RendererHost;
@@ -8552,6 +8553,11 @@ class Runtime final : public menu::Host,
     /// Returns how many models the graphics card drew from their types' models
     /// in the last live frame, the frame's vertices holding none of them.
     [[nodiscard]] std::size_t live_renderer_card_model_count() const noexcept;
+    /// Returns root-prefix ownership and successful GPU draw counts of the live frame.
+    /// @param source_frame the planner identity captured after the measured frame
+    /// @return zero without a successful active live scene from that nonzero frame
+    [[nodiscard]] RootPrefixActivationCounts
+    live_root_prefix_activation_counts(uint64_t source_frame) const noexcept;
     /// Returns the compact strategic markers in the last live frame, for checks.
     [[nodiscard]] std::size_t live_renderer_marker_count() const noexcept;
     /// Returns whether opened optional resources can draw compact markers.

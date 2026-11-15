@@ -151,11 +151,16 @@ SHADOW_UPLOAD_BYTES = 1 << 20
 SHADOW_CACHE_PATTERNS = 64
 SHADOW_FRAME_ADMISSIONS = 2
 SHADOW_INDEX_BYTES = 4
-PLAN_WORK_FIELDS = (
+LEGACY_PLAN_WORK_FIELDS = (
     "unit_plans", "copy_plans", "linked_plans", "omitted_plans", "original_updates_dirty",
     "copy_updates_dirty", "transform_cache_hits", "root_prefix_hits", "transform_rebuilds",
     "metadata_image_builds", "pixel_image_builds",
 )
+ROOT_PREFIX_WORK_FIELDS = (
+    "root_prefix_recipe_publishes", "root_prefix_scene_instances",
+    "root_prefix_gpu_instances", "root_prefix_gpu_surface_indices",
+)
+PLAN_WORK_FIELDS = (*LEGACY_PLAN_WORK_FIELDS, *ROOT_PREFIX_WORK_FIELDS)
 PLAN_WORK_PHASES = (
     "pose_capture", "list_prepare", "unit_sites", "battlefield_sort", "run_prepare", "run_wait",
     "worker_plan", "copy_place", "original_note", "original_update", "copy_note", "copy_update",
@@ -166,7 +171,9 @@ PLAN_WORK_FRAME = re.compile(
     rf"^bench: PLAN_WORK_FRAME (?P<frame>{FRAME_WORK_UNSIGNED}) "
     rf"source_frame (?P<source_frame>{FRAME_WORK_UNSIGNED}) "
     r"completed (?P<completed>[01]) sampling_stride 64" +
-    "".join(rf" {name} (?P<{name}>{FRAME_WORK_UNSIGNED})" for name in PLAN_WORK_FIELDS) + " phases" +
+    "".join(rf" {name} (?P<{name}>{FRAME_WORK_UNSIGNED})" for name in LEGACY_PLAN_WORK_FIELDS) +
+    "(?:" + "".join(rf" {name} (?P<{name}>{FRAME_WORK_UNSIGNED})"
+                    for name in ROOT_PREFIX_WORK_FIELDS) + ")? phases" +
     "".join(" " + phase + "".join(rf" {name} (?P<{phase}_{name}>{FRAME_WORK_UNSIGNED})"
                                 for name in PLAN_PHASE_FIELDS)
             for phase in PLAN_WORK_PHASES) + "$")
@@ -424,7 +431,9 @@ def check_shadow_index_counts(result, match):
 
 def check_plan_work_counts(result, match):
     """Validate sampled planning clocks independently of overlapping frame and worker time."""
-    names = ("source_frame", *PLAN_WORK_FIELDS,
+    fields = (PLAN_WORK_FIELDS if match.group(ROOT_PREFIX_WORK_FIELDS[0]) is not None
+              else LEGACY_PLAN_WORK_FIELDS)
+    names = ("source_frame", *fields,
              *(f"{phase}_{name}" for phase in PLAN_WORK_PHASES for name in PLAN_PHASE_FIELDS))
     row = frame_work_numbers(result, match, names, UINT64_MASK)
     for phase in PLAN_WORK_PHASES:
@@ -519,10 +528,32 @@ def check_work_record_presence(result, lines, plan_enabled=False):
         return
     if len(plans) != frames or not all(plans):
         fail(result, "the opt-in native frame log omitted its planning work coverage")
+    if not all(row.group(ROOT_PREFIX_WORK_FIELDS[0]) is not None for row in plans):
+        fail(result, "the opt-in native frame log omitted its root-prefix activation coverage")
     if not any(row.group("completed") == "1" and
                any(int(row.group(phase + "_calls")) != 0 for phase in PLAN_WORK_PHASES)
                for row in plans):
         fail(result, "the opt-in native frame log has no completed planning attempt")
+
+
+def check_root_prefix_activation(result, lines):
+    """Require actual completed recipe publication, Scene ownership and successful GPU draws."""
+    if result.returncode != 0:
+        fail(result, f"the root-prefix activation run exited with {result.returncode}")
+    check_render_work_records(result, lines)
+    check_work_record_presence(result, lines, plan_enabled=True)
+    totals = dict.fromkeys(ROOT_PREFIX_WORK_FIELDS, 0)
+    for line in lines:
+        if not line.startswith("bench: PLAN_WORK_FRAME"):
+            continue
+        row = PLAN_WORK_FRAME.fullmatch(line)
+        if row.group("completed") != "1" or int(row.group("source_frame")) == 0:
+            continue
+        for name in totals:
+            totals[name] += int(row.group(name))
+    missing = [name for name, total in totals.items() if total == 0]
+    if missing:
+        fail(result, "root-prefix activation has no completed positive counts: " + ", ".join(missing))
 
 
 def check_scene_work_records(result, lines):

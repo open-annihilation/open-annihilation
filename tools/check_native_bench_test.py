@@ -238,12 +238,15 @@ PLAN_PHASES = (
 PLAN_SAMPLE_FIELDS = ("calls", "samples", "wall_ns", "cpu_ns", "cpu_samples")
 
 
-def plan_work_record(frame, phase_changes=None, **changes):
+def plan_work_record(frame, phase_changes=None, legacy=False, **changes):
     """Return source planning counts and raw phase samples, including overlapping CPU time."""
     values = dict(source_frame=100 + frame, completed=1, sampling_stride=64, unit_plans=400,
                   copy_plans=20, linked_plans=380, omitted_plans=4, original_updates_dirty=3,
                   copy_updates_dirty=2, transform_cache_hits=90, root_prefix_hits=8,
                   transform_rebuilds=5, metadata_image_builds=2, pixel_image_builds=1)
+    if not legacy:
+        values.update(root_prefix_recipe_publishes=7, root_prefix_scene_instances=6,
+                      root_prefix_gpu_instances=6, root_prefix_gpu_surface_indices=18)
     values.update(changes)
     line = f"bench: PLAN_WORK_FRAME {frame}" + "".join(
         f" {name} {value}" for name, value in values.items()) + " phases"
@@ -254,7 +257,8 @@ def plan_work_record(frame, phase_changes=None, **changes):
     return line
 
 
-def render_work_transcript(shadow=True, plan=True, companions="scene_body", legacy_shadow=False):
+def render_work_transcript(shadow=True, plan=True, companions="scene_body", legacy_shadow=False,
+                           legacy_plan=False):
     """Add independently optional work rows after the complete existing companion chain."""
     source, predecessor = {
         "plain": (renderer_transcript(), "SIM_FRAME"),
@@ -273,7 +277,7 @@ def render_work_transcript(shadow=True, plan=True, companions="scene_body", lega
         if shadow:
             lines.append(shadow_index_record(frame, legacy=legacy_shadow))
         if plan:
-            lines.append(plan_work_record(frame))
+            lines.append(plan_work_record(frame, legacy=legacy_plan))
     return "\n".join(lines) + "\n"
 
 
@@ -583,6 +587,30 @@ class NativeBenchReceiptTest(unittest.TestCase):
                 text = render_work_transcript().replace(plan_work_record(1), plan_work_record(1, **changes))
                 self.assert_work_rejected(text)
 
+    def test_plan_activation_tail_is_optional_complete_and_ordered(self):
+        """Old frame logs parse; a present activation tail has all four exact typed fields."""
+        self.assert_work_accepted(render_work_transcript(legacy_plan=True))
+        for value in (0, bench.UINT64_MASK):
+            text = render_work_transcript()
+            for frame in range(3):
+                text = text.replace(plan_work_record(frame), plan_work_record(
+                    frame, **dict.fromkeys(bench.ROOT_PREFIX_WORK_FIELDS, value)))
+            self.assert_work_accepted(text)
+        text = render_work_transcript()
+        row = plan_work_record(1)
+        fields = (" root_prefix_recipe_publishes 7", " root_prefix_scene_instances 6",
+                  " root_prefix_gpu_instances 6", " root_prefix_gpu_surface_indices 18")
+        variants = [row.replace(field, "") for field in fields]
+        variants.extend((row.replace(fields[0] + fields[1], fields[1] + fields[0]),
+                         row.replace(fields[0], fields[0] * 2),
+                         row.replace("root_prefix_recipe_publishes", "root_prefix_unknown"),
+                         row.replace(" phases", " root_prefix_unknown 0 phases"),
+                         row.replace(" pixel_image_builds 1", "").replace(
+                             fields[0], fields[0] + " pixel_image_builds 1")))
+        for changed in variants:
+            with self.subTest(row=changed):
+                self.assert_work_rejected(text.replace(row, changed))
+
     def test_work_rows_reject_noncanonical_numbers_and_changed_field_order(self):
         """Signed, fractional, padded and unknown fields cannot masquerade as native counts."""
         text = render_work_transcript()
@@ -618,7 +646,8 @@ class NativeBenchReceiptTest(unittest.TestCase):
         bench.check_work_record_presence(result_for(opted), opted.splitlines(), plan_enabled=True)
         for text, enabled in ((renderer_transcript(), False), (opted, False), (ordinary, True),
                               (render_work_transcript(plan=False, legacy_shadow=True), False),
-                              (render_work_transcript(legacy_shadow=True), True)):
+                              (render_work_transcript(legacy_shadow=True), True),
+                              (render_work_transcript(legacy_plan=True), True)):
             self.assert_rejected(result_for(text), bench.check_work_record_presence,
                                  text.splitlines(), plan_enabled=enabled)
         zero = {phase: dict(calls=0, samples=0, wall_ns=0, cpu_ns=0, cpu_samples=0)
@@ -630,6 +659,52 @@ class NativeBenchReceiptTest(unittest.TestCase):
         self.assertEqual(bench.check_lines(result_for(partial), True), partial.splitlines())
         self.assert_rejected(result_for(partial), bench.check_work_record_presence,
                              partial.splitlines(), plan_enabled=True)
+
+    def test_root_prefix_activation_requires_all_completed_producer_stages(self):
+        """Only the explicit prototype check requires nonzero publication and actual draws."""
+        text = render_work_transcript()
+        bench.check_root_prefix_activation(result_for(text), text.splitlines())
+        incomplete = text
+        for frame in range(3):
+            incomplete = incomplete.replace(plan_work_record(frame),
+                                             plan_work_record(frame, completed=0))
+        self.assert_rejected(result_for(incomplete), bench.check_root_prefix_activation,
+                             incomplete.splitlines(), message="no completed planning attempt")
+        missing_stages = (bench.ROOT_PREFIX_WORK_FIELDS,
+                          *((name,) for name in bench.ROOT_PREFIX_WORK_FIELDS))
+        for missing in missing_stages:
+            changed = text
+            for frame in range(3):
+                changed = changed.replace(plan_work_record(frame), plan_work_record(
+                    frame, **dict.fromkeys(missing, 0)))
+            with self.subTest(missing=missing):
+                # A disabled prototype's current all-zero tail remains an ordinary valid log.
+                self.assert_work_accepted(changed)
+                bench.check_work_record_presence(result_for(changed), changed.splitlines(),
+                                                 plan_enabled=True)
+                self.assert_rejected(result_for(changed), bench.check_root_prefix_activation,
+                                     changed.splitlines(), message="no completed positive counts")
+        uncompleted_evidence = text
+        for frame in range(3):
+            changes = dict.fromkeys(bench.ROOT_PREFIX_WORK_FIELDS, 0) if frame == 0 else {}
+            uncompleted_evidence = uncompleted_evidence.replace(plan_work_record(frame),
+                plan_work_record(frame, completed=int(frame == 0), **changes))
+        self.assert_rejected(result_for(uncompleted_evidence), bench.check_root_prefix_activation,
+                             uncompleted_evidence.splitlines(), message="no completed positive counts")
+        unidentified = text
+        for frame in range(3):
+            unidentified = unidentified.replace(plan_work_record(frame),
+                                                plan_work_record(frame, source_frame=0))
+        self.assert_rejected(result_for(unidentified), bench.check_root_prefix_activation,
+                             unidentified.splitlines(), message="no completed positive counts")
+        for changed in (render_work_transcript(legacy_plan=True),
+                        text.replace(plan_work_record(1), plan_work_record(0))):
+            self.assert_rejected(result_for(changed), bench.check_root_prefix_activation,
+                                 changed.splitlines())
+        failed = result_for(text)
+        failed.returncode = 1
+        self.assert_rejected(failed, bench.check_root_prefix_activation, text.splitlines(),
+                             message="activation run exited with 1")
 
     def test_scene_work_projects_only_its_complete_independent_frame_family(self):
         """Worker-range validation preserves all existing strict metadata and legacy projections."""
