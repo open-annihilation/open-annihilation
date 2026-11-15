@@ -10299,6 +10299,213 @@ void root_prefix_scene_parallel_packets() {
     OA_CHECK(!live::can_append_parallel_model_cards(single, bad, 0));
 }
 
+/// Resolves ordinary and owned-prefix shadow corners independently of packet offsets.
+std::vector<std::array<float, 3>> root_prefix_shadow_points(const live::Scene& scene) {
+    const auto draws = live::card_draws(scene.card_types, scene.cards);
+    std::pair<std::vector<uint32_t>, std::vector<joined_gpu::ModelRun>> expanded;
+    if (draws.shadow_index_encoding == joined_gpu::ShadowIndexEncoding::compact)
+        expanded = expanded_shadow_templates(draws);
+    else if (draws.shadow_index_encoding == joined_gpu::ShadowIndexEncoding::procedural)
+        expanded = procedural_shadow_expansion(draws);
+    else {
+        expanded.first = scene.cards.cast_indices;
+        expanded.second = scene.cards.cast_runs;
+    }
+    constexpr uint32_t corner_mask = (uint32_t{1} << joined_gpu::model_corner_bits) - 1;
+    std::vector<std::array<float, 3>> result;
+    result.reserve(expanded.first.size());
+    for (const auto& run : expanded.second)
+        for (std::size_t at = run.first_index; at < std::size_t{run.first_index} + run.index_count;
+             ++at) {
+            const auto word = expanded.first[at];
+            const auto cast = run.first_instance + (word >> joined_gpu::model_corner_bits);
+            live::CardUnit unit;
+            unit.instance = scene.cards.casts[cast].instance;
+            const auto point =
+                live::card_corner(scene.card_types, scene.cards, unit, word & corner_mask);
+            result.push_back({point.x, point.height, point.z});
+        }
+    return result;
+}
+
+/// Keeps owned recipes through separated worker intervals and actual material pauses.
+void root_prefix_scene_multiple_ranges() {
+    MultipleModelRangeFixture fixture;
+    RootPrefixSceneFixture prefix;
+    auto& battle = fixture.bodies.battle;
+    battle.inputs.root_prefix_enabled = true;
+    battle.inputs.nanolathe_lighting = false;
+    constexpr std::array gaps{
+        MultipleModelRangeFixture::first_gap,
+        MultipleModelRangeFixture::second_gap,
+        MultipleModelRangeFixture::suffix
+    };
+    for (uint32_t index = 0; index < MultipleModelRangeFixture::population; ++index) {
+        if (std::find(gaps.begin(), gaps.end(), index) != gaps.end())
+            continue;
+        auto& draw = battle.draws.models[index];
+        draw.model.instance = &prefix.instance;
+        draw.model.prepared = &prefix.prepared;
+        draw.model.state = &prefix.state;
+        draw.root_prefix = prefix.recipe;
+    }
+    auto suffix_material = fixture.unique_material;
+    constexpr uint8_t suffix_color = 4;
+    for (auto& object : suffix_material.objects)
+        for (auto& primitive : object.primitives)
+            primitive.color = suffix_color;
+    std::fill_n(battle.palette.begin() + suffix_color * oa::palette_entry_bytes, 3, uint8_t{190});
+    const auto canonical = fixture.units;
+    const auto revision = prefix.instance.materialization_revision();
+    oa::platform::job_pool::Pool pool(4);
+    live::Scene serial, parallel;
+    const auto compare = [&] {
+        battle.inputs.pool = nullptr;
+        OA_CHECK(live::build(battle.inputs, serial, battle.error));
+        battle.inputs.pool = &pool;
+        OA_CHECK(live::build(battle.inputs, parallel, battle.error));
+        OA_CHECK(battle.error.empty());
+        check_body_material_frame(serial, parallel);
+        OA_CHECK(serial.model_count == parallel.model_count);
+        OA_CHECK(serial.shadow_count == parallel.shadow_count);
+        OA_CHECK(serial.translucent_vertices.size() == parallel.translucent_vertices.size());
+        if (serial.translucent_vertices.size() == parallel.translucent_vertices.size() &&
+            !serial.translucent_vertices.empty())
+            OA_CHECK(
+                std::memcmp(
+                    serial.translucent_vertices.data(),
+                    parallel.translucent_vertices.data(),
+                    serial.translucent_vertices.size() * sizeof(serial.translucent_vertices[0])
+                ) == 0
+            );
+        OA_CHECK(
+            std::equal(
+                serial.translucent_ranges.begin(),
+                serial.translucent_ranges.end(),
+                parallel.translucent_ranges.begin(),
+                parallel.translucent_ranges.end(),
+                [](const auto& left, const auto& right) {
+                    return left.unit_id == right.unit_id &&
+                           left.first_vertex == right.first_vertex &&
+                           left.vertex_count == right.vertex_count;
+                }
+            )
+        );
+        OA_CHECK(serial.cards.units.size() == parallel.cards.units.size());
+        for (std::size_t at = 0;
+             at < std::min(serial.cards.units.size(), parallel.cards.units.size());
+             ++at) {
+            const auto& left = serial.cards.units[at];
+            const auto& right = parallel.cards.units[at];
+            OA_CHECK(
+                std::tie(
+                    left.unit_id,
+                    left.index_count,
+                    left.root_prefix,
+                    left.left,
+                    left.top,
+                    left.right,
+                    left.bottom,
+                    left.bounded,
+                    left.displayed_anchor
+                ) ==
+                std::tie(
+                    right.unit_id,
+                    right.index_count,
+                    right.root_prefix,
+                    right.left,
+                    right.top,
+                    right.right,
+                    right.bottom,
+                    right.bounded,
+                    right.displayed_anchor
+                )
+            );
+        }
+        OA_CHECK(
+            std::count_if(
+                parallel.cards.units.begin(), parallel.cards.units.end(), [](const auto& unit) {
+                    return unit.root_prefix;
+                }
+            ) == MultipleModelRangeFixture::candidate_slots
+        );
+        OA_CHECK(serial.cards.casts.size() == parallel.cards.casts.size());
+        for (std::size_t at = 0;
+             at < std::min(serial.cards.casts.size(), parallel.cards.casts.size());
+             ++at) {
+            const auto& left = serial.cards.casts[at];
+            const auto& right = parallel.cards.casts[at];
+            OA_CHECK(
+                std::tie(
+                    left.kind,
+                    left.base,
+                    left.ground_half,
+                    left.least_height,
+                    left.light,
+                    left.depth,
+                    left.across,
+                    left.down
+                ) ==
+                std::tie(
+                    right.kind,
+                    right.base,
+                    right.ground_half,
+                    right.least_height,
+                    right.light,
+                    right.depth,
+                    right.across,
+                    right.down
+                )
+            );
+        }
+        OA_CHECK(root_prefix_shadow_points(serial) == root_prefix_shadow_points(parallel));
+        OA_CHECK(!parallel.cards.root_prefix_points.empty());
+        OA_CHECK(!parallel.cards.root_prefix_recipes.empty());
+        for (const auto& recipe : parallel.cards.root_prefix_recipes)
+            OA_CHECK(recipe.geometry == prefix.recipe.geometry);
+        OA_CHECK(prefix.instance.materialization_revision() == revision);
+        for (const auto& piece : prefix.instance.pieces())
+            OA_CHECK(piece.transformed_vertices.empty());
+        OA_CHECK(
+            std::memcmp(
+                canonical.data(), fixture.units.data(), canonical.size() * sizeof(canonical[0])
+            ) == 0
+        );
+    };
+    const auto accepted = [&] {
+        const auto& work = parallel.model_work_counts;
+        OA_CHECK(work.candidate_bands == 4 && work.accepted_bands == 4);
+        OA_CHECK(work.candidate_slots == MultipleModelRangeFixture::candidate_slots);
+        OA_CHECK(work.accepted_slots == MultipleModelRangeFixture::candidate_slots);
+        OA_CHECK(work.fallback_frames == 0);
+    };
+    compare();
+    compare();
+    accepted();
+    // Only the serial middle draw requests the new material. Its rollback
+    // must rebuild every preceding prefix packet once in original order.
+    battle.draws.models[MultipleModelRangeFixture::first_gap].model.prepared =
+        &fixture.unique_material;
+    compare();
+    OA_CHECK(parallel.model_work_counts.candidate_bands == 4);
+    OA_CHECK(parallel.model_work_counts.accepted_bands == 0);
+    OA_CHECK(parallel.model_work_counts.accepted_slots == 0);
+    OA_CHECK(parallel.model_work_counts.fallback_frames == 1);
+    compare();
+    accepted();
+    // A suffix pause retains the complete joined intervals and their owners.
+    battle.draws.models[MultipleModelRangeFixture::suffix].model.prepared = &suffix_material;
+    compare();
+    accepted();
+    for (const bool procedural : {false, true}) {
+        battle.inputs.shadow_index_templates = true;
+        battle.inputs.shadow_index_procedural = procedural;
+        compare();
+        compare();
+        accepted();
+    }
+}
+
 } // namespace
 
 int main() {
@@ -10312,6 +10519,7 @@ int main() {
     root_prefix_scene_card_rollback();
     root_prefix_scene_memo_saturation();
     root_prefix_scene_parallel_packets();
+    root_prefix_scene_multiple_ranges();
     omitted_model_snapshots();
     omitted_model_material_retries();
     interior_model_cull_tests();
