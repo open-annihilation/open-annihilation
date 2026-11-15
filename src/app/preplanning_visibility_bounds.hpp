@@ -374,17 +374,6 @@ namespace detail {
     };
     if (instance.root_piece() != scratch.piece_for_object[0])
         return std::nullopt;
-    for (const auto& piece : pieces) {
-        const auto& object = geometry.model->objects[piece.object_index];
-        if ((object.parent != runtime::kNoPiece && object.parent >= piece.object_index) ||
-            (object.parent != runtime::kNoPiece && object.parent >= pieces.size()) ||
-            (object.first_child != runtime::kNoPiece && object.first_child >= pieces.size()) ||
-            (object.next_sibling != runtime::kNoPiece && object.next_sibling >= pieces.size()) ||
-            piece.parent != piece_link(object.parent) ||
-            piece.first_child != piece_link(object.first_child) ||
-            piece.next_sibling != piece_link(object.next_sibling))
-            return std::nullopt;
-    }
     constexpr uint64_t coordinate_limit =
         static_cast<uint64_t>(std::numeric_limits<int32_t>::max());
     constexpr uint64_t ancestor_rounding_pad = 6;
@@ -401,6 +390,14 @@ namespace detail {
         const auto& object = geometry.model->objects[object_index];
         const auto& piece = pieces[scratch.piece_for_object[object_index]];
         const auto& raw = geometry.objects[object_index];
+        if ((object.parent != runtime::kNoPiece && object.parent >= object_index) ||
+            (object.parent != runtime::kNoPiece && object.parent >= pieces.size()) ||
+            (object.first_child != runtime::kNoPiece && object.first_child >= pieces.size()) ||
+            (object.next_sibling != runtime::kNoPiece && object.next_sibling >= pieces.size()) ||
+            piece.parent != piece_link(object.parent) ||
+            piece.first_child != piece_link(object.first_child) ||
+            piece.next_sibling != piece_link(object.next_sibling))
+            return std::nullopt;
         if (!raw.radius_ready || (object_index != 0 && object.parent == runtime::kNoPiece))
             return std::nullopt;
         const uint64_t parent =
