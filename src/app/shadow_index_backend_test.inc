@@ -303,6 +303,35 @@ void shadow_index_stream_readback() {
     OA_CHECK(context.shadow_index_counts.cached_patterns == 1);
     OA_CHECK(context.shadow_index_counts.cache_bytes == template_words * sizeof(uint32_t));
 
+    // Both submission paths queue their uploads before calling external work.
+    // A throwing caller leaves valid queued residency, which the next frame
+    // can reuse while still publishing no counts for the interrupted attempt.
+    struct CallbackStopped {};
+    for (const bool keep : {false, true}) {
+        Context submitted;
+        submitted.keep_on_card = keep;
+        bool stopped{};
+        const auto draws = fixture.draws(true);
+        try {
+            (void)render(
+                submitted, fixture.ground, fixture.atlas, 1, 1, 1,
+                ShadowTemplateFixture::edge, ShadowTemplateFixture::edge,
+                classic_projection, pixels, error, 1, nullptr, nullptr, nullptr,
+                [] { throw CallbackStopped{}; }, nullptr, &draws
+            );
+        } catch (const CallbackStopped&) {
+            stopped = true;
+        }
+        OA_CHECK(stopped);
+        OA_CHECK(submitted.shadow_index_counts.logical_indices == 0);
+        submitted.keep_on_card = false;
+        OA_CHECK(shadow_template_frame(submitted, fixture, true, pixels, error) == Result::success);
+        OA_CHECK(pixels == expected);
+        OA_CHECK(submitted.shadow_index_counts.cache_hits == 1);
+        OA_CHECK(submitted.shadow_index_counts.admitted_patterns == 0);
+        OA_CHECK(submitted.shadow_index_counts.template_uploaded_indices == 0);
+    }
+
     // Only two new patterns may enter per frame; the remaining run uses the
     // same dynamic fallback as capability rejection, then enters next frame.
     ShadowTemplateFixture budget(3);

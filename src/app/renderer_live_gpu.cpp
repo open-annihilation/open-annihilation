@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstring>
 #include <new>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -1440,6 +1441,7 @@ void upload_models(ModelResources& models, const ModelDraws& draws, SDL_GPUCopyP
         SDL_UploadToGPUBuffer(copy, &index_source, &index_destination, true);
     }
     uint32_t shadow_at = models.corner_bytes + models.frame_bytes + models.index_bytes;
+    bool shadow_cycle = models.shadow_template_cycle;
     for (uint32_t index = 0; index < models.shadow_admission_count; ++index) {
         const auto pattern_index = models.shadow_admissions[index];
         const auto& pattern = draws.shadow_patterns[pattern_index];
@@ -1449,15 +1451,24 @@ void upload_models(ModelResources& models, const ModelDraws& draws, SDL_GPUCopyP
         const SDL_GPUBufferRegion destination{
             models.shadow_templates, pattern.first_index * uint32_t{sizeof(uint32_t)}, bytes
         };
-        SDL_UploadToGPUBuffer(copy, &source, &destination, models.shadow_template_cycle);
-        models.shadow_template_cycle = false;
-        models.shadow_resident[pattern_index] = true;
-        models.shadow_resident_words[pattern_index] =
-            pattern.indices_per_cast * model_run_instances;
+        SDL_UploadToGPUBuffer(copy, &source, &destination, shadow_cycle);
+        shadow_cycle = false;
         shadow_at += bytes;
     }
     models.corners_revision = draws.corners_revision;
     models.corner_words = draws.corners.size();
+}
+
+/// Makes only successfully queued template copies resident for following frames.
+void commit_shadow_templates(ModelResources& models, const ModelDraws& draws) noexcept {
+    for (uint32_t index = 0; index < models.shadow_admission_count; ++index) {
+        const auto pattern = models.shadow_admissions[index];
+        models.shadow_resident[pattern] = true;
+        models.shadow_resident_words[pattern] =
+            draws.shadow_patterns[pattern].indices_per_cast * model_run_instances;
+    }
+    if (models.shadow_admission_count != 0)
+        models.shadow_template_cycle = false;
 }
 
 /// Draws the frame's vertices after the kept ground, in their order, with
@@ -2224,8 +2235,15 @@ Result render(
     const bool resolves_twice = samples > 1 && supersample > 1;
     /// Drop incomplete resources so another frame can retry safely.
     const auto fail = [&](const char* operation) {
-        error = std::string(operation) + ": " + SDL_GetError();
-        context.state = std::make_unique<Context::State>();
+        constexpr std::size_t error_capacity = 1024;
+        std::array<char, error_capacity> reason{};
+        SDL_strlcpy(reason.data(), SDL_GetError(), reason.size());
+        // Reset without allocating: even a failure while reporting an exhausted
+        // device must cancel its command and discard unsubmitted cache state.
+        static_assert(std::is_nothrow_default_constructible_v<Context::State>);
+        std::destroy_at(context.state.get());
+        std::construct_at(context.state.get());
+        error = std::string(operation) + ": " + reason.data();
         return Result::failed;
     };
     if (resources.pipeline && state.pipeline_samples != samples) {
@@ -2592,6 +2610,21 @@ Result render(
         SDL_UnmapGPUTransferBuffer(resources.device, resources.upload);
     }
     uploading.stop();
+    const bool shadowed = modelled && !models->casts.empty();
+    SDL_GPURenderPass* pass{};
+    std::function<void()> lay;
+    if (shadowed)
+        lay = [&] {
+            lay_shadows(
+                pass,
+                models_held.shadows,
+                resources.sampler,
+                ground_count != 0 ? resources.ground : resources.vertices,
+                ground_count != 0 ? ground_count : models->shadow_ground
+            );
+        };
+    // The potentially allocating closure above is ready before a command can
+    // hold an upload that has not yet been submitted.
     // The submission and the waits for the card, without the caller's work
     // while it draws, which the caller times.
     bench_timers::Span waiting(bench_timers::Stage::gpu_wait);
@@ -2673,7 +2706,6 @@ Result render(
     SDL_EndGPUCopyPass(copy);
     // The units' shadows cast into their map, which the scene lays on its
     // ground where the shadows lie among its vertices.
-    const bool shadowed = modelled && !models->casts.empty();
     if (shadowed && !cast_shadows(models_held, *models, resources.command))
         return fail("Begin live GPU shadows");
     SDL_GPUColorTargetInfo colour_target{};
@@ -2773,8 +2805,7 @@ Result render(
             resources.command, 1, shadow_block.data(), sizeof(shadow_block)
         );
     }
-    SDL_GPURenderPass* pass =
-        SDL_BeginGPURenderPass(resources.command, &colour_target, 1, &depth_target);
+    pass = SDL_BeginGPURenderPass(resources.command, &colour_target, 1, &depth_target);
     if (!pass)
         return fail("Begin live GPU render pass");
     SDL_BindGPUGraphicsPipeline(pass, resources.pipeline);
@@ -2794,17 +2825,6 @@ Result render(
     const std::span<const ModelRun> runs = modelled ? models->runs : std::span<const ModelRun>{};
     const std::span<const MarkerRun> marker_runs =
         marked ? models->marker_runs : std::span<const MarkerRun>{};
-    std::function<void()> lay;
-    if (shadowed)
-        lay = [&] {
-            lay_shadows(
-                pass,
-                models_held.shadows,
-                resources.sampler,
-                ground_count != 0 ? resources.ground : resources.vertices,
-                ground_count != 0 ? ground_count : models->shadow_ground
-            );
-        };
     draw_frame_and_models(
         pass,
         resources.pipeline,
@@ -2893,6 +2913,8 @@ Result render(
         resources.command = nullptr;
         if (!submitted)
             return fail("Submit live GPU render");
+        if (card_uploads)
+            commit_shadow_templates(models_held, *models);
         waiting.stop();
         if (while_drawing)
             while_drawing();
@@ -2914,6 +2936,8 @@ Result render(
     resources.command = nullptr;
     if (!resources.fence)
         return fail("Submit live GPU render");
+    if (card_uploads)
+        commit_shadow_templates(models_held, *models);
     // The caller's work runs while the card draws, rather than after the
     // picture comes back.
     waiting.stop();
