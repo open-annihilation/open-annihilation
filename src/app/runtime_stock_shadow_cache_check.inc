@@ -210,6 +210,7 @@
                 std::vector<int32_t> frozen_picks;
                 renderer::Surface cold_picture;
                 bool saw_cold{}, saw_upload{}, saw_hit{};
+                bool reported_foreign_non_caster{};
                 for (unsigned frame = 0; frame < stock_warm_frames && !saw_hit; ++frame) {
                     bench_timers::shadow_index_counts = {};
                     render_match_surface();
@@ -252,12 +253,47 @@
                     );
                     const auto& draws = match_models().draws.models;
                     for (const auto& draw : draws) {
-                        if (draw.plan.linked.drawn && !draw.preplan_omitted)
-                            require(
-                                draw.model.unit != nullptr && draw.stand_in < 0 &&
-                                    draw.model.unit->type_index == type,
-                                "another model type entered the legitimate stock cache view"
+                        if (!draw.plan.linked.drawn || draw.preplan_omitted)
+                            continue;
+                        const auto* unit = draw.model.unit;
+                        const auto& stand_ins = match_models().draws.stand_ins;
+                        if (draw.stand_in >= 0 &&
+                            static_cast<std::size_t>(draw.stand_in) < stand_ins.size())
+                            unit = &stand_ins[static_cast<std::size_t>(draw.stand_in)];
+                        if (unit != nullptr && draw.stand_in < 0 && unit->type_index == type)
+                            continue;
+                        const uint32_t flags = draw.model.def ? draw.model.def->flags : 0;
+                        // shadow_of_draw returns before emitting any shadow for either
+                        // condition. A linked scenery body is not itself a shadow cast.
+                        // on_map and stand_in alone do not establish that exclusion.
+                        const bool no_shadow = (flags & OA_UNIT_DEF_FLAG_NO_SHADOW) != 0;
+                        const bool non_caster = !draw.plan.model.from_image || no_shadow;
+                        if (!non_caster || !reported_foreign_non_caster) {
+                            const auto foreign_type =
+                                unit != nullptr ? uint32_t(unit->type_index) : 0;
+                            const auto position = draw.shown_position.value_or(
+                                unit != nullptr ? unit->position : oa::FixedVec3{}
                             );
+                            std::cout << "stock shadow foreign draw: stock=" << stock_name
+                                      << " rules=" << version << " type=" << foreign_type
+                                      << " name="
+                                      << (foreign_type < spawn_type_names_.size()
+                                              ? std::string_view{spawn_type_names_[foreign_type]}
+                                              : std::string_view{"<unknown>"})
+                                      << " on_map=" << draw.on_map << " stand_in=" << draw.stand_in
+                                      << " id=" << (unit != nullptr ? uint32_t(unit->id) : 0)
+                                      << " position=" << position.x << ',' << position.y << ','
+                                      << position.z << " omitted=" << draw.preplan_omitted
+                                      << " linked=" << draw.plan.linked.drawn
+                                      << " from_image=" << draw.plan.model.from_image
+                                      << " no_shadow=" << no_shadow << " flags=" << flags
+                                      << " proven_non_caster=" << non_caster << '\n';
+                            reported_foreign_non_caster = non_caster;
+                        }
+                        require(
+                            non_caster,
+                            "another possible shadow caster entered the legitimate stock cache view"
+                        );
                     }
                     for (const auto slot : actors) {
                         const auto id = match_->world().record.units[slot].id;
