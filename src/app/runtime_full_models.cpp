@@ -30,6 +30,7 @@
 // Nothing here writes the match or the planner's state.
 #include "runtime_full.hpp"
 #include "full_plane_orders.hpp"
+#include "full_polygon_shape.hpp"
 #include "renderer_water_shading.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "body_lod_geometry.hpp"
@@ -1030,10 +1031,23 @@ double twice_cut_area(std::span<const CutPoint> polygon) noexcept {
 /// @param corners the frame's corners
 /// @param polygons the unit's polygons
 /// @param[out] shape exact normalized values beside the lookup digest
+/// @param indexed replaces the sized scratch by index for Enhanced bodies
 /// @return the digest
 uint64_t polygon_shape(
-    std::span<const Corner> corners, std::span<const Polygon> polygons, std::vector<int64_t>& shape
+    std::span<const Corner> corners,
+    std::span<const Polygon> polygons,
+    std::vector<int64_t>& shape,
+    bool indexed
 ) {
+    if (indexed)
+        return polygon_shapes::write(
+            corners,
+            polygons,
+            shape,
+            shape_digest_start,
+            shape_digest_multiplier,
+            shape_digest_fold_shift
+        );
     uint64_t digest = shape_digest_start;
     shape.clear();
     const auto fold = [&digest, &shape](int64_t value) {
@@ -1468,16 +1482,18 @@ void find_plane_cuts(
 /// @param[in,out] polygons the unit's polygons, reordered
 /// @param[in,out] scratch the scratch
 /// @param[in,out] kept the bounded orders kept by exact polygon shape
+/// @param indexed_shape writes the exact shape into sized Enhanced scratch
 /// @return the cuts of the polygons in their new order, which the next call changes
 PlaneCuts order_as_depth_plane(
     std::span<const Corner> corners,
     std::vector<Polygon>& polygons,
     PlaneOrderScratch& scratch,
-    PlaneOrderCache<KeptPlaneOrder>& kept
+    PlaneOrderCache<KeptPlaneOrder>& kept,
+    bool indexed_shape
 ) {
     if (polygons.empty())
         return {};
-    const uint64_t shape = polygon_shape(corners, polygons, kept.shape());
+    const uint64_t shape = polygon_shape(corners, polygons, kept.shape(), indexed_shape);
     const auto* found = kept.find(shape);
     if (!found) {
         auto& next = kept.scratch();
@@ -4695,7 +4711,11 @@ void Emitter::draw_model(const ModelDraw& drawn) {
         0, lift > 0 ? int32_t{static_cast<uint8_t>(lift + base)} : -1, own, is_digger(model)
     );
     cut_under_nearer(order_as_depth_plane(
-        impl_.corners, impl_.polygons, impl_.plane_order, impl_.kept_plane_orders
+        impl_.corners,
+        impl_.polygons,
+        impl_.plane_order,
+        impl_.kept_plane_orders,
+        impl_.body_lod_enabled
     ));
     cut_under_clearing(0, impl_.polygons.size());
     emit_polygons(canvas);
