@@ -7,6 +7,7 @@
 #include "oa/data/enhanced_mode.hpp"
 #include "runtime_classic_overlay_check.hpp"
 #include "bench_timers.hpp"
+#include "plan_work_counts.hpp"
 #include "gui_actions.hpp"
 #include "oa/app/far_view.hpp"
 #include "oa/ui/hud/command_buttons.hpp"
@@ -752,6 +753,7 @@ bool omit_presented_model(
     UnitPlan& plan,
     PreplanningVisibility::Worker* worker
 ) {
+    const plan_work::Span work_span(plan_work::Phase::omission_proof);
     if (!worker || !frame.preplanning || !frame.preplanning->view ||
         !frame.preplanning->budget_safe || !frame.preplanning_sight || !plan.from_copies ||
         plan.linked || !plan.preplanning_geometry || frame.snapshot_unlinked_vertices ||
@@ -821,6 +823,7 @@ bool omit_completed_model(
     UnitPlan& plan,
     PreplanningVisibility::Worker* worker
 ) {
+    const plan_work::Span work_span(plan_work::Phase::omission_proof);
     if (!worker || !frame.preplanning || !frame.preplanning->view ||
         !frame.preplanning->budget_safe || !frame.preplanning_sight || plan.from_copies ||
         models.presentation.fraction != whole_tick || plan.linked || !plan.carried.empty() ||
@@ -875,6 +878,7 @@ bool defer_invisible_model(
     PreplanningVisibility::Worker* worker,
     DeferredModelGeometry* deferred
 ) {
+    const plan_work::Span work_span(plan_work::Phase::omission_proof);
     if (!deferred || !worker || !frame.defer_geometry || !frame.checked_integer_rotation ||
         !frame.preplanning || !frame.preplanning->view || !frame.preplanning->budget_safe ||
         !frame.preplanning_sight || plan.from_copies || plan.linked || !plan.preplanning_geometry ||
@@ -1058,6 +1062,11 @@ void plan_model(
         frame.shadow_type_supported(frame.shadow_type_context, model);
     if (verified_geometry_shadow)
         image_plan = model_render::ModelImagePlan::metadata;
+    const auto work_phase = image_plan == model_render::ModelImagePlan::metadata
+                                ? plan_work::Phase::model_plan_metadata
+                                : plan_work::Phase::model_plan_pixels;
+    const auto builds_before = plan_work::recording() ? model.state->image_builds : 0;
+    plan_work::Span work_span(work_phase);
     model_render::plan_unit_supersampled(
         renderer,
         bridge,
@@ -1070,6 +1079,15 @@ void plan_model(
         verified_geometry_shadow ? model_render::ModelShadowSource::verified_geometry
                                  : model_render::ModelShadowSource::cached_image
     );
+    work_span.stop();
+    // Carried and finer images have their own states; this counts the model's state only.
+    if (plan_work::recording())
+        plan_work::count(
+            image_plan == model_render::ModelImagePlan::metadata
+                ? plan_work::Work::metadata_image_builds
+                : plan_work::Work::pixel_image_builds,
+            model.state->image_builds - builds_before
+        );
     if (frame.live_renderer && drawn.plan.linked.drawn) {
         drawn.shown_position = model.unit->position;
         if (snapshot_vertices) {
@@ -1129,17 +1147,32 @@ void plan_unit_model(
     ModelTransformCache* transforms,
     PreplanningVisibility::Worker* preplanning_worker
 ) {
+    const plan_work::UnitSampling work_sample(plan.unit_index);
     const auto& model = plan.model;
     plan.shown = model;
     plan.adds_draw = false;
     if (model.instance == nullptr)
         return;
+    plan_work::count(plan_work::Work::unit_plans);
+    if (plan.from_copies)
+        plan_work::count(plan_work::Work::copy_plans);
+    if (plan.linked)
+        plan_work::count(plan_work::Work::linked_plans);
     auto* deferred = plan.unit_index < models.deferred_geometry.units.size()
                          ? &models.deferred_geometry.units[plan.unit_index]
                          : nullptr;
     if (deferred)
         deferred->observe_fresh(*model.instance);
     const auto update = [&](const model_render::ModelRef& shown) {
+        const bool original = shown.instance == model.instance;
+        const plan_work::Span work_span(
+            original ? plan_work::Phase::original_update : plan_work::Phase::copy_update
+        );
+        if (shown.state->transforms_dirty || shown.instance->transforms_dirty())
+            plan_work::count(
+                original ? plan_work::Work::original_updates_dirty
+                         : plan_work::Work::copy_updates_dirty
+            );
         if (plan.linked || transforms == nullptr) {
             model_render::update_linked_transforms(renderer, shown);
             return;
@@ -1151,11 +1184,17 @@ void plan_unit_model(
             shown, {unit.bank, static_cast<int16_t>(unit.heading), unit.pitch}
         );
         if (shown.state->transforms_dirty || shown.instance->transforms_dirty()) {
-            if (!transforms->reuse(*shown.instance, shown.state->shift)) {
+            if (transforms->reuse(*shown.instance, shown.state->shift)) {
+                plan_work::count(plan_work::Work::transform_cache_hits);
+            } else {
                 const bool prefix = frame.checked_integer_rotation &&
                                     shown.instance->root_transforms_changed(shown.state->shift);
-                if (!prefix ||
-                    !transforms->reuse_root_prefix(*shown.instance, shown.state->shift)) {
+                const bool root_reused =
+                    prefix && transforms->reuse_root_prefix(*shown.instance, shown.state->shift);
+                if (root_reused) {
+                    plan_work::count(plan_work::Work::root_prefix_hits);
+                } else {
+                    plan_work::count(plan_work::Work::transform_rebuilds);
                     shown.instance->rebuild_transforms(
                         shown.state->shift, frame.checked_integer_rotation
                     );
@@ -1169,6 +1208,13 @@ void plan_unit_model(
             }
             shown.state->transforms_dirty = false;
         }
+    };
+    const auto note = [&](const model_render::ModelRef& shown) {
+        const plan_work::Span work_span(
+            shown.instance == model.instance ? plan_work::Phase::original_note
+                                             : plan_work::Phase::copy_note
+        );
+        model_render::note_piece_changes(shown);
     };
     // Resolve only current inputs. Frozen offscreen image history is discarded
     // before a genuine image or a classic/sample region can consume the model.
@@ -1207,7 +1253,7 @@ void plan_unit_model(
                                             : std::nullopt;
         if (!may_freeze) {
             consume_original();
-            model_render::note_piece_changes(model);
+            note(model);
             if (!carried)
                 update(model);
         } else {
@@ -1221,10 +1267,13 @@ void plan_unit_model(
         std::optional<Blending> blending;
         if (plan.linked)
             blending.emplace(models.presentation);
-        plan.shown = unit_copies(models, plan.unit_index, model, plan.pose);
+        {
+            const plan_work::Span work_span(plan_work::Phase::copy_place);
+            plan.shown = unit_copies(models, plan.unit_index, model, plan.pose);
+        }
         if (!may_freeze) {
             consume_copy();
-            model_render::note_piece_changes(plan.shown);
+            note(plan.shown);
         }
         if (carried)
             return;
@@ -1253,11 +1302,11 @@ void plan_unit_model(
                 deferred->freeze_original(*model.instance, needed);
             } else {
                 consume_original();
-                model_render::note_piece_changes(model);
+                note(model);
                 update(model);
             }
             consume_copy();
-            model_render::note_piece_changes(plan.shown);
+            note(plan.shown);
         }
         if (omitted)
             return;
@@ -1281,7 +1330,7 @@ void plan_unit_model(
     if (defer_invisible_model(models, renderer, frame, plan, preplanning_worker, deferred))
         return;
     consume_original();
-    model_render::note_piece_changes(model);
+    note(model);
     if (!plan.linked && transforms != nullptr)
         update(model);
     plan_model(
@@ -1327,6 +1376,7 @@ void plan_unit_model(
 void plan_unit_draws(
     MatchModels& models, const UnitPlanFrame& frame, oa::platform::job_pool::Pool* pool
 ) {
+    plan_work::Span prepare_span(plan_work::Phase::run_prepare, true);
     auto& unit_plans = models.unit_plans;
     const oa::World& world = models.offline->world().record;
     // The units that the run's carriers carry, which their plans reach.
@@ -1399,8 +1449,22 @@ void plan_unit_draws(
     std::atomic<uint32_t> next_item{0};
     // Each thread notes the first item it failed on, and why.
     std::array<std::pair<uint32_t, std::string>, oa::platform::job_pool::max_threads> failures{};
+    const bool measured = plan_work::recording();
+    std::optional<std::array<plan_work::Collector, oa::platform::job_pool::max_threads>>
+        work_collectors;
+    if (measured) {
+        work_collectors.emplace();
+        for (uint32_t band = 0; band < bands; ++band) {
+            (*work_collectors)[band].counts.frame_id = plan_work::source_frame();
+            (*work_collectors)[band].sample = false;
+        }
+    }
+    prepare_span.stop();
+    plan_work::Span wait_span(plan_work::Phase::run_wait, true);
     oa::platform::job_pool::run_bands(
         bands > 1 ? pool : nullptr, bands, [&](uint32_t band) noexcept {
+            const plan_work::Binding work_binding(measured ? &(*work_collectors)[band] : nullptr);
+            const plan_work::Span worker_span(plan_work::Phase::worker_plan, true);
             auto& renderer = band == 0 ? models.renderer : models.band_scratch[band - 1].renderer;
             oa::present::DisplayContext* bound = oa::present::display_context();
             oa::present::bind_display(&models.display.context);
@@ -1417,7 +1481,7 @@ void plan_unit_draws(
                 const uint32_t end =
                     linked_item ? linked : std::min(units, begin + kUnitsPerPlanItem);
                 try {
-                    for (uint32_t at = begin; at < end; ++at)
+                    for (uint32_t at = begin; at < end; ++at) {
                         plan_unit_model(
                             models,
                             renderer,
@@ -1426,6 +1490,10 @@ void plan_unit_draws(
                             transforms,
                             preplanning_ready ? &preplanning_workers[band] : nullptr
                         );
+                        const auto& completed = unit_plans.plans[unit_plans.order[at]];
+                        if (completed.adds_draw && completed.draw.preplan_omitted)
+                            plan_work::count(plan_work::Work::omitted_plans);
+                    }
                 } catch (const std::exception& error) {
                     if (failure.second.empty())
                         failure = {
@@ -1439,6 +1507,10 @@ void plan_unit_draws(
             oa::present::bind_display(bound);
         }
     );
+    wait_span.stop();
+    if (measured)
+        for (uint32_t band = 0; band < bands; ++band)
+            plan_work::merge_active((*work_collectors)[band].counts);
     if (preplanning_ready)
         for (const auto& worker : preplanning_workers) {
             models.preplanning_visibility.copy_preplan_omitted_count += worker.omitted_count;
@@ -2078,6 +2150,7 @@ void Runtime::render_match_surface() {
 bool Runtime::draw_match_surface() {
     if (!match_ || !selected_tnt_)
         throw std::logic_error("match renderer requires an initialized offline match");
+    plan_work::Frame work_frame(plan_work::enabled);
     // The drawing rebuilds piece placements the match reads, so it rounds as
     // the ticks do.
     oa::base::float_precision::restore_program_float_control();
@@ -2191,7 +2264,10 @@ bool Runtime::draw_match_surface() {
     models.preplanning_visibility.whole_tick_preplan_omitted_count = 0;
     models.preplanning_visibility.geometry_unavailable = false;
     models.preplanning_visibility.budget_safe = false;
-    observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
+    {
+        const plan_work::Span work_span(plan_work::Phase::pose_capture, true);
+        observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
+    }
     auto& presentation = models.presentation;
     const bool primed_rigs =
         !dots && unit_pose_capture(match_->rules(), true) == UnitPoseCapture::root &&
@@ -2223,6 +2299,7 @@ bool Runtime::draw_match_surface() {
     // Each draw places the copies it draws from afresh: a mirrored unit draws
     // from them on whole ticks too.
     ++presentation.draw;
+    work_frame.set_frame(presentation.draw);
     {
         const uint32_t tick = match_->simulation().tick;
         const auto shots = match_->projectiles();
@@ -2393,6 +2470,7 @@ bool Runtime::draw_match_surface() {
     // band then draws the list.
     auto& draw_list = models.draws;
     mark(Stage::match_plan);
+    plan_work::Span list_prepare_span(plan_work::Phase::list_prepare, true);
     keep_spare_vertices(models.unit_plans, draw_list);
     clear_world_draws(draw_list);
     draw_list.spatial_particles.clear();
@@ -3142,6 +3220,8 @@ bool Runtime::draw_match_surface() {
             {feature.cell_x, feature.cell_z, feature_height(feature.feature_index)}
         );
     }
+    list_prepare_span.stop();
+    plan_work::Span unit_sites_span(plan_work::Phase::unit_sites, true);
     std::vector<uint16_t> units_to_draw;
     std::vector<oa::present::world_renderer::UnitDrawSite> unit_sites;
     auto& unit_plans = models.unit_plans;
@@ -3219,10 +3299,13 @@ bool Runtime::draw_match_surface() {
         uint64_t{units_to_draw.size()} + attached_units + match_features_.size() + 1;
     models.preplanning_visibility.budget_safe =
         model_upper_bound < renderer_live_gpu::largest_model_instance_count;
+    unit_sites_span.stop();
+    plan_work::Span sort_span(plan_work::Phase::battlefield_sort, true);
     oa::present::world_renderer::BattlefieldDrawPlan draw_plan;
     oa::present::world_renderer::plan_battlefield_draws(
         feature_sites, unit_sites, renderer.camera_y, draw_plan
     );
+    sort_span.stop();
     const auto plan_feature = [&](uint32_t index) {
         auto& feature = features_to_draw[index];
         if (feature.object != nullptr)
@@ -3237,6 +3320,7 @@ bool Runtime::draw_match_surface() {
     const auto plan_unit_run = [&] {
         if (dots)
             return;
+        plan_work::Span run_prepare_span(plan_work::Phase::run_prepare, true);
         for (const auto place : unit_plans.run) {
             const uint16_t unit_index = units_to_draw[place];
             auto& plan = unit_plans.plans[place];
@@ -3257,6 +3341,7 @@ bool Runtime::draw_match_surface() {
                 (between_ticks && unit_or_cargo_moved(models, world_record, unit_index)) ||
                 plan.pose.has_value();
         }
+        run_prepare_span.stop();
         plan_unit_draws(models, plan_frame, draw_pool_.get());
     };
     // The battlefield draws far to near: effect layers 0 to 2 (wakes among
@@ -3605,6 +3690,7 @@ bool Runtime::draw_match_surface() {
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};
+        work_frame.finish(drawn);
         return drawn;
     }
     // The HUD overlay: resource bars, bottom panel, then radar at
@@ -3734,6 +3820,7 @@ bool Runtime::draw_match_surface() {
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};
+        work_frame.finish(false);
         return false;
     }
     // ui.megamap draws over the battlefield in its place.
@@ -3820,6 +3907,7 @@ bool Runtime::draw_match_surface() {
     // Director mode composes its own frame (draw_director_frame).
     if (!match_use_layers_ && !directed)
         compose_match_frame(surface_);
+    work_frame.finish(true);
     return true;
 }
 
