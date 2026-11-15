@@ -129,7 +129,7 @@ void print_shadow_indices(std::size_t frame, const ShadowIndexCounts& counts) {
         "bench: SHADOW_INDEX_FRAME %zu logical_indices %llu dynamic_indices %llu "
         "cached_indices %llu dynamic_uploaded_indices %llu template_uploaded_indices %llu "
         "cache_bytes %llu requested_runs %u cached_runs %u cache_hits %u cache_misses %u "
-        "admitted_patterns %u fallback_runs %u cached_patterns %u\n",
+        "admitted_patterns %u fallback_runs %u cached_patterns %u mapping_uploaded_words %llu\n",
         frame,
         word(counts.logical_indices),
         word(counts.dynamic_indices),
@@ -143,7 +143,8 @@ void print_shadow_indices(std::size_t frame, const ShadowIndexCounts& counts) {
         counts.cache_misses,
         counts.admitted_patterns,
         counts.fallback_runs,
-        counts.cached_patterns
+        counts.cached_patterns,
+        word(counts.mapping_uploaded_words)
     );
 }
 

@@ -1107,6 +1107,8 @@ bool Runtime::render_live_match_surface() {
             director_ == nullptr;
         inputs.shadow_index_templates = inputs.body_lod_enabled;
         live.gpu.shadow_templates_allowed = inputs.shadow_index_templates;
+        inputs.shadow_index_procedural = inputs.body_lod_enabled;
+        live.gpu.shadow_procedural_allowed = inputs.shadow_index_procedural;
         // Keep this policy enabled through a resource failure: any image
         // already deferred must force a genuine-pixel replan if its type
         // can no longer cast the frame's shadow on the card.
