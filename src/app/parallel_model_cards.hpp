@@ -443,6 +443,7 @@ append_parallel_model_cards(ModelCards& into, const ModelCards& from, std::size_
         from.root_prefix_recipes.end()
     );
     into.root_prefix_ranges.clear();
+    std::fill(into.root_prefix_slots.begin(), into.root_prefix_slots.end(), 0);
     into.piece_frames.insert(
         into.piece_frames.end(), from.piece_frames.begin(), from.piece_frames.end()
     );
@@ -632,6 +633,7 @@ append_prevalidated_band(ModelCards& into, const ModelCards& from, std::size_t v
         from.root_prefix_recipes.end()
     );
     into.root_prefix_ranges.clear();
+    std::fill(into.root_prefix_slots.begin(), into.root_prefix_slots.end(), 0);
     into.piece_frames.insert(
         into.piece_frames.end(), from.piece_frames.begin(), from.piece_frames.end()
     );
