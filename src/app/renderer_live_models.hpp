@@ -147,9 +147,11 @@ struct ShadowIndexPatterns {
 /// frame references valid while the following frame admits a new pattern.
 struct ShadowIndexStream {
     bool enabled{};
+    bool procedural{};
     std::shared_ptr<const ShadowIndexPatterns> patterns{};
     std::vector<uint32_t> indices{};
     std::vector<renderer_live_gpu::ShadowIndexRun> runs{};
+    std::vector<renderer_live_gpu::ShadowIndexCast> casts{};
     std::size_t logical_indices{};
     std::array<ShadowIndexKey, renderer_live_gpu::shadow_template_pattern_limit> candidates{};
     uint32_t candidate_count{};
@@ -160,6 +162,7 @@ struct ShadowIndexMark {
     std::size_t indices{}, runs{}, logical_indices{};
     uint32_t candidates{};
     renderer_live_gpu::ShadowIndexRun last_run{};
+    std::size_t casts{};
 };
 
 /// The model types the card keeps, and their triangle corners, as

@@ -122,6 +122,9 @@ struct Context {
     /// Whether immutable shadow index buffers may be used. False retains the
     /// same frame's validated compact stream through ordinary dynamic uploads.
     bool shadow_templates_allowed{true};
+    /// Whether mixed cast runs may read retained local corners in their vertex
+    /// stage. False reconstructs their exact ordinary indexed draw order.
+    bool shadow_procedural_allowed{true};
     /// Actual shadow draws and uploads of the last successful render; cleared
     /// before every attempt, including one that fails.
     oa::app::ShadowIndexCounts shadow_index_counts{};
@@ -274,7 +277,7 @@ struct ShadowCast {
 };
 
 /// The frame's shadow index representation, with identical triangle ordering.
-enum class ShadowIndexEncoding : uint8_t { expanded, compact };
+enum class ShadowIndexEncoding : uint8_t { expanded, compact, procedural };
 
 inline constexpr std::size_t shadow_template_byte_limit = 8 * 1024 * 1024;
 inline constexpr uint32_t shadow_template_pattern_limit = 64;
@@ -295,7 +298,8 @@ struct ShadowIndexPattern {
 /// One unchanged ordinary shadow run in the compact stream.
 /// A zero pattern names dynamic indices; otherwise pattern-1 names an immutable
 /// template and first_index is zero. index_count is always the complete logical
-/// count, including every cast; no run is split or reordered.
+/// count, including every cast; no run is split or reordered. Procedural runs
+/// use per-cast sources and keep first_index and pattern both zero.
 struct ShadowIndexRun {
     std::size_t vertex{};   ///< retained ordinary run metadata; unused by the cast shader
     uint32_t first_cast{};  ///< first cast in ModelDraws::casts
@@ -303,6 +307,16 @@ struct ShadowIndexRun {
     uint32_t first_index{}; ///< first dynamic word, or zero for a template prefix
     uint32_t index_count{};
     uint32_t pattern{}; ///< zero for dynamic, otherwise descriptor index plus one
+};
+
+/// One cast's ordered local corner sequence in a procedural stream.
+/// A zero pattern names raw local corners in shadow_dynamic_indices; otherwise
+/// pattern-1 names an immutable sequence and first_index must be zero. Empty
+/// casts retain a zero-length dynamic span and their original cast position.
+struct ShadowIndexCast {
+    uint32_t first_index{};
+    uint32_t index_count{};
+    uint32_t pattern{};
 };
 
 /// The map the units' shadows are cast into (ModelDraws::casts), over the
@@ -383,6 +397,9 @@ struct ModelDraws {
     uint64_t shadow_patterns_type_revision{}; ///< the matching corners_revision
     /// Sum of compact run index_count values, preserving the ordinary budget.
     std::size_t logical_shadow_index_count{};
+    /// One source for every cast in procedural mode. Runs retain their original
+    /// first_cast/cast_count/index_count, with first_index and pattern both zero.
+    std::span<const ShadowIndexCast> shadow_index_casts{};
 };
 
 /// Whether render() draws model draws on the card: once a frame has made

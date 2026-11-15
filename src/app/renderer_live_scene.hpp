@@ -728,6 +728,9 @@ struct Inputs {
     bool body_lod_enabled{};
     /// Retains exact uniform shadow index runs; false keeps expanded packets.
     bool shadow_index_templates{};
+    /// Keeps each ordinary cast run while sharing its individual local corner
+    /// sequences. The backend retains the exact indexed capability fallback.
+    bool shadow_index_procedural{};
     std::array<std::array<uint8_t, 3>, full::team_colour_players> owner_colors{};
     /// Painted map rectangle needed by the camera, clipped to the map.
     int32_t left{};
