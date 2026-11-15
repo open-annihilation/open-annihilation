@@ -15,7 +15,7 @@
 
 namespace oa::app {
 
-/// Tracks current geometry and image obligations of invisible model draws.
+/// Tracks geometry and image obligations while another draw supplies the frame.
 /// Admitted local ground scripts refresh geometry before effect reads; newer
 /// materializations satisfy geometry without validating an older cached image.
 /// Historical pose storage remains available to explicit retained-pose callers.
@@ -38,7 +38,7 @@ struct DeferredModelGeometry {
             fresh_geometry = false;
     }
 
-    /// Freezes expensive presentation work after a complete invisibility proof.
+    /// Records presentation work that the current frame does not consume.
     /// @param current the canonical model, whose raw inputs and vectors are unchanged
     /// @param geometry_needed whether an ordinary draw would update its vectors
     /// @param copied whether the omitted draw uses interpolated copies
@@ -50,6 +50,14 @@ struct DeferredModelGeometry {
         fresh_original_images = true;
         fresh_copy_images |= copied;
         revision = current.materialization_revision();
+    }
+
+    /// Defers only the original while a fresh owned copy supplies its visible draw.
+    /// The original's instance dirtiness stays available to simulation effects.
+    /// @param current the canonical model, whose raw inputs and vectors are unchanged
+    /// @param geometry_needed whether the original still needs a geometry update
+    void freeze_original(oa::sim::model_runtime::Instance& current, bool geometry_needed) noexcept {
+        freeze_current(current, geometry_needed, false);
     }
 
     /// Discards a recipe superseded by a simulation effect's geometry write.
@@ -177,7 +185,7 @@ struct DeferredModelGeometries {
     }
 };
 
-/// Invalidates an offscreen image history before a real consumer needs pixels.
+/// Invalidates deferred image history before a real consumer needs pixels.
 ///
 /// Small buffers retain their capacity for ingress. Oversized buffers are freed;
 /// visible rebuilding still uses the ordinary bounded allocation/fallback path.

@@ -246,6 +246,75 @@ void current_pose_obligations() {
     OA_CHECK(!kept.fresh_geometry && !kept.fresh_original_images && !kept.fresh_copy_images);
 }
 
+/// Checks that visible copies leave original image and geometry obligations separate.
+void original_only_obligations() {
+    auto instance = runtime::make_instance(model(), 23, order);
+    Host host(instance);
+    instance.rebuild_transforms();
+    oa::app::DeferredModelGeometries table;
+    table.units.resize(2);
+    table.prepare(1, 7, instance, false);
+    auto& kept = table.units[1];
+    const auto old = instance;
+    const auto revision = instance.materialization_revision();
+    host.set_piece_angle(0, 1, 0x3210);
+    kept.freeze_original(instance, true);
+    OA_CHECK(kept.fresh_geometry && kept.fresh_original_images && !kept.fresh_copy_images);
+    OA_CHECK(instance.transforms_dirty() && instance.materialization_revision() == revision);
+    OA_CHECK(same_geometry(instance, old));
+    // An effect rebuild satisfies geometry alone; the original still needs image ingress.
+    instance.rebuild_transforms({13, -2111, 42});
+    kept.observe_fresh(instance);
+    OA_CHECK(!kept.fresh_geometry && kept.fresh_original_images && !kept.fresh_copy_images);
+    kept.freeze_original(instance, false);
+    OA_CHECK(!kept.fresh_geometry && kept.fresh_original_images && !kept.fresh_copy_images);
+    // Existing copy obligations are never cancelled by another original-only draw.
+    kept.fresh_copy_images = true;
+    kept.freeze_original(instance, false);
+    OA_CHECK(kept.fresh_original_images && kept.fresh_copy_images);
+    table.prepare(1, 8, instance, false);
+    OA_CHECK(!kept.fresh_geometry && !kept.fresh_original_images && !kept.fresh_copy_images);
+}
+
+/// Checks the copy revision distinguishes compatible raw poses from layout replacement.
+void compatible_copy_revision() {
+    const auto source = model();
+    constexpr uintptr_t owner = 29;
+    auto original = runtime::make_instance(source, owner, order);
+    original.rebuild_transforms();
+    auto copy = runtime::make_instance(source, owner, order);
+    OA_CHECK(copy.materialization_revision() == 0);
+    copy.rebuild_transforms();
+    const auto revision = copy.materialization_revision();
+    OA_CHECK(revision != 0);
+    Host host(original);
+    host.set_piece_angle(0, 1, 0x4567);
+    copy.take_pose(original);
+    OA_CHECK(copy.materialization_revision() == revision && copy.transforms_dirty());
+    copy.rebuild_transforms({19, 8111, -37});
+    auto eager = original;
+    eager.rebuild_transforms({19, 8111, -37});
+    OA_CHECK(same_geometry(copy, eager));
+    OA_CHECK(original.transforms_dirty());
+    for (uint32_t runtime::PieceState::* link :
+         {&runtime::PieceState::object_index,
+          &runtime::PieceState::parent,
+          &runtime::PieceState::first_child,
+          &runtime::PieceState::next_sibling}) {
+        auto changed = copy;
+        changed.pieces()[0].*link ^= 1;
+        const auto before = changed.materialization_revision();
+        changed.take_pose(original);
+        OA_CHECK(changed.materialization_revision() != before);
+    }
+    for (auto changed :
+         {runtime::make_instance(model(), owner, order), runtime::make_instance(source, owner)}) {
+        const auto before = changed.materialization_revision();
+        changed.take_pose(original);
+        OA_CHECK(changed.materialization_revision() != before);
+    }
+}
+
 /// Checks that optional ingress allocation has both frame and match limits.
 void snapshot_warm_budget() {
     oa::app::DeferredModelGeometries table;
@@ -301,6 +370,8 @@ int main() {
     root_only_and_refusal();
     image_metadata_gate();
     current_pose_obligations();
+    original_only_obligations();
+    compatible_copy_revision();
     fresh_image_invalidation();
     snapshot_warm_budget();
     return oa::test::check_exit_status();

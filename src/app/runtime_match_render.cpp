@@ -654,9 +654,74 @@ struct UnitPlanFrame {
     uint16_t probe_unit{};
     /// Enhanced Mode permits proved integer estimates during model rebuilds.
     bool checked_integer_rotation{};
-    /// The version-10 local GPU frame permits explicit invisible geometry recipes.
+    /// The version-10 local GPU frame permits explicit unconsumed geometry obligations.
     bool defer_geometry{};
 };
+
+/// Checks a completed copy's ownership and storage before replacing its raw pose.
+/// @param models the match's presentation histories
+/// @param plan the current original and its unit slot
+/// @return its built revision when the slot owns a warm copy not yet placed this draw
+std::optional<uint64_t>
+warm_owned_model_copy(const MatchModels& models, const UnitPlan& plan) noexcept {
+    if (plan.unit_index >= models.presentation.units.size())
+        return std::nullopt;
+    const auto& motion = models.presentation.units[plan.unit_index];
+    const auto& state = motion.state;
+    const auto& original_model = plan.model.instance->model_handle();
+    const auto& copy_model = motion.instance.model_handle();
+    const auto revision = motion.instance.materialization_revision();
+    if (!motion.seen || !motion.rig_valid || motion.rig_primed || motion.blended_draw == 0 ||
+        motion.blended_draw == models.presentation.draw || revision == 0 ||
+        motion.tick != models.presentation.tick ||
+        motion.instance_generation != plan.preplanning_generation ||
+        state.pieces.size() != motion.instance.pieces().size() || state.image_builds == 0 ||
+        (state.image.sprite.data == nullptr && !state.deferred_image) || state.finer ||
+        state.build_bands || state.image_unfinished || plan.preplanning_owner == 0 ||
+        plan.model.instance->owner_token() != plan.preplanning_owner ||
+        motion.instance.owner_token() != plan.preplanning_owner || !original_model || !copy_model ||
+        original_model.get() != copy_model.get() || original_model.owner_before(copy_model) ||
+        copy_model.owner_before(original_model) ||
+        plan.model.instance->root_piece() != motion.instance.root_piece())
+        return std::nullopt;
+    return revision;
+}
+
+/// Checks that the current owned copy alone can satisfy this GPU metadata draw.
+/// @param models the match's current presentation histories
+/// @param frame the versioned metadata policy and immutable supported-type registry
+/// @param plan the freshly placed visible copy and its canonical original
+/// @param geometry_needed whether the original's current vectors need an update
+/// @return true when original-only debt leaves all current draw and effect consumers safe
+bool copy_supplies_model_draw(
+    const MatchModels& models,
+    const UnitPlanFrame& frame,
+    const UnitPlan& plan,
+    bool geometry_needed
+) noexcept {
+    if (!frame.defer_geometry || !frame.shadow_type_supported ||
+        plan.unit_index == frame.probe_unit || plan.unit_index >= models.presentation.units.size())
+        return false;
+    const auto& model = plan.model;
+    const auto& shown = plan.shown;
+    const auto& motion = models.presentation.units[plan.unit_index];
+    // Effects can use Instance dirtiness without consulting renderer obligations.
+    // A root-only renderer invalidation therefore keeps the eager original path.
+    if ((geometry_needed && !model.instance->transforms_dirty()) ||
+        shown.instance != &motion.instance || shown.state != &motion.state ||
+        shown.unit != &motion.record || motion.blended_draw != models.presentation.draw ||
+        (model.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 ||
+        (shown.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 ||
+        (model.unit->state_flags & model_render::unit_state_cloaked) != 0 ||
+        (shown.unit->state_flags & model_render::unit_state_cloaked) != 0)
+        return false;
+    ModelDraw original, copy;
+    original.model = model;
+    copy.model = shown;
+    return geometry_shadow_metadata_candidate(original, frame.sea_level) &&
+           geometry_shadow_metadata_candidate(copy, frame.sea_level) &&
+           frame.shadow_type_supported(frame.shadow_type_context, shown);
+}
 
 /// Prepares immutable object boxes once on the caller thread, before workers.
 const preplanning_visibility::Geometry*
@@ -1136,6 +1201,9 @@ void plan_unit_model(
             deferred && deferred->generation == plan.preplanning_generation &&
             model.instance->pieces().size() <= DeferredModelGeometries::maximum_pieces &&
             !model.state->finer && !model.state->build_bands && !model.state->image_unfinished;
+        const auto warm_copy_revision = may_freeze && deferred->instance == model.instance
+                                            ? warm_owned_model_copy(models, plan)
+                                            : std::nullopt;
         if (!may_freeze) {
             consume_original();
             model_render::note_piece_changes(model);
@@ -1173,9 +1241,20 @@ void plan_unit_model(
             return;
         }
         if (may_freeze) {
-            consume_original();
-            model_render::note_piece_changes(model);
-            update(model);
+            const bool needed = deferred->fresh_geometry || model.state->transforms_dirty ||
+                                model.instance->transforms_dirty();
+            // Compatible take_pose updates raw pose only. A changed model/root/piece
+            // layout replaces geometry and advances its revision, keeping ingress eager.
+            const bool compatible_copy =
+                warm_copy_revision &&
+                plan.shown.instance->materialization_revision() == *warm_copy_revision;
+            if (compatible_copy && copy_supplies_model_draw(models, frame, plan, needed)) {
+                deferred->freeze_original(*model.instance, needed);
+            } else {
+                consume_original();
+                model_render::note_piece_changes(model);
+                update(model);
+            }
             consume_copy();
             model_render::note_piece_changes(plan.shown);
         }
