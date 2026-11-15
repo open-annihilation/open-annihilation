@@ -73,6 +73,10 @@ void shadow_index_procedural_scene_frames(uint32_t population, bool coarse) {
     BodyLodFixture fixture;
     BodyLodFixture other;
     oa::UnitDef definition{};
+    for (auto* instance : {&fixture.instance, &other.instance}) {
+        instance->pieces()[0].flags = visible | cached;
+        instance->pieces()[1].flags = visible;
+    }
     auto full = fixture.instance;
     for (auto& piece : full.pieces())
         piece.flags = visible | cached;
@@ -303,7 +307,13 @@ void shadow_index_procedural_scene_join() {
     actual.shadow_indices.runs.back().index_count += 3;
     actual.shadow_indices.logical_indices += 3;
     live::unmark_cards(actual);
-    marked.pose_epoch = actual.pose_epoch;
+    // Material retries invalidate shared-pose lookups, retaining their storage.
+    OA_CHECK(!marked.poses.empty() && !marked.pose_points.empty());
+    OA_CHECK(actual.poses.empty() && actual.pose_points.empty());
+    marked.poses.clear();
+    marked.pose_points.clear();
+    ++marked.pose_epoch;
+    OA_CHECK(actual.pose_epoch == marked.pose_epoch && actual.draw_instance == -1);
     OA_CHECK(procedural_shadow_records(actual) == procedural_shadow_records(marked));
 }
 
