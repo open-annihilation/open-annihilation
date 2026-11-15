@@ -363,8 +363,12 @@ Each of these takes effect at once.
   preset; experimental versions add further unit flow and AI policies. See
   [Enhanced Mode](enhanced-mode.md).
   `--enhanced-mode-version 10` selects experimental cohort targets, and
-  `--enhanced-mode-version 11` selects retained cohort targets for this
-  launch without changing the supplied version 4 or the stored preference.
+  `--enhanced-mode-version 11` selects retained cohort targets.
+  `--enhanced-mode-version 13` selects the private, unpromoted cardinal queue
+  escape experiment based on version 10, without target retention. It has
+  no established benefit in an actual 20,000-unit moving-and-fighting
+  comparison. These launch choices leave the supplied version 4 and stored
+  preference unchanged. Versions 9, 12 and 14 are unsupported.
   Saved games and recordings keep their recorded rules. Graphics remain
   separate under Graphics.
 - **Weapon types**, set by the mod. It counts how many weapon types the
@@ -1366,7 +1370,7 @@ mod." and turns Play now and Switch off off.
 | `--hardware-acceleration=off`, `=basic` or `=full` | Hardware acceleration | that level; `--hardware-acceleration` alone is Full |
 | `--no-hardware-acceleration` | Hardware acceleration | Off |
 | `--enhanced-mode[=on\|off]`, `--no-enhanced-mode` | Enhanced Mode | On or Off; no stored choice changes |
-| `--enhanced-mode-version N` | Enhanced Mode | new-game preset 1 through 8, 10 or 11, or 0 for Off; saved games keep their own version |
+| `--enhanced-mode-version N` | Enhanced Mode | new-game preset 1 through 8, 10, 11 or private experimental 13, or 0 for Off; saved games keep their own version |
 | `--native-density` | Native pixel density | On |
 | `--mod-dir PATH` | the mod (the Library) | plays the mod folder at `PATH` |
 | `--base-game` | the mod (the Library) | plays 3.1c without the mod you chose |

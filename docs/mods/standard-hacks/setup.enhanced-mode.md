@@ -27,8 +27,16 @@ saved and recorded games with their original rules and hashes. The unit and
 projectile capacities stay the same. Version 10 inherits version 8's movement
 and selects AI strike-target distribution among spatial cohorts. Version 11
 inherits version 10 and retains compatible current cohort targets within a
-bounded weighted-cost margin. Version 9 is unsupported; later supported
-versions do not enable it.
+bounded weighted-cost margin. Version 13 is a private, unpromoted cardinal
+queue escape experiment. It inherits version 10's routing, following,
+cohort assignment and rendering policies without version 11's target
+retention. Existing mature retries may try cardinally adjacent origin-cell
+centres only when the ordinary result makes no cell crossing and a fresh
+probe finds moving traffic. Ordinary cell crossings and the unchanged
+fallback result are preserved, with the existing clearance checks and no
+new saved state. No benefit is established in an actual 20,000-unit
+moving-and-fighting comparison. Versions 9, 12 and 14 are unsupported;
+later supported versions do not enable version 9.
 
 ## Configuration example
 

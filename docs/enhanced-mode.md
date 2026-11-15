@@ -12,11 +12,14 @@ Players in the same match may choose different graphics settings.
 ## Current preset
 
 Rules version 4 remains the current preset. Versions 5, 6, 7, 8, 10 and 11 are explicit
-experimental choices. Version 8 extends version 7's static routing
+experimental choices. Version 13 is a private, unpromoted experiment.
+Version 8 extends version 7's static routing
 with applied-leg queue checks and planning that ignores temporary unit occupancy.
 Version 10 inherits version 8 and selects AI strike-target distribution
 among spatial cohorts. Version 11 inherits version 10 and adds bounded
-retention of compatible current cohort targets. Version 9 is unsupported. Version 6 derives from
+retention of compatible current cohort targets. Version 13 inherits version 10
+and adds bounded cardinal queue escape without version 11's target retention.
+Versions 9, 12 and 14 are unsupported. Version 6 derives from
 version 4 and keeps version 5's advisory corridor lanes
 separate. The presets retain a capacity of 10,000 units per participating
 player. The engine allocates ranges only for participating players, with at
@@ -757,6 +760,34 @@ also substantial. Sampled host activity and the different version-6
 movement and combat workload prevent a causal comparison with the earlier
 version-4 timing. A previous attempt lost focus at tick 1,205 and is
 excluded. These measurements precede the later minimap and recording changes.
+
+## Private cardinal queue escape (version 13)
+
+Version 13 is an unpromoted experiment based on version 10. It keeps
+version 10's distributed routing, local following, cohort target assignment,
+animated body detail and deferred unit geometry. It does not select version
+11's target retention. Off and the earlier supported presets retain their
+existing rules. Versions 9, 12 and 14 remain unsupported.
+
+The existing mature retry phase may test the centres of the four cells
+cardinally adjacent to the origin when a fresh route probe finds moving
+traffic and the ordinary fan and reverse choices return no adjustment or a
+target within the origin cell. Every ordinary choice that crosses the origin-cell boundary
+is preserved. The additional candidates must pass the existing clearance
+checks. If none is legal, the ordinary result is returned unchanged.
+The experiment adds no saved state, random draws or retry clocks, and does
+not relax swept movement or final footprint occupancy checks.
+
+Select it explicitly for a private comparison:
+
+```sh
+./run.sh --skip-intro --enhanced-mode-version 13 --hardware-acceleration=full
+```
+
+Saves, recordings and multiplayer agreement retain its separate rules
+identity. Graphics choices remain independent. The supplied preset remains
+version 4. This policy has no established benefit in an actual 20,000-unit
+moving-and-fighting comparison and is not promoted for ordinary play.
 
 ## Experimental cohort target retention (version 11)
 

@@ -222,7 +222,7 @@ with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with 
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
 | `--enhanced-mode[=on\|off]` | Sets Enhanced Mode for this launch; alone it is On and selects the supplied new-game preset. |
 | `--no-enhanced-mode` | Starts this launch with Enhanced Mode Off. |
-| `--enhanced-mode-version N` | Selects a known new-game preset for this launch: 1 through 8, 10 or 11 enables Enhanced Mode, and 0 disables it. A conflicting explicit mode switch is refused. |
+| `--enhanced-mode-version N` | Selects a known new-game preset for this launch: 1 through 8, 10, 11 or 13 enables Enhanced Mode, and 0 disables it. A conflicting explicit mode switch is refused. |
 
 None of these is remembered: [settings](settings.md#for-one-run-the-command-line)
 says what each one shows in Settings. 3.1c's `-d` and `-df` choose a window
@@ -250,7 +250,11 @@ For ordinary play with the experimental version-10 rules, run:
 ```
 
 Use `--enhanced-mode-version 11` to select the experimental policy that retains cohort
-targets instead. Versions 10 and 11 have distinct rules identities;
+targets instead. `--enhanced-mode-version 13` selects the private,
+unpromoted cardinal queue escape experiment based on version 10; it does
+not retain cohort targets. It has no established benefit in an actual
+20,000-unit moving-and-fighting comparison. Versions 9, 12 and 14 are
+unsupported. Each supported version has a distinct rules identity;
 multiplayer peers must select the same version.
 
 This opens the normal frontend. Start a Skirmish or campaign as usual;
