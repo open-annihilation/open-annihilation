@@ -412,6 +412,41 @@ class NativeBenchReceiptTest(unittest.TestCase):
                                                        shadow_index_record(1, **values))
                 self.assert_work_rejected(text)
 
+    def test_shadow_cache_residency_survives_frames_without_cached_draws(self):
+        """Retained buffers describe occupancy even when a frame draws no cached shadow indices."""
+        zero = {field: 0 for field in (*bench.SHADOW_INDEX_UINT64_FIELDS,
+                                      *bench.SHADOW_INDEX_UINT32_FIELDS)}
+        cases = (dict(zero, cache_bytes=12, cached_patterns=1),
+                 dict(zero, cache_bytes=12, cached_patterns=1, logical_indices=30,
+                      dynamic_indices=30, requested_runs=1, cache_misses=1, fallback_runs=1),
+                 dict(zero, logical_indices=3, cached_indices=3, requested_runs=1, cached_runs=1,
+                      cache_misses=1, admitted_patterns=1, template_uploaded_indices=3,
+                      cache_bytes=12, cached_patterns=1),
+                 dict(zero, logical_indices=3, cached_indices=3, requested_runs=1, cached_runs=1,
+                      cache_hits=1, cache_bytes=12, cached_patterns=1))
+        for changes in cases:
+            with self.subTest(changes=changes):
+                text = render_work_transcript(plan=False)
+                for frame in range(3):
+                    text = text.replace(shadow_index_record(frame), shadow_index_record(frame, **changes))
+                self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+
+    def test_shadow_cache_rejects_missing_residency_and_unpaired_admission_uploads(self):
+        """A miss cannot draw an absent template, and each admission contributes an upload."""
+        zero = {field: 0 for field in (*bench.SHADOW_INDEX_UINT64_FIELDS,
+                                      *bench.SHADOW_INDEX_UINT32_FIELDS)}
+        cases = (dict(zero, logical_indices=3, cached_indices=3, requested_runs=1, cached_runs=1,
+                      cache_misses=1),
+                 dict(zero, cached_patterns=1),
+                 dict(zero, cache_bytes=12),
+                 dict(template_uploaded_indices=0),
+                 dict(admitted_patterns=0))
+        for changes in cases:
+            with self.subTest(changes=changes):
+                text = render_work_transcript().replace(shadow_index_record(1),
+                                                       shadow_index_record(1, **changes))
+                self.assert_work_rejected(text)
+
     def test_plan_counts_accept_partial_empty_and_raw_overlapping_samples(self):
         """Completion does not impose work sums or CPU/wall bounds on raw phase samples."""
         zero_phase = dict(calls=0, samples=0, wall_ns=0, cpu_ns=0, cpu_samples=0)

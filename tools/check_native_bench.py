@@ -402,6 +402,13 @@ def check_shadow_index_counts(result, match):
             "shadow template upload exceeds resident cache bytes")
     require((row["cached_indices"] > 0) == (row["cached_runs"] > 0),
             "cached shadow draws disagree with cached run coverage")
+    require(row["cached_runs"] == 0 or
+            (row["cached_patterns"] > 0 and row["cache_bytes"] > 0),
+            "cached shadow runs have no resident template")
+    require((row["cached_patterns"] == 0) == (row["cache_bytes"] == 0),
+            "shadow resident patterns disagree with occupied cache bytes")
+    require((row["admitted_patterns"] > 0) == (row["template_uploaded_indices"] > 0),
+            "shadow admissions disagree with template uploads")
     require(row["cache_hits"] == 0 or row["cached_patterns"] > 0,
             "shadow cache hits have no resident pattern")
 
