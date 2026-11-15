@@ -523,7 +523,7 @@ class NativeBenchReceiptTest(unittest.TestCase):
 
     def test_initial_accepts_default_current_and_explicit_versions(self):
         """Off, the current preset without a request, and explicit supported versions identify themselves."""
-        for actual, requested in ((4, 0), *((version, version) for version in (*range(9), 10))):
+        for actual, requested in ((4, 0), *((version, version) for version in (*range(9), 10, 11))):
             with self.subTest(actual=actual, requested=requested):
                 bench.check_initial(result_for(initial_line(actual, requested) + "\n"),
                                     rules_version=actual, requested_rules_version=requested)
@@ -550,6 +550,8 @@ class NativeBenchReceiptTest(unittest.TestCase):
                  (initial_line(4, 6), 4, 4),
                  (initial_line(4, 8), 4, 8),
                  (initial_line(8, 7), 8, 7),
+                 (initial_line(10, 11), 10, 11),
+                 (initial_line(11, 10), 11, 10),
                  ("bench: INITIAL enhanced_mode 0 rules_version 8 requested_rules_version 8", 8, 8))
         for line, actual, requested in cases:
             with self.subTest(line=line, actual=actual, requested=requested):
@@ -558,7 +560,7 @@ class NativeBenchReceiptTest(unittest.TestCase):
 
     def test_initial_refuses_unsupported_versions_even_when_expected(self):
         """An unsupported actual or requested version cannot pass by matching an expectation."""
-        for actual, requested in ((9, 0), (9, 9), (4, 9), (11, 0), (11, 11), (4, 11)):
+        for actual, requested in ((9, 0), (9, 9), (4, 9), (12, 0), (12, 12), (4, 12)):
             with self.subTest(actual=actual, requested=requested):
                 self.assert_rejected(result_for(initial_line(actual, requested) + "\n"),
                                      bench.check_initial, rules_version=actual,
@@ -566,7 +568,7 @@ class NativeBenchReceiptTest(unittest.TestCase):
 
     def test_complete_timers_off_transcripts_pass(self):
         """Receipt checks preserve the complete three-second, three-frame validation path."""
-        for actual, requested in ((0, 0), (4, 0), (4, 4), (6, 6), (7, 7), (8, 8), (10, 10)):
+        for actual, requested in ((0, 0), (4, 0), (4, 4), (6, 6), (7, 7), (8, 8), (10, 10), (11, 11)):
             with self.subTest(actual=actual, requested=requested):
                 text = transcript(actual, requested)
                 self.assertEqual(bench.check_lines(result_for(text), False, rules_version=actual,
@@ -575,7 +577,7 @@ class NativeBenchReceiptTest(unittest.TestCase):
 
     def test_complete_experimental_timers_on_transcripts_pass(self):
         """Following and cohort presets retain the timed transcript and simulation checks."""
-        for version in (8, 10):
+        for version in (8, 10, 11):
             with self.subTest(version=version):
                 text = transcript(version, version, timers=True)
                 self.assertEqual(bench.check_lines(result_for(text), True, rules_version=version,
@@ -979,9 +981,17 @@ class NativeBenchReceiptTest(unittest.TestCase):
                 self.assert_rejected(result_for(changed), bench.check_renderer_records,
                                      changed.splitlines(), 3, False)
 
+    def test_distinct_cohort_rules_are_rejected_in_complete_transcripts(self):
+        """Supported cohort presets still need to match an explicit session request."""
+        for actual, requested in ((10, 11), (11, 10)):
+            with self.subTest(actual=actual, requested=requested):
+                self.assert_rejected(result_for(transcript(actual, requested)), bench.check_lines,
+                                     False, rules_version=actual,
+                                     requested_rules_version=requested)
+
     def test_unsupported_rules_are_rejected_in_complete_transcripts(self):
         """Matching expectations cannot allow an unsupported version through the full checker."""
-        for version in (9, 11):
+        for version in (9, 12):
             with self.subTest(version=version):
                 self.assert_rejected(result_for(transcript(version, version)), bench.check_lines,
                                      False, rules_version=version,
