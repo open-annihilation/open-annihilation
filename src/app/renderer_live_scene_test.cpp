@@ -9808,7 +9808,382 @@ void underwater_features() {
 #include "physical_model_multirange_test.inc"
 #include "omitted_model_snapshots_test.inc"
 
+namespace {
+
+/// Keeps an owned arbitrary-heading body recipe after its canonical buffers go cold.
+struct RootPrefixSceneFixture : BodyLodFixture {
+    oa::UnitDef definition{};
+    oa::app::RootPrefixRecipe recipe{};
+
+    explicit RootPrefixSceneFixture(size_t pieces = 2, int16_t angle = 7319)
+        : BodyLodFixture(pieces) {
+        namespace runtime = oa::sim::model_runtime;
+        constexpr int32_t fixed = oa::app::root_prefix_fixed_scale;
+        const auto visible = static_cast<uint16_t>(runtime::PieceFlag::visible);
+        const auto cached = static_cast<uint16_t>(runtime::PieceFlag::cached);
+        for (auto& piece : instance.pieces())
+            piece.flags = visible | cached;
+        instance.pieces().back().flags = visible;
+        // A translated limb makes the containing box deliberately asymmetric.
+        if (pieces == 2)
+            instance.pieces()[1].translation.x = 19 * fixed;
+        instance.rebuild_transforms({}, true);
+        const auto placement = oa::app::root_prefix_placement(instance);
+        const auto rotation = oa::app::prepare_root_prefix_rotation(angle);
+        OA_CHECK(placement && rotation);
+        if (!placement || !rotation)
+            return;
+        recipe.geometry = oa::app::make_root_prefix_geometry(
+            instance, *placement, std::numeric_limits<size_t>::max()
+        );
+        OA_CHECK(recipe.geometry != nullptr);
+        recipe.rotation = *rotation;
+        recipe.placement = *placement;
+        unit.type_index = 1;
+        prepared.model = source.get();
+        prepared.owner = source;
+        auto& draw = battle.draws.models[0];
+        draw.model.def = &definition;
+        draw.root_prefix = recipe;
+        draw.plan.model.from_image = false;
+        battle.inputs.root_prefix_enabled = true;
+        battle.inputs.nanolathe_lighting = false;
+        battle.inputs.geometry_shadow_metadata = true;
+        battle.inputs.geometry_shadows_in_view = true;
+        state.image = {};
+        state.shadow = {};
+        state.deferred_image.reset();
+        for (auto& piece : instance.pieces()) {
+            piece.transformed_vertices.clear();
+            piece.transformed_origin = {INT32_MAX, INT32_MIN, INT32_MAX};
+        }
+    }
+};
+
+/// Checks lazy corners against the owned source mapping for full and coarse body types.
+void check_root_prefix_scene_corners(const RootPrefixSceneFixture& fixture) {
+    const auto& scene = fixture.battle.scene;
+    const auto& cards = scene.cards;
+    constexpr uint32_t corner_mask = (uint32_t{1} << joined_gpu::model_corner_bits) - 1;
+    constexpr uint32_t point_mask = (uint32_t{1} << joined_gpu::model_piece_shift) - 1;
+    constexpr float fixed = oa::app::root_prefix_fixed_scale;
+    for (const auto& unit : cards.units) {
+        OA_CHECK(unit.root_prefix && !unit.marker);
+        const auto& instance = cards.instances[unit.instance];
+        const auto& type = scene.card_types.types[unit.type];
+        OA_CHECK(instance.root_prefix != 0 && instance.positions == 0);
+        for (size_t at = unit.first_index; at < size_t{unit.first_index} + unit.index_count; ++at) {
+            const auto index = cards.indices[at];
+            const auto record = (size_t{instance.corners} + (index & corner_mask)) * 2;
+            const auto place = scene.card_types.records[record];
+            const uint32_t piece = place >> joined_gpu::model_piece_shift;
+            const uint32_t point = place & point_mask;
+            const uint32_t source =
+                type.body_detail ? type.source_vertices[point] : point - type.piece_vertices[piece];
+            const auto local = oa::app::root_prefix_point(fixture.recipe, piece, source);
+            const std::array expected{
+                instance.origin[0] + local.x / fixed,
+                instance.origin[1] + local.y / fixed,
+                instance.origin[2] + -(local.z / fixed)
+            };
+            const auto corner = live::card_corner(scene.card_types, cards, unit, index);
+            OA_CHECK(std::bit_cast<uint32_t>(corner.x) == std::bit_cast<uint32_t>(expected[0]));
+            OA_CHECK(
+                std::bit_cast<uint32_t>(corner.height) == std::bit_cast<uint32_t>(expected[1])
+            );
+            OA_CHECK(std::bit_cast<uint32_t>(corner.z) == std::bit_cast<uint32_t>(expected[2]));
+        }
+    }
+}
+
+/// Draws arbitrary headings, physical limbs and geometry shadows without canonical vertices.
+void root_prefix_scene_owned_geometry() {
+    constexpr auto moving_piece = uint64_t{1} << 7;
+    RootPrefixSceneFixture fixture(8);
+    auto& battle = fixture.battle;
+    battle.inputs.detail_scale = 0.5F;
+    const auto revision = fixture.instance.materialization_revision();
+    const auto record = fixture.unit;
+    OA_CHECK(live::root_prefix_supported(battle.inputs, battle.draws.models[0], fixture.recipe));
+    OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(battle.error.empty());
+    OA_CHECK(battle.scene.cards.positions.empty());
+    OA_CHECK(!battle.scene.cards.root_prefix_points.empty());
+    OA_CHECK(!battle.scene.cards.root_prefix_poses.empty());
+    OA_CHECK(
+        battle.scene.cards.root_prefix_poses.size() == battle.scene.cards.root_prefix_recipes.size()
+    );
+    OA_CHECK(!battle.scene.cards.units.empty() && !battle.scene.cards.casts.empty());
+    OA_CHECK(battle.scene.detail_poses.empty() && battle.scene.detail_pose_points.empty());
+    OA_CHECK(battle.scene.unit_detail.size() == 1);
+    if (battle.scene.unit_detail.size() == 1) {
+        const auto& detail = battle.scene.unit_detail[0];
+        OA_CHECK(detail.body_available && detail.body_lod == 1);
+        OA_CHECK((detail.body_piece_mask & moving_piece) != 0);
+    }
+    check_root_prefix_scene_corners(fixture);
+    OA_CHECK(fixture.instance.materialization_revision() == revision);
+    OA_CHECK(std::memcmp(&fixture.unit, &record, sizeof(record)) == 0);
+    OA_CHECK(fixture.state.image.pixels.empty() && fixture.state.shadow.pixels.empty());
+    OA_CHECK(!fixture.state.deferred_image);
+    for (const auto& piece : fixture.instance.pieces()) {
+        OA_CHECK(piece.transformed_vertices.empty());
+        OA_CHECK(
+            piece.transformed_origin.x == INT32_MAX && piece.transformed_origin.y == INT32_MIN
+        );
+    }
+}
+
+/// Keeps proxy endpoints integer and centred exactly on the displayed anchor.
+void root_prefix_scene_proxy_symmetry() {
+    RootPrefixSceneFixture fixture;
+    auto& battle = fixture.battle;
+    constexpr std::array<std::array<float, 3>, 3> cameras{
+        {{0.43F, 31.37F, 33.81F}, {0.79F, 29.14F, 34.27F}, {1.15F, 27.91F, 35.63F}}
+    };
+    for (const auto& camera : cameras) {
+        fixture.projection(camera[0]);
+        battle.inputs.clip_projection[3] = camera[1];
+        battle.inputs.clip_projection[7] = camera[2];
+        OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+        OA_CHECK(battle.scene.cards.units.size() == 1);
+        if (battle.scene.cards.units.size() != 1)
+            continue;
+        const auto& drawn = battle.scene.cards.units[0];
+        OA_CHECK(drawn.root_prefix && drawn.index_count != 0);
+        OA_CHECK(std::floor(drawn.left) == drawn.left && std::floor(drawn.top) == drawn.top);
+        OA_CHECK(
+            std::floor(drawn.right) == drawn.right && std::floor(drawn.bottom) == drawn.bottom
+        );
+        OA_CHECK(drawn.left + (drawn.right - drawn.left) * 0.5F == drawn.displayed_anchor[0]);
+        OA_CHECK(drawn.top + (drawn.bottom - drawn.top) * 0.5F == drawn.displayed_anchor[1]);
+        const auto& projection = battle.inputs.clip_projection;
+        constexpr float fixed = oa::app::root_prefix_fixed_scale;
+        const auto& point = fixture.unit.position;
+        const std::array expected{
+            std::round(
+                projection[0] * (point.x / fixed) + projection[1] * (point.y / fixed) +
+                projection[2] * (point.z / fixed) + projection[3]
+            ),
+            std::round(
+                projection[4] * (point.x / fixed) + projection[5] * (point.y / fixed) +
+                projection[6] * (point.z / fixed) + projection[7]
+            )
+        };
+        OA_CHECK(drawn.displayed_anchor == expected);
+        check_root_prefix_scene_corners(fixture);
+    }
+}
+
+/// Leaves clear image-key geometry without a fabricated body or owner marker.
+void root_prefix_scene_clear_geometry() {
+    RootPrefixSceneFixture fixture;
+    fixture.projection(0.05F);
+    fixture.battle.inputs.graphics_flags = 0;
+    for (auto& object : fixture.prepared.objects)
+        for (auto& primitive : object.primitives)
+            primitive.color = oa::present::model::image_key;
+    OA_CHECK(live::build(fixture.battle.inputs, fixture.battle.scene, fixture.battle.error));
+    const auto& cards = fixture.battle.scene.cards;
+    OA_CHECK(cards.markers.empty() && cards.vertices == 0);
+    for (const auto& unit : cards.units)
+        OA_CHECK(unit.index_count == 0);
+    OA_CHECK(fixture.battle.scene.body_lod_counts.distance_markers == 0);
+    OA_CHECK(fixture.battle.scene.body_lod_counts.full_mesh_models == 0);
+    OA_CHECK(fixture.battle.scene.body_lod_counts.body_lod_models == 0);
+}
+
+/// Keeps cached and moving texture choices from the virtual image's native depth flag.
+void root_prefix_scene_virtual_image_frames() {
+    RootPrefixSceneFixture fixture;
+    auto& battle = fixture.battle;
+    battle.inputs.graphics_flags = 0;
+    battle.draws.models[0].plan.linked.unlit = true;
+    const auto check_frames = [&](uint32_t moving_frame) {
+        OA_CHECK(live::build(battle.inputs, battle.scene, battle.error));
+        OA_CHECK(battle.scene.cards.instances.size() == 1);
+        if (battle.scene.cards.instances.size() != 1)
+            return;
+        const auto& instance = battle.scene.cards.instances[0];
+        OA_CHECK(instance.root_prefix != 0 && instance.piece_count == 2);
+        OA_CHECK(battle.scene.cards.piece_frames[instance.pieces] == 1);
+        OA_CHECK(battle.scene.cards.piece_frames[instance.pieces + 1] == moving_frame);
+        OA_CHECK(fixture.state.image.pixels.empty() && !fixture.state.deferred_image);
+    };
+    fixture.unit.flags2 = 0;
+    check_frames(1);
+    fixture.unit.flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    check_frames(0);
+}
+
+/// Refuses unsupported body policies without materializing or changing canonical state.
+void root_prefix_scene_admission() {
+    RootPrefixSceneFixture fixture;
+    auto& battle = fixture.battle;
+    auto& draw = battle.draws.models[0];
+    const auto supported = [&](bool expected) {
+        const auto record = fixture.unit;
+        const auto revision = fixture.instance.materialization_revision();
+        const auto dirty = fixture.instance.transforms_dirty();
+        OA_CHECK(live::root_prefix_supported(battle.inputs, draw, fixture.recipe) == expected);
+        OA_CHECK(std::memcmp(&fixture.unit, &record, sizeof(record)) == 0);
+        OA_CHECK(fixture.instance.materialization_revision() == revision);
+        OA_CHECK(fixture.instance.transforms_dirty() == dirty);
+        for (const auto& piece : fixture.instance.pieces())
+            OA_CHECK(piece.transformed_vertices.empty());
+    };
+    supported(true);
+    // A foot below sea level on dry terrain does not make the robot a water unit.
+    const auto placement = fixture.recipe.placement;
+    fixture.recipe.placement.y -= 4 * oa::app::root_prefix_fixed_scale;
+    draw.root_prefix = fixture.recipe;
+    const auto foot = oa::app::root_prefix_piece_bounds(fixture.recipe, 1);
+    OA_CHECK(foot && foot->low.y < 0);
+    supported(true);
+    fixture.recipe.placement = placement;
+    draw.root_prefix = fixture.recipe;
+    battle.inputs.root_prefix_enabled = false;
+    supported(false);
+    battle.inputs.root_prefix_enabled = true;
+    fixture.unit.state_flags |= oa::present::model::unit_state_cloaked;
+    supported(false);
+    fixture.unit.state_flags &= ~oa::present::model::unit_state_cloaked;
+    fixture.unit.attach_parent = 1;
+    supported(false);
+    fixture.unit.attach_parent = 0;
+    fixture.unit.flags |= OA_UNIT_FLAG_BUILDING;
+    supported(false);
+    fixture.unit.flags &= ~OA_UNIT_FLAG_BUILDING;
+    fixture.definition.flags |= OA_UNIT_DEF_FLAG_DIGGER;
+    supported(false);
+    fixture.definition.flags &= ~OA_UNIT_DEF_FLAG_DIGGER;
+    battle.inputs.sea_level = 2;
+    fixture.unit.position.y = 4 * oa::app::root_prefix_fixed_scale;
+    supported(false);
+    battle.inputs.sea_level = 0;
+    fixture.unit.position.y = 0;
+    battle.inputs.nanolathe_lighting = true;
+    oa::app::SpatialParticle light;
+    light.position = {
+        fixture.unit.position.x, 8 * oa::app::root_prefix_fixed_scale, fixture.unit.position.z
+    };
+    light.emissive = true;
+    battle.draws.spatial_particles.push_back(light);
+    supported(false);
+    battle.draws.spatial_particles[0].position.x = 256 * oa::app::root_prefix_fixed_scale;
+    battle.draws.spatial_particles[0].position.z = 256 * oa::app::root_prefix_fixed_scale;
+    supported(true);
+}
+
+/// Restores every packet range and memo when a material retry truncates a draw.
+void root_prefix_scene_card_rollback() {
+    RootPrefixSceneFixture fixture;
+    live::CardTypes types;
+    const auto type_index = live::card_type(types, fixture.instance, fixture.prepared);
+    OA_CHECK(type_index >= 0);
+    if (type_index < 0)
+        return;
+    const auto& type = types.types[static_cast<size_t>(type_index)];
+    live::ModelCards cards;
+    OA_CHECK(
+        live::card_root_prefix(cards, static_cast<uint32_t>(type_index), type, fixture.recipe) == 0
+    );
+    const auto points = cards.root_prefix_points.size();
+    live::mark_cards(cards);
+    auto next = fixture.recipe;
+    next.geometry = std::make_shared<oa::app::RootPrefixGeometry>(*fixture.recipe.geometry);
+    OA_CHECK(live::card_root_prefix(cards, static_cast<uint32_t>(type_index), type, next) == 1);
+    OA_CHECK(cards.root_prefix_points.size() == points * 2);
+    OA_CHECK(cards.root_prefix_ranges.size() == 2);
+    live::unmark_cards(cards);
+    OA_CHECK(cards.root_prefix_points.size() == points);
+    OA_CHECK(cards.root_prefix_poses.size() == 1 && cards.root_prefix_recipes.size() == 1);
+    OA_CHECK(cards.root_prefix_ranges.size() == 1);
+    OA_CHECK(live::card_root_prefix(cards, static_cast<uint32_t>(type_index), type, next) == 1);
+    OA_CHECK(cards.root_prefix_points.size() == points * 2);
+    live::clear_cards(cards);
+    OA_CHECK(cards.root_prefix_points.empty() && cards.root_prefix_poses.empty());
+    OA_CHECK(cards.root_prefix_recipes.empty() && cards.root_prefix_ranges.empty());
+}
+
+/// Preserves lazy corners while joining mixed and repeated prefix bands.
+void root_prefix_scene_parallel_packets() {
+    RootPrefixSceneFixture fixture;
+    fixture.battle.inputs.graphics_flags = 0;
+    OA_CHECK(live::build(fixture.battle.inputs, fixture.battle.scene, fixture.battle.error));
+    const auto& source = fixture.battle.scene.cards;
+    OA_CHECK(source.units.size() == 1 && !source.root_prefix_poses.empty());
+    if (source.units.size() != 1 || source.root_prefix_poses.empty())
+        return;
+    const auto ordinary = joined_card_fixture(1, 20, false);
+    auto single = ordinary;
+    OA_CHECK(live::append_parallel_model_cards(single, source, 0));
+    OA_CHECK(live::append_parallel_model_cards(single, source, 0));
+    auto batch = ordinary;
+    const std::array<const live::ModelCards*, 2> bands{&source, &source};
+    OA_CHECK(live::append_parallel_model_card_bands(batch, bands, 0));
+    OA_CHECK(single.root_prefix_points.size() == source.root_prefix_points.size() * 2);
+    OA_CHECK(single.root_prefix_poses.size() == source.root_prefix_poses.size() * 2);
+    OA_CHECK(single.root_prefix_recipes.size() == single.root_prefix_poses.size());
+    OA_CHECK(single.root_prefix_ranges.empty() && batch.root_prefix_ranges.empty());
+    OA_CHECK(single.instances[0].root_prefix == 0);
+    for (size_t copy = 0; copy < bands.size(); ++copy) {
+        const auto& expected_unit = source.units[0];
+        const auto& actual_unit = single.units[copy + 1];
+        const auto& batch_unit = batch.units[copy + 1];
+        OA_CHECK(single.instances[actual_unit.instance].positions == 0);
+        OA_CHECK(single.instances[actual_unit.instance].root_prefix == copy + 1);
+        for (size_t corner = 0; corner < expected_unit.index_count; ++corner) {
+            const auto expected = live::card_corner(
+                fixture.battle.scene.card_types,
+                source,
+                expected_unit,
+                source.indices[expected_unit.first_index + corner]
+            );
+            const auto actual = live::card_corner(
+                fixture.battle.scene.card_types,
+                single,
+                actual_unit,
+                single.indices[actual_unit.first_index + corner]
+            );
+            const auto batched = live::card_corner(
+                fixture.battle.scene.card_types,
+                batch,
+                batch_unit,
+                batch.indices[batch_unit.first_index + corner]
+            );
+            OA_CHECK(std::memcmp(&expected, &actual, sizeof(expected)) == 0);
+            OA_CHECK(std::memcmp(&expected, &batched, sizeof(expected)) == 0);
+        }
+    }
+    auto bad = source;
+    ++bad.root_prefix_poses[0].cosine;
+    const auto instances = single.instances.size();
+    const auto points = single.root_prefix_points.size();
+    OA_CHECK(!live::can_append_parallel_model_cards(single, bad, 0));
+    OA_CHECK(!live::append_parallel_model_cards(single, bad, 0));
+    OA_CHECK(single.instances.size() == instances && single.root_prefix_points.size() == points);
+    const std::array<const live::ModelCards*, 2> malformed{&source, &bad};
+    OA_CHECK(!live::append_parallel_model_card_bands(single, malformed, 0));
+    OA_CHECK(single.instances.size() == instances && single.root_prefix_points.size() == points);
+    bad = source;
+    bad.root_prefix_recipes.clear();
+    OA_CHECK(!live::can_append_parallel_model_cards(single, bad, 0));
+    bad = source;
+    bad.units[0].root_prefix = false;
+    OA_CHECK(!live::can_append_parallel_model_cards(single, bad, 0));
+}
+
+} // namespace
+
 int main() {
+    root_prefix_scene_owned_geometry();
+    root_prefix_scene_proxy_symmetry();
+    root_prefix_scene_clear_geometry();
+    root_prefix_scene_virtual_image_frames();
+    root_prefix_scene_admission();
+    root_prefix_scene_card_rollback();
+    root_prefix_scene_parallel_packets();
     omitted_model_snapshots();
     omitted_model_material_retries();
     interior_model_cull_tests();
