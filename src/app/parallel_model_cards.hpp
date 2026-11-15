@@ -5,6 +5,7 @@
 #include "renderer_live_models.hpp"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <span>
 
@@ -230,28 +231,60 @@ same_shadow_stream(const ModelCards& into, const ModelCards& from) noexcept {
         cards.slot_states.size() != cards.textures.size() / 4 ||
         cards.instances.size() > gpu::largest_model_instance_count ||
         cards.positions.size() / 3 > gpu::largest_vertex_count ||
+        cards.root_prefix_points.size() > gpu::largest_vertex_count ||
+        cards.root_prefix_poses.size() > gpu::largest_model_instance_count ||
+        cards.root_prefix_recipes.size() != cards.root_prefix_poses.size() ||
         cards.indices.size() > gpu::largest_vertex_count ||
         cards.cast_indices.size() > gpu::largest_vertex_count ||
         cards.casts.size() > gpu::largest_model_instance_count * 2 ||
         cards.cast_depths > maximum_shadow_depths)
         return false;
-    for (const auto& instance : cards.instances)
-        if (!within(instance.positions, instance.position_count, cards.positions.size() / 3) ||
-            !within(instance.pieces, instance.piece_count, cards.piece_frames.size()) ||
+    for (std::size_t index = 0; index < cards.root_prefix_poses.size(); ++index) {
+        const auto& pose = cards.root_prefix_poses[index];
+        const auto& recipe = cards.root_prefix_recipes[index];
+        if (!recipe.geometry || !recipe.geometry->model ||
+            !within(pose.first_point, pose.point_count, cards.root_prefix_points.size()) ||
+            pose.point_count > recipe.geometry->points.size() ||
+            pose.sine < -gpu::root_prefix_coefficient_one ||
+            pose.sine > gpu::root_prefix_coefficient_one ||
+            pose.cosine < -gpu::root_prefix_coefficient_one ||
+            pose.cosine > gpu::root_prefix_coefficient_one || pose.sine != recipe.rotation.sine ||
+            pose.cosine != recipe.rotation.cosine ||
+            pose.placement !=
+                std::array{recipe.placement.x, recipe.placement.y, recipe.placement.z})
+            return false;
+    }
+    for (const auto& instance : cards.instances) {
+        if (!within(instance.pieces, instance.piece_count, cards.piece_frames.size()) ||
             !within(instance.textures, instance.texture_count, cards.slot_states.size()) ||
             instance.corner_count > corner_mask + 1 || instance.position_count > corner_mask + 1 ||
             instance.piece_count > (uint32_t{1} << gpu::model_piece_shift) ||
             instance.texture_count > (uint32_t{1} << gpu::model_texture_bits))
             return false;
+        if (instance.root_prefix == 0) {
+            if (!within(instance.positions, instance.position_count, cards.positions.size() / 3))
+                return false;
+        } else {
+            const auto prefix = instance.root_prefix - 1;
+            if (prefix >= cards.root_prefix_poses.size() || instance.positions != 0 ||
+                instance.position_count != cards.root_prefix_poses[prefix].point_count ||
+                instance.piece_count != cards.root_prefix_recipes[prefix].geometry->objects.size())
+                return false;
+        }
+    }
     for (const auto& table : cards.tables)
         if (table.first > cards.slot_states.size())
             return false;
-    for (const auto& unit : cards.units)
+    for (const auto& unit : cards.units) {
         if (!within(unit.first_index, unit.index_count, cards.indices.size()) ||
             unit.index_count % 3 != 0 ||
             (unit.marker ? unit.instance >= cards.markers.size()
                          : unit.instance >= cards.instances.size()))
             return false;
+        if (unit.marker ? unit.root_prefix
+                        : unit.root_prefix != (cards.instances[unit.instance].root_prefix != 0))
+            return false;
+    }
     uint32_t depths{};
     const renderer_live_gpu::ShadowCast* previous = nullptr;
     for (const auto& cast : cards.casts) {
@@ -309,6 +342,16 @@ same_shadow_stream(const ModelCards& into, const ModelCards& from) noexcept {
         !detail::fits(
             into.positions.size() / 3, from.positions.size() / 3, gpu::largest_vertex_count
         ) ||
+        !detail::fits(
+            into.root_prefix_points.size(),
+            from.root_prefix_points.size(),
+            gpu::largest_vertex_count
+        ) ||
+        !detail::fits(
+            into.root_prefix_poses.size(),
+            from.root_prefix_poses.size(),
+            gpu::largest_model_instance_count
+        ) ||
         !detail::fits(into.indices.size(), from.indices.size(), gpu::largest_vertex_count) ||
         !detail::fits(
             into.cast_indices.size(), from.cast_indices.size(), gpu::largest_vertex_count
@@ -356,6 +399,8 @@ append_parallel_model_cards(ModelCards& into, const ModelCards& from, std::size_
         return false;
     const auto instances = static_cast<uint32_t>(into.instances.size());
     const auto positions = static_cast<uint32_t>(into.positions.size() / 3);
+    const auto prefix_points = static_cast<uint32_t>(into.root_prefix_points.size());
+    const auto prefix_poses = static_cast<uint32_t>(into.root_prefix_poses.size());
     const auto pieces = static_cast<uint32_t>(into.piece_frames.size());
     const auto textures = static_cast<uint32_t>(into.slot_states.size());
     const auto indices = static_cast<uint32_t>(into.indices.size());
@@ -365,6 +410,13 @@ append_parallel_model_cards(ModelCards& into, const ModelCards& from, std::size_
     // Every allocation precedes the first record change.
     into.instances.reserve(into.instances.size() + from.instances.size());
     into.positions.reserve(into.positions.size() + from.positions.size());
+    into.root_prefix_points.reserve(
+        into.root_prefix_points.size() + from.root_prefix_points.size()
+    );
+    into.root_prefix_poses.reserve(into.root_prefix_poses.size() + from.root_prefix_poses.size());
+    into.root_prefix_recipes.reserve(
+        into.root_prefix_recipes.size() + from.root_prefix_recipes.size()
+    );
     into.piece_frames.reserve(into.piece_frames.size() + from.piece_frames.size());
     into.textures.reserve(into.textures.size() + from.textures.size());
     into.slot_states.reserve(into.slot_states.size() + from.slot_states.size());
@@ -376,6 +428,21 @@ append_parallel_model_cards(ModelCards& into, const ModelCards& from, std::size_
     into.cast_indices.reserve(into.cast_indices.size() + from.cast_indices.size());
     into.cast_runs.reserve(into.cast_runs.size() + from.cast_runs.size());
     into.positions.insert(into.positions.end(), from.positions.begin(), from.positions.end());
+    into.root_prefix_points.insert(
+        into.root_prefix_points.end(),
+        from.root_prefix_points.begin(),
+        from.root_prefix_points.end()
+    );
+    for (auto pose : from.root_prefix_poses) {
+        pose.first_point += prefix_points;
+        into.root_prefix_poses.push_back(pose);
+    }
+    into.root_prefix_recipes.insert(
+        into.root_prefix_recipes.end(),
+        from.root_prefix_recipes.begin(),
+        from.root_prefix_recipes.end()
+    );
+    into.root_prefix_ranges.clear();
     into.piece_frames.insert(
         into.piece_frames.end(), from.piece_frames.begin(), from.piece_frames.end()
     );
@@ -388,7 +455,10 @@ append_parallel_model_cards(ModelCards& into, const ModelCards& from, std::size_
         into.cast_indices.end(), from.cast_indices.begin(), from.cast_indices.end()
     );
     for (auto instance : from.instances) {
-        instance.positions += positions;
+        if (instance.root_prefix == 0)
+            instance.positions += positions;
+        else
+            instance.root_prefix += prefix_poses;
         instance.pieces += pieces;
         instance.textures += textures;
         into.instances.push_back(instance);
@@ -437,6 +507,7 @@ struct BatchSize {
     std::size_t instances{}, positions{}, pieces{}, textures{}, tables{}, indices{}, runs{};
     std::size_t units{}, casts{}, cast_indices{}, cast_runs{}, vertices{}, depths{};
     std::size_t shadow_words{}, shadow_runs{}, logical_shadows{}, shadow_casts{};
+    std::size_t root_prefix_points{}, root_prefix_poses{};
 };
 
 /// Reads the destination sizes before considering any following bands.
@@ -460,6 +531,8 @@ struct BatchSize {
     result.shadow_runs = cards.shadow_indices.runs.size();
     result.logical_shadows = shadow_index_count(cards);
     result.shadow_casts = cards.shadow_indices.casts.size();
+    result.root_prefix_points = cards.root_prefix_points.size();
+    result.root_prefix_poses = cards.root_prefix_poses.size();
     return result;
 }
 
@@ -471,6 +544,10 @@ include_band(BatchSize& size, const ModelCards& from, std::size_t vertex_base) n
     constexpr auto size_limit = std::numeric_limits<std::size_t>::max();
     if (!fits(size.instances, from.instances.size(), gpu::largest_model_instance_count) ||
         !fits(size.positions, from.positions.size() / 3, gpu::largest_vertex_count) ||
+        !fits(size.root_prefix_points, from.root_prefix_points.size(), gpu::largest_vertex_count) ||
+        !fits(
+            size.root_prefix_poses, from.root_prefix_poses.size(), gpu::largest_model_instance_count
+        ) ||
         !fits(size.indices, from.indices.size(), gpu::largest_vertex_count) ||
         !fits(size.cast_indices, from.cast_indices.size(), gpu::largest_vertex_count) ||
         !fits(size.casts, from.casts.size(), gpu::largest_model_instance_count * 2) ||
@@ -505,6 +582,8 @@ include_band(BatchSize& size, const ModelCards& from, std::size_t vertex_base) n
             return false;
     size.instances += from.instances.size();
     size.positions += from.positions.size() / 3;
+    size.root_prefix_points += from.root_prefix_points.size();
+    size.root_prefix_poses += from.root_prefix_poses.size();
     size.pieces += from.piece_frames.size();
     size.textures += from.textures.size();
     size.tables += from.tables.size();
@@ -528,6 +607,8 @@ inline void
 append_prevalidated_band(ModelCards& into, const ModelCards& from, std::size_t vertex_base) {
     const auto instances = static_cast<uint32_t>(into.instances.size());
     const auto positions = static_cast<uint32_t>(into.positions.size() / 3);
+    const auto prefix_points = static_cast<uint32_t>(into.root_prefix_points.size());
+    const auto prefix_poses = static_cast<uint32_t>(into.root_prefix_poses.size());
     const auto pieces = static_cast<uint32_t>(into.piece_frames.size());
     const auto textures = static_cast<uint32_t>(into.slot_states.size());
     const auto indices = static_cast<uint32_t>(into.indices.size());
@@ -536,6 +617,21 @@ append_prevalidated_band(ModelCards& into, const ModelCards& from, std::size_t v
     const auto depths = into.cast_depths;
     const auto shadow_words = static_cast<uint32_t>(into.shadow_indices.indices.size());
     into.positions.insert(into.positions.end(), from.positions.begin(), from.positions.end());
+    into.root_prefix_points.insert(
+        into.root_prefix_points.end(),
+        from.root_prefix_points.begin(),
+        from.root_prefix_points.end()
+    );
+    for (auto pose : from.root_prefix_poses) {
+        pose.first_point += prefix_points;
+        into.root_prefix_poses.push_back(pose);
+    }
+    into.root_prefix_recipes.insert(
+        into.root_prefix_recipes.end(),
+        from.root_prefix_recipes.begin(),
+        from.root_prefix_recipes.end()
+    );
+    into.root_prefix_ranges.clear();
     into.piece_frames.insert(
         into.piece_frames.end(), from.piece_frames.begin(), from.piece_frames.end()
     );
@@ -548,7 +644,10 @@ append_prevalidated_band(ModelCards& into, const ModelCards& from, std::size_t v
         into.cast_indices.end(), from.cast_indices.begin(), from.cast_indices.end()
     );
     for (auto instance : from.instances) {
-        instance.positions += positions;
+        if (instance.root_prefix == 0)
+            instance.positions += positions;
+        else
+            instance.root_prefix += prefix_poses;
         instance.pieces += pieces;
         instance.textures += textures;
         into.instances.push_back(instance);
@@ -645,6 +744,9 @@ append_prevalidated_band(ModelCards& into, const ModelCards& from, std::size_t v
     // Every possible allocation precedes the first record change.
     into.instances.reserve(size.instances);
     into.positions.reserve(size.positions * 3);
+    into.root_prefix_points.reserve(size.root_prefix_points);
+    into.root_prefix_poses.reserve(size.root_prefix_poses);
+    into.root_prefix_recipes.reserve(size.root_prefix_poses);
     into.piece_frames.reserve(size.pieces);
     into.textures.reserve(size.textures);
     into.slot_states.reserve(size.textures / 4);
