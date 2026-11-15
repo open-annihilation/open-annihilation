@@ -115,12 +115,13 @@ void omitted_model_snapshots() {
         }
 }
 
-/// Omitted stretches preserve serial material retries between and after GPU intervals.
+/// Omitted stretches retain completed bands while ordered gaps pack new materials.
 void omitted_model_material_retries() {
     for (const bool at_end : {false, true})
         for (const bool procedural : {false, true}) {
             MultipleModelRangeFixture fixture;
             auto& battle = fixture.bodies.battle;
+            OA_CHECK(battle.inputs.body_lod_enabled);
             battle.inputs.shadow_index_templates = true;
             battle.inputs.shadow_index_procedural = procedural;
             const auto material =
@@ -154,11 +155,19 @@ void omitted_model_material_retries() {
             OA_CHECK(parallel.model_work_counts.accepted_bands == 4);
             battle.draws.models[material].plan.linked.drawn = true;
             build();
-            OA_CHECK(parallel.model_work_counts.accepted_bands == (at_end ? 4U : 0U));
-            OA_CHECK(parallel.model_work_counts.fallback_frames == (at_end ? 0U : 1U));
+            OA_CHECK(parallel.model_work_counts.accepted_bands == 4);
+            OA_CHECK(
+                parallel.model_work_counts.accepted_slots ==
+                parallel.model_work_counts.candidate_slots
+            );
+            OA_CHECK(parallel.model_work_counts.fallback_frames == 0);
+            OA_CHECK(parallel.passes.models.materials_packed > 0);
+            OA_CHECK(parallel.passes.models.texels_packed > 0);
             build();
             OA_CHECK(parallel.model_work_counts.accepted_bands == 4);
             OA_CHECK(parallel.model_work_counts.fallback_frames == 0);
+            OA_CHECK(parallel.passes.models.materials_packed == 0);
+            OA_CHECK(parallel.passes.models.texels_packed == 0);
         }
 }
 

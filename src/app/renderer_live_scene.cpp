@@ -10466,7 +10466,13 @@ bool models_with_parallel_range(
         work.accepted_bands = work.accepted_slots = 0;
         work.fallback_frames = 1;
         trim_parallel_model_lists(range, true);
+        const auto packed = pass.list.materials_packed;
+        const auto texels = pass.list.texels_packed;
         clear_list(pass.list, end);
+        // Ordered Enhanced gaps can have packed persistent materials. Their
+        // atlas entries and packing counters survive this geometry retry.
+        pass.list.materials_packed = packed;
+        pass.list.texels_packed = texels;
         models(in, pass, 0, end);
         return false;
     };
@@ -11153,7 +11159,15 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         );
         const auto parallel = prepare_parallel_models(in, scene, timing);
         run_beside(scene, passes.models, model_draws, timing, [&](Pass& pass) {
-            (void)models_with_parallel_range(in, pass, model_draws, parallel);
+            // Worker packets have joined and the other passes' geometry has
+            // finalized the physical-body budget. Only this ordered Enhanced
+            // model pass may now pack serial gap materials on the atlas owner.
+            auto ordered = pass;
+            if (in.body_lod_enabled) {
+                ordered.packing = true;
+                ordered.listed_before = listed;
+            }
+            (void)models_with_parallel_range(in, ordered, model_draws, parallel);
         });
         passes.models.nanoseconds += parallel.nanoseconds;
         trim_parallel_model_lists(parallel);

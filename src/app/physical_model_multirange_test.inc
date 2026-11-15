@@ -303,46 +303,156 @@ void check_multiple_range_frame(const live::Scene& expected, const live::Scene& 
     OA_CHECK(multiple_range_shadow_points(expected) == multiple_range_shadow_points(actual));
 }
 
-/// A newly visible serial material distinguishes middle rollback from a suffix pause.
+/// Ordered Enhanced gaps pack new colours; the false gate keeps ordinary retries.
 void multiple_model_range_material_retries() {
-    for (const bool at_end : {false, true}) {
+    for (const bool ordered_packing : {false, true})
+        for (const bool at_end : {false, true}) {
+            MultipleModelRangeFixture fixture;
+            auto& battle = fixture.bodies.battle;
+            battle.inputs.body_lod_enabled = ordered_packing;
+            const auto index =
+                at_end ? MultipleModelRangeFixture::suffix : MultipleModelRangeFixture::first_gap;
+            auto& gap = battle.draws.models[index];
+            gap.model.prepared = &fixture.unique_material;
+            gap.plan.linked.drawn = false;
+            oa::platform::job_pool::Pool pool(4);
+            live::Scene serial, parallel;
+            const auto build = [&] {
+                battle.inputs.pool = nullptr;
+                OA_CHECK(live::build(battle.inputs, serial, battle.error));
+                battle.inputs.pool = &pool;
+                OA_CHECK(live::build(battle.inputs, parallel, battle.error));
+                OA_CHECK(battle.error.empty());
+                check_multiple_range_frame(serial, parallel);
+            };
+            build();
+            build();
+            OA_CHECK(parallel.model_work_counts.accepted_bands == 4);
+            // Both GPU regions are now warm. Only this actual serial draw has
+            // a new colour; no worker can request or pack its material.
+            gap.plan.linked.drawn = true;
+            build();
+            const auto& work = parallel.model_work_counts;
+            OA_CHECK(work.candidate_bands == 4);
+            OA_CHECK(work.candidate_slots == MultipleModelRangeFixture::candidate_slots);
+            const bool retained = at_end || ordered_packing;
+            OA_CHECK(work.accepted_bands == (retained ? 4U : 0U));
+            OA_CHECK(
+                work.accepted_slots == (retained ? MultipleModelRangeFixture::candidate_slots : 0U)
+            );
+            OA_CHECK(work.fallback_frames == (retained ? 0U : 1U));
+            if (ordered_packing) {
+                OA_CHECK(parallel.passes.models.materials_packed > 0);
+                OA_CHECK(parallel.passes.models.texels_packed > 0);
+            }
+            OA_CHECK(parallel.translucent_ranges.size() == serial.translucent_ranges.size());
+            build();
+            OA_CHECK(parallel.model_work_counts.accepted_bands == 4);
+            OA_CHECK(
+                parallel.model_work_counts.accepted_slots ==
+                MultipleModelRangeFixture::candidate_slots
+            );
+            OA_CHECK(parallel.model_work_counts.fallback_frames == 0);
+            OA_CHECK(parallel.passes.models.materials_packed == 0);
+            OA_CHECK(parallel.passes.models.texels_packed == 0);
+        }
+}
+
+/// A genuine textured serial gap preserves warm packets or the original atlas repack.
+void multiple_model_range_textured_gap() {
+    for (const bool force_repack : {false, true}) {
         MultipleModelRangeFixture fixture;
         auto& battle = fixture.bodies.battle;
-        const auto index =
-            at_end ? MultipleModelRangeFixture::suffix : MultipleModelRangeFixture::first_gap;
-        auto& gap = battle.draws.models[index];
-        gap.model.prepared = &fixture.unique_material;
+        OA_CHECK(battle.inputs.body_lod_enabled);
+        std::fill_n(battle.palette.begin() + 6 * oa::palette_entry_bytes, 3, uint8_t{117});
+        auto& gap = battle.draws.models[MultipleModelRangeFixture::first_gap];
         gap.plan.linked.drawn = false;
         oa::platform::job_pool::Pool pool(4);
         live::Scene serial, parallel;
-        const auto build = [&] {
+        const auto compare = [&] {
             battle.inputs.pool = nullptr;
             OA_CHECK(live::build(battle.inputs, serial, battle.error));
             battle.inputs.pool = &pool;
             OA_CHECK(live::build(battle.inputs, parallel, battle.error));
             OA_CHECK(battle.error.empty());
             check_multiple_range_frame(serial, parallel);
+            OA_CHECK(
+                multiple_range_picks(serial, battle.inputs) ==
+                multiple_range_picks(parallel, battle.inputs)
+            );
         };
-        build();
-        build();
+        compare();
+        compare();
         OA_CHECK(parallel.model_work_counts.accepted_bands == 4);
-        // Both GPU regions are now warm. Only this actual serial draw has
-        // a new colour; no worker can request or pack its material.
+
+        std::array<uint8_t, 32 * 32> pixels;
+        pixels.fill(6);
+        oa::Sprite texture{};
+        texture.width = texture.height = 32;
+        texture.encoding = OA_SPRITE_RAW;
+        texture.data = pixels.data();
+        // Textured source faces need four corners. Clone only this serial
+        // draw's source and pose; every worker retains its original source.
+        auto source = std::make_shared<oa::formats::objects3d::Model>(*fixture.bodies.source);
+        source->objects[0].primitives[0].vertex_indices = {0, 4, 6, 2};
+        auto instance = oa::sim::model_runtime::make_instance(source);
+        for (std::size_t piece = 0; piece < instance.pieces().size(); ++piece) {
+            auto& out = instance.pieces()[piece];
+            const auto& in = fixture.bodies.instance.pieces()[piece];
+            out.translation = in.translation;
+            out.rotation = in.rotation;
+            out.flags = in.flags;
+        }
+        instance.rebuild_transforms({}, true);
+        auto prepared = fixture.unique_material;
+        prepared.model = source.get();
+        prepared.owner = source;
+        auto& face = prepared.objects[0].primitives[0];
+        face.flags = 0;
+        face.frame = &texture;
+        face.texture = nullptr;
+        gap.model.instance = &instance;
+        gap.model.prepared = &prepared;
         gap.plan.linked.drawn = true;
-        build();
-        const auto& work = parallel.model_work_counts;
-        OA_CHECK(work.candidate_bands == 4);
-        OA_CHECK(work.candidate_slots == MultipleModelRangeFixture::candidate_slots);
-        OA_CHECK(work.accepted_bands == (at_end ? 4U : 0U));
-        OA_CHECK(work.accepted_slots == (at_end ? MultipleModelRangeFixture::candidate_slots : 0U));
-        OA_CHECK(work.fallback_frames == (at_end ? 0U : 1U));
-        OA_CHECK(parallel.translucent_ranges.size() == serial.translucent_ranges.size());
-        build();
+        const auto serial_revision = serial.texture_revision;
+        const auto parallel_revision = parallel.texture_revision;
+        if (force_repack) {
+            serial.next_x = serial.texture_width;
+            serial.next_y = serial.texture_height;
+            parallel.next_x = parallel.texture_width;
+            parallel.next_y = parallel.texture_height;
+        }
+        compare();
+        OA_CHECK(parallel.passes.models.materials_packed > 0);
+        OA_CHECK(parallel.passes.models.texels_packed >= pixels.size());
+        OA_CHECK(fixture.bodies.source->objects[0].primitives[0].vertex_indices.size() == 3);
+        if (force_repack) {
+            OA_CHECK(serial.atlas_update.previous_revision == serial_revision);
+            OA_CHECK(parallel.atlas_update.previous_revision == parallel_revision);
+            OA_CHECK(serial.atlas_update.first_row == 0 && parallel.atlas_update.first_row == 0);
+            OA_CHECK(
+                serial.atlas_update.end_row > 0 &&
+                serial.atlas_update.end_row <= serial.texture_height
+            );
+            OA_CHECK(
+                parallel.atlas_update.end_row > 0 &&
+                parallel.atlas_update.end_row <= parallel.texture_height
+            );
+            OA_CHECK(serial.passes.models.peak == parallel.passes.models.peak);
+            OA_CHECK(serial.passes.models.stopped == parallel.passes.models.stopped);
+        } else {
+            OA_CHECK(parallel.model_work_counts.accepted_bands == 4);
+            OA_CHECK(
+                parallel.model_work_counts.accepted_slots ==
+                MultipleModelRangeFixture::candidate_slots
+            );
+            OA_CHECK(parallel.model_work_counts.fallback_frames == 0);
+        }
+        compare();
         OA_CHECK(parallel.model_work_counts.accepted_bands == 4);
-        OA_CHECK(
-            parallel.model_work_counts.accepted_slots == MultipleModelRangeFixture::candidate_slots
-        );
         OA_CHECK(parallel.model_work_counts.fallback_frames == 0);
+        OA_CHECK(parallel.passes.models.materials_packed == 0);
+        OA_CHECK(parallel.passes.models.texels_packed == 0);
     }
 }
 
@@ -353,6 +463,7 @@ void multiple_model_range_geometry_budget() {
     constexpr auto limit = oa::app::renderer_live_gpu::largest_vertex_count;
     BodyLodFixture fixture;
     auto& battle = fixture.battle;
+    OA_CHECK(battle.inputs.body_lod_enabled);
     fixture.projection(2);
     oa::UnitDef definition{};
     std::vector<oa::Unit> units(population, fixture.unit);
@@ -454,7 +565,9 @@ void physical_model_multiple_ranges() {
         })
     );
     fixture.marker(MultipleModelRangeFixture::first_gap);
-    compare(MultipleModelRangeFixture::candidate_slots, false);
+    // The new marker is a serial-gap atlas write after all worker packets join.
+    compare(MultipleModelRangeFixture::candidate_slots, true);
+    OA_CHECK(parallel.passes.models.materials_packed > 0);
     compare(MultipleModelRangeFixture::candidate_slots, true);
     OA_CHECK(serial.body_lod_counts.distance_markers == 1);
     OA_CHECK(
@@ -494,6 +607,7 @@ void physical_model_multiple_ranges() {
     compare(MultipleModelRangeFixture::population, true);
     OA_CHECK(serial.body_lod_counts.distance_markers == 0);
     multiple_model_range_material_retries();
+    multiple_model_range_textured_gap();
     multiple_model_range_geometry_budget();
 }
 
