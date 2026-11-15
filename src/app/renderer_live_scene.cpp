@@ -5539,40 +5539,19 @@ std::size_t body_allowance(const CardType& type, uint64_t mask) noexcept {
     return count;
 }
 
-/// Finds physical hull choices from the same visible animated pieces as the mesh.
-void plan_body_detail(
+/// Measures the physical piece choices with the same local float projections.
+/// A read-only detail range fixes the view and types for every measured pose.
+void measure_body_geometry(
     const Inputs& in,
-    const Scene& scene,
     const ModelDraw& draw,
-    const Unit& unit,
-    std::size_t index,
-    UnitDetail& detail,
-    const std::array<float, 3>& low,
-    const std::array<float, 3>& high,
-    BodyMaterialMemo& materials
+    const CardType& low_type,
+    const CardType& medium_type,
+    DetailBodyGeometry& geometry
 ) {
-    if (!in.body_lod_enabled || !in.models_on_card ||
-        in.draws->models.size() >= renderer_live_gpu::largest_model_instance_count ||
-        index >= scene.card_types.body_draw_types_low.size() ||
-        index >= scene.card_types.body_draw_types_medium.size() ||
-        draw.model.instance->pieces().size() > body_lod_piece_limit ||
-        body_light_near(in, low, high))
-        return;
-    const auto low_index = scene.card_types.body_draw_types_low[index];
-    const auto medium_index = scene.card_types.body_draw_types_medium[index];
-    if (low_index < 0 || medium_index < 0)
-        return;
-    const auto& low_type = scene.card_types.types[static_cast<std::size_t>(low_index)];
-    const auto& medium_type = scene.card_types.types[static_cast<std::size_t>(medium_index)];
-    if (!body_materials_ready(in, low_type, static_cast<uint32_t>(low_index), unit, materials) ||
-        !body_materials_ready(
-            in, medium_type, static_cast<uint32_t>(medium_index), unit, materials
-        ))
-        return;
-    for (std::size_t piece = 0; piece < low_type.source_vertex_counts.size(); ++piece)
-        if (detail_points(draw, piece).size() != low_type.source_vertex_counts[piece])
-            return;
-
+    geometry = {};
+    geometry.low_type = &low_type;
+    geometry.medium_type = &medium_type;
+    geometry.measured = true;
     struct PieceSize {
         std::size_t piece{};
         float pixels{};
@@ -5611,7 +5590,7 @@ void plan_body_detail(
                              static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) == 0;
         visible[count++] = {piece, pixels, moving};
         if (pixels >= body_lod_small_piece_pixels)
-            detail.body_medium_piece_mask |= uint64_t{1} << piece;
+            geometry.medium_piece_mask |= uint64_t{1} << piece;
     }
     if (count == 0)
         return;
@@ -5628,7 +5607,7 @@ void plan_body_detail(
         const auto& part = visible[at];
         if (kept != 0 && part.pixels < body_lod_small_piece_pixels)
             continue;
-        detail.body_piece_mask |= uint64_t{1} << part.piece;
+        geometry.low_piece_mask |= uint64_t{1} << part.piece;
         moving_kept |= part.moving;
         ++kept;
     }
@@ -5638,17 +5617,66 @@ void plan_body_detail(
         for (std::size_t at = 0; at < count; ++at)
             if (visible[at].moving && visible[at].pixels >= body_lod_small_piece_pixels) {
                 for (std::size_t last = count; last-- > 1;)
-                    if ((detail.body_piece_mask & (uint64_t{1} << visible[last].piece)) != 0) {
-                        detail.body_piece_mask &= ~(uint64_t{1} << visible[last].piece);
+                    if ((geometry.low_piece_mask & (uint64_t{1} << visible[last].piece)) != 0) {
+                        geometry.low_piece_mask &= ~(uint64_t{1} << visible[last].piece);
                         break;
                     }
-                detail.body_piece_mask |= uint64_t{1} << visible[at].piece;
+                geometry.low_piece_mask |= uint64_t{1} << visible[at].piece;
                 break;
             }
-    if (detail.body_medium_piece_mask == 0)
-        detail.body_medium_piece_mask = uint64_t{1} << visible[0].piece;
-    detail.body_low_surface = body_allowance(low_type, detail.body_piece_mask);
-    detail.body_medium_surface = body_allowance(medium_type, detail.body_medium_piece_mask);
+    if (geometry.medium_piece_mask == 0)
+        geometry.medium_piece_mask = uint64_t{1} << visible[0].piece;
+    geometry.low_surface = body_allowance(low_type, geometry.low_piece_mask);
+    geometry.medium_surface = body_allowance(medium_type, geometry.medium_piece_mask);
+    geometry.valid = true;
+}
+
+/// Finds physical hull choices from the same visible animated pieces as the mesh.
+void plan_body_detail(
+    const Inputs& in,
+    const Scene& scene,
+    const ModelDraw& draw,
+    const Unit& unit,
+    std::size_t index,
+    UnitDetail& detail,
+    DetailPose& pose,
+    const std::array<float, 3>& low,
+    const std::array<float, 3>& high,
+    BodyMaterialMemo& materials
+) {
+    if (!in.body_lod_enabled || !in.models_on_card ||
+        in.draws->models.size() >= renderer_live_gpu::largest_model_instance_count ||
+        index >= scene.card_types.body_draw_types_low.size() ||
+        index >= scene.card_types.body_draw_types_medium.size() ||
+        draw.model.instance->pieces().size() > body_lod_piece_limit ||
+        body_light_near(in, low, high))
+        return;
+    const auto low_index = scene.card_types.body_draw_types_low[index];
+    const auto medium_index = scene.card_types.body_draw_types_medium[index];
+    if (low_index < 0 || medium_index < 0)
+        return;
+    const auto& low_type = scene.card_types.types[static_cast<std::size_t>(low_index)];
+    const auto& medium_type = scene.card_types.types[static_cast<std::size_t>(medium_index)];
+    if (!body_materials_ready(in, low_type, static_cast<uint32_t>(low_index), unit, materials) ||
+        !body_materials_ready(
+            in, medium_type, static_cast<uint32_t>(medium_index), unit, materials
+        ))
+        return;
+    // Hidden points are not part of the shared visible-pose key, but their
+    // layout still has to match before a physical body can use this type.
+    for (std::size_t piece = 0; piece < low_type.source_vertex_counts.size(); ++piece)
+        if (detail_points(draw, piece).size() != low_type.source_vertex_counts[piece])
+            return;
+    auto& geometry = pose.body_geometry;
+    if (!geometry.measured || geometry.low_type != &low_type ||
+        geometry.medium_type != &medium_type)
+        measure_body_geometry(in, draw, low_type, medium_type, geometry);
+    detail.body_piece_mask = geometry.low_piece_mask;
+    detail.body_medium_piece_mask = geometry.medium_piece_mask;
+    detail.body_low_surface = geometry.low_surface;
+    detail.body_medium_surface = geometry.medium_surface;
+    if (!geometry.valid)
+        return;
     detail.body_low_shadow = detail.shadow == 0 ? 0 : detail.body_low_surface;
     detail.body_medium_shadow = detail.shadow == 0 ? 0 : detail.body_medium_surface;
     detail.body_available = detail.body_low_surface > 0 && detail.body_low_surface < detail.surface;
@@ -5800,7 +5828,7 @@ bool plan_unit_details(
         detail.marker = detail.pixels <= in.unit_marker_pixels;
         if (in.body_lod_enabled) {
             detail.marker = detail.pixels < body_lod_minimum_pixels;
-            plan_body_detail(in, scene, draw, *unit, index, detail, low, high, *materials);
+            plan_body_detail(in, scene, draw, *unit, index, detail, pose, low, high, *materials);
         }
         detail.distance_marker = detail.marker;
         eligible = true;

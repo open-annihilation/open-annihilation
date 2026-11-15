@@ -283,6 +283,17 @@ struct DetailPosePiece {
     uint16_t flags{};
 };
 
+/// Piece choices measured from one exact local pose in a read-only detail range.
+/// The range fixes the projection and type registry; unit lighting, materials,
+/// shadow allowance and final detail remain the current draw's decisions.
+struct DetailBodyGeometry {
+    const CardType* low_type{};
+    const CardType* medium_type{};
+    uint64_t low_piece_mask{}, medium_piece_mask{};
+    std::size_t low_surface{}, medium_surface{};
+    bool measured{}, valid{};
+};
+
 /// Exact local extrema and front-face eligibility shared within one build.
 struct DetailPose {
     const present::model::PreparedModel* prepared{};
@@ -291,6 +302,7 @@ struct DetailPose {
     uint32_t first_piece{}, piece_count{}, first_point{};
     std::array<int32_t, 3> least{}, greatest{};
     bool bounded{}, face_checked{}, has_face{};
+    DetailBodyGeometry body_geometry{};
 };
 
 /// One bounded detail-pose lookup slot; zero names no summary.
