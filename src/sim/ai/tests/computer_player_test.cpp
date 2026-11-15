@@ -2467,7 +2467,7 @@ struct FullEnemyRun : RetentionRun {
     }
 
     /// Reads signed whole coordinates without depending on the policy's local helpers.
-    static int32_t whole(oa_fixed value) { return value / fixed_one - (value % fixed_one < 0); }
+    static int32_t whole(oa::oa_fixed value) { return value / fixed_one - (value % fixed_one < 0); }
 
     /// Ranks current eligible enemies, without limiting their number or querying the host.
     bool eligible(uint16_t slot) const {
