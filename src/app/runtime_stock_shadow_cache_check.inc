@@ -192,14 +192,14 @@
                 require(turn_live_camera(0, -35), "the cold stock shadow-cache camera failed");
                 place_match_view(held_view[0], held_view[1]);
                 oa::sim::messages::clear_messages(match_->state().game);
-                const auto frozen_tick = match_->simulation().tick;
+                const uint32_t frozen_tick = match_->simulation().tick;
                 const auto frozen_presentation = match_timing_.tick;
                 const auto frozen_random = match_->random_state();
                 const auto frozen_world = match_world_digest();
                 std::vector<UnitPose> frozen_poses(actors.size());
                 for (std::size_t actor = 0; actor < actors.size(); ++actor) {
                     const auto slot = actors[actor];
-                    const auto* instance = match_->runtime_state(slot).instance.get();
+                    auto* instance = match_->runtime_state(slot).instance.get();
                     require(instance != nullptr, "the stock shadow-cache rig is missing");
                     capture_unit_pose(
                         match_->world().record.units[slot], instance->model(), frozen_poses[actor]
