@@ -107,11 +107,37 @@ struct ShadowIndexKey {
     [[nodiscard]] bool operator==(const ShadowIndexKey&) const = default;
 };
 
+/// Ownership identity of one authoritative append lineage.
+struct ShadowIndexOwner {};
+
+/// Copying a registry starts a different append lineage; moving transfers it.
+struct ShadowIndexAppendOwner {
+    std::shared_ptr<const ShadowIndexOwner> value{};
+    /// Starts without an append identity, allocated when first prepared.
+    ShadowIndexAppendOwner() = default;
+
+    /// A copied registry receives a new identity when next prepared.
+    ShadowIndexAppendOwner(const ShadowIndexAppendOwner&) noexcept {}
+
+    /// Replacing a registry relinquishes its previous append identity.
+    ShadowIndexAppendOwner& operator=(const ShadowIndexAppendOwner& source) noexcept {
+        if (this != &source)
+            value.reset();
+        return *this;
+    }
+
+    /// Moving transfers the single append identity with the registry.
+    ShadowIndexAppendOwner(ShadowIndexAppendOwner&&) noexcept = default;
+    /// Moving assignment transfers the registry's append authority.
+    ShadowIndexAppendOwner& operator=(ShadowIndexAppendOwner&&) noexcept = default;
+};
+
 /// An immutable snapshot, retaining IDs and complete prefixes when patterns append.
 /// A new type registry or reset receives a different revision and snapshot.
 struct ShadowIndexPatterns {
     uint64_t revision{};
     uint64_t type_revision{};
+    std::weak_ptr<const ShadowIndexOwner> append_owner{};
     std::vector<ShadowIndexKey> keys{};
     std::vector<renderer_live_gpu::ShadowIndexPattern> patterns{};
     std::vector<uint32_t> indices{};
@@ -155,6 +181,7 @@ struct CardTypes {
     std::vector<int32_t> body_draw_types_medium{};
     /// Published only between completed frames; worker passes retain a snapshot.
     std::shared_ptr<const ShadowIndexPatterns> shadow_patterns{};
+    ShadowIndexAppendOwner shadow_pattern_owner{};
 };
 
 /// A type and team whose textures a frame has found: where they start in

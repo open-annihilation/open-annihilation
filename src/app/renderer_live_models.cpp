@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <new>
 #include <span>
@@ -441,6 +442,192 @@ void trim_card_types(CardTypes& types) {
     types.revision = new_revision();
 }
 
+void prepare_shadow_index_patterns(CardTypes& types) noexcept {
+    const auto current = types.shadow_patterns;
+    if (types.revision == 0) {
+        types.shadow_patterns.reset();
+        return;
+    }
+    try {
+        if (!types.shadow_pattern_owner.value)
+            types.shadow_pattern_owner.value = std::make_shared<ShadowIndexOwner>();
+        const auto& owner = types.shadow_pattern_owner.value;
+        const bool same_owner = current && !current->append_owner.owner_before(owner) &&
+                                !owner.owner_before(current->append_owner);
+        if (current && current->type_revision == types.revision && same_owner)
+            return;
+        auto next = current && current->type_revision == types.revision
+                        ? std::make_shared<ShadowIndexPatterns>(*current)
+                        : std::make_shared<ShadowIndexPatterns>();
+        next->revision = new_revision();
+        next->type_revision = types.revision;
+        next->append_owner = owner;
+        types.shadow_patterns = std::move(next);
+    } catch (const std::bad_alloc&) {
+        types.shadow_patterns.reset();
+    } catch (const std::length_error&) {
+        types.shadow_patterns.reset();
+    }
+}
+
+namespace {
+
+/// Visits the exact ordinary selected type-local corner sequence.
+template <typename Take>
+bool visit_shadow_pattern(const CardType& type, ShadowIndexKey key, Take&& take) {
+    const auto pieces = type.objects.size();
+    if (!type.drawable || !type.shadow_runs_ready || pieces == 0 || pieces > 64 ||
+        type.record_count > field_limit || type.piece_polygons.size() != pieces + 1 ||
+        type.piece_shadow_runs.size() != pieces + 1 || key.selected_mask == 0 ||
+        (pieces < 64 && (key.selected_mask >> pieces) != 0))
+        return false;
+    for (std::size_t piece = 0; piece < pieces; ++piece) {
+        if ((key.selected_mask & (uint64_t{1} << piece)) == 0)
+            continue;
+        if (key.walls) {
+            const auto first = type.piece_polygons[piece];
+            const auto last = type.piece_polygons[piece + 1];
+            if (first > last || last > type.polygons.size())
+                return false;
+            if (first == last)
+                continue;
+            const auto& tail = type.polygons[last - 1];
+            if (tail.corners < 3 || tail.corners - 2 > type.record_count / 3)
+                return false;
+            const auto begin = type.polygons[first].record;
+            const auto end = uint64_t{tail.record} + uint64_t{tail.corners - 2} * 3;
+            if (begin > end || end > type.record_count)
+                return false;
+            for (uint32_t corner = begin; corner < end; ++corner)
+                take(corner);
+        } else {
+            const auto first = type.piece_shadow_runs[piece];
+            const auto last = type.piece_shadow_runs[piece + 1];
+            if (first > last || last > type.shadow_runs.size())
+                return false;
+            for (auto run = first; run < last; ++run) {
+                const auto& span = type.shadow_runs[run];
+                if (span.first > type.record_count || span.count > type.record_count - span.first ||
+                    span.count % 3 != 0)
+                    return false;
+                for (uint32_t corner = 0; corner < span.count; ++corner)
+                    take(span.first + corner);
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+void admit_shadow_index_patterns(
+    CardTypes& types, std::span<const ShadowIndexKey> candidates
+) noexcept {
+    prepare_shadow_index_patterns(types);
+    const auto current = types.shadow_patterns;
+    if (!current || current->keys.size() != current->patterns.size() ||
+        current->patterns.size() > gpu::shadow_template_pattern_limit ||
+        current->indices.size() > gpu::shadow_template_byte_limit / sizeof(uint32_t))
+        return;
+    try {
+        std::shared_ptr<ShadowIndexPatterns> next;
+        std::size_t admitted{}, bytes{};
+        for (const auto& key : candidates.first(
+                 std::min<std::size_t>(candidates.size(), gpu::shadow_template_pattern_limit)
+             )) {
+            const auto& store = next ? *next : *current;
+            if (admitted == gpu::shadow_template_admissions_per_frame ||
+                store.patterns.size() >= gpu::shadow_template_pattern_limit)
+                break;
+            if (key.type_revision != types.revision || key.type >= types.types.size() ||
+                std::find(store.keys.begin(), store.keys.end(), key) != store.keys.end())
+                continue;
+            const auto& type = types.types[key.type];
+            std::size_t count{};
+            if (!visit_shadow_pattern(type, key, [&](uint32_t) { ++count; }) || count == 0 ||
+                count % 3 != 0 ||
+                count > gpu::shadow_template_admission_bytes /
+                            (gpu::model_run_instances * sizeof(uint32_t)))
+                continue;
+            const auto words = count * gpu::model_run_instances;
+            const auto added = words * sizeof(uint32_t);
+            if (added > gpu::shadow_template_admission_bytes - bytes ||
+                added > gpu::shadow_template_byte_limit - store.indices.size() * sizeof(uint32_t))
+                continue;
+            if (!next)
+                next = std::make_shared<ShadowIndexPatterns>(*current);
+            const auto first = static_cast<uint32_t>(next->indices.size());
+            next->indices.resize(next->indices.size() + words);
+            std::size_t at = first;
+            for (uint32_t relative = 0; relative < gpu::model_run_instances; ++relative)
+                (void)visit_shadow_pattern(type, key, [&](uint32_t corner) {
+                    next->indices[at++] = (relative << gpu::model_corner_bits) | corner;
+                });
+            next->keys.push_back(key);
+            next->patterns.push_back(
+                {first,
+                 static_cast<uint32_t>(count),
+                 type.first_record,
+                 type.record_count,
+                 key.selected_mask}
+            );
+            bytes += added;
+            ++admitted;
+        }
+        if (next)
+            types.shadow_patterns = std::move(next);
+    } catch (const std::bad_alloc&) {
+        // Optional next-frame metadata never changes this frame's shadows.
+    } catch (const std::length_error&) {
+        // Keep the previous complete immutable snapshot on refusal.
+    }
+}
+
+uint32_t shadow_index_pattern(const ShadowIndexStream& stream, ShadowIndexKey key) noexcept {
+    const auto& store = stream.patterns;
+    if (!stream.enabled || !store || store->type_revision != key.type_revision ||
+        store->keys.size() != store->patterns.size() ||
+        store->patterns.size() > gpu::shadow_template_pattern_limit)
+        return 0;
+    const auto found = std::find(store->keys.begin(), store->keys.end(), key);
+    return found == store->keys.end() ? 0 : static_cast<uint32_t>(found - store->keys.begin() + 1);
+}
+
+void remember_shadow_index_key(ShadowIndexStream& stream, ShadowIndexKey key) noexcept {
+    if (key.selected_mask == 0 || stream.candidate_count >= stream.candidates.size())
+        return;
+    const auto end = stream.candidates.begin() + stream.candidate_count;
+    if (std::find(stream.candidates.begin(), end, key) == end)
+        stream.candidates[stream.candidate_count++] = key;
+}
+
+bool materialize_shadow_index_run(ShadowIndexStream& stream, std::size_t named) {
+    if (named >= stream.runs.size())
+        return false;
+    auto& run = stream.runs[named];
+    if (run.pattern == 0)
+        return true;
+    const auto& store = stream.patterns;
+    if (!store || run.pattern > store->patterns.size() || run.cast_count == 0 ||
+        run.cast_count > gpu::model_run_instances)
+        return false;
+    const auto& pattern = store->patterns[run.pattern - 1];
+    const uint64_t words = uint64_t{pattern.indices_per_cast} * run.cast_count;
+    if (words != run.index_count || pattern.first_index > store->indices.size() ||
+        words > store->indices.size() - pattern.first_index || words > gpu::largest_vertex_count ||
+        stream.indices.size() > gpu::largest_vertex_count - words)
+        return false;
+    const auto first = static_cast<uint32_t>(stream.indices.size());
+    stream.indices.insert(
+        stream.indices.end(),
+        store->indices.begin() + pattern.first_index,
+        store->indices.begin() + pattern.first_index + static_cast<std::ptrdiff_t>(words)
+    );
+    run.pattern = 0;
+    run.first_index = first;
+    return true;
+}
+
 void clear_cards(ModelCards& cards) noexcept {
     cards.instances.clear();
     cards.positions.clear();
@@ -466,6 +653,13 @@ void clear_cards(ModelCards& cards) noexcept {
     cards.draw_instance = -1;
     cards.mark = {};
     forget_poses(cards);
+    auto& shadow = cards.shadow_indices;
+    shadow.enabled = false;
+    shadow.patterns.reset();
+    shadow.indices.clear();
+    shadow.runs.clear();
+    shadow.logical_indices = 0;
+    shadow.candidate_count = 0;
 }
 
 void mark_cards(ModelCards& cards) noexcept {
@@ -487,6 +681,14 @@ void mark_cards(ModelCards& cards) noexcept {
         cards.marker_uv
     };
     cards.draw_instance = -1;
+    const auto& shadow = cards.shadow_indices;
+    cards.mark.shadow_indices = {
+        shadow.indices.size(),
+        shadow.runs.size(),
+        shadow.logical_indices,
+        shadow.candidate_count,
+        shadow.runs.empty() ? gpu::ShadowIndexRun{} : shadow.runs.back()
+    };
 }
 
 void unmark_cards(ModelCards& cards) noexcept {
@@ -511,6 +713,14 @@ void unmark_cards(ModelCards& cards) noexcept {
         run.instance_count = static_cast<uint32_t>(mark.markers - run.first_instance);
     }
     cards.draw_instance = -1;
+    auto& shadow = cards.shadow_indices;
+    const auto& shadow_mark = mark.shadow_indices;
+    shadow.indices.resize(shadow_mark.indices);
+    shadow.runs.resize(shadow_mark.runs);
+    shadow.logical_indices = shadow_mark.logical_indices;
+    shadow.candidate_count = shadow_mark.candidates;
+    if (!shadow.runs.empty())
+        shadow.runs.back() = shadow_mark.last_run;
     // A material retry may have discarded a range that a lookup named.
     forget_poses(cards);
     // A run the draw grew goes back to what it held before.
@@ -806,6 +1016,19 @@ renderer_live_gpu::ModelDraws card_draws(const CardTypes& types, const ModelCard
     draws.markers = cards.markers;
     draws.marker_runs = cards.marker_runs;
     draws.marker_uv = cards.marker_uv;
+    const auto& shadow = cards.shadow_indices;
+    if (shadow.enabled) {
+        draws.shadow_index_encoding = gpu::ShadowIndexEncoding::compact;
+        draws.shadow_index_runs = shadow.runs;
+        draws.shadow_dynamic_indices = shadow.indices;
+        draws.logical_shadow_index_count = shadow.logical_indices;
+        if (shadow.patterns) {
+            draws.shadow_patterns = shadow.patterns->patterns;
+            draws.shadow_pattern_indices = shadow.patterns->indices;
+            draws.shadow_patterns_revision = shadow.patterns->revision;
+            draws.shadow_patterns_type_revision = shadow.patterns->type_revision;
+        }
+    }
     return draws;
 }
 

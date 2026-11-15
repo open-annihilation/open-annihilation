@@ -480,7 +480,7 @@ class UnitEmission {
         : list_(pass.list), id_(id), marker_(marker), budget_(budget),
           vertices_(list_.vertices.size() + list_.translucent_vertices.size()),
           card_vertices_(list_.cards.vertices), units_(list_.cards.units.size()),
-          shadow_(list_.cards.cast_indices.size()), exceptions_(std::uncaught_exceptions()) {}
+          shadow_(shadow_index_count(list_.cards)), exceptions_(std::uncaught_exceptions()) {}
 
     UnitEmission(const UnitEmission&) = delete;
     UnitEmission& operator=(const UnitEmission&) = delete;
@@ -490,7 +490,7 @@ class UnitEmission {
         if (id_ == 0 || std::uncaught_exceptions() != exceptions_)
             return;
         auto& counts = list_.body_lod_counts;
-        counts.shadow_vertices += list_.cards.cast_indices.size() - shadow_;
+        counts.shadow_vertices += shadow_index_count(list_.cards) - shadow_;
         const auto count = list_.vertices.size() + list_.translucent_vertices.size() - vertices_ +
                            list_.cards.vertices - card_vertices_;
         if (count == 0)
@@ -6320,7 +6320,7 @@ int64_t card_instance(
 /// Appends immutable corner runs without rebuilding each polygon's fan.
 /// Unsupported metadata or a crossed frame bound leaves the old path responsible.
 bool append_shadow_corner_runs(
-    ModelCards& cards,
+    std::vector<uint32_t>& indices,
     const CardType& type,
     std::span<const sim::model_runtime::PieceState> pieces,
     uint32_t named,
@@ -6367,19 +6367,28 @@ bool append_shadow_corner_runs(
     };
     std::size_t count{};
     visit([&](const CardCornerRun& run) { count += run.count; });
-    const auto first = cards.cast_indices.size();
+    const auto first = indices.size();
     if (count > maximum_vertices || first > maximum_vertices - count)
         return false;
     if (count == 0)
         return true;
-    cards.cast_indices.resize(first + count);
-    auto* output = cards.cast_indices.data() + first;
+    indices.resize(first + count);
+    auto* output = indices.data() + first;
     visit([&](CardCornerRun run) {
         for (uint32_t corner = 0; corner < run.count; ++corner)
             output[corner] = named | (run.first + corner);
         output += run.count;
     });
     return true;
+}
+
+/// Short pending runs retain the ordinary dynamic representation.
+void finish_shadow_index_run(ModelCards& cards) {
+    auto& stream = cards.shadow_indices;
+    if (stream.enabled && !stream.runs.empty() && stream.runs.back().pattern != 0 &&
+        stream.runs.back().cast_count < renderer_live_gpu::shadow_template_minimum_casts &&
+        !materialize_shadow_index_run(stream, stream.runs.size() - 1))
+        throw std::runtime_error("Invalid pending shadow index pattern");
 }
 
 /// Casts the shadow of the draw the models pass is listing into the
@@ -6465,6 +6474,94 @@ void cast_on_card(
         cards.casts.push_back(
             {instance, kind, base, ground_half, least_height, light, depth, across, down}
         );
+        auto& compact = cards.shadow_indices;
+        if (compact.enabled) {
+            ShadowIndexKey key;
+            key.type_revision = pass.scene.card_types.revision;
+            key.type = type_index;
+            key.walls = walls;
+            const bool eligible = kind == renderer_live_gpu::shadow_cast_picture && !shadow.soft &&
+                                  !shadow.building && !shadow.digger && !state.image_unfinished &&
+                                  pieces.size() <= 64 && type.shadow_runs_ready &&
+                                  geometry_shadow_metadata_candidate(draw, in.sea_level);
+            if (eligible)
+                for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+                    const auto bit = uint64_t{1} << piece;
+                    const auto flags = pieces[piece].flags;
+                    const bool cached =
+                        (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0;
+                    if ((!type.body_detail || (piece_mask & bit) != 0) &&
+                        (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) !=
+                            0 &&
+                        (cached || (!cached_only && every_piece)))
+                        key.selected_mask |= bit;
+                }
+            const auto warm = eligible ? shadow_index_pattern(compact, key) : 0;
+            if (eligible && warm == 0)
+                remember_shadow_index_key(compact, key);
+            if (compact.runs.empty() ||
+                cast - compact.runs.back().first_cast >= renderer_live_gpu::model_run_instances) {
+                finish_shadow_index_run(cards);
+                compact.runs.push_back(
+                    {0, cast, 0, static_cast<uint32_t>(compact.indices.size()), 0, warm}
+                );
+                if (warm != 0)
+                    compact.runs.back().first_index = 0;
+            }
+            auto& run = compact.runs.back();
+            if (run.pattern != 0 && run.pattern != warm &&
+                !materialize_shadow_index_run(compact, compact.runs.size() - 1))
+                throw std::runtime_error("Invalid mixed shadow index pattern");
+            if (run.pattern != 0) {
+                const auto count = compact.patterns->patterns[run.pattern - 1].indices_per_cast;
+                if (count > maximum_vertices - std::min(maximum_vertices, compact.logical_indices))
+                    throw GeometryFull();
+                ++run.cast_count;
+                run.index_count += count;
+                compact.logical_indices += count;
+                return;
+            }
+            const auto first_index = compact.indices.size();
+            const auto named = (cast - run.first_cast) << renderer_live_gpu::model_corner_bits;
+            if (!append_shadow_corner_runs(
+                    compact.indices,
+                    type,
+                    pieces,
+                    named,
+                    every_piece,
+                    cached_only,
+                    walls,
+                    piece_mask
+                )) {
+                for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+                    if (type.body_detail && (piece >= body_lod_piece_limit ||
+                                             (piece_mask & (uint64_t{1} << piece)) == 0))
+                        continue;
+                    const auto flags = pieces[piece].flags;
+                    const bool cached =
+                        (flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0;
+                    if ((flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
+                            0 ||
+                        (!cached && (cached_only || !every_piece)))
+                        continue;
+                    for (auto at = type.piece_polygons[piece]; at < type.piece_polygons[piece + 1];
+                         ++at) {
+                        const auto& polygon = type.polygons[at];
+                        if (!walls && polygon.colored && polygon.color == model::image_key)
+                            continue;
+                        for (uint32_t corner = 0; corner < (polygon.corners - 2) * 3; ++corner)
+                            compact.indices.push_back(named | (polygon.record + corner));
+                    }
+                }
+            }
+            const auto count = compact.indices.size() - first_index;
+            if (count > maximum_vertices - std::min(maximum_vertices, compact.logical_indices))
+                throw GeometryFull();
+            ++run.cast_count;
+            run.index_count += static_cast<uint32_t>(count);
+            compact.logical_indices += count;
+            return;
+        }
         if (cards.cast_runs.empty() ||
             cast - cards.cast_runs.back().first_instance >= renderer_live_gpu::model_run_instances)
             cards.cast_runs.push_back(
@@ -6475,7 +6572,7 @@ void cast_on_card(
         const std::size_t first_index = cards.cast_indices.size();
         if (!in.body_lod_enabled ||
             !append_shadow_corner_runs(
-                cards, type, pieces, named, every_piece, cached_only, walls, piece_mask
+                cards.cast_indices, type, pieces, named, every_piece, cached_only, walls, piece_mask
             )) {
             for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
                 if (type.body_detail &&
@@ -6907,6 +7004,12 @@ void marker_range(
 /// @param last the draw after the last
 void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     auto& list = pass.list;
+    if (in.shadow_index_templates && in.models_on_card && !list.cards.shadow_indices.enabled) {
+        if (!list.cards.cast_indices.empty() || !list.cards.cast_runs.empty())
+            throw std::runtime_error("Mixed shadow index representations in one pass");
+        list.cards.shadow_indices.enabled = true;
+        list.cards.shadow_indices.patterns = pass.scene.card_types.shadow_patterns;
+    }
     std::size_t reflection_budget = reflection_vertex_allowance;
     std::array<std::optional<AtlasRect>, 256> colors;
     std::unordered_map<const Sprite*, AtlasRect> textures;
@@ -7365,6 +7468,7 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
         if (!reflected_faces.empty())
             naval_reflection(in, pass, reflected_faces, reflection_budget);
     }
+    finish_shadow_index_run(list.cards);
 }
 
 /// Draws canonical 3DO shots and their child pieces at their presented simulation depth.
@@ -9590,6 +9694,7 @@ void trim_parallel_model_lists(const ParallelModelRange& range, bool release = f
             holds(cards.tables) && holds(cards.indices) && holds(cards.runs) &&
             holds(cards.units) && holds(cards.markers) && holds(cards.marker_runs) &&
             holds(cards.casts) && holds(cards.cast_indices) && holds(cards.cast_runs) &&
+            holds(cards.shadow_indices.indices) && holds(cards.shadow_indices.runs) &&
             holds(cards.poses) && holds(cards.pose_points) && holds(cards.pose_slots) &&
             holds(cards.recent_poses);
         if (!bounded)
@@ -9611,7 +9716,7 @@ bool models_with_parallel_range(
     try {
         models(in, pass, 0, range.ends[0]);
         bool batch_joined = false;
-        if (in.body_lod_enabled) {
+        if (in.body_lod_enabled || pass.list.cards.shadow_indices.enabled) {
             std::array<const ModelCards*, ParallelModelLists::maximum_bands> cards{};
             auto held = pass.list.vertices.size() + pass.list.cards.vertices;
             const auto allowance =
@@ -9650,10 +9755,18 @@ bool models_with_parallel_range(
             const auto& from = range.storage->lists[band];
             if (!batch_joined) {
                 const auto held = pass.list.vertices.size() + pass.list.cards.vertices;
+                const std::array<const ModelCards*, 1> one{&from.cards};
+                const auto append = [&] {
+                    return pass.list.cards.shadow_indices.enabled
+                               ? append_parallel_model_card_bands(
+                                     pass.list.cards, one, pass.list.vertices.size()
+                                 )
+                               : append_parallel_model_cards(
+                                     pass.list.cards, from.cards, pass.list.vertices.size()
+                                 );
+                };
                 if (from.cards.vertices > maximum_vertices - std::min(maximum_vertices, held) ||
-                    !append_parallel_model_cards(
-                        pass.list.cards, from.cards, pass.list.vertices.size()
-                    )) {
+                    !append()) {
                     work.fallback_frames = 1;
                     clear_list(pass.list, end);
                     models(in, pass, 0, end);
@@ -9724,6 +9837,8 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const bool timing = bench_timers::timers.on;
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
+    if (in.shadow_index_templates && in.models_on_card)
+        prepare_shadow_index_patterns(scene.card_types);
     verify_preplanned_omissions(in, scene.card_types);
     verify_geometry_shadow_metadata(in, scene.card_types);
     plan_unit_detail(in, scene);
@@ -10284,7 +10399,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
         passes.models.nanoseconds += parallel.nanoseconds;
         trim_parallel_model_lists(parallel);
         take_models();
-        if (passes.models.cards.cast_indices.size() > maximum_vertices)
+        if (shadow_index_count(passes.models.cards) > maximum_vertices)
             throw GeometryFull();
     } else {
         // With no eligible units the existing pass schedule is unchanged.
@@ -10723,6 +10838,13 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
             scene.atlas_update.frame_end_row = 0;
         }
         scene.frame_palette = nullptr;
+        if (scene.cards.shadow_indices.enabled)
+            admit_shadow_index_patterns(
+                scene.card_types,
+                std::span{scene.cards.shadow_indices.candidates}.first(
+                    scene.cards.shadow_indices.candidate_count
+                )
+            );
         error.clear();
         return true;
     } catch (const std::exception& exception) {
