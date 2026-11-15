@@ -36,7 +36,7 @@ inline constexpr uint32_t following_flow_version = 8;
 inline constexpr uint32_t cohort_target_version = 10;
 /// The experimental preset retaining verified cohort targets near the best weighted cost.
 inline constexpr uint32_t cohort_retention_version = 11;
-/// The private experimental preset trying cardinal exits from a mature local queue.
+/// The experimental preset trying cardinal exits from a mature local queue.
 inline constexpr uint32_t cardinal_queue_escape_version = 13;
 /// The Enhanced Mode preset supplied by this build.
 inline constexpr uint32_t current_version = swept_ground_version;

@@ -11,8 +11,8 @@ Players in the same match may choose different graphics settings.
 
 ## Current preset
 
-Rules version 4 remains the current preset. Versions 5, 6, 7, 8, 10 and 11 are explicit
-experimental choices. Version 13 is a private, unpromoted experiment.
+Rules version 4 remains the current preset. Versions 5, 6, 7, 8, 10, 11 and 13
+are explicit experimental choices.
 Version 8 extends version 7's static routing
 with applied-leg queue checks and planning that ignores temporary unit occupancy.
 Version 10 inherits version 8 and selects AI strike-target distribution
@@ -220,7 +220,7 @@ See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
 Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `10`,
-`11` or private experimental `13` with Enhanced Mode to compare the presets
+`11` or experimental `13` with Enhanced Mode to compare the presets
 on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
@@ -762,9 +762,9 @@ movement and combat workload prevent a causal comparison with the earlier
 version-4 timing. A previous attempt lost focus at tick 1,205 and is
 excluded. These measurements precede the later minimap and recording changes.
 
-## Private cardinal queue escape (version 13)
+## Experimental cardinal queue escape (version 13)
 
-Version 13 is an unpromoted experiment based on version 10. It keeps
+Version 13 is an explicit experiment based on version 10. It keeps
 version 10's distributed routing, local following, cohort target assignment,
 animated body detail and deferred unit geometry. It does not select version
 11's target retention. Off and the earlier supported presets retain their
@@ -779,7 +779,7 @@ checks. If none is legal, the ordinary result is returned unchanged.
 The experiment adds no saved state, random draws or retry clocks, and does
 not relax swept movement or final footprint occupancy checks.
 
-Select it explicitly for a private comparison:
+Select it explicitly for a comparison:
 
 ```sh
 ./run.sh --skip-intro --enhanced-mode-version 13 --hardware-acceleration=full
@@ -787,8 +787,23 @@ Select it explicitly for a private comparison:
 
 Saves, recordings and multiplayer agreement retain its separate rules
 identity. Graphics choices remain independent. The supplied preset remains
-version 4. This policy has no established benefit in an actual 20,000-unit
-moving-and-fighting comparison and is not promoted for ordinary play.
+version 4.
+
+A matched 9,000-tick comparison on Core Prime Industrial Area started
+10,000 units per side with the normal ARM computer player. Mean progress
+toward the original Patrol destinations increased from 1,397.26 to 1,426.87
+world units, and stationary exposure over the final 300 ticks fell from
+24.78% to 22.23%. Original retired units retain their last alive endpoint
+in that progress measure; paired survivors also improved on average on
+both sides. Retired time does not count as stationary.
+
+The result remains mixed. Paired ARM rear survivors lost 7.81 world units
+of mean progress, and central ARM median progress also fell. Travel and
+detouring increased. No passage through the specifically measured outer
+mouth zones was recorded; this does not describe all bridge traffic.
+The old version-10 controls repeated exactly across all 31 exports.
+These headless results establish neither smooth bridge flow nor gameplay
+FPS; tick timings were affected by other work. The default stays version 4.
 
 ## Experimental cohort target retention (version 11)
 

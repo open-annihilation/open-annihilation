@@ -47,14 +47,16 @@ margin. It derives those prior targets from current owned attack heads and
 adds no persistent state. `uses_following_battle_flow` selects only versions
 8, 10, 11 and 13; `uses_cohort_target_distribution` selects only 10, 11 and 13.
 `uses_cohort_target_retention` selects only 11.
-`cardinal_queue_escape_version` is thirteen, a private, unpromoted experiment
+`cardinal_queue_escape_version` is thirteen, an explicit experiment
 inheriting version 10. `uses_cardinal_queue_escape` selects only 13. It
 permits bounded cardinal adjacent-origin cell centres after a mature local
 queue's existing chooser returns an unadjusted or in-origin result, only on
 an existing retry with fresh moving neighbours. Existing real crossings
 and the old result when no legal cardinal exit exists are preserved. It
 adds no persistent state and does not inherit version 11's target retention.
-No large-battle benefit is established by this preset's admission.
+A matched 20,000-unit comparison reduced aggregate stationary time and
+increased mean progress, with mixed ARM rear progress; see the
+[measured limits](../../../docs/enhanced-mode.md#experimental-cardinal-queue-escape-version-13).
 `uses_enhanced_unit_rendering` selects versions 10, 11 and 13 for their shared
 animated body detail and deferred geometry policies. The new-game default
 remains version 4 while the explicit experiment is validated.
