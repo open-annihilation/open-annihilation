@@ -204,7 +204,10 @@ LocalFlowDecision choose_local_flow(
     );
 }
 
-LocalFlowDecision choose_local_flow(
+namespace {
+
+/// Chooses the ordinary traffic leg before optional mature recovery.
+LocalFlowDecision choose_route_flow(
     const Unit& unit,
     const Movement& movement,
     std::array<Fixed, 3> target,
@@ -349,6 +352,85 @@ LocalFlowDecision choose_local_flow(
             ++counters.steering_adjustments;
         }
     }
+    return result;
+}
+
+/// Tries adjacent origins in goal-facing order without replacing a useful ordinary leg.
+LocalFlowDecision choose_cell_escape(
+    const Unit& unit,
+    const Movement& movement,
+    std::array<Fixed, 3> target,
+    Host& host,
+    LocalFlowDecision ordinary,
+    LocalFlowCounters& counters
+) {
+    if (cell_at(unit, unit.position) != unit.cell)
+        return ordinary;
+    constexpr std::array<std::array<int16_t, 2>, 4> directions{
+        std::array<int16_t, 2>{1, 0}, {0, 1}, {-1, 0}, {0, -1}
+    };
+    const int64_t dx = int64_t(target[0]) - unit.position[0];
+    const int64_t dz = int64_t(target[2]) - unit.position[2];
+    const std::array<int64_t, 4> progress{dx, dz, -dx, -dz};
+    std::array<unsigned, 4> order{0, 1, 2, 3};
+    std::sort(order.begin(), order.end(), [&](unsigned a, unsigned b) {
+        return progress[a] > progress[b] || (progress[a] == progress[b] && a < b);
+    });
+    const auto occupancy = uint8_t(movement.flags & occupancy_mask);
+    for (const auto index : order) {
+        auto candidate = unit.position;
+        auto expected = unit.cell;
+        const unsigned axis = directions[index][0] == 0 ? 1 : 0;
+        const int32_t cell = int32_t(unit.cell[axis]) + directions[index][axis];
+        if (cell < std::numeric_limits<int16_t>::min() ||
+            cell > std::numeric_limits<int16_t>::max())
+            continue;
+        const int64_t coordinate =
+            int64_t(cell) * cell_step + int64_t(unit.footprint[axis]) * (cell_step / 2);
+        if (coordinate < std::numeric_limits<Fixed>::min() ||
+            coordinate > std::numeric_limits<Fixed>::max())
+            continue;
+        candidate[axis * 2] = static_cast<Fixed>(coordinate);
+        expected[axis] = static_cast<int16_t>(cell);
+        // The other axis stays in its current origin. Each segment crosses
+        // exactly one boundary, adding at most one final footprint query.
+        if (cell_at(unit, candidate) != expected ||
+            !clear_segment(unit, candidate, occupancy, host, counters))
+            continue;
+        if (!ordinary.adjusted)
+            ++counters.steering_adjustments;
+        ordinary.target = candidate;
+        ordinary.adjusted = true;
+        ordinary.reverse = progress[index] < 0;
+        return ordinary;
+    }
+    return ordinary;
+}
+
+} // namespace
+
+LocalFlowDecision choose_local_flow(
+    const Unit& unit,
+    const Movement& movement,
+    std::array<Fixed, 3> target,
+    std::array<Fixed, 3> probe_target,
+    uint32_t tick,
+    Host& host,
+    LocalFlowProbe probe,
+    LocalFlowCounters& counters,
+    Fixed target_distance
+) {
+    const auto yielded = counters.yielded_ticks;
+    auto result = choose_route_flow(
+        unit, movement, target, probe_target, tick, host, probe, counters, target_distance
+    );
+    if (!probe.mature_cell_escape || !result.mobile_blocked ||
+        (result.adjusted && cell_at(unit, result.target) != unit.cell))
+        return result;
+    result = choose_cell_escape(unit, movement, target, host, result, counters);
+    if (result.adjusted && cell_at(unit, result.target) != unit.cell &&
+        counters.yielded_ticks == yielded)
+        ++counters.yielded_ticks;
     return result;
 }
 

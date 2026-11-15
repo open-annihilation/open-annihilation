@@ -51,6 +51,9 @@ struct LocalFlowProbe {
     /// Whether a mature, stationary retry may voluntarily yield its traffic priority.
     /// The caller schedules this from the existing retry phase and actual motion age.
     bool recovery_yield{};
+    /// Whether a mature retry may use a clear adjacent origin when ordinary passing
+    /// leaves it in the current origin. The caller enables this only on its retry phase.
+    bool mature_cell_escape{};
 };
 
 /// A temporary steering target; the original mission and route remain unchanged.
