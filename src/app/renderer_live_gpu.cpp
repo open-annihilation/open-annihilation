@@ -457,10 +457,13 @@ void upload_lights(const LightResources& lights, SDL_GPUCopyPass* copy) {
 struct ShadowResources {
     SDL_GPUDevice* device{}; ///< the device they are made on
     SDL_GPUShader* cast_vertex{};
+    SDL_GPUShader* procedural_vertex{};
     SDL_GPUShader* cast_fragment{};
     SDL_GPUShader* ground_vertex{};
     SDL_GPUShader* ground_fragment{};
     SDL_GPUGraphicsPipeline* cast_pipeline{}; ///< into the map, one sample a texel
+    SDL_GPUGraphicsPipeline* procedural_pipeline{};
+    bool procedural_attempted{}; ///< an unavailable optional stage keeps indexed casts
     /// The ground drawn again, darkened by the map, into the scene as its
     /// pipeline draws, without writing depth.
     SDL_GPUGraphicsPipeline* ground_pipeline{};
@@ -477,10 +480,11 @@ struct ShadowResources {
     ~ShadowResources() {
         if (!device)
             return;
-        for (SDL_GPUGraphicsPipeline* made : {cast_pipeline, ground_pipeline})
+        for (SDL_GPUGraphicsPipeline* made : {cast_pipeline, procedural_pipeline, ground_pipeline})
             if (made)
                 SDL_ReleaseGPUGraphicsPipeline(device, made);
-        for (SDL_GPUShader* made : {cast_vertex, cast_fragment, ground_vertex, ground_fragment})
+        for (SDL_GPUShader* made :
+             {cast_vertex, procedural_vertex, cast_fragment, ground_vertex, ground_fragment})
             if (made)
                 SDL_ReleaseGPUShader(device, made);
         for (SDL_GPUTexture* made : {map, map_depth})
@@ -534,6 +538,12 @@ struct ModelResources {
     bool shadow_templates_active{};         ///< this frame may read resident or admitted words
     std::vector<uint32_t> shadow_dynamic{}; ///< checked dynamic and fallback runs
     std::vector<uint32_t> shadow_offsets{}; ///< first dynamic word for each typed run
+    std::vector<uint32_t> shadow_lookup{};  ///< four lookup words for each procedural cast
+    std::vector<uint32_t> shadow_local{};   ///< uncached local corners read by the vertex stage
+    std::vector<uint32_t> shadow_lookup_offsets{}; ///< first lookup word for each original run
+    std::vector<uint8_t> shadow_procedural_runs{}; ///< final choice for each original run
+    uint32_t shadow_lookup_word{};                 ///< first lookup word in Frame::words
+    uint32_t shadow_local_word{};                  ///< first uncached local corner in Frame::words
     oa::app::ShadowIndexCounts shadow_counts{};
     /// The units' shadows, released before the rest.
     ShadowResources shadows;
@@ -562,6 +572,11 @@ struct ModelResources {
     }
 };
 
+/// The exclusive prefix, source offset, source kind and reserved word of a cast lookup.
+constexpr uint32_t shadow_lookup_words = 4;
+/// One run's descriptor offset, cast count, first cast and reserved uniform word.
+constexpr uint32_t shadow_lookup_uniform_words = 4;
+
 /// Plans bounded independent admission before any device or upload reads a template.
 bool plan_shadow_templates(ModelResources& resources, const ModelDraws& draws, bool allowed) {
     resources.shadow_counts = {};
@@ -584,6 +599,31 @@ bool plan_shadow_templates(ModelResources& resources, const ModelDraws& draws, b
         resources.shadow_template_cycle = true;
     }
     resources.shadow_counts.logical_indices = draws.logical_shadow_index_count;
+    if (draws.shadow_index_encoding == ShadowIndexEncoding::procedural) {
+        for (const auto& source : draws.shadow_index_casts) {
+            if (source.pattern == 0)
+                continue;
+            if (source.pattern > draws.shadow_patterns.size())
+                return false;
+            const auto pattern = source.pattern - 1;
+            if (!allowed || resources.shadow_resident[pattern] || resources.shadow_used[pattern])
+                continue;
+            resources.shadow_used[pattern] = true;
+            const auto& descriptor = draws.shadow_patterns[pattern];
+            const auto bytes = descriptor.indices_per_cast * model_run_instances * sizeof(uint32_t);
+            if (resources.shadow_admission_count == shadow_template_admissions_per_frame ||
+                bytes > shadow_template_admission_bytes - resources.shadow_template_bytes)
+                continue;
+            if (!resources.shadow_verified[pattern] &&
+                !shadow_index_detail::valid_pattern_repetitions(draws, descriptor))
+                return false;
+            resources.shadow_verified[pattern] = true;
+            resources.shadow_admissions[resources.shadow_admission_count++] = pattern;
+            resources.shadow_template_bytes += static_cast<uint32_t>(bytes);
+        }
+        resources.shadow_used.fill(false);
+        return true;
+    }
     for (const auto& run : draws.shadow_index_runs) {
         if (run.pattern == 0)
             continue;
@@ -613,13 +653,124 @@ bool plan_shadow_templates(ModelResources& resources, const ModelDraws& draws, b
     return true;
 }
 
+/// Prepares one unchanged draw per mixed run, or its complete indexed fallback.
+bool prepare_procedural_shadow_indices(
+    ModelResources& resources, const ModelDraws& draws, bool procedural_allowed
+) {
+    resources.shadow_dynamic.clear();
+    resources.shadow_offsets.clear();
+    resources.shadow_lookup.clear();
+    resources.shadow_local.clear();
+    resources.shadow_lookup_offsets.clear();
+    resources.shadow_procedural_runs.clear();
+    const auto available = [&](const ShadowIndexCast& source) {
+        return source.pattern != 0 && resources.shadow_templates_active &&
+               (resources.shadow_resident[source.pattern - 1] ||
+                resources.shadow_used[source.pattern - 1]);
+    };
+    const auto corners = [&](const ShadowIndexCast& source) {
+        if (source.pattern == 0)
+            return draws.shadow_dynamic_indices.subspan(source.first_index, source.index_count);
+        const auto& pattern = draws.shadow_patterns[source.pattern - 1];
+        return draws.shadow_pattern_indices.subspan(pattern.first_index, source.index_count);
+    };
+    try {
+        resources.shadow_procedural_runs.resize(draws.shadow_index_runs.size());
+        resources.shadow_offsets.reserve(draws.shadow_index_runs.size());
+        resources.shadow_lookup_offsets.reserve(draws.shadow_index_runs.size());
+        std::size_t packed_count{}, lookup_count{}, local_count{};
+        uint32_t procedural_count{};
+        for (std::size_t at = 0; at < draws.shadow_index_runs.size(); ++at) {
+            const auto& run = draws.shadow_index_runs[at];
+            uint32_t cached_casts{};
+            for (uint32_t cast = run.first_cast; cast < run.first_cast + run.cast_count; ++cast)
+                cached_casts += available(draws.shadow_index_casts[cast]);
+            const bool procedural =
+                procedural_allowed && cached_casts >= shadow_template_minimum_casts;
+            resources.shadow_procedural_runs[at] = procedural;
+            if (!procedural) {
+                packed_count += run.index_count;
+                continue;
+            }
+            ++procedural_count;
+            lookup_count += std::size_t{run.cast_count} * shadow_lookup_words;
+            for (uint32_t cast = run.first_cast; cast < run.first_cast + run.cast_count; ++cast) {
+                const auto& source = draws.shadow_index_casts[cast];
+                if (!available(source))
+                    local_count += source.index_count;
+            }
+        }
+        resources.shadow_dynamic.reserve(packed_count);
+        resources.shadow_lookup.reserve(lookup_count);
+        resources.shadow_local.reserve(local_count);
+        for (std::size_t at = 0; at < draws.shadow_index_runs.size(); ++at) {
+            const auto& run = draws.shadow_index_runs[at];
+            resources.shadow_offsets.push_back(
+                static_cast<uint32_t>(resources.shadow_dynamic.size())
+            );
+            resources.shadow_lookup_offsets.push_back(
+                static_cast<uint32_t>(resources.shadow_lookup.size())
+            );
+            uint32_t end{};
+            for (uint32_t relative = 0; relative < run.cast_count; ++relative) {
+                const auto& source = draws.shadow_index_casts[run.first_cast + relative];
+                if (resources.shadow_procedural_runs[at] == 0) {
+                    for (const auto corner : corners(source))
+                        resources.shadow_dynamic.push_back(relative << model_corner_bits | corner);
+                    continue;
+                }
+                end += source.index_count;
+                const bool cached = available(source);
+                const auto offset = cached ? draws.shadow_patterns[source.pattern - 1].first_index
+                                           : static_cast<uint32_t>(resources.shadow_local.size());
+                resources.shadow_lookup.insert(
+                    resources.shadow_lookup.end(), {end, offset, static_cast<uint32_t>(cached), 0}
+                );
+                if (!cached) {
+                    const auto words = corners(source);
+                    resources.shadow_local.insert(
+                        resources.shadow_local.end(), words.begin(), words.end()
+                    );
+                }
+            }
+        }
+        resources.shadow_counts = shadow_index_detail::procedural_draw_counts(
+            draws,
+            resources.shadow_resident,
+            resources.shadow_used,
+            resources.shadow_procedural_runs
+        );
+        resources.shadow_counts.dynamic_uploaded_indices =
+            resources.shadow_dynamic.size() + resources.shadow_local.size();
+        // Each descriptor and run uniform is exactly four uint32 words;
+        // neither API payload has padding beyond those explicit reserved words.
+        resources.shadow_counts.mapping_uploaded_words =
+            resources.shadow_lookup.size() +
+            std::size_t{procedural_count} * shadow_lookup_uniform_words;
+        resources.shadow_counts.template_uploaded_indices =
+            resources.shadow_template_bytes / sizeof(uint32_t);
+        resources.shadow_counts.admitted_patterns = resources.shadow_admission_count;
+        return true;
+    } catch (const std::bad_alloc&) {
+        // A lookup allocation is optional. Rebuild whole indexed runs before
+        // any command buffer can read a partially prepared mapping.
+        return procedural_allowed && prepare_procedural_shadow_indices(resources, draws, false);
+    }
+}
+
 /// Prepares exact same-frame fallbacks when a retained template is not available.
-bool prepare_shadow_indices(ModelResources& resources, const ModelDraws& draws, bool allowed) {
+bool prepare_shadow_indices(
+    ModelResources& resources, const ModelDraws& draws, bool allowed, bool procedural_allowed
+) {
+    resources.shadow_lookup.clear();
+    resources.shadow_local.clear();
+    resources.shadow_lookup_offsets.clear();
+    resources.shadow_procedural_runs.clear();
     if (draws.shadow_index_encoding == ShadowIndexEncoding::expanded)
         return true;
     if (allowed && resources.shadow_admission_count != 0 && !resources.shadow_templates) {
         SDL_GPUBufferCreateInfo info{};
-        info.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+        info.usage = SDL_GPU_BUFFERUSAGE_INDEX | SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
         info.size = static_cast<uint32_t>(shadow_template_byte_limit);
         resources.shadow_templates = SDL_CreateGPUBuffer(resources.device, &info);
     }
@@ -630,6 +781,8 @@ bool prepare_shadow_indices(ModelResources& resources, const ModelDraws& draws, 
             resources.shadow_used[resources.shadow_admissions[index]] = true;
     if (!admitting)
         resources.shadow_admission_count = resources.shadow_template_bytes = 0;
+    if (draws.shadow_index_encoding == ShadowIndexEncoding::procedural)
+        return prepare_procedural_shadow_indices(resources, draws, procedural_allowed && admitting);
     resources.shadow_dynamic.clear();
     resources.shadow_offsets.clear();
     try {
@@ -726,7 +879,10 @@ bool valid_model_draws(
         models.textures.size() % 4 != 0 || models.instances.size() > largest_model_instance_count ||
         models.indices.size() > max_vertices || (models.corners.empty() && !models.runs.empty()) ||
         (models.shadow_index_encoding != ShadowIndexEncoding::expanded &&
-         models.shadow_index_encoding != ShadowIndexEncoding::compact))
+         models.shadow_index_encoding != ShadowIndexEncoding::compact &&
+         models.shadow_index_encoding != ShadowIndexEncoding::procedural) ||
+        (models.shadow_index_encoding != ShadowIndexEncoding::procedural &&
+         !models.shadow_index_casts.empty()))
         return false;
     const std::size_t corner_count = models.corners.size() / 2;
     const std::size_t position_count = models.positions.size() / 3;
@@ -878,7 +1034,10 @@ bool valid_model_draws(
             return false;
         valid &= inside(cast.light, 0, 1) & inside(cast.depth, 0, 1);
     }
-    if (models.shadow_index_encoding == ShadowIndexEncoding::compact) {
+    if (models.shadow_index_encoding == ShadowIndexEncoding::procedural) {
+        if (!shadow_index_detail::valid_procedural_draws(models))
+            return false;
+    } else if (models.shadow_index_encoding == ShadowIndexEncoding::compact) {
         if (!shadow_index_detail::valid_compact_draws(models))
             return false;
     } else
@@ -1127,6 +1286,49 @@ bool prepare_shadows(ShadowResources& shadows, const ShadowMap& map) {
     return true;
 }
 
+/// Makes the optional cast lookup stage without disabling ordinary indexed shadows.
+bool prepare_procedural_shadows(ShadowResources& shadows) {
+    if (shadows.procedural_attempted)
+        return shadows.procedural_pipeline != nullptr;
+    shadows.procedural_attempted = true;
+    SDL_GPUDevice* const device = shadows.device;
+    SDL_GPUShaderCreateInfo stage{};
+    stage_code(
+        device, stage, live_shadow_procedural_vertex_spirv, live_shadow_procedural_vertex_msl
+    );
+    stage.stage = SDL_GPU_SHADERSTAGE_VERTEX;
+    stage.num_storage_buffers = 3;
+    stage.num_uniform_buffers = 1;
+    shadows.procedural_vertex = SDL_CreateGPUShader(device, &stage);
+    if (!shadows.procedural_vertex)
+        return false;
+    SDL_GPUColorTargetDescription target{};
+    target.format = shadow_map_format;
+    auto& blend = target.blend_state;
+    blend.enable_blend = true;
+    blend.src_color_blendfactor = SDL_GPU_BLENDFACTOR_ZERO;
+    blend.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_COLOR;
+    blend.color_blend_op = SDL_GPU_BLENDOP_ADD;
+    blend.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO;
+    blend.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+    blend.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+    SDL_GPUGraphicsPipelineCreateInfo info{};
+    info.vertex_shader = shadows.procedural_vertex;
+    info.fragment_shader = shadows.cast_fragment;
+    info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+    info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_CLOCKWISE;
+    info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+    info.depth_stencil_state.enable_depth_test = true;
+    info.depth_stencil_state.enable_depth_write = true;
+    info.target_info.color_target_descriptions = &target;
+    info.target_info.num_color_targets = 1;
+    info.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+    info.target_info.has_depth_stencil_target = true;
+    shadows.procedural_pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
+    return shadows.procedural_pipeline != nullptr;
+}
+
 /// The shadows' map's place, as the casts' vertex stage reads it: its left
 /// and top in map pixels, and how much of the frame's texels a map pixel
 /// is, across and down. The frame's texels, not the whole texture, which
@@ -1175,7 +1377,43 @@ bool cast_shadows(
     SDL_BindGPUVertexStorageBuffers(pass, 0, storage.data(), uint32_t(storage.size()));
     // The casts' indices follow the models'.
     const auto first = uint32_t(draws.indices.size());
-    if (draws.shadow_index_encoding == ShadowIndexEncoding::compact) {
+    if (draws.shadow_index_encoding == ShadowIndexEncoding::procedural) {
+        for (std::size_t index = 0; index < draws.shadow_index_runs.size(); ++index) {
+            const auto& run = draws.shadow_index_runs[index];
+            if (run.index_count == 0)
+                continue;
+            if (models.shadow_procedural_runs[index] != 0) {
+                SDL_BindGPUGraphicsPipeline(pass, shadows.procedural_pipeline);
+                const std::array<SDL_GPUBuffer*, 3> procedural_storage{
+                    models.corners, models.frame, models.shadow_templates
+                };
+                SDL_BindGPUVertexStorageBuffers(
+                    pass, 0, procedural_storage.data(), uint32_t(procedural_storage.size())
+                );
+                const std::array<uint32_t, shadow_lookup_uniform_words> uniform{
+                    models.shadow_lookup_word + models.shadow_lookup_offsets[index],
+                    run.cast_count,
+                    run.first_cast,
+                    0
+                };
+                SDL_PushGPUVertexUniformData(command, 0, uniform.data(), sizeof(uniform));
+                SDL_DrawGPUPrimitives(pass, run.index_count, 1, 0, 0);
+            } else {
+                SDL_BindGPUGraphicsPipeline(pass, shadows.cast_pipeline);
+                SDL_BindGPUVertexStorageBuffers(pass, 0, storage.data(), uint32_t(storage.size()));
+                const SDL_GPUBufferBinding binding{models.indices, 0};
+                SDL_BindGPUIndexBuffer(pass, &binding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+                SDL_DrawGPUIndexedPrimitives(
+                    pass,
+                    run.index_count,
+                    1,
+                    first + models.shadow_offsets[index],
+                    int32_t(run.first_cast << model_corner_bits),
+                    0
+                );
+            }
+        }
+    } else if (draws.shadow_index_encoding == ShadowIndexEncoding::compact) {
         for (std::size_t index = 0; index < draws.shadow_index_runs.size(); ++index) {
             const auto& run = draws.shadow_index_runs[index];
             if (run.index_count == 0)
@@ -1246,13 +1484,25 @@ bool prepare_models(
     ModelResources& models,
     const ModelDraws& draws,
     std::span<const float> camera,
-    bool shadow_templates_allowed
+    bool shadow_templates_allowed,
+    bool shadow_procedural_allowed
 ) {
     SDL_GPUDevice* const device = models.device;
-    if (!prepare_shadow_indices(models, draws, shadow_templates_allowed))
+    const bool procedural = draws.shadow_index_encoding == ShadowIndexEncoding::procedural;
+    if (procedural && !draws.casts.empty() && !prepare_shadows(models.shadows, draws.shadow_map))
+        return false;
+    const bool procedural_ready = procedural && draws.logical_shadow_index_count != 0 &&
+                                  shadow_procedural_allowed && shadow_templates_allowed &&
+                                  prepare_procedural_shadows(models.shadows);
+    if (!prepare_shadow_indices(
+            models,
+            draws,
+            shadow_templates_allowed && (!procedural || procedural_ready),
+            procedural_ready
+        ))
         return false;
     const std::span<const uint32_t> shadow_indices =
-        draws.shadow_index_encoding == ShadowIndexEncoding::compact
+        draws.shadow_index_encoding != ShadowIndexEncoding::expanded
             ? std::span<const uint32_t>{models.shadow_dynamic}
             : draws.cast_indices;
     const auto grown = [&](SDL_GPUBuffer*& buffer,
@@ -1294,10 +1544,10 @@ bool prepare_models(
     models.frame_bytes = words(
         model_frame_header_words + instance_words + draws.positions.size() +
         draws.piece_frames.size() + draws.textures.size() + draws.casts.size() * shadow_cast_words +
-        draws.markers.size() * 16
+        draws.markers.size() * 16 + models.shadow_lookup.size() + models.shadow_local.size()
     );
     models.index_bytes = uint32_t(draws.indices.size_bytes() + shadow_indices.size_bytes());
-    if (!draws.casts.empty() && !prepare_shadows(models.shadows, draws.shadow_map))
+    if (!procedural && !draws.casts.empty() && !prepare_shadows(models.shadows, draws.shadow_map))
         return false;
     if (!grown(
             models.frame,
@@ -1307,8 +1557,11 @@ bool prepare_models(
         ) ||
         !grown(
             models.indices, models.index_capacity, models.index_bytes, SDL_GPU_BUFFERUSAGE_INDEX
-        ))
+        )) {
+        if (procedural && !models.shadow_lookup.empty())
+            return prepare_models(models, draws, camera, false, false);
         return false;
+    }
     const uint32_t upload_bytes = models.corner_bytes + models.frame_bytes + models.index_bytes +
                                   models.shadow_template_bytes;
     if (upload_bytes > models.upload_capacity) {
@@ -1320,16 +1573,16 @@ bool prepare_models(
         info.size = upload_bytes;
         models.upload = SDL_CreateGPUTransferBuffer(device, &info);
         if (!models.upload) {
-            if (models.shadow_template_bytes != 0)
-                return prepare_models(models, draws, camera, false);
+            if (models.shadow_template_bytes != 0 || !models.shadow_lookup.empty())
+                return prepare_models(models, draws, camera, false, false);
             return false;
         }
         models.upload_capacity = upload_bytes;
     }
     auto* upload = static_cast<uint8_t*>(SDL_MapGPUTransferBuffer(device, models.upload, true));
     if (!upload) {
-        if (models.shadow_template_bytes != 0)
-            return prepare_models(models, draws, camera, false);
+        if (models.shadow_template_bytes != 0 || !models.shadow_lookup.empty())
+            return prepare_models(models, draws, camera, false, false);
         return false;
     }
     if (models.corner_bytes != 0)
@@ -1391,6 +1644,20 @@ bool prepare_models(
     models.marker_word = static_cast<uint32_t>(at - frame);
     if (!draws.markers.empty())
         std::memcpy(at, draws.markers.data(), draws.markers.size_bytes());
+    at += draws.markers.size() * 16;
+    models.shadow_lookup_word = static_cast<uint32_t>(at - frame - model_frame_header_words);
+    models.shadow_local_word =
+        models.shadow_lookup_word + static_cast<uint32_t>(models.shadow_lookup.size());
+    for (std::size_t index = 0; index < models.shadow_lookup.size(); index += shadow_lookup_words) {
+        *at++ = models.shadow_lookup[index];
+        const auto source = models.shadow_lookup[index + 1];
+        const auto kind = models.shadow_lookup[index + 2];
+        *at++ = source + (kind == 0 ? models.shadow_local_word : 0);
+        *at++ = kind;
+        *at++ = 0;
+    }
+    if (!models.shadow_local.empty())
+        std::memcpy(at, models.shadow_local.data(), models.shadow_local.size() * sizeof(uint32_t));
     if (!draws.indices.empty())
         std::memcpy(
             upload + models.corner_bytes + models.frame_bytes,
@@ -1904,7 +2171,7 @@ bool model_upload_fits(const ModelDraws& draws) noexcept {
         words += count * words_each;
         return true;
     };
-    const auto shadow_words = draws.shadow_index_encoding == ShadowIndexEncoding::compact
+    const auto shadow_words = draws.shadow_index_encoding != ShadowIndexEncoding::expanded
                                   ? draws.logical_shadow_index_count
                                   : draws.cast_indices.size();
     return add(draws.corners.size()) && add(draws.instances.size(), model_instance_words) &&
@@ -1912,6 +2179,9 @@ bool model_upload_fits(const ModelDraws& draws) noexcept {
            add(draws.textures.size()) && add(draws.casts.size(), shadow_cast_words) &&
            add(draws.markers.size(), sizeof(MarkerInstance) / sizeof(uint32_t)) &&
            add(draws.indices.size()) && add(shadow_words) &&
+           (draws.shadow_index_encoding != ShadowIndexEncoding::procedural ||
+            (add(draws.casts.size(), shadow_lookup_words) &&
+             add(draws.shadow_index_runs.size(), shadow_lookup_uniform_words))) &&
            (draws.shadow_index_encoding == ShadowIndexEncoding::expanded ||
             add(draws.shadow_pattern_indices.size()));
 }
@@ -2179,7 +2449,15 @@ Result render(
         return Result::failed;
     }
     if ((modelled || marked) &&
-        !plan_shadow_templates(state.models, *models, context.shadow_templates_allowed)) {
+        ((!modelled && models->shadow_index_encoding == ShadowIndexEncoding::procedural &&
+          !shadow_index_detail::valid_procedural_draws(*models)) ||
+         !plan_shadow_templates(
+             state.models,
+             *models,
+             context.shadow_templates_allowed &&
+                 (models->shadow_index_encoding != ShadowIndexEncoding::procedural ||
+                  context.shadow_procedural_allowed)
+         ))) {
         validating.stop();
         error = "Invalid live GPU shadow template repetitions";
         return Result::failed;
@@ -2557,8 +2835,13 @@ Result render(
             float(supersample),
             float(samples)
         };
-        if (!models_held.pipeline ||
-            !prepare_models(models_held, *models, camera_rows, context.shadow_templates_allowed)) {
+        if (!models_held.pipeline || !prepare_models(
+                                         models_held,
+                                         *models,
+                                         camera_rows,
+                                         context.shadow_templates_allowed,
+                                         context.shadow_procedural_allowed
+                                     )) {
             if (marked)
                 context.markers_allowed = false;
             return fail("Create live GPU model resources");
