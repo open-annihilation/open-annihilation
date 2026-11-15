@@ -101,6 +101,8 @@ uint64_t ground_query_frame_digest(const Live& live) noexcept {
     word(cards.corners_revision);
     range(cards.instances);
     range(cards.positions);
+    range(cards.root_prefix_points);
+    range(cards.root_prefix_poses);
     range(cards.piece_frames);
     range(cards.textures);
     range(cards.indices);
