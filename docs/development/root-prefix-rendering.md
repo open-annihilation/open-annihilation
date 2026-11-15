@@ -32,13 +32,28 @@ centred on the displayed unit anchor. Existing box-selection centres
 therefore follow that anchor. This policy does not promise pixel-identical
 legacy body images or the old sliver picks.
 
+The same-frame bounds memo changes no arithmetic. It retains the existing
+per-piece fixed and world boxes and the full visible world union's projected
+box. Subsets merge world extrema in piece order and use the existing
+projection expression. Its complete key includes geometry ownership, Q30
+coefficients, placement, displayed origin, visibility, projection bits,
+floating-point controls and epoch. It has a 32 MiB retained-storage limit;
+allocation, capacity or key misses use the uncached calculation. Caller
+preflight seeds records before workers read them, and build completion drops
+their strong geometry handles. Aborted preflight cleanup also releases them.
+
 Tests cover all native heading words against the bounded Q30 recipe, actual
 windowless GPU surfaces and shadows, canonical geometry debt and fallback,
 coarse point mapping, bounded picking, disjoint worker ranges and retries.
-The ordinary default-off 51-row renderer signature corpus remains unchanged.
+Memo tests demonstrate real numeric cache hits and exact cached/uncached
+packets, including subsets, changed keys and floating-point controls. The
+ordinary default-off 51-row renderer signature corpus remains unchanged.
 
 One matched private 20,000-unit 3D case improved from 13.473 to 14.990 FPS.
-That is not 60 FPS. This implementation still recomputes piece bounds and
-per-frame Scene data; it includes no same-frame bounds memo. Offline or
-synthetic CPU measurements are not foreground gameplay FPS. Director mode
-does not admit this prototype, and ray tracing is deferred.
+That is not 60 FPS. The memo has separate synthetic CPU evidence: a paired
+1,536-draw fixture with 16-piece models reduced median admission/build wall
+time from 1.363 to 1.049 milliseconds, with matching output checksums in all
+20 pairs. The two-piece fixture showed a smaller gain. These fixtures do not
+measure actual 20,000-unit Scene time or foreground gameplay FPS, and no
+gameplay gain is claimed for the memo. Per-frame Scene work remains.
+Director mode does not admit this prototype, and ray tracing is deferred.
