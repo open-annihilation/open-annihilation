@@ -255,8 +255,7 @@ class UnitSampling {
             return;
         previous_ = collector_->sample;
         const auto stride = collector_->counts.sampling_stride;
-        collector_->sample =
-            stride != 0 && slot % stride == collector_->counts.frame_id % stride;
+        collector_->sample = stride != 0 && slot % stride == collector_->counts.frame_id % stride;
     }
 
     UnitSampling(const UnitSampling&) = delete;
