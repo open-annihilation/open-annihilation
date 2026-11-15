@@ -52,12 +52,87 @@ inline constexpr uint32_t corner_mask = (uint32_t{1} << renderer_live_gpu::model
     return true;
 }
 
+/// Checks each ordered cast source without expanding repeated local corners.
+[[nodiscard]] inline bool procedural_shadows_valid(const ModelCards& cards) noexcept {
+    namespace gpu = renderer_live_gpu;
+    const auto& stream = cards.shadow_indices;
+    const auto& store = stream.patterns;
+    if (stream.casts.size() != cards.casts.size() ||
+        (store && store->patterns.size() > gpu::shadow_template_pattern_limit))
+        return false;
+    std::array<bool, gpu::shadow_template_pattern_limit> checked{};
+    std::size_t next_cast{}, next_word{}, logical{};
+    for (const auto& run : stream.runs) {
+        if (run.first_cast != next_cast || run.cast_count == 0 ||
+            run.cast_count > gpu::model_run_instances || run.first_index != 0 || run.pattern != 0 ||
+            !within(run.first_cast, run.cast_count, cards.casts.size()) ||
+            run.index_count % 3 != 0 || logical > gpu::largest_vertex_count ||
+            run.index_count > gpu::largest_vertex_count - logical)
+            return false;
+        std::size_t run_indices{};
+        for (std::size_t cast = run.first_cast; cast < std::size_t{run.first_cast} + run.cast_count;
+             ++cast) {
+            const auto& source = stream.casts[cast];
+            const auto actor = cards.casts[cast].instance;
+            if (actor >= cards.instances.size() || source.index_count % 3 != 0 ||
+                source.index_count > run.index_count - run_indices)
+                return false;
+            run_indices += source.index_count;
+            const auto& instance = cards.instances[actor];
+            if (source.pattern == 0) {
+                if (source.first_index != next_word ||
+                    !within(source.first_index, source.index_count, stream.indices.size()))
+                    return false;
+                next_word += source.index_count;
+                for (std::size_t at = source.first_index; at < next_word; ++at)
+                    if (stream.indices[at] > corner_mask ||
+                        stream.indices[at] >= instance.corner_count)
+                        return false;
+                continue;
+            }
+            if (!store || source.pattern > store->patterns.size() || source.first_index != 0 ||
+                cards.casts[cast].kind != gpu::shadow_cast_picture)
+                return false;
+            const auto named = source.pattern - 1;
+            const auto& pattern = store->patterns[named];
+            if (pattern.indices_per_cast == 0 || pattern.indices_per_cast % 3 != 0 ||
+                source.index_count != pattern.indices_per_cast ||
+                pattern.type_corner_count > corner_mask + 1 || pattern.selected_mask == 0 ||
+                instance.corners != pattern.type_corners ||
+                instance.corner_count != pattern.type_corner_count || instance.piece_count > 64 ||
+                (instance.piece_count < 64 &&
+                 (pattern.selected_mask >> instance.piece_count) != 0) ||
+                !within(
+                    pattern.first_index,
+                    std::size_t{pattern.indices_per_cast} * gpu::model_run_instances,
+                    store->indices.size()
+                ))
+                return false;
+            if (!checked[named]) {
+                for (std::size_t at = pattern.first_index;
+                     at < std::size_t{pattern.first_index} + pattern.indices_per_cast;
+                     ++at)
+                    if (store->indices[at] >= pattern.type_corner_count)
+                        return false;
+                checked[named] = true;
+            }
+        }
+        if (run_indices != run.index_count)
+            return false;
+        next_cast += run.cast_count;
+        logical += run.index_count;
+    }
+    return next_cast == cards.casts.size() && next_word == stream.indices.size() &&
+           logical == stream.logical_indices;
+}
+
 /// Checks compact run ownership and bindings without expanding repeated words.
 [[nodiscard]] inline bool compact_shadows_valid(const ModelCards& cards) noexcept {
     namespace gpu = renderer_live_gpu;
     const auto& stream = cards.shadow_indices;
     if (!stream.enabled)
-        return stream.indices.empty() && stream.runs.empty() && stream.logical_indices == 0;
+        return !stream.procedural && stream.indices.empty() && stream.runs.empty() &&
+               stream.casts.empty() && stream.logical_indices == 0;
     if (!cards.cast_indices.empty() || !cards.cast_runs.empty() ||
         stream.logical_indices > gpu::largest_vertex_count ||
         stream.indices.size() > gpu::largest_vertex_count ||
@@ -68,6 +143,10 @@ inline constexpr uint32_t corner_mask = (uint32_t{1} << renderer_live_gpu::model
                   store->keys.size() != store->patterns.size() ||
                   store->patterns.size() > gpu::shadow_template_pattern_limit ||
                   store->indices.size() > gpu::shadow_template_byte_limit / sizeof(uint32_t)))
+        return false;
+    if (stream.procedural)
+        return procedural_shadows_valid(cards);
+    if (!stream.casts.empty())
         return false;
     std::array<bool, gpu::shadow_template_pattern_limit> checked{};
     std::size_t next_cast{}, next_word{}, logical{};
@@ -136,15 +215,18 @@ inline constexpr uint32_t corner_mask = (uint32_t{1} << renderer_live_gpu::model
 same_shadow_stream(const ModelCards& into, const ModelCards& from) noexcept {
     const auto& a = into.shadow_indices;
     const auto& b = from.shadow_indices;
-    return a.enabled == b.enabled && (!a.enabled || (a.patterns.get() == b.patterns.get() &&
-                                                     !a.patterns.owner_before(b.patterns) &&
-                                                     !b.patterns.owner_before(a.patterns)));
+    return a.enabled == b.enabled && a.procedural == b.procedural &&
+           (!a.enabled ||
+            (a.patterns.get() == b.patterns.get() && !a.patterns.owner_before(b.patterns) &&
+             !b.patterns.owner_before(a.patterns)));
 }
 
 /// Checks a pass's owned ranges and its ordinary consecutive shadow depths.
 [[nodiscard]] inline bool layout_valid(const ModelCards& cards) noexcept {
     namespace gpu = renderer_live_gpu;
-    if (cards.positions.size() % 3 != 0 || cards.textures.size() % 4 != 0 ||
+    if ((!cards.shadow_indices.enabled &&
+         (cards.shadow_indices.procedural || !cards.shadow_indices.casts.empty())) ||
+        cards.positions.size() % 3 != 0 || cards.textures.size() % 4 != 0 ||
         cards.slot_states.size() != cards.textures.size() / 4 ||
         cards.instances.size() > gpu::largest_model_instance_count ||
         cards.positions.size() / 3 > gpu::largest_vertex_count ||
@@ -354,7 +436,7 @@ namespace parallel_model_cards_detail {
 struct BatchSize {
     std::size_t instances{}, positions{}, pieces{}, textures{}, tables{}, indices{}, runs{};
     std::size_t units{}, casts{}, cast_indices{}, cast_runs{}, vertices{}, depths{};
-    std::size_t shadow_words{}, shadow_runs{}, logical_shadows{};
+    std::size_t shadow_words{}, shadow_runs{}, logical_shadows{}, shadow_casts{};
 };
 
 /// Reads the destination sizes before considering any following bands.
@@ -377,6 +459,7 @@ struct BatchSize {
     result.shadow_words = cards.shadow_indices.indices.size();
     result.shadow_runs = cards.shadow_indices.runs.size();
     result.logical_shadows = shadow_index_count(cards);
+    result.shadow_casts = cards.shadow_indices.casts.size();
     return result;
 }
 
@@ -401,6 +484,11 @@ include_band(BatchSize& size, const ModelCards& from, std::size_t vertex_base) n
         !fits(size.cast_runs, from.cast_runs.size(), size_limit) ||
         !fits(size.shadow_words, from.shadow_indices.indices.size(), gpu::largest_vertex_count) ||
         !fits(size.shadow_runs, from.shadow_indices.runs.size(), size_limit) ||
+        !fits(
+            size.shadow_casts,
+            from.shadow_indices.casts.size(),
+            gpu::largest_model_instance_count * 2
+        ) ||
         !fits(size.logical_shadows, shadow_index_count(from), gpu::largest_vertex_count))
         return false;
     for (const auto& run : from.runs)
@@ -431,6 +519,7 @@ include_band(BatchSize& size, const ModelCards& from, std::size_t vertex_base) n
     size.shadow_words += from.shadow_indices.indices.size();
     size.shadow_runs += from.shadow_indices.runs.size();
     size.logical_shadows += shadow_index_count(from);
+    size.shadow_casts += from.shadow_indices.casts.size();
     return true;
 }
 
@@ -501,9 +590,14 @@ append_prevalidated_band(ModelCards& into, const ModelCards& from, std::size_t v
     for (auto run : following.runs) {
         run.vertex += vertex_base;
         run.first_cast += casts;
-        if (run.pattern == 0)
+        if (!following.procedural && run.pattern == 0)
             run.first_index += shadow_words;
         shadow.runs.push_back(run);
+    }
+    for (auto cast : following.casts) {
+        if (cast.pattern == 0)
+            cast.first_index += shadow_words;
+        shadow.casts.push_back(cast);
     }
     shadow.logical_indices += following.logical_indices;
     for (uint32_t key = 0; key < following.candidate_count; ++key)
@@ -563,6 +657,7 @@ append_prevalidated_band(ModelCards& into, const ModelCards& from, std::size_t v
     into.cast_runs.reserve(size.cast_runs);
     into.shadow_indices.indices.reserve(size.shadow_words);
     into.shadow_indices.runs.reserve(size.shadow_runs);
+    into.shadow_indices.casts.reserve(size.shadow_casts);
     for (const auto* from : bands)
         detail::append_prevalidated_band(into, *from, vertex_base);
     return true;
