@@ -91,7 +91,8 @@ void Runtime::check_enhanced_mode() {
           mode::distributed_battle_flow_version,
           mode::following_flow_version,
           mode::cohort_target_version,
-          mode::cohort_retention_version}) {
+          mode::cohort_retention_version,
+          mode::cardinal_queue_escape_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
@@ -673,7 +674,8 @@ void Runtime::check_enhanced_mode() {
           mode::distributed_battle_flow_version,
           mode::following_flow_version,
           mode::cohort_target_version,
-          mode::cohort_retention_version}) {
+          mode::cohort_retention_version,
+          mode::cardinal_queue_escape_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
@@ -706,7 +708,9 @@ void Runtime::check_enhanced_mode() {
         );
     }
     for (const uint32_t unsupported :
-         {mode::following_flow_version + 1, mode::cohort_retention_version + 1})
+         {mode::following_flow_version + 1,
+          mode::cohort_retention_version + 1,
+          mode::cardinal_queue_escape_version + 1})
         require(!hold_enhanced_rules_once(unsupported), "an unknown version was accepted");
     require(
         enhanced_mode_version(*this) == mode::current_version, "a rejected version changed rules"
@@ -760,7 +764,7 @@ void Runtime::check_enhanced_mode() {
         release_enhanced_rules_once(true);
         require(enhanced_mode_version(*this) == 10, "releasing held rules lost the CLI preset");
     }
-    for (const uint32_t unsupported : {9u, 12u}) {
+    for (const uint32_t unsupported : {9u, 12u, mode::cardinal_queue_escape_version + 1}) {
         require(!hold_enhanced_rules_once(unsupported), "a held unknown preset was accepted");
         require(enhanced_mode_version(*this) == 10, "a rejected preset changed the CLI rules");
     }
@@ -857,6 +861,34 @@ void Runtime::check_enhanced_mode() {
     leave_match();
     load(Screen::main_menu);
     require(enhanced_mode_version(*this) == 11, "leaving a v10 save lost CLI v11");
+    options_.enhanced_mode_version = mode::cardinal_queue_escape_version;
+    apply_hack_overrides();
+    require(
+        enhanced_mode_version(*this) == mode::cardinal_queue_escape_version,
+        "the CLI did not select cardinal queue escape"
+    );
+    const std::string cardinal_hash = simulation_hash(*this);
+    require(
+        cardinal_hash != cohort_hash && cardinal_hash != retained_hash &&
+            cardinal_hash != enhanced_hash,
+        "cardinal queue escape did not have a distinct rules identity"
+    );
+    for (const auto renderer : renderers) {
+        chosen.hardware_acceleration = renderer;
+        apply_engine_settings(chosen);
+        require(
+            enhanced_mode_version(*this) == mode::cardinal_queue_escape_version &&
+                simulation_hash(*this) == cardinal_hash,
+            "graphics changed cardinal queue escape rules"
+        );
+    }
+    require(hold_enhanced_rules_once(mode::cohort_target_version), "v10 could not override v13");
+    require(enhanced_mode_version(*this) == mode::cohort_target_version, "v13 replaced held v10");
+    release_enhanced_rules_once(true);
+    require(
+        enhanced_mode_version(*this) == mode::cardinal_queue_escape_version,
+        "releasing held v10 lost CLI v13"
+    );
     options_.enhanced_mode_version = 0;
     options_.enhanced_mode = false;
     chosen.enhanced_mode = false;

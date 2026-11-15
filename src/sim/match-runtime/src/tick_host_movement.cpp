@@ -385,6 +385,10 @@ void TickHost::movement_tick(oa::Unit& record) {
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &context;
                     probe.allow_reverse = recover;
+                    probe.mature_cell_escape =
+                        recover && data::enhanced_mode::uses_cardinal_queue_escape(
+                                       match.rules().setup.enhanced_mode.version
+                                   );
                     if (completed_head || recent_completion)
                         probe.previous_head = flow_head;
                     if (match.enhanced_->local_flow_progress_snapshot_valid &&
