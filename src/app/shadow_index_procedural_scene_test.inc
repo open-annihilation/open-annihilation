@@ -82,7 +82,9 @@ void shadow_index_procedural_scene_frames(uint32_t population, bool coarse) {
     auto empty = fixture.instance;
     for (auto& piece : empty.pieces())
         piece.flags = visible;
-    auto building = fixture.state;
+    oa::present::model::ModelState building{};
+    building.image = oa::present::create_sprite(8, 8);
+    building.shift = fixture.state.shift;
     building.shadow = oa::present::create_sprite(8, 8);
     building.image_unfinished = true;
     auto& battle = fixture.battle;
