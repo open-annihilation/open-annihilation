@@ -792,19 +792,15 @@ bool omit_presented_model(
     gate.rig_generation = motion.instance_generation;
     gate.sea_level = frame.sea_level;
     gate.ground_height = renderer.ground_height(renderer.user, position);
-    const bool far_outside =
-        frame.defer_geometry &&
-        preplanning_visibility::far_rejection_proof(
-            *plan.preplanning_geometry, shown, *frame.preplanning->view, gate, worker->scratch
-        );
-    if (!far_outside && !preplanning_visibility::rejection_proof(
-                            *plan.preplanning_geometry,
-                            shown,
-                            shown.state->shift,
-                            *frame.preplanning->view,
-                            gate,
-                            worker->scratch
-                        ))
+    if (!preplanning_visibility::raw_rejection_proof(
+            *plan.preplanning_geometry,
+            shown,
+            shown.state->shift,
+            *frame.preplanning->view,
+            gate,
+            worker->scratch,
+            frame.defer_geometry
+        ))
         return false;
     plan.draw = {};
     plan.draw.model = shown;
@@ -920,28 +916,22 @@ bool defer_invisible_model(
                                  model.instance->transforms_dirty();
     // A newer effect can leave current geometry at its exact root rotation.
     // When no update is due, prove against those actual vectors, not an older shift.
-    const bool far_outside =
-        geometry_needed &&
-        preplanning_visibility::far_rejection_proof(
-            *plan.preplanning_geometry, model, *frame.preplanning->view, gate, worker->scratch
-        );
-    const bool outside =
-        far_outside ||
-        (geometry_needed ? preplanning_visibility::rejection_proof(
-                               *plan.preplanning_geometry,
-                               model,
-                               model.state->shift,
-                               *frame.preplanning->view,
-                               gate,
-                               worker->scratch
-                           )
-                         : preplanning_visibility::detail::rejection_proof_with_bounds(
-                               model, *frame.preplanning->view, gate, [&] {
-                                   return preplanning_visibility::bound_completed_instance(
-                                       *model.instance, worker->scratch
-                                   );
-                               }
-                           ));
+    const bool outside = geometry_needed
+                             ? preplanning_visibility::raw_rejection_proof(
+                                   *plan.preplanning_geometry,
+                                   model,
+                                   model.state->shift,
+                                   *frame.preplanning->view,
+                                   gate,
+                                   worker->scratch
+                               )
+                             : preplanning_visibility::detail::rejection_proof_with_bounds(
+                                   model, *frame.preplanning->view, gate, [&] {
+                                       return preplanning_visibility::bound_completed_instance(
+                                           *model.instance, worker->scratch
+                                       );
+                                   }
+                               );
     if (!outside)
         return false;
     deferred->freeze_current(*model.instance, geometry_needed, false);

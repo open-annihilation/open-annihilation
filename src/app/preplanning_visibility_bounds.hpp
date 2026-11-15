@@ -190,6 +190,72 @@ prepare_geometry(std::shared_ptr<const oa::formats::objects3d::Model> model) {
     }
 }
 
+namespace detail {
+
+/// Transforms raw boxes after this call has validated the exact piece mapping.
+/// @param geometry the immutable bounds belonging to instance's shared model
+/// @param instance the unchanged raw pose whose topology was just validated
+/// @param root the exact effective root rotation words
+/// @return the ordinary exact interval bound, or no value on arithmetic refusal
+[[nodiscard]] inline std::optional<FixedBounds> bound_with_validated_topology(
+    const Geometry& geometry, const oa::sim::model_runtime::Instance& instance, Rotation root
+) {
+    namespace runtime = oa::sim::model_runtime;
+    const auto pieces = instance.pieces();
+    std::optional<FixedBounds> result;
+    for (std::size_t index = 0; index < pieces.size(); ++index) {
+        const auto& visible = pieces[index];
+        const auto& raw = geometry.objects[visible.object_index];
+        if ((visible.flags & static_cast<uint16_t>(runtime::PieceFlag::visible)) == 0 ||
+            !raw.nonempty)
+            continue;
+        auto box = raw.box;
+        auto top = static_cast<uint32_t>(index);
+        for (std::size_t depth = 0; pieces[top].parent != runtime::kNoPiece; ++depth) {
+            if (depth >= pieces.size() || pieces[top].parent >= pieces.size())
+                return std::nullopt;
+            top = pieces[top].parent;
+        }
+        // Native rebuild deliberately leaves root-level sibling trees reset.
+        if (top == instance.root_piece())
+            for (auto current = static_cast<uint32_t>(index); current != runtime::kNoPiece;
+                 current = pieces[current].parent) {
+                const auto& piece = pieces[current];
+                const auto& object = geometry.model->objects[piece.object_index];
+                auto turn = piece.rotation;
+                if (piece.parent == runtime::kNoPiece) {
+                    turn.xy = detail::add_angle(turn.xy, root.xy);
+                    turn.xz = detail::add_angle(turn.xz, root.xz);
+                    turn.yz = detail::add_angle(turn.yz, root.yz);
+                }
+                if (!detail::rotate(box, turn) ||
+                    !detail::translate(
+                        box.low.x,
+                        box.high.x,
+                        detail::negate(object.offset_from_parent.x),
+                        piece.translation.x
+                    ) ||
+                    !detail::translate(
+                        box.low.y, box.high.y, object.offset_from_parent.y, piece.translation.y
+                    ) ||
+                    !detail::translate(
+                        box.low.z,
+                        box.high.z,
+                        detail::negate(object.offset_from_parent.z),
+                        piece.translation.z
+                    ))
+                    return std::nullopt;
+            }
+        if (result)
+            detail::include(*result, box);
+        else
+            result = box;
+    }
+    return result;
+}
+
+} // namespace detail
+
 /// Encloses the exact resolved local pose without reading transformed buffers.
 ///
 /// The pose must already have the current frame's local translations,
@@ -252,56 +318,7 @@ prepare_geometry(std::shared_ptr<const oa::formats::objects3d::Model> model) {
             piece.next_sibling != piece_link(object.next_sibling))
             return std::nullopt;
     }
-    std::optional<FixedBounds> result;
-    for (std::size_t index = 0; index < pieces.size(); ++index) {
-        const auto& visible = pieces[index];
-        const auto& raw = geometry.objects[visible.object_index];
-        if ((visible.flags & static_cast<uint16_t>(runtime::PieceFlag::visible)) == 0 ||
-            !raw.nonempty)
-            continue;
-        auto box = raw.box;
-        auto top = static_cast<uint32_t>(index);
-        for (std::size_t depth = 0; pieces[top].parent != runtime::kNoPiece; ++depth) {
-            if (depth >= pieces.size() || pieces[top].parent >= pieces.size())
-                return std::nullopt;
-            top = pieces[top].parent;
-        }
-        // Native rebuild deliberately leaves root-level sibling trees reset.
-        if (top == instance.root_piece())
-            for (auto current = static_cast<uint32_t>(index); current != runtime::kNoPiece;
-                 current = pieces[current].parent) {
-                const auto& piece = pieces[current];
-                const auto& object = geometry.model->objects[piece.object_index];
-                auto turn = piece.rotation;
-                if (piece.parent == runtime::kNoPiece) {
-                    turn.xy = detail::add_angle(turn.xy, root.xy);
-                    turn.xz = detail::add_angle(turn.xz, root.xz);
-                    turn.yz = detail::add_angle(turn.yz, root.yz);
-                }
-                if (!detail::rotate(box, turn) ||
-                    !detail::translate(
-                        box.low.x,
-                        box.high.x,
-                        detail::negate(object.offset_from_parent.x),
-                        piece.translation.x
-                    ) ||
-                    !detail::translate(
-                        box.low.y, box.high.y, object.offset_from_parent.y, piece.translation.y
-                    ) ||
-                    !detail::translate(
-                        box.low.z,
-                        box.high.z,
-                        detail::negate(object.offset_from_parent.z),
-                        piece.translation.z
-                    ))
-                    return std::nullopt;
-            }
-        if (result)
-            detail::include(*result, box);
-        else
-            result = box;
-    }
-    return result;
+    return detail::bound_with_validated_topology(geometry, instance, root);
 }
 
 /// Encloses far geometry with integer path radii, without trigonometric work.
@@ -546,18 +563,18 @@ struct Eligibility {
 
 namespace detail {
 
-/// Shares the existing rejection arithmetic without choosing a geometry source.
+/// Current camera inverse, valid only for one unchanged rejection attempt.
+struct RejectionCamera {
+    std::array<float, 3> across{}, down{};
+};
+
+/// Checks the policy, owner and camera facts shared by one or two raw bounds.
 /// @param shown the exact resolved model and its 16.16 world origin
 /// @param view the current screen projection and rounded shadow-map extent
 /// @param gate the required current-frame policy, ownership and rig evidence
-/// @param bounds a deferred provider of an inclusive 16.16 model-space box
-/// @return true only when all policy, budget, body, marker and shadow checks prove rejection
-template <typename Bounds>
-[[nodiscard]] inline bool rejection_proof_with_bounds(
-    const oa::present::model::ModelRef& shown,
-    const FrameView& view,
-    const Eligibility& gate,
-    Bounds&& bounds
+/// @return the existing camera inverse, or no value when any shared check refuses
+[[nodiscard]] inline std::optional<RejectionCamera> prepare_rejection(
+    const oa::present::model::ModelRef& shown, const FrameView& view, const Eligibility& gate
 ) {
     if (!gate.enhanced || !gate.local || !gate.rig_resolved || !gate.ground_resolved ||
         !gate.gpu_type_supported || !gate.budget_safe || !gate.native_geometry_resolved ||
@@ -578,14 +595,14 @@ template <typename Bounds>
         ) ||
         !(view.shadow_bounds[0] < view.shadow_bounds[2]) ||
         !(view.shadow_bounds[1] < view.shadow_bounds[3]))
-        return false;
+        return std::nullopt;
     ModelDraw candidate;
     candidate.model = shown;
     if (!geometry_shadow_metadata_candidate(candidate, gate.sea_level) ||
         (shown.unit->state_flags & oa::present::model::unit_state_cloaked) != 0 ||
         (shown.unit->flags & OA_UNIT_FLAG_SELECTED) != 0 || gate.owner_token == 0 ||
         shown.instance->owner_token() != gate.owner_token)
-        return false;
+        return std::nullopt;
     const auto& p = view.projection;
     // Keep the accepted Scene's marker_axes camera domain, including its
     // depth row, determinant threshold and finite inverse columns.
@@ -599,28 +616,45 @@ template <typename Bounds>
     const float determinant =
         a[0] * camera_across[0] + a[1] * camera_across[1] + a[2] * camera_across[2];
     if (!std::isfinite(determinant) || std::abs(determinant) < 1e-12F)
-        return false;
+        return std::nullopt;
     for (std::size_t axis = 0; axis < camera_across.size(); ++axis) {
         camera_across[axis] /= determinant;
         camera_down[axis] /= determinant;
         if (!std::isfinite(camera_across[axis]) || !std::isfinite(camera_down[axis]))
-            return false;
+            return std::nullopt;
     }
-    const auto fixed = bounds();
-    if (!fixed)
-        return false;
+    return RejectionCamera{camera_across, camera_down};
+}
+
+/// Applies the unchanged body, reservation, marker and shadow rejection arithmetic.
+/// @param shown the unchanged model already accepted by prepare_rejection
+/// @param view the same attempt's current projection and shadow extent
+/// @param gate the same attempt's accepted policy, owner and ground facts
+/// @param fixed an enclosing inclusive 16.16 model-space bound
+/// @param camera the camera inverse prepared for this exact attempt
+/// @return true only when every contribution is proved outside
+[[nodiscard]] inline bool rejection_proof_with_fixed_bound(
+    const oa::present::model::ModelRef& shown,
+    const FrameView& view,
+    const Eligibility& gate,
+    const FixedBounds& fixed,
+    const RejectionCamera& camera
+) {
+    const auto& p = view.projection;
+    const auto& camera_across = camera.across;
+    const auto& camera_down = camera.down;
     constexpr float scale = 65536;
     const auto& position = shown.unit->position;
     const std::array origin{position.x / scale, position.y / scale, position.z / scale};
     const std::array low{
-        origin[0] + fixed->low.x / scale,
-        origin[1] + fixed->low.y / scale,
-        origin[2] - fixed->high.z / scale
+        origin[0] + fixed.low.x / scale,
+        origin[1] + fixed.low.y / scale,
+        origin[2] - fixed.high.z / scale
     };
     const std::array high{
-        origin[0] + fixed->high.x / scale,
-        origin[1] + fixed->high.y / scale,
-        origin[2] - fixed->low.z / scale
+        origin[0] + fixed.high.x / scale,
+        origin[1] + fixed.high.y / scale,
+        origin[2] - fixed.low.z / scale
     };
     // Keep the existing ground-shadow/GPU coordinate domain. An interval
     // expanded beyond supported coordinates conservatively stays ordinary.
@@ -737,6 +771,26 @@ template <typename Bounds>
     return right < padded[0] || left > padded[2] || bottom < padded[1] || top > padded[3];
 }
 
+/// Shares the existing rejection arithmetic without choosing a geometry source.
+/// @param shown the exact resolved model and its 16.16 world origin
+/// @param view the current screen projection and rounded shadow-map extent
+/// @param gate the required current-frame policy, ownership and rig evidence
+/// @param bounds a deferred provider of an inclusive 16.16 model-space box
+/// @return true only when all policy, budget, body, marker and shadow checks prove rejection
+template <typename Bounds>
+[[nodiscard]] inline bool rejection_proof_with_bounds(
+    const oa::present::model::ModelRef& shown,
+    const FrameView& view,
+    const Eligibility& gate,
+    Bounds&& bounds
+) {
+    const auto camera = prepare_rejection(shown, view, gate);
+    if (!camera)
+        return false;
+    const auto fixed = bounds();
+    return fixed && rejection_proof_with_fixed_bound(shown, view, gate, *fixed, *camera);
+}
+
 } // namespace detail
 
 /// Proves the ordinary ground body, possible marker and shadow lie outside this frame.
@@ -784,6 +838,46 @@ template <typename Bounds>
     return detail::rejection_proof_with_bounds(shown, view, gate, [&] {
         return bound_far_instance(geometry, *shown.instance, scratch);
     });
+}
+
+/// Tries the far cube, then the exact raw-pose bound within one unchanged attempt.
+///
+/// Policy and camera checks are shared only by these immediately adjacent tests.
+/// A successful far bound also proves the piece mapping for the exact fallback.
+/// Every refused far bound uses the ordinary validated exact entry point instead,
+/// including allocation failures and inputs outside the far proof's piece limit.
+/// No topology, pose, ownership or camera evidence survives this function call.
+///
+/// @param geometry immutable prepared bounds and source radii
+/// @param shown exact resolved current pose and world origin
+/// @param effective_root the shown state's current effective root rotation words
+/// @param view current screen projection and rounded shadow-map extent
+/// @param gate required current policy, owner and generation evidence
+/// @param[in,out] scratch reusable topology and path-radius storage
+/// @param try_far whether the caller already permits the far proof
+/// @return the same result as the ordinary far-first, exact-fallback sequence
+[[nodiscard]] inline bool raw_rejection_proof(
+    const Geometry& geometry,
+    const oa::present::model::ModelRef& shown,
+    Rotation effective_root,
+    const FrameView& view,
+    const Eligibility& gate,
+    Scratch& scratch,
+    bool try_far = true
+) {
+    const auto camera = detail::prepare_rejection(shown, view, gate);
+    if (!camera)
+        return false;
+    std::optional<FixedBounds> far;
+    if (try_far) {
+        far = bound_far_instance(geometry, *shown.instance, scratch);
+        if (far && detail::rejection_proof_with_fixed_bound(shown, view, gate, *far, *camera))
+            return true;
+    }
+    const auto exact =
+        far ? detail::bound_with_validated_topology(geometry, *shown.instance, effective_root)
+            : bound_instance(geometry, *shown.instance, effective_root, scratch);
+    return exact && detail::rejection_proof_with_fixed_bound(shown, view, gate, *exact, *camera);
 }
 
 /// Proves a completed ordinary whole-tick model contributes no frame geometry.
