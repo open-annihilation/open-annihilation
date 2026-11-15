@@ -1101,9 +1101,12 @@ bool Runtime::render_live_match_surface() {
         // surfaces among the frame's own triangles.
         inputs.models_on_card = live_models_on_card();
         const auto& enhanced = match_->rules().setup.enhanced_mode;
-        inputs.body_lod_enabled = enhanced.enabled &&
-                                  enhanced.version == data::enhanced_mode::cohort_target_version &&
-                                  director_ == nullptr;
+        inputs.body_lod_enabled =
+            enhanced.enabled &&
+            data::enhanced_mode::uses_enhanced_unit_rendering(enhanced.version) &&
+            director_ == nullptr;
+        inputs.shadow_index_templates = inputs.body_lod_enabled;
+        live.gpu.shadow_templates_allowed = inputs.shadow_index_templates;
         // Keep this policy enabled through a resource failure: any image
         // already deferred must force a genuine-pixel replan if its type
         // can no longer cast the frame's shadow on the card.
@@ -1284,6 +1287,7 @@ bool Runtime::render_live_match_surface() {
         if (result == renderer_live_gpu::Result::success) {
             bench_timers::body_counts = live.scene.body_lod_counts;
             bench_timers::scene_model_work_counts = live.scene.model_work_counts;
+            bench_timers::shadow_index_counts = live.gpu.shadow_index_counts;
         }
         auto* check = options_.check_live_renderer && ground_query_observations.watching
                           ? &ground_query_observations

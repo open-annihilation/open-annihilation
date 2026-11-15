@@ -12,6 +12,7 @@
 #include "render_run.hpp"
 #include "full_presentation.hpp"
 #include "match_models.hpp"
+#include "plan_work_counts.hpp"
 #include "oa/app/frame_coordinates.hpp"
 
 #include "oa/core/unit.h"
@@ -65,14 +66,86 @@ struct FrameSample {
     double full_execute{}; ///< classic Full's first executor call
     bench::SimulationFrame simulation{};
     renderer_live_scene::GroundIndexBuilds index_builds{}; ///< bounded build-only diagnostics
-    double average_unit_pixels{};      ///< automatic transition's owned model diameter
-    uint32_t average_unit_count{};     ///< units contributing to that average
-    bool automatic_unit_detail{};      ///< the Unit size boundary was selected
-    bool units_as_dots{};              ///< the completed frame used the global dot representation
-    BodyLodCounts body{};              ///< actual unit model representations emitted by the frame
-    SceneModelWorkCounts scene_work{}; ///< independent model packets retained by the frame
-    uint64_t deferred_geometry{};      ///< invisible model updates deferred during this frame
+    double average_unit_pixels{};       ///< automatic transition's owned model diameter
+    uint32_t average_unit_count{};      ///< units contributing to that average
+    bool automatic_unit_detail{};       ///< the Unit size boundary was selected
+    bool units_as_dots{};               ///< the completed frame used the global dot representation
+    BodyLodCounts body{};               ///< actual unit model representations emitted by the frame
+    SceneModelWorkCounts scene_work{};  ///< independent model packets retained by the frame
+    ShadowIndexCounts shadow_indices{}; ///< successful backend shadow draws and uploads
+    plan_work::PlanWorkCounts plan_work{}; ///< raw optional planner diagnostics
+    uint64_t deferred_geometry{};          ///< invisible model updates deferred during this frame
 };
+
+/// Enables planner clocks only within an explicitly requested diagnostic frame.
+struct PlanWorkFrame {
+    bool previous{};
+
+    explicit PlanWorkFrame(bool enabled) : previous(plan_work::enabled) {
+        plan_work::enabled = enabled;
+        if (enabled)
+            plan_work::frame_counts = {};
+    }
+
+    ~PlanWorkFrame() { plan_work::enabled = previous; }
+};
+
+/// Prints raw sampled planner sums after the measured span has completed.
+/// @param frame the measured frame's index
+/// @param work the final attempt's planner snapshot
+void print_plan_work(std::size_t frame, const plan_work::PlanWorkCounts& work) {
+    const auto word = [](uint64_t value) { return static_cast<unsigned long long>(value); };
+    std::printf(
+        "bench: PLAN_WORK_FRAME %zu source_frame %llu completed %u sampling_stride %u",
+        frame,
+        word(work.frame_id),
+        unsigned(work.completed),
+        work.sampling_stride
+    );
+    for (std::size_t index = 0; index < plan_work::work_count; ++index)
+        std::printf(" %s %llu", plan_work::work_names[index].data(), word(work.work[index]));
+    std::printf(" phases");
+    for (std::size_t index = 0; index < plan_work::phase_count; ++index) {
+        const auto& phase = work.phases[index];
+        std::printf(
+            " %s calls %llu samples %llu wall_ns %llu cpu_ns %llu cpu_samples %llu",
+            plan_work::phase_names[index].data(),
+            word(phase.calls),
+            word(phase.samples),
+            word(phase.wall_ns),
+            word(phase.cpu_ns),
+            word(phase.cpu_samples)
+        );
+    }
+    std::printf("\n");
+}
+
+/// Prints successful shadow buffer draws and transfers after measurement.
+/// @param frame the measured frame's index
+/// @param counts the final successful backend snapshot
+void print_shadow_indices(std::size_t frame, const ShadowIndexCounts& counts) {
+    const auto word = [](uint64_t value) { return static_cast<unsigned long long>(value); };
+    std::printf(
+        "bench: SHADOW_INDEX_FRAME %zu logical_indices %llu dynamic_indices %llu "
+        "cached_indices %llu dynamic_uploaded_indices %llu template_uploaded_indices %llu "
+        "cache_bytes %llu requested_runs %u cached_runs %u cache_hits %u cache_misses %u "
+        "admitted_patterns %u fallback_runs %u cached_patterns %u\n",
+        frame,
+        word(counts.logical_indices),
+        word(counts.dynamic_indices),
+        word(counts.cached_indices),
+        word(counts.dynamic_uploaded_indices),
+        word(counts.template_uploaded_indices),
+        word(counts.cache_bytes),
+        counts.requested_runs,
+        counts.cached_runs,
+        counts.cache_hits,
+        counts.cache_misses,
+        counts.admitted_patterns,
+        counts.fallback_runs,
+        counts.cached_patterns
+    );
+}
 
 /// Room for one stage's milliseconds in a FRAME line.
 constexpr std::size_t kStageValueBytes = 24;
@@ -785,8 +858,10 @@ void Runtime::play_bench() {
         double finished{};
         {
             const bench::SimulationFrameScope recording(view.frame_log ? &simulation : nullptr);
+            const PlanWorkFrame plan_recording(view.frame_log && view.plan_work);
             bench_timers::body_counts = {};
             bench_timers::scene_model_work_counts = {};
+            bench_timers::shadow_index_counts = {};
             frame();
             finished = now();
             simulation.tick_after = match_timing_.tick;
@@ -816,6 +891,9 @@ void Runtime::play_bench() {
             auto& sample = samples.back();
             sample.body = bench_timers::body_counts;
             sample.scene_work = bench_timers::scene_model_work_counts;
+            sample.shadow_indices = bench_timers::shadow_index_counts;
+            if (view.frame_log && view.plan_work)
+                sample.plan_work = plan_work::frame_counts;
             if (match_models_ && match_models_->match == match_.get())
                 sample.deferred_geometry =
                     match_models_->preplanning_visibility.deferred_geometry_count;
@@ -1303,6 +1381,9 @@ void Runtime::play_bench() {
                 scene_work.accepted_slots,
                 scene_work.fallback_frames
             );
+            print_shadow_indices(index, samples[index].shadow_indices);
+            if (view.plan_work)
+                print_plan_work(index, samples[index].plan_work);
             std::printf(
                 "bench: GROUND_INDEX_FRAME %zu builds %.0f hits %.0f triangles %.0f wall_ms %.3f\n",
                 index,

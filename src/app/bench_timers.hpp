@@ -14,6 +14,7 @@
 #include "body_lod_counts.hpp"
 #include "ground_index_build.hpp"
 #include "scene_model_work_counts.hpp"
+#include "shadow_index_counts.hpp"
 
 #include <array>
 #include <chrono>
@@ -253,6 +254,9 @@ inline BodyLodCounts body_counts{};
 
 /// Independent model packets retained by the last completed benchmark frame.
 inline SceneModelWorkCounts scene_model_work_counts{};
+
+/// Shadow index draws and transfers of the last successful backend frame.
+inline ShadowIndexCounts shadow_index_counts{};
 
 /// Reads the steady clock the timers measure by.
 ///

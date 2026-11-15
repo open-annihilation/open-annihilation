@@ -18,14 +18,14 @@ struct ShadowIndexCounts {
     uint64_t cached_indices{};
     uint64_t dynamic_uploaded_indices{};
     uint64_t template_uploaded_indices{};
-    uint64_t cache_bytes{}; ///< occupied index words in the retained template buffer
+    uint64_t cache_bytes{}; ///< bytes occupied by index words in the retained template buffer
     uint32_t requested_runs{};
-    uint32_t cached_runs{}; ///< actual draws from the retained template buffer
-    uint32_t cache_hits{}; ///< requested runs whose template was resident before this frame
+    uint32_t cached_runs{};  ///< actual draws from the retained template buffer
+    uint32_t cache_hits{};   ///< requested runs whose template was resident before this frame
     uint32_t cache_misses{}; ///< remaining requests, including admissions and dynamic fallbacks
     uint32_t admitted_patterns{}; ///< distinct patterns uploaded during this frame
-    uint32_t fallback_runs{}; ///< requested runs drawn from the ordinary dynamic buffer
-    uint32_t cached_patterns{}; ///< descriptors resident after this frame
+    uint32_t fallback_runs{};     ///< requested runs drawn from the ordinary dynamic buffer
+    uint32_t cached_patterns{};   ///< descriptors resident after this frame
 };
 
 } // namespace oa::app
