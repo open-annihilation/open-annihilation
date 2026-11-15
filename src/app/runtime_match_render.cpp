@@ -1261,8 +1261,8 @@ void plan_unit_model(
         auto recipe = transforms->find_root_prefix_recipe(*shown.instance, shown.state->shift);
         if (!recipe)
             return false;
-        const int32_t ground =
-            renderer.ground_height ? renderer.ground_height(renderer.user, shown.unit->position)
+        const int32_t ground = renderer.ground_height
+                                   ? renderer.ground_height(renderer.user, shown.unit->position)
                                    : 0;
         if (!publish_root_prefix_draw(
                 model, shown, *deferred, std::move(*recipe), ground, plan.idle, plan.draw

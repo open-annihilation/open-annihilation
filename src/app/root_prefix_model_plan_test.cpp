@@ -27,16 +27,27 @@ constexpr size_t packet_limit = 64 * 1024;
 
 struct Host final : runtime::ModelHost {
     using ModelHost::ModelHost;
+
     void emit_sfx(uint32_t, int32_t) override {}
+
     void explode(uint32_t, int32_t) override {}
+
     int32_t get_unit_value(int32_t, int32_t, int32_t, int32_t, int32_t) override { return 0; }
+
     void set_unit_value(int32_t, int32_t) override {}
+
     void attach_unit(int32_t, int32_t, int32_t) override {}
+
     void drop_unit(int32_t) override {}
+
     void ignored_piece_op(uint32_t, uint32_t, uint32_t) override {}
+
     void dont_shadow(uint32_t) override {}
+
     uint32_t is_carrying_unit(uint32_t) override { return 0; }
+
     uint32_t carrier_unit_id() override { return 0; }
+
     uint32_t random_bounded(uint32_t) override { return 0; }
 };
 
@@ -48,7 +59,9 @@ std::shared_ptr<oa::formats::objects3d::Model> make_model() {
         auto& piece = source->objects[index];
         piece.name = index == 0 ? "base" : "arm";
         piece.offset_from_parent = {static_cast<int32_t>(index) * fixed, 0, 0};
-        piece.vertices = {{-2 * fixed, 0, -fixed}, {2 * fixed, 0, -fixed}, {0, 3 * fixed, 2 * fixed}};
+        piece.vertices = {
+            {-2 * fixed, 0, -fixed}, {2 * fixed, 0, -fixed}, {0, 3 * fixed, 2 * fixed}
+        };
         oa::formats::objects3d::Primitive primitive;
         primitive.color_index = body_color;
         primitive.is_colored = 1;
@@ -158,7 +171,8 @@ app::RootPrefixRecipe recipe_for(const model::ModelRef& ref) {
     auto source = *ref.instance;
     const auto rotation = source.pieces()[source.root_piece()].rotation;
     auto zero = ref.state->shift;
-    zero.xz = std::bit_cast<int16_t>(static_cast<uint16_t>(0U - static_cast<uint16_t>(rotation.xz)));
+    zero.xz =
+        std::bit_cast<int16_t>(static_cast<uint16_t>(0U - static_cast<uint16_t>(rotation.xz)));
     source.rebuild_transforms(zero);
     const auto placement = app::root_prefix_placement(source);
     OA_CHECK(placement.has_value());
@@ -167,9 +181,8 @@ app::RootPrefixRecipe recipe_for(const model::ModelRef& ref) {
     ));
     const auto turn = app::prepare_root_prefix_rotation(angle);
     OA_CHECK(turn.has_value());
-    const auto geometry = placement
-                              ? app::make_root_prefix_geometry(source, *placement, packet_limit)
-                              : nullptr;
+    const auto geometry =
+        placement ? app::make_root_prefix_geometry(source, *placement, packet_limit) : nullptr;
     OA_CHECK(geometry != nullptr);
     return {geometry, turn.value_or(app::RootPrefixRotation{}), placement.value_or(FixedVector3{})};
 }
@@ -216,20 +229,27 @@ void refusal_materializes_current_geometry() {
     expected.rebuild_transforms(fixture.state.shift);
     const auto revision = fixture.instance.materialization_revision();
     const auto builds = fixture.state.image_builds;
-    OA_CHECK(app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw,
-                                             &fixture.deferred));
+    OA_CHECK(
+        app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw, &fixture.deferred)
+    );
     OA_CHECK(!draw.root_prefix && draw.plan.linked.drawn && draw.plan.model.from_image);
     OA_CHECK(fixture.instance.materialization_revision() > revision);
     OA_CHECK(!fixture.instance.transforms_dirty() && same_geometry(fixture.instance, expected));
     OA_CHECK(!fixture.state.deferred_image && fixture.state.image.sprite.data != nullptr);
     OA_CHECK(fixture.state.image_builds > builds && !fixture.state.image.pixels.empty());
-    OA_CHECK(std::any_of(fixture.state.image.pixels.begin(), fixture.state.image.pixels.end(),
-                        [](uint8_t value) { return value == body_color; }));
+    OA_CHECK(
+        std::any_of(
+            fixture.state.image.pixels.begin(),
+            fixture.state.image.pixels.end(),
+            [](uint8_t value) { return value == body_color; }
+        )
+    );
     OA_CHECK(!fixture.deferred.fresh_geometry && !fixture.deferred.fresh_original_images);
     OA_CHECK(fixture.deferred.revision == fixture.instance.materialization_revision());
     const auto materialized = fixture.instance;
-    OA_CHECK(!app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw,
-                                              &fixture.deferred));
+    OA_CHECK(!app::materialize_root_prefix_draw(
+        fixture.renderer, fixture.bridge, draw, &fixture.deferred
+    ));
     OA_CHECK(same_instance(fixture.instance, materialized));
 }
 
@@ -250,24 +270,35 @@ void copied_refusal_preserves_original_obligations() {
     const auto original_before = fixture.instance;
     const auto copy_before = copy;
     app::ModelDraw draw;
-    OA_CHECK(app::publish_root_prefix_draw(original, shown, fixture.deferred, recipe, 7, false, draw));
+    OA_CHECK(
+        app::publish_root_prefix_draw(original, shown, fixture.deferred, recipe, 7, false, draw)
+    );
     OA_CHECK(same_instance(fixture.instance, original_before) && same_instance(copy, copy_before));
-    OA_CHECK(fixture.deferred.fresh_geometry && fixture.deferred.fresh_original_images &&
-             fixture.deferred.fresh_copy_images);
+    OA_CHECK(
+        fixture.deferred.fresh_geometry && fixture.deferred.fresh_original_images &&
+        fixture.deferred.fresh_copy_images
+    );
     copy_host.set_piece_position(1, 2, fixed / 5);
     auto expected = copy;
     expected.rebuild_transforms(copy_state.shift);
-    OA_CHECK(app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw,
-                                             &fixture.deferred));
+    OA_CHECK(
+        app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw, &fixture.deferred)
+    );
     OA_CHECK(same_instance(fixture.instance, original_before));
     OA_CHECK(same_geometry(copy, expected) && copy_state.image.sprite.data != nullptr);
-    OA_CHECK(fixture.deferred.fresh_geometry && fixture.deferred.fresh_original_images &&
-             !fixture.deferred.fresh_copy_images);
+    OA_CHECK(
+        fixture.deferred.fresh_geometry && fixture.deferred.fresh_original_images &&
+        !fixture.deferred.fresh_copy_images
+    );
     const auto current_recipe = recipe_for(original);
-    OA_CHECK(app::publish_root_prefix_draw(original, original, fixture.deferred, current_recipe,
-                                          7, false, draw));
-    OA_CHECK(app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw,
-                                             &fixture.deferred));
+    OA_CHECK(
+        app::publish_root_prefix_draw(
+            original, original, fixture.deferred, current_recipe, 7, false, draw
+        )
+    );
+    OA_CHECK(
+        app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw, &fixture.deferred)
+    );
     OA_CHECK(!fixture.deferred.fresh_geometry && !fixture.deferred.fresh_original_images);
 }
 
