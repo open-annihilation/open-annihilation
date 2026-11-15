@@ -2106,6 +2106,8 @@ void root_prefix_packet_validation() {
     models.instances = {{0, 3, 0, 3, 0, 1, 0, 1, 1, {}, 1}};
     Scene scene;
     scene.context.device_unavailable = true;
+    OA_CHECK(scene.context.root_prefix_counts.instances == 0);
+    OA_CHECK(scene.context.root_prefix_counts.surface_indices == 0);
     const auto invoke = [&](const ModelFrame& frame) {
         const auto draws = frame.draws(1);
         return render(
@@ -2129,13 +2131,19 @@ void root_prefix_packet_validation() {
             &draws
         );
     };
+    scene.context.root_prefix_counts = {7, 11};
     OA_CHECK(invoke(models) == Result::unavailable);
+    OA_CHECK(scene.context.root_prefix_counts.instances == 0);
+    OA_CHECK(scene.context.root_prefix_counts.surface_indices == 0);
     const auto refuses = [&](const auto& change) {
         auto broken = models;
         change(broken);
         scene.pixels.assign(channels, full_channel);
+        scene.context.root_prefix_counts = {7, 11};
         OA_CHECK(invoke(broken) == Result::failed);
         OA_CHECK(scene.pixels.empty() && !scene.error.empty());
+        OA_CHECK(scene.context.root_prefix_counts.instances == 0);
+        OA_CHECK(scene.context.root_prefix_counts.surface_indices == 0);
     };
     refuses([](auto& frame) { frame.instances[0].root_prefix = 2; });
     refuses([](auto& frame) { frame.instances[0].positions = 1; });
@@ -3184,11 +3192,39 @@ void root_prefix_models_readback() {
             const auto reference = materialized_root_prefixes(model);
             for (const uint32_t aa : {1U, 2U}) {
                 OA_CHECK(draw(actual_context, model, aa, actual) == Result::success);
+                OA_CHECK(actual_context.root_prefix_counts.instances == 1);
+                OA_CHECK(actual_context.root_prefix_counts.surface_indices == 3);
                 OA_CHECK(draw(expected_context, reference, aa, expected) == Result::success);
+                OA_CHECK(expected_context.root_prefix_counts.instances == 0);
+                OA_CHECK(expected_context.root_prefix_counts.surface_indices == 0);
                 OA_CHECK(!actual.empty() && actual == expected);
                 OA_CHECK(std::any_of(actual.begin(), actual.end(), [](uint8_t value) {
                     return value == 240;
                 }));
+            }
+            if (word == 0 && centre == centres.front()) {
+                auto mixed = model;
+                mixed.positions = reference.positions;
+                mixed.instances.push_back(reference.instances[0]);
+                for (const uint32_t corner : {0U, 1U, 2U})
+                    mixed.indices.push_back((1U << model_corner_bits) | corner);
+                mixed.runs[0].index_count = static_cast<uint32_t>(mixed.indices.size());
+                OA_CHECK(draw(actual_context, mixed, 1, actual) == Result::success);
+                OA_CHECK(actual_context.root_prefix_counts.instances == 1);
+                OA_CHECK(actual_context.root_prefix_counts.surface_indices == 3);
+                auto unused = mixed;
+                unused.instances.push_back(model.instances[0]);
+                OA_CHECK(draw(actual_context, unused, 1, actual) == Result::success);
+                OA_CHECK(actual_context.root_prefix_counts.instances == 2);
+                OA_CHECK(actual_context.root_prefix_counts.surface_indices == 3);
+                auto broken = mixed;
+                broken.instances[0].root_prefix = 2;
+                OA_CHECK(draw(actual_context, broken, 1, actual) == Result::failed);
+                OA_CHECK(actual_context.root_prefix_counts.instances == 0);
+                OA_CHECK(actual_context.root_prefix_counts.surface_indices == 0);
+                OA_CHECK(draw(actual_context, reference, 1, actual) == Result::success);
+                OA_CHECK(actual_context.root_prefix_counts.instances == 0);
+                OA_CHECK(actual_context.root_prefix_counts.surface_indices == 0);
             }
             // Large signed local values lose fixed-coordinate bits during
             // binary32 conversion, before their independent origins are added.
@@ -3263,9 +3299,17 @@ void root_prefix_shadows_readback() {
                 Result::success
             );
             OA_CHECK(
+                indexed_context.root_prefix_counts.instances == fixture.ordinary.instances.size()
+            );
+            OA_CHECK(indexed_context.root_prefix_counts.surface_indices == 0);
+            OA_CHECK(
                 procedural_shadow_frame(procedural_context, fixture, true, procedural, error, aa) ==
                 Result::success
             );
+            OA_CHECK(
+                procedural_context.root_prefix_counts.instances == fixture.ordinary.instances.size()
+            );
+            OA_CHECK(procedural_context.root_prefix_counts.surface_indices == 0);
             OA_CHECK(indexed == expected && procedural == expected);
             if (frame != 0)
                 OA_CHECK(procedural_context.shadow_index_counts.mapping_uploaded_words != 0);

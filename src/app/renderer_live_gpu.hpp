@@ -78,6 +78,12 @@ struct WaterEffects {
     float fine_detail{};         ///< close-range ripple layer, smoothly faded at distance
 };
 
+/// Root-prefix instances and submitted surface corners in one successful render.
+struct RootPrefixDrawCounts {
+    uint64_t instances{};
+    uint64_t surface_indices{};
+};
+
 /// Own the persistent device, pipeline and frame resources; destroy before SDL quits.
 struct Context {
     struct State;
@@ -130,6 +136,9 @@ struct Context {
     /// Actual shadow draws and uploads of the last successful render; cleared
     /// before every attempt, including one that fails.
     oa::app::ShadowIndexCounts shadow_index_counts{};
+    /// Actual prefix instances and surface corners; cleared before every render
+    /// attempt and published only after successful submission or readback.
+    RootPrefixDrawCounts root_prefix_counts{};
     /// Allocate the state without opening a device or window.
     Context();
     /// Release pending commands and GPU resources before the device.

@@ -954,10 +954,15 @@ bool root_prefix_bounds(const ModelDraws& models, std::vector<std::array<float, 
 /// @param models the model draws
 /// @param ground_count the frame's first vertices, the kept ground
 /// @param vertex_count the frame's vertices
+/// @param[out] prefix_counts root-prefix instances and referenced surface corners
 /// @return true where render() may draw them
 bool valid_model_draws(
-    const ModelDraws& models, std::size_t ground_count, std::size_t vertex_count
+    const ModelDraws& models,
+    std::size_t ground_count,
+    std::size_t vertex_count,
+    RootPrefixDrawCounts& prefix_counts
 ) {
+    prefix_counts = {};
     if (models.corners.size() % 2 != 0 || models.positions.size() % 3 != 0 ||
         models.textures.size() % 4 != 0 || models.instances.size() > largest_model_instance_count ||
         models.indices.size() > max_vertices || (models.corners.empty() && !models.runs.empty()) ||
@@ -1099,6 +1104,7 @@ bool valid_model_draws(
         if (type->vertices > instance.position_count || type->pieces > instance.piece_count ||
             type->textures > instance.texture_count)
             return false;
+        prefix_counts.instances += prefix != nullptr;
     }
     // Branch-free tests, as the frame's vertices are checked.
     for (const float value : models.textures)
@@ -1106,6 +1112,7 @@ bool valid_model_draws(
     for (const uint32_t frame : models.piece_frames)
         valid &= static_cast<uint32_t>(frame <= 1);
     std::size_t vertex = ground_count;
+    const bool prefixes = !models.root_prefix_poses.empty();
     for (const auto& run : models.runs) {
         if (run.vertex < vertex || run.vertex > vertex_count ||
             !within(run.first_index, run.index_count, models.indices.size()) ||
@@ -1118,10 +1125,10 @@ bool valid_model_draws(
             const std::size_t instance = index >> model_corner_bits;
             if (instance >= std::min<std::size_t>(instances, model_run_instances))
                 return false;
-            valid &= static_cast<uint32_t>(
-                (index & model_vertex_mask) <
-                models.instances[run.first_instance + instance].corner_count
-            );
+            const auto& drawn = models.instances[run.first_instance + instance];
+            valid &= static_cast<uint32_t>((index & model_vertex_mask) < drawn.corner_count);
+            if (prefixes)
+                prefix_counts.surface_indices += drawn.root_prefix != 0;
         }
     }
     // The shadows: each cast an instance's, of a known kind, its values in
@@ -2462,6 +2469,7 @@ Result render(
     output_rgba.clear();
     error.clear();
     context.shadow_index_counts = {};
+    context.root_prefix_counts = {};
     context.kept_on_card = false;
     context.state->picture = nullptr;
     const bool marked = models && !models->markers.empty();
@@ -2570,13 +2578,15 @@ Result render(
     // The model draws, where there are any, and only where the card may
     // draw them.
     const bool modelled = models && (!models->runs.empty() || !models->casts.empty());
+    RootPrefixDrawCounts root_prefix_counts{};
     if ((modelled || marked) && !model_upload_fits(*models)) {
         validating.stop();
         error = "Live GPU model upload exceeds its buffer size";
         return Result::failed;
     }
     if (modelled &&
-        (!context.models_allowed || !valid_model_draws(*models, ground_count, vertices.size()))) {
+        (!context.models_allowed ||
+         !valid_model_draws(*models, ground_count, vertices.size(), root_prefix_counts))) {
         validating.stop();
         error = "Invalid live GPU model draws";
         return Result::failed;
@@ -3304,6 +3314,7 @@ Result render(
         context.actual_multisample = samples;
         bench_timers::note_multisample(samples);
         context.lights_drawn = lights_on_card;
+        context.root_prefix_counts = root_prefix_counts;
         context.shadow_index_counts =
             card_uploads ? models_held.shadow_counts : oa::app::ShadowIndexCounts{};
         for (std::size_t index = 0; index < models_held.shadow_resident.size(); ++index)
