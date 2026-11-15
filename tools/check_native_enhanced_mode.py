@@ -135,6 +135,28 @@ def main():
             raise RuntimeError("v11 replay under CLI v10 failed\n" +
                                retained_playback.stdout + retained_playback.stderr)
         print("Enhanced Mode: CLI v11 recording keeps its rules under a CLI v10 selection")
+        cardinal_recording = root / "enhanced-v13.tad"
+        cardinal_record = subprocess.run(
+            base + ["--enhanced-mode-version", "13", "--net-loopback-check", "300",
+                    "--net-record", str(cardinal_recording), "--preferences-file",
+                    str(root / "cardinal-record.conf")],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
+        )
+        if cardinal_record.returncode or not cardinal_recording.is_file():
+            raise RuntimeError("v13 network recording failed\n" +
+                               cardinal_record.stdout + cardinal_record.stderr)
+        if recording_rules_version(cardinal_recording) != 13:
+            raise RuntimeError("the CLI v13 recording did not record rules version 13")
+        cardinal_playback = subprocess.run(
+            base + ["--enhanced-mode-version", "10", "--play-demo", str(cardinal_recording),
+                    "--match-ticks", "300", "--preferences-file",
+                    str(root / "cardinal-playback.conf")],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
+        )
+        if cardinal_playback.returncode or "tick errors 0" not in cardinal_playback.stdout:
+            raise RuntimeError("v13 replay under CLI v10 failed\n" +
+                               cardinal_playback.stdout + cardinal_playback.stderr)
+        print("Enhanced Mode: CLI v13 recording keeps its rules under a CLI v10 selection")
 
 
 if __name__ == "__main__":

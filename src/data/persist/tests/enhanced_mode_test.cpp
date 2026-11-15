@@ -47,7 +47,7 @@ void rules_version_round_trips() {
     CHECK(player_mask == 0);
     CHECK(order.empty());
     // The application decides which positive rules versions it supports.
-    for (const uint32_t recorded : {2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u}) {
+    for (const uint32_t recorded : {2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u, 13u}) {
         CHECK(save_write_enhanced_mode(&bank, recorded));
         CHECK(save_read_enhanced_mode(&bank, version));
         CHECK(version == recorded);

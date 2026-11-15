@@ -850,7 +850,7 @@ void prototype_root_prefix_options() {
 /// Selects known new-game presets for ordinary play without starting a benchmark.
 void enhanced_new_game_options() {
     expect(!parse({}).enhanced_mode_version, "normal play keeps the supplied new-game preset");
-    for (const char* version : {"0", "1", "2", "3", "4", "5", "6", "7", "8", "10", "11"}) {
+    for (const char* version : {"0", "1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "13"}) {
         const auto chosen = parse({"--enhanced-mode-version", version});
         const uint32_t expected = static_cast<uint32_t>(std::stoul(version));
         expect(chosen.enhanced_mode_version == expected, "a normal launch keeps its chosen preset");
@@ -920,6 +920,24 @@ void enhanced_new_game_options() {
         retained_view.enhanced_mode_version == 11 && retained_view.bench_file == "gameplay.bench",
         "preset 11 leaves gameplay session rules independent"
     );
+    const auto cardinal = parse(
+        {"--enhanced-mode-version",
+         "13",
+         "--battle-benchmark",
+         "report.json",
+         "--benchmark-rules-version",
+         "10"}
+    );
+    expect(
+        cardinal.enhanced_mode_version == 13 && cardinal.benchmark_rules_version == 10,
+        "a cohort benchmark may hold v10 while ordinary games select cardinal queue escape"
+    );
+    const auto cardinal_view =
+        parse({"--enhanced-mode-version", "13", "--bench", "gameplay.bench"});
+    expect(
+        cardinal_view.enhanced_mode_version == 13 && cardinal_view.bench_file == "gameplay.bench",
+        "preset 13 leaves gameplay session rules independent"
+    );
     const char* conflict = "--enhanced-mode-version conflicts with the Enhanced Mode switch";
     for (const auto& arguments : std::vector<std::vector<const char*>>{
              {"--no-enhanced-mode", "--enhanced-mode-version", "10"},
@@ -928,6 +946,8 @@ void enhanced_new_game_options() {
              {"--enhanced-mode-version", "10", "--enhanced-mode=off"},
              {"--no-enhanced-mode", "--enhanced-mode-version", "11"},
              {"--enhanced-mode-version", "11", "--no-enhanced-mode"},
+             {"--no-enhanced-mode", "--enhanced-mode-version", "13"},
+             {"--enhanced-mode-version", "13", "--no-enhanced-mode"},
              {"--enhanced-mode", "--enhanced-mode-version", "0"},
              {"--enhanced-mode-version", "0", "--enhanced-mode"}
          })
@@ -937,8 +957,8 @@ void enhanced_new_game_options() {
             "--enhanced-mode-version cannot name different versions",
         "two different new-game presets are refused"
     );
-    const char* invalid = "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8, 10 or 11";
-    for (const char* value : {"9", "12", "-1", "4.5", "4294967296", "on"})
+    const char* invalid = "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11 or 13";
+    for (const char* value : {"9", "12", "14", "-1", "4.5", "4294967296", "on"})
         expect(
             rejection({"--enhanced-mode-version", value}) == invalid, "unknown presets are refused"
         );
@@ -1005,7 +1025,7 @@ void enhanced_benchmark_options() {
                 .benchmark_units == 10000,
         "the enhanced battle population parses before runtime mode validation"
     );
-    for (const char* version : {"1", "2", "3", "4", "5", "6", "7", "8", "10", "11"}) {
+    for (const char* version : {"1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "13"}) {
         const auto group = parse(
             {"--battle-benchmark",
              "report.json",
@@ -1021,11 +1041,11 @@ void enhanced_benchmark_options() {
             "group movement can compare every recorded Enhanced preset"
         );
     }
-    for (const char* version : {"0", "9", "12", "4294967296"})
+    for (const char* version : {"0", "9", "12", "14", "4294967296"})
         expect(
             rejection(
                 {"--battle-benchmark", "report.json", "--benchmark-rules-version", version}
-            ) == "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8, 10 or 11",
+            ) == "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8, 10, 11 or 13",
             "unsupported benchmark rules versions are refused without truncation"
         );
     for (const char* value : {"0", "10001", "65536"})

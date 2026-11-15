@@ -1264,7 +1264,7 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
             !oa::data::enhanced_mode::supported_version(version))
             throw std::runtime_error(
-                "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8, 10 or 11"
+                "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11 or 13"
             );
         if (options.enhanced_mode_version && *options.enhanced_mode_version != version)
             throw std::runtime_error("--enhanced-mode-version cannot name different versions");
@@ -1295,9 +1295,10 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         const auto parsed = std::from_chars(text.data(), text.data() + text.size(), version);
         if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
             (version != 1 && version != 2 && version != 3 && version != 4 && version != 5 &&
-             version != 6 && version != 7 && version != 8 && version != 10 && version != 11))
+             version != 6 && version != 7 && version != 8 && version != 10 && version != 11 &&
+             version != 13))
             throw std::runtime_error(
-                "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8, 10 or 11"
+                "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8, 10, 11 or 13"
             );
         options.benchmark_rules_version = version;
         return true;
@@ -1971,10 +1972,10 @@ void write_startup_line(std::string_view text) {
                      "[--experimental-3d] [--prototype-root-prefix] "
                      "[--native-density] [--display-modes MODES] "
                      "[--enhanced-mode[=on|off] | --no-enhanced-mode] "
-                     "[--enhanced-mode-version 0|1|2|3|4|5|6|7|8|10|11] "
+                     "[--enhanced-mode-version 0|1|2|3|4|5|6|7|8|10|11|13] "
                      "[--battle-benchmark REPORT.json [--benchmark-units N] "
                      "[--benchmark-scenario idle|march|group-march|combat] [--benchmark-warmup N] "
-                     "[--benchmark-rules-version 1|2|3|4|5|6|7|8|10|11] "
+                     "[--benchmark-rules-version 1|2|3|4|5|6|7|8|10|11|13] "
                      "[--benchmark-map NAME]] "
                      "[--benchmark FRAMES] [--bench FILE] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "

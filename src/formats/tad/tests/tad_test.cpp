@@ -506,6 +506,7 @@ void test_enhanced_mode_sector_round_trips() {
           uint32_t{8},
           uint32_t{10},
           uint32_t{11},
+          uint32_t{13},
           UINT32_MAX}) {
         const auto encoded_version = tad::encode_enhanced_mode_sector(one);
         const tad::Sector round_trip{
