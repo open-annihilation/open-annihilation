@@ -5168,6 +5168,7 @@ int Runtime::check_live_renderer() {
                          "held camera mismatch and omitted-only producer loss request genuine "
                          "classic replans\n";
         }
+#include "runtime_stock_shadow_cache_check.inc"
         leave_match();
     } catch (...) {
         finish_ground_check();
