@@ -1115,6 +1115,12 @@ if(BUILD_TESTING)
     oa-sim-model-runtime oa-base-game-math oa-test-support oa-options)
   add_test(NAME app-root-prefix-geometry COMMAND oa-app-root-prefix-geometry-test)
   set_tests_properties(app-root-prefix-geometry PROPERTIES TIMEOUT 30)
+  # Rendering-only prefix publication keeps canonical geometry debt until a
+  # rejected draw obtains current native vectors and actual image pixels.
+  add_executable(oa-app-root-prefix-model-plan-test src/app/root_prefix_model_plan_test.cpp)
+  target_link_libraries(oa-app-root-prefix-model-plan-test PRIVATE oa-app-headers
+    oa-present-model oa-sim-model-runtime oa-base-game-math oa-test-support oa-options)
+  add_test(NAME app-root-prefix-model-plan COMMAND oa-app-root-prefix-model-plan-test)
   add_executable(oa-app-deferred-model-geometry-test src/app/deferred_model_geometry_test.cpp)
   target_link_libraries(oa-app-deferred-model-geometry-test PRIVATE oa-app-headers
     oa-present-model oa-sim-model-runtime oa-test-support oa-options)

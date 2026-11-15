@@ -1105,6 +1105,8 @@ bool Runtime::render_live_match_surface() {
             enhanced.enabled &&
             data::enhanced_mode::uses_enhanced_unit_rendering(enhanced.version) &&
             director_ == nullptr;
+        inputs.root_prefix_enabled =
+            options_.prototype_root_prefix && inputs.body_lod_enabled && inputs.models_on_card;
         inputs.shadow_index_templates = inputs.body_lod_enabled;
         live.gpu.shadow_templates_allowed = inputs.shadow_index_templates;
         inputs.shadow_index_procedural = inputs.body_lod_enabled;
@@ -1161,6 +1163,7 @@ bool Runtime::render_live_match_surface() {
         inputs.top = prepared.crop[1];
         inputs.right = prepared.crop[2];
         inputs.bottom = prepared.crop[3];
+        resolve_root_prefix_fallbacks(models, inputs);
         std::string error;
         Span building(Stage::scene_build);
         // A frame a check draws again on the card takes the scene drawn

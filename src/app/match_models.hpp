@@ -38,6 +38,10 @@
 
 namespace oa::app {
 
+namespace renderer_live_scene {
+struct Inputs;
+}
+
 /// What the presentation keeps to draw a frame between two ticks: every unit
 /// slot's, the projectile pool's and the debris table's state at the last two
 /// ticks it saw, and where the frame being drawn lies between them.
@@ -239,6 +243,16 @@ struct MatchModels {
     MatchPresentation presentation{};
     DebugGridRandom debug_random{};
 };
+
+/// Materializes prototype draws that the completed Scene inputs cannot consume.
+///
+/// Runs on the calling thread before Scene workers read the draw list. A
+/// refused recipe becomes an ordinary pixel plan before its vectors or image
+/// can be read; accepted recipes retain their canonical geometry obligations.
+///
+/// @param[in,out] models the current match renderer and its completed draw list
+/// @param inputs complete immutable Scene policy, camera, sight and effect inputs
+void resolve_root_prefix_fallbacks(MatchModels& models, const renderer_live_scene::Inputs& inputs);
 
 /// Returns the moment of the unit playout a frame drawn part of the way
 /// through the current tick shows: that part of the way from the tick

@@ -22,6 +22,8 @@
 #include "model_shadow_metadata.hpp"
 #include "renderer_live_sight.hpp"
 #include "renderer_live_frame.hpp"
+#include "renderer_live_scene.hpp"
+#include "root_prefix_model_plan.hpp"
 #include "renderer_weapon_style.hpp"
 #include "xrgb_conversion.hpp"
 #include "oa/base/float_precision.hpp"
@@ -658,6 +660,8 @@ struct UnitPlanFrame {
     bool checked_integer_rotation{};
     /// The version-10 local GPU frame permits explicit unconsumed geometry obligations.
     bool defer_geometry{};
+    /// An explicit Enhanced Full prototype may draw owned Q30 root-prefix recipes.
+    bool root_prefix_enabled{};
 };
 
 /// Checks a completed copy's ownership and storage before replacing its raw pose.
@@ -1229,6 +1233,46 @@ void plan_unit_model(
             deferred->fresh_copy_images = false;
         }
     };
+    const auto try_root_prefix = [&](const model_render::ModelRef& shown, bool copied) {
+        if (!frame.root_prefix_enabled || !transforms || !deferred ||
+            deferred->instance != model.instance ||
+            deferred->generation != plan.preplanning_generation || !frame.live_world ||
+            !frame.live_renderer || plan.linked || frame.snapshot_unlinked_vertices ||
+            frame.level != model_render::UnitSupersampling::off ||
+            plan.unit_index == frame.probe_unit || !frame.preplanning ||
+            !frame.preplanning->budget_safe || !frame.shadow_type_supported ||
+            plan.preplanning_owner == 0 ||
+            model.instance->owner_token() != plan.preplanning_owner || !shown.instance ||
+            !shown.state || !shown.unit || !shown.def ||
+            shown.instance->owner_token() != plan.preplanning_owner || shown.state->finer ||
+            shown.state->build_bands || shown.state->image_unfinished ||
+            copied != (shown.instance != model.instance) ||
+            (shown.unit->state_flags & model_render::unit_state_cloaked) != 0)
+            return false;
+        ModelDraw candidate;
+        candidate.model = shown;
+        candidate.shown_position = shown.unit->position;
+        if (!geometry_shadow_metadata_candidate(candidate, frame.sea_level) ||
+            !frame.shadow_type_supported(frame.shadow_type_context, shown))
+            return false;
+        model_render::set_model_shift(
+            shown, {shown.unit->bank, static_cast<int16_t>(shown.unit->heading), shown.unit->pitch}
+        );
+        auto recipe = transforms->find_root_prefix_recipe(*shown.instance, shown.state->shift);
+        if (!recipe)
+            return false;
+        const int32_t ground =
+            renderer.ground_height ? renderer.ground_height(renderer.user, shown.unit->position)
+                                   : 0;
+        if (!publish_root_prefix_draw(
+                model, shown, *deferred, std::move(*recipe), ground, plan.idle, plan.draw
+            ))
+            return false;
+        plan.carried.clear();
+        plan.adds_draw = true;
+        plan_work::count(plan_work::Work::root_prefix_hits);
+        return true;
+    };
     if (plan.from_copies) {
         const bool carried = model.unit->attach_parent != 0;
         const bool may_freeze =
@@ -1280,6 +1324,8 @@ void plan_unit_model(
             }
             return;
         }
+        if (may_freeze && !omitted && try_root_prefix(plan.shown, true))
+            return;
         if (may_freeze) {
             const bool needed = deferred->fresh_geometry || model.state->transforms_dirty ||
                                 model.instance->transforms_dirty();
@@ -1318,6 +1364,8 @@ void plan_unit_model(
         return;
     }
     if (defer_invisible_model(models, renderer, frame, plan, preplanning_worker, deferred))
+        return;
+    if (try_root_prefix(model, false))
         return;
     consume_original();
     note(model);
@@ -1575,6 +1623,34 @@ build_preview_bands(const model_render::ModelRef& model, uint32_t pulse_tick, bo
 }
 
 } // namespace
+
+void resolve_root_prefix_fallbacks(MatchModels& models, const renderer_live_scene::Inputs& inputs) {
+    for (auto& draw : models.draws.models) {
+        if (!draw.root_prefix ||
+            renderer_live_scene::root_prefix_supported(inputs, draw, *draw.root_prefix))
+            continue;
+        const auto model = draw.model;
+        if (!model.instance || !model.state || !model.unit)
+            throw std::runtime_error("root-prefix fallback has no ordinary model");
+        DeferredModelGeometry* deferred{};
+        const auto slot = model.unit->id;
+        if (slot < models.deferred_geometry.units.size() &&
+            slot < models.offline->world().record.unit_slot_count) {
+            auto& kept = models.deferred_geometry.units[slot];
+            auto& runtime = models.offline->runtime_state(slot);
+            if (runtime.instance && kept.instance == &runtime.instance->model() &&
+                kept.generation == runtime.instance_generation)
+                deferred = &kept;
+        }
+        const auto builds_before = model.state->image_builds;
+        const plan_work::Span work_span(plan_work::Phase::model_plan_pixels);
+        if (!materialize_root_prefix_draw(models.renderer, models.bridge, draw, deferred))
+            throw std::runtime_error("root-prefix fallback cannot prepare its ordinary model");
+        plan_work::count(
+            plan_work::Work::pixel_image_builds, model.state->image_builds - builds_before
+        );
+    }
+}
 
 void classic_overlay_check::begin(bool reference) noexcept {
     classic_overlay_observations = {};
@@ -2716,6 +2792,13 @@ bool Runtime::draw_match_surface() {
         frame_draws_.probe_unit,
         match_->rules().setup.enhanced_mode.enabled,
         match_->rules().setup.enhanced_mode.enabled &&
+            oa::data::enhanced_mode::uses_enhanced_unit_rendering(
+                match_->rules().setup.enhanced_mode.version
+            ),
+        options_.prototype_root_prefix && full_presentation() && geometry_shadow_metadata &&
+            !options_.debug_order_lines && world_record.game.debug_overlay == 0 &&
+            !models.preplanning_visibility.force_ordinary &&
+            match_->rules().setup.enhanced_mode.enabled &&
             oa::data::enhanced_mode::uses_enhanced_unit_rendering(
                 match_->rules().setup.enhanced_mode.version
             )
