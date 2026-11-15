@@ -4662,9 +4662,8 @@ int Runtime::check_live_renderer() {
                         auto& motion = models.presentation.units[walker];
                         require(
                             copied_plan() && walker_visible() &&
-                                !models.deferred_geometry.units.at(walker).fresh_geometry &&
                                 !models.deferred_geometry.units.at(walker).fresh_copy_images,
-                            "the visible copy did not consume its fresh image and geometry"
+                            "the visible copy did not consume its own fresh image and geometry"
                         );
                         const auto copy_picture = match_world_cpu_;
                         const auto copy_picks = bounds_and_picks();
@@ -4781,6 +4780,359 @@ int Runtime::check_live_renderer() {
                                 std::string("classic geometry changed ") + difference
                             );
                         visibility.force_ordinary = false;
+                    }
+                    if (lazy_preset) {
+                        // Both actors now walk in the real simulation. The earlier
+                        // ARMJAM controls deliberately held its root stationary.
+                        set_live_models_on_card(true);
+                        require(
+                            turn_live_camera(ground_check_yaw, preplan_pitch),
+                            "the visible original-debt camera did not restore"
+                        );
+                        center_camera_on_unit(walker);
+                        visibility.force_ordinary = true;
+                        bool copy_moved{};
+                        for (const auto& direction : directions) {
+                            const auto here = match_->world().record.units[walker].position;
+                            const int32_t x = here.x / fixed + direction[0];
+                            const int32_t z = here.z / fixed + direction[1];
+                            if (x < 16 || z < 16 || x >= map_width - 16 || z >= map_height - 16)
+                                continue;
+                            const auto ground = terrain.height(x * fixed, z * fixed);
+                            if (ground < terrain.sea_level())
+                                continue;
+                            (void)match_->issue_ground_move(
+                                walker, {x * fixed, ground * fixed, z * fixed}, false
+                            );
+                            for (unsigned tick = 0; tick < 120 && !copy_moved; ++tick) {
+                                const auto before = match_->world().record.units[walker].position;
+                                step_match_simulation();
+                                set_presentation_alpha(0.5F);
+                                center_camera_on_unit(walker);
+                                render_match_surface();
+                                const auto after = match_->world().record.units[walker].position;
+                                const auto& motion = models.presentation.units[walker];
+                                copy_moved = (before.x != after.x || before.z != after.z) &&
+                                             motion.continued && motion.moved &&
+                                             motion.pieces_moved && motion.rig_valid &&
+                                             !motion.rig_primed && copied_plan() &&
+                                             walker_visible();
+                            }
+                            if (copy_moved)
+                                break;
+                        }
+                        require(copy_moved, "the visible original-debt actor did not really walk");
+                        auto& motion = models.presentation.units[walker];
+                        auto& pending = models.deferred_geometry.units.at(walker);
+                        constexpr auto cached_piece =
+                            static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached);
+                        constexpr auto visible_piece =
+                            static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
+                        require(
+                            std::any_of(
+                                canonical.pieces().begin(),
+                                canonical.pieces().end(),
+                                [&](const auto& piece) {
+                                    return (piece.flags & visible_piece) != 0 &&
+                                           ((piece.flags & cached_piece) != 0) != stationary;
+                                }
+                            ),
+                            "the stock visible-copy control lacks its cached or uncached pieces"
+                        );
+                        const auto independently_built_copy = [&] {
+                            std::vector<std::string_view> names;
+                            for (const auto& piece : motion.instance.pieces())
+                                names.push_back(
+                                    motion.instance.model_handle()->objects[piece.object_index].name
+                                );
+                            auto fresh = oa::sim::model_runtime::make_instance(
+                                motion.instance.model_handle(), motion.instance.owner_token(), names
+                            );
+                            require(
+                                fresh.pieces().size() == motion.instance.pieces().size(),
+                                "the current-copy oracle changed its piece count"
+                            );
+                            for (std::size_t piece = 0; piece < fresh.pieces().size(); ++piece) {
+                                const auto& from = motion.instance.pieces()[piece];
+                                auto& to = fresh.pieces()[piece];
+                                require(
+                                    from.object_index == to.object_index,
+                                    "the current-copy oracle changed its piece order"
+                                );
+                                to.translation = from.translation;
+                                to.rotation = from.rotation;
+                                to.flags = from.flags;
+                            }
+                            fresh.rebuild_transforms(motion.state.shift, true);
+                            return fresh;
+                        };
+                        const auto visible_current_copy = [&] {
+                            const auto* draw = find_walker();
+                            return copied_plan() && walker_visible() && draw &&
+                                   draw->model.instance == &motion.instance &&
+                                   draw->model.state == &motion.state &&
+                                   !motion.state.transforms_dirty &&
+                                   !motion.instance.transforms_dirty() &&
+                                   !pending.fresh_copy_images;
+                        };
+                        bool original_waited{};
+                        bool original_geometry_waited{};
+                        bool copy_animated{};
+                        constexpr unsigned maximum_visible_attempts = 12;
+                        for (unsigned attempt = 0; attempt < maximum_visible_attempts &&
+                                                   (!original_geometry_waited || !copy_animated);
+                             ++attempt) {
+                            step_match_simulation();
+                            observe_match_tick(models, *match_, draw_pool_.get());
+                            set_presentation_alpha(0.5F);
+                            center_camera_on_unit(walker);
+                            const auto original_before = canonical;
+                            const auto original_state_before = clone_state(canonical_state);
+                            const auto debt_before = pending;
+                            const auto copy_before = motion.instance;
+                            const auto copy_state_before = clone_state(motion.state);
+                            const auto tick = uint32_t{match_->simulation().tick};
+                            const auto random = match_->random_state();
+                            const auto save_state = match_world_digest();
+                            UnitPose raw_before, raw_after;
+                            capture_unit_pose(
+                                match_->world().record.units[walker], canonical, raw_before
+                            );
+                            visibility.force_ordinary = false;
+                            render_match_surface();
+                            require(
+                                visible_current_copy() && !match_->fault(),
+                                "the original-debt control did not draw a current visible copy"
+                            );
+                            if (!pending.fresh_original_images)
+                                continue;
+                            original_waited = true;
+                            original_geometry_waited |= pending.fresh_geometry;
+                            require(
+                                same_points(canonical, original_before) &&
+                                    canonical.materialization_revision() ==
+                                        original_before.materialization_revision() &&
+                                    lifecycle(canonical_state, true) ==
+                                        lifecycle(original_state_before, true) &&
+                                    (!pending.fresh_geometry || canonical.transforms_dirty()),
+                                "a visible copy advanced original vectors, snapshots or images"
+                            );
+                            require(
+                                same_points(motion.instance, independently_built_copy()),
+                                "the visible copy retained stale posed vertices"
+                            );
+                            const auto optimized_picture = match_world_cpu_;
+                            const auto optimized_picks = bounds_and_picks();
+                            const auto optimized_copy = motion.instance;
+                            const auto optimized_copy_images = lifecycle(motion.state, true);
+                            copy_animated |= !same_points(motion.instance, copy_before);
+                            capture_unit_pose(
+                                match_->world().record.units[walker], canonical, raw_after
+                            );
+                            require(
+                                poses_equal(raw_before, raw_after) &&
+                                    match_world_digest() == save_state &&
+                                    match_->simulation().tick == tick &&
+                                    match_->random_state() == random,
+                                "visible original deferral changed canonical/save state or RNG"
+                            );
+                            canonical = original_before;
+                            canonical_state = clone_state(original_state_before);
+                            pending = debt_before;
+                            motion.instance = copy_before;
+                            motion.state = clone_state(copy_state_before);
+                            visibility.force_ordinary = true;
+                            render_match_surface();
+                            require(
+                                visible_current_copy() && !pending.fresh_original_images &&
+                                    !pending.fresh_geometry &&
+                                    match_world_cpu_.rgb == optimized_picture.rgb &&
+                                    bounds_and_picks() == optimized_picks &&
+                                    same_derived(motion.instance, optimized_copy) &&
+                                    lifecycle(motion.state, true) == optimized_copy_images &&
+                                    match_world_digest() == save_state &&
+                                    match_->simulation().tick == tick &&
+                                    match_->random_state() == random,
+                                "visible original deferral differs from its eager current-copy draw"
+                            );
+                        }
+                        require(
+                            original_waited && original_geometry_waited && copy_animated,
+                            "a real visible moving copy never skipped original presentation work"
+                        );
+
+                        // Newer SFX vectors discharge only geometry, while its
+                        // canonical image remains unconsumed by the visible copy.
+                        visibility.force_ordinary = false;
+                        for (unsigned attempt = 0;
+                             attempt < maximum_visible_attempts && !pending.fresh_geometry;
+                             ++attempt) {
+                            step_match_simulation();
+                            set_presentation_alpha(0.5F);
+                            center_camera_on_unit(walker);
+                            render_match_surface();
+                        }
+                        require(
+                            visible_current_copy() && pending.fresh_geometry &&
+                                pending.fresh_original_images && canonical.transforms_dirty(),
+                            "the visible SFX control did not retain dirty original geometry"
+                        );
+                        auto expected_sfx = canonical;
+                        const auto& sfx_record = match_->world().record.units[walker];
+                        expected_sfx.rebuild_transforms(
+                            {sfx_record.bank,
+                             static_cast<int16_t>(sfx_record.heading),
+                             sfx_record.pitch}
+                        );
+                        const auto sfx_tick = uint32_t{match_->simulation().tick};
+                        const auto sfx_random = match_->random_state();
+                        const auto sfx_save = match_world_digest();
+                        constexpr int32_t visible_unhandled_effect = 0x100;
+                        offline_effects_.emit_sfx(
+                            match_->world().slots[walker],
+                            canonical.root_piece(),
+                            visible_unhandled_effect
+                        );
+                        pending.observe_fresh(canonical);
+                        require(
+                            !pending.fresh_geometry && pending.fresh_original_images &&
+                                same_derived(canonical, expected_sfx) &&
+                                match_world_digest() == sfx_save &&
+                                match_->simulation().tick == sfx_tick &&
+                                match_->random_state() == sfx_random,
+                            "visible-copy SFX lost image debt or changed canonical/save state"
+                        );
+                        render_match_surface();
+                        require(
+                            visible_current_copy() &&
+                                same_points(motion.instance, independently_built_copy()),
+                            "a visible copy froze its pose after the current SFX refresh"
+                        );
+                        set_presentation_alpha(1);
+                        render_match_surface();
+                        require(
+                            canonical_plan() && walker_visible() && !pending.fresh_geometry &&
+                                !pending.fresh_original_images,
+                            "the whole-tick consumer did not resolve visible original debt"
+                        );
+                        const auto whole_picture = match_world_cpu_;
+                        const auto whole_picks = bounds_and_picks();
+                        const auto whole_instance = canonical;
+                        visibility.force_ordinary = true;
+                        // Regenerate only the image: a default ModelState would
+                        // also replace the exact root just refreshed by SFX.
+                        invalidate_model_images(canonical_state);
+                        render_match_surface();
+                        require(
+                            match_world_cpu_.rgb == whole_picture.rgb &&
+                                bounds_and_picks() == whole_picks &&
+                                same_derived(canonical, whole_instance) &&
+                                canonical.materialization_revision() ==
+                                    whole_instance.materialization_revision() &&
+                                match_world_digest() == sfx_save &&
+                                match_->simulation().tick == sfx_tick &&
+                                match_->random_state() == sfx_random,
+                            "the whole-tick original differs from its fresh image reference"
+                        );
+
+                        // These HELD RENDERER INPUT controls replace only the
+                        // copy. Cold and incompatible storage must consume the
+                        // original before take_pose copies any retained vectors.
+                        set_presentation_alpha(0.5F);
+                        const auto check_copy_reentry = [&](unsigned kind) {
+                            visibility.force_ordinary = false;
+                            render_match_surface();
+                            require(
+                                visible_current_copy() && pending.fresh_original_images,
+                                "the copy-reentry control did not start with original image debt"
+                            );
+                            const auto tick = uint32_t{match_->simulation().tick};
+                            const auto random = match_->random_state();
+                            const auto save_state = match_world_digest();
+                            if (kind == 0) {
+                                motion.instance = {};
+                            } else if (kind == 1) {
+                                std::vector<std::string_view> names;
+                                for (const auto& piece : canonical.pieces())
+                                    names.push_back(
+                                        canonical.model_handle()->objects[piece.object_index].name
+                                    );
+                                motion.instance = oa::sim::model_runtime::make_instance(
+                                    canonical.model_handle(), canonical.owner_token() ^ 1, names
+                                );
+                            } else {
+                                require(
+                                    !motion.instance.pieces().empty(),
+                                    "the copy-shape control has no model pieces"
+                                );
+                                motion.instance.pieces().front().object_index =
+                                    std::numeric_limits<uint32_t>::max();
+                            }
+                            render_match_surface();
+                            require(
+                                visible_current_copy() && !pending.fresh_original_images &&
+                                    !pending.fresh_geometry &&
+                                    same_points(motion.instance, independently_built_copy()) &&
+                                    match_world_digest() == save_state &&
+                                    match_->simulation().tick == tick &&
+                                    match_->random_state() == random,
+                                "a cold, foreign or incompatible copy skipped current original work"
+                            );
+                        };
+                        for (unsigned kind = 0; kind < 3; ++kind)
+                            check_copy_reentry(kind);
+                        visibility.force_ordinary = false;
+                        render_match_surface();
+                        require(
+                            visible_current_copy() && pending.fresh_original_images,
+                            "the copy did not reenter original-only deferral"
+                        );
+                        models.unit_plans.snapshot_unlinked_vertices = true;
+                        render_match_surface();
+                        require(
+                            visible_current_copy() && !pending.fresh_original_images &&
+                                !pending.fresh_geometry,
+                            "a snapshot consumer did not resolve visible original presentation"
+                        );
+                        models.unit_plans.snapshot_unlinked_vertices = false;
+                        render_match_surface();
+                        require(
+                            visible_current_copy() && pending.fresh_original_images,
+                            "the visible producer-loss fixture has no original debt"
+                        );
+                        const auto fallback_save = match_world_digest();
+                        const auto fallback_tick = uint32_t{match_->simulation().tick};
+                        const auto fallback_random = match_->random_state();
+                        set_live_models_on_card(false);
+                        render_match_surface();
+                        require(
+                            !pending.fresh_original_images && !pending.fresh_geometry &&
+                                !pending.fresh_copy_images && !match_world_cpu_.rgb.empty() &&
+                                match_world_digest() == fallback_save &&
+                                match_->simulation().tick == fallback_tick &&
+                                match_->random_state() == fallback_random && !match_->fault(),
+                            "visible producer loss retained original debt or changed save state"
+                        );
+                        set_live_models_on_card(true);
+                        require(
+                            turn_live_camera(ground_check_yaw, preplan_pitch),
+                            "the original-debt camera did not reenter GPU presentation"
+                        );
+                        render_match_surface();
+                        render_match_surface();
+                        require(
+                            visible_current_copy() && pending.fresh_original_images &&
+                                same_points(motion.instance, independently_built_copy()),
+                            "the actual GPU copy did not reenter current original-only deferral"
+                        );
+                        set_presentation_alpha(1);
+                        std::cout
+                            << "live renderer check: visible moving "
+                            << (stationary ? "ARMJAM" : "ARMPW")
+                            << " copies keep current geometry and exact eager pixels/picks while "
+                               "original vectors/images wait; whole ticks, SFX, cold/foreign/shape "
+                               "copies, snapshots and producer loss resolve the required debt; "
+                               "canonical/save state and RNG unchanged\n";
                     }
                     std::cout
                         << "live renderer check: real 2/3/4-tick normal-rate batches use "
