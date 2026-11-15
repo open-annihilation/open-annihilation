@@ -10738,10 +10738,12 @@ void root_prefix_bounds_rounding() {
 }
 
 /// Keeps owned recipes through separated worker intervals and actual material pauses.
-void root_prefix_scene_multiple_ranges() {
+/// @param ordered_packing enables the Enhanced ordered model-material pass
+void root_prefix_scene_multiple_ranges(bool ordered_packing) {
     MultipleModelRangeFixture fixture;
     RootPrefixSceneFixture prefix;
     auto& battle = fixture.bodies.battle;
+    battle.inputs.body_lod_enabled = ordered_packing;
     battle.inputs.root_prefix_enabled = true;
     battle.inputs.nanolathe_lighting = false;
     constexpr std::array gaps{
@@ -10888,29 +10890,45 @@ void root_prefix_scene_multiple_ranges() {
             ) == 0
         );
     };
-    const auto accepted = [&] {
+    const auto accepted = [&](bool packed = false) {
         const auto& work = parallel.model_work_counts;
         OA_CHECK(work.candidate_bands == 4 && work.accepted_bands == 4);
         OA_CHECK(work.candidate_slots == MultipleModelRangeFixture::candidate_slots);
         OA_CHECK(work.accepted_slots == MultipleModelRangeFixture::candidate_slots);
         OA_CHECK(work.fallback_frames == 0);
+        if (packed) {
+            OA_CHECK(parallel.passes.models.materials_packed > 0);
+            OA_CHECK(parallel.passes.models.texels_packed > 0);
+        } else {
+            OA_CHECK(parallel.passes.models.materials_packed == 0);
+            OA_CHECK(parallel.passes.models.texels_packed == 0);
+        }
     };
     compare();
     compare();
     accepted();
-    // Only the serial middle draw requests the new material. Its rollback
-    // must rebuild every preceding prefix packet once in original order.
+    // Only the serial middle draw requests this cold material. Enhanced
+    // ordered packing retains the joined packets; the false gate keeps
+    // the original complete serial retry and the same geometry oracle.
     battle.draws.models[MultipleModelRangeFixture::first_gap].model.prepared =
         &fixture.unique_material;
     compare();
-    OA_CHECK(parallel.model_work_counts.candidate_bands == 4);
-    OA_CHECK(parallel.model_work_counts.accepted_bands == 0);
-    OA_CHECK(parallel.model_work_counts.accepted_slots == 0);
-    OA_CHECK(parallel.model_work_counts.fallback_frames == 1);
+    if (ordered_packing) {
+        accepted(true);
+    } else {
+        OA_CHECK(parallel.model_work_counts.candidate_bands == 4);
+        OA_CHECK(parallel.model_work_counts.accepted_bands == 0);
+        OA_CHECK(parallel.model_work_counts.accepted_slots == 0);
+        OA_CHECK(parallel.model_work_counts.fallback_frames == 1);
+        OA_CHECK(parallel.passes.models.materials_packed > 0);
+        OA_CHECK(parallel.passes.models.texels_packed > 0);
+    }
     compare();
     accepted();
-    // A suffix pause retains the complete joined intervals and their owners.
+    // Both policies retain complete joined intervals before a cold suffix.
     battle.draws.models[MultipleModelRangeFixture::suffix].model.prepared = &suffix_material;
+    compare();
+    accepted(true);
     compare();
     accepted();
     for (const bool procedural : {false, true}) {
@@ -10920,6 +10938,12 @@ void root_prefix_scene_multiple_ranges() {
         compare();
         accepted();
     }
+}
+
+/// The same owned-geometry oracle covers ordered packing and the old false gate.
+void root_prefix_scene_multiple_ranges() {
+    root_prefix_scene_multiple_ranges(false);
+    root_prefix_scene_multiple_ranges(true);
 }
 
 } // namespace
