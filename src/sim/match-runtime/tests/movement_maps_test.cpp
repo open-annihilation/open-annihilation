@@ -458,6 +458,7 @@ namespace spatial = sim::spatial_state;
 constexpr int32_t pixel = 65536;
 constexpr uint32_t following_version = data::enhanced_mode::following_flow_version;
 constexpr uint32_t cohort_version = data::enhanced_mode::cohort_target_version;
+constexpr uint32_t retained_version = data::enhanced_mode::cohort_retention_version;
 constexpr uint16_t east = 49152;
 constexpr uint8_t ground_layer = 1;
 constexpr uint8_t patrol_kind = 29;
@@ -474,7 +475,7 @@ void planning_inputs(Fixture& f) {
 }
 
 void cached_planning_excludes_movement_objects_only_for_following_presets() {
-    for (uint32_t version = 0; version <= cohort_version + 1; ++version) {
+    for (uint32_t version = 0; version <= retained_version + 1; ++version) {
         Fixture f({}, 0, version, planning_inputs);
         f.match->simulation().tick = 5;
         const auto aged = f.spawn(tank, 6, 8).unit_index;
@@ -500,7 +501,8 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
         CHECK(f.match->spatial().units[aged].object_present);
         CHECK(f.match->spatial().units[immobile].object_present);
         CHECK(f.match->ground_runtime(immobile)->geometry.type.maximum_speed == 0);
-        const bool follows = version == following_version || version == cohort_version;
+        const bool follows = version == following_version || version == cohort_version ||
+                             version == retained_version;
         const uint8_t occupied = follows ? 3 : 0;
         if (map->cell(6, 8) != occupied)
             std::cerr << "Cached planning version=" << version
@@ -521,7 +523,7 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
             CHECK(physical && !*physical);
         }
     }
-    // Unsupported versions nine and eleven retain the native cutoff;
+    // Unsupported versions nine and twelve retain the native cutoff;
     // the public profile resolver refuses both. Disabled following is Off.
     Fixture off({}, 0, following_version, planning_inputs, false);
     off.match->simulation().tick = 5;
@@ -767,7 +769,9 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
             CHECK(body.navigation.goal->cell == home_cell);
             result.home_before_far = true;
         }
-        if ((version == following_version || version == cohort_version) && !result.reached_far) {
+        if ((version == following_version || version == cohort_version ||
+             version == retained_version) &&
+            !result.reached_far) {
             CHECK(body.navigation.goal == far_goal);
             CHECK(body.navigation.goal->order == slot.unit->primary);
             CHECK(slot.unit->primary->kind == patrol_kind);
@@ -795,7 +799,7 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
 void static_following_planning_does_not_weaken_physical_traffic() {
     const auto old = patrol_keeps_its_far_goal_after_the_gate_leaves(distributed_version);
     CHECK(!old.native_plan_reaches && old.fresh_refusal && old.home_before_far);
-    for (const auto version : {following_version, cohort_version}) {
+    for (const auto version : {following_version, cohort_version, retained_version}) {
         const auto following = patrol_keeps_its_far_goal_after_the_gate_leaves(version);
         CHECK(
             following.native_plan_reaches && following.fresh_refusal && !following.home_before_far

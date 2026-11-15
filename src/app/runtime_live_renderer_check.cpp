@@ -97,11 +97,11 @@ int Runtime::check_live_renderer() {
         MatchRules rules{};
         rules.setup.enhanced_mode.enabled = true;
         MarkerFramePolicy frame{true, true};
-        for (int32_t version = 0; version <= 11; ++version) {
+        for (int32_t version = 0; version <= 12; ++version) {
             rules.setup.enhanced_mode.version = version;
             require(
                 compact_marker_frame(rules, frame) ==
-                    (version == 7 || version == 8 || version == 10),
+                    (version == 7 || version == 8 || version == 10 || version == 11),
                 "the compact marker production rules gate is wrong"
             );
         }
@@ -3580,8 +3580,12 @@ int Runtime::check_live_renderer() {
                  std::pair{1.0F, mode::following_flow_version},
                  std::pair{0.35F, mode::following_flow_version},
                  std::pair{1.0F, deferred_geometry_version},
-                 std::pair{0.35F, deferred_geometry_version}
+                 std::pair{0.35F, deferred_geometry_version},
+                 std::pair{1.0F, mode::cohort_retention_version},
+                 std::pair{0.35F, mode::cohort_retention_version}
              }) {
+            const bool deferred_geometry_preset = preplan_version == mode::cohort_target_version ||
+                                                  preplan_version == mode::cohort_retention_version;
             start_ground_match(preplan_version);
             enter_console_check_line("+nowisee");
             constexpr int32_t fixed = 65536;
@@ -3932,11 +3936,11 @@ int Runtime::check_live_renderer() {
                         match_->random_state() == fallback_random && !match_->fault(),
                     "the omitted-frame classic replan changed simulation or RNG"
                 );
-                // Preset 8 keeps cached ARMPW image history. Preset 10 may
+                // Preset 8 keeps cached ARMPW image history. Presets 10 and 11 may
                 // leave invisible cached limbs and an uncached ARMJAM fork
                 // waiting, then rebuild current geometry and fresh images.
                 for (const bool stationary : {false, true}) {
-                    if (stationary && preplan_version != deferred_geometry_version)
+                    if (stationary && !deferred_geometry_preset)
                         continue;
                     if (stationary) {
                         auto jammer_request = request;
@@ -4286,7 +4290,7 @@ int Runtime::check_live_renderer() {
                                found->model.instance == &canonical &&
                                found->shown.instance == &models.presentation.units[walker].instance;
                     };
-                    if (preplan_version == deferred_geometry_version && !stationary) {
+                    if (deferred_geometry_preset && !stationary) {
                         // Each attempt starts a real tick and draws the optimized
                         // copy first. Effects may already have refreshed one tick's
                         // geometry; require an actual geometry deferral within the bound.
@@ -4388,7 +4392,7 @@ int Runtime::check_live_renderer() {
                                 ? std::optional{models.deferred_geometry.units[walker]}
                                 : std::nullopt;
                         const auto before_state = clone_state(canonical_state);
-                        if (preplan_version == deferred_geometry_version) {
+                        if (deferred_geometry_preset) {
                             check_far_geometry();
                             require(
                                 same_derived(canonical, before_instance) &&
@@ -4420,7 +4424,7 @@ int Runtime::check_live_renderer() {
                         const auto ordinary_instance = canonical;
                         const auto ordinary_lifecycle = lifecycle(canonical_state);
                         const auto ordinary_readback = match_draw_read_back();
-                        if (preplan_version == deferred_geometry_version) {
+                        if (deferred_geometry_preset) {
                             preplanning_visibility::FrameView far_view;
                             require(
                                 prepare_preplanning_visibility_frame(far_view),
@@ -4453,7 +4457,7 @@ int Runtime::check_live_renderer() {
                                 far_geometry, ordinary_draw->model, far_view, gate, far_scratch
                             );
                         }
-                        if (!stationary && preplan_version == deferred_geometry_version)
+                        if (!stationary && deferred_geometry_preset)
                             require(
                                 canonical_state.image_builds > before_state.image_builds,
                                 "the real cached ARMPW animation did not require an image rebuild"
@@ -4472,9 +4476,10 @@ int Runtime::check_live_renderer() {
                                                   : nullptr;
                         const bool fresh_images = waiting && waiting->fresh_original_images;
                         const bool lazy = waiting && waiting->fresh_geometry;
-                        if (preplan_version == deferred_geometry_version)
+                        if (deferred_geometry_preset)
                             require(
-                                fresh_images, "preset 10 did not defer the offscreen image planning"
+                                fresh_images,
+                                "the enhanced preset did not defer offscreen image planning"
                             );
                         require(
                             canonical_plan() && postplan && postplan->preplan_omitted &&
@@ -4562,7 +4567,7 @@ int Runtime::check_live_renderer() {
                             "whole-tick frozen replay changed canonical pose, tick or RNG"
                         );
                     }
-                    const bool lazy_preset = preplan_version == deferred_geometry_version;
+                    const bool lazy_preset = deferred_geometry_preset;
                     if (lazy_preset)
                         require(
                             far_bound_frames == 3 && far_rejected_frames != 0,

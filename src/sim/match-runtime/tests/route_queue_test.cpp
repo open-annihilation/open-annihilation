@@ -35,6 +35,7 @@ constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_ba
 constexpr uint32_t legacy_version = 4;
 constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
 constexpr uint32_t cohort_version = oa::data::enhanced_mode::cohort_target_version;
+constexpr uint32_t retained_version = oa::data::enhanced_mode::cohort_retention_version;
 constexpr uint32_t map_height = 24;
 constexpr uint8_t land_height = 60;
 constexpr uint8_t sea_level = 30;
@@ -394,7 +395,7 @@ WaveResult native_wave(uint32_t version, bool wide = false, bool distinct_goals 
         CHECK(goals[0].cell == (std::array<int16_t, 2>{20, 4}));
         CHECK(goals[1].cell == (std::array<int16_t, 2>{18, 4}));
         if (version == distributed_version || version == following_version ||
-            version == cohort_version) {
+            version == cohort_version || version == retained_version) {
             CHECK(navigation.points[1] == (ground::RoutePoint{176, 144}));
             CHECK(navigation.points[2] == (ground::RoutePoint{208, 112}));
         } else {
@@ -713,7 +714,8 @@ PipelineResult pipeline(uint32_t version, Pipeline control, uint8_t blocked = 2)
 void actual_pipeline_rejects_incompatible_or_unowned_routes(uint32_t version) {
     // The idle gate makes the leader apply a non-forward local leg. Eight
     // no longer treats that applied leg as a forward queue certificate.
-    const bool follows_applied = version == following_version || version == cohort_version;
+    const bool follows_applied =
+        version == following_version || version == cohort_version || version == retained_version;
     const auto matched = pipeline(version, Pipeline::matched);
     CHECK(matched.backward_leader);
     CHECK(matched.mobile && matched.active == follows_applied);
@@ -1290,7 +1292,7 @@ void actual_match_uses_the_following_certificate_only_for_following_presets() {
     const auto old = actual_following_caller_wave(distributed_version);
     CHECK(!old.adjusted && old.first_fresh_veto && !old.vacated_before_recovery);
     CHECK(old.both_arrived && old.both_rested);
-    for (const auto version : {following_version, cohort_version}) {
+    for (const auto version : {following_version, cohort_version, retained_version}) {
         const auto following = actual_following_caller_wave(version);
         CHECK(following.adjusted && following.target[1] < 173);
         CHECK(!following.first_fresh_veto && following.vacated_before_recovery);
@@ -1338,7 +1340,11 @@ int main(int argc, char** argv) {
         }
     };
     for (const auto version :
-         {battle_version, distributed_version, following_version, cohort_version}) {
+         {battle_version,
+          distributed_version,
+          following_version,
+          cohort_version,
+          retained_version}) {
         const auto run_version = [&](const char* name, void (*test)(uint32_t)) {
             run(name, [&] { test(version); });
         };
