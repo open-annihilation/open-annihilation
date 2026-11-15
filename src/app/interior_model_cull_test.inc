@@ -20,13 +20,17 @@ struct InteriorCullSignature {
 
     void number(float input) { word(std::bit_cast<uint32_t>(input)); }
 
-    template <typename T>
-    void plain(std::span<const T> input) {
-        word(input.size());
-        for (const auto byte : std::as_bytes(input)) {
+    void bytes(std::span<const std::byte> input) {
+        for (const auto byte : input) {
             value ^= std::to_integer<uint8_t>(byte);
             value *= 1099511628211ULL;
         }
+    }
+
+    template <typename T>
+    void plain(std::span<const T> input) {
+        word(input.size());
+        bytes(std::as_bytes(input));
     }
 
     template <typename T>
@@ -41,6 +45,28 @@ struct InteriorCullSignature {
             word(run.first_index);
             word(run.index_count);
             word(run.first_instance);
+        }
+    }
+
+    void instances(const std::vector<oa::app::renderer_live_gpu::ModelInstance>& input) {
+        word(input.size());
+        for (const auto& instance : input) {
+            OA_CHECK(instance.root_prefix == 0);
+            const std::array<uint32_t, 12> ordinary_words{
+                instance.corners,
+                instance.corner_count,
+                instance.positions,
+                instance.position_count,
+                instance.pieces,
+                instance.piece_count,
+                instance.textures,
+                instance.texture_count,
+                std::bit_cast<uint32_t>(instance.brightness),
+                std::bit_cast<uint32_t>(instance.origin[0]),
+                std::bit_cast<uint32_t>(instance.origin[1]),
+                std::bit_cast<uint32_t>(instance.origin[2])
+            };
+            bytes(std::as_bytes(std::span{ordinary_words}));
         }
     }
 
@@ -79,7 +105,7 @@ uint64_t interior_cull_signature(const live::Scene& scene, const live::Inputs& i
     result.plain(scene.texture_rgba);
     result.plain(scene.card_types.records);
     const auto& cards = scene.cards;
-    result.plain(cards.instances);
+    result.instances(cards.instances);
     result.plain(cards.positions);
     result.plain(cards.piece_frames);
     result.plain(cards.textures);
