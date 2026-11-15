@@ -9802,10 +9802,12 @@ void underwater_features() {
 #include "caster_index_runs_test.inc"
 #include "caster_index_scene_test.inc"
 #include "interior_model_cull_test.inc"
+#include "body_detail_pose_test.inc"
 #include "shadow_index_templates_test.inc"
 
 int main() {
     interior_model_cull_tests();
+    body_detail_pose_geometry();
     body_lod_geometry_tests();
     body_lod_card_tests();
     caster_index_runs_tests();
