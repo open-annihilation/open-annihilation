@@ -6,10 +6,13 @@
 // Continuation cases restore the registered rule-state table into an identical
 // running match; the application save container is checked separately.
 #include "combat_fixture.hpp"
+#include "saved_game.hpp"
+#include "support/match_tick_access.hpp"
 
 #include "oa/data/enhanced_mode.hpp"
 
 #include "oa/sim/ai.hpp"
+#include "oa/sim/match_runtime/command.hpp"
 #include "oa/sim/match_runtime/rule_state.hpp"
 
 #include <algorithm>
@@ -33,6 +36,7 @@ constexpr uint32_t retarget_version = oa::data::enhanced_mode::battle_flow_versi
 constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
 constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
 constexpr uint32_t cohort_version = 10;
+constexpr uint32_t retention_version = 11;
 constexpr uint32_t strike_refresh_ticks = 300;
 constexpr uint32_t retarget_interval_ticks = 6;
 constexpr uint32_t target_loss_tick = 55;
@@ -151,6 +155,308 @@ runtime::Match::OrderRecordView head_record(Fixture& fixture, uint16_t unit) {
     const auto record = primary_record(fixture, unit);
     CHECK(record.has_value());
     return *record;
+}
+
+/// Holds compatible ordinary attacks independently of the built-in controller's state.
+struct AttackReaderFixture {
+    Fixture fixture;
+    uint16_t actor{}, other{}, target{}, replacement{};
+
+    /// Creates real owned commands, optionally through the ownership-index fallback.
+    explicit AttackReaderFixture(bool index_fallback = false, bool queued = false)
+        : fixture(options_for(retention_version)) {
+        if (index_fallback)
+            CHECK(runtime::MatchTickAccess::reset_order_index(*fixture.match, 0));
+        auto gun = fixture.weapons.records()[fixture_gun];
+        gun.range = movement_gun_range;
+        fixture.weapons.install(gun, {});
+        fixture.match->state().game.weapon_defs[fixture_gun] = gun;
+        auto& source = fixture.spawn(computer_player, member_x, target_z);
+        actor = source.unit_index;
+        hold_fire(source);
+        auto& second = fixture.spawn(computer_player, member_x, member_z.back());
+        other = second.unit_index;
+        hold_fire(second);
+        auto& first_target = fixture.spawn(enemy_player, target_x, target_z);
+        target = first_target.unit_index;
+        hold_fire(first_target);
+        auto& second_target = fixture.spawn(enemy_player, replacement_x, replacement_z);
+        replacement = second_target.unit_index;
+        hold_fire(second_target);
+        CHECK(fixture.match->issue_attack_command(actor, target, queued, nullptr));
+        CHECK(fixture.match->issue_attack_command(other, replacement, false, nullptr));
+    }
+
+    /// Returns the first actor's current canonical simulation object.
+    sim::simulation_state::Unit& unit() { return *fixture.match->spawn_slot(actor).unit; }
+
+    /// Reads the public const query without a built-in-dispatch scope.
+    uint16_t read() const {
+        const auto& match = *fixture.match;
+        return match.owned_attack_target(computer_player, actor);
+    }
+
+    /// Waits for a real chase Goal after the transient command announcement flag is consumed.
+    void advance_to_owned_goal() {
+        for (uint32_t tick = 0; tick < 12; ++tick) {
+            const auto* ground = fixture.match->ground_runtime(actor);
+            const auto head = head_record(fixture, actor);
+            if (ground != nullptr && ground->navigation.goal != nullptr &&
+                (head.command_flags & runtime::command_unqueued) == 0)
+                return;
+            fixture.run(1);
+        }
+        CHECK(false);
+    }
+};
+
+/// Reads an active ordinary attack without changing its command, navigation or random stream.
+void owned_attack_target_is_a_read_only_current_head_query() {
+    AttackReaderFixture battle;
+    CHECK(battle.read() == battle.target); // A consistent null Goal is valid before the first step.
+    battle.advance_to_owned_goal();
+    const auto before = head_record(battle.fixture, battle.actor);
+    CHECK((before.command_flags & runtime::command_unqueued) == 0);
+    auto* order = battle.unit().primary;
+    const auto raised = order->raised_events;
+    const auto* ground = battle.fixture.match->ground_runtime(battle.actor);
+    CHECK(ground != nullptr);
+    const auto navigation = ground->navigation;
+    const auto random = battle.fixture.match->random_state();
+    const auto state = retarget_bytes(battle.fixture);
+    const auto notices = battle.fixture.services.notices;
+    for (uint32_t read = 0; read < 16; ++read)
+        CHECK(battle.read() == battle.target);
+    const auto after = head_record(battle.fixture, battle.actor);
+    CHECK(battle.unit().primary == order && order->raised_events == raised);
+    CHECK(after.kind == before.kind && after.phase == before.phase);
+    CHECK(after.target == before.target && after.issue_tick == before.issue_tick);
+    CHECK(after.command_flags == before.command_flags && after.flags == before.flags);
+    CHECK(ground->navigation.goal == navigation.goal);
+    CHECK(ground->navigation.points == navigation.points);
+    CHECK(
+        ground->navigation.count == navigation.count && ground->navigation.flags == navigation.flags
+    );
+    CHECK(ground->navigation.last_search_tick == navigation.last_search_tick);
+    CHECK(battle.fixture.match->random_state() == random);
+    CHECK(retarget_bytes(battle.fixture) == state && battle.fixture.services.notices == notices);
+    CHECK(runtime::MatchTickAccess::observer_lists_valid(*battle.fixture.match));
+}
+
+/// Distinguishes a live queue tail from a sole compatible head with consumed queue history.
+void owned_attack_target_uses_current_shape_instead_of_queue_provenance() {
+    AttackReaderFixture ordinary;
+    AttackReaderFixture queued(false, true);
+    ordinary.advance_to_owned_goal();
+    queued.advance_to_owned_goal();
+    const auto left = head_record(ordinary.fixture, ordinary.actor);
+    const auto right = head_record(queued.fixture, queued.actor);
+    CHECK(left.kind == right.kind && left.phase == right.phase);
+    CHECK(left.command_flags == right.command_flags);
+    CHECK(ordinary.read() == ordinary.target && queued.read() == queued.target);
+    CHECK(!queued.fixture.match->order_refused(
+        queued.fixture.match->issue_patrol(queued.actor, {64 * fixed_one, 0, 240 * fixed_one}, true)
+    ));
+    CHECK(queued.unit().primary->next != nullptr);
+    CHECK(queued.read() == 0);
+}
+
+/// Rejects interrupted or terminal attacks and inconsistent Goal ownership.
+void owned_attack_target_rejects_interrupted_or_foreign_goal_state() {
+    AttackReaderFixture battle;
+    battle.advance_to_owned_goal();
+    auto* order = battle.unit().primary;
+    constexpr uint32_t cancel_event = 2;
+    constexpr uint32_t target_lost_event = 8;
+    constexpr uint32_t attack_abort_event = 0x800;
+    for (const auto event :
+         {cancel_event,
+          target_lost_event,
+          attack_abort_event,
+          sim::ground_orders::arrived_event,
+          sim::ground_orders::path_failed_event,
+          sim::ground_orders::goal_replaced_event}) {
+        const auto raised = order->raised_events;
+        order->raised_events |= event;
+        const auto observed = battle.read();
+        order->raised_events = raised;
+        CHECK(observed == 0);
+    }
+    const auto phase = order->phase;
+    order->phase = 4;
+    const auto terminal = battle.read();
+    order->phase = phase;
+    CHECK(terminal == 0);
+    auto* ground = battle.fixture.match->ground_runtime(battle.actor);
+    CHECK(ground != nullptr && ground->navigation.goal != nullptr);
+    auto* goal = ground->navigation.goal;
+    auto* goal_owner = goal->order;
+    goal->order = battle.fixture.match->spawn_slot(battle.other).unit->primary;
+    const auto foreign_goal = battle.read();
+    goal->order = goal_owner;
+    CHECK(foreign_goal == 0);
+    ground->navigation.goal = nullptr;
+    const auto detached_goal = battle.read();
+    ground->navigation.goal = goal;
+    CHECK(detached_goal == 0);
+    CHECK(battle.read() == battle.target);
+}
+
+/// Rejects unowned heads, another actor's owned head and disagreeing target copies.
+void owned_attack_target_requires_canonical_actor_and_target_ownership() {
+    AttackReaderFixture battle;
+    auto* actual = battle.unit().primary;
+    sim::simulation_state::Order unowned = *actual;
+    battle.unit().primary = &unowned;
+    const auto unknown = battle.read();
+    battle.unit().primary = actual;
+    CHECK(unknown == 0);
+    battle.unit().primary = battle.fixture.match->spawn_slot(battle.other).unit->primary;
+    const auto foreign = battle.read();
+    battle.unit().primary = actual;
+    CHECK(foreign == 0);
+    runtime::MatchTickAccess::link_target(
+        *battle.fixture.match, *actual, battle.fixture.match->spawn_slot(battle.replacement).unit
+    );
+    const auto disagreeing_copies = battle.read();
+    runtime::MatchTickAccess::link_target(
+        *battle.fixture.match, *actual, battle.fixture.match->spawn_slot(battle.target).unit
+    );
+    CHECK(disagreeing_copies == 0 && battle.read() == battle.target);
+    CHECK(battle.fixture.match->owned_attack_target(enemy_player, battle.actor) == 0);
+    CHECK(battle.fixture.match->owned_attack_target(computer_player, 0) == 0);
+    CHECK(battle.fixture.match->owned_attack_target(OA_PLAYER_COUNT, battle.actor) == 0);
+    CHECK(runtime::MatchTickAccess::observer_lists_valid(*battle.fixture.match));
+}
+
+/// Rejects incomplete sources, dead target bodies, alliances and reused target slots.
+void owned_attack_target_rechecks_liveness_and_alliances() {
+    AttackReaderFixture battle;
+    auto& source = battle.fixture.match->spawn_slot(battle.actor).record;
+    source.build_remaining = 0.5F;
+    CHECK(battle.read() == 0);
+    source.build_remaining = 0;
+    auto& target = battle.fixture.match->spawn_slot(battle.target).record;
+    const auto health = target.health;
+    target.health = 0;
+    const auto no_health = battle.read();
+    target.health = health;
+    CHECK(no_health == 0);
+    target.flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    const auto dying = battle.read();
+    target.flags &= ~OA_UNIT_FLAG_DEATH_PENDING;
+    CHECK(dying == 0);
+    std::array<uint8_t, OA_PLAYER_COUNT> allies{};
+    allies[computer_player] = allies[enemy_player] = 1;
+    battle.fixture.match->configure_player_alliances(computer_player, allies);
+    CHECK(battle.read() == 0);
+    allies[enemy_player] = 0;
+    battle.fixture.match->configure_player_alliances(computer_player, allies);
+    CHECK(battle.read() == battle.target);
+    const auto generation = battle.fixture.match->runtime_state(battle.target).instance_generation;
+    kill(
+        battle.fixture,
+        battle.fixture.match->spawn_slot(battle.target),
+        battle.fixture.match->spawn_slot(battle.actor)
+    );
+    CHECK(battle.read() == 0);
+    auto* replacement = battle.fixture.match->create(
+        {enemy_player,
+         fixture_unit_type,
+         {target_x * fixed_one, 32u * fixed_one, target_z * fixed_one},
+         true,
+         1,
+         battle.target}
+    );
+    CHECK(replacement != nullptr && replacement->unit_index == battle.target);
+    hold_fire(*replacement);
+    CHECK(battle.fixture.match->runtime_state(battle.target).instance_generation > generation);
+    CHECK(battle.read() == 0);
+    CHECK(battle.fixture.match->issue_attack_command(battle.actor, battle.target, false, nullptr));
+    CHECK(battle.read() == battle.target);
+}
+
+/// Rejects compatible mission kinds whose saved command carries an overlay, point or leash.
+void owned_attack_target_rejects_saved_command_modifiers() {
+    enum class Modifier { overlay, point, leash, missing_target_flag };
+    for (const auto modifier :
+         {Modifier::overlay, Modifier::point, Modifier::leash, Modifier::missing_target_flag}) {
+        AttackReaderFixture battle;
+
+        struct Saved {
+            oa::data::persist::SavedOrder order{};
+            oa::data::persist::SavedGoal goal{};
+            uint32_t count{};
+        } saved;
+
+        battle.fixture.match->visit_saved_orders(
+            battle.actor,
+            [](void* context,
+               const oa::data::persist::SavedOrder* order,
+               const oa::data::persist::SavedGoal* goal) {
+                auto& copy = *static_cast<Saved*>(context);
+                CHECK(copy.count == 0 && order != nullptr && goal != nullptr);
+                copy.order = *order;
+                copy.goal = *goal;
+                ++copy.count;
+            },
+            &saved
+        );
+        CHECK(saved.count == 1);
+        switch (modifier) {
+        case Modifier::overlay:
+            saved.order.command_flags |= runtime::command_overlay;
+            break;
+        case Modifier::point:
+            saved.order.command_flags |= runtime::command_has_point;
+            break;
+        case Modifier::leash:
+            saved.order.parameter_3 = 128;
+            break;
+        case Modifier::missing_target_flag:
+            saved.order.command_flags &= static_cast<uint8_t>(~runtime::command_has_target);
+            break;
+        }
+        battle.fixture.match->stop_orders(battle.actor);
+        auto tails = battle.fixture.match->saved_order_tails(battle.actor);
+        (void)battle.fixture.match->restore_saved_order(
+            battle.actor, saved.order, saved.goal, tails
+        );
+        battle.fixture.match->install_head_goal(battle.actor);
+        CHECK(battle.unit().primary != nullptr && battle.unit().primary->next == nullptr);
+        CHECK(battle.read() == 0);
+    }
+}
+
+/// Preserves a restored compatible head with or without an ownership-index certificate.
+void owned_attack_target_continues_after_saved_orders_and_index_fallback() {
+    for (const bool index_fallback : {false, true}) {
+        AttackReaderFixture battle(index_fallback);
+        battle.advance_to_owned_goal();
+        saved_game::ScopedBank bank;
+        oa::data::persist::bank_open_account(bank.get(), "Units");
+        const auto count = saved_game::write_orders(
+            *battle.fixture.match, battle.fixture.match->spawn_slot(battle.actor), bank.get()
+        );
+        CHECK(count == 1);
+        battle.fixture.match->stop_orders(battle.actor);
+        CHECK(battle.read() == 0);
+        saved_game::restore_orders(
+            *battle.fixture.match, battle.fixture.match->spawn_slot(battle.actor), bank.get(), count
+        );
+        const auto* order = battle.unit().primary;
+        const auto* ground = battle.fixture.match->ground_runtime(battle.actor);
+        CHECK(order != nullptr && ground != nullptr && ground->navigation.goal != nullptr);
+        const auto* goal = ground->navigation.goal;
+        CHECK(goal->order == order);
+        CHECK(battle.read() == battle.target);
+        battle.fixture.run(1);
+        const auto random = battle.fixture.match->random_state();
+        CHECK(battle.unit().primary == order && battle.read() == battle.target);
+        CHECK(ground->navigation.goal == goal && goal->order == order);
+        CHECK(battle.fixture.match->random_state() == random);
+        CHECK(runtime::MatchTickAccess::observer_lists_valid(*battle.fixture.match));
+    }
 }
 
 /// Holds one real computer-controlled strike with two live enemy choices.
@@ -350,8 +656,8 @@ std::vector<uint16_t> cohort_target_members(StrikeFixture& battle, uint16_t targ
 }
 
 /// Refreshes a lost non-last target while keeping busy orders and recruitment untouched.
-void cohort_loss_refreshes_only_lost_orders() {
-    StrikeFixture battle(cohort_version);
+void cohort_loss_refreshes_only_lost_orders(uint32_t version) {
+    StrikeFixture battle(version);
     const auto lost_target = untracked_cohort_target(battle);
     const auto remaining_target = lost_target == battle.target ? battle.replacement : battle.target;
     auto affected = cohort_target_members(battle, lost_target);
@@ -412,8 +718,8 @@ void cohort_loss_refreshes_only_lost_orders() {
 }
 
 /// Gives a reused target slot a fresh command instead of retaining the disappearing target.
-void cohort_slot_reuse_requires_a_fresh_attack() {
-    StrikeFixture battle(cohort_version);
+void cohort_slot_reuse_requires_a_fresh_attack(uint32_t version) {
+    StrikeFixture battle(version);
     const auto lost_target = untracked_cohort_target(battle);
     const auto affected = cohort_target_members(battle, lost_target);
     CHECK(!affected.empty());
@@ -446,9 +752,9 @@ void cohort_slot_reuse_requires_a_fresh_attack() {
 void recreate_ai_without_task_clocks(StrikeFixture& battle);
 
 /// Continues cohort loss scanning from the existing saved cooldown and task clock.
-void cohort_cooldown_continues_after_rule_restore() {
-    StrikeFixture first(cohort_version);
-    StrikeFixture restored(cohort_version);
+void cohort_cooldown_continues_after_rule_restore(uint32_t version) {
+    StrikeFixture first(version);
+    StrikeFixture restored(version);
     first.run_until(target_loss_tick);
     restored.run_until(target_loss_tick);
     const auto lost_target = untracked_cohort_target(first);
@@ -460,7 +766,7 @@ void cohort_cooldown_continues_after_rule_restore() {
     CHECK(saved.size() == state_byte_count);
     CHECK(read_integer(saved, schema_offset) == state_schema);
     CHECK(read_integer(saved, next_early_offset) > target_loss_tick);
-    Fixture fresh(options_for(cohort_version));
+    Fixture fresh(options_for(version));
     restore_retarget(restored.fixture, retarget_bytes(fresh));
     recreate_ai_without_task_clocks(restored);
     CHECK(restored.strike().next_tick == 0 && restored.strike().attacking == 0);
@@ -488,8 +794,8 @@ void cohort_cooldown_continues_after_rule_restore() {
 }
 
 /// Keeps never-bound state loadable while checking empty orders at the shared cadence.
-void cohort_without_an_enemy_keeps_empty_binding_loadable() {
-    Fixture fixture(options_for(cohort_version));
+void cohort_without_an_enemy_keeps_empty_binding_loadable(uint32_t version) {
+    Fixture fixture(options_for(version));
     std::array<uint16_t, strike_members> members{};
     for (std::size_t index = 0; index < members.size(); ++index) {
         auto& member = fixture.spawn(computer_player, member_x, member_z[index]);
@@ -538,6 +844,52 @@ void cohort_without_an_enemy_keeps_empty_binding_loadable() {
             order.issue_tick > appeared && order.issue_tick <= appeared + retarget_interval_ticks
         );
     }
+}
+
+/// Refreshes one lost source without recruiting, consuming randomness or replacing healthy heads.
+void cohort_masked_refresh_preserves_unselected_state(uint32_t version) {
+    StrikeFixture battle(version);
+    battle.run_until(target_loss_tick);
+    const auto lost_target = untracked_cohort_target(battle);
+    const auto affected = cohort_target_members(battle, lost_target);
+    CHECK(!affected.empty());
+    const auto source = affected.front();
+    const auto remaining_target = lost_target == battle.target ? battle.replacement : battle.target;
+    battle.kill_target(lost_target);
+    auto& waiting = battle.fixture.spawn(computer_player, member_x, 208);
+    hold_fire(waiting);
+    battle.fixture.match->set_unit_squad(
+        waiting.unit_index, static_cast<uint32_t>(ai::Squad::land_army)
+    );
+    std::array<sim::simulation_state::Order*, strike_members> heads{};
+    for (std::size_t at = 0; at < battle.members.size(); ++at)
+        heads[at] = battle.fixture.match->spawn_slot(battle.members[at]).unit->primary;
+    const auto random = battle.fixture.match->random_state();
+    const auto deadline = battle.strike().next_tick;
+    const auto attacking = battle.strike().attacking;
+    const auto state = retarget_bytes(battle.fixture);
+    std::array<uint64_t, ai::strike_refresh_mask_words> sources{};
+    sources[source / ai::strike_refresh_word_bits] |= uint64_t{1}
+                                                      << (source % ai::strike_refresh_word_bits);
+    CHECK(
+        ai::computer_player_refresh_strike_targets(
+            ai::match_computer_players(*battle.fixture.match),
+            ai::match_computer_host(*battle.fixture.match),
+            computer_player,
+            ai::Squad::land_strike,
+            sources
+        )
+    );
+    const auto changed = head_record(battle.fixture, source);
+    CHECK(changed.kind == attack_chase_order && changed.target == remaining_target);
+    CHECK(changed.issue_tick == target_loss_tick);
+    for (std::size_t at = 0; at < battle.members.size(); ++at)
+        if (battle.members[at] != source)
+            CHECK(battle.fixture.match->spawn_slot(battle.members[at]).unit->primary == heads[at]);
+    CHECK(battle.strike().next_tick == deadline && battle.strike().attacking == attacking);
+    CHECK(waiting.record.squad == static_cast<int32_t>(ai::Squad::land_army));
+    CHECK(battle.fixture.match->random_state() == random);
+    CHECK(retarget_bytes(battle.fixture) == state);
 }
 
 /// Keeps all earlier presets on the existing regular strike refresh.
@@ -1350,11 +1702,49 @@ int run_case(std::string_view name, Function function) {
 /// Runs the actual-match strike target lifetime and scheduling checks.
 int main() {
     int failures = 0;
-    failures += run_case("cohort non-last target loss", cohort_loss_refreshes_only_lost_orders);
-    failures += run_case("cohort slot reuse", cohort_slot_reuse_requires_a_fresh_attack);
-    failures += run_case("cohort saved cooldown", cohort_cooldown_continues_after_rule_restore);
-    failures +=
-        run_case("cohort never-bound save", cohort_without_an_enemy_keeps_empty_binding_loadable);
+    failures += run_case(
+        "owned attack read-only query", owned_attack_target_is_a_read_only_current_head_query
+    );
+    failures += run_case(
+        "owned attack current queue shape",
+        owned_attack_target_uses_current_shape_instead_of_queue_provenance
+    );
+    failures += run_case(
+        "owned attack interruption and Goal",
+        owned_attack_target_rejects_interrupted_or_foreign_goal_state
+    );
+    failures += run_case(
+        "owned attack canonical ownership",
+        owned_attack_target_requires_canonical_actor_and_target_ownership
+    );
+    failures += run_case(
+        "owned attack target lifetime", owned_attack_target_rechecks_liveness_and_alliances
+    );
+    failures += run_case(
+        "owned attack command modifiers", owned_attack_target_rejects_saved_command_modifiers
+    );
+    failures += run_case(
+        "owned attack saved/index continuation",
+        owned_attack_target_continues_after_saved_orders_and_index_fallback
+    );
+    for (const auto version : {cohort_version, retention_version}) {
+        std::cout << "Enhanced cohort retarget: version=" << version << '\n';
+        failures += run_case("cohort non-last target loss", [version] {
+            cohort_loss_refreshes_only_lost_orders(version);
+        });
+        failures += run_case("cohort slot reuse", [version] {
+            cohort_slot_reuse_requires_a_fresh_attack(version);
+        });
+        failures += run_case("cohort saved cooldown", [version] {
+            cohort_cooldown_continues_after_rule_restore(version);
+        });
+        failures += run_case("cohort never-bound save", [version] {
+            cohort_without_an_enemy_keeps_empty_binding_loadable(version);
+        });
+        failures += run_case("cohort masked refresh state", [version] {
+            cohort_masked_refresh_preserves_unselected_state(version);
+        });
+    }
     failures += run_case("earlier presets", old_presets_keep_the_regular_refresh);
     failures += run_case(
         "earlier pending-target selection", earlier_presets_keep_the_pending_target_selection
