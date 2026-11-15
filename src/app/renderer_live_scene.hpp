@@ -839,7 +839,8 @@ struct Inputs {
     bool markers_on_card{};
 };
 
-/// Starts an exact bounds epoch before recipe admission; flag-off calls do no draw work.
+/// Starts an exact bounds epoch before recipe admission.
+/// Flag-off calls do no work unless an abandoned preflight still owns recipes.
 /// Allocation or the bounded byte allowance may decline caching without refusing a draw.
 /// Build consumes a prepared epoch once; standalone builds start their own epoch.
 /// @param[in,out] inputs immutable draw context and the optional CPU memo reference

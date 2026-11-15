@@ -11292,8 +11292,16 @@ void grow_frame_rows(Scene& scene) {
 void begin_root_prefix_bounds(Inputs& inputs, Scene& scene, std::size_t byte_limit) noexcept {
     inputs.root_prefix_bounds = nullptr;
     inputs.root_prefix_bounds_epoch = 0;
-    if (!inputs.root_prefix_enabled || !inputs.draws)
+    if (!inputs.root_prefix_enabled || !inputs.draws) {
+        auto& memo = scene.root_prefix_bounds;
+        if (memo.prepared) {
+            // Only an abandoned preflight needs ownership cleanup here.
+            for (auto& record : memo.draws)
+                record.recipe = {};
+            memo.prepared = false;
+        }
         return;
+    }
     auto& memo = scene.root_prefix_bounds;
     memo.prepared = true;
     if (++memo.epoch == 0)
