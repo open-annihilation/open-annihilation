@@ -20,6 +20,8 @@
 #include "oa/present/model/shadow_fade.hpp"
 #include "renderer_water.hpp"
 #include "presentation_interpolation.hpp"
+#include "plan_work_counts.hpp"
+#include "root_prefix_counts.hpp"
 #include "oa/formats/png.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/core/weapon_def.h"
@@ -89,6 +91,17 @@ struct GroundQueryObservations {
 } // namespace
 
 int Runtime::check_live_renderer() {
+    const bool root_prefix_requested = options_.prototype_root_prefix;
+
+    struct RestoreRootPrefix {
+        bool& flag;
+        bool requested;
+
+        ~RestoreRootPrefix() { flag = requested; }
+    } restore_root_prefix{options_.prototype_root_prefix, root_prefix_requested};
+
+    // Existing pixel and picking controls always exercise their released path.
+    options_.prototype_root_prefix = false;
     const GroundQueryObservations ground_query_observations;
     // Check the actual production gate independently of the check-only
     // headless override, without changing the running match's rules.
@@ -5181,6 +5194,7 @@ int Runtime::check_live_renderer() {
                          "classic replans\n";
         }
 #include "runtime_stock_shadow_cache_check.inc"
+#include "runtime_live_root_prefix_check.inc"
         leave_match();
     } catch (...) {
         finish_ground_check();
