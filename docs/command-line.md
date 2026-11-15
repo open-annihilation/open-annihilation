@@ -221,7 +221,7 @@ with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with 
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
 | `--enhanced-mode[=on\|off]` | Sets Enhanced Mode for this launch; alone it is On and selects the supplied new-game preset. |
 | `--no-enhanced-mode` | Starts this launch with Enhanced Mode Off. |
-| `--enhanced-mode-version N` | Selects a known new-game preset for this launch: 1 through 8 or 10 enables Enhanced Mode, and 0 disables it. A conflicting explicit mode switch is refused. |
+| `--enhanced-mode-version N` | Selects a known new-game preset for this launch: 1 through 8, 10 or 11 enables Enhanced Mode, and 0 disables it. A conflicting explicit mode switch is refused. |
 
 None of these is remembered: [settings](settings.md#for-one-run-the-command-line)
 says what each one shows in Settings. 3.1c's `-d` and `-df` choose a window
@@ -247,6 +247,10 @@ For ordinary play with the experimental version-10 rules, run:
 ```sh
 ./run.sh --skip-intro --enhanced-mode-version 10 --hardware-acceleration=full
 ```
+
+Use `--enhanced-mode-version 11` to select the experimental policy that retains cohort
+targets instead. Versions 10 and 11 have distinct rules identities;
+multiplayer peers must select the same version.
 
 This opens the normal frontend. Start a Skirmish or campaign as usual;
 the match starts in the classic 2.5D view, and the camera controls above
@@ -644,7 +648,7 @@ a comment. Every key may be left out:
 | `label NAME` | The run's name in its lines. | the file's name without its extension |
 | `stage FILE` | A stage played into the match once it starts; a path that is not absolute is taken from the view file's folder. | none |
 | `players N` | The skirmish's players, from 2 to 10. | 2 |
-| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 8 or 10; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
+| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 8, 10 or 11; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
 | `menu_seconds S` | Seconds on the main menu first. | 1 |
 | `warmup_ticks N` | The match tick the measured span starts at. | 600 |
 | `warmup_frames N` | Additional rendered warm-up frames after staging and the tick warm-up. | 0 |
@@ -1823,7 +1827,7 @@ independent graphics setting.
 | `--benchmark-scenario idle\|march\|group-march\|combat` | Hold fire, independent cross-map moves, shared destination patches, or explicit attacks | combat |
 | `--benchmark-map NAME` | An installed map with two start positions | Coast To Coast |
 | `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
-| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8\|10` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
+| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8\|10\|11` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
 | `--match-ticks N` | Successful measured ticks required | 300 |
 | `--seed N` | Match random seed | the engine's fixed seed |
 | `--enhanced-mode[=on\|off]` | Enhanced rules for this run; a bare flag means on | stored choice |

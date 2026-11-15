@@ -811,10 +811,9 @@ void showcase_tour_options() {
 /// Selects known new-game presets for ordinary play without starting a benchmark.
 void enhanced_new_game_options() {
     expect(!parse({}).enhanced_mode_version, "normal play keeps the supplied new-game preset");
-    for (const char* version : {"0", "1", "2", "3", "4", "5", "6", "7", "8", "10"}) {
+    for (const char* version : {"0", "1", "2", "3", "4", "5", "6", "7", "8", "10", "11"}) {
         const auto chosen = parse({"--enhanced-mode-version", version});
-        const uint32_t expected =
-            std::string_view{version} == "10" ? 10u : static_cast<uint32_t>(version[0] - '0');
+        const uint32_t expected = static_cast<uint32_t>(std::stoul(version));
         expect(chosen.enhanced_mode_version == expected, "a normal launch keeps its chosen preset");
         expect(chosen.enhanced_mode == (expected != 0), "the version implies its mode");
         expect(
@@ -864,12 +863,32 @@ void enhanced_new_game_options() {
         view.enhanced_mode_version == 10 && view.bench_file == "gameplay.bench",
         "a benchmark view retains its separate session rules request"
     );
+    const auto retained = parse(
+        {"--enhanced-mode-version",
+         "11",
+         "--battle-benchmark",
+         "report.json",
+         "--benchmark-rules-version",
+         "10"}
+    );
+    expect(
+        retained.enhanced_mode_version == 11 && retained.benchmark_rules_version == 10,
+        "a cohort benchmark may hold v10 while ordinary games select retained targets"
+    );
+    const auto retained_view =
+        parse({"--enhanced-mode-version", "11", "--bench", "gameplay.bench"});
+    expect(
+        retained_view.enhanced_mode_version == 11 && retained_view.bench_file == "gameplay.bench",
+        "preset 11 leaves gameplay session rules independent"
+    );
     const char* conflict = "--enhanced-mode-version conflicts with the Enhanced Mode switch";
     for (const auto& arguments : std::vector<std::vector<const char*>>{
              {"--no-enhanced-mode", "--enhanced-mode-version", "10"},
              {"--enhanced-mode-version", "10", "--no-enhanced-mode"},
              {"--enhanced-mode=off", "--enhanced-mode-version", "10"},
              {"--enhanced-mode-version", "10", "--enhanced-mode=off"},
+             {"--no-enhanced-mode", "--enhanced-mode-version", "11"},
+             {"--enhanced-mode-version", "11", "--no-enhanced-mode"},
              {"--enhanced-mode", "--enhanced-mode-version", "0"},
              {"--enhanced-mode-version", "0", "--enhanced-mode"}
          })
@@ -879,8 +898,8 @@ void enhanced_new_game_options() {
             "--enhanced-mode-version cannot name different versions",
         "two different new-game presets are refused"
     );
-    const char* invalid = "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8 or 10";
-    for (const char* value : {"9", "11", "-1", "4.5", "4294967296", "on"})
+    const char* invalid = "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8, 10 or 11";
+    for (const char* value : {"9", "12", "-1", "4.5", "4294967296", "on"})
         expect(
             rejection({"--enhanced-mode-version", value}) == invalid, "unknown presets are refused"
         );
@@ -947,7 +966,7 @@ void enhanced_benchmark_options() {
                 .benchmark_units == 10000,
         "the enhanced battle population parses before runtime mode validation"
     );
-    for (const char* version : {"1", "2", "3", "4", "5", "6", "7", "8", "10"}) {
+    for (const char* version : {"1", "2", "3", "4", "5", "6", "7", "8", "10", "11"}) {
         const auto group = parse(
             {"--battle-benchmark",
              "report.json",
@@ -959,17 +978,15 @@ void enhanced_benchmark_options() {
         );
         expect(
             group.benchmark_scenario == "group-march" &&
-                group.benchmark_rules_version == (std::string_view{version} == "10"
-                                                      ? 10u
-                                                      : static_cast<uint32_t>(version[0] - '0')),
+                group.benchmark_rules_version == static_cast<uint32_t>(std::stoul(version)),
             "group movement can compare every recorded Enhanced preset"
         );
     }
-    for (const char* version : {"0", "9", "11", "4294967296"})
+    for (const char* version : {"0", "9", "12", "4294967296"})
         expect(
             rejection(
                 {"--battle-benchmark", "report.json", "--benchmark-rules-version", version}
-            ) == "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8 or 10",
+            ) == "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8, 10 or 11",
             "unsupported benchmark rules versions are refused without truncation"
         );
     for (const char* value : {"0", "10001", "65536"})

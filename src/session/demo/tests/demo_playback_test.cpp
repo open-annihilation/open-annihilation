@@ -1709,7 +1709,7 @@ void recording_carries_limits() {
 
 /// Records a nonzero Enhanced Mode version after the limits and omits version zero.
 void recording_carries_enhanced_mode() {
-    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u}) {
+    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u}) {
         DemoRecording recorded;
         recording_begin(&recorded, live_setup(2, false));
         const auto plain = recording_write(recorded);

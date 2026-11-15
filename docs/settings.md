@@ -362,7 +362,8 @@ Each of these takes effect at once.
   Shared routing and swept ground checks are included in the supplied
   preset; experimental versions add further unit flow and AI policies. See
   [Enhanced Mode](enhanced-mode.md).
-  `--enhanced-mode-version 10` selects the experimental preset for this
+  `--enhanced-mode-version 10` selects experimental cohort targets, and
+  `--enhanced-mode-version 11` selects retained cohort targets for this
   launch without changing the supplied version 4 or the stored preference.
   Saved games and recordings keep their recorded rules. Graphics remain
   separate under Graphics.
@@ -1365,7 +1366,7 @@ mod." and turns Play now and Switch off off.
 | `--hardware-acceleration=off`, `=basic` or `=full` | Hardware acceleration | that level; `--hardware-acceleration` alone is Full |
 | `--no-hardware-acceleration` | Hardware acceleration | Off |
 | `--enhanced-mode[=on\|off]`, `--no-enhanced-mode` | Enhanced Mode | On or Off; no stored choice changes |
-| `--enhanced-mode-version N` | Enhanced Mode | new-game preset 1 through 8 or 10, or 0 for Off; saved games keep their own version |
+| `--enhanced-mode-version N` | Enhanced Mode | new-game preset 1 through 8, 10 or 11, or 0 for Off; saved games keep their own version |
 | `--native-density` | Native pixel density | On |
 | `--mod-dir PATH` | the mod (the Library) | plays the mod folder at `PATH` |
 | `--base-game` | the mod (the Library) | plays 3.1c without the mod you chose |

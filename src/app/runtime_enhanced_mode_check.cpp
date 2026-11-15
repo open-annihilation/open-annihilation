@@ -90,7 +90,8 @@ void Runtime::check_enhanced_mode() {
           mode::battle_flow_version,
           mode::distributed_battle_flow_version,
           mode::following_flow_version,
-          mode::cohort_target_version}) {
+          mode::cohort_target_version,
+          mode::cohort_retention_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
@@ -671,7 +672,8 @@ void Runtime::check_enhanced_mode() {
           mode::battle_flow_version,
           mode::distributed_battle_flow_version,
           mode::following_flow_version,
-          mode::cohort_target_version}) {
+          mode::cohort_target_version,
+          mode::cohort_retention_version}) {
         if (previous == mode::current_version)
             continue;
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
@@ -704,7 +706,7 @@ void Runtime::check_enhanced_mode() {
         );
     }
     for (const uint32_t unsupported :
-         {mode::following_flow_version + 1, mode::cohort_target_version + 1})
+         {mode::following_flow_version + 1, mode::cohort_retention_version + 1})
         require(!hold_enhanced_rules_once(unsupported), "an unknown version was accepted");
     require(
         enhanced_mode_version(*this) == mode::current_version, "a rejected version changed rules"
@@ -758,7 +760,7 @@ void Runtime::check_enhanced_mode() {
         release_enhanced_rules_once(true);
         require(enhanced_mode_version(*this) == 10, "releasing held rules lost the CLI preset");
     }
-    for (const uint32_t unsupported : {9u, 11u}) {
+    for (const uint32_t unsupported : {9u, 12u}) {
         require(!hold_enhanced_rules_once(unsupported), "a held unknown preset was accepted");
         require(enhanced_mode_version(*this) == 10, "a rejected preset changed the CLI rules");
     }
@@ -798,6 +800,63 @@ void Runtime::check_enhanced_mode() {
     leave_match();
     load(Screen::main_menu);
     require(enhanced_mode_version(*this) == 10, "leaving default save lost the CLI selection");
+    options_.enhanced_mode_version = mode::cohort_retention_version;
+    apply_hack_overrides();
+    require(enhanced_mode_version(*this) == 11, "the CLI did not select retained cohort targets");
+    const std::string retained_hash = simulation_hash(*this);
+    require(
+        retained_hash != cohort_hash && retained_hash != enhanced_hash,
+        "retained cohort targets did not have a distinct rules identity"
+    );
+    for (const auto renderer : renderers) {
+        chosen.hardware_acceleration = renderer;
+        apply_engine_settings(chosen);
+        require(enhanced_mode_version(*this) == 11, "graphics changed preset 11");
+        require(simulation_hash(*this) == retained_hash, "graphics changed the v11 identity");
+    }
+    chosen.enhanced_mode = false;
+    apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 0, "menu Off did not set v11 aside");
+    chosen.enhanced_mode = true;
+    apply_engine_settings(chosen);
+    require(enhanced_mode_version(*this) == 11, "menu On lost preset 11");
+    for (const uint32_t held : {0u, 10u}) {
+        require(hold_enhanced_rules_once(held), "held rules could not override CLI v11");
+        require(enhanced_mode_version(*this) == held, "the CLI replaced held v10 or Off rules");
+        release_enhanced_rules_once(true);
+        require(enhanced_mode_version(*this) == 11, "releasing held rules lost CLI v11");
+    }
+    chosen.hardware_acceleration = settings::HardwareAcceleration::off;
+    apply_engine_settings(chosen);
+    start_benchmark_skirmish_as_chosen();
+    require(enhanced_mode_version(*this) == 11, "a new skirmish lost CLI v11");
+    const fs::path retained_save =
+        options_.preferences_file->parent_path() / "enhanced-cli-v11.sav";
+    require(save_match_game(retained_save, "Retained cohort targets", 0), "CLI v11 did not save");
+    options_.enhanced_mode_version = mode::cohort_target_version;
+    apply_hack_overrides();
+    const auto* retained_pending = next_match_profile();
+    require(
+        retained_pending != nullptr && mode::rules_version(retained_pending->rules) == 10,
+        "the pending profile did not return to CLI v10"
+    );
+    require(enhanced_mode_version(*this) == 11, "a live v11 match took the pending CLI rules");
+    leave_match();
+    load(Screen::main_menu);
+    require(enhanced_mode_version(*this) == 10, "leaving v11 did not return to CLI v10");
+    require(load_saved_game(retained_save), "a v11 save did not load under CLI v10");
+    require(enhanced_mode_version(*this) == 11, "CLI v10 downgraded a saved v11 match");
+    leave_match();
+    load(Screen::main_menu);
+    require(enhanced_mode_version(*this) == 10, "leaving a v11 save lost CLI v10");
+    options_.enhanced_mode_version = mode::cohort_retention_version;
+    apply_hack_overrides();
+    require(enhanced_mode_version(*this) == 11, "the CLI fixture did not restore v11");
+    require(load_saved_game(cohort_save), "a v10 save did not load under CLI v11");
+    require(enhanced_mode_version(*this) == 10, "CLI v11 upgraded a saved v10 match");
+    leave_match();
+    load(Screen::main_menu);
+    require(enhanced_mode_version(*this) == 11, "leaving a v10 save lost CLI v11");
     options_.enhanced_mode_version = 0;
     options_.enhanced_mode = false;
     chosen.enhanced_mode = false;

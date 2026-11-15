@@ -113,6 +113,28 @@ def main():
             raise RuntimeError("v10 replay under CLI v8 failed\n" +
                                cohort_playback.stdout + cohort_playback.stderr)
         print("Enhanced Mode: CLI v10 recording keeps its rules under a CLI v8 selection")
+        retained_recording = root / "enhanced-v11.tad"
+        retained_record = subprocess.run(
+            base + ["--enhanced-mode-version", "11", "--net-loopback-check", "300",
+                    "--net-record", str(retained_recording), "--preferences-file",
+                    str(root / "retained-record.conf")],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
+        )
+        if retained_record.returncode or not retained_recording.is_file():
+            raise RuntimeError("v11 network recording failed\n" +
+                               retained_record.stdout + retained_record.stderr)
+        if recording_rules_version(retained_recording) != 11:
+            raise RuntimeError("the CLI v11 recording did not record rules version 11")
+        retained_playback = subprocess.run(
+            base + ["--enhanced-mode-version", "10", "--play-demo", str(retained_recording),
+                    "--match-ticks", "300", "--preferences-file",
+                    str(root / "retained-playback.conf")],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
+        )
+        if retained_playback.returncode or "tick errors 0" not in retained_playback.stdout:
+            raise RuntimeError("v11 replay under CLI v10 failed\n" +
+                               retained_playback.stdout + retained_playback.stderr)
+        print("Enhanced Mode: CLI v11 recording keeps its rules under a CLI v10 selection")
 
 
 if __name__ == "__main__":
