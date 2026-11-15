@@ -217,6 +217,81 @@ def scene_work_transcript(companions="body"):
     return "\n".join(lines) + "\n"
 
 
+def shadow_index_record(frame, **changes):
+    """Return mixed dynamic and cached draws with separately counted uploaded words."""
+    values = dict(logical_indices=120, dynamic_indices=30, cached_indices=90,
+                  dynamic_uploaded_indices=32, template_uploaded_indices=90, cache_bytes=360,
+                  requested_runs=4, cached_runs=3, cache_hits=2, cache_misses=2,
+                  admitted_patterns=1, fallback_runs=1, cached_patterns=2)
+    values.update(changes)
+    return f"bench: SHADOW_INDEX_FRAME {frame}" + "".join(
+        f" {name} {value}" for name, value in values.items())
+
+
+PLAN_PHASES = (
+    "pose_capture", "list_prepare", "unit_sites", "battlefield_sort", "run_prepare", "run_wait",
+    "worker_plan", "copy_place", "original_note", "original_update", "copy_note", "copy_update",
+    "omission_proof", "model_plan_metadata", "model_plan_pixels",
+)
+PLAN_SAMPLE_FIELDS = ("calls", "samples", "wall_ns", "cpu_ns", "cpu_samples")
+
+
+def plan_work_record(frame, phase_changes=None, **changes):
+    """Return source planning counts and raw phase samples, including overlapping CPU time."""
+    values = dict(source_frame=100 + frame, completed=1, sampling_stride=64, unit_plans=400,
+                  copy_plans=20, linked_plans=380, omitted_plans=4, original_updates_dirty=3,
+                  copy_updates_dirty=2, transform_cache_hits=90, root_prefix_hits=8,
+                  transform_rebuilds=5, metadata_image_builds=2, pixel_image_builds=1)
+    values.update(changes)
+    line = f"bench: PLAN_WORK_FRAME {frame}" + "".join(
+        f" {name} {value}" for name, value in values.items()) + " phases"
+    for phase in PLAN_PHASES:
+        samples = dict(calls=64, samples=1, wall_ns=200, cpu_ns=350, cpu_samples=1)
+        samples.update((phase_changes or {}).get(phase, {}))
+        line += " " + phase + "".join(f" {name} {samples[name]}" for name in PLAN_SAMPLE_FIELDS)
+    return line
+
+
+def render_work_transcript(shadow=True, plan=True, companions="scene_body"):
+    """Add independently optional work rows after the complete existing companion chain."""
+    source, predecessor = {
+        "plain": (renderer_transcript(), "SIM_FRAME"),
+        "detail": (unit_detail_transcript(), "UNIT_DETAIL_FRAME"),
+        "body": (body_transcript(), "BODY_LOD_FRAME"),
+        "scene_plain": (scene_work_transcript("plain"), "SCENE_WORK_FRAME"),
+        "scene_detail": (scene_work_transcript("detail"), "SCENE_WORK_FRAME"),
+        "scene_body": (scene_work_transcript(), "SCENE_WORK_FRAME"),
+    }[companions]
+    lines = []
+    for line in source.splitlines():
+        lines.append(line)
+        if line.split()[1] != predecessor:
+            continue
+        frame = int(line.split()[2])
+        if shadow:
+            lines.append(shadow_index_record(frame))
+        if plan:
+            lines.append(plan_work_record(frame))
+    return "\n".join(lines) + "\n"
+
+
+def untimed_frame_log(text):
+    """Keep frame facts and work diagnostics while removing stage timer measurements."""
+    lines = []
+    for line in text.splitlines():
+        tag = line.split()[1]
+        if tag in (*RENDERER_FAMILIES, "STAGE", "SLOW") or tag.startswith("GROUND_INDEX_BUILD_"):
+            continue
+        if tag == "GROUND_INDEX_FRAME":
+            line = f"bench: {tag} {line.split()[2]} builds 0 hits 0 triangles 0 wall_ms 0.000"
+        elif tag == "POSE_FRAME":
+            line = f"bench: {tag} {line.split()[2]} units 0 pieces 0 vm_triplets 0"
+        elif tag == "MATERIAL_FRAME":
+            line = f"bench: {tag} {line.split()[2]} {line.split()[3]} insertions 0 texels 0 row_texels 0"
+        lines.append(line.replace("label=check", "label=paused"))
+    return "\n".join(lines) + "\n"
+
+
 class NativeBenchReceiptTest(unittest.TestCase):
     """Receipts identify the actual preset and remain part of strict transcript validation."""
 
@@ -231,6 +306,198 @@ class NativeBenchReceiptTest(unittest.TestCase):
                 with self.assertRaisesRegex(bench.BenchFailure, message):
                     checker(result, *args, **kwargs)
         self.assertEqual(output.getvalue(), result.stdout + result.stderr)
+
+    def assert_work_rejected(self, text):
+        """Require the same strict work-family rejection at every transcript entry point."""
+        for checker, args in ((bench.check_lines, (True,)),
+                              (bench.check_renderer_records, (text.splitlines(), 3, True)),
+                              (bench.check_simulation_records, (text.splitlines(),))):
+            with self.subTest(checker=checker.__name__):
+                self.assert_rejected(result_for(text), checker, *args, message="frame work records")
+
+    def test_work_families_are_independent_complete_projections(self):
+        """Both diagnostics preserve every older companion combination and original return value."""
+        for companions in ("plain", "detail", "body", "scene_plain", "scene_detail", "scene_body"):
+            for shadow, plan in ((True, False), (False, True), (True, True)):
+                with self.subTest(companions=companions, shadow=shadow, plan=plan):
+                    text = render_work_transcript(shadow, plan, companions)
+                    result, lines = result_for(text), text.splitlines()
+                    original = render_work_transcript(False, False, companions).splitlines()
+                    self.assertEqual(bench.check_render_work_records(result, lines), original)
+                    self.assertEqual(bench.check_lines(result, True), lines)
+                    self.assertEqual(bench.check_renderer_records(result, lines, 3, True),
+                                     transcript(timers=True).splitlines())
+                    self.assertEqual(bench.check_simulation_records(result, lines),
+                                     bench.check_simulation_records(result_for("\n".join(original)),
+                                                                    original))
+
+    def test_work_families_reject_incomplete_repeated_and_misplaced_rows(self):
+        """Projection cannot conceal wrong frame identities, new-family order or older companions."""
+        text = render_work_transcript()
+        variants = []
+        for record in (shadow_index_record, plan_work_record):
+            row = record(1)
+            variants.extend((text.replace(row + "\n", ""),
+                             text.replace(row, row + "\n" + row),
+                             text.replace(row, record(2)),
+                             text.replace(row, record(bench.UINT32_MASK + 1)),
+                             text.replace(row, row + " extra")))
+        variants.extend((text.replace(shadow_index_record(1) + "\n" + plan_work_record(1),
+                                      plan_work_record(1) + "\n" + shadow_index_record(1)),
+                         text.replace(scene_work_record(1) + "\n" + shadow_index_record(1),
+                                      shadow_index_record(1) + "\n" + scene_work_record(1)),
+                         text.replace(simulation_record(1) + "\n", "")))
+        for variant, changed in enumerate(variants):
+            with self.subTest(variant=variant):
+                self.assert_work_rejected(changed)
+        # A new row before any older companion must fail even though removing
+        # that row alone would otherwise restore a valid older transcript.
+        for tag in ("SIM_FRAME", "UNIT_DETAIL_FRAME", "BODY_LOD_FRAME", "SCENE_WORK_FRAME"):
+            for record in (shadow_index_record, plan_work_record):
+                old_row = {"SIM_FRAME": simulation_record(1), "UNIT_DETAIL_FRAME": detail_record(1),
+                           "BODY_LOD_FRAME": body_record(1), "SCENE_WORK_FRAME": scene_work_record(1)}[tag]
+                changed = text.replace(record(1) + "\n", "")
+                changed = changed.replace(old_row, record(1) + "\n" + old_row)
+                with self.subTest(tag=tag, family=record.__name__):
+                    self.assert_work_rejected(changed)
+
+    def test_work_families_reject_unknown_prefixes_without_any_known_rows(self):
+        """Unknown diagnostics cannot disappear through an empty-family early return."""
+        text = renderer_transcript()
+        for tag in ("SHADOW_INDEX", "SHADOW_INDEX_UNKNOWN", "SHADOW_INDEX_FRAME_EXTRA",
+                    "PLAN_WORK", "PLAN_WORK_UNKNOWN", "PLAN_WORK_FRAME_EXTRA"):
+            with self.subTest(tag=tag):
+                changed = text.replace(simulation_record(1), simulation_record(1) + "\nbench: " + tag)
+                self.assert_work_rejected(changed)
+
+    def test_shadow_counts_accept_zero_resident_and_overlapping_upload_cases(self):
+        """Drawn corners and uploaded words remain distinct facts, including legal overlapping draws."""
+        zero = {field: 0 for field in (*bench.SHADOW_INDEX_UINT64_FIELDS,
+                                      *bench.SHADOW_INDEX_UINT32_FIELDS)}
+        cases = (zero,
+                 dict(zero, cache_bytes=bench.SHADOW_CACHE_BYTES, cached_patterns=64),
+                 dict(dynamic_uploaded_indices=0),
+                 dict(zero, logical_indices=bench.UINT64_MASK, dynamic_indices=bench.UINT64_MASK,
+                      requested_runs=bench.UINT32_MASK, cache_misses=bench.UINT32_MASK,
+                      fallback_runs=bench.UINT32_MASK),
+                 dict(zero, logical_indices=6, cached_indices=6, requested_runs=2, cached_runs=2,
+                      cache_misses=2, admitted_patterns=2, cached_patterns=64,
+                      cache_bytes=bench.SHADOW_CACHE_BYTES, template_uploaded_indices=262143))
+        for changes in cases:
+            with self.subTest(changes=changes):
+                text = render_work_transcript(plan=False)
+                for frame in range(3):
+                    text = text.replace(shadow_index_record(frame), shadow_index_record(frame, **changes))
+                self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+
+    def test_shadow_counts_reject_widths_and_cache_inconsistencies(self):
+        """Unsigned widths, triangle corners and independent cache limits are enforced."""
+        changes = [dict(logical_indices=123), dict(logical_indices=121, dynamic_indices=31),
+                   dict(requested_runs=5), dict(cache_hits=4, cache_misses=0),
+                   dict(admitted_patterns=3, cache_misses=3, requested_runs=5,
+                        cached_runs=4, cached_patterns=3),
+                   dict(admitted_patterns=2, cache_misses=1, requested_runs=3, fallback_runs=0),
+                   dict(cached_patterns=65), dict(cache_bytes=358),
+                   dict(cache_bytes=bench.SHADOW_CACHE_BYTES + 4),
+                   dict(template_uploaded_indices=91), dict(template_uploaded_indices=93),
+                   dict(template_uploaded_indices=262146, cache_bytes=bench.SHADOW_CACHE_BYTES),
+                   dict(cached_runs=0, cache_hits=0, cache_misses=4, fallback_runs=4),
+                   dict(cached_indices=0, logical_indices=30),
+                   dict(cache_hits=1, cache_misses=3, admitted_patterns=0, cached_patterns=0)]
+        changes.extend({field: bench.UINT64_MASK + 1} for field in bench.SHADOW_INDEX_UINT64_FIELDS)
+        changes.extend({field: bench.UINT32_MASK + 1} for field in bench.SHADOW_INDEX_UINT32_FIELDS)
+        for values in changes:
+            with self.subTest(values=values):
+                text = render_work_transcript().replace(shadow_index_record(1),
+                                                       shadow_index_record(1, **values))
+                self.assert_work_rejected(text)
+
+    def test_plan_counts_accept_partial_empty_and_raw_overlapping_samples(self):
+        """Completion does not impose work sums or CPU/wall bounds on raw phase samples."""
+        zero_phase = dict(calls=0, samples=0, wall_ns=0, cpu_ns=0, cpu_samples=0)
+        empty = {name: zero_phase for name in PLAN_PHASES}
+        partial = {name: dict(calls=12, samples=0, wall_ns=0, cpu_ns=0, cpu_samples=0)
+                   for name in PLAN_PHASES}
+        maximum = {name: dict(calls=bench.UINT64_MASK, samples=bench.UINT64_MASK,
+                             wall_ns=bench.UINT64_MASK, cpu_ns=bench.UINT64_MASK,
+                             cpu_samples=bench.UINT64_MASK) for name in PLAN_PHASES}
+        for phases, changes in ((empty, dict(completed=0, source_frame=0)),
+                                (partial, dict(completed=0, omitted_plans=999)),
+                                (maximum, dict(source_frame=bench.UINT64_MASK))):
+            with self.subTest(changes=changes):
+                text = render_work_transcript(shadow=False)
+                for frame in range(3):
+                    text = text.replace(plan_work_record(frame),
+                                        plan_work_record(frame, phase_changes=phases, **changes))
+                self.assertEqual(bench.check_lines(result_for(text), True), text.splitlines())
+
+    def test_plan_counts_reject_widths_sampling_and_phase_relationships(self):
+        """Every phase keeps ordered typed fields and only the stated sampling implications."""
+        for field in ("source_frame", *bench.PLAN_WORK_FIELDS):
+            with self.subTest(field=field):
+                text = render_work_transcript().replace(plan_work_record(1),
+                    plan_work_record(1, **{field: bench.UINT64_MASK + 1}))
+                self.assert_work_rejected(text)
+        phase_changes = (dict(calls=0), dict(cpu_samples=2),
+                         dict(samples=0, cpu_samples=0, cpu_ns=0),
+                         dict(cpu_samples=0),
+                         *({field: bench.UINT64_MASK + 1} for field in PLAN_SAMPLE_FIELDS))
+        for phase in PLAN_PHASES:
+            for changes in phase_changes:
+                with self.subTest(phase=phase, changes=changes):
+                    text = render_work_transcript().replace(plan_work_record(1),
+                        plan_work_record(1, phase_changes={phase: changes}))
+                    self.assert_work_rejected(text)
+        for changes in (dict(completed=2), dict(sampling_stride=63), dict(sampling_stride="064")):
+            with self.subTest(changes=changes):
+                text = render_work_transcript().replace(plan_work_record(1), plan_work_record(1, **changes))
+                self.assert_work_rejected(text)
+
+    def test_work_rows_reject_noncanonical_numbers_and_changed_field_order(self):
+        """Signed, fractional, padded and unknown fields cannot masquerade as native counts."""
+        text = render_work_transcript()
+        for value in ("-1", "+1", "01", "1.0", "nan", "inf", "1\u0662", "9" * 1000):
+            for record, field in ((shadow_index_record, "cache_bytes"),
+                                  (plan_work_record, "unit_plans")):
+                with self.subTest(value=value[:10], family=record.__name__):
+                    self.assert_work_rejected(text.replace(record(1), record(1, **{field: value})))
+        variants = (plan_work_record(1).replace(" pose_capture calls", " wrong_phase calls"),
+                    plan_work_record(1).replace(" phases", ""),
+                    plan_work_record(1).replace(" cpu_samples 1", " cpu_samples 1 extra 0", 1),
+                    plan_work_record(1).replace(" source_frame 101", " source_frame 101 unknown 0"))
+        for row in variants:
+            self.assert_work_rejected(text.replace(plan_work_record(1), row))
+        row = shadow_index_record(1).replace(" logical_indices 120 dynamic_indices 30",
+                                            " dynamic_indices 30 logical_indices 120")
+        self.assert_work_rejected(text.replace(shadow_index_record(1), row))
+
+    def test_work_facts_survive_timers_off_frame_logs(self):
+        """Paused logs retain raw work facts even though regular renderer timers are zero."""
+        text = untimed_frame_log(render_work_transcript())
+        result, lines = result_for(text), text.splitlines()
+        projected = bench.check_renderer_records(result, lines, 3, False)
+        self.assertFalse(any(line.split()[1] in bench.FRAME_WORK_TAGS for line in projected))
+        bench.check_simulation_records(result, lines)
+        bench.check_work_record_presence(result, lines, plan_enabled=True)
+
+    def test_native_work_presence_requires_producer_rows_and_opt_in(self):
+        """Only current native-run checks require diagnostics; older transcripts still parse."""
+        ordinary = render_work_transcript(plan=False)
+        bench.check_work_record_presence(result_for(ordinary), ordinary.splitlines())
+        opted = render_work_transcript()
+        bench.check_work_record_presence(result_for(opted), opted.splitlines(), plan_enabled=True)
+        for text, enabled in ((renderer_transcript(), False), (opted, False), (ordinary, True)):
+            self.assert_rejected(result_for(text), bench.check_work_record_presence,
+                                 text.splitlines(), plan_enabled=enabled)
+        zero = {phase: dict(calls=0, samples=0, wall_ns=0, cpu_ns=0, cpu_samples=0)
+                for phase in PLAN_PHASES}
+        partial = opted
+        for frame in range(3):
+            partial = partial.replace(plan_work_record(frame),
+                                      plan_work_record(frame, phase_changes=zero, completed=0))
+        self.assertEqual(bench.check_lines(result_for(partial), True), partial.splitlines())
+        self.assert_rejected(result_for(partial), bench.check_work_record_presence,
+                             partial.splitlines(), plan_enabled=True)
 
     def test_scene_work_projects_only_its_complete_independent_frame_family(self):
         """Worker-range validation preserves all existing strict metadata and legacy projections."""

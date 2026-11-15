@@ -128,6 +128,44 @@ SCENE_WORK_FRAME = re.compile(
     rf"^bench: SCENE_WORK_FRAME (?P<frame>{UNSIGNED}) candidate_bands (?P<candidate_bands>{UNSIGNED}) "
     rf"candidate_slots (?P<candidate_slots>{UNSIGNED}) accepted_bands (?P<accepted_bands>{UNSIGNED}) "
     rf"accepted_slots (?P<accepted_slots>{UNSIGNED}) fallback_frames (?P<fallback_frames>{UNSIGNED})$")
+SHADOW_INDEX_UINT64_FIELDS = (
+    "logical_indices", "dynamic_indices", "cached_indices", "dynamic_uploaded_indices",
+    "template_uploaded_indices", "cache_bytes",
+)
+SHADOW_INDEX_UINT32_FIELDS = (
+    "requested_runs", "cached_runs", "cache_hits", "cache_misses", "admitted_patterns",
+    "fallback_runs", "cached_patterns",
+)
+FRAME_WORK_UNSIGNED = r"(?:0|[1-9][0-9]*)"
+SHADOW_INDEX_FRAME = re.compile(
+    rf"^bench: SHADOW_INDEX_FRAME (?P<frame>{FRAME_WORK_UNSIGNED})" +
+    "".join(rf" {name} (?P<{name}>{FRAME_WORK_UNSIGNED})"
+            for name in (*SHADOW_INDEX_UINT64_FIELDS, *SHADOW_INDEX_UINT32_FIELDS)) + "$")
+SHADOW_CACHE_BYTES = 8 << 20
+SHADOW_UPLOAD_BYTES = 1 << 20
+SHADOW_CACHE_PATTERNS = 64
+SHADOW_FRAME_ADMISSIONS = 2
+SHADOW_INDEX_BYTES = 4
+PLAN_WORK_FIELDS = (
+    "unit_plans", "copy_plans", "linked_plans", "omitted_plans", "original_updates_dirty",
+    "copy_updates_dirty", "transform_cache_hits", "root_prefix_hits", "transform_rebuilds",
+    "metadata_image_builds", "pixel_image_builds",
+)
+PLAN_WORK_PHASES = (
+    "pose_capture", "list_prepare", "unit_sites", "battlefield_sort", "run_prepare", "run_wait",
+    "worker_plan", "copy_place", "original_note", "original_update", "copy_note", "copy_update",
+    "omission_proof", "model_plan_metadata", "model_plan_pixels",
+)
+PLAN_PHASE_FIELDS = ("calls", "samples", "wall_ns", "cpu_ns", "cpu_samples")
+PLAN_WORK_FRAME = re.compile(
+    rf"^bench: PLAN_WORK_FRAME (?P<frame>{FRAME_WORK_UNSIGNED}) "
+    rf"source_frame (?P<source_frame>{FRAME_WORK_UNSIGNED}) "
+    r"completed (?P<completed>[01]) sampling_stride 64" +
+    "".join(rf" {name} (?P<{name}>{FRAME_WORK_UNSIGNED})" for name in PLAN_WORK_FIELDS) + " phases" +
+    "".join(" " + phase + "".join(rf" {name} (?P<{phase}_{name}>{FRAME_WORK_UNSIGNED})"
+                                for name in PLAN_PHASE_FIELDS)
+            for phase in PLAN_WORK_PHASES) + "$")
+FRAME_WORK_TAGS = frozenset(("SHADOW_INDEX_FRAME", "PLAN_WORK_FRAME"))
 SCENE_WORK_MAX_BANDS = 4
 UINT64_MASK = (1 << 64) - 1
 UNIT_DOT_PIXELS = 5.0
@@ -315,6 +353,153 @@ def check_unit_detail_records(result, lines):
     return [line for line, tag in zip(lines, tags) if tag not in UNIT_DETAIL_TAGS]
 
 
+def require_frame_work(result, condition, message):
+    """Reject invalid optional work records before any transcript projection."""
+    if not condition:
+        fail(result, "frame work records: " + message)
+
+
+def frame_work_numbers(result, match, names, maximum):
+    """Read canonical bounded unsigned counters without accepting oversized integer strings."""
+    values = {name: match.group(name) for name in names}
+    require_frame_work(result, all(len(value) <= len(str(maximum)) for value in values.values()),
+                       "work count exceeds its unsigned source width")
+    numbers = {name: int(value) for name, value in values.items()}
+    require_frame_work(result, all(value <= maximum for value in numbers.values()),
+                       "work count exceeds its unsigned source width")
+    return numbers
+
+
+def check_shadow_index_counts(result, match):
+    """Validate drawn shadow corners, uploaded words and the bounded retained pattern cache."""
+    row = frame_work_numbers(result, match, SHADOW_INDEX_UINT64_FIELDS, UINT64_MASK)
+    row.update(frame_work_numbers(result, match, SHADOW_INDEX_UINT32_FIELDS, UINT32_MASK))
+
+    def require(condition, message):
+        require_frame_work(result, condition, message)
+
+    require(row["logical_indices"] == row["dynamic_indices"] + row["cached_indices"],
+            "logical shadow indices differ from dynamic and cached draws")
+    require(all(row[name] % 3 == 0
+                for name in ("logical_indices", "dynamic_indices", "cached_indices")),
+            "drawn shadow indices are not triangle corners")
+    require(row["requested_runs"] == row["cache_hits"] + row["cache_misses"] ==
+            row["cached_runs"] + row["fallback_runs"],
+            "shadow requests, cache lookups and retained runs disagree")
+    require(row["cache_hits"] <= row["cached_runs"], "shadow cache hits exceed cached runs")
+    require(row["admitted_patterns"] <= min(row["cache_misses"], row["cached_patterns"]) and
+            row["admitted_patterns"] <= SHADOW_FRAME_ADMISSIONS,
+            "shadow admissions exceed misses, resident patterns or the frame limit")
+    require(row["cached_patterns"] <= SHADOW_CACHE_PATTERNS,
+            "shadow pattern count exceeds its cache limit")
+    require(row["cache_bytes"] % SHADOW_INDEX_BYTES == 0 and
+            row["cache_bytes"] <= SHADOW_CACHE_BYTES,
+            "shadow cache bytes are unaligned or exceed the cache limit")
+    require(row["template_uploaded_indices"] % 3 == 0 and
+            row["template_uploaded_indices"] * SHADOW_INDEX_BYTES <= SHADOW_UPLOAD_BYTES,
+            "shadow template upload exceeds the frame limit or is not triangle corners")
+    require(row["template_uploaded_indices"] * SHADOW_INDEX_BYTES <= row["cache_bytes"],
+            "shadow template upload exceeds resident cache bytes")
+    require((row["cached_indices"] > 0) == (row["cached_runs"] > 0),
+            "cached shadow draws disagree with cached run coverage")
+    require(row["cache_hits"] == 0 or row["cached_patterns"] > 0,
+            "shadow cache hits have no resident pattern")
+
+
+def check_plan_work_counts(result, match):
+    """Validate sampled planning clocks independently of overlapping frame and worker time."""
+    names = ("source_frame", *PLAN_WORK_FIELDS,
+             *(f"{phase}_{name}" for phase in PLAN_WORK_PHASES for name in PLAN_PHASE_FIELDS))
+    row = frame_work_numbers(result, match, names, UINT64_MASK)
+    for phase in PLAN_WORK_PHASES:
+        calls, samples, wall, cpu, cpu_samples = (row[f"{phase}_{name}"]
+                                                for name in PLAN_PHASE_FIELDS)
+        require_frame_work(result, cpu_samples <= samples <= calls,
+                           "planning phase samples exceed their calls")
+        require_frame_work(result, samples != 0 or wall == 0,
+                           "unsampled planning phase has wall time")
+        require_frame_work(result, cpu_samples != 0 or cpu == 0,
+                           "planning phase without CPU samples has CPU time")
+
+
+def check_render_work_records(result, lines):
+    """Validate complete optional work families in raw companion order, then remove only them."""
+    tags = [line.split()[1] for line in lines]
+    for prefix, known in (("SHADOW_INDEX", "SHADOW_INDEX_FRAME"), ("PLAN_WORK", "PLAN_WORK_FRAME")):
+        require_frame_work(result, not any(tag.startswith(prefix) and tag != known for tag in tags),
+                           "unknown " + prefix + " metadata tag")
+    families = (("SHADOW_INDEX_FRAME", SHADOW_INDEX_FRAME, check_shadow_index_counts),
+                ("PLAN_WORK_FRAME", PLAN_WORK_FRAME, check_plan_work_counts))
+    rows = {tag: [index for index, found in enumerate(tags) if found == tag]
+            for tag, _, _ in families}
+    if not any(rows.values()):
+        return lines
+
+    def require(condition, message):
+        require_frame_work(result, condition, message)
+
+    positions = [index for index, tag in enumerate(tags) if tag == "FRAME"]
+    results = [FRAME_RESULT.fullmatch(line) for line in lines if line.startswith("bench: RESULT ")]
+    require(len(results) == 1 and results[0] is not None, "missing or malformed RESULT")
+    frames = int(results[0].group(2))
+    require(frames > 0 and len(positions) == frames, "work metadata needs the complete FRAME span")
+    require(all(not found or len(found) == frames for found in rows.values()),
+            "each FRAME needs exactly one row of each present work family")
+    previous = (("UNIT_DETAIL_FRAME", UNIT_DETAIL_FRAME), ("BODY_LOD_FRAME", BODY_LOD_FRAME),
+                ("SCENE_WORK_FRAME", SCENE_WORK_FRAME))
+    previous_tags = frozenset(tag for tag, _ in previous)
+    for frame, position in enumerate(positions):
+        require(position + 1 < len(lines), "missing SIM_FRAME after FRAME")
+        regular = FRAME.fullmatch(lines[position])
+        simulation = SIM_FRAME.fullmatch(lines[position + 1])
+        require(regular is not None and int(regular.group(1)) == frame,
+                "FRAME indices are not complete and ordered")
+        require(simulation is not None and int(simulation.group("frame")) == frame,
+                "work rows need adjacent FRAME and SIM_FRAME records")
+        cursor = position + 2
+        for tag, pattern in previous:
+            if cursor < len(lines) and tags[cursor] == tag:
+                companion = pattern.fullmatch(lines[cursor])
+                require(companion is not None and int(companion.group("frame")) == frame,
+                        "an earlier companion does not read or has the wrong frame")
+                cursor += 1
+        for tag, pattern, validate in families:
+            if not rows[tag]:
+                continue
+            require(rows[tag][frame] == cursor, "work rows must follow their ordered frame companions")
+            match = pattern.fullmatch(lines[cursor])
+            require(match is not None, "a " + tag + " line does not read")
+            identity = frame_work_numbers(result, match, ("frame",), UINT32_MASK)
+            require(identity["frame"] == frame, "work row index differs from FRAME")
+            validate(result, match)
+            cursor += 1
+        end = positions[frame + 1] if frame + 1 < frames else len(lines)
+        require(not any(tags[index] in previous_tags for index in range(cursor, end)),
+                "detail, body and scene companions must precede work diagnostics")
+    return [line for line, tag in zip(lines, tags) if tag not in FRAME_WORK_TAGS]
+
+
+def check_work_record_presence(result, lines, plan_enabled=False):
+    """Require current native producers while general parsers continue to admit older logs."""
+    frames = sum(line.startswith("bench: FRAME ") for line in lines)
+    shadows = [SHADOW_INDEX_FRAME.fullmatch(line) for line in lines
+               if line.startswith("bench: SHADOW_INDEX_FRAME")]
+    plans = [PLAN_WORK_FRAME.fullmatch(line) for line in lines
+             if line.startswith("bench: PLAN_WORK_FRAME")]
+    if frames == 0 or len(shadows) != frames or not all(shadows):
+        fail(result, "the native frame log omitted its shadow index coverage")
+    if not plan_enabled:
+        if plans:
+            fail(result, "the native frame log enabled planning work without an opt-in")
+        return
+    if len(plans) != frames or not all(plans):
+        fail(result, "the opt-in native frame log omitted its planning work coverage")
+    if not any(row.group("completed") == "1" and
+               any(int(row.group(phase + "_calls")) != 0 for phase in PLAN_WORK_PHASES)
+               for row in plans):
+        fail(result, "the opt-in native frame log has no completed planning attempt")
+
+
 def check_scene_work_records(result, lines):
     """Validate retained worker ranges independently of optional detail and body companions."""
     tags = [line.split()[1] for line in lines]
@@ -425,6 +610,7 @@ def check_body_lod_records(result, lines):
 
 def check_simulation_records(result, lines, frames=None):
     """Validate paired simulation rows before projecting the unchanged FRAME transcript."""
+    lines = check_render_work_records(result, lines)
     lines = check_scene_work_records(result, lines)
     lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
@@ -493,6 +679,7 @@ def check_simulation_records(result, lines, frames=None):
 
 def check_renderer_records(result, lines, frames, timers):
     """Validate optional renderer families, returning the unchanged legacy transcript."""
+    lines = check_render_work_records(result, lines)
     lines = check_scene_work_records(result, lines)
     lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
@@ -673,6 +860,7 @@ def check_lines(result, timers, rules_version=0, requested_rules_version=0):
         fail(result, f"the AWAY line does not read: {away[0]}")
     lines = [line for line in lines if not line.startswith("bench: AWAY")]
     original = lines
+    lines = check_render_work_records(result, lines)
     lines = check_scene_work_records(result, lines)
     lines = check_body_lod_records(result, lines)
     lines = check_unit_detail_records(result, lines)
@@ -785,6 +973,7 @@ def main():
             timed = run_bench(arguments.native, arguments.game_dir, workdir, "timed", VIEW.format(
                 stage=stage, warmup=WARMUP_TICKS, seconds=MEASURE_SECONDS, timers=1))
             lines = check_lines(timed, True)
+            check_work_record_presence(timed, lines)
             for family in ("GROUND_INDEX", "POSE", "MATERIAL"):
                 if not any(line.split()[1] == family for line in lines):
                     fail(timed, f"the timed bench omitted its {family} renderer counters")
@@ -806,7 +995,8 @@ def main():
                 raise BenchFailure("tools/bench/summarise.py did not read the run")
             untimed = run_bench(arguments.native, arguments.game_dir, workdir, "untimed",
                                 VIEW.format(stage=stage, warmup=WARMUP_TICKS, seconds=1, timers=0))
-            if any(line.startswith(("bench: STAGE", "bench: SLOW", "bench: FRAME", "bench: SIM_FRAME")) or
+            if any(line.startswith(("bench: STAGE", "bench: SLOW", "bench: FRAME", "bench: SIM_FRAME",
+                                    "bench: SHADOW_INDEX", "bench: PLAN_WORK")) or
                    (line.startswith("bench: ") and
                     line.split()[1] in RENDERER_TAGS | UNIT_DETAIL_TAGS)
                    for line in untimed.stdout.splitlines()):
@@ -858,6 +1048,8 @@ def main():
                 fail(wrong_population, "a wrong rendering population was not refused")
             for version in (0, 4, 6, 7, 8, 10, 11):
                 rules_view = paused_view + (f"rules_version {version}\n" if version else "")
+                if version == 11:
+                    rules_view += "plan_work 1\n"
                 selected = run_bench(
                     arguments.native, arguments.game_dir, workdir, f"rules-{version}",
                     rules_view, enhanced=True)
@@ -866,9 +1058,10 @@ def main():
                         r"warmup_frames 2 verified_frames 3$", selected.stdout, re.M):
                     fail(selected, "the Enhanced paused span did not finish")
                 check_initial(selected, version or CURRENT_RULES_VERSION, version)
-                check_renderer_records(
-                    selected, [line for line in selected.stdout.splitlines()
-                               if line.startswith("bench: ")], 3, False)
+                selected_lines = [line for line in selected.stdout.splitlines()
+                                  if line.startswith("bench: ")]
+                check_renderer_records(selected, selected_lines, 3, False)
+                check_work_record_presence(selected, selected_lines, plan_enabled=version == 11)
             mode_off = run_bench(
                 arguments.native, arguments.game_dir, workdir, "rules-off",
                 "label rules-off\nrules_version 6\n")
