@@ -217,12 +217,14 @@ def scene_work_transcript(companions="body"):
     return "\n".join(lines) + "\n"
 
 
-def shadow_index_record(frame, **changes):
+def shadow_index_record(frame, legacy=False, **changes):
     """Return mixed dynamic and cached draws with separately counted uploaded words."""
     values = dict(logical_indices=120, dynamic_indices=30, cached_indices=90,
                   dynamic_uploaded_indices=32, template_uploaded_indices=90, cache_bytes=360,
                   requested_runs=4, cached_runs=3, cache_hits=2, cache_misses=2,
                   admitted_patterns=1, fallback_runs=1, cached_patterns=2)
+    if not legacy:
+        values["mapping_uploaded_words"] = 0
     values.update(changes)
     return f"bench: SHADOW_INDEX_FRAME {frame}" + "".join(
         f" {name} {value}" for name, value in values.items())
@@ -252,7 +254,7 @@ def plan_work_record(frame, phase_changes=None, **changes):
     return line
 
 
-def render_work_transcript(shadow=True, plan=True, companions="scene_body"):
+def render_work_transcript(shadow=True, plan=True, companions="scene_body", legacy_shadow=False):
     """Add independently optional work rows after the complete existing companion chain."""
     source, predecessor = {
         "plain": (renderer_transcript(), "SIM_FRAME"),
@@ -269,7 +271,7 @@ def render_work_transcript(shadow=True, plan=True, companions="scene_body"):
             continue
         frame = int(line.split()[2])
         if shadow:
-            lines.append(shadow_index_record(frame))
+            lines.append(shadow_index_record(frame, legacy=legacy_shadow))
         if plan:
             lines.append(plan_work_record(frame))
     return "\n".join(lines) + "\n"
@@ -314,6 +316,100 @@ class NativeBenchReceiptTest(unittest.TestCase):
                               (bench.check_simulation_records, (text.splitlines(),))):
             with self.subTest(checker=checker.__name__):
                 self.assert_rejected(result_for(text), checker, *args, message="frame work records")
+
+    def assert_work_accepted(self, text):
+        """Require complete work rows to preserve each public transcript projection."""
+        result, lines = result_for(text), text.splitlines()
+        self.assertEqual(bench.check_lines(result, True), lines)
+        self.assertEqual(bench.check_renderer_records(result, lines, 3, True),
+                         transcript(timers=True).splitlines())
+        original = renderer_transcript()
+        self.assertEqual(bench.check_simulation_records(result, lines),
+                         bench.check_simulation_records(result_for(original), original.splitlines()))
+
+    def test_shadow_formats_preserve_complete_legacy_and_current_transcripts(self):
+        """Older shadow rows remain readable, while zero mapping words identify the current format."""
+        for legacy in (False, True):
+            for plan in (False, True):
+                with self.subTest(legacy=legacy, plan=plan):
+                    self.assert_work_accepted(render_work_transcript(plan=plan, legacy_shadow=legacy))
+            row = shadow_index_record(0, legacy=legacy)
+            self.assertEqual(bench.SHADOW_INDEX_FRAME.fullmatch(row) is not None, not legacy)
+            self.assertEqual(bench.LEGACY_SHADOW_INDEX_FRAME.fullmatch(row) is not None, legacy)
+
+    def test_shadow_formats_cannot_mix_within_one_frame_log(self):
+        """Both directions of a schema change fail before any generic reader drops the rows."""
+        for legacy in (False, True):
+            text = render_work_transcript(legacy_shadow=legacy)
+            with self.subTest(legacy=legacy):
+                self.assert_work_rejected(text.replace(shadow_index_record(1, legacy=legacy),
+                                                      shadow_index_record(1, legacy=not legacy)))
+
+    def test_shadow_mapping_words_are_independent_unsigned_payload_counts(self):
+        """Mapping uploads count API words rather than drawn corners or driver allocation padding."""
+        zero = {field: 0 for field in (*bench.SHADOW_INDEX_UINT64_FIELDS,
+                                      *bench.SHADOW_INDEX_UINT32_FIELDS)}
+        for words in (0, 1, 7, bench.UINT64_MASK):
+            for counts in ({}, zero):
+                with self.subTest(words=words, empty=bool(counts)):
+                    text = render_work_transcript()
+                    for frame in range(3):
+                        text = text.replace(shadow_index_record(frame),
+                            shadow_index_record(frame, **dict(counts, mapping_uploaded_words=words)))
+                    self.assert_work_accepted(text)
+        for value in (-1, "+1", "01", "1.0", "nan", "inf", "1\u0662",
+                      bench.UINT64_MASK + 1, "9" * 1000):
+            with self.subTest(value=str(value)[:10]):
+                text = render_work_transcript().replace(shadow_index_record(1),
+                    shadow_index_record(1, mapping_uploaded_words=value))
+                self.assert_work_rejected(text)
+
+    def test_shadow_rows_reject_missing_unknown_and_reordered_fields(self):
+        """Only the complete thirteen-field legacy or final-word current schema is admitted."""
+        current = shadow_index_record(1)
+        legacy = shadow_index_record(1, legacy=True)
+        rows = (legacy.replace(" cached_patterns 2", ""),
+                current.replace(" mapping_uploaded_words 0", " unknown_words 0"),
+                current + " mapping_uploaded_words 0", current + " unknown_words 0",
+                current.replace(" cached_patterns 2 mapping_uploaded_words 0",
+                                " mapping_uploaded_words 0 cached_patterns 2"))
+        for row in rows:
+            with self.subTest(row=row):
+                self.assert_work_rejected(render_work_transcript().replace(current, row))
+
+    def test_current_shadow_lookup_counts_are_independent_of_reused_runs(self):
+        """Pre-frame hits can expand, and a missed run can admit two of its required patterns."""
+        zero = {field: 0 for field in (*bench.SHADOW_INDEX_UINT64_FIELDS,
+                                      *bench.SHADOW_INDEX_UINT32_FIELDS)}
+        cases = (dict(zero, logical_indices=30, dynamic_indices=30, requested_runs=1,
+                      cache_hits=1, fallback_runs=1, cached_patterns=1, cache_bytes=12),
+                 dict(zero, logical_indices=48, dynamic_indices=48, requested_runs=1,
+                      cache_misses=1, fallback_runs=1, admitted_patterns=2, cached_patterns=2,
+                      cache_bytes=24, template_uploaded_indices=6))
+        for changes in cases:
+            with self.subTest(changes=changes):
+                text = render_work_transcript()
+                for frame in range(3):
+                    text = text.replace(shadow_index_record(frame), shadow_index_record(frame, **changes))
+                self.assert_work_accepted(text)
+
+    def test_legacy_shadow_lookup_counts_keep_their_original_constraints(self):
+        """Legacy admissions remain bounded by missed runs and legacy hits by reused runs."""
+        for changes in (dict(cache_hits=4, cache_misses=0),
+                        dict(admitted_patterns=2, cache_misses=1, requested_runs=3, fallback_runs=0),
+                        dict(cache_bytes=bench.UINT64_MASK + 1),
+                        dict(cache_hits=bench.UINT32_MASK + 1)):
+            with self.subTest(changes=changes):
+                text = render_work_transcript(legacy_shadow=True)
+                text = text.replace(shadow_index_record(1, legacy=True),
+                                    shadow_index_record(1, legacy=True, **changes))
+                self.assert_work_rejected(text)
+
+    def test_current_shadow_rows_do_not_admit_unsupported_rules(self):
+        """Current telemetry cannot extend the independently supported rules preset set."""
+        text = render_work_transcript().replace(initial_line(), initial_line(12, 12))
+        self.assert_rejected(result_for(text), bench.check_lines, True,
+                             rules_version=12, requested_rules_version=12)
 
     def test_work_families_are_independent_complete_projections(self):
         """Both diagnostics preserve every older companion combination and original return value."""
@@ -393,10 +489,9 @@ class NativeBenchReceiptTest(unittest.TestCase):
     def test_shadow_counts_reject_widths_and_cache_inconsistencies(self):
         """Unsigned widths, triangle corners and independent cache limits are enforced."""
         changes = [dict(logical_indices=123), dict(logical_indices=121, dynamic_indices=31),
-                   dict(requested_runs=5), dict(cache_hits=4, cache_misses=0),
+                   dict(requested_runs=5),
                    dict(admitted_patterns=3, cache_misses=3, requested_runs=5,
                         cached_runs=4, cached_patterns=3),
-                   dict(admitted_patterns=2, cache_misses=1, requested_runs=3, fallback_runs=0),
                    dict(cached_patterns=65), dict(cache_bytes=358),
                    dict(cache_bytes=bench.SHADOW_CACHE_BYTES + 4),
                    dict(template_uploaded_indices=91), dict(template_uploaded_indices=93),
@@ -521,7 +616,9 @@ class NativeBenchReceiptTest(unittest.TestCase):
         bench.check_work_record_presence(result_for(ordinary), ordinary.splitlines())
         opted = render_work_transcript()
         bench.check_work_record_presence(result_for(opted), opted.splitlines(), plan_enabled=True)
-        for text, enabled in ((renderer_transcript(), False), (opted, False), (ordinary, True)):
+        for text, enabled in ((renderer_transcript(), False), (opted, False), (ordinary, True),
+                              (render_work_transcript(plan=False, legacy_shadow=True), False),
+                              (render_work_transcript(legacy_shadow=True), True)):
             self.assert_rejected(result_for(text), bench.check_work_record_presence,
                                  text.splitlines(), plan_enabled=enabled)
         zero = {phase: dict(calls=0, samples=0, wall_ns=0, cpu_ns=0, cpu_samples=0)

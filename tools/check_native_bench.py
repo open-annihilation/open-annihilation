@@ -128,19 +128,24 @@ SCENE_WORK_FRAME = re.compile(
     rf"^bench: SCENE_WORK_FRAME (?P<frame>{UNSIGNED}) candidate_bands (?P<candidate_bands>{UNSIGNED}) "
     rf"candidate_slots (?P<candidate_slots>{UNSIGNED}) accepted_bands (?P<accepted_bands>{UNSIGNED}) "
     rf"accepted_slots (?P<accepted_slots>{UNSIGNED}) fallback_frames (?P<fallback_frames>{UNSIGNED})$")
-SHADOW_INDEX_UINT64_FIELDS = (
+LEGACY_SHADOW_INDEX_UINT64_FIELDS = (
     "logical_indices", "dynamic_indices", "cached_indices", "dynamic_uploaded_indices",
     "template_uploaded_indices", "cache_bytes",
 )
+# Mapping uploads count API payload words independently of drawn index corners.
+SHADOW_INDEX_UINT64_FIELDS = (*LEGACY_SHADOW_INDEX_UINT64_FIELDS, "mapping_uploaded_words")
 SHADOW_INDEX_UINT32_FIELDS = (
     "requested_runs", "cached_runs", "cache_hits", "cache_misses", "admitted_patterns",
     "fallback_runs", "cached_patterns",
 )
 FRAME_WORK_UNSIGNED = r"(?:0|[1-9][0-9]*)"
-SHADOW_INDEX_FRAME = re.compile(
+LEGACY_SHADOW_INDEX_FRAME = re.compile(
     rf"^bench: SHADOW_INDEX_FRAME (?P<frame>{FRAME_WORK_UNSIGNED})" +
     "".join(rf" {name} (?P<{name}>{FRAME_WORK_UNSIGNED})"
-            for name in (*SHADOW_INDEX_UINT64_FIELDS, *SHADOW_INDEX_UINT32_FIELDS)) + "$")
+            for name in (*LEGACY_SHADOW_INDEX_UINT64_FIELDS, *SHADOW_INDEX_UINT32_FIELDS)) + "$")
+SHADOW_INDEX_FRAME = re.compile(
+    LEGACY_SHADOW_INDEX_FRAME.pattern[:-1] +
+    rf" mapping_uploaded_words (?P<mapping_uploaded_words>{FRAME_WORK_UNSIGNED})$")
 SHADOW_CACHE_BYTES = 8 << 20
 SHADOW_UPLOAD_BYTES = 1 << 20
 SHADOW_CACHE_PATTERNS = 64
@@ -372,7 +377,9 @@ def frame_work_numbers(result, match, names, maximum):
 
 def check_shadow_index_counts(result, match):
     """Validate drawn shadow corners, uploaded words and the bounded retained pattern cache."""
-    row = frame_work_numbers(result, match, SHADOW_INDEX_UINT64_FIELDS, UINT64_MASK)
+    legacy = match.re is LEGACY_SHADOW_INDEX_FRAME
+    fields = LEGACY_SHADOW_INDEX_UINT64_FIELDS if legacy else SHADOW_INDEX_UINT64_FIELDS
+    row = frame_work_numbers(result, match, fields, UINT64_MASK)
     row.update(frame_work_numbers(result, match, SHADOW_INDEX_UINT32_FIELDS, UINT32_MASK))
 
     def require(condition, message):
@@ -386,10 +393,12 @@ def check_shadow_index_counts(result, match):
     require(row["requested_runs"] == row["cache_hits"] + row["cache_misses"] ==
             row["cached_runs"] + row["fallback_runs"],
             "shadow requests, cache lookups and retained runs disagree")
-    require(row["cache_hits"] <= row["cached_runs"], "shadow cache hits exceed cached runs")
-    require(row["admitted_patterns"] <= min(row["cache_misses"], row["cached_patterns"]) and
-            row["admitted_patterns"] <= SHADOW_FRAME_ADMISSIONS,
-            "shadow admissions exceed misses, resident patterns or the frame limit")
+    if legacy:
+        require(row["cache_hits"] <= row["cached_runs"], "shadow cache hits exceed cached runs")
+        require(row["admitted_patterns"] <= row["cache_misses"],
+                "legacy shadow admissions exceed cache misses")
+    require(row["admitted_patterns"] <= min(row["cached_patterns"], SHADOW_FRAME_ADMISSIONS),
+            "shadow admissions exceed resident patterns or the frame limit")
     require(row["cached_patterns"] <= SHADOW_CACHE_PATTERNS,
             "shadow pattern count exceeds its cache limit")
     require(row["cache_bytes"] % SHADOW_INDEX_BYTES == 0 and
@@ -455,6 +464,7 @@ def check_render_work_records(result, lines):
     previous = (("UNIT_DETAIL_FRAME", UNIT_DETAIL_FRAME), ("BODY_LOD_FRAME", BODY_LOD_FRAME),
                 ("SCENE_WORK_FRAME", SCENE_WORK_FRAME))
     previous_tags = frozenset(tag for tag, _ in previous)
+    shadow_format = None
     for frame, position in enumerate(positions):
         require(position + 1 < len(lines), "missing SIM_FRAME after FRAME")
         regular = FRAME.fullmatch(lines[position])
@@ -475,6 +485,14 @@ def check_render_work_records(result, lines):
                 continue
             require(rows[tag][frame] == cursor, "work rows must follow their ordered frame companions")
             match = pattern.fullmatch(lines[cursor])
+            if tag == "SHADOW_INDEX_FRAME":
+                if match is None:
+                    match = LEGACY_SHADOW_INDEX_FRAME.fullmatch(lines[cursor])
+                if match is not None:
+                    current_format = match.re is SHADOW_INDEX_FRAME
+                    require(shadow_format is None or shadow_format == current_format,
+                            "shadow index formats differ within one frame log")
+                    shadow_format = current_format
             require(match is not None, "a " + tag + " line does not read")
             identity = frame_work_numbers(result, match, ("frame",), UINT32_MASK)
             require(identity["frame"] == frame, "work row index differs from FRAME")
