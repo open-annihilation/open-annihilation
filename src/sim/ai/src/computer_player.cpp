@@ -311,6 +311,25 @@ struct CohortPrior {
     uint32_t votes{};
 };
 
+/// Holds one admitted enemy's unweighted cost for one cohort.
+struct CohortFront {
+    const oa::Unit* unit{};
+    uint64_t base_cost{};
+    uint16_t slot{};
+};
+
+/// Keeps the nearest distinct fronts and a separately admitted majority prior.
+struct CohortCandidates {
+    std::array<CohortFront, strike_cohort_count> nearest{};
+    CohortFront prior{};
+    uint32_t count{};
+    uint32_t eligible_count{};
+};
+
+// Before the last group, at most seven distinct targets carry earlier load.
+static_assert(strike_cohort_count == 8);
+static_assert(sizeof(std::array<CohortCandidates, strike_cohort_count>) <= 2048);
+
 /// Tests whether a finished live member can receive a strike's attack command.
 bool strike_member(const oa::Unit& unit, uint8_t player, Squad squad) noexcept {
     return unit.type_index != 0 && unit.owner_index == player &&
@@ -420,32 +439,61 @@ bool cohort_enemy_eligible(
     return true;
 }
 
-/// Chooses a nearby enemy while charging for earlier groups sent to that target.
+/// Orders unweighted fronts by squared distance, then canonical target slot.
+bool nearer_cohort_front(const CohortFront& first, const CohortFront& second) noexcept {
+    return first.base_cost < second.base_cost ||
+           (first.base_cost == second.base_cost && first.slot < second.slot);
+}
+
+/// Keeps a fixed max-heap of the nearest eight distinct canonical target slots.
+void admit_cohort_front(CohortCandidates& candidates, const CohortFront& front) noexcept {
+    auto& nearest = candidates.nearest;
+    if (candidates.count == nearest.size() && !nearer_cohort_front(front, nearest.front()))
+        return;
+    for (uint32_t index = 0; index < candidates.count; ++index)
+        if (nearest[index].slot == front.slot)
+            return;
+    if (candidates.count < nearest.size()) {
+        nearest[candidates.count++] = front;
+        std::push_heap(nearest.begin(), nearest.begin() + candidates.count, nearer_cohort_front);
+    } else {
+        std::pop_heap(nearest.begin(), nearest.end(), nearer_cohort_front);
+        nearest.back() = front;
+        std::push_heap(nearest.begin(), nearest.end(), nearer_cohort_front);
+    }
+}
+
+/// Admits enemy records once, retaining enough fronts for every exact load choice.
 ///
-/// Whole-world coordinate differences are squared in 64 bits. Each previous
-/// assignment adds one to the distance multiplier; at most eight groups search.
-/// A lower canonical slot resolves an equal weighted distance. The search reads
-/// current records, keeping no target handle across dispatches.
+/// At most seven distinct targets have earlier assignments. Among a group's
+/// eight nearest distinct targets, one therefore has no load penalty and beats
+/// every target outside that set, including a distance tie by canonical slot.
+/// A majority prior may lie outside the nearest set and is retained separately.
+/// All choices finish before any attack callback can change canonical records.
 ///
 /// @param host alliances and canonical unit records
 /// @param relation the controller's alliance row, including the no-player entry
 /// @param filter the strike's additional water and occupancy exclusions
-/// @param cohort the current group's aggregate positions and membership
-/// @param earlier groups whose targets were already selected
-/// @param prior_target verified majority target slot, or zero to use only fresh selection
-/// @return fresh optimum, eligible prior, their costs and eligible-candidate count
-CohortChoice choose_cohort_target(
+/// @param cohorts current groups whose centroids remain fixed during selection
+/// @param prior_targets independently verified majority target slots, or zero
+/// @return bounded nearest sets, eligible priors and the original candidate counts
+std::array<CohortCandidates, strike_cohort_count> collect_cohort_candidates(
     const ComputerHost& host,
     std::span<const uint8_t> relation,
     const sim::simulation_state::CandidateFilter& filter,
-    const StrikeCohort& cohort,
-    std::span<const StrikeCohort> earlier,
-    uint16_t prior_target
+    const std::array<StrikeCohort, strike_cohort_count>& cohorts,
+    const std::array<uint16_t, strike_cohort_count>& prior_targets
 ) noexcept {
-    CohortChoice choice{};
-    const auto center_x = cohort.sum_x / cohort.members;
-    const auto center_z = cohort.sum_z / cohort.members;
-    uint16_t best_slot{};
+    std::array<CohortCandidates, strike_cohort_count> candidates{};
+    std::array<int64_t, strike_cohort_count> center_x{}, center_z{};
+    for (uint32_t index = 0; index < cohorts.size(); ++index) {
+        const auto& cohort = cohorts[index];
+        if (cohort.members != 0) {
+            center_x[index] = cohort.sum_x / cohort.members;
+            center_z[index] = cohort.sum_z / cohort.members;
+        }
+    }
+    uint32_t eligible_count{};
     for (uint8_t player_index = 0; player_index < OA_PLAYER_COUNT; ++player_index) {
         const auto& player = host.world->game.players[player_index];
         if (!sim::simulation_state::player_slot_active(player_index, player) ||
@@ -459,26 +507,66 @@ CohortChoice choose_cohort_target(
             const auto& unit = units[index];
             if (!cohort_enemy_eligible(unit, filter))
                 continue;
-            ++choice.eligible_count;
+            ++eligible_count;
             const auto slot = static_cast<uint16_t>(oa::world_unit_slot(host.world, &unit));
-            uint64_t assignments{};
-            for (const auto& previous : earlier)
-                assignments += previous.target == slot ? 1 : 0;
-            const int64_t dx = center_x - word(unit.position.x);
-            const int64_t dz = center_z - word(unit.position.z);
-            const auto distance = static_cast<uint64_t>(dx * dx + dz * dz);
-            const auto cost = (distance + strike_target_distance_floor) * (assignments + 1);
-            if (prior_target != 0 && slot == prior_target) {
-                choice.prior_unit = &unit;
-                choice.prior_cost = cost;
-            }
-            if (choice.unit == nullptr || cost < choice.cost ||
-                (cost == choice.cost && slot < best_slot)) {
-                choice.unit = &unit;
-                choice.cost = cost;
-                best_slot = slot;
+            const auto x = word(unit.position.x);
+            const auto z = word(unit.position.z);
+            for (uint32_t cohort_index = 0; cohort_index < cohorts.size(); ++cohort_index) {
+                if (cohorts[cohort_index].members == 0)
+                    continue;
+                const int64_t dx = center_x[cohort_index] - x;
+                const int64_t dz = center_z[cohort_index] - z;
+                const CohortFront front{
+                    &unit,
+                    static_cast<uint64_t>(dx * dx + dz * dz) + strike_target_distance_floor,
+                    slot
+                };
+                auto& group = candidates[cohort_index];
+                if (prior_targets[cohort_index] != 0 && slot == prior_targets[cohort_index])
+                    group.prior = front;
+                admit_cohort_front(group, front);
             }
         }
+    }
+    for (uint32_t index = 0; index < cohorts.size(); ++index)
+        if (cohorts[index].members != 0)
+            candidates[index].eligible_count = eligible_count;
+    return candidates;
+}
+
+/// Charges a front for each earlier group finalized to its canonical target slot.
+uint64_t
+cohort_front_cost(const CohortFront& front, std::span<const StrikeCohort> earlier) noexcept {
+    uint64_t assignments{};
+    for (const auto& previous : earlier)
+        assignments += previous.target == front.slot ? 1 : 0;
+    return front.base_cost * (assignments + 1);
+}
+
+/// Chooses the exact weighted optimum and admitted prior from a fixed nearest set.
+///
+/// @param candidates nearest distinct fronts and the separately admitted prior
+/// @param earlier groups whose final targets already contribute load
+/// @return the fresh optimum, eligible prior, their costs and candidate count
+CohortChoice choose_cohort_target(
+    const CohortCandidates& candidates, std::span<const StrikeCohort> earlier
+) noexcept {
+    CohortChoice choice{};
+    choice.eligible_count = candidates.eligible_count;
+    uint16_t best_slot{};
+    for (uint32_t index = 0; index < candidates.count; ++index) {
+        const auto& front = candidates.nearest[index];
+        const auto cost = cohort_front_cost(front, earlier);
+        if (choice.unit == nullptr || cost < choice.cost ||
+            (cost == choice.cost && front.slot < best_slot)) {
+            choice.unit = front.unit;
+            choice.cost = cost;
+            best_slot = front.slot;
+        }
+    }
+    if (candidates.prior.unit != nullptr) {
+        choice.prior_unit = candidates.prior.unit;
+        choice.prior_cost = cohort_front_cost(candidates.prior, earlier);
     }
     return choice;
 }
@@ -599,20 +687,19 @@ bool order_strike_cohorts(
         if (enhanced.enabled && data::enhanced_mode::uses_cohort_target_retention(enhanced.version))
             priors = strike_cohort_priors(host, ai, task, {units, count}, extent);
     }
+    std::array<uint16_t, strike_cohort_count> prior_targets{};
+    for (uint32_t index = 0; index < cohorts.size(); ++index)
+        if (priors[index].votes > cohorts[index].members / 2)
+            prior_targets[index] = priors[index].candidate;
+    const auto candidates =
+        collect_cohort_candidates(host, relation, filter, cohorts, prior_targets);
     bool targeted = false;
     for (uint32_t index = 0; index < cohorts.size(); ++index) {
         auto& cohort = cohorts[index];
         if (cohort.members == 0)
             continue;
-        const auto& prior = priors[index];
-        const uint16_t prior_target = prior.votes > cohort.members / 2 ? prior.candidate : 0;
         const auto choice = choose_cohort_target(
-            host,
-            relation,
-            filter,
-            cohort,
-            std::span<const StrikeCohort>(cohorts).first(index),
-            prior_target
+            candidates[index], std::span<const StrikeCohort>(cohorts).first(index)
         );
         if (choice.unit != nullptr) {
             const bool retained = choice.prior_unit != nullptr &&
