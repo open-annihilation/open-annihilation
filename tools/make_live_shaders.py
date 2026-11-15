@@ -59,6 +59,7 @@ missing or of another version than the file's, which ctest reports as
 skipped.
 """
 import argparse
+import re
 import shutil
 import struct
 import subprocess
@@ -103,6 +104,16 @@ MSL_STAGE_BYTES = 65535
 SKIPPED = 77
 SPIRV_HEADER_WORDS = 5
 SPIRV_OP_DECORATE = 71
+SPIRV_OP_CAPABILITY = 17
+SPIRV_OP_TYPE_INT = 21
+SPIRV_OP_TYPE_FLOAT = 22
+SPIRV_CAPABILITY_FLOAT64 = 10
+SPIRV_CAPABILITY_INT64 = 11
+SPIRV_CAPABILITY_INT64_ATOMICS = 12
+SPIRV_WIDE_CAPABILITIES = frozenset((SPIRV_CAPABILITY_FLOAT64, SPIRV_CAPABILITY_INT64,
+                                    SPIRV_CAPABILITY_INT64_ATOMICS))
+ROOT_PREFIX_STAGES = frozenset(("live_model_vertex", "live_shadow_cast_vertex",
+                                "live_shadow_procedural_vertex"))
 SPIRV_DECORATION_BINDING = 33
 SPIRV_DECORATION_DESCRIPTOR_SET = 34
 
@@ -167,6 +178,31 @@ def storage_msl_bindings(data, name, first_buffer, storage_count):
     return struct.pack(f"<{len(words)}I", *words)
 
 
+def check_root_prefix_widths(name, spirv, msl):
+    """Refuse native wide arithmetic in the portable root-prefix stages.
+
+    @param name the compiled stage
+    @param spirv validated SPIR-V bytes
+    @param msl the translated Metal source
+    """
+    if name not in ROOT_PREFIX_STAGES:
+        return
+    words = struct.unpack(f"<{len(spirv) // 4}I", spirv)
+    at = SPIRV_HEADER_WORDS
+    while at < len(words):
+        count = words[at] >> 16
+        opcode = words[at] & 0xffff
+        if count == 0 or count > len(words) - at:
+            raise RuntimeError(f"{name}: invalid SPIR-V instruction")
+        if opcode in (SPIRV_OP_TYPE_INT, SPIRV_OP_TYPE_FLOAT) and words[at + 2] > 32:
+            raise RuntimeError(f"{name}: root-prefix arithmetic requires a wide SPIR-V type")
+        if opcode == SPIRV_OP_CAPABILITY and words[at + 1] in SPIRV_WIDE_CAPABILITIES:
+            raise RuntimeError(f"{name}: root-prefix arithmetic requires a wide SPIR-V capability")
+        at += count
+    if re.search(r"\b(?:u?long[234]?|double[234]?|u?int64_t)\b", msl):
+        raise RuntimeError(f"{name}: root-prefix arithmetic requires a wide Metal type")
+
+
 def compile_stage(name, stage, scratch):
     """Compiles one stage into its two forms.
 
@@ -197,7 +233,9 @@ def compile_stage(name, stage, scratch):
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"{' '.join(command)}:\n{result.stdout}{result.stderr}")
-    return spirv.read_bytes(), msl.read_text()
+    data, metal = spirv.read_bytes(), msl.read_text()
+    check_root_prefix_widths(name, data, metal)
+    return data, metal
 
 
 def msl_pieces(lines):

@@ -50,8 +50,10 @@ layout(location = 3) out vec3 out_terrain;
 layout(location = 4) out vec2 out_terrain_fog;
 layout(location = 5) out vec3 out_world;
 layout(location = 6) out vec3 out_modulation;
+layout(location = 7) flat out uint out_model_flags;
 
 void main() {
+    out_model_flags = 0u;
     const float depth_limit = 65536.0;
     vec4 world = vec4(in_world, 1.0);
     // The broad swells move the map's own water art: the ground under the

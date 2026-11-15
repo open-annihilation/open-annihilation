@@ -19,6 +19,7 @@ layout(location = 3) in vec3 in_terrain;
 layout(location = 4) centroid in vec2 in_terrain_fog;
 layout(location = 5) centroid in vec3 in_world;
 layout(location = 6) centroid in vec3 in_modulation;
+layout(location = 7) flat in uint in_model_flags;
 
 // The atlas, read by its nearest texel and filtered.
 layout(set = 2, binding = 0) uniform sampler2D atlas_nearest;
@@ -153,6 +154,9 @@ vec2 water_fine_offset(vec3 world) {
 }
 
 void main() {
+    const uint model_cull_back_faces = 1u;
+    if ((in_model_flags & model_cull_back_faces) != 0u && !gl_FrontFacing)
+        discard;
     vec4 colour;
     const float time = camera.water_scene.y;
     const float detail = camera.water_scene.z;

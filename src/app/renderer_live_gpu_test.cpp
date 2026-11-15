@@ -8,6 +8,7 @@
 #include "renderer_effects.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_water_appearance.hpp"
+#include "root_prefix_geometry.hpp"
 #include "shadow_index_validation.hpp"
 #include "oa/test/check.hpp"
 
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <memory>
 #include <string>
 #include <cmath>
@@ -1997,6 +1999,8 @@ struct ModelFrame {
     std::vector<uint32_t> corners{};
     std::vector<ModelInstance> instances{};
     std::vector<float> positions{};
+    std::vector<oa::formats::objects3d::FixedVector3> root_prefix_points{};
+    std::vector<RootPrefixPose> root_prefix_poses{};
     std::vector<uint32_t> piece_frames{};
     std::vector<float> textures{};
     std::vector<uint32_t> indices{};
@@ -2010,7 +2014,7 @@ struct ModelFrame {
 
     /// The draws, borrowing the frame.
     [[nodiscard]] ModelDraws draws(uint64_t revision) const {
-        return {
+        ModelDraws result{
             corners,
             revision,
             instances,
@@ -2026,6 +2030,9 @@ struct ModelFrame {
             shadow_vertex,
             shadow_ground
         };
+        result.root_prefix_points = root_prefix_points;
+        result.root_prefix_poses = root_prefix_poses;
+        return result;
     }
 
     /// The vertex a corner of an instance gives: its place, the atlas place
@@ -2039,10 +2046,23 @@ struct ModelFrame {
         const uint32_t slot = first ? texture & 0x3fffU : (texture >> model_texture_bits) & 0x3fffU;
         const uint32_t polygon_corner = (texture >> model_polygon_corner_shift) & 3U;
         const float* places = textures.data() + 4 * (drawn.textures + slot);
+        std::array<float, 3> local{};
+        if (drawn.root_prefix == 0) {
+            local = {positions[at], positions[at + 1], positions[at + 2]};
+        } else {
+            const auto& pose = root_prefix_poses[drawn.root_prefix - 1];
+            const auto point = oa::app::place_root_prefix_point(
+                root_prefix_points[pose.first_point + (place & 0xffffU)],
+                {pose.sine, pose.cosine},
+                {pose.placement[0], pose.placement[1], pose.placement[2]}
+            );
+            constexpr float fixed_scale = oa::app::root_prefix_fixed_scale;
+            local = {point.x / fixed_scale, point.y / fixed_scale, -(point.z / fixed_scale)};
+        }
         Vertex made{};
-        made.x = drawn.origin[0] + positions[at];
-        made.height = drawn.origin[1] + positions[at + 1];
-        made.z = drawn.origin[2] + positions[at + 2];
+        made.x = drawn.origin[0] + local[0];
+        made.height = drawn.origin[1] + local[1];
+        made.z = drawn.origin[2] + local[2];
         made.u = places[polygon_corner == 1 || polygon_corner == 2 ? 2 : 0];
         made.v = places[polygon_corner >= 2 ? 3 : 1];
         made.brightness = drawn.brightness;
@@ -2071,6 +2091,72 @@ struct ModelFrame {
         return out;
     }
 };
+
+/// Refuses malformed raw prefixes before opening any graphics device.
+void root_prefix_packet_validation() {
+    constexpr int32_t fixed = oa::app::root_prefix_fixed_scale;
+    ModelFrame models;
+    models.corners = {0, 0, 1, 0, 2, 0};
+    models.root_prefix_points = {{0, 0, 0}, {fixed, 0, 0}, {0, 0, -fixed}};
+    models.root_prefix_poses = {{0, 3, 0, root_prefix_coefficient_one, {}}};
+    models.piece_frames = {0};
+    models.textures = {0, 0, 1, 1};
+    models.indices = {0, 1, 2};
+    models.runs = {{0, 0, 3, 0}};
+    models.instances = {{0, 3, 0, 3, 0, 1, 0, 1, 1, {}, 1}};
+    Scene scene;
+    scene.context.device_unavailable = true;
+    const auto invoke = [&](const ModelFrame& frame) {
+        const auto draws = frame.draws(1);
+        return render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            small_target,
+            small_target,
+            classic_projection,
+            scene.pixels,
+            scene.error,
+            1,
+            nullptr,
+            nullptr,
+            nullptr,
+            {},
+            nullptr,
+            &draws
+        );
+    };
+    OA_CHECK(invoke(models) == Result::unavailable);
+    const auto refuses = [&](const auto& change) {
+        auto broken = models;
+        change(broken);
+        scene.pixels.assign(channels, full_channel);
+        OA_CHECK(invoke(broken) == Result::failed);
+        OA_CHECK(scene.pixels.empty() && !scene.error.empty());
+    };
+    refuses([](auto& frame) { frame.instances[0].root_prefix = 2; });
+    refuses([](auto& frame) { frame.instances[0].positions = 1; });
+    refuses([](auto& frame) { ++frame.instances[0].position_count; });
+    refuses([](auto& frame) { frame.root_prefix_poses.clear(); });
+    refuses([](auto& frame) { ++frame.root_prefix_poses[0].point_count; });
+    refuses([](auto& frame) { frame.root_prefix_poses[0].first_point = UINT32_MAX; });
+    refuses([](auto& frame) { frame.root_prefix_poses[0].point_count = 0; });
+    refuses([](auto& frame) { frame.root_prefix_poses[0].sine = root_prefix_coefficient_one + 1; });
+    refuses([](auto& frame) {
+        frame.root_prefix_poses[0].cosine = -root_prefix_coefficient_one - 1;
+    });
+    refuses([](auto& frame) {
+        frame.root_prefix_points[0].x = oa::app::root_prefix_coordinate_limit + 1;
+    });
+    refuses([](auto& frame) {
+        frame.root_prefix_poses[0].placement[0] = oa::app::root_prefix_local_limit + 1;
+    });
+    refuses([](auto& frame) { frame.root_prefix_poses[0].placement[2] = INT32_MIN; });
+    refuses([](auto& frame) { frame.instances[0].origin[0] = coordinate_limit; });
+}
 
 /// Validate origins and translated ranges before any graphics device is opened.
 void model_origin_validation() {
@@ -2995,6 +3081,196 @@ void card_shadows() {
 
 #include "shadow_index_backend_test.inc"
 #include "shadow_index_procedural_gpu_test.inc"
+
+/// Expands the integer policy with CPU wide products, independently of shader word arithmetic.
+ModelFrame materialized_root_prefixes(const ModelFrame& source) {
+    auto result = source;
+    constexpr float fixed_scale = oa::app::root_prefix_fixed_scale;
+    for (auto& instance : result.instances) {
+        if (instance.root_prefix == 0)
+            continue;
+        const auto& pose = source.root_prefix_poses[instance.root_prefix - 1];
+        instance.positions = static_cast<uint32_t>(result.positions.size() / 3);
+        for (const auto raw :
+             std::span{source.root_prefix_points}.subspan(pose.first_point, pose.point_count)) {
+            const auto point = oa::app::place_root_prefix_point(
+                raw,
+                {pose.sine, pose.cosine},
+                {pose.placement[0], pose.placement[1], pose.placement[2]}
+            );
+            result.positions.insert(
+                result.positions.end(),
+                {point.x / fixed_scale, point.y / fixed_scale, -(point.z / fixed_scale)}
+            );
+        }
+        instance.root_prefix = 0;
+    }
+    result.root_prefix_points.clear();
+    result.root_prefix_poses.clear();
+    return result;
+}
+
+/// Amplifies a fixed-coordinate unit to one pixel and checks the declared front winding.
+void root_prefix_models_readback() {
+    constexpr uint32_t edge = 48;
+    constexpr int32_t fixed = oa::app::root_prefix_fixed_scale;
+    constexpr float fixed_scale = fixed;
+    constexpr int32_t margin = 128;
+    constexpr int32_t limit = oa::app::root_prefix_coordinate_limit - margin;
+    constexpr std::array<uint16_t, 9> angles{0, 1, 1117, 8192, 16384, 24001, 32768, 49152, 65535};
+    constexpr std::array<std::array<int32_t, 2>, 4> centres{
+        {{limit, limit}, {-limit, limit}, {limit, -limit}, {-limit, -limit}}
+    };
+    constexpr std::array<float, 12> projection{
+        fixed_scale, 0, 0, 0, 0, 0, fixed_scale, 0, 0, 1, 0, 0
+    };
+    const std::array<Vertex, 3> outside{Vertex{-2, 0, -2}, Vertex{-1, 0, -2}, Vertex{-2, 0, -1}};
+    const std::array<uint8_t, 4> atlas{240, 80, 30, 255};
+    Context actual_context, expected_context;
+    std::vector<uint8_t> actual, expected, forward;
+    std::string error;
+    const auto draw =
+        [&](Context& context, const ModelFrame& model, uint32_t aa, std::vector<uint8_t>& pixels) {
+            const auto draws = model.draws(73);
+            return render(
+                context,
+                outside,
+                atlas,
+                1,
+                1,
+                1,
+                edge,
+                edge,
+                projection,
+                pixels,
+                error,
+                aa,
+                nullptr,
+                nullptr,
+                nullptr,
+                {},
+                nullptr,
+                &draws
+            );
+        };
+    for (const auto& centre : centres)
+        for (const auto word : angles) {
+            const auto rotation =
+                oa::app::prepare_root_prefix_rotation(std::bit_cast<int16_t>(word));
+            OA_CHECK(rotation.has_value());
+            if (!rotation)
+                continue;
+            const oa::app::RootPrefixPoint base{centre[0], 7, centre[1]};
+            const auto placed_base = oa::app::rotate_root_prefix_point(base, *rotation);
+            ModelFrame model;
+            model.corners = {0, 0, 1, 0, 2, 0};
+            model.root_prefix_points = {
+                base, {base.x + 16, base.y, base.z}, {base.x, base.y, base.z - 16}
+            };
+            model.root_prefix_poses = {
+                {0,
+                 3,
+                 rotation->sine,
+                 rotation->cosine,
+                 {-placed_base.x, -placed_base.y, -placed_base.z}}
+            };
+            model.piece_frames = {0};
+            model.textures = {0, 0, 1, 1};
+            model.indices = {0, 1, 2};
+            model.runs = {{0, 0, 3, 0}};
+            model.instances = {
+                {0, 3, 0, 3, 0, 1, 0, 1, 1, {24.25F / fixed_scale, 0, 24.25F / fixed_scale}, 1}
+            };
+            const auto reference = materialized_root_prefixes(model);
+            for (const uint32_t aa : {1U, 2U}) {
+                OA_CHECK(draw(actual_context, model, aa, actual) == Result::success);
+                OA_CHECK(draw(expected_context, reference, aa, expected) == Result::success);
+                OA_CHECK(!actual.empty() && actual == expected);
+                OA_CHECK(std::any_of(actual.begin(), actual.end(), [](uint8_t value) {
+                    return value == 240;
+                }));
+            }
+            // Large signed local values lose fixed-coordinate bits during
+            // binary32 conversion, before their independent origins are added.
+            if (centre == centres.front() && (word == 0 || word == 1117))
+                for (const int32_t shift :
+                     {1024 * fixed + 4, -1024 * fixed - 4, 2047 * fixed + 7, -2047 * fixed - 7}) {
+                    auto translated = model;
+                    translated.root_prefix_poses[0].placement[0] += shift;
+                    translated.root_prefix_poses[0].placement[2] -= shift;
+                    translated.instances[0].origin[0] -= shift / fixed_scale;
+                    translated.instances[0].origin[2] -= shift / fixed_scale;
+                    const auto translated_reference = materialized_root_prefixes(translated);
+                    OA_CHECK(draw(actual_context, translated, 1, actual) == Result::success);
+                    OA_CHECK(
+                        draw(expected_context, translated_reference, 1, expected) == Result::success
+                    );
+                    OA_CHECK(!actual.empty() && actual == expected);
+                }
+            if (word == 1117 && centre == centres.front()) {
+                forward = actual;
+                auto reversed = model;
+                std::swap(reversed.indices[1], reversed.indices[2]);
+                auto absent = reference;
+                absent.indices.clear();
+                absent.runs.clear();
+                OA_CHECK(draw(actual_context, reversed, 2, actual) == Result::success);
+                OA_CHECK(draw(expected_context, absent, 2, expected) == Result::success);
+                OA_CHECK(actual == expected && actual != forward);
+            }
+        }
+}
+
+/// Shared prefixes match CPU expansion in both shadow stages, including warm mixed runs.
+void root_prefix_shadows_readback() {
+    ProceduralShadowFixture fixture;
+    constexpr int32_t fixed = oa::app::root_prefix_fixed_scale;
+    for (std::size_t at = 0; at < fixture.ordinary.positions.size(); at += 3)
+        fixture.ordinary.root_prefix_points.push_back(
+            {static_cast<int32_t>(std::llrint(fixture.ordinary.positions[at] * fixed)),
+             static_cast<int32_t>(std::llrint(fixture.ordinary.positions[at + 1] * fixed)),
+             -static_cast<int32_t>(std::llrint(fixture.ordinary.positions[at + 2] * fixed))}
+        );
+    fixture.ordinary.positions.clear();
+    for (std::size_t at = 0; at < fixture.ordinary.instances.size(); ++at) {
+        const auto rotation =
+            oa::app::prepare_root_prefix_rotation(static_cast<int16_t>(1 + at * 1117));
+        OA_CHECK(rotation.has_value());
+        if (!rotation)
+            return;
+        fixture.ordinary.root_prefix_poses.push_back(
+            {0,
+             static_cast<uint32_t>(fixture.ordinary.root_prefix_points.size()),
+             rotation->sine,
+             rotation->cosine,
+             {}}
+        );
+        fixture.ordinary.instances[at].root_prefix = static_cast<uint32_t>(at + 1);
+    }
+    auto reference = fixture;
+    reference.ordinary = materialized_root_prefixes(fixture.ordinary);
+    Context native_context, indexed_context, procedural_context;
+    std::vector<uint8_t> expected, indexed, procedural;
+    std::string error;
+    for (const uint32_t aa : {1U, 2U})
+        for (uint32_t frame = 0; frame < 2; ++frame) {
+            OA_CHECK(
+                procedural_shadow_frame(native_context, reference, false, expected, error, aa) ==
+                Result::success
+            );
+            OA_CHECK(
+                procedural_shadow_frame(indexed_context, fixture, false, indexed, error, aa) ==
+                Result::success
+            );
+            OA_CHECK(
+                procedural_shadow_frame(procedural_context, fixture, true, procedural, error, aa) ==
+                Result::success
+            );
+            OA_CHECK(indexed == expected && procedural == expected);
+            if (frame != 0)
+                OA_CHECK(procedural_context.shadow_index_counts.mapping_uploaded_words != 0);
+        }
+}
 
 /// Scene policy preserves full composition and gives distant units stable,
 /// owner-coloured pixels through the ordinary retained GPU readback path.
@@ -4748,6 +5024,7 @@ void contained_ground_readback() {
 int main() {
     invalid_input();
     model_origin_validation();
+    root_prefix_packet_validation();
     shadow_index_stream_validation();
     shadow_index_procedural_validation();
     marker_packet_validation();
@@ -4772,6 +5049,8 @@ int main() {
         picture_on_card();
         card_models();
         card_shadows();
+        root_prefix_models_readback();
+        root_prefix_shadows_readback();
         shadow_index_stream_readback();
         shadow_index_procedural_readback();
         deferred_geometry_shadow_readback();

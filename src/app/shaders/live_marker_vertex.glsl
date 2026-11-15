@@ -39,8 +39,10 @@ layout(location = 3) out vec3 out_terrain;
 layout(location = 4) out vec2 out_terrain_fog;
 layout(location = 5) out vec3 out_world;
 layout(location = 6) out vec3 out_modulation;
+layout(location = 7) flat out uint out_model_flags;
 
 void main() {
+    out_model_flags = 0u;
     const float depth_limit = 65536.0;
     // gl_VertexIndex includes the draw's first vertex, so each run keeps
     // its place among the packets without changing their first word.

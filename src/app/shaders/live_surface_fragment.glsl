@@ -13,6 +13,7 @@
 layout(location = 0) in vec2 in_uv;
 layout(location = 1) in vec2 in_attenuation;
 layout(location = 5) in vec3 in_world;
+layout(location = 7) flat in uint in_model_flags;
 
 // The atlas, read by its nearest texel.
 layout(set = 2, binding = 0) uniform sampler2D atlas_nearest;
@@ -40,6 +41,9 @@ camera;
 layout(location = 0) out vec2 out_surface;
 
 void main() {
+    const uint model_cull_back_faces = 1u;
+    if ((in_model_flags & model_cull_back_faces) != 0u && !gl_FrontFacing)
+        discard;
     // A face whose opacity, and its atlas texel's alpha (0 to 255) times
     // it, reach one half is opaque to the lights; any other leaves what
     // lies behind it, and its depth hides nothing.

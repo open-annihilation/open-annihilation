@@ -4,6 +4,7 @@
 #include "bench_timers.hpp"
 #include "renderer_live_lights.hpp"
 #include "renderer_water_appearance.hpp"
+#include "root_prefix_geometry.hpp"
 #include "shadow_index_validation.hpp"
 #include "oa/present/game_text.hpp"
 
@@ -836,8 +837,8 @@ bool prepare_shadow_indices(
 }
 
 /// The words before the frame's draws in ModelResources::frame: the scene
-/// camera's first four rows, where each part of the draws begins, three
-/// unused words and the shadows' map's place.
+/// camera's first four rows, where each part of the draws begins, the root
+/// prefix descriptors and points, one unused word and the shadows' map's place.
 constexpr uint32_t model_frame_header_words = 28;
 /// The words of a shadow cast in ModelResources::frame: its instance and
 /// kind, its base, half its ground, its least height, its light, its depth
@@ -848,8 +849,12 @@ constexpr SDL_GPUTextureFormat shadow_map_format = SDL_GPU_TEXTUREFORMAT_R8_UNOR
 /// The shadows' map is made this many texels larger at a time.
 constexpr uint32_t shadow_map_step = 512;
 /// The words of an instance in ModelResources::frame: its type's corners,
-/// its vertices, pieces and textures, its brightness and world origin.
-constexpr uint32_t model_instance_words = 8;
+/// its vertices, pieces and textures, its brightness, world origin and prefix.
+constexpr uint32_t model_instance_words = 9;
+/// A prefix descriptor's source range, Q30 sine/cosine and fixed root placement.
+constexpr uint32_t root_prefix_pose_words = 7;
+static_assert(root_prefix_coefficient_one == root_prefix_rotation_scale);
+static_assert(sizeof(formats::objects3d::FixedVector3) == 3 * sizeof(uint32_t));
 /// A triangle corner's vertex, and a texture, in ModelDraws::corners; an
 /// index's corner in ModelDraws::indices.
 constexpr uint32_t model_vertex_mask = (1U << model_piece_shift) - 1;
@@ -861,6 +866,84 @@ constexpr uint32_t model_field_limit = 1U << 16;
 constexpr uint32_t model_texture_limit = 1U << model_texture_bits;
 /// The bits a position range's count occupies in its bounds-cache key.
 constexpr uint32_t position_count_bits = 32;
+
+/// Checks shared prefix points once and bounds every placed Q30 descriptor.
+/// @param models the frame's model packets
+/// @param[out] bounds each descriptor's float x/height/z minima then maxima
+/// @return false for invalid ranges, coefficients or the ordinary-unit domain
+bool root_prefix_bounds(const ModelDraws& models, std::vector<std::array<float, 6>>& bounds) {
+    if (models.root_prefix_poses.size() > largest_model_instance_count ||
+        models.root_prefix_points.size() > largest_vertex_count)
+        return false;
+    for (const auto point : models.root_prefix_points)
+        if (!root_prefix_detail::bounded_point(point))
+            return false;
+    std::unordered_map<uint64_t, RootPrefixBounds> source_bounds;
+    bounds.reserve(models.root_prefix_poses.size());
+    for (const auto& pose : models.root_prefix_poses) {
+        const RootPrefixRotation rotation{pose.sine, pose.cosine};
+        if (pose.point_count == 0 || pose.point_count > model_field_limit ||
+            pose.first_point > models.root_prefix_points.size() ||
+            pose.point_count > models.root_prefix_points.size() - pose.first_point ||
+            !root_prefix_detail::valid_rotation(rotation))
+            return false;
+        const uint64_t key = uint64_t{pose.first_point} << position_count_bits | pose.point_count;
+        const auto [found, inserted] = source_bounds.try_emplace(key);
+        auto& source = found->second;
+        if (inserted) {
+            source = {
+                models.root_prefix_points[pose.first_point],
+                models.root_prefix_points[pose.first_point]
+            };
+            for (const auto point :
+                 models.root_prefix_points.subspan(pose.first_point, pose.point_count)) {
+                source.low = {
+                    std::min(source.low.x, point.x),
+                    std::min(source.low.y, point.y),
+                    std::min(source.low.z, point.z)
+                };
+                source.high = {
+                    std::max(source.high.x, point.x),
+                    std::max(source.high.y, point.y),
+                    std::max(source.high.z, point.z)
+                };
+            }
+        }
+        std::array<int64_t, 3> low{
+            std::numeric_limits<int64_t>::max(),
+            int64_t{source.low.y} + pose.placement[1],
+            std::numeric_limits<int64_t>::max()
+        };
+        std::array<int64_t, 3> high{
+            std::numeric_limits<int64_t>::min(),
+            int64_t{source.high.y} + pose.placement[1],
+            std::numeric_limits<int64_t>::min()
+        };
+        for (const auto x : {source.low.x, source.high.x})
+            for (const auto z : {source.low.z, source.high.z}) {
+                const auto point = rotate_root_prefix_point({x, 0, z}, rotation);
+                const int64_t placed_x = int64_t{point.x} + pose.placement[0];
+                const int64_t placed_z = int64_t{point.z} + pose.placement[2];
+                low[0] = std::min(low[0], placed_x);
+                high[0] = std::max(high[0], placed_x);
+                low[2] = std::min(low[2], placed_z);
+                high[2] = std::max(high[2], placed_z);
+            }
+        for (std::size_t axis = 0; axis < low.size(); ++axis)
+            if (low[axis] < -root_prefix_local_limit || high[axis] > root_prefix_local_limit)
+                return false;
+        constexpr float fixed_scale = root_prefix_fixed_scale;
+        bounds.push_back(
+            {static_cast<float>(low[0]) / fixed_scale,
+             static_cast<float>(low[1]) / fixed_scale,
+             -(static_cast<float>(high[2]) / fixed_scale),
+             static_cast<float>(high[0]) / fixed_scale,
+             static_cast<float>(high[1]) / fixed_scale,
+             -(static_cast<float>(low[2]) / fixed_scale)}
+        );
+    }
+    return true;
+}
 
 /// Whether a frame's model draws hold together: every instance's ranges in
 /// their lists and within the fields' limits, every corner of its type
@@ -887,6 +970,9 @@ bool valid_model_draws(
     const std::size_t corner_count = models.corners.size() / 2;
     const std::size_t position_count = models.positions.size() / 3;
     const std::size_t texture_count = models.textures.size() / 4;
+    std::vector<std::array<float, 6>> prefix_bounds;
+    if (!root_prefix_bounds(models, prefix_bounds))
+        return false;
     const auto within = [](std::size_t first, std::size_t count, std::size_t size) {
         return first <= size && count <= size - first;
     };
@@ -921,7 +1007,9 @@ bool valid_model_draws(
     std::vector<TypeReach> types;
     for (const auto& instance : models.instances) {
         if (!within(instance.corners, instance.corner_count, corner_count) ||
-            !within(instance.positions, instance.position_count, position_count) ||
+            instance.root_prefix > models.root_prefix_poses.size() ||
+            (instance.root_prefix == 0 &&
+             !within(instance.positions, instance.position_count, position_count)) ||
             !within(instance.pieces, instance.piece_count, models.piece_frames.size()) ||
             !within(instance.textures, instance.texture_count, texture_count) ||
             instance.corner_count > model_field_limit ||
@@ -930,17 +1018,34 @@ bool valid_model_draws(
             instance.texture_count > model_texture_limit ||
             !(instance.brightness >= 0 && instance.brightness <= 1))
             return false;
+        const auto* prefix =
+            instance.root_prefix == 0 ? nullptr : &prefix_bounds[instance.root_prefix - 1];
+        if (prefix != nullptr &&
+            (instance.positions != 0 ||
+             instance.position_count !=
+                 models.root_prefix_poses[instance.root_prefix - 1].point_count))
+            return false;
         uint32_t origin_valid = 1;
         uint32_t all_within = 1;
         for (std::size_t axis = 0; axis < instance.origin.size(); ++axis) {
             const float origin = instance.origin[axis];
             origin_valid &= inside(origin, -coordinate_limit, coordinate_limit);
-            all_within &= inside(origin + all_low[axis], -coordinate_limit, coordinate_limit) &
-                          inside(origin + all_high[axis], -coordinate_limit, coordinate_limit);
+            all_within &= inside(
+                              origin + (prefix ? (*prefix)[axis] : all_low[axis]),
+                              -coordinate_limit,
+                              coordinate_limit
+                          ) &
+                          inside(
+                              origin + (prefix ? (*prefix)[axis + 3] : all_high[axis]),
+                              -coordinate_limit,
+                              coordinate_limit
+                          );
         }
         if (origin_valid == 0)
             return false;
         if (all_within == 0 && instance.position_count != 0) {
+            if (prefix != nullptr)
+                return false;
             const uint64_t key =
                 uint64_t{instance.positions} << position_count_bits | instance.position_count;
             const auto [found, inserted] = position_bounds.try_emplace(key);
@@ -1100,6 +1205,8 @@ bool make_model_pipelines(
     auto info = scene;
     info.vertex_shader = models.vertex_shader;
     info.vertex_input_state = SDL_GPUVertexInputState{};
+    info.rasterizer_state.front_face = SDL_GPU_FRONTFACE_CLOCKWISE;
+    info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
     models.pipeline = SDL_CreateGPUGraphicsPipeline(device, &info);
     if (!models.pipeline)
         return false;
@@ -1544,7 +1651,9 @@ bool prepare_models(
     models.frame_bytes = words(
         model_frame_header_words + instance_words + draws.positions.size() +
         draws.piece_frames.size() + draws.textures.size() + draws.casts.size() * shadow_cast_words +
-        draws.markers.size() * 16 + models.shadow_lookup.size() + models.shadow_local.size()
+        draws.markers.size() * 16 + draws.root_prefix_poses.size() * root_prefix_pose_words +
+        draws.root_prefix_points.size() * 3 + models.shadow_lookup.size() +
+        models.shadow_local.size()
     );
     models.index_bytes = uint32_t(draws.indices.size_bytes() + shadow_indices.size_bytes());
     if (!procedural && !draws.casts.empty() && !prepare_shadows(models.shadows, draws.shadow_map))
@@ -1595,12 +1704,18 @@ bool prepare_models(
     const uint32_t piece_frames = positions + uint32_t(draws.positions.size());
     const uint32_t textures = piece_frames + uint32_t(draws.piece_frames.size());
     const uint32_t casts = textures + uint32_t(draws.textures.size());
+    const uint32_t root_prefix_poses = casts + uint32_t(draws.casts.size()) * shadow_cast_words +
+                                       uint32_t(draws.markers.size()) * 16;
+    const uint32_t root_prefix_points =
+        root_prefix_poses + uint32_t(draws.root_prefix_poses.size()) * root_prefix_pose_words;
     frame[camera_rows] = 0;
     frame[camera_rows + 1] = positions;
     frame[camera_rows + 2] = piece_frames;
     frame[camera_rows + 3] = textures;
     frame[camera_rows + 4] = casts;
-    frame[camera_rows + 5] = frame[camera_rows + 6] = frame[camera_rows + 7] = 0;
+    frame[camera_rows + 5] = root_prefix_poses;
+    frame[camera_rows + 6] = root_prefix_points;
+    frame[camera_rows + 7] = 0;
     const auto place =
         draws.casts.empty() ? std::array<float, 4>{} : shadow_map_place(draws.shadow_map);
     std::memcpy(frame + camera_rows + 8, place.data(), sizeof(place));
@@ -1614,7 +1729,8 @@ bool prepare_models(
             std::bit_cast<uint32_t>(instance.brightness),
             std::bit_cast<uint32_t>(instance.origin[0]),
             std::bit_cast<uint32_t>(instance.origin[1]),
-            std::bit_cast<uint32_t>(instance.origin[2])
+            std::bit_cast<uint32_t>(instance.origin[2]),
+            instance.root_prefix
         };
         at = std::copy(record.begin(), record.end(), at);
     }
@@ -1645,6 +1761,21 @@ bool prepare_models(
     if (!draws.markers.empty())
         std::memcpy(at, draws.markers.data(), draws.markers.size_bytes());
     at += draws.markers.size() * 16;
+    for (const auto& pose : draws.root_prefix_poses) {
+        const std::array<uint32_t, root_prefix_pose_words> record{
+            pose.first_point,
+            pose.point_count,
+            std::bit_cast<uint32_t>(pose.sine),
+            std::bit_cast<uint32_t>(pose.cosine),
+            std::bit_cast<uint32_t>(pose.placement[0]),
+            std::bit_cast<uint32_t>(pose.placement[1]),
+            std::bit_cast<uint32_t>(pose.placement[2])
+        };
+        at = std::copy(record.begin(), record.end(), at);
+    }
+    if (!draws.root_prefix_points.empty())
+        std::memcpy(at, draws.root_prefix_points.data(), draws.root_prefix_points.size_bytes());
+    at += draws.root_prefix_points.size() * 3;
     models.shadow_lookup_word = static_cast<uint32_t>(at - frame - model_frame_header_words);
     models.shadow_local_word =
         models.shadow_lookup_word + static_cast<uint32_t>(models.shadow_lookup.size());
@@ -2175,8 +2306,10 @@ bool model_upload_fits(const ModelDraws& draws) noexcept {
                                   ? draws.logical_shadow_index_count
                                   : draws.cast_indices.size();
     return add(draws.corners.size()) && add(draws.instances.size(), model_instance_words) &&
-           add(draws.positions.size()) && add(draws.piece_frames.size()) &&
-           add(draws.textures.size()) && add(draws.casts.size(), shadow_cast_words) &&
+           add(draws.root_prefix_poses.size(), root_prefix_pose_words) &&
+           add(draws.root_prefix_points.size(), 3) && add(draws.positions.size()) &&
+           add(draws.piece_frames.size()) && add(draws.textures.size()) &&
+           add(draws.casts.size(), shadow_cast_words) &&
            add(draws.markers.size(), sizeof(MarkerInstance) / sizeof(uint32_t)) &&
            add(draws.indices.size()) && add(shadow_words) &&
            (draws.shadow_index_encoding != ShadowIndexEncoding::procedural ||

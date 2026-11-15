@@ -8,6 +8,8 @@
 #include "renderer_water.hpp"
 #include "shadow_index_counts.hpp"
 
+#include "oa/formats/objects3d.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -181,6 +183,21 @@ struct KeptGround {
     std::size_t next_count{}; ///< the vertices to send this frame
 };
 
+/// One in signed Q30, used by the root-prefix rotation coefficients.
+inline constexpr int32_t root_prefix_coefficient_one = int32_t{1} << 30;
+
+/// An owned zero-XZ prefix's point range, final XZ turn and root placement.
+/// Points have no root placement; sine and cosine use signed Q30. Rotation
+/// rounds each coordinate to the nearest fixed integer, ties to even, before
+/// placement adds with 32-bit wrapping. World origin remains on the instance.
+struct RootPrefixPose {
+    uint32_t first_point{};
+    uint32_t point_count{};
+    int32_t sine{};
+    int32_t cosine{root_prefix_coefficient_one};
+    std::array<int32_t, 3> placement{};
+};
+
 /// A unit or feature render() draws from its type's model on the card
 /// (ModelDraws): where its type's triangle corners, its vertices, its
 /// pieces' frames and its textures lie, and its light.
@@ -196,6 +213,10 @@ struct ModelInstance {
     float brightness{1};       ///< RGB multiplier in [0,1], each corner's
     /// World x, height and z added to its positions; zero keeps world positions.
     std::array<float, 3> origin{};
+    /// Zero selects posed float positions; otherwise one plus its root-prefix
+    /// descriptor in ModelDraws::root_prefix_poses. The same type-local point
+    /// ordinals name that descriptor's compact source range.
+    uint32_t root_prefix{};
 };
 
 /// Model draws render() draws together, before one of the frame's vertices:
@@ -400,6 +421,10 @@ struct ModelDraws {
     /// One source for every cast in procedural mode. Runs retain their original
     /// first_cast/cast_count/index_count, with first_index and pattern both zero.
     std::span<const ShadowIndexCast> shadow_index_casts{};
+    /// Owned signed fixed XYZ, shared once per retained prefix and model type.
+    /// Every point has its old root placement removed before it is published.
+    std::span<const formats::objects3d::FixedVector3> root_prefix_points{};
+    std::span<const RootPrefixPose> root_prefix_poses{};
 };
 
 /// Whether render() draws model draws on the card: once a frame has made
