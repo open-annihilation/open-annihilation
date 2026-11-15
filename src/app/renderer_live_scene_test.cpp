@@ -9806,8 +9806,11 @@ void underwater_features() {
 #include "shadow_index_templates_test.inc"
 #include "shadow_index_procedural_scene_test.inc"
 #include "physical_model_multirange_test.inc"
+#include "omitted_model_snapshots_test.inc"
 
 int main() {
+    omitted_model_snapshots();
+    omitted_model_material_retries();
     interior_model_cull_tests();
     body_detail_pose_geometry();
     body_lod_geometry_tests();

@@ -7162,6 +7162,14 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
         }
     }
     for (std::size_t draw_index = first; draw_index < last; ++draw_index) {
+        // A nondrawn model changes only the retry snapshot. Keep the final
+        // snapshot of this range; the next actual draw replaces earlier ones.
+        if (in.body_lod_enabled && draw_index < in.draws->models.size() &&
+            !in.draws->models[draw_index].plan.linked.drawn) {
+            if (draw_index == last - 1)
+                begin_draw(pass, draw_index);
+            continue;
+        }
         begin_draw(pass, draw_index);
         if (draw_index >= in.draws->models.size()) {
             strategic_marker(
