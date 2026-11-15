@@ -1025,7 +1025,7 @@ renderer_live_gpu::ModelDraws card_draws(const CardTypes& types, const ModelCard
     const auto& shadow = cards.shadow_indices;
     if (shadow.enabled) {
         draws.shadow_index_encoding = shadow.procedural ? gpu::ShadowIndexEncoding::procedural
-                                                       : gpu::ShadowIndexEncoding::compact;
+                                                        : gpu::ShadowIndexEncoding::compact;
         draws.shadow_index_runs = shadow.runs;
         draws.shadow_dynamic_indices = shadow.indices;
         draws.logical_shadow_index_count = shadow.logical_indices;

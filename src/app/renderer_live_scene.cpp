@@ -6532,8 +6532,8 @@ void cast_on_card(
             if (compact.procedural) {
                 if (compact.casts.size() != cast)
                     throw std::runtime_error("Incomplete procedural shadow cast sources");
-                if (compact.runs.empty() || cast - compact.runs.back().first_cast >=
-                                                renderer_live_gpu::model_run_instances)
+                if (compact.runs.empty() ||
+                    cast - compact.runs.back().first_cast >= renderer_live_gpu::model_run_instances)
                     compact.runs.push_back({0, cast, 0, 0, 0, 0});
                 auto& run = compact.runs.back();
                 const auto first_index = compact.indices.size();
@@ -6552,18 +6552,16 @@ void cast_on_card(
                             piece_mask
                         )) {
                         for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
-                            if (type.body_detail &&
-                                (piece >= body_lod_piece_limit ||
-                                 (piece_mask & (uint64_t{1} << piece)) == 0))
+                            if (type.body_detail && (piece >= body_lod_piece_limit ||
+                                                     (piece_mask & (uint64_t{1} << piece)) == 0))
                                 continue;
                             const auto flags = pieces[piece].flags;
                             const bool cached =
-                                (flags & static_cast<uint16_t>(
-                                             sim::model_runtime::PieceFlag::cached
-                                         )) != 0;
-                            if ((flags & static_cast<uint16_t>(
-                                             sim::model_runtime::PieceFlag::visible
-                                         )) == 0 ||
+                                (flags &
+                                 static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0;
+                            if ((flags &
+                                 static_cast<uint16_t>(sim::model_runtime::PieceFlag::visible)) ==
+                                    0 ||
                                 (!cached && (cached_only || !every_piece)))
                                 continue;
                             for (auto at = type.piece_polygons[piece];
@@ -9793,9 +9791,8 @@ void trim_parallel_model_lists(const ParallelModelRange& range, bool release = f
             holds(cards.units) && holds(cards.markers) && holds(cards.marker_runs) &&
             holds(cards.casts) && holds(cards.cast_indices) && holds(cards.cast_runs) &&
             holds(cards.shadow_indices.indices) && holds(cards.shadow_indices.runs) &&
-            holds(cards.shadow_indices.casts) &&
-            holds(cards.poses) && holds(cards.pose_points) && holds(cards.pose_slots) &&
-            holds(cards.recent_poses);
+            holds(cards.shadow_indices.casts) && holds(cards.poses) && holds(cards.pose_points) &&
+            holds(cards.pose_slots) && holds(cards.recent_poses);
         if (!bounded)
             list = {};
     }
