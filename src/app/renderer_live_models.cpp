@@ -602,7 +602,7 @@ void remember_shadow_index_key(ShadowIndexStream& stream, ShadowIndexKey key) no
 }
 
 bool materialize_shadow_index_run(ShadowIndexStream& stream, std::size_t named) {
-    if (named >= stream.runs.size())
+    if (stream.procedural || named >= stream.runs.size())
         return false;
     auto& run = stream.runs[named];
     if (run.pattern == 0)
@@ -657,9 +657,11 @@ void clear_cards(ModelCards& cards) noexcept {
     forget_poses(cards);
     auto& shadow = cards.shadow_indices;
     shadow.enabled = false;
+    shadow.procedural = false;
     shadow.patterns.reset();
     shadow.indices.clear();
     shadow.runs.clear();
+    shadow.casts.clear();
     shadow.logical_indices = 0;
     shadow.candidate_count = 0;
 }
@@ -689,7 +691,8 @@ void mark_cards(ModelCards& cards) noexcept {
         shadow.runs.size(),
         shadow.logical_indices,
         shadow.candidate_count,
-        shadow.runs.empty() ? gpu::ShadowIndexRun{} : shadow.runs.back()
+        shadow.runs.empty() ? gpu::ShadowIndexRun{} : shadow.runs.back(),
+        shadow.casts.size()
     };
 }
 
@@ -719,6 +722,7 @@ void unmark_cards(ModelCards& cards) noexcept {
     const auto& shadow_mark = mark.shadow_indices;
     shadow.indices.resize(shadow_mark.indices);
     shadow.runs.resize(shadow_mark.runs);
+    shadow.casts.resize(shadow_mark.casts);
     shadow.logical_indices = shadow_mark.logical_indices;
     shadow.candidate_count = shadow_mark.candidates;
     if (!shadow.runs.empty())
@@ -1020,10 +1024,13 @@ renderer_live_gpu::ModelDraws card_draws(const CardTypes& types, const ModelCard
     draws.marker_uv = cards.marker_uv;
     const auto& shadow = cards.shadow_indices;
     if (shadow.enabled) {
-        draws.shadow_index_encoding = gpu::ShadowIndexEncoding::compact;
+        draws.shadow_index_encoding = shadow.procedural ? gpu::ShadowIndexEncoding::procedural
+                                                       : gpu::ShadowIndexEncoding::compact;
         draws.shadow_index_runs = shadow.runs;
         draws.shadow_dynamic_indices = shadow.indices;
         draws.logical_shadow_index_count = shadow.logical_indices;
+        if (shadow.procedural)
+            draws.shadow_index_casts = shadow.casts;
         if (shadow.patterns) {
             draws.shadow_patterns = shadow.patterns->patterns;
             draws.shadow_pattern_indices = shadow.patterns->indices;

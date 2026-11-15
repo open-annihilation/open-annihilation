@@ -6413,7 +6413,8 @@ bool append_shadow_corner_runs(
 /// Short pending runs retain the ordinary dynamic representation.
 void finish_shadow_index_run(ModelCards& cards) {
     auto& stream = cards.shadow_indices;
-    if (stream.enabled && !stream.runs.empty() && stream.runs.back().pattern != 0 &&
+    if (stream.enabled && !stream.procedural && !stream.runs.empty() &&
+        stream.runs.back().pattern != 0 &&
         stream.runs.back().cast_count < renderer_live_gpu::shadow_template_minimum_casts &&
         !materialize_shadow_index_run(stream, stream.runs.size() - 1))
         throw std::runtime_error("Invalid pending shadow index pattern");
@@ -6527,6 +6528,69 @@ void cast_on_card(
             const auto warm = eligible ? shadow_index_pattern(compact, key) : 0;
             if (eligible && warm == 0)
                 remember_shadow_index_key(compact, key);
+            if (compact.procedural) {
+                if (compact.casts.size() != cast)
+                    throw std::runtime_error("Incomplete procedural shadow cast sources");
+                if (compact.runs.empty() || cast - compact.runs.back().first_cast >=
+                                                renderer_live_gpu::model_run_instances)
+                    compact.runs.push_back({0, cast, 0, 0, 0, 0});
+                auto& run = compact.runs.back();
+                const auto first_index = compact.indices.size();
+                std::size_t count{};
+                if (warm != 0) {
+                    count = compact.patterns->patterns[warm - 1].indices_per_cast;
+                } else {
+                    if (!append_shadow_corner_runs(
+                            compact.indices,
+                            type,
+                            pieces,
+                            0,
+                            every_piece,
+                            cached_only,
+                            walls,
+                            piece_mask
+                        )) {
+                        for (std::size_t piece = 0; piece < pieces.size(); ++piece) {
+                            if (type.body_detail &&
+                                (piece >= body_lod_piece_limit ||
+                                 (piece_mask & (uint64_t{1} << piece)) == 0))
+                                continue;
+                            const auto flags = pieces[piece].flags;
+                            const bool cached =
+                                (flags & static_cast<uint16_t>(
+                                             sim::model_runtime::PieceFlag::cached
+                                         )) != 0;
+                            if ((flags & static_cast<uint16_t>(
+                                             sim::model_runtime::PieceFlag::visible
+                                         )) == 0 ||
+                                (!cached && (cached_only || !every_piece)))
+                                continue;
+                            for (auto at = type.piece_polygons[piece];
+                                 at < type.piece_polygons[piece + 1];
+                                 ++at) {
+                                const auto& polygon = type.polygons[at];
+                                if (!walls && polygon.colored && polygon.color == model::image_key)
+                                    continue;
+                                for (uint32_t corner = 0; corner < (polygon.corners - 2) * 3;
+                                     ++corner)
+                                    compact.indices.push_back(polygon.record + corner);
+                            }
+                        }
+                    }
+                    count = compact.indices.size() - first_index;
+                }
+                if (count > maximum_vertices - std::min(maximum_vertices, compact.logical_indices))
+                    throw GeometryFull();
+                compact.casts.push_back(
+                    {warm == 0 ? static_cast<uint32_t>(first_index) : 0,
+                     static_cast<uint32_t>(count),
+                     warm}
+                );
+                ++run.cast_count;
+                run.index_count += static_cast<uint32_t>(count);
+                compact.logical_indices += count;
+                return;
+            }
             if (compact.runs.empty() ||
                 cast - compact.runs.back().first_cast >= renderer_live_gpu::model_run_instances) {
                 finish_shadow_index_run(cards);
@@ -7032,12 +7096,17 @@ void marker_range(
 /// @param last the draw after the last
 void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     auto& list = pass.list;
-    if (in.shadow_index_templates && in.models_on_card && !list.cards.shadow_indices.enabled) {
+    if ((in.shadow_index_templates || in.shadow_index_procedural) && in.models_on_card &&
+        !list.cards.shadow_indices.enabled) {
         if (!list.cards.cast_indices.empty() || !list.cards.cast_runs.empty())
             throw std::runtime_error("Mixed shadow index representations in one pass");
         list.cards.shadow_indices.enabled = true;
+        list.cards.shadow_indices.procedural = in.shadow_index_procedural;
         list.cards.shadow_indices.patterns = pass.scene.card_types.shadow_patterns;
     }
+    if (list.cards.shadow_indices.enabled &&
+        list.cards.shadow_indices.procedural != in.shadow_index_procedural)
+        throw std::runtime_error("Mixed shadow index representations in one pass");
     std::size_t reflection_budget = reflection_vertex_allowance;
     std::array<std::optional<AtlasRect>, 256> colors;
     std::unordered_map<const Sprite*, AtlasRect> textures;
@@ -9723,6 +9792,7 @@ void trim_parallel_model_lists(const ParallelModelRange& range, bool release = f
             holds(cards.units) && holds(cards.markers) && holds(cards.marker_runs) &&
             holds(cards.casts) && holds(cards.cast_indices) && holds(cards.cast_runs) &&
             holds(cards.shadow_indices.indices) && holds(cards.shadow_indices.runs) &&
+            holds(cards.shadow_indices.casts) &&
             holds(cards.poses) && holds(cards.pose_points) && holds(cards.pose_slots) &&
             holds(cards.recent_poses);
         if (!bounded)
@@ -9865,7 +9935,7 @@ void run_passes(const Inputs& in, Scene& scene, bool ground_kept, std::size_t ah
     const bool timing = bench_timers::timers.on;
     trim_card_types(scene.card_types);
     find_card_types(in, scene.card_types);
-    if (in.shadow_index_templates && in.models_on_card)
+    if ((in.shadow_index_templates || in.shadow_index_procedural) && in.models_on_card)
         prepare_shadow_index_patterns(scene.card_types);
     verify_preplanned_omissions(in, scene.card_types);
     verify_geometry_shadow_metadata(in, scene.card_types);
