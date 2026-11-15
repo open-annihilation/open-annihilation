@@ -10075,6 +10075,88 @@ void root_prefix_scene_admission() {
     supported(true);
 }
 
+/// Refuses incomplete terrain before a recipe can sample the height grid.
+void root_prefix_scene_incomplete_terrain() {
+    RootPrefixSceneFixture fixture;
+    auto& battle = fixture.battle;
+    const auto& draw = battle.draws.models[0];
+    const auto record = fixture.unit;
+    const auto revision = fixture.instance.materialization_revision();
+    const auto attributes = battle.map.attributes;
+    battle.map.attributes.clear();
+    OA_CHECK(!live::root_prefix_supported(battle.inputs, draw, fixture.recipe));
+    OA_CHECK(!live::build(battle.inputs, battle.scene, battle.error));
+    OA_CHECK(!battle.error.empty());
+    OA_CHECK(std::memcmp(&fixture.unit, &record, sizeof(record)) == 0);
+    OA_CHECK(fixture.instance.materialization_revision() == revision);
+    for (const auto& piece : fixture.instance.pieces())
+        OA_CHECK(piece.transformed_vertices.empty());
+    battle.map.attributes = attributes;
+    OA_CHECK(live::root_prefix_supported(battle.inputs, draw, fixture.recipe));
+}
+
+/// Matches GPU qualification of the complete raw box, including hidden pieces.
+void root_prefix_scene_conservative_admission() {
+    constexpr int32_t fixed = oa::app::root_prefix_fixed_scale;
+    RootPrefixSceneFixture correlated(2, 8192);
+    auto geometry = std::make_shared<oa::app::RootPrefixGeometry>(*correlated.recipe.geometry);
+    // The individual boxes lie on the same diagonal, so rotating each keeps
+    // its X extent small. The complete raw box also contains the opposite
+    // corners, whose rotated X extent cannot fit this root placement.
+    for (size_t piece = 0; piece < geometry->objects.size(); ++piece) {
+        auto& bounds = geometry->piece_bounds[piece];
+        const int32_t center = (piece == 0 ? 480 : -480) * fixed;
+        const int32_t dx = center - (bounds.low.x + (bounds.high.x - bounds.low.x) / 2);
+        const int32_t dz = center - (bounds.low.z + (bounds.high.z - bounds.low.z) / 2);
+        for (auto point = geometry->piece_vertices[piece];
+             point < geometry->piece_vertices[piece + 1];
+             ++point) {
+            geometry->points[point].x += dx;
+            geometry->points[point].z += dz;
+        }
+        bounds.low.x += dx;
+        bounds.high.x += dx;
+        bounds.low.z += dz;
+        bounds.high.z += dz;
+    }
+    correlated.recipe.geometry = geometry;
+    correlated.recipe.placement.x = 2000 * fixed;
+    correlated.battle.draws.models[0].root_prefix = correlated.recipe;
+    for (uint32_t piece = 0; piece < geometry->objects.size(); ++piece)
+        OA_CHECK(oa::app::root_prefix_piece_bounds(correlated.recipe, piece).has_value());
+    const auto opposite_corner = oa::app::place_root_prefix_point(
+        {geometry->piece_bounds[0].high.x, 0, geometry->piece_bounds[1].low.z},
+        correlated.recipe.rotation,
+        correlated.recipe.placement
+    );
+    OA_CHECK(opposite_corner.x > oa::app::root_prefix_local_limit);
+    OA_CHECK(!live::root_prefix_supported(
+        correlated.battle.inputs, correlated.battle.draws.models[0], correlated.recipe
+    ));
+
+    RootPrefixSceneFixture hidden(2, 0);
+    geometry = std::make_shared<oa::app::RootPrefixGeometry>(*hidden.recipe.geometry);
+    for (auto point = geometry->piece_vertices[1]; point < geometry->piece_vertices[2]; ++point)
+        geometry->points[point].x += 480 * fixed;
+    geometry->piece_bounds[1].low.x += 480 * fixed;
+    geometry->piece_bounds[1].high.x += 480 * fixed;
+    hidden.recipe.geometry = geometry;
+    hidden.battle.draws.models[0].root_prefix = hidden.recipe;
+    hidden.instance.pieces()[1].flags &=
+        ~static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
+    hidden.unit.position.x = 32760 * fixed;
+    const auto visible_box = oa::app::root_prefix_piece_bounds(hidden.recipe, 0);
+    const auto hidden_box = oa::app::root_prefix_piece_bounds(hidden.recipe, 1);
+    OA_CHECK(visible_box && hidden_box);
+    if (visible_box && hidden_box) {
+        OA_CHECK(int64_t{hidden.unit.position.x} + visible_box->high.x < int64_t{32768} * fixed);
+        OA_CHECK(int64_t{hidden.unit.position.x} + hidden_box->high.x > int64_t{32768} * fixed);
+    }
+    OA_CHECK(!live::root_prefix_supported(
+        hidden.battle.inputs, hidden.battle.draws.models[0], hidden.recipe
+    ));
+}
+
 /// Restores every packet range and memo when a material retry truncates a draw.
 void root_prefix_scene_card_rollback() {
     RootPrefixSceneFixture fixture;
@@ -10104,6 +10186,49 @@ void root_prefix_scene_card_rollback() {
     live::clear_cards(cards);
     OA_CHECK(cards.root_prefix_points.empty() && cards.root_prefix_poses.empty());
     OA_CHECK(cards.root_prefix_recipes.empty() && cards.root_prefix_ranges.empty());
+}
+
+/// A saturated lookup keeps rendering distinct owners through uncached packets.
+void root_prefix_scene_memo_saturation() {
+    RootPrefixSceneFixture fixture;
+    live::CardTypes types;
+    const auto type_index = live::card_type(types, fixture.instance, fixture.prepared);
+    OA_CHECK(type_index >= 0);
+    if (type_index < 0)
+        return;
+    const auto& type = types.types[static_cast<size_t>(type_index)];
+    live::ModelCards cards;
+    OA_CHECK(
+        live::card_root_prefix(cards, static_cast<uint32_t>(type_index), type, fixture.recipe) == 0
+    );
+    OA_CHECK(cards.root_prefix_ranges.size() == 1 && cards.root_prefix_slots.size() == 2048);
+    const auto points = cards.root_prefix_points.size();
+    std::fill(cards.root_prefix_slots.begin(), cards.root_prefix_slots.end(), 1);
+    auto next = fixture.recipe;
+    next.geometry = std::make_shared<oa::app::RootPrefixGeometry>(*fixture.recipe.geometry);
+    OA_CHECK(live::card_root_prefix(cards, static_cast<uint32_t>(type_index), type, next) == 1);
+    OA_CHECK(cards.root_prefix_ranges.size() == 1);
+    OA_CHECK(cards.root_prefix_points.size() == points * 2);
+    OA_CHECK(cards.root_prefix_poses.size() == 2 && cards.root_prefix_recipes.size() == 2);
+    if (cards.root_prefix_poses.size() == 2) {
+        OA_CHECK(cards.root_prefix_poses[1].first_point == points);
+        OA_CHECK(cards.root_prefix_poses[1].point_count == points);
+        OA_CHECK(cards.root_prefix_recipes[1].geometry == next.geometry);
+        OA_CHECK(
+            std::memcmp(
+                cards.root_prefix_points.data(),
+                cards.root_prefix_points.data() + points,
+                points * sizeof(cards.root_prefix_points[0])
+            ) == 0
+        );
+    }
+    OA_CHECK(
+        std::all_of(
+            cards.root_prefix_slots.begin(), cards.root_prefix_slots.end(), [](uint32_t slot) {
+                return slot == 1;
+            }
+        )
+    );
 }
 
 /// Preserves lazy corners while joining mixed and repeated prefix bands.
@@ -10182,7 +10307,10 @@ int main() {
     root_prefix_scene_clear_geometry();
     root_prefix_scene_virtual_image_frames();
     root_prefix_scene_admission();
+    root_prefix_scene_incomplete_terrain();
+    root_prefix_scene_conservative_admission();
     root_prefix_scene_card_rollback();
+    root_prefix_scene_memo_saturation();
     root_prefix_scene_parallel_packets();
     omitted_model_snapshots();
     omitted_model_material_retries();
