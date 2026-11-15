@@ -5447,6 +5447,49 @@ bool body_materials_ready(const Inputs& in, const CardType& type, const Unit& un
     return true;
 }
 
+/// Material results owned by one read-only detail-planning range. They are
+/// discarded before atlas packing, texture animation or another build can run.
+struct BodyMaterialMemo {
+    struct Entry {
+        const CardType* type{};
+        uint8_t team{};
+        bool ready{};
+    };
+
+    static constexpr std::size_t capacity = 128;
+    std::array<Entry, capacity> entries{};
+};
+
+/// Reuses only a live model library entry's result for this immutable range.
+/// An occupied different key or an unknown owner keeps the ordinary check.
+bool body_materials_ready(
+    const Inputs& in,
+    const CardType& type,
+    uint32_t type_index,
+    const Unit& unit,
+    BodyMaterialMemo& memo
+) {
+    const auto team = in.team_colors[unit.owner_index % in.team_colors.size()];
+    const auto at = (std::size_t{type_index} * 37 + std::size_t{team} * 13) % memo.capacity;
+    auto& entry = memo.entries[at];
+    if (entry.type != nullptr) {
+        if (entry.type == &type && entry.team == team)
+            return entry.ready;
+        return body_materials_ready(in, type, unit);
+    }
+    if (type.prepared == nullptr || type.prepared->model == nullptr)
+        return body_materials_ready(in, type, unit);
+    const auto owner = type.prepared->owner.lock();
+    const auto model_owner = type.model.lock();
+    if (!owner || !model_owner || owner.get() != type.prepared->model ||
+        model_owner.get() != type.prepared->model || type.model.owner_before(owner) ||
+        owner.owner_before(type.model))
+        return body_materials_ready(in, type, unit);
+    const bool ready = body_materials_ready(in, type, unit);
+    entry = {&type, team, ready};
+    return ready;
+}
+
 /// Leaves models reached by construction light on their original lit path.
 bool body_light_near(
     const Inputs& in, const std::array<float, 3>& low, const std::array<float, 3>& high
@@ -5505,7 +5548,8 @@ void plan_body_detail(
     std::size_t index,
     UnitDetail& detail,
     const std::array<float, 3>& low,
-    const std::array<float, 3>& high
+    const std::array<float, 3>& high,
+    BodyMaterialMemo& materials
 ) {
     if (!in.body_lod_enabled || !in.models_on_card ||
         in.draws->models.size() >= renderer_live_gpu::largest_model_instance_count ||
@@ -5520,7 +5564,10 @@ void plan_body_detail(
         return;
     const auto& low_type = scene.card_types.types[static_cast<std::size_t>(low_index)];
     const auto& medium_type = scene.card_types.types[static_cast<std::size_t>(medium_index)];
-    if (!body_materials_ready(in, low_type, unit) || !body_materials_ready(in, medium_type, unit))
+    if (!body_materials_ready(in, low_type, static_cast<uint32_t>(low_index), unit, materials) ||
+        !body_materials_ready(
+            in, medium_type, static_cast<uint32_t>(medium_index), unit, materials
+        ))
         return;
     for (std::size_t piece = 0; piece < low_type.source_vertex_counts.size(); ++piece)
         if (detail_points(draw, piece).size() != low_type.source_vertex_counts[piece])
@@ -5620,6 +5667,9 @@ bool plan_unit_details(
     const Inputs& in, Scene& scene, Memo& memo, std::size_t first, std::size_t last
 ) {
     clear_detail_poses(memo);
+    std::optional<BodyMaterialMemo> materials;
+    if (in.body_lod_enabled)
+        materials.emplace();
     const auto& draws = in.draws->models;
     // Removing an invisible cast must not admit a later draw past the
     // depth-slot or instance limit. A model contributes at most one slot.
@@ -5750,7 +5800,7 @@ bool plan_unit_details(
         detail.marker = detail.pixels <= in.unit_marker_pixels;
         if (in.body_lod_enabled) {
             detail.marker = detail.pixels < body_lod_minimum_pixels;
-            plan_body_detail(in, scene, draw, *unit, index, detail, low, high);
+            plan_body_detail(in, scene, draw, *unit, index, detail, low, high, *materials);
         }
         detail.distance_marker = detail.marker;
         eligible = true;
@@ -9560,17 +9610,55 @@ bool models_with_parallel_range(
     }
     try {
         models(in, pass, 0, range.ends[0]);
+        bool batch_joined = false;
+        if (in.body_lod_enabled) {
+            std::array<const ModelCards*, ParallelModelLists::maximum_bands> cards{};
+            auto held = pass.list.vertices.size() + pass.list.cards.vertices;
+            const auto allowance =
+                maximum_vertices - std::min(maximum_vertices, pass.listed_before);
+            bool admitted = true;
+            for (uint32_t band = 0; band < range.bands; ++band) {
+                const auto& from = range.storage->lists[band].cards;
+                cards[band] = &from;
+                if (from.vertices > maximum_vertices - std::min(maximum_vertices, held)) {
+                    admitted = false;
+                    break;
+                }
+                held += from.vertices;
+                if (held > allowance) {
+                    admitted = false;
+                    break;
+                }
+            }
+            // Budget failures retain the original per-band admission and
+            // first-crossing peak/GeometryFull behavior below.
+            if (admitted) {
+                if (!append_parallel_model_card_bands(
+                        pass.list.cards,
+                        std::span<const ModelCards* const>{cards.data(), range.bands},
+                        pass.list.vertices.size()
+                    )) {
+                    work.fallback_frames = 1;
+                    clear_list(pass.list, end);
+                    models(in, pass, 0, end);
+                    return false;
+                }
+                batch_joined = true;
+            }
+        }
         for (uint32_t band = 0; band < range.bands; ++band) {
             const auto& from = range.storage->lists[band];
-            const auto held = pass.list.vertices.size() + pass.list.cards.vertices;
-            if (from.cards.vertices > maximum_vertices - std::min(maximum_vertices, held) ||
-                !append_parallel_model_cards(
-                    pass.list.cards, from.cards, pass.list.vertices.size()
-                )) {
-                work.fallback_frames = 1;
-                clear_list(pass.list, end);
-                models(in, pass, 0, end);
-                return false;
+            if (!batch_joined) {
+                const auto held = pass.list.vertices.size() + pass.list.cards.vertices;
+                if (from.cards.vertices > maximum_vertices - std::min(maximum_vertices, held) ||
+                    !append_parallel_model_cards(
+                        pass.list.cards, from.cards, pass.list.vertices.size()
+                    )) {
+                    work.fallback_frames = 1;
+                    clear_list(pass.list, end);
+                    models(in, pass, 0, end);
+                    return false;
+                }
             }
             pass.list.drawn += from.drawn;
             pass.list.nano_particles += from.nano_particles;
