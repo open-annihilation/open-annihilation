@@ -166,6 +166,20 @@
                         placed && placed->unit && placed->record.type_index == type,
                         "the requested stock shadow-cache type did not spawn"
                     );
+                    const uint16_t id = placed->record.id;
+                    require(
+                        id != 0 &&
+                            std::find(actors.begin(), actors.end(), placed->unit_index) ==
+                                actors.end() &&
+                            std::none_of(
+                                actors.begin(),
+                                actors.end(),
+                                [&](const auto slot) {
+                                    return match_->world().record.units[slot].id == id;
+                                }
+                            ),
+                        "a stock shadow-cache actor reused an existing slot or unit ID"
+                    );
                     actors.push_back(placed->unit_index);
                     ++family_counts[family];
                 }
@@ -394,6 +408,14 @@
                             "too many possible foreign shadow draws entered the stock cache view"
                         );
                     }
+                    require(
+                        std::all_of(
+                            stock_draw_seen.begin(),
+                            stock_draw_seen.end(),
+                            [](const auto seen) { return seen != 0; }
+                        ),
+                        "a stock shadow-cache actor supplied no unique stock-type draw"
+                    );
                     // A building emits two card casts and another model emits one;
                     // count three for each possible foreign draw conservatively.
                     // Both compact and procedural draws require at least sixteen
