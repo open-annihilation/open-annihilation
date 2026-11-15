@@ -29,6 +29,8 @@ runs on. Each stage is written once, in Vulkan's GLSL, in src/app/shaders/:
   live_shadow_cast_fragment.glsl
                               the units' shadows cast from those models
                               into the shadows' map
+  live_shadow_procedural_vertex.glsl
+                              those casts from mixed retained corner patterns
   live_shadow_vertex.glsl
   live_shadow_fragment.glsl   the ground drawn again, darkened by the
                               shadows' map
@@ -81,6 +83,7 @@ STAGES = (
     ("live_model_vertex", "vert"),
     ("live_shadow_cast_vertex", "vert"),
     ("live_shadow_cast_fragment", "frag"),
+    ("live_shadow_procedural_vertex", "vert"),
     ("live_shadow_vertex", "vert"),
     ("live_shadow_fragment", "frag"),
 )
@@ -98,6 +101,10 @@ MSL_PIECE_BYTES = 16000
 # string literals joined.
 MSL_STAGE_BYTES = 65535
 SKIPPED = 77
+SPIRV_HEADER_WORDS = 5
+SPIRV_OP_DECORATE = 71
+SPIRV_DECORATION_BINDING = 33
+SPIRV_DECORATION_DESCRIPTOR_SET = 34
 
 
 def tool_versions():
@@ -116,45 +123,47 @@ def tool_versions():
     return lines
 
 
-def marker_msl_bindings(data):
-    """Places the marker's storage buffer after its two Metal uniforms.
+def storage_msl_bindings(data, name, first_buffer, storage_count):
+    """Places a vertex stage's storage buffers after its Metal uniforms.
 
     SDL uses descriptor sets to separate SPIR-V uniforms and storage, but
     Metal buffer slots share one index. Only the temporary input for MSL
     changes; the committed SPIR-V keeps its original resource bindings.
 
-    @param data the marker stage's validated SPIR-V
-    @return SPIR-V with the frame storage buffer at Metal buffer slot two
+    @param data the stage's validated SPIR-V
+    @param name the stage's name, for errors
+    @param first_buffer the first Metal buffer slot after the uniforms
+    @param storage_count the consecutive storage bindings starting at zero
+    @return SPIR-V with only the storage buffers' Metal bindings shifted
     """
     words = list(struct.unpack(f"<{len(data) // 4}I", data))
-    instructions = []
-    at = 5  # SPIR-V's five-word module header
+    bindings = {}
+    at = SPIRV_HEADER_WORDS
     while at < len(words):
         count = words[at] >> 16
         if count == 0 or count > len(words) - at:
-            raise RuntimeError("live_marker_vertex: invalid SPIR-V instruction")
-        instructions.append(at)
-        at += count
-    frame = []
-    for at in instructions:
-        if words[at] & 0xffff == 5:  # OpName: target, then a nul-terminated name
-            count = words[at] >> 16
-            name = struct.pack(f"<{count - 2}I", *words[at + 2:at + count])
-            if name.split(b"\0", 1)[0] == b"frame":
-                frame.append(words[at + 1])
-    if len(frame) != 1:
-        raise RuntimeError("live_marker_vertex: expected one named frame storage buffer")
-    places = {}
-    for at in instructions:
-        if words[at] & 0xffff == 71 and words[at + 1] == frame[0]:  # OpDecorate
+            raise RuntimeError(f"{name}: invalid SPIR-V instruction")
+        if words[at] & 0xffff == SPIRV_OP_DECORATE:
+            if count < 3:
+                raise RuntimeError(f"{name}: invalid SPIR-V decoration")
             decoration = words[at + 2]
-            if decoration in (33, 34):  # Binding, DescriptorSet
-                if decoration in places or words[at] >> 16 != 4:
-                    raise RuntimeError("live_marker_vertex: duplicate or invalid frame binding")
+            if decoration in (SPIRV_DECORATION_BINDING, SPIRV_DECORATION_DESCRIPTOR_SET):
+                places = bindings.setdefault(words[at + 1], {})
+                if count != 4 or decoration in places:
+                    raise RuntimeError(f"{name}: duplicate or invalid resource binding")
                 places[decoration] = at + 3
-    if set(places) != {33, 34} or any(words[place] != 0 for place in places.values()):
-        raise RuntimeError("live_marker_vertex: expected frame at set zero, binding zero")
-    words[places[33]] = 2
+        at += count
+    storage = []
+    for places in bindings.values():
+        if set(places) != {SPIRV_DECORATION_BINDING, SPIRV_DECORATION_DESCRIPTOR_SET}:
+            raise RuntimeError(f"{name}: incomplete resource binding")
+        if words[places[SPIRV_DECORATION_DESCRIPTOR_SET]] == 0:
+            storage.append(places[SPIRV_DECORATION_BINDING])
+    if len(storage) != storage_count or sorted(words[place] for place in storage) != list(
+            range(storage_count)):
+        raise RuntimeError(f"{name}: expected consecutive storage bindings in set zero")
+    for place in storage:
+        words[place] += first_buffer
     return struct.pack(f"<{len(words)}I", *words)
 
 
@@ -176,9 +185,14 @@ def compile_stage(name, stage, scratch):
         ["spirv-cross", str(spirv), "--msl", "--msl-version", MSL_VERSION,
          "--msl-decoration-binding", "--output", str(msl)],
     ):
-        if name == "live_marker_vertex" and command[0] == "spirv-cross":
+        metal_storage = {
+            "live_marker_vertex": (2, 1),
+            "live_shadow_procedural_vertex": (1, 3),
+        }
+        if name in metal_storage and command[0] == "spirv-cross":
             metal_spirv = scratch / f"{name}.msl.spv"
-            metal_spirv.write_bytes(marker_msl_bindings(spirv.read_bytes()))
+            metal_spirv.write_bytes(storage_msl_bindings(
+                spirv.read_bytes(), name, *metal_storage[name]))
             command[1] = str(metal_spirv)
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
