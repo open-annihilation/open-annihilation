@@ -31,6 +31,7 @@
 #include "oa/present/world_renderer.hpp"
 #include "oa/sim/effect_particles.hpp"
 #include "oa/sim/model_runtime/instance.hpp"
+#include "root_prefix_geometry.hpp"
 
 #include <array>
 #include <cstddef>
@@ -451,6 +452,9 @@ struct ModelDraw {
     /// Presentation transforms captured before deferred drawing can rebuild them.
     std::optional<oa::FixedVec3> shown_position{};
     std::vector<std::vector<oa::formats::objects3d::FixedVector3>> shown_vertices{};
+    /// An explicit Enhanced prototype draws this owned prefix instead of
+    /// materializing this instance's final-root vertex coordinates.
+    std::optional<RootPrefixRecipe> root_prefix{};
     /// A proved invisible ordinary unit retained for indices and type verification.
     /// Its false linked plan emits no body, marker or shadow geometry.
     bool preplan_omitted{};

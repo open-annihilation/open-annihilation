@@ -649,6 +649,84 @@ void test_root_prefix_domain() {
     OA_CHECK(too_small.storage_bytes() <= sizeof(ModelTransformCache));
 }
 
+/// Checks immutable prefix recipes without completing a receiver's geometry.
+void test_owned_root_prefix_recipes() {
+    const auto model = model_with(3, 4);
+    constexpr RotationWords built{32, -24001, -73};
+    auto source = make_instance(model, 17);
+    pose(source, 113);
+    source.rebuild_transforms(built, true);
+    const auto source_before = source;
+    ModelTransformCache cache;
+    cache.begin_frame();
+    cache.remember_root_prefix(source, built);
+    auto receiver = source;
+    receiver.pieces()[receiver.root_piece()].translation = {fixed + 19, -fixed / 3, fixed - 23};
+    const auto before = receiver;
+    const auto revision = receiver.materialization_revision();
+    const RotationWords wanted{built.xy, 17003, built.yz};
+    const auto recipe = cache.find_root_prefix_recipe(receiver, wanted);
+    OA_CHECK(recipe.has_value());
+    if (!recipe)
+        return;
+    check_unchanged(receiver, before);
+    OA_CHECK(receiver.materialization_revision() == revision);
+    check_unchanged(source, source_before);
+    const auto oracle = rebuilt_afresh(receiver, wanted);
+    for (uint32_t piece = 0; piece < receiver.pieces().size(); ++piece)
+        for (uint32_t point = 0; point < oracle.pieces()[piece].transformed_vertices.size();
+             ++point) {
+            const auto expected = oracle.pieces()[piece].transformed_vertices[point];
+            const auto actual = oa::app::root_prefix_point(*recipe, piece, point);
+            OA_CHECK(std::abs(int64_t{actual.x} - expected.x) <= 1);
+            OA_CHECK(actual.y == expected.y);
+            OA_CHECK(std::abs(int64_t{actual.z} - expected.z) <= 1);
+        }
+    const auto bytes = cache.storage_bytes();
+    const auto repeated = cache.find_root_prefix_recipe(receiver, wanted);
+    OA_CHECK(repeated && repeated->geometry == recipe->geometry);
+    OA_CHECK(cache.storage_bytes() == bytes);
+    OA_CHECK(
+        bytes <= ModelTransformCache::storage_limit + ModelTransformCache::prefix_storage_limit
+    );
+    const auto kept_points = recipe->geometry->points;
+    ++receiver.pieces()[1].rotation.yz;
+    const auto changed = receiver;
+    OA_CHECK(!cache.find_root_prefix_recipe(receiver, wanted));
+    check_unchanged(receiver, changed);
+    cache.begin_frame();
+    OA_CHECK(!cache.find_root_prefix_recipe(before, wanted));
+    auto replacement = source;
+    pose(replacement, 151);
+    replacement.rebuild_transforms(built, true);
+    cache.remember_root_prefix(replacement, built);
+    OA_CHECK(recipe->geometry->points.size() == kept_points.size());
+    for (size_t point = 0; point < kept_points.size(); ++point)
+        OA_CHECK(same(recipe->geometry->points[point], kept_points[point]));
+
+    ModelTransformCache no_packets(
+        ModelTransformCache::entry_capacity, ModelTransformCache::storage_limit, 0
+    );
+    no_packets.begin_frame();
+    no_packets.remember_root_prefix(source, built);
+    OA_CHECK(!no_packets.find_root_prefix_recipe(before, wanted));
+    check_unchanged(source, source_before);
+    ModelTransformCache allocation_failure;
+    allocation_failure.begin_frame();
+    allocation_failure.remember_root_prefix(source, built);
+    failed_cache_allocations = 0;
+    fail_next_cache_allocation = true;
+    OA_CHECK(!allocation_failure.find_root_prefix_recipe(before, wanted));
+    fail_next_cache_allocation = false;
+    OA_CHECK(failed_cache_allocations == 1);
+    failed_cache_allocations = 0;
+    fail_next_cache_allocation = true;
+    OA_CHECK(!allocation_failure.find_root_prefix_recipe(before, wanted));
+    OA_CHECK(fail_next_cache_allocation);
+    fail_next_cache_allocation = false;
+    OA_CHECK(failed_cache_allocations == 0);
+}
+
 } // namespace
 
 int main() {
@@ -661,5 +739,6 @@ int main() {
     test_failed_replacement_preserves_accounting_and_active_entry();
     test_heading_and_pitch_families_keep_exact_repeats();
     test_root_prefix_domain();
+    test_owned_root_prefix_recipes();
     return oa::test::check_exit_status();
 }

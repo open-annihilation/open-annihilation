@@ -4,6 +4,7 @@
 #pragma once
 
 #include "oa/sim/model_runtime/instance.hpp"
+#include "root_prefix_geometry.hpp"
 
 #include <algorithm>
 #include <array>
@@ -25,6 +26,8 @@ class ModelTransformCache {
     static constexpr size_t storage_limit = 512U * 1024U;
     static constexpr size_t piece_limit = 64;
     static constexpr size_t vertex_limit = 2048;
+    /// Maximum immutable prefix bytes retained by this worker in one frame.
+    static constexpr size_t prefix_storage_limit = storage_limit;
 
     /// Counts the bounded lookups and copies of the current frame.
     struct Counts {
@@ -34,9 +37,15 @@ class ModelTransformCache {
     /// Sets the admission limits, clamped to the cache's fixed capacities.
     /// @param entries the most exact poses retained in a frame
     /// @param bytes the most bytes of cache and owned transform storage
-    explicit ModelTransformCache(size_t entries = entry_capacity, size_t bytes = storage_limit)
+    /// @param prefix_bytes the most immutable prefix payload bytes retained this frame
+    explicit ModelTransformCache(
+        size_t entries = entry_capacity,
+        size_t bytes = storage_limit,
+        size_t prefix_bytes = prefix_storage_limit
+    )
         : entry_limit_(std::min(entries, entry_capacity)),
-          byte_limit_(std::min(bytes, storage_limit)) {}
+          byte_limit_(std::min(bytes, storage_limit)),
+          prefix_byte_limit_(std::min(prefix_bytes, prefix_storage_limit)) {}
 
     /// Begins a frame under the worker's program floating-point control.
     /// Owned buffers remain bounded and reusable; old poses are not looked up.
@@ -44,6 +53,11 @@ class ModelTransformCache {
         table_.fill(0);
         used_ = 0;
         counts_ = {};
+        for (auto& entry : entries_) {
+            entry.prefix.reset();
+            entry.prefix_refused = false;
+        }
+        prefix_bytes_ = 0;
     }
 
     /// Copies matching rebuilt model-space geometry without allocating.
@@ -106,6 +120,71 @@ class ModelTransformCache {
         return false;
     }
 
+    /// Finds an owned rendering recipe without materializing the receiver.
+    ///
+    /// Only a registered exact zero-XZ prefix can supply the points. The
+    /// receiver keeps its raw pose, flags, transformed buffers and revision.
+    /// Source points are copied once per cache entry and frame, within a
+    /// separate bounded packet budget; returned handles survive later frames.
+    ///
+    /// @param instance current ordinary or resolved presentation instance
+    /// @param root effective root rotation after the renderer's threshold
+    /// @return a bounded Q30 recipe, or nothing for an absent or unsupported prefix
+    [[nodiscard]] std::optional<RootPrefixRecipe> find_root_prefix_recipe(
+        const sim::model_runtime::Instance& instance, sim::model_runtime::RotationWords root
+    ) noexcept {
+        if (!valid_prefix_topology(instance) ||
+            instance.model().objects[0].next_sibling != sim::model_runtime::kNoPiece)
+            return std::nullopt;
+        const auto placement = root_prefix_placement(instance);
+        const auto& root_piece = instance.pieces()[instance.root_piece()];
+        const auto angle = std::bit_cast<int16_t>(static_cast<uint16_t>(
+            static_cast<uint16_t>(root_piece.rotation.xz) + static_cast<uint16_t>(root.xz)
+        ));
+        const auto rotation = prepare_root_prefix_rotation(angle);
+        if (!placement || !rotation)
+            return std::nullopt;
+        const auto key = digest(instance, root, true);
+        for (size_t probe = 0; probe < probe_limit; ++probe) {
+            const auto at = (key + probe) & (table_capacity - 1);
+            if (table_[at] == 0)
+                break;
+            auto& entry = entries_[table_[at] - 1];
+            if (entry.digest != key ||
+                !same_prefix_pose(entry.instance, entry.root, instance, root) ||
+                entry.instance.transforms_dirty())
+                continue;
+            const auto source_placement = root_prefix_placement(entry.instance);
+            const auto& source_root = entry.instance.pieces()[entry.instance.root_piece()];
+            if (!source_placement || static_cast<uint16_t>(
+                                         static_cast<uint16_t>(source_root.rotation.xz) +
+                                         static_cast<uint16_t>(entry.root.xz)
+                                     ) != 0)
+                continue;
+            if (!entry.prefix) {
+                if (entry.prefix_refused)
+                    return std::nullopt;
+                entry.prefix = make_root_prefix_geometry(
+                    entry.instance, *source_placement, prefix_byte_limit_ - prefix_bytes_
+                );
+                if (!entry.prefix) {
+                    entry.prefix_refused = true;
+                    return std::nullopt;
+                }
+                prefix_bytes_ += entry.prefix->storage_bytes();
+            }
+            RootPrefixRecipe recipe{entry.prefix, *rotation, *placement};
+            for (uint32_t piece = 0; piece < entry.prefix->objects.size(); ++piece)
+                if (entry.prefix->piece_vertices[piece] !=
+                        entry.prefix->piece_vertices[piece + 1] &&
+                    !root_prefix_piece_bounds(recipe, piece))
+                    return std::nullopt;
+            ++counts_.hits;
+            return recipe;
+        }
+        return std::nullopt;
+    }
+
     /// Retains a local prefix with no final root XZ turn, within its admission share.
     /// @param instance immutable geometry and raw pose after an ordinary rebuild
     /// @param root effective root rotation used by that rebuild
@@ -140,7 +219,9 @@ class ModelTransformCache {
 
     /// Returns the exact retained cache and dynamic transform buffer bytes.
     /// @return bytes held by this cache, excluding shared immutable assets
-    [[nodiscard]] size_t storage_bytes() const noexcept { return sizeof(*this) + stored_bytes_; }
+    [[nodiscard]] size_t storage_bytes() const noexcept {
+        return sizeof(*this) + stored_bytes_ + prefix_bytes_;
+    }
 
   private:
 
@@ -158,6 +239,8 @@ class ModelTransformCache {
         sim::model_runtime::RotationWords root{};
         uint64_t digest{};
         size_t bytes{};
+        std::shared_ptr<const RootPrefixGeometry> prefix{};
+        bool prefix_refused{};
     };
 
     /// Compares all three exact root or local angle words.
@@ -345,6 +428,11 @@ class ModelTransformCache {
             return;
         }
         stored_bytes_ -= entry.bytes;
+        if (entry.prefix) {
+            prefix_bytes_ -= entry.prefix->storage_bytes();
+            entry.prefix.reset();
+        }
+        entry.prefix_refused = false;
         if (!same_shape)
             entry.instance = {};
         try {
@@ -425,6 +513,11 @@ class ModelTransformCache {
     void release(size_t index) noexcept {
         auto& entry = entries_[index];
         stored_bytes_ -= entry.bytes;
+        if (entry.prefix) {
+            prefix_bytes_ -= entry.prefix->storage_bytes();
+            entry.prefix.reset();
+        }
+        entry.prefix_refused = false;
         entry.instance = {};
         entry.bytes = 0;
     }
@@ -445,6 +538,7 @@ class ModelTransformCache {
     std::array<Entry, entry_capacity> entries_{};
     std::array<uint16_t, table_capacity> table_{};
     size_t entry_limit_{}, byte_limit_{}, used_{}, stored_bytes_{};
+    size_t prefix_byte_limit_{}, prefix_bytes_{};
     Counts counts_{};
 };
 
