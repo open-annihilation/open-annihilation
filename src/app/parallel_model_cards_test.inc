@@ -7,6 +7,53 @@ namespace joined_cards = oa::app::renderer_live_scene;
 namespace joined_gpu = oa::app::renderer_live_gpu;
 constexpr size_t joined_batch_vertex_base = 23;
 
+/// Expands retained patterns independently of the shadow producer and backend.
+/// @param draws the submitted dynamic words, immutable patterns and ordered runs
+/// @return the original ordered shadow words and ordinary run ranges
+std::pair<std::vector<uint32_t>, std::vector<oa::app::renderer_live_gpu::ModelRun>>
+expanded_shadow_templates(const oa::app::renderer_live_gpu::ModelDraws& draws) {
+    namespace gpu = oa::app::renderer_live_gpu;
+    std::pair<std::vector<uint32_t>, std::vector<gpu::ModelRun>> result;
+    if (draws.shadow_index_encoding == gpu::ShadowIndexEncoding::expanded) {
+        result.first.assign(draws.cast_indices.begin(), draws.cast_indices.end());
+        result.second.assign(draws.cast_runs.begin(), draws.cast_runs.end());
+        return result;
+    }
+    for (const auto& run : draws.shadow_index_runs) {
+        OA_CHECK(run.cast_count != 0 && run.cast_count <= gpu::model_run_instances);
+        const auto first = static_cast<uint32_t>(result.first.size());
+        if (run.pattern == 0) {
+            OA_CHECK(run.first_index <= draws.shadow_dynamic_indices.size());
+            OA_CHECK(run.index_count <= draws.shadow_dynamic_indices.size() - run.first_index);
+            if (run.first_index > draws.shadow_dynamic_indices.size() ||
+                run.index_count > draws.shadow_dynamic_indices.size() - run.first_index)
+                return {};
+            const auto words =
+                draws.shadow_dynamic_indices.subspan(run.first_index, run.index_count);
+            result.first.insert(result.first.end(), words.begin(), words.end());
+        } else {
+            OA_CHECK(run.pattern <= draws.shadow_patterns.size());
+            if (run.pattern > draws.shadow_patterns.size())
+                return {};
+            const auto& pattern = draws.shadow_patterns[run.pattern - 1];
+            OA_CHECK(pattern.indices_per_cast != 0 && pattern.indices_per_cast % 3 == 0);
+            OA_CHECK(uint64_t{pattern.indices_per_cast} * run.cast_count == run.index_count);
+            OA_CHECK(run.first_index == 0);
+            OA_CHECK(pattern.first_index <= draws.shadow_pattern_indices.size());
+            OA_CHECK(run.index_count <= draws.shadow_pattern_indices.size() - pattern.first_index);
+            if (pattern.first_index > draws.shadow_pattern_indices.size() ||
+                run.index_count > draws.shadow_pattern_indices.size() - pattern.first_index)
+                return {};
+            const auto words =
+                draws.shadow_pattern_indices.subspan(pattern.first_index, run.index_count);
+            result.first.insert(result.first.end(), words.begin(), words.end());
+        }
+        result.second.push_back({run.vertex, first, run.index_count, run.first_cast});
+    }
+    OA_CHECK(result.first.size() == draws.logical_shadow_index_count);
+    return result;
+}
+
 /// Makes ordinary model records with a different pose, texture and pick for each unit.
 joined_cards::ModelCards joined_card_fixture(uint32_t count, uint16_t first_unit, bool buildings) {
     joined_cards::ModelCards cards;
@@ -226,6 +273,51 @@ std::vector<uint64_t> joined_card_records(const joined_cards::ModelCards& cards)
     }
     words(cards.cast_indices);
     runs(cards.cast_runs);
+    const auto shadow_run = [&](const joined_gpu::ShadowIndexRun& run) {
+        word(run.vertex);
+        word(run.first_cast);
+        word(run.cast_count);
+        word(run.first_index);
+        word(run.index_count);
+        word(run.pattern);
+    };
+    const auto& compact = cards.shadow_indices;
+    word(compact.enabled);
+    word(compact.patterns != nullptr);
+    if (compact.patterns) {
+        const auto& patterns = *compact.patterns;
+        word(patterns.revision);
+        word(patterns.type_revision);
+        word(patterns.keys.size());
+        for (const auto& key : patterns.keys) {
+            word(key.type_revision);
+            word(key.type);
+            word(key.selected_mask);
+            word(key.walls);
+        }
+        word(patterns.patterns.size());
+        for (const auto& pattern : patterns.patterns) {
+            word(pattern.first_index);
+            word(pattern.indices_per_cast);
+            word(pattern.type_corners);
+            word(pattern.type_corner_count);
+            word(pattern.selected_mask);
+        }
+        words(patterns.indices);
+    }
+    words(compact.indices);
+    word(compact.runs.size());
+    for (const auto& run : compact.runs)
+        shadow_run(run);
+    word(compact.logical_indices);
+    word(compact.candidate_count);
+    for (uint32_t at = 0; at < compact.candidate_count; ++at) {
+        const auto& key = compact.candidates[at];
+        word(key.type_revision);
+        word(key.type);
+        word(key.selected_mask);
+        word(key.walls);
+    }
     word(cards.cast_depths);
     for (const auto value :
          std::array{cards.shadow_map.left, cards.shadow_map.top, cards.shadow_map.scale})
@@ -254,6 +346,11 @@ std::vector<uint64_t> joined_card_records(const joined_cards::ModelCards& cards)
          })
         word(value);
     numbers(mark.marker_uv);
+    word(mark.shadow_indices.indices);
+    word(mark.shadow_indices.runs);
+    word(mark.shadow_indices.logical_indices);
+    word(mark.shadow_indices.candidates);
+    shadow_run(mark.shadow_indices.last_run);
     word(cards.poses.size());
     for (const auto& pose : cards.poses) {
         word(pose.type);
@@ -518,6 +615,173 @@ void parallel_model_card_batch_join() {
     OA_CHECK(std::fesetround(original_mode) == 0);
 }
 
+/// Makes one exact three-corner pattern for all relative cast names.
+std::shared_ptr<const joined_cards::ShadowIndexPatterns> joined_shadow_patterns() {
+    auto patterns = std::make_shared<joined_cards::ShadowIndexPatterns>();
+    patterns->revision = 17;
+    patterns->type_revision = 23;
+    patterns->keys.push_back({23, 0, 1, false});
+    patterns->patterns.push_back({0, 3, 0, 3, 1});
+    for (uint32_t cast = 0; cast < joined_gpu::model_run_instances; ++cast)
+        for (uint32_t corner = 0; corner < 3; ++corner)
+            patterns->indices.push_back((cast << joined_gpu::model_corner_bits) | corner);
+    return patterns;
+}
+
+/// Retains ordinary run boundaries while storing warm whole runs once.
+void joined_compact_shadow_indices(
+    joined_cards::ModelCards& cards,
+    std::shared_ptr<const joined_cards::ShadowIndexPatterns> patterns
+) {
+    auto& stream = cards.shadow_indices;
+    stream.enabled = true;
+    stream.patterns = std::move(patterns);
+    stream.logical_indices = cards.cast_indices.size();
+    for (size_t at = 0; at < cards.cast_runs.size(); ++at) {
+        const auto& run = cards.cast_runs[at];
+        const auto end = at + 1 < cards.cast_runs.size()
+                             ? cards.cast_runs[at + 1].first_instance
+                             : static_cast<uint32_t>(cards.casts.size());
+        const auto count = end - run.first_instance;
+        const bool retained = stream.patterns && count >= joined_gpu::shadow_template_minimum_casts;
+        const auto first = retained ? 0U : static_cast<uint32_t>(stream.indices.size());
+        if (!retained)
+            stream.indices.insert(
+                stream.indices.end(),
+                cards.cast_indices.begin() + run.first_index,
+                cards.cast_indices.begin() + run.first_index + run.index_count
+            );
+        stream.runs.push_back(
+            {run.vertex, run.first_instance, count, first, run.index_count, retained ? 1U : 0U}
+        );
+    }
+    cards.cast_indices.clear();
+    cards.cast_runs.clear();
+}
+
+/// Batch joins preserve compact IDs, dynamic offsets and cast depths exactly.
+void parallel_model_card_compact_join() {
+    const auto patterns = joined_shadow_patterns();
+    std::array ordinary{
+        joined_card_fixture(16, 100, false),
+        joined_card_fixture(257, 200, false),
+        joined_card_fixture(3, 500, true),
+        joined_cards::ModelCards{}
+    };
+    auto compact = ordinary;
+    for (auto& cards : compact)
+        joined_compact_shadow_indices(cards, patterns);
+    auto expected = joined_marker_prefix();
+    auto actual = expected;
+    joined_compact_shadow_indices(actual, patterns);
+    for (const auto& band : ordinary)
+        OA_CHECK(
+            joined_cards::append_parallel_model_cards(expected, band, joined_batch_vertex_base)
+        );
+    const std::array<const joined_cards::ModelCards*, 4> bands{
+        &compact[0], &compact[1], &compact[2], &compact[3]
+    };
+    OA_CHECK(
+        joined_cards::append_parallel_model_card_bands(actual, bands, joined_batch_vertex_base)
+    );
+    auto successive = joined_marker_prefix();
+    joined_compact_shadow_indices(successive, patterns);
+    for (const auto* band : bands)
+        OA_CHECK(
+            joined_cards::append_parallel_model_card_bands(
+                successive, {&band, 1}, joined_batch_vertex_base
+            )
+        );
+    OA_CHECK(joined_card_records(actual) == joined_card_records(successive));
+    joined_cards::CardTypes types;
+    types.revision = patterns->type_revision;
+    const auto draws = joined_cards::card_draws(types, actual);
+    const auto expanded = expanded_shadow_templates(draws);
+    auto restored = actual;
+    restored.cast_indices = expanded.first;
+    restored.cast_runs = expanded.second;
+    OA_CHECK(restored.cast_indices == expected.cast_indices);
+    OA_CHECK(joined_shadow_triangles(restored) == joined_shadow_triangles(expected));
+    OA_CHECK(joined_body_triangles(actual) == joined_body_triangles(expected));
+    OA_CHECK(joined_unit_hits(actual) == joined_unit_hits(expected));
+    OA_CHECK(actual.vertices == expected.vertices && actual.cast_depths == expected.cast_depths);
+    OA_CHECK(joined_cards::shadow_index_count(actual) == expected.cast_indices.size());
+    const auto before = joined_card_records(actual);
+    const auto refuses = [&](const joined_cards::ModelCards& band) {
+        const std::array<const joined_cards::ModelCards*, 2> invalid{&compact[0], &band};
+        ground_allocations = refused_ground_allocations = 0;
+        watch_ground_allocations = true;
+        const bool appended = joined_cards::append_parallel_model_card_bands(actual, invalid, 0);
+        watch_ground_allocations = false;
+        OA_CHECK(!appended && ground_allocations == 0);
+        OA_CHECK(joined_card_records(actual) == before);
+    };
+    refuses(ordinary[0]);
+    auto foreign = compact[0];
+    foreign.shadow_indices.patterns = joined_shadow_patterns();
+    refuses(foreign);
+    foreign = compact[0];
+    foreign.shadow_indices.patterns.reset();
+    refuses(foreign);
+    foreign = compact[0];
+    foreign.shadow_indices.runs[0].pattern = 2;
+    refuses(foreign);
+    foreign = compact[0];
+    ++foreign.shadow_indices.logical_indices;
+    refuses(foreign);
+    foreign = compact[1];
+    foreign.shadow_indices.indices[0] = joined_gpu::model_run_instances
+                                        << joined_gpu::model_corner_bits;
+    refuses(foreign);
+    OA_CHECK(!joined_cards::can_append_parallel_model_cards(actual, compact[0], 0));
+    OA_CHECK(!joined_cards::append_parallel_model_cards(actual, compact[0], 0));
+    OA_CHECK(joined_card_records(actual) == before);
+    const auto make_destination = [&] {
+        auto destination = joined_marker_prefix();
+        joined_compact_shadow_indices(destination, patterns);
+        return destination;
+    };
+    auto allocation_probe = make_destination();
+    ground_allocations = refused_ground_allocations = 0;
+    watch_ground_allocations = true;
+    const bool appended = joined_cards::append_parallel_model_card_bands(
+        allocation_probe, bands, joined_batch_vertex_base
+    );
+    watch_ground_allocations = false;
+    const auto allocations = ground_allocations;
+    OA_CHECK(appended && allocations != 0 && allocations <= 14);
+    for (size_t refused_at = 0; refused_at < allocations; ++refused_at) {
+        auto destination = make_destination();
+        const auto unchanged = joined_card_records(destination);
+        ground_allocations = refused_ground_allocations = 0;
+        ground_allocation_to_refuse = refused_at;
+        bool completed{};
+        watch_ground_allocations = true;
+        try {
+            completed = joined_cards::append_parallel_model_card_bands(
+                destination, bands, joined_batch_vertex_base
+            );
+        } catch (const std::bad_alloc&) {
+        }
+        watch_ground_allocations = false;
+        ground_allocation_to_refuse = std::numeric_limits<size_t>::max();
+        OA_CHECK(!completed && refused_ground_allocations == 1);
+        OA_CHECK(joined_card_records(destination) == unchanged);
+    }
+    // Allocation failure can leave a dynamic-only frame without a snapshot.
+    auto dynamic = joined_card_fixture(3, 900, false);
+    auto dynamic_expected = joined_card_fixture(1, 1, false);
+    OA_CHECK(joined_cards::append_parallel_model_cards(dynamic_expected, dynamic, 0));
+    joined_compact_shadow_indices(dynamic, {});
+    auto dynamic_actual = joined_card_fixture(1, 1, false);
+    joined_compact_shadow_indices(dynamic_actual, {});
+    const joined_cards::ModelCards* dynamic_band = &dynamic;
+    OA_CHECK(joined_cards::append_parallel_model_card_bands(dynamic_actual, {&dynamic_band, 1}, 0));
+    const auto dynamic_words =
+        expanded_shadow_templates(joined_cards::card_draws(types, dynamic_actual));
+    OA_CHECK(dynamic_words.first == dynamic_expected.cast_indices);
+}
+
 /// Model bands retain exact triangles, shared shadow depths and unit picks after joining.
 void parallel_model_card_join() {
     auto destination = joined_card_fixture(257, 1, false);
@@ -646,6 +910,7 @@ void parallel_model_card_join() {
     }
     OA_CHECK(std::fesetround(original_mode) == 0);
     parallel_model_card_batch_join();
+    parallel_model_card_compact_join();
 }
 
 } // namespace

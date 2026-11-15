@@ -9802,6 +9802,7 @@ void underwater_features() {
 #include "caster_index_runs_test.inc"
 #include "caster_index_scene_test.inc"
 #include "interior_model_cull_test.inc"
+#include "shadow_index_templates_test.inc"
 
 int main() {
     interior_model_cull_tests();
@@ -9817,6 +9818,11 @@ int main() {
     caster_index_run_boundary();
     caster_index_capacity_fallback();
     caster_index_coarse_equivalence();
+    shadow_index_template_runs();
+    shadow_index_template_mixed_masks();
+    shadow_index_template_piece_policy();
+    shadow_index_template_lifecycle();
+    shadow_index_template_candidates();
     water_surface_bounds();
     sea_bed_follows_swells();
     water_disturbance_visibility();
