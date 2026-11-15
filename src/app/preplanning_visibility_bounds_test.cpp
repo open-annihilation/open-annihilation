@@ -22,6 +22,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -985,6 +986,376 @@ void far_projection_and_translation_signs() {
         fixture.geometry, fixture.ref(), fixture.view, fixture.gate, fixture.scratch
     ));
 }
+
+/// Compares the combined call with independent, separately validated legacy wrappers.
+bool compare_raw_proofs(
+    FrameFixture& fixture, proof::Scratch& combined, proof::Scratch& separate, bool try_far = true
+) {
+    const auto saved = fixture.instance;
+    const auto revision = fixture.instance.materialization_revision();
+    const bool expected =
+        (try_far && proof::far_rejection_proof(
+                        fixture.geometry, fixture.ref(), fixture.view, fixture.gate, separate
+                    )) ||
+        proof::rejection_proof(
+            fixture.geometry, fixture.ref(), fixture.root, fixture.view, fixture.gate, separate
+        );
+    const bool actual = proof::raw_rejection_proof(
+        fixture.geometry, fixture.ref(), fixture.root, fixture.view, fixture.gate, combined, try_far
+    );
+    OA_CHECK(actual == expected);
+    unchanged(fixture.instance, saved);
+    OA_CHECK(fixture.instance.materialization_revision() == revision);
+    return actual;
+}
+
+/// Starts each comparison with independent cold scratch storage.
+bool compare_raw_proofs(FrameFixture& fixture, bool try_far = true) {
+    proof::Scratch combined, separate;
+    return compare_raw_proofs(fixture, combined, separate, try_far);
+}
+
+/// Replaces only immutable model data and the instance that owns the fixture's unit.
+void use_model(FrameFixture& fixture, std::shared_ptr<const Model> model) {
+    fixture.model = std::move(model);
+    fixture.geometry = proof::prepare_geometry(fixture.model);
+    fixture.instance = runtime::make_instance(fixture.model, fixture.gate.owner_token);
+    for (auto& piece : fixture.instance.pieces())
+        piece.flags = visible;
+    poison(fixture.instance);
+}
+
+/// Makes a shallow valid hierarchy beyond the far path's bounded piece count.
+std::shared_ptr<const Model> many_piece_model(bool root_siblings) {
+    auto model = std::make_shared<Model>();
+    constexpr uint32_t count = 257;
+    model->objects.resize(count);
+    for (uint32_t index = 0; index < count; ++index) {
+        auto& object = model->objects[index];
+        object.name = "piece" + std::to_string(index);
+        object.vertices = {{0, 0, 0}, {fixed, fixed, 0}, {0, 0, fixed}};
+        if (root_siblings) {
+            if (index + 1 < count)
+                object.next_sibling = index + 1;
+        } else if (index == 0) {
+            object.first_child = 1;
+        } else {
+            object.parent = 0;
+            if (index + 1 < count)
+                object.next_sibling = index + 1;
+        }
+    }
+    return model;
+}
+
+/// Keeps exact fallback after a valid far cube fails the complete screen predicate.
+void combined_raw_far_and_exact_fallbacks() {
+    FrameFixture fixture;
+    use_model(fixture, far_model());
+    proof::Scratch far;
+    OA_CHECK(proof::bound_far_instance(fixture.geometry, fixture.instance, far));
+    OA_CHECK(
+        proof::far_rejection_proof(fixture.geometry, fixture.ref(), fixture.view, fixture.gate, far)
+    );
+    OA_CHECK(compare_raw_proofs(fixture));
+    OA_CHECK(compare_raw_proofs(fixture, false));
+
+    auto displaced = std::make_shared<Model>();
+    displaced->objects.resize(1);
+    displaced->objects[0].vertices = {
+        {1000 * fixed, 0, 0}, {1001 * fixed, fixed, 0}, {1000 * fixed, 0, fixed}
+    };
+    use_model(fixture, displaced);
+    proof::Scratch exact;
+    OA_CHECK(proof::bound_far_instance(fixture.geometry, fixture.instance, far));
+    OA_CHECK(!proof::far_rejection_proof(
+        fixture.geometry, fixture.ref(), fixture.view, fixture.gate, far
+    ));
+    OA_CHECK(
+        proof::rejection_proof(
+            fixture.geometry, fixture.ref(), fixture.root, fixture.view, fixture.gate, exact
+        )
+    );
+    OA_CHECK(compare_raw_proofs(fixture));
+    const auto native = native_oracle(fixture.instance, fixture.root);
+    const auto actual = scan_native(native, fixture.unit, fixture.view, fixture.gate.ground_height);
+    OA_CHECK(
+        actual.body_outside && actual.shadow_outside && actual.markers_outside &&
+        actual.reservation_outside
+    );
+
+    use_model(fixture, branched_model());
+    OA_CHECK(!proof::bound_far_instance(fixture.geometry, fixture.instance, far));
+    OA_CHECK(compare_raw_proofs(fixture));
+    for (const bool siblings : {false, true}) {
+        use_model(fixture, many_piece_model(siblings));
+        OA_CHECK(fixture.instance.pieces().size() == 257);
+        OA_CHECK(!proof::bound_far_instance(fixture.geometry, fixture.instance, far));
+        OA_CHECK(compare_raw_proofs(fixture));
+        OA_CHECK(compare_raw_proofs(fixture, false));
+    }
+
+    use_model(fixture, far_model());
+    fixture.geometry.objects.front().radius_ready = false;
+    OA_CHECK(!proof::bound_far_instance(fixture.geometry, fixture.instance, far));
+    OA_CHECK(compare_raw_proofs(fixture));
+    auto cancellation = std::make_shared<Model>();
+    cancellation->objects.resize(1);
+    cancellation->objects[0].vertices = {{0, 0, 0}, {fixed, fixed, 0}, {0, 0, fixed}};
+    constexpr int32_t half_limit = std::numeric_limits<int32_t>::max() / 2;
+    cancellation->objects[0].offset_from_parent.x = half_limit;
+    use_model(fixture, cancellation);
+    fixture.instance.pieces()[0].translation.x = half_limit;
+    OA_CHECK(!proof::bound_far_instance(fixture.geometry, fixture.instance, far));
+    OA_CHECK(compare_raw_proofs(fixture));
+}
+
+/// Never carries successful validation, geometry or visibility across raw calls.
+void combined_raw_scratch_progression_and_poses() {
+    FrameFixture fixture;
+    use_model(fixture, far_model());
+    proof::Scratch combined, separate;
+    OA_CHECK(compare_raw_proofs(fixture, combined, separate));
+    const auto original_instance = fixture.instance;
+    const auto original_geometry = fixture.geometry;
+    ++fixture.gate.owner_token;
+    OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
+    --fixture.gate.owner_token;
+    const std::shared_ptr<const Model> foreign(fixture.model.get(), [](const Model*) {});
+    fixture.geometry = proof::prepare_geometry(foreign);
+    OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
+    fixture.geometry = original_geometry;
+    fixture.instance.pieces()[0].object_index = fixture.instance.pieces()[1].object_index;
+    OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
+    fixture.instance = original_instance;
+    fixture.instance.pieces()[0].parent = 99999;
+    OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
+    fixture.instance = original_instance;
+    fixture.instance.pieces()[0].next_sibling = 0;
+    OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
+    fixture.instance = original_instance;
+    fixture.geometry.objects.pop_back();
+    OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
+    fixture.geometry = original_geometry;
+    OA_CHECK(compare_raw_proofs(fixture, combined, separate));
+
+    uint32_t words = 0x73a4c19U;
+    for (unsigned pose = 0; pose < 6; ++pose) {
+        for (auto& piece : fixture.instance.pieces()) {
+            const auto coordinate = [&] {
+                return static_cast<int32_t>(next_word(words) % (128U * fixed)) - 64 * fixed;
+            };
+            piece.translation = {coordinate(), coordinate(), coordinate()};
+            piece.rotation = {
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(words))),
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(words))),
+                std::bit_cast<int16_t>(static_cast<uint16_t>(next_word(words)))
+            };
+        }
+        fixture.root = {32767, -32768, static_cast<int16_t>(pose * 2731)};
+        for (const int32_t x : {-800, 32, 800})
+            for (const int32_t z : {-800, 32, 800}) {
+                fixture.unit.position = {x * fixed, 20 * fixed, z * fixed};
+                compare_raw_proofs(fixture, combined, separate);
+                compare_raw_proofs(fixture, combined, separate, false);
+            }
+    }
+
+    auto simple = std::make_shared<Model>();
+    simple->objects.resize(1);
+    simple->objects[0].vertices = {{0, 0, 0}, {fixed, fixed, 0}, {0, 0, fixed}};
+    use_model(fixture, simple);
+    fixture.root = {};
+    fixture.unit.position = {200 * fixed, 20 * fixed, 32 * fixed};
+    OA_CHECK(compare_raw_proofs(fixture, combined, separate));
+    fixture.instance.pieces()[0].translation.x = -168 * fixed;
+    OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
+    fixture.instance.pieces()[0].translation.x = std::numeric_limits<int32_t>::max();
+    compare_raw_proofs(fixture, combined, separate);
+}
+
+/// Keeps every policy, frame, generation, camera and shadow refusal unchanged.
+void combined_raw_policy_camera_and_shadow_refusals() {
+    FrameFixture fixture;
+    const auto gate = fixture.gate;
+    for (bool proof::Eligibility::* field :
+         {&proof::Eligibility::enhanced,
+          &proof::Eligibility::local,
+          &proof::Eligibility::rig_resolved,
+          &proof::Eligibility::ground_resolved,
+          &proof::Eligibility::gpu_type_supported,
+          &proof::Eligibility::budget_safe,
+          &proof::Eligibility::native_geometry_resolved,
+          &proof::Eligibility::fog_seen,
+          &proof::Eligibility::ordinary_model_path}) {
+        fixture.gate = gate;
+        fixture.gate.*field = false;
+        OA_CHECK(!compare_raw_proofs(fixture));
+    }
+    for (bool proof::Eligibility::* field :
+         {&proof::Eligibility::selected,
+          &proof::Eligibility::debug,
+          &proof::Eligibility::probe,
+          &proof::Eligibility::reflection,
+          &proof::Eligibility::complex,
+          &proof::Eligibility::snapshot,
+          &proof::Eligibility::vertex_override}) {
+        fixture.gate = gate;
+        fixture.gate.*field = true;
+        OA_CHECK(!compare_raw_proofs(fixture));
+    }
+    fixture.gate = gate;
+    ++fixture.gate.frame;
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.gate = gate;
+    fixture.gate.generation = 0;
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.gate = gate;
+    ++fixture.gate.rig_generation;
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.gate = gate;
+    fixture.unit.flags |= OA_UNIT_FLAG_SELECTED;
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.unit.flags = 0;
+    fixture.unit.state_flags |= drawing::unit_state_cloaked;
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.unit.state_flags = 0;
+    const auto view = fixture.view;
+    fixture.view.width = 0;
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.view = view;
+    fixture.view.projection.fill(0);
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.view = view;
+    for (std::size_t column = 0; column < 3; ++column)
+        fixture.view.projection[8 + column] = fixture.view.projection[column];
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.view = view;
+    fixture.view.projection[0] = std::numeric_limits<float>::infinity();
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.view = view;
+    fixture.view.shadow_bounds[0] = std::numeric_limits<float>::quiet_NaN();
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.view = view;
+    fixture.view.shadow_scale = 0;
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.view = view;
+    fixture.unit.position = {32 * fixed, 400 * fixed, 32 * fixed};
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.unit.position = {-20 * fixed, 20 * fixed, 32 * fixed};
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.unit.position = {32 * fixed, 20 * fixed, 32 * fixed};
+    fixture.view.shadow_bounds = {1000, 1000, 1064, 1064};
+    OA_CHECK(!compare_raw_proofs(fixture));
+    fixture.view = view;
+    fixture.unit.position = {200 * fixed, 20 * fixed, 200 * fixed};
+    const auto control = oa::base::float_precision::save_float_control();
+    for (const int rounding : {FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO}) {
+        if (std::fesetround(rounding) == 0)
+            OA_CHECK(!compare_raw_proofs(fixture));
+        oa::base::float_precision::restore_float_control(control);
+    }
+}
+
+/// Retries failed far validation exactly as the separate wrappers do in one call.
+void combined_raw_allocation_refusal_progression() {
+    FrameFixture fixture;
+    use_model(fixture, far_model());
+    const auto saved = fixture.instance;
+    const auto revision = fixture.instance.materialization_revision();
+    for (const bool mapping_warm : {false, true}) {
+        proof::Scratch combined, separate;
+        if (mapping_warm) {
+            combined.piece_for_object.reserve(fixture.instance.pieces().size());
+            separate.piece_for_object.reserve(fixture.instance.pieces().size());
+        }
+        auto failures = refused_allocations;
+        refuse_allocation = true;
+        const bool expected =
+            proof::far_rejection_proof(
+                fixture.geometry, fixture.ref(), fixture.view, fixture.gate, separate
+            ) ||
+            proof::rejection_proof(
+                fixture.geometry, fixture.ref(), fixture.root, fixture.view, fixture.gate, separate
+            );
+        OA_CHECK(!refuse_allocation && refused_allocations == failures + 1);
+        failures = refused_allocations;
+        refuse_allocation = true;
+        const bool actual = proof::raw_rejection_proof(
+            fixture.geometry, fixture.ref(), fixture.root, fixture.view, fixture.gate, combined
+        );
+        OA_CHECK(!refuse_allocation && refused_allocations == failures + 1);
+        OA_CHECK(expected && actual == expected);
+        OA_CHECK(compare_raw_proofs(fixture, combined, separate));
+        unchanged(fixture.instance, saved);
+        OA_CHECK(fixture.instance.materialization_revision() == revision);
+    }
+    proof::Scratch combined, separate;
+    auto failures = refused_allocations;
+    refuse_allocation = true;
+    const bool expected = proof::rejection_proof(
+        fixture.geometry, fixture.ref(), fixture.root, fixture.view, fixture.gate, separate
+    );
+    OA_CHECK(!refuse_allocation && refused_allocations == failures + 1);
+    failures = refused_allocations;
+    refuse_allocation = true;
+    const bool actual = proof::raw_rejection_proof(
+        fixture.geometry, fixture.ref(), fixture.root, fixture.view, fixture.gate, combined, false
+    );
+    OA_CHECK(!refuse_allocation && refused_allocations == failures + 1);
+    OA_CHECK(!expected && actual == expected);
+    OA_CHECK(compare_raw_proofs(fixture, combined, separate, false));
+
+    // The far piece cap refuses before allocation. Its exact fallback gets
+    // the sole refusal, unlike a failed allocation inside eligible far work.
+    FrameFixture oversized;
+    use_model(oversized, many_piece_model(false));
+    const auto large_saved = oversized.instance;
+    const auto large_revision = oversized.instance.materialization_revision();
+    proof::Scratch large_combined, large_separate;
+    failures = refused_allocations;
+    refuse_allocation = true;
+    const bool large_expected =
+        proof::far_rejection_proof(
+            oversized.geometry, oversized.ref(), oversized.view, oversized.gate, large_separate
+        ) ||
+        proof::rejection_proof(
+            oversized.geometry,
+            oversized.ref(),
+            oversized.root,
+            oversized.view,
+            oversized.gate,
+            large_separate
+        );
+    OA_CHECK(!refuse_allocation && refused_allocations == failures + 1);
+    failures = refused_allocations;
+    refuse_allocation = true;
+    const bool large_actual = proof::raw_rejection_proof(
+        oversized.geometry,
+        oversized.ref(),
+        oversized.root,
+        oversized.view,
+        oversized.gate,
+        large_combined
+    );
+    OA_CHECK(!refuse_allocation && refused_allocations == failures + 1);
+    OA_CHECK(!large_expected && large_actual == large_expected);
+    OA_CHECK(compare_raw_proofs(oversized, large_combined, large_separate));
+    unchanged(oversized.instance, large_saved);
+    OA_CHECK(oversized.instance.materialization_revision() == large_revision);
+
+    fixture.gate.selected = true;
+    failures = refused_allocations;
+    refuse_allocation = true;
+    const bool gated = proof::raw_rejection_proof(
+        fixture.geometry, fixture.ref(), fixture.root, fixture.view, fixture.gate, combined
+    );
+    const bool unused = refuse_allocation;
+    refuse_allocation = false;
+    OA_CHECK(!gated && unused && refused_allocations == failures);
+    unchanged(fixture.instance, saved);
+    OA_CHECK(fixture.instance.materialization_revision() == revision);
+}
 } // namespace
 
 int main() {
@@ -998,5 +1369,9 @@ int main() {
     far_plane_rounding_margin();
     far_hierarchy_and_wrap_domains();
     far_projection_and_translation_signs();
+    combined_raw_far_and_exact_fallbacks();
+    combined_raw_scratch_progression_and_poses();
+    combined_raw_policy_camera_and_shadow_refusals();
+    combined_raw_allocation_refusal_progression();
     return oa::test::check_exit_status();
 }
