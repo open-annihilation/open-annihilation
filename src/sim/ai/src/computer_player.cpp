@@ -33,6 +33,9 @@ constexpr uint64_t strike_target_distance_floor = 1;
 /// Keeps a group's target until its squared distance exceeds the nearest by 25%.
 constexpr uint64_t strike_front_distance_denominator = 4;
 constexpr uint64_t strike_front_distance_numerator = 5;
+/// Retains a majority prior within 12.5% of the best weighted squared distance.
+constexpr uint64_t strike_retention_cost_denominator = 8;
+constexpr uint64_t strike_retention_cost_numerator = 9;
 static_assert(
     distributed_recruits_per_dispatch > 0 && distributed_recruits_per_dispatch <= max_recruits
 );
@@ -292,11 +295,20 @@ struct StrikeCohort {
     std::array<int32_t, 2> target_position{}; // selected target's whole-world X/Z
 };
 
-/// Keeps a cohort search's selected record and bounded work summary.
+/// Keeps the fresh optimum and an eligible prior from one bounded enemy walk.
 struct CohortChoice {
     const oa::Unit* unit{};
     uint64_t cost{};
     uint32_t eligible_count{};
+    const oa::Unit* prior_unit{};
+    uint64_t prior_cost{};
+};
+
+/// Holds one group's candidate slot and independently confirmed prior votes.
+struct CohortPrior {
+    uint16_t candidate{};
+    uint32_t balance{};
+    uint32_t votes{};
 };
 
 /// Tests whether a finished live member can receive a strike's attack command.
@@ -324,6 +336,58 @@ uint32_t strike_cohort(const oa::Unit& unit, const StrikeExtent& extent) noexcep
         extent.along_x ? strike_band(z, extent.least_z, extent.greatest_z, strike_cohort_depths)
                        : strike_band(x, extent.least_x, extent.greatest_x, strike_cohort_depths);
     return bands * strike_cohort_depths + depth;
+}
+
+/// Collects and verifies one possible majority prior per current spatial group.
+///
+/// Cancellation finds a candidate without bounding the number of distinct
+/// targets in existing heads. A second walk confirms its count before any
+/// attack callback can replace a head. Empty and unsupported heads do not vote;
+/// the group's full member count remains the later majority denominator.
+///
+/// @param host read-only owned-head callback and canonical world
+/// @param ai controller whose source members are inspected
+/// @param task current strike task
+/// @param units canonical player-unit records in slot order
+/// @param extent the same whole-world partition used by the strike
+/// @return candidates and verified votes, with zero meaning no candidate slot
+std::array<CohortPrior, strike_cohort_count> strike_cohort_priors(
+    const ComputerHost& host,
+    const ComputerPlayer& ai,
+    const ComputerTask& task,
+    std::span<const oa::Unit> units,
+    const StrikeExtent& extent
+) noexcept {
+    std::array<CohortPrior, strike_cohort_count> priors{};
+    if (host.owned_attack_target == nullptr)
+        return priors;
+    for (const auto& unit : units) {
+        if (!strike_member(unit, ai.player, task.squad))
+            continue;
+        const auto slot = static_cast<uint16_t>(oa::world_unit_slot(host.world, &unit));
+        const auto target = host.owned_attack_target(host.context, ai.player, slot);
+        if (target == 0)
+            continue;
+        auto& prior = priors[strike_cohort(unit, extent)];
+        if (prior.balance == 0) {
+            prior.candidate = target;
+            prior.balance = 1;
+        } else if (prior.candidate == target)
+            ++prior.balance;
+        else
+            --prior.balance;
+    }
+    for (const auto& unit : units) {
+        if (!strike_member(unit, ai.player, task.squad))
+            continue;
+        auto& prior = priors[strike_cohort(unit, extent)];
+        if (prior.candidate == 0)
+            continue;
+        const auto slot = static_cast<uint16_t>(oa::world_unit_slot(host.world, &unit));
+        if (host.owned_attack_target(host.context, ai.player, slot) == prior.candidate)
+            ++prior.votes;
+    }
+    return priors;
 }
 
 /// Tests the same enemy flags and water states used by the strike search.
@@ -368,13 +432,15 @@ bool cohort_enemy_eligible(
 /// @param filter the strike's additional water and occupancy exclusions
 /// @param cohort the current group's aggregate positions and membership
 /// @param earlier groups whose targets were already selected
-/// @return selected record, weighted distance and eligible-candidate count
+/// @param prior_target verified majority target slot, or zero to use only fresh selection
+/// @return fresh optimum, eligible prior, their costs and eligible-candidate count
 CohortChoice choose_cohort_target(
     const ComputerHost& host,
     std::span<const uint8_t> relation,
     const sim::simulation_state::CandidateFilter& filter,
     const StrikeCohort& cohort,
-    std::span<const StrikeCohort> earlier
+    std::span<const StrikeCohort> earlier,
+    uint16_t prior_target
 ) noexcept {
     CohortChoice choice{};
     const auto center_x = cohort.sum_x / cohort.members;
@@ -402,6 +468,10 @@ CohortChoice choose_cohort_target(
             const int64_t dz = center_z - word(unit.position.z);
             const auto distance = static_cast<uint64_t>(dx * dx + dz * dz);
             const auto cost = (distance + strike_target_distance_floor) * (assignments + 1);
+            if (prior_target != 0 && slot == prior_target) {
+                choice.prior_unit = &unit;
+                choice.prior_cost = cost;
+            }
             if (choice.unit == nullptr || cost < choice.cost ||
                 (cost == choice.cost && slot < best_slot)) {
                 choice.unit = &unit;
@@ -462,8 +532,9 @@ uint16_t strike_member_target(
 /// Orders live strike members toward nearby targets shared by spatial groups.
 ///
 /// Three unit-slot walks find the extent, form at most eight centroids and
-/// dispatch. Each occupied group searches the enemy records once. Existing
-/// order callbacks retain their ordinary mission and same-target handling.
+/// dispatch. Retention adds two owned-head walks before dispatch. Each occupied
+/// group searches enemy records once; a confirmed majority can retain a
+/// comparable prior. Order callbacks keep ordinary mission and same-target handling.
 ///
 /// @param state computer players and AI exclusions
 /// @param host canonical records, alliances and ordinary order callbacks
@@ -522,17 +593,34 @@ bool order_strike_cohorts(
         filter.widened_flags = true;
         filter.skip_submerged = task.source_squad != Squad::navy;
     }
+    std::array<CohortPrior, strike_cohort_count> priors{};
+    if (state != nullptr) {
+        const auto& enhanced = state->rules.rules().setup.enhanced_mode;
+        if (enhanced.enabled && data::enhanced_mode::uses_cohort_target_retention(enhanced.version))
+            priors = strike_cohort_priors(host, ai, task, {units, count}, extent);
+    }
     bool targeted = false;
     for (uint32_t index = 0; index < cohorts.size(); ++index) {
         auto& cohort = cohorts[index];
         if (cohort.members == 0)
             continue;
+        const auto& prior = priors[index];
+        const uint16_t prior_target = prior.votes > cohort.members / 2 ? prior.candidate : 0;
         const auto choice = choose_cohort_target(
-            host, relation, filter, cohort, std::span<const StrikeCohort>(cohorts).first(index)
+            host,
+            relation,
+            filter,
+            cohort,
+            std::span<const StrikeCohort>(cohorts).first(index),
+            prior_target
         );
         if (choice.unit != nullptr) {
-            cohort.target = static_cast<uint16_t>(oa::world_unit_slot(host.world, choice.unit));
-            cohort.target_position = {word(choice.unit->position.x), word(choice.unit->position.z)};
+            const bool retained = choice.prior_unit != nullptr &&
+                                  strike_retention_cost_denominator * choice.prior_cost <=
+                                      strike_retention_cost_numerator * choice.cost;
+            const auto* selected = retained ? choice.prior_unit : choice.unit;
+            cohort.target = static_cast<uint16_t>(oa::world_unit_slot(host.world, selected));
+            cohort.target_position = {word(selected->position.x), word(selected->position.z)};
             targeted = true;
         }
     }

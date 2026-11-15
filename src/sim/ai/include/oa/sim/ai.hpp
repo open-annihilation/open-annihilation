@@ -228,6 +228,15 @@ struct ComputerHost {
     /// @param player player index, 0 to 9
     /// @param section `section_sort`, a task's squad index, or `section_start`
     void (*note_section)(void* context, uint8_t player, uint8_t section){};
+    /// Returns the current compatible source-owned primary attack target's global slot.
+    /// Zero is the reserved invalid slot; a null callback supplies no prior.
+    /// The result proves neither AI authorship nor historical queue provenance.
+    ///
+    /// @param context ComputerHost::context
+    /// @param player expected owner of the source
+    /// @param source global source-unit slot
+    /// @return live canonical target slot, or zero for an unsupported or missing head
+    uint16_t (*owned_attack_target)(void* context, uint8_t player, uint16_t source){};
 };
 
 /// The squad sort. A task's section is its squad index, 1 to 9.
