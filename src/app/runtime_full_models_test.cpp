@@ -4944,6 +4944,8 @@ void test_body_lod_carried_fallback() {
 
 } // namespace
 
+#include "polygon_shape_serialization_test.inc"
+
 int main(int argc, char** argv) {
     if (!SDL_Init(0)) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -4955,6 +4957,9 @@ int main(int argc, char** argv) {
         test_installed_unit_models(assets, argc > 2 ? argv[2] : nullptr);
         test_installed_unit_faces(assets);
     } else {
+        test_polygon_shape_serialization();
+        test_polygon_shape_frame_references();
+        test_polygon_shape_animated_frames();
         test_cached_body_image();
         test_cached_body_image_revisions();
         test_cached_body_image_identity();
