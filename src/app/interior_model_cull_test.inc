@@ -58,7 +58,8 @@ struct InteriorCullSignature {
 uint64_t interior_cull_signature(const live::Scene& scene, const live::Inputs& in) {
     namespace gpu = oa::app::renderer_live_gpu;
     static_assert(sizeof(gpu::Vertex) == 18 * sizeof(float));
-    static_assert(sizeof(gpu::ModelInstance) == 12 * sizeof(uint32_t));
+    static_assert(sizeof(gpu::ModelInstance) == 13 * sizeof(uint32_t));
+    static_assert(gpu::ModelInstance{}.root_prefix == 0);
     static_assert(sizeof(gpu::ShadowCast) == 9 * sizeof(uint32_t));
     static_assert(sizeof(gpu::MarkerInstance) == 16 * sizeof(float));
     InteriorCullSignature result;
