@@ -98,7 +98,13 @@ itself plays with a position.
 `SdlWavPlayer::play_placed` hears a placement through `spatial_stereo_gain`,
 which attenuates and pans as a 3D sound buffer does: level min/d beyond the
 minimum distance (held from the maximum) and a pan by the source's bearing.
-Its other sounds play at the level that stands for -585.
+Its other sounds play at -585. A voice volume attenuates from full scale, as
+a sound buffer's volume does in the game: -585 plays an effect at
+10^(-585/2000) of its samples, 5.85 dB below the looping sound and the
+stream, which play at full scale, as the offline mix below plays it. At the
+default effects volume such an effect peaks at about a fifth of full scale,
+so the mix reaches its 16-bit limit only when five or more full-scale effects
+peak together.
 
 Registered names are kept to 32 characters, and a full 32-character name is
 compared on all 32 characters; every comparison stays within the name.
@@ -233,9 +239,10 @@ Tests: `audio-output` (the integer resampler's limits, lengths, splits,
 accuracy and alignment; the formats, gains, side gains, pausing, clearing,
 feeds and rate conversion of the mixer, and `convert_for_mixer`; the
 buffered output's ring, its start count and a refused buffer),
-`audio-sdl-player` (the WAV player's stream, voices and a placed start's
-two sides) and on Windows `audio-output-wave-out`, which plays a tone on
-the system's device, or is skipped where there is none.
+`audio-sdl-player` (the WAV player's stream, voices, a placed start's
+two sides and the near effects' level against the loop's) and on Windows
+`audio-output-wave-out`, which plays a tone on the system's device, or is
+skipped where there is none.
 
 ## Offline mix
 

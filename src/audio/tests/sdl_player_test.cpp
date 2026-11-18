@@ -6,7 +6,8 @@
 // takes the place of the one playing; stop_all, which silences every
 // effect, the loop and the stream at once; and the effects' voice policy.
 // On a mixer the test runs by hand, a placed start weighs its two sides by
-// the placement's levels, and a held loop is silent until the hold ends.
+// the placement's levels, a held loop is silent until the hold ends, and an
+// effect at the near volume plays 5.85 dB below the loop.
 #include "audio_test_support.hpp"
 #include "oa/audio/sdl_audio.hpp"
 #include "oa/audio/software_mixer.hpp"
@@ -50,9 +51,11 @@ void write_tone(const std::filesystem::path& path, uint32_t milliseconds) {
         );
 }
 
-// Writes an 8-bit mono WAV of `count` samples at `rate`.
-void write_slow(const std::filesystem::path& path, uint32_t rate, uint32_t count) {
-    auto riff = audio_test::make_riff(rate, 8, 1, std::vector<uint8_t>(count, 0x90));
+// Writes an 8-bit mono WAV of `count` samples at `rate`, every one `sample`.
+void write_slow(
+    const std::filesystem::path& path, uint32_t rate, uint32_t count, uint8_t sample = 0x90
+) {
+    auto riff = audio_test::make_riff(rate, 8, 1, std::vector<uint8_t>(count, sample));
     const auto riff_size = static_cast<uint32_t>(riff.size()) - kHeaderBytes;
     for (uint32_t byte = 0; byte < 4; ++byte)
         riff[4 + byte] = static_cast<uint8_t>(riff_size >> (8 * byte));
@@ -135,6 +138,64 @@ void placed_sides(const std::filesystem::path& root) {
     oa::audio::set_sound_output(nullptr);
 }
 
+// An effect at the near volume plays 5.85 dB below its samples, as a sound
+// buffer at -585 does, while the loop plays them at full scale; at the
+// default effects volume three full-scale effects starting together add up
+// below full scale, where at the loop's level they would pass it.
+void near_level(const std::filesystem::path& root) {
+    HandMixedOutput output;
+    oa::audio::set_sound_output(&output);
+    {
+        const oa::AssetStore assets(root);
+        SdlWavPlayer player(assets);
+        std::string error;
+        constexpr uint32_t frames = 4096;
+        // The left sample of a frame in the middle of the mix, past the
+        // conversion's first and last frames.
+        constexpr std::size_t middle = frames;
+        const double near = std::pow(10.0, oa::audio::volume_near / 2000.0);
+        using oa::audio::game_audio::full_wave_out_volume;
+        // 0xc0 is 64 above the 8-bit silence: 16384 in 16 bits.
+        constexpr double level_sample = 16384.0;
+        player.set_volume(full_wave_out_volume, oa::audio::game_audio::maximum_fx_volume);
+        require(player.play_resource("sounds/level.wav", error), "a near effect starts");
+        const auto effect = output.mix(frames);
+        require(
+            std::abs(effect[middle] - std::lround(level_sample * near)) <= 2,
+            "a near effect plays 5.85 dB below its samples"
+        );
+        player.stop_all();
+        require(player.start_loop_resource("sounds/level.wav", error), "a loop starts");
+        const auto loop = output.mix(frames);
+        require(
+            std::abs(loop[middle] - std::lround(level_sample)) <= 2,
+            "the loop plays its samples at full scale"
+        );
+        player.stop_all();
+
+        // 0xff is 127 above the 8-bit silence: 32512 in 16 bits.
+        constexpr double loud_sample = 32512.0;
+        player.set_volume(full_wave_out_volume, oa::audio::game_audio::default_fx_volume);
+        const double effects = oa::audio::game_audio::output_gain(
+                                   full_wave_out_volume, oa::audio::game_audio::default_fx_volume
+                               ) *
+                               near;
+        for (int start = 0; start < 3; ++start)
+            require(player.play_resource("sounds/loud.wav", error), "a loud effect starts");
+        const auto three = output.mix(frames);
+        require(
+            std::abs(three[middle] - std::lround(3 * loud_sample * effects)) <= 3,
+            "three full-scale effects add up at their level"
+        );
+        require(
+            three[middle] < 32767 && 3 * loud_sample / near * effects > 32767,
+            "three full-scale effects stay below full scale only at the near level"
+        );
+        player.stop_all();
+    }
+    oa::audio::set_sound_output(nullptr);
+}
+
 // A held loop is silent, and once the hold ends it plays on from where it
 // stopped; a loop started while the hold lasts starts silent.
 void held_loop(const std::filesystem::path& root) {
@@ -207,6 +268,9 @@ int main() {
     write_slow(root / "sounds" / "slow.wav", 1000, 200000);
     write_slow(root / "sounds" / "slower.wav", 1000, 400000);
     write_slow(root / "sounds" / "effect.wav", 11025, 11025);
+    // Half a second each of a constant at 64 and at 127 above silence.
+    write_slow(root / "sounds" / "level.wav", 11025, 5512, 0xc0);
+    write_slow(root / "sounds" / "loud.wav", 11025, 5512, 0xff);
     {
         const oa::AssetStore assets(root);
         SdlWavPlayer player(assets);
@@ -324,6 +388,7 @@ int main() {
     }
     placed_sides(root);
     held_loop(root);
+    near_level(root);
     std::filesystem::remove_all(root);
     SDL_Quit();
     return 0;

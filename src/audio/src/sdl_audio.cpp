@@ -47,6 +47,10 @@ void refill_loop(void* userdata, OutputStream& stream, int32_t additional) {
     }
 }
 
+/// Hundredths of a decibel that divide a sound's amplitude by ten: a volume
+/// v plays at 10^(v / 2000) of full scale.
+constexpr float centibels_per_decade = 2000.0F;
+
 /// The most bytes of decoded sound files the player keeps, as 16-bit samples
 /// at the mixer's rate: about a minute and a half of one channel. A sound
 /// played or looped from the cache converts to no more than this; the
@@ -81,7 +85,7 @@ struct SoundBuffer {
     std::unique_ptr<OutputStream> stream;
     StreamFormat format{}; ///< the stream's format
     int32_t put_bytes{};   ///< bytes the start it plays put to the stream
-    float level{1.0F};     ///< the voice volume relative to the near volume
+    float level{1.0F};     ///< the voice volume as a factor of full scale
 };
 
 /// A sound file as SDL decoded it, converted once to the mixer's rate
@@ -432,8 +436,9 @@ bool SdlWavPlayer::play_placed(
     const oa::audio::StereoGain sides = spatial.mode == oa::audio::SpatialMode::normal
                                             ? oa::audio::spatial_stereo_gain(spatial)
                                             : oa::audio::StereoGain{};
-    const float level =
-        std::pow(10.0F, static_cast<float>(volume - oa::audio::volume_near) / 2000.0F);
+    // The volume attenuates from full scale, as a sound buffer's does: the
+    // near volume of -585 plays 5.85 dB below the loop and the stream.
+    const float level = std::pow(10.0F, static_cast<float>(volume) / centibels_per_decade);
     // A restarted buffer plays its new start on the stream it has; another
     // takes an idle stream of the format, or opens one.
     SoundOutput& output = sound_output();
@@ -784,7 +789,8 @@ AudioSink sdl_audio_sink(SdlAudioDevice* device) noexcept {
     sink.set_volume = [](void* context, BufferHandle handle, int32_t centibels) {
         const float master = static_cast<SdlAudioDevice*>(context)->master_gain();
         return with_voice(context, handle, [&](SdlVoice& voice) {
-            voice.gain = std::pow(10.0F, static_cast<float>(centibels) / 2000.0F);
+            voice.gain =
+                std::pow(10.0F, static_cast<float>(centibels) / game_audio::centibels_per_decade);
             return voice.stream->set_gain(voice.gain * master);
         });
     };

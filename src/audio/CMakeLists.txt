@@ -157,7 +157,8 @@ if(BUILD_TESTING)
     set_tests_properties(audio-sdl-sink PROPERTIES TIMEOUT 60)
     # The WAV player's one stream: its delay, one playing, stopping at once
     # and replacement, on the dummy device, which plays in real time; and a
-    # placed start's two sides, on a mixer the test runs by hand.
+    # placed start's two sides and the effects' level against the loop's, on
+    # a mixer the test runs by hand.
     add_executable(oa-audio-sdl-player-test tests/sdl_player_test.cpp)
     target_link_libraries(oa-audio-sdl-player-test PRIVATE oa-audio-sdl oa-test-support)
     add_test(NAME audio-sdl-player COMMAND oa-audio-sdl-player-test)
