@@ -660,6 +660,26 @@ void TiledTexture::update(
     }
 }
 
+void TiledTexture::update_rect(
+    const uint8_t* pixels, int pitch, int bytes_per_pixel, const policy::TexelRect& rect
+) {
+    for (const auto& piece : tiles_) {
+        const auto part = shared(piece.tile.texture, rect);
+        if (part.width == 0)
+            continue;
+        const SDL_Rect updated{
+            static_cast<int>(part.x - piece.tile.texture.x),
+            static_cast<int>(part.y - piece.tile.texture.y),
+            static_cast<int>(part.width),
+            static_cast<int>(part.height)
+        };
+        const uint8_t* first = pixels + static_cast<std::ptrdiff_t>(part.y - rect.y) * pitch +
+                               static_cast<std::ptrdiff_t>(part.x - rect.x) * bytes_per_pixel;
+        if (!SDL_UpdateTexture(piece.texture, &updated, first, pitch))
+            fail("SDL_UpdateTexture");
+    }
+}
+
 void TiledTexture::upload_rgb24(
     const uint8_t* rgb,
     std::size_t rgb_pitch,

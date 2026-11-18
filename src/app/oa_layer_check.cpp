@@ -3,28 +3,37 @@
 
 // Helpers for the native checks of the OA layer's screens as the window
 // shows them (oa_layer_check.hpp), the checks' mark screen, and the layer's
-// own check of screens that are not opaque, of the information key and of
-// Settings moved by its title (OaLayer::check_clear_screens), which
-// --check-engine-settings runs.
+// own checks of screens that are not opaque, of the information key and of
+// Settings moved by its title (OaLayer::check_clear_screens), and of the
+// match's layer drawn again where it changed (OaLayer::check_match_redraws),
+// which --check-engine-settings runs.
 
 #include "oa_layer_check.hpp"
 
+#include "engine_settings_state.hpp"
+
 #include "oa/app/automation_host.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/ui/engine_settings.hpp"
+#include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -311,6 +320,16 @@ void MarkScreen::draw(const oa::ui::kit::Canvas& canvas) const {
         );
 }
 
+LayerAnswer MarkScreen::pointer(
+    ScreenInputKind kind, uint8_t /*button*/, oa::ui::kit::Point at, int32_t /*reach*/
+) {
+    if (kind == ScreenInputKind::pointer_move) {
+        ++seen_->moves;
+        seen_->last_move = at;
+    }
+    return LayerAnswer::pass;
+}
+
 LayerAnswer MarkScreen::key(oa::ui::kit::Key pressed, uint32_t sdl_key) {
     if (pressed != oa::ui::kit::Key::info) {
         ++seen_->other_keys;
@@ -393,6 +412,28 @@ constexpr kit::Point kBoxSize{48, 32};
 /// blended straight over what lies under it: its opacity is read back to
 /// the nearest 255th, and the window blends it in its own arithmetic.
 constexpr int32_t kVeilTolerance = 2;
+
+/// The window the redraw check plays its match on: 1280 by 720, where
+/// Settings is Large at 1x (OaLayer::check_match_redraws).
+constexpr layout::Point kRedrawWindow{1280, 720};
+/// The larger window it moves to: 2560 by 1440, where Auto draws Settings
+/// at 2x and 150% fits.
+constexpr layout::Point kRedrawLargerWindow{2560, 1440};
+/// How many of a screen's controls the pointer moves over in turn.
+constexpr std::size_t kRedrawHovers = 4;
+/// A display gamma that changes colours, which the layer is uploaded at.
+constexpr float kRedrawGamma = 1.5F;
+/// The large window a hover change in the gallery is timed on.
+constexpr layout::Point kTimedWindow{3840, 2160};
+/// How many hover changes each timing takes.
+constexpr int32_t kTimedHovers = 12;
+/// How many moves of the pointer the check queues in one frame.
+constexpr int32_t kQueuedMoves = 3;
+/// Where the queued moves start, in window pixels: each goes kQueuedMoveStep
+/// further right.
+constexpr layout::Point kQueuedMovesFrom{200, 200};
+/// How far right each queued move goes, in window pixels.
+constexpr int32_t kQueuedMoveStep = 10;
 
 /// A screen the check expects the layer to show, and where.
 struct ExpectedScreen {
@@ -570,6 +611,26 @@ std::size_t differences(
                     break;
                 }
         }
+    return differing;
+}
+
+/// Counts the pixels in which two pictures of one layout differ.
+///
+/// @param first a picture's bytes
+/// @param second another picture's bytes
+/// @param pixel_bytes the bytes of one pixel
+/// @return the pixels that differ; every pixel of the first when the sizes differ
+std::size_t differing_pixels(
+    std::span<const uint8_t> first, std::span<const uint8_t> second, std::size_t pixel_bytes
+) {
+    if (first.size() != second.size())
+        return first.size() / pixel_bytes;
+    if (std::memcmp(first.data(), second.data(), first.size()) == 0)
+        return 0;
+    std::size_t differing = 0;
+    for (std::size_t at = 0; at + pixel_bytes <= first.size(); at += pixel_bytes)
+        if (std::memcmp(first.data() + at, second.data() + at, pixel_bytes) != 0)
+            ++differing;
     return differing;
 }
 
@@ -1446,6 +1507,419 @@ void OaLayer::check_clear_screens() {
     runtime_.load(Screen::main_menu);
     forget_latched_key();
     runtime_.fake_frontend_tick_ = previous_tick;
+}
+
+void OaLayer::check_match_redraws() {
+    namespace settings = oa::ui::engine_settings;
+    require(
+        runtime_.sdl_.renderer != nullptr && runtime_.sdl_.window != nullptr,
+        "needs the SDL presenter"
+    );
+    require(
+        screens_.empty() && queue_.empty(), "screens were on the layer before the redraw check"
+    );
+    std::cout << "OA layer check: the match's layer drawn again where it changed\n";
+    int kept_width = 0;
+    int kept_height = 0;
+    require(
+        SDL_GetWindowSize(runtime_.sdl_.window, &kept_width, &kept_height) && kept_width > 0 &&
+            kept_height > 0,
+        "the window has no size"
+    );
+    const float kept_gamma = runtime_.display_gamma_;
+    // HUD scaling On lets Settings take a larger scale on the larger window.
+    const bool kept_hud_scaling = runtime_.engine_settings_state().current.hud_scaling;
+    runtime_.engine_settings_state().current.hud_scaling = true;
+    const auto window_size = [this](int32_t width, int32_t height) {
+        require(
+            SDL_SetWindowSize(runtime_.sdl_.window, width, height) &&
+                SDL_SyncWindow(runtime_.sdl_.window),
+            "the window did not take " + std::to_string(width) + "x" + std::to_string(height)
+        );
+        runtime_.follow_window_output();
+    };
+    window_size(kRedrawWindow.x, kRedrawWindow.y);
+    runtime_.start_benchmark_skirmish();
+    require(runtime_.screen_ == Screen::match && view().match, "the check's match did not start");
+    runtime_.show_match_pause_menu();
+    require(runtime_.ingame_menu_column_shown(), "the in-game menu's column does not show");
+
+    // The layer composed whole from every screen drawn anew, as refresh_match
+    // composed it each time before it kept what had not changed: the backdrop
+    // under a modal screen with one, the button's face fitted to its place,
+    // then each screen darkened by those above it and laid at its place.
+    const auto composed_whole = [this] {
+        const MatchLook& look = *drawn_;
+        const LayerView seen = view();
+        const auto pixels =
+            static_cast<std::size_t>(look.width) * static_cast<std::size_t>(look.height);
+        std::vector<uint8_t> whole(pixels * 4U, 0);
+        if (look.darkened)
+            for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
+                uint8_t* to = whole.data() + pixel * 4U;
+                to[0] = settings::backdrop_color[0];
+                to[1] = settings::backdrop_color[1];
+                to[2] = settings::backdrop_color[2];
+                to[3] = static_cast<uint8_t>((kit::ingame_backdrop_opacity * 255U + 128U) / 256U);
+            }
+        if (look.button_shown) {
+            const LayerDrawing face = match_button_face(
+                runtime_.match_hud_ ? &*runtime_.match_hud_ : nullptr,
+                static_cast<settings::ButtonLook>(look.button_look),
+                look.darkened
+            );
+            stamp(
+                whole,
+                look.width,
+                look.height,
+                face.picture,
+                {look.button[0], look.button[1], look.button[2], look.button[3]},
+                face.opacity
+            );
+        }
+        const std::vector<uint32_t> above = backdrops_above(seen);
+        for (std::size_t index = 0; index < screens_.size(); ++index) {
+            const LayerPlacement placed = shown_placement(*screens_[index], seen);
+            if (placed.shown.width <= 0 || placed.shown.height <= 0)
+                continue;
+            LayerDrawing drawn = draw_screen(
+                *screens_[index], placed, placed.scale_percent > 0 ? placed.scale_percent : 100
+            );
+            for (uint32_t pass = 0; pass < above[index]; ++pass)
+                artless::blend_source_rect(
+                    drawn.picture,
+                    {0, 0, 1},
+                    {0,
+                     0,
+                     static_cast<int32_t>(drawn.picture.width),
+                     static_cast<int32_t>(drawn.picture.height)},
+                    kit::rgb(kit::colour::backdrop),
+                    settings::ingame_backdrop_opacity
+                );
+            // Fitted to a place of its own size, each pixel is copied, or
+            // laid over by its opacity, where it lands.
+            stamp(whole, look.width, look.height, drawn.picture, placed.shown, drawn.opacity);
+        }
+        return whole;
+    };
+
+    // After each step the layer holds the pixels composing it whole gives,
+    // and the window, presented with no cursor, shows the frame composed
+    // with that layer at the display gamma: the texture holds the layer.
+    struct NoCursor {
+        Runtime& runtime;
+        bool kept{};
+
+        ~NoCursor() { runtime.frame_without_cursor_ = kept; }
+    } no_cursor{runtime_, runtime_.frame_without_cursor_};
+
+    runtime_.frame_without_cursor_ = true;
+    int32_t steps = 0;
+    const auto holds = [&](const std::string& step) {
+        artless::Surface presented;
+        runtime_.capture_frame_ = &presented;
+        runtime_.render();
+        runtime_.capture_frame_ = nullptr;
+        require(drawn_.has_value(), "the match's layer was not drawn " + step);
+        const std::size_t differing = differing_pixels(composed_whole(), rgba_, 4U);
+        require(
+            differing == 0,
+            std::to_string(differing) +
+                " pixels of the match's layer differ from the layer composed whole " + step
+        );
+        artless::Surface composed;
+        runtime_.compose_match_frame(composed);
+        const std::size_t shown_differing = differing_pixels(presented.rgb, composed.rgb, 3U);
+        require(
+            shown_differing == 0,
+            std::to_string(shown_differing) +
+                " pixels of the window differ from the frame composed with the layer " + step
+        );
+        ++steps;
+    };
+    // The pointer moved to the middle of a window rectangle.
+    const auto point_at = [this](const layout::Rect& rect) {
+        runtime_.send_check_pointer(
+            SDL_EVENT_MOUSE_MOTION, {rect.x + rect.width / 2, rect.y + rect.height / 2}, 0
+        );
+    };
+    // The rectangles of `count` of a screen's buttons, tabs, switches and
+    // other controls that light under the pointer, the parts a press
+    // reaches, in window pixels, each different.
+    const auto controls_of = [this](std::string_view name, std::size_t count) {
+        const LayerScreen* screen = find(name);
+        require(screen != nullptr, "no " + std::string(name) + " is on the layer");
+        const LayerPlacement placed = shown_placement(*screen, view());
+        std::vector<layout::Rect> rects;
+        for (const kit::Control& control : screen->display_list().controls) {
+            if (!control.enabled || (control.kind != kit::ControlKind::button &&
+                                     control.kind != kit::ControlKind::tab &&
+                                     control.kind != kit::ControlKind::toggle &&
+                                     control.kind != kit::ControlKind::choice &&
+                                     control.kind != kit::ControlKind::link))
+                continue;
+            const kit::Rect reached = control.clip.width > 0 && control.clip.height > 0
+                                          ? kit::intersect(control.rect, control.clip)
+                                          : control.rect;
+            if (reached.width <= 2 || reached.height <= 2)
+                continue;
+            // At the placement's scale as the canvas rounds it, 150% included.
+            const kit::Rect drawn =
+                kit::to_canvas(reached, placed.scale_percent > 0 ? placed.scale_percent : 100);
+            const layout::Rect rect{
+                placed.shown.x + drawn.x, placed.shown.y + drawn.y, drawn.width, drawn.height
+            };
+            if (rect.x < placed.shown.x || rect.y < placed.shown.y ||
+                rect.x + rect.width > placed.shown.x + placed.shown.width ||
+                rect.y + rect.height > placed.shown.y + placed.shown.height)
+                continue;
+            rects.push_back(rect);
+            if (rects.size() == count)
+                break;
+        }
+        require(rects.size() == count, std::string(name) + " has too few controls to point at");
+        return rects;
+    };
+    // The pointer over a few of a screen's controls in turn: each hover
+    // change composes the layer again within the screen's place, and at
+    // least one composes only part of it.
+    const auto hovers = [&](std::string_view name, const std::string& step) {
+        const layout::Rect place = placement_of(name).shown;
+        bool partial = false;
+        std::string parts;
+        for (const layout::Rect& control : controls_of(name, kRedrawHovers)) {
+            point_at(control);
+            require(refresh_match(), "the match's layer shows nothing " + step);
+            const layout::Rect part = unuploaded_;
+            parts += " " + std::to_string(part.width) + "x" + std::to_string(part.height);
+            const int64_t part_pixels = int64_t{part.width} * part.height;
+            require(
+                part_pixels == 0 || (part.x >= place.x && part.y >= place.y &&
+                                     part.x + part.width <= place.x + place.width &&
+                                     part.y + part.height <= place.y + place.height),
+                "a hover change composed the layer outside the screen " + step
+            );
+            partial =
+                partial || (part_pixels > 0 && part_pixels < int64_t{place.width} * place.height);
+            holds(step);
+        }
+        require(
+            partial,
+            "no hover change composed only part of the screen " + step + " (" +
+                std::to_string(place.width) + "x" + std::to_string(place.height) + ":" + parts + ")"
+        );
+    };
+    const layout::Rect corner{kRedrawWindow.x - 2, kRedrawWindow.y - 2, 1, 1};
+    point_at(corner);
+    holds("with the in-game menu");
+    const layout::Rect button = match_button_rect(runtime_.match_layout_, false);
+    point_at(button);
+    holds("over the OA button");
+    runtime_.send_check_pointer(
+        SDL_EVENT_MOUSE_BUTTON_DOWN,
+        {button.x + button.width / 2, button.y + button.height / 2},
+        SDL_BUTTON_LEFT
+    );
+    holds("with the OA button pressed");
+    runtime_.send_check_pointer(
+        SDL_EVENT_MOUSE_BUTTON_UP,
+        {button.x + button.width / 2, button.y + button.height / 2},
+        SDL_BUTTON_LEFT
+    );
+    require(find("settings") != nullptr, "the OA button did not open Settings");
+    holds("with Settings open");
+    hovers("settings", "over a control of Settings");
+
+    // The gallery over Settings, which it darkens, and its own hover.
+    runtime_.take_settings_screen_action(settings::DialogAction::show_gallery);
+    require(find(GalleryScreen::screen_name) != nullptr, "the gallery did not open");
+    holds("with the gallery open over Settings");
+    hovers(GalleryScreen::screen_name, "over a control of the gallery");
+
+    // An opaque modal screen over the gallery darkens it, and one that is
+    // not opaque is laid over what lies under it; each is taken off again.
+    const LayerView seen = view();
+    MarkLook box{};
+    box.name = "check-redraw-box";
+    box.in_match = true;
+    box.opaque = true;
+    box.modal = true;
+    box.backdrop = true;
+    box.area = {seen.room.width / 4, seen.room.height / 4, kBoxSize.x, kBoxSize.y};
+    box.mark = {4, 4, kBoxSize.x - 8, kBoxSize.y - 8};
+    box.colour = kBoxColour;
+    push(std::make_unique<MarkScreen>(box, std::make_shared<MarkSeen>()));
+    holds("with an opaque screen over the gallery");
+    close(find(box.name));
+    holds("with the opaque screen taken off the gallery");
+    MarkLook veil{};
+    veil.name = "check-redraw-veil";
+    veil.in_match = true;
+    veil.area = {seen.room.width / 3, seen.room.height / 3, kBoxSize.x, kBoxSize.y};
+    veil.mark = {0, 0, 12, 8};
+    veil.veil = {16, 0, 12, 8};
+    veil.colour = kClearColour;
+    push(std::make_unique<MarkScreen>(veil, std::make_shared<MarkSeen>()));
+    holds("with a screen that is not opaque over the gallery");
+    close(find(veil.name));
+    holds("with the screen that is not opaque taken off the gallery");
+
+    // Escape takes the gallery off, back to Settings, which it no longer darkens.
+    const auto tap = [this](SDL_Keycode key) {
+        bool running = true;
+        for (const bool down : {true, false}) {
+            SDL_Event event{};
+            event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            event.key.windowID = SDL_GetWindowID(runtime_.sdl_.window);
+            event.key.key = key;
+            event.key.down = down;
+            runtime_.dispatch_event(event, running);
+        }
+        require(running, "a key ended the run");
+    };
+    tap(SDLK_ESCAPE);
+    require(
+        find(GalleryScreen::screen_name) == nullptr && find("settings") != nullptr,
+        "Escape did not take the gallery off, back to Settings"
+    );
+    holds("with the gallery taken off");
+
+    // A new window size moves Settings and composes the whole layer; a new
+    // Interface size draws Settings at another scale; a new gamma uploads the
+    // whole layer at it.
+    window_size(kRedrawLargerWindow.x, kRedrawLargerWindow.y);
+    holds("on a larger window");
+    settings::Dialog* dialog = runtime_.engine_settings_dialog();
+    require(dialog != nullptr, "Settings closed on a larger window");
+    const int32_t auto_percent = placement_of("settings").scale_percent;
+    dialog->chosen.interface_size =
+        auto_percent == 100 ? settings::InterfaceSize::size_200 : settings::InterfaceSize::size_100;
+    runtime_.take_settings_screen_action(settings::DialogAction::changed);
+    require(
+        runtime_.engine_settings_dialog() == dialog &&
+            placement_of("settings").scale_percent != auto_percent,
+        "a new Interface size did not draw Settings at another scale"
+    );
+    holds("at another Interface size");
+    hovers("settings", "over a control of Settings at another Interface size");
+    // 150%, in the modern fonts, on the canvas's smooth form.
+    dialog->chosen.modern_fonts = true;
+    dialog->chosen.interface_size = settings::InterfaceSize::size_150;
+    runtime_.take_settings_screen_action(settings::DialogAction::changed);
+    require(
+        runtime_.engine_settings_dialog() == dialog &&
+            placement_of("settings").scale_percent == kit::fractional_scale_percent,
+        "150% with the modern fonts On did not draw Settings at 1.5x"
+    );
+    holds("at 150%");
+    hovers("settings", "over a control of Settings at 150%");
+    runtime_.set_display_gamma(kRedrawGamma);
+    require(!runtime_.gamma_identity_, "the check's gamma changes no colour");
+    holds("at another gamma");
+    hovers("settings", "over a control of Settings at another gamma");
+    runtime_.set_display_gamma(kept_gamma);
+    tap(SDLK_ESCAPE);
+    require(find("settings") == nullptr, "Escape did not close Settings");
+    holds("with Settings closed");
+    std::cout << "OA layer check: the match's layer drawn where it changed holds the layer "
+                 "composed whole, and the window shows the frame composed with it, through "
+              << steps << " steps\n";
+
+    // While a modal screen takes every input, the pointer's moves queued one
+    // after another in a frame reach it as one, where the last ends; under
+    // a screen that is not modal each reaches the screens.
+    bool running = true;
+    const auto queued_moves = [&](bool modal) {
+        MarkLook marking{};
+        marking.name = "check-redraw-moves";
+        marking.in_match = true;
+        marking.modal = modal;
+        marking.area = {0, 0, kBoxSize.x, kBoxSize.y};
+        auto moved = std::make_shared<MarkSeen>();
+        push(std::make_unique<MarkScreen>(marking, moved));
+        // What was queued before goes first.
+        runtime_.run_frame(running);
+        const int32_t before = moved->moves;
+        layout::Point last{};
+        for (int32_t move = 1; move <= kQueuedMoves; ++move) {
+            last = {kQueuedMovesFrom.x + move * kQueuedMoveStep, kQueuedMovesFrom.y};
+            SDL_Event queued{};
+            queued.type = SDL_EVENT_MOUSE_MOTION;
+            queued.motion.windowID = SDL_GetWindowID(runtime_.sdl_.window);
+            queued.motion.x = static_cast<float>(last.x);
+            queued.motion.y = static_cast<float>(last.y);
+            queued.motion.xrel = static_cast<float>(kQueuedMoveStep);
+            require(SDL_PushEvent(&queued), std::string("SDL_PushEvent: ") + SDL_GetError());
+        }
+        runtime_.run_frame(running);
+        require(running, "a frame ended the run");
+        const kit::Point expected = layer_point(
+            placement_of(marking.name), static_cast<float>(last.x), static_cast<float>(last.y)
+        );
+        const bool at_last = moved->last_move.x == expected.x && moved->last_move.y == expected.y;
+        close(find(marking.name));
+        return std::pair{moved->moves - before, at_last};
+    };
+    const auto [modal_moves, modal_last] = queued_moves(true);
+    require(
+        modal_moves == 1 && modal_last,
+        "the pointer's queued moves reached a modal screen " + std::to_string(modal_moves) +
+            " times, not once at the last"
+    );
+    const auto [passing_moves, passing_last] = queued_moves(false);
+    require(
+        passing_moves == kQueuedMoves && passing_last,
+        "the pointer's queued moves reached a screen that is not modal " +
+            std::to_string(passing_moves) + " times, not each"
+    );
+    std::cout << "OA layer check: the pointer's queued moves reach a modal screen as one, and "
+                 "each reaches a screen that is not modal\n";
+
+    // A hover change in Settings, and in the gallery over it, on a large
+    // window, timed drawn and uploaded where it changed, then drawn and
+    // uploaded whole as redraw asks. The times are told, not held to a bound.
+    window_size(kTimedWindow.x, kTimedWindow.y);
+    runtime_.open_engine_settings_in_match();
+    runtime_.render();
+    const auto hover_ms = [&](std::string_view name, bool whole) {
+        const std::vector<layout::Rect> timed = controls_of(name, kRedrawHovers);
+        double total = 0.0;
+        for (int32_t hover = 0; hover < kTimedHovers; ++hover) {
+            const layout::Rect& control = timed[static_cast<std::size_t>(hover) % timed.size()];
+            const auto start = std::chrono::steady_clock::now();
+            point_at(control);
+            if (whole)
+                redraw();
+            present(nullptr);
+            total +=
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                    .count();
+        }
+        return total / kTimedHovers;
+    };
+    const auto tell_times = [&](std::string_view name, std::string_view what) {
+        std::ignore = hover_ms(name, false);
+        const double changed_ms = hover_ms(name, false);
+        const double whole_ms = hover_ms(name, true);
+        std::cout << "OA layer check: a hover change in " << what << " on a " << kTimedWindow.x
+                  << "x" << kTimedWindow.y << " window takes " << changed_ms
+                  << " ms drawn and uploaded where it changed, " << whole_ms << " ms drawn whole\n";
+    };
+    tell_times("settings", "Settings");
+    runtime_.take_settings_screen_action(settings::DialogAction::show_gallery);
+    runtime_.render();
+    tell_times(GalleryScreen::screen_name, "the gallery over Settings");
+    tap(SDLK_ESCAPE);
+    tap(SDLK_ESCAPE);
+    runtime_.leave_match();
+    runtime_.engine_settings_state().current.hud_scaling = kept_hud_scaling;
+    require(
+        SDL_SetWindowSize(runtime_.sdl_.window, kept_width, kept_height) &&
+            SDL_SyncWindow(runtime_.sdl_.window),
+        "the window did not take its size back"
+    );
+    runtime_.load(Screen::main_menu);
+    forget_latched_key();
 }
 
 } // namespace oa::app

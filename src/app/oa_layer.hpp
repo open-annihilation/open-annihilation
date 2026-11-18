@@ -1089,9 +1089,13 @@ class OaLayer {
     /// Forgets the latched key, as its release would.
     void forget_latched_key() noexcept { latched_key_ = 0; }
 
-    /// Draws the match's layer again at its next refresh: for a change made
-    /// to a screen's model from outside its events.
-    void redraw() noexcept { ++revision_; }
+    /// Draws the match's layer again at its next refresh, every screen drawn
+    /// anew and the whole layer composed: for a change made to a screen's
+    /// model from outside its events.
+    void redraw() noexcept {
+        ++revision_;
+        match_redraw_ = true;
+    }
 
     /// Lays every screen out again for the size in effect.
     ///
@@ -1143,6 +1147,16 @@ class OaLayer {
     /// its smooth form at 150%) as large as its place and copied into the
     /// layer pixel for pixel; one with no scale of its own (the phone's
     /// fitted Settings) is drawn at 1× and fitted to its place (stamp).
+    ///
+    /// Only what changed is drawn again. A screen whose revision covers what
+    /// it draws (LayerScreen::revision_covers_drawing) keeps its drawing
+    /// while its revision and everything else it is drawn from hold, as on
+    /// the front end; every other screen is drawn again each time the layer
+    /// is. The layer is then composed again only where a drawing differs from
+    /// the one it replaces, a screen came, went or moved, or the button
+    /// changed: the rest keeps its pixels, which are those composing the
+    /// whole layer anew would give. A new size, the backdrop coming or going,
+    /// screens that change their order and redraw compose the whole layer.
     ///
     /// @return true when the layer shows anything
     bool refresh_match();
@@ -1536,6 +1550,29 @@ class OaLayer {
     /// Throws std::runtime_error naming the first thing that failed.
     void check_clear_screens();
 
+    /// Checks, for --check-engine-settings, that the match's layer drawn
+    /// again only where it changed (refresh_match) holds, after each step,
+    /// every pixel composing it whole from screens drawn anew gives, and
+    /// that the window, presented with no cursor, shows the frame composed
+    /// with that layer at the display gamma (present_match uploads it where
+    /// it changed). The steps, in a match on a 1280 by 720 window: the
+    /// pointer over the OA button and its press, which opens Settings; hover
+    /// changes in Settings; the gallery opened over it and hover changes in
+    /// the gallery; an opaque modal screen and one that is not opaque, each
+    /// pushed over the gallery and taken off; Escape back to Settings; a
+    /// 2560 by 1440 window; another whole Interface size and 150% in the
+    /// modern fonts, with hover changes at each; a display gamma that
+    /// changes colours, with hover changes; and Settings closed. Each hover
+    /// change composes the layer again within the hovered screen, and some
+    /// only part of it. The pointer's moves queued in one frame then reach a
+    /// modal screen as one, where the last ends, and each reaches a screen
+    /// that is not modal. Last it times a hover change in Settings, and in
+    /// the gallery over it, on a 3840 by 2160 window, drawn where it changed
+    /// and drawn whole, and prints the times.
+    ///
+    /// Throws std::runtime_error naming the first thing that failed.
+    void check_match_redraws();
+
   private:
 
     /// What the match's layer shows, at which size: it is drawn again only
@@ -1572,8 +1609,8 @@ class OaLayer {
         uint64_t drawing{};
     };
 
-    /// Everything but the screen itself that a front-end screen's drawing
-    /// is drawn from.
+    /// Everything but the screen itself that a screen's drawing is drawn
+    /// from, on the front end and in a match.
     struct DrawingInputs {
         /// Its place's size, in window pixels: 0, 0, width and height. Where
         /// it shows does not change what it draws, so a window moved keeps
@@ -1623,6 +1660,21 @@ class OaLayer {
         int32_t picture_height{};         ///< the picture's height, in its pixels
         std::array<float, 4> area{};      ///< the picture's rectangle in the window
         std::vector<FrontPiece> pieces{}; ///< the screens that show, bottom first
+    };
+
+    /// One screen of the match's layer as rgba_ holds it, and what its
+    /// drawing was drawn from.
+    struct MatchPiece {
+        uint64_t screen{};                    ///< the screen's identity
+        oa::ui::display_layout::Rect shown{}; ///< where it shows, in window pixels
+        /// Its drawing is kept while its revision and inputs hold
+        /// (LayerScreen::revision_covers_drawing); otherwise it is drawn
+        /// again each time the layer is.
+        bool kept{};
+        uint64_t revision{};                         ///< its revision when it was drawn; 0 unkept
+        DrawingInputs inputs{};                      ///< what else it was drawn from
+        std::shared_ptr<const LayerDrawing> drawn{}; ///< its drawing, darkened
+        uint64_t drawing{}; ///< the drawing's number (match_drawing_count_)
     };
 
     /// Returns the top modal screen that shows.
@@ -1781,6 +1833,44 @@ class OaLayer {
         const LayerScreen& screen, const LayerPlacement& placed, int32_t scale_percent
     ) const;
 
+    /// Returns what every screen's drawing is drawn from now besides its
+    /// own place and scale: the layer's fonts, the icon, the interface's
+    /// language and words, and the text settings.
+    ///
+    /// @return the inputs; the screen's own left at their defaults
+    [[nodiscard]] DrawingInputs common_drawing_inputs() const;
+
+    /// Returns everything but the screen itself that a screen's drawing is
+    /// drawn from.
+    ///
+    /// @param common what every screen is drawn from (common_drawing_inputs)
+    /// @param screen the screen
+    /// @param placed where it shows
+    /// @param scale_percent the scale it is drawn at, in percent
+    /// @param darkenings the modal screens with a backdrop above it
+    /// @return the inputs
+    [[nodiscard]] DrawingInputs screen_drawing_inputs(
+        const DrawingInputs& common,
+        const LayerScreen& screen,
+        const LayerPlacement& placed,
+        int32_t scale_percent,
+        uint32_t darkenings
+    ) const;
+
+    /// Composes a part of the match's layer in rgba_ from what it shows: the
+    /// backdrop or clear, then the button's face (match_button_face_), then
+    /// each screen's drawing (match_pieces_), bottom first, as composing the
+    /// whole layer would give each pixel of the part.
+    ///
+    /// @param part the part, in window pixels; clipped to the layer
+    void compose_match_part(const oa::ui::display_layout::Rect& part);
+
+    /// Uploads a part of the match's layer to the texture at the display
+    /// gamma, the gamma applied to that part alone.
+    ///
+    /// @param part the part, in window pixels, within the layer
+    void upload_match_part(const oa::ui::display_layout::Rect& part);
+
     /// Draws the front end's screens into the window.
     ///
     /// @param area where the picture lies in the window, in window pixels
@@ -1799,7 +1889,9 @@ class OaLayer {
     void present_presence_badges(const LayerView& seen, int output_width, int output_height);
 
     /// Draws the match's layer into the window, as the match's other layers
-    /// laid out 1:1 are drawn (one_to_one_scale_mode).
+    /// laid out 1:1 are drawn (one_to_one_scale_mode). Only the part of the
+    /// layer composed again since the texture took it is uploaded, at the
+    /// display gamma; a new texture or a new gamma uploads the whole layer.
     void present_match();
 
     Runtime& runtime_; ///< the runtime it hosts screens for
@@ -1865,7 +1957,24 @@ class OaLayer {
     /// blue, opacity), before the display gamma.
     std::vector<uint8_t> rgba_{};
     oa::ui::display_layout::Rect bounds_{}; ///< the part of the match's layer that is not clear
-    std::optional<MatchLook> uploaded_{};   ///< the match's layer the texture holds
+    /// The screens rgba_ holds, bottom first, with their drawings, which the
+    /// next refresh keeps where it may.
+    std::vector<MatchPiece> match_pieces_{};
+    /// The OA button's face rgba_ holds; empty while the button does not show.
+    LayerDrawing match_button_face_{};
+    /// Where rgba_ holds the button's face, in window pixels; empty while
+    /// the button does not show.
+    oa::ui::display_layout::Rect match_button_at_{};
+    uint64_t match_drawing_count_{}; ///< counts the match's screen drawings, numbering each
+    /// redraw asked for every screen to be drawn anew and the whole layer
+    /// composed at the next refresh.
+    bool match_redraw_{};
+    /// The texture holds the match's layer as rgba_ holds it, at the gamma
+    /// uploaded_gamma_, but for the part composed again since (unuploaded_).
+    bool uploaded_{};
+    /// The part of rgba_ composed again since the texture took it, in
+    /// window pixels; empty when none.
+    oa::ui::display_layout::Rect unuploaded_{};
     /// The front end's screens the texture holds, at their places; none
     /// while it holds the match's layer or nothing.
     std::optional<FrontLook> front_uploaded_{};

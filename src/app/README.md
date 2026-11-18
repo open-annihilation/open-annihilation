@@ -555,7 +555,12 @@ latched the closing key and drew a backdrop.
   the extensions' overlays, under the frontend's message boxes) hands the
   layer every input. The key that closed a screen comes first: its presses
   do nothing until it is released. Then the top modal screen that shows
-  takes every input, and nothing under it sees any. With none, each screen
+  takes every input, and nothing under it sees any. While one shows, the
+  pointer's moves a frame finds queued one after another are dispatched as
+  one move, to where the last ends and as far as they went together
+  (`Runtime::run_frame`), since the screen finds what lies under the
+  pointer for each move it takes; with no modal screen every move is
+  dispatched as it comes. With none, each screen
   that shows sees the input from the top, and the first that answers other
   than `pass` takes it; what none takes goes on to the overlays and the
   screen under the layer, and in a match first to the in-game OA button.
@@ -674,21 +679,44 @@ latched the closing key and drew a backdrop.
   at 150%, never drawn at 1× and enlarged, and copied into the layer pixel
   for pixel; the OA Settings button's face, at its source size, and on a
   phone the fitted Settings, drawn at a whole scale, are fitted to their
-  places by the nearest pixel (`stamp`). The layer is drawn again only when what it shows changes
-  (`refresh_match`), and the composed frame and the window take the same
-  layer: it goes over the composed frame (`compose_match`) and is presented
-  after the match's other layers and before the frontend dialogs' and the
-  cursor (`present`). The pointer over the layer shows the arrow, as over
-  a HUD button, not the order cursor of the unit or feature under it
-  (`covers_pointer`, which `Runtime::shown_match_cursor` asks before it
-  picks the battlefield): anywhere while a modal screen such as Settings
-  shows, inside the place of any other screen that shows where that
-  screen covers it (`LayerScreen::covers_point`: the whole place, but for
-  the replay bar, whose place is the battlefield, only its bar, cards and
-  menus), and over the OA Settings button. With no screen and no button
-  the cursor is the match's as before. The key-latch chips the match draws
-  over the battlefield with no OA screen open show the arrow too
-  (`Runtime::pointer_over_key_latch_chip`, over the places
+  places by the nearest pixel (`stamp`). The layer is drawn again only
+  when what it shows changes (`refresh_match`), and then only what changed.
+  A screen whose revision covers what it draws (`revision_covers_drawing`;
+  in a match Settings too, whose tick moves its revision for every change
+  it takes from outside its input) keeps its drawing while its revision
+  and what it is drawn from hold (`MatchPiece`, the `DrawingInputs` the
+  front end keys its drawings by); every other screen, such as the replay
+  bar with its clock, is drawn again each time the layer is. The layer
+  keeps its pixels between frames and is composed again only where a
+  drawing differs from the one it replaces, the smallest rectangle holding
+  each pixel that differs (`changed_part`), where a screen came, went or
+  moved, and where the button's face or place changed: there the backdrop
+  or clear, the button and the screens are laid again from the bottom
+  (`compose_match_part`), so that every pixel is the one composing the
+  whole layer anew gives. A new size, the backdrop coming or going,
+  screens that change their order and `redraw` compose the whole layer and
+  `redraw` draws every screen anew. Only the part composed again since the
+  last upload goes to the texture, at the display gamma
+  (`upload_match_part`, `TiledTexture::update_rect`); a new texture or gamma
+  takes the whole layer. So a hover change costs about what drawing the
+  screen that changed costs, not the window: the gallery, which covers the
+  window, is still drawn whole. `OaLayer::check_match_redraws`, under
+  `native-engine-settings`, holds the layer to the one composed whole
+  through hover changes, screens over one another, a new window size,
+  Interface size and gamma. The composed frame and the window take the
+  same layer: it goes over the composed frame (`compose_match`) and is
+  presented after the match's other layers and before the frontend
+  dialogs' and the cursor (`present`). The pointer over the layer shows
+  the arrow, as over a HUD button, not the order cursor of the unit or
+  feature under it (`covers_pointer`, which `Runtime::shown_match_cursor`
+  asks before it picks the battlefield): anywhere while a modal screen
+  such as Settings shows, inside the place of any other screen that shows
+  where that screen covers it (`LayerScreen::covers_point`: the whole
+  place, but for the replay bar, whose place is the battlefield, only its
+  bar, cards and menus), and over the OA Settings button. With no screen
+  and no button the cursor is the match's as before. The key-latch chips
+  the match draws over the battlefield with no OA screen open show the
+  arrow too (`Runtime::pointer_over_key_latch_chip`, over the places
   `draw_key_latch_chips` keeps); the battlefield under them is still
   picked, since a click there reaches it. `native-reclaim-cursor` holds it
   over Settings and over a screen that is not modal, a tree under each,
@@ -4024,7 +4052,8 @@ prompts, Settings › Updates and the headers name one state with one size.
 - `scaled_world.hpp`, `scaled_world.cpp`: `TiledTexture`, a streaming
   texture made as one texture within the renderer's limit and as tiles
   with one-texel gutters beyond it, for the standard tier's window-size
-  layers and the accelerated tier's scene and overlay; `PresentError` and
+  layers and the accelerated tier's scene and overlay, updated whole, by
+  runs of rows or by a rectangle (`update_rect`); `PresentError` and
   `AccelerationError`; and the accelerated tier's drawing on the card
   (`PrescaleTarget`, `draw_scaled_world`, `sharp_draw`, `probe_pixelart`);
   and a screen of one frame, letterboxed or in whole steps as Menu scaling

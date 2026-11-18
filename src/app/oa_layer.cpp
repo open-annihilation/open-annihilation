@@ -64,6 +64,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <iostream>
@@ -336,10 +337,11 @@ void stamp_onto_picture(
     }
 }
 
-/// Copies a screen drawn as large as its place into a layer of straight
-/// colours and opacity, pixel for pixel: each pixel of an opaque drawing
-/// replaces the layer's, fully opaque, and each of one that is not opaque
-/// is laid over the layer's by its opacity (src over, LayerDrawing).
+/// Copies a screen drawn as large as its place into a part of a layer of
+/// straight colours and opacity, pixel for pixel: each pixel of an opaque
+/// drawing replaces the layer's, fully opaque, and each of one that is not
+/// opaque is laid over the layer's by its opacity (src over, LayerDrawing).
+/// Each pixel of the part takes what copying the whole drawing gives it.
 ///
 /// @param[in,out] rgba the layer, 4 bytes a pixel: red, green, blue and opacity
 /// @param width the layer's width
@@ -347,13 +349,15 @@ void stamp_onto_picture(
 /// @param drawing the screen's drawing
 /// @param left the layer column its first column lands on
 /// @param top the layer row its first row lands on
+/// @param within the part of the layer it is copied into, in layer pixels
 void copy_onto_layer(
     std::vector<uint8_t>& rgba,
     int32_t width,
     int32_t height,
     const LayerDrawing& drawing,
     int32_t left,
-    int32_t top
+    int32_t top,
+    const layout::Rect& within
 ) {
     const renderer::Surface& drawn = drawing.picture;
     const auto drawn_width = static_cast<int32_t>(drawn.width);
@@ -361,10 +365,10 @@ void copy_onto_layer(
     const bool laid = !drawing.opacity.empty();
     if (laid && drawing.opacity.size() < static_cast<std::size_t>(drawn.width) * drawn.height)
         return;
-    const int32_t first_row = std::max(top, 0);
-    const int32_t bottom = std::min(top + drawn_height, height);
-    const int32_t first_column = std::max(left, 0);
-    const int32_t right = std::min(left + drawn_width, width);
+    const int32_t first_row = std::max({top, within.y, 0});
+    const int32_t bottom = std::min({top + drawn_height, within.y + within.height, height});
+    const int32_t first_column = std::max({left, within.x, 0});
+    const int32_t right = std::min({left + drawn_width, within.x + within.width, width});
     for (int32_t row = first_row; row < bottom; ++row) {
         const std::size_t source = static_cast<std::size_t>(row - top) * drawn.width +
                                    static_cast<std::size_t>(first_column - left);
@@ -427,6 +431,140 @@ void darken(renderer::Surface& picture, uint32_t passes, uint32_t opacity) {
             kit::rgb(kit::colour::backdrop),
             opacity
         );
+}
+
+/// Fits a picture into a part of a layer of straight colours and opacity
+/// by the nearest pixel: each layer pixel of the rectangle takes the
+/// source's pixel at the same share of its width and height, opaque, or
+/// laid over the layer's by that pixel's opacity. Each pixel of the part
+/// takes what fitting the whole picture gives it (OaLayer::stamp).
+///
+/// @param[in,out] rgba the layer, 4 bytes a pixel: red, green, blue and opacity
+/// @param width the layer's width
+/// @param height the layer's height
+/// @param source the picture
+/// @param rect where the picture lands, in layer pixels
+/// @param opacity each source pixel's opacity; empty for an opaque picture
+/// @param within the part of the layer it is fitted into, in layer pixels
+void stamp_within(
+    std::vector<uint8_t>& rgba,
+    int32_t width,
+    int32_t height,
+    const renderer::Surface& source,
+    const layout::Rect& rect,
+    std::span<const uint8_t> opacity,
+    const layout::Rect& within
+) {
+    if (source.width == 0 || source.height == 0 || rect.width <= 0 || rect.height <= 0)
+        return;
+    const std::size_t source_pixels = static_cast<std::size_t>(source.width) * source.height;
+    const bool laid = !opacity.empty();
+    if (laid && opacity.size() < source_pixels)
+        return;
+    const int32_t first_row = std::max({rect.y, within.y, 0});
+    const int32_t bottom = std::min({rect.y + rect.height, within.y + within.height, height});
+    const int32_t left = std::max({rect.x, within.x, 0});
+    const int32_t right = std::min({rect.x + rect.width, within.x + within.width, width});
+    for (int32_t row = first_row; row < bottom; ++row) {
+        const auto source_row = static_cast<std::size_t>(
+            static_cast<int64_t>(row - rect.y) * source.height / rect.height
+        );
+        for (int32_t column = left; column < right; ++column) {
+            const auto source_column = static_cast<std::size_t>(
+                static_cast<int64_t>(column - rect.x) * source.width / rect.width
+            );
+            const std::size_t at = source_row * source.width + source_column;
+            const auto* from = source.rgb.data() + at * 3U;
+            auto* to =
+                rgba.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
+                               static_cast<std::size_t>(column)) *
+                                  4U;
+            if (laid) {
+                lay_over_layer(to, from, opacity[at]);
+                continue;
+            }
+            to[0] = from[0];
+            to[1] = from[1];
+            to[2] = from[2];
+            to[3] = 255U;
+        }
+    }
+}
+
+/// Fills a part of a layer of straight colours and opacity with one pixel.
+///
+/// @param[in,out] rgba the layer, 4 bytes a pixel: red, green, blue and opacity
+/// @param width the layer's width
+/// @param part the part, in layer pixels, within the layer
+/// @param pixel the pixel: red, green, blue and opacity
+void fill_layer_part(
+    std::vector<uint8_t>& rgba,
+    int32_t width,
+    const layout::Rect& part,
+    const std::array<uint8_t, 4>& pixel
+) {
+    for (int32_t row = part.y; row < part.y + part.height; ++row) {
+        uint8_t* to =
+            rgba.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
+                           static_cast<std::size_t>(part.x)) *
+                              4U;
+        for (int32_t column = 0; column < part.width; ++column) {
+            std::memcpy(to, pixel.data(), pixel.size());
+            to += 4;
+        }
+    }
+}
+
+/// Returns the part of a drawing that differs from the one it replaces: the
+/// smallest rectangle holding every pixel whose colour or opacity differs.
+/// Two drawings of different sizes, or one with an opacity for each pixel
+/// and one without, differ everywhere.
+///
+/// @param was the drawing replaced
+/// @param now the drawing that replaces it
+/// @return the rectangle, in the drawings' pixels; empty when they are the same
+layout::Rect changed_part(const LayerDrawing& was, const LayerDrawing& now) {
+    const auto width = static_cast<int32_t>(now.picture.width);
+    const auto height = static_cast<int32_t>(now.picture.height);
+    if (was.picture.width != now.picture.width || was.picture.height != now.picture.height ||
+        was.picture.rgb.size() != now.picture.rgb.size() ||
+        was.opacity.size() != now.opacity.size())
+        return {0, 0, width, height};
+    const bool opacities = !now.opacity.empty();
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * 3U;
+    int32_t left = width;
+    int32_t right = 0;
+    int32_t first_row = height;
+    int32_t bottom = 0;
+    for (int32_t row = 0; row < height; ++row) {
+        const std::size_t first_pixel = static_cast<std::size_t>(row) * width;
+        const uint8_t* was_rgb = was.picture.rgb.data() + first_pixel * 3U;
+        const uint8_t* now_rgb = now.picture.rgb.data() + first_pixel * 3U;
+        const uint8_t* was_opacity = opacities ? was.opacity.data() + first_pixel : nullptr;
+        const uint8_t* now_opacity = opacities ? now.opacity.data() + first_pixel : nullptr;
+        if (std::memcmp(was_rgb, now_rgb, row_bytes) == 0 &&
+            (!opacities ||
+             std::memcmp(was_opacity, now_opacity, static_cast<std::size_t>(width)) == 0))
+            continue;
+        const auto differs = [&](int32_t column) {
+            const auto at = static_cast<std::size_t>(column);
+            return std::memcmp(was_rgb + at * 3U, now_rgb + at * 3U, 3U) != 0 ||
+                   (opacities && was_opacity[at] != now_opacity[at]);
+        };
+        int32_t row_left = 0;
+        while (!differs(row_left))
+            ++row_left;
+        int32_t row_right = width;
+        while (!differs(row_right - 1))
+            --row_right;
+        left = std::min(left, row_left);
+        right = std::max(right, row_right);
+        first_row = std::min(first_row, row);
+        bottom = row + 1;
+    }
+    if (right <= left || bottom <= first_row)
+        return {};
+    return {left, first_row, right - left, bottom - first_row};
 }
 
 /// How the window shows the canvas, for the rectangles automation lists the
@@ -962,6 +1100,15 @@ struct Runtime::SettingsScreen final : LayerScreen {
     ///
     /// @return true
     [[nodiscard]] bool backdrop() const override { return true; }
+
+    /// Tells whether every change to what the dialog draws moves its
+    /// revision: in a match, where tick moves it for every change the dialog
+    /// takes from outside its input (the downloads, the Library, the
+    /// practice pad), so the match's layer keeps its drawing while the
+    /// revision holds; on the main menu it is drawn again each frame.
+    ///
+    /// @return true in a match
+    [[nodiscard]] bool revision_covers_drawing() const override { return in_match_; }
 
     /// Lays the dialog out at the view's size class on the main menu, and in
     /// a match at the class OaLayer::match_dialog gives (Dialog::size_class),
@@ -3606,6 +3753,49 @@ LayerDrawing OaLayer::draw_screen(
     return drawing;
 }
 
+OaLayer::DrawingInputs OaLayer::common_drawing_inputs() const {
+    DrawingInputs common{};
+    common.fonts = screen_fonts();
+    const artless::RgbaPicture icon = runtime_.engine_settings_icon();
+    common.icon = icon.pixels.data();
+    common.icon_bytes = icon.pixels.size();
+    common.icon_width = icon.width;
+    common.icon_height = icon.height;
+    common.language = &oa::data::languages::interface_language();
+    common.languages = oa::data::languages::registry_generation();
+    common.interface_words = oa::data::languages::interface_generation();
+    const oa::present::TextSettings text = oa::present::game_text_settings();
+    common.modern_text = text.style.modern_fonts;
+    common.outline = text.style.outline;
+    common.shadow = text.style.shadow;
+    common.background = text.style.background;
+    common.text_size = text.style.size;
+    common.utf8 = text.utf8;
+    return common;
+}
+
+OaLayer::DrawingInputs OaLayer::screen_drawing_inputs(
+    const DrawingInputs& common,
+    const LayerScreen& screen,
+    const LayerPlacement& placed,
+    int32_t scale_percent,
+    uint32_t darkenings
+) const {
+    DrawingInputs inputs = common;
+    // Where it shows draws nothing different: a window moved keeps its drawing.
+    inputs.shown = {0, 0, placed.shown.width, placed.shown.height};
+    inputs.points_width = placed.points_width;
+    inputs.points_height = placed.points_height;
+    inputs.placed_percent = placed.scale_percent;
+    inputs.scale_percent = scale_percent;
+    inputs.darkenings = darkenings;
+    inputs.corner_radius = placed.corner_radius;
+    inputs.opaque = screen.opaque();
+    inputs.fonts = fonts_for(screen);
+    inputs.modern_fonts = scale_percent % 100 == 0 ? nullptr : smooth_fonts();
+    return inputs;
+}
+
 uint32_t OaLayer::front_darkenings() const {
     const LayerView seen = view();
     if (seen.match)
@@ -4519,23 +4709,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
     const std::vector<uint32_t> above = backdrops_above(seen);
     uint32_t darkenings = 0;
     // What every screen is drawn in, besides its place and scale.
-    DrawingInputs common{};
-    common.fonts = screen_fonts();
-    const artless::RgbaPicture icon = runtime_.engine_settings_icon();
-    common.icon = icon.pixels.data();
-    common.icon_bytes = icon.pixels.size();
-    common.icon_width = icon.width;
-    common.icon_height = icon.height;
-    common.language = &oa::data::languages::interface_language();
-    common.languages = oa::data::languages::registry_generation();
-    common.interface_words = oa::data::languages::interface_generation();
-    const oa::present::TextSettings text = oa::present::game_text_settings();
-    common.modern_text = text.style.modern_fonts;
-    common.outline = text.style.outline;
-    common.shadow = text.style.shadow;
-    common.background = text.style.background;
-    common.text_size = text.style.size;
-    common.utf8 = text.utf8;
+    const DrawingInputs common = common_drawing_inputs();
     std::vector<KeptDrawing> kept_drawings;
     for (std::size_t index = 0; index < screens_.size(); ++index) {
         const auto& screen = *screens_[index];
@@ -4551,18 +4725,8 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         // Drawn at its own scale, as large as its place: the view's, or the
         // setup's.
         const int32_t scale_percent = front_scale_of(placed, seen);
-        DrawingInputs inputs = common;
-        // Where it shows draws nothing different: a window moved keeps its drawing.
-        inputs.shown = {0, 0, placed.shown.width, placed.shown.height};
-        inputs.points_width = placed.points_width;
-        inputs.points_height = placed.points_height;
-        inputs.placed_percent = placed.scale_percent;
-        inputs.scale_percent = scale_percent;
-        inputs.darkenings = above[index];
-        inputs.corner_radius = placed.corner_radius;
-        inputs.opaque = screen.opaque();
-        inputs.fonts = fonts_for(screen);
-        inputs.modern_fonts = scale_percent % 100 == 0 ? nullptr : smooth_fonts();
+        const DrawingInputs inputs =
+            screen_drawing_inputs(common, screen, placed, scale_percent, above[index]);
         // A screen whose revision covers what it draws keeps its drawing
         // while the revision and everything else it is drawn from hold;
         // every other screen is drawn again.
@@ -4728,7 +4892,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         texture_.update(rgba.data(), bounds.width * 4, 4);
         front_uploaded_ = std::move(look);
         front_bounds_ = bounds;
-        uploaded_.reset();
+        uploaded_ = false;
         uploaded_gamma_ = runtime_.gamma_table_;
     }
     const SDL_FRect at{
@@ -4885,40 +5049,7 @@ void OaLayer::stamp(
     const layout::Rect& rect,
     std::span<const uint8_t> opacity
 ) {
-    if (source.width == 0 || source.height == 0 || rect.width <= 0 || rect.height <= 0)
-        return;
-    const std::size_t source_pixels = static_cast<std::size_t>(source.width) * source.height;
-    const bool laid = !opacity.empty();
-    if (laid && opacity.size() < source_pixels)
-        return;
-    const int32_t first_row = std::max(rect.y, 0);
-    const int32_t bottom = std::min(rect.y + rect.height, height);
-    const int32_t left = std::max(rect.x, 0);
-    const int32_t right = std::min(rect.x + rect.width, width);
-    for (int32_t row = first_row; row < bottom; ++row) {
-        const auto source_row = static_cast<std::size_t>(
-            static_cast<int64_t>(row - rect.y) * source.height / rect.height
-        );
-        for (int32_t column = left; column < right; ++column) {
-            const auto source_column = static_cast<std::size_t>(
-                static_cast<int64_t>(column - rect.x) * source.width / rect.width
-            );
-            const std::size_t at = source_row * source.width + source_column;
-            const auto* from = source.rgb.data() + at * 3U;
-            auto* to =
-                rgba.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
-                               static_cast<std::size_t>(column)) *
-                                  4U;
-            if (laid) {
-                lay_over_layer(to, from, opacity[at]);
-                continue;
-            }
-            to[0] = from[0];
-            to[1] = from[1];
-            to[2] = from[2];
-            to[3] = 255U;
-        }
-    }
+    stamp_within(rgba, width, height, source, rect, opacity, {0, 0, width, height});
 }
 
 bool OaLayer::refresh_match() {
@@ -4944,8 +5075,15 @@ bool OaLayer::refresh_match() {
                                            : settings::ButtonLook::idle
     );
     look.revision = revision_;
-    if (fonts == nullptr || look.width <= 0 || look.height <= 0 || !seen.match)
+    // A layer that shows nothing lets its screens' drawings go, and is
+    // composed whole when it shows again.
+    const auto shows_nothing = [this] {
+        match_pieces_.clear();
+        drawn_.reset();
         return false;
+    };
+    if (fonts == nullptr || look.width <= 0 || look.height <= 0 || !seen.match)
+        return shows_nothing();
 
     // Each screen that shows, where, and how many modal screens with a
     // backdrop show above it.
@@ -4978,56 +5116,180 @@ bool OaLayer::refresh_match() {
     // that are not modal and show over the match as it runs, such as the
     // keys overlay; with neither, it shows nothing.
     if (!look.button_shown && shown_screens.empty())
-        return false;
+        return shows_nothing();
     if (drawn_ == look)
         return true;
-    const auto pixels =
-        static_cast<std::size_t>(look.width) * static_cast<std::size_t>(look.height);
-    rgba_.assign(pixels * 4U, 0);
-    // The OA Settings button under Resume, in the in-game menu's own art.
-    const LayerDrawing button = match_button_face(
-        runtime_.match_hud_ ? &*runtime_.match_hud_ : nullptr,
-        static_cast<settings::ButtonLook>(look.button_look),
-        look.darkened
-    );
-    bounds_ = look.button_shown ? button_at : layout::Rect{};
-    if (look.darkened) {
-        // The whole screen darkens, the button with it; the screens go over.
-        for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
-            auto* to = rgba_.data() + pixel * 4U;
-            to[0] = settings::backdrop_color[0];
-            to[1] = settings::backdrop_color[1];
-            to[2] = settings::backdrop_color[2];
-            to[3] = static_cast<uint8_t>(kBackdropAlpha);
-        }
-        bounds_ = {0, 0, look.width, look.height};
-    }
-    // The button's face, at its source size, fitted to its place.
-    if (look.button_shown)
-        stamp(rgba_, look.width, look.height, button.picture, button_at, button.opacity);
+    const layout::Rect whole{0, 0, look.width, look.height};
+    // redraw asks for every screen anew, as a change to a model the screen's
+    // revision does not see may change what any of them draws.
+    const bool draw_anew = std::exchange(match_redraw_, false);
+    // The whole layer is composed the first time, as redraw asks, and at a
+    // new size or with the backdrop come or gone, which change every pixel.
+    bool composed_whole = draw_anew || !drawn_ || drawn_->width != look.width ||
+                          drawn_->height != look.height || drawn_->darkened != look.darkened;
+
+    // Each screen's drawing, at its placement's scale, as large as its place,
+    // never drawn at 1x and enlarged: Settings at its own (match_dialog). A
+    // screen under a modal screen with a backdrop darkens as the button
+    // does. A screen whose revision covers what it draws keeps the drawing
+    // it had while that revision and everything else it is drawn from hold.
+    const DrawingInputs common = common_drawing_inputs();
+    std::vector<MatchPiece> pieces;
+    pieces.reserve(shown_screens.size());
     for (const auto& shown : shown_screens) {
-        // At its placement's scale, as large as its place, never drawn at 1x
-        // and enlarged: Settings at its own (match_dialog). A screen under a
-        // modal screen with a backdrop darkens as the button does; one that
-        // is not opaque is laid over what is already there by its opacity.
+        const LayerScreen& screen = *shown.screen;
         const int32_t drawn_percent =
             shown.placed.scale_percent > 0 ? shown.placed.scale_percent : 100;
-        LayerDrawing drawn = draw_screen(*shown.screen, shown.placed, drawn_percent);
-        darken(drawn.picture, shown.darkenings, settings::ingame_backdrop_opacity);
-        const auto& place = shown.placed.shown;
+        MatchPiece piece{};
+        piece.screen = screen.identity();
+        piece.shown = shown.placed.shown;
+        piece.kept = screen.revision_covers_drawing();
+        piece.revision = piece.kept ? screen.revision() : 0;
+        piece.inputs =
+            screen_drawing_inputs(common, screen, shown.placed, drawn_percent, shown.darkenings);
+        const auto held =
+            std::find_if(match_pieces_.begin(), match_pieces_.end(), [&piece](const auto& was) {
+                return was.screen == piece.screen;
+            });
+        if (!draw_anew && piece.kept && held != match_pieces_.end() && held->kept &&
+            held->revision == piece.revision && held->inputs == piece.inputs) {
+            piece.drawn = held->drawn;
+            piece.drawing = held->drawing;
+        } else {
+            LayerDrawing drawn = draw_screen(screen, shown.placed, drawn_percent);
+            darken(drawn.picture, shown.darkenings, settings::ingame_backdrop_opacity);
+            piece.drawn = std::make_shared<const LayerDrawing>(std::move(drawn));
+            piece.drawing = ++match_drawing_count_;
+        }
+        pieces.push_back(std::move(piece));
+    }
+    // The OA Settings button under Resume, in the in-game menu's own art, at
+    // its source size: small enough to draw each time and compare.
+    LayerDrawing button_face;
+    if (look.button_shown)
+        button_face = match_button_face(
+            runtime_.match_hud_ ? &*runtime_.match_hud_ : nullptr,
+            static_cast<settings::ButtonLook>(look.button_look),
+            look.darkened
+        );
+    const layout::Rect button_shown_at = look.button_shown ? button_at : layout::Rect{};
+
+    // What changed since rgba_ was composed: the button, and each screen that
+    // came, went, moved or draws something else. The screens both hold must
+    // keep their order, or every pixel two of them share may change.
+    layout::Rect changed{};
+    if (!composed_whole) {
+        if (!same_rect(button_shown_at, match_button_at_) ||
+            !same_drawing(button_face, match_button_face_))
+            changed = union_rect(match_button_at_, button_shown_at);
+        const auto find_piece = [](const std::vector<MatchPiece>& among, uint64_t screen) {
+            return std::find_if(among.begin(), among.end(), [screen](const auto& piece) {
+                return piece.screen == screen;
+            });
+        };
+        std::vector<uint64_t> kept_order;
+        for (const MatchPiece& was : match_pieces_)
+            if (find_piece(pieces, was.screen) != pieces.end())
+                kept_order.push_back(was.screen);
+            else
+                changed = union_rect(changed, was.shown);
+        std::size_t next_kept = 0;
+        for (const MatchPiece& now : pieces) {
+            const auto was = find_piece(match_pieces_, now.screen);
+            if (was == match_pieces_.end()) {
+                changed = union_rect(changed, now.shown);
+                continue;
+            }
+            if (next_kept >= kept_order.size() || kept_order[next_kept] != now.screen)
+                composed_whole = true;
+            ++next_kept;
+            if (!same_rect(was->shown, now.shown)) {
+                changed = union_rect(changed, union_rect(was->shown, now.shown));
+                continue;
+            }
+            if (was->drawing == now.drawing)
+                continue;
+            // A drawing as large as its place changes only where its pixels
+            // do; one fitted to its place, wherever it shows.
+            const bool copied = static_cast<int32_t>(now.drawn->picture.width) == now.shown.width &&
+                                static_cast<int32_t>(now.drawn->picture.height) == now.shown.height;
+            const layout::Rect part = copied
+                                          ? changed_part(*was->drawn, *now.drawn)
+                                          : layout::Rect{0, 0, now.shown.width, now.shown.height};
+            if (!empty_rect(part))
+                changed = union_rect(
+                    changed, {now.shown.x + part.x, now.shown.y + part.y, part.width, part.height}
+                );
+        }
+    }
+    const auto pixels =
+        static_cast<std::size_t>(look.width) * static_cast<std::size_t>(look.height);
+    if (rgba_.size() != pixels * 4U) {
+        rgba_.assign(pixels * 4U, 0);
+        composed_whole = true;
+    }
+    match_pieces_ = std::move(pieces);
+    match_button_face_ = std::move(button_face);
+    match_button_at_ = button_shown_at;
+    drawn_ = look;
+    const layout::Rect part = composed_whole ? whole : intersection(changed, whole);
+    if (!empty_rect(part)) {
+        compose_match_part(part);
+        unuploaded_ = union_rect(unuploaded_, part);
+    }
+    // The part that is not clear: the whole layer under the backdrop, else
+    // the button and the screens.
+    bounds_ = look.darkened ? whole : button_shown_at;
+    for (const MatchPiece& piece : match_pieces_)
+        bounds_ = union_rect(bounds_, piece.shown);
+    return true;
+}
+
+void OaLayer::compose_match_part(const layout::Rect& part) {
+    if (!drawn_)
+        return;
+    const int32_t width = drawn_->width;
+    const int32_t height = drawn_->height;
+    const layout::Rect within = intersection(part, {0, 0, width, height});
+    if (empty_rect(within))
+        return;
+    // Under a modal screen with a backdrop the whole layer darkens, the
+    // button with it, and the screens go over; otherwise it is clear but for
+    // what it shows.
+    std::array<uint8_t, 4> ground{};
+    if (drawn_->darkened)
+        ground = {
+            settings::backdrop_color[0],
+            settings::backdrop_color[1],
+            settings::backdrop_color[2],
+            static_cast<uint8_t>(kBackdropAlpha)
+        };
+    fill_layer_part(rgba_, width, within, ground);
+    // The button's face, at its source size, fitted to its place.
+    if (!empty_rect(match_button_at_))
+        stamp_within(
+            rgba_,
+            width,
+            height,
+            match_button_face_.picture,
+            match_button_at_,
+            match_button_face_.opacity,
+            within
+        );
+    for (const MatchPiece& piece : match_pieces_) {
+        // Copied pixel for pixel, one that is not opaque laid over what is
+        // already there by its opacity.
+        const LayerDrawing& drawn = *piece.drawn;
+        const auto& place = piece.shown;
         if (static_cast<int32_t>(drawn.picture.width) == place.width &&
             static_cast<int32_t>(drawn.picture.height) == place.height) {
-            copy_onto_layer(rgba_, look.width, look.height, drawn, place.x, place.y);
+            copy_onto_layer(rgba_, width, height, drawn, place.x, place.y, within);
         } else {
             // A screen with no scale of its own for a place of another size,
             // as the phone's fitted Settings: drawn at 1x, fitted to it.
-            stamp(rgba_, look.width, look.height, drawn.picture, place, drawn.opacity);
+            stamp_within(rgba_, width, height, drawn.picture, place, drawn.opacity, within);
         }
-        bounds_ = union_rect(bounds_, place);
     }
-    drawn_ = look;
-    uploaded_.reset();
-    return true;
 }
 
 void OaLayer::compose_match(renderer::Surface& frame) {
@@ -5061,6 +5323,36 @@ void OaLayer::compose_match(renderer::Surface& frame) {
         }
 }
 
+void OaLayer::upload_match_part(const layout::Rect& part) {
+    const int32_t width = drawn_->width;
+    const render_policy::TexelRect texels{
+        static_cast<uint32_t>(part.x),
+        static_cast<uint32_t>(part.y),
+        static_cast<uint32_t>(part.width),
+        static_cast<uint32_t>(part.height)
+    };
+    const uint8_t* first =
+        rgba_.data() + (static_cast<std::size_t>(part.y) * static_cast<std::size_t>(width) +
+                        static_cast<std::size_t>(part.x)) *
+                           4U;
+    if (runtime_.gamma_identity_) {
+        texture_.update_rect(first, width * 4, 4, texels);
+        return;
+    }
+    // At the display gamma, as the picture under it is uploaded: the part's
+    // rows alone.
+    const std::size_t row_bytes = static_cast<std::size_t>(part.width) * 4U;
+    std::vector<uint8_t> corrected(row_bytes * static_cast<std::size_t>(part.height));
+    for (int32_t row = 0; row < part.height; ++row)
+        std::memcpy(
+            corrected.data() + static_cast<std::size_t>(row) * row_bytes,
+            first + static_cast<std::size_t>(row) * static_cast<std::size_t>(width) * 4U,
+            row_bytes
+        );
+    runtime_.apply_gamma_rgb(corrected.data(), corrected.size() / 4U, 4);
+    texture_.update_rect(corrected.data(), static_cast<int>(row_bytes), 4, texels);
+}
+
 void OaLayer::present_match() {
     SDL_Renderer* sdl_renderer = runtime_.sdl_.renderer;
     if (sdl_renderer == nullptr || !refresh_match())
@@ -5075,24 +5367,23 @@ void OaLayer::present_match() {
             runtime_.render_texture_limit(),
             SDL_BLENDMODE_BLEND
         ))
-        uploaded_.reset();
+        uploaded_ = false;
     // A texture that held the front end's screens holds nothing of the match's.
     if (front_uploaded_) {
         front_uploaded_.reset();
-        uploaded_.reset();
+        uploaded_ = false;
     }
-    if (uploaded_ != drawn_ || uploaded_gamma_ != runtime_.gamma_table_) {
-        const uint8_t* pixels = rgba_.data();
-        std::vector<uint8_t> corrected;
-        if (!runtime_.gamma_identity_) {
-            corrected = rgba_;
-            runtime_.apply_gamma_rgb(corrected.data(), corrected.size() / 4U, 4);
-            pixels = corrected.data();
-        }
-        texture_.update(pixels, width * 4, 4);
-        uploaded_ = drawn_;
-        uploaded_gamma_ = runtime_.gamma_table_;
-    }
+    // A new texture or a new gamma takes the whole layer; otherwise only the
+    // part composed again since the last upload goes up.
+    const layout::Rect whole{0, 0, width, height};
+    const layout::Rect part = !uploaded_ || uploaded_gamma_ != runtime_.gamma_table_
+                                  ? whole
+                                  : intersection(unuploaded_, whole);
+    if (!empty_rect(part))
+        upload_match_part(part);
+    uploaded_ = true;
+    unuploaded_ = {};
+    uploaded_gamma_ = runtime_.gamma_table_;
     const SDL_FRect bounds{
         static_cast<float>(bounds_.x),
         static_cast<float>(bounds_.y),
@@ -5113,7 +5404,7 @@ void OaLayer::destroy_textures() noexcept {
     if (badges)
         badge_texture_.reset();
     badges_uploaded_ = false;
-    uploaded_.reset();
+    uploaded_ = false;
     front_uploaded_.reset();
 }
 

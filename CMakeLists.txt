@@ -839,12 +839,13 @@ if(OA_BUILD_PLATFORM)
       ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=missing"
       ENVIRONMENT_MODIFICATION "SDL_FRAMEBUFFER_ACCELERATION=unset:")
     # Window-size textures beyond the renderer's texture limit, as tiles with
-    # gutters, on SDL's software renderer over a surface: tiles under a
-    # limit of 1024 read back as one texture with no limit does, uploaded,
-    # updated, blended and drawn in part. Then the accelerated tier's drawing
-    # on the card, on the same renderer: the battlefield's scene magnified
-    # and the interface scaled, read back against that renderer's own
-    # LINEAR, modelled on the processor, within 2 levels; NEAREST exact at
+    # gutters, on SDL's software renderer over a surface: tiles under a limit
+    # of 1024 read back as one texture with no limit does, uploaded, updated,
+    # blended and drawn in part, and rectangles updated over a picture as one
+    # upload of the picture they make. Then the accelerated tier's drawing on
+    # the card, on the same renderer: the battlefield's scene magnified and
+    # the interface scaled, read back against that renderer's own LINEAR,
+    # modelled on the processor, within 2 levels; NEAREST exact at
     # whole-number scales; PIXELART as NEAREST, as that renderer gives it;
     # scenes and prescale targets in tiles with their gutters, drawing as
     # one texture does; the overlay over a picture; no prescale target
@@ -2156,7 +2157,11 @@ if(OA_BUILD_PLATFORM)
       # every other step leaves it Off, so every frame compared is drawn on
       # the processor. Screen size offers Desktop and the 4K monitor's sizes,
       # opens on the window's own, and applies 1280x720 when OK is pressed,
-      # in the menus and in a game, which keeps its tick and world.
+      # in the menus and in a game, which keeps its tick and world. In a
+      # game the OA layer, drawn again only where it changed through hover
+      # changes, screens opening and closing over one another, a new window
+      # size, Interface size and gamma, holds the layer composed whole, and
+      # the pointer's queued moves reach a modal screen as one.
       set(oa_engine_settings_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/engine-settings")
       file(MAKE_DIRECTORY "${oa_engine_settings_dir}")
       add_test(NAME native-engine-settings COMMAND oa-game --game-dir "${OA_GAME_DIR}"

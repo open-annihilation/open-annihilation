@@ -201,6 +201,20 @@ class TiledTexture {
         uint32_t end_row = UINT32_MAX
     );
 
+    /// Copies a rectangle of a picture into the texture's tiles with
+    /// SDL_UpdateTexture, each tile's gutters with the rest of it; the
+    /// texels outside the rectangle keep what they hold.
+    ///
+    /// Throws when SDL refuses a tile (fail).
+    ///
+    /// @param pixels the rectangle's top left pixel, in the texture's format
+    /// @param pitch bytes from one row of the rectangle to the next
+    /// @param bytes_per_pixel bytes of one pixel of the format
+    /// @param rect the rectangle, in the picture's pixels, within the texture
+    void update_rect(
+        const uint8_t* pixels, int pitch, int bytes_per_pixel, const render_policy::TexelRect& rect
+    );
+
     /// Uploads the top-left corner of an ARGB8888 texture from an RGB24
     /// picture through the gamma table, each texel opaque, and the column
     /// and row past it where the texture holds them: a LINEAR draw of the

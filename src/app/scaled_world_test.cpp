@@ -10,7 +10,9 @@
 // upload drawn 1:1 at an offset, ARGB8888 drawn with no blending, an RGBA32
 // layer blended over a background with no rectangles given, and part of the
 // picture drawn onto the same part of the target. Each tile is filled from the part of the picture
-// it holds, so its gutters hold its neighbours' edges.
+// it holds, so its gutters hold its neighbours' edges. Rectangles of a
+// second picture uploaded over the first leave the texture as one upload of
+// the picture they make together does, as tiles and as one texture.
 //
 // The accelerated tier's drawing on the card (scaled_world.hpp), on SDL's
 // software renderer over a surface, with no window, read back and compared
@@ -72,6 +74,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <random>
+#include <span>
 #include <vector>
 
 namespace {
@@ -356,6 +359,87 @@ void alpha_layers_keep_their_blending() {
     OA_CHECK(SDL_GetTextureBlendMode(layer.single(), &mode) && mode == SDL_BLENDMODE_BLEND);
     SDL_ScaleMode scale = SDL_SCALEMODE_LINEAR;
     OA_CHECK(SDL_GetTextureScaleMode(layer.single(), &scale) && scale == SDL_SCALEMODE_NEAREST);
+}
+
+/// Draws a texture uploaded whole from one picture, then rectangles of a
+/// second, under a texture limit, and reads the target back.
+///
+/// @param first the picture uploaded whole
+/// @param second the picture the rectangles are taken from; empty for none
+/// @param rects the rectangles, in the pictures' pixels
+/// @param limit the texture limit; 0 for none
+/// @param[out] tiles how many textures held the picture
+/// @return the target's pixels
+std::vector<uint8_t> draw_updated(
+    const std::vector<uint8_t>& first,
+    const std::vector<uint8_t>& second,
+    std::span<const oa::app::render_policy::TexelRect> rects,
+    uint32_t limit,
+    std::size_t& tiles
+) {
+    SoftwareTarget target;
+    OA_CHECK(target.renderer != nullptr);
+    if (target.renderer == nullptr)
+        return {};
+    target.clear();
+    const int picture_pitch = kPictureWidth * kPixelBytes;
+    TiledTexture texture;
+    OA_CHECK(texture.ensure(
+        target.renderer,
+        SDL_PIXELFORMAT_ARGB8888,
+        kPictureWidth,
+        kPictureHeight,
+        limit,
+        SDL_BLENDMODE_NONE
+    ));
+    texture.update(first.data(), picture_pitch, kPixelBytes);
+    for (const auto& rect : rects)
+        texture.update_rect(
+            second.data() + (static_cast<std::size_t>(rect.y) * kPictureWidth + rect.x) *
+                                static_cast<std::size_t>(kPixelBytes),
+            picture_pitch,
+            kPixelBytes,
+            rect
+        );
+    texture.draw(target.renderer, nullptr, nullptr);
+    tiles = texture.tile_count();
+    return target.read_back();
+}
+
+/// Checks that rectangles uploaded over a whole picture, as the match's OA
+/// layer uploads the part it composed again, leave the texture as one
+/// upload of the picture they make together does: inside a tile, across a
+/// seam each way, along a whole row and at the bottom right corner, as
+/// tiles under the limit and as one texture.
+void rects_update_as_the_picture_they_make() {
+    const auto first = random_picture(kSeed + 10U);
+    const auto second = random_picture(kSeed + 11U);
+    const std::array<oa::app::render_policy::TexelRect, 5> rects{{
+        {10, 20, 300, 200},
+        {1000, 990, 60, 50},
+        {900, 100, 1300, 40},
+        {0, 700, static_cast<uint32_t>(kPictureWidth), 3},
+        {2400, 1300, 200, 200},
+    }};
+    std::vector<uint8_t> together = first;
+    const auto row_bytes = static_cast<std::size_t>(kPictureWidth) * kPixelBytes;
+    for (const auto& rect : rects)
+        for (uint32_t row = rect.y; row < rect.y + rect.height; ++row) {
+            const std::size_t at = row * row_bytes + std::size_t{rect.x} * kPixelBytes;
+            std::memcpy(
+                together.data() + at, second.data() + at, std::size_t{rect.width} * kPixelBytes
+            );
+        }
+    for (const uint32_t limit : {0U, kTiledLimit}) {
+        std::size_t updated_tiles = 0;
+        std::size_t whole_tiles = 0;
+        const auto updated = draw_updated(first, second, rects, limit, updated_tiles);
+        const auto whole = draw_updated(together, {}, {}, limit, whole_tiles);
+        OA_CHECK(updated_tiles == whole_tiles);
+        OA_CHECK(limit == 0 ? whole_tiles == 1 : whole_tiles > 1);
+        OA_CHECK(!updated.empty());
+        OA_CHECK(updated == whole);
+    }
 }
 
 } // namespace layer_tiles
@@ -1863,6 +1947,7 @@ int main() {
     layer_tiles::tiles_draw_as_one_texture();
     layer_tiles::gutters_hold_neighbours_edges();
     layer_tiles::alpha_layers_keep_their_blending();
+    layer_tiles::rects_update_as_the_picture_they_make();
     if (!SDL_Init(0)) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return EXIT_FAILURE;

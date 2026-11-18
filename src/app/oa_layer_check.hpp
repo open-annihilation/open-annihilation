@@ -196,17 +196,19 @@ struct MarkLook {
 
 /// The keys that reached a check's mark screen.
 struct MarkSeen {
-    int32_t infos{};      ///< presses of the information key
-    uint32_t info_key{};  ///< the SDL keycode the last of them came from
-    int32_t other_keys{}; ///< presses of every other key
+    int32_t infos{};                ///< presses of the information key
+    uint32_t info_key{};            ///< the SDL keycode the last of them came from
+    int32_t other_keys{};           ///< presses of every other key
+    int32_t moves{};                ///< moves of the pointer
+    oa::ui::kit::Point last_move{}; ///< where the last move ended, in the screen's points
 };
 
 /// A screen of the OA layer only the checks push, on the front end and, as
 /// its look says, in a match: it fills one small rectangle of a colour and
 /// may blend that colour over another, draws nothing else, lists the
-/// rectangle to automation as a button named mark, and notes the keys it is
-/// given, taking the information key or letting it go on. Every pointer
-/// event, turn of the wheel and other key goes on.
+/// rectangle to automation as a button named mark, and notes the keys and
+/// the pointer's moves it is given, taking the information key or letting
+/// it go on. Every pointer event, turn of the wheel and other key goes on.
 class MarkScreen final : public LayerScreen {
   public:
 
@@ -253,14 +255,14 @@ class MarkScreen final : public LayerScreen {
     /// @param canvas where it draws
     void draw(const oa::ui::kit::Canvas& canvas) const override;
 
-    /// Lets every pointer event go on.
+    /// Notes a move of the pointer, and lets every pointer event go on.
     ///
+    /// @param kind pointer_move, pointer_down or pointer_up
+    /// @param at the pointer, in the screen's points
     /// @return pass
     LayerAnswer pointer(
-        ScreenInputKind /*kind*/, uint8_t /*button*/, oa::ui::kit::Point /*at*/, int32_t /*reach*/
-    ) override {
-        return LayerAnswer::pass;
-    }
+        ScreenInputKind kind, uint8_t /*button*/, oa::ui::kit::Point at, int32_t /*reach*/
+    ) override;
 
     /// Notes a key: the information key is taken or goes on as the look
     /// says; every other key goes on.
