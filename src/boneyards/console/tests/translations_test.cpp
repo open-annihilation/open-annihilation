@@ -4,7 +4,8 @@
 // Each new screen shows a translated line when the language changes, and no
 // line of a shipped language is wider than the control that draws it. The
 // login console's LOGIN, REGISTER and CANCEL are translated in every shipped
-// language and fit their buttons.
+// language and fit their buttons, and so is its line for an account whose
+// email address is not confirmed yet.
 #include "oa/boneyards/console/gui_screen.hpp"
 #include "oa/boneyards/font_atlases.hpp"
 #include "oa/boneyards/rover_session.hpp"
@@ -476,6 +477,26 @@ void check_login_buttons(const oa::data::languages::InterfaceText& catalogue, Ga
     font_release(font);
 }
 
+// The login console's line for an account whose email address is not
+// confirmed yet is read in every shipped language.
+void check_login_status_lines(const oa::data::languages::InterfaceText& catalogue) {
+    oa::data::languages::set_translation_hooks(oa::data::languages::TranslationHooks{});
+    for (const char* tag : k_tags) {
+        use_language(catalogue, tag);
+        const std::string line = shown_text(kLoginEmailUnconfirmedText);
+        if (line == kLoginEmailUnconfirmedText) {
+            std::fprintf(stderr, "%s \"%s\" is not translated\n", tag, kLoginEmailUnconfirmedText);
+            ++g_failures;
+        }
+        if (line.size() > k_shown_text_limit) {
+            std::fprintf(
+                stderr, "%s \"%s\" is over %zu bytes\n", tag, line.c_str(), k_shown_text_limit
+            );
+            ++g_failures;
+        }
+    }
+}
+
 // Each template's translations take the arguments its English takes.
 void check_templates(const std::string& catalogue_text) {
     oa::formats::tdf::OwnedDocument document;
@@ -617,6 +638,7 @@ int main() {
         check_switch(catalogue);
         check_languages(catalogue, &words);
         check_login_buttons(catalogue, &words);
+        check_login_status_lines(catalogue);
         check_templates(catalogue_text);
         check_bad_template();
     }

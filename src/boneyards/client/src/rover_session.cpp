@@ -115,8 +115,9 @@ enum class LoginStage : int32_t {
 };
 constexpr int32_t kLoginAccepted = 0;
 
-// Explanations of the login_confirmed results 2 through 8; any other
-// failure gets kLoginFailedText.
+// Explanations of the login_confirmed results 2 through 8. Result 9 gets
+// kLoginEmailUnconfirmedText in the player's language; any other failure gets
+// kLoginFailedText.
 constexpr int32_t kFirstExplainedResult = 2;
 constexpr const char* kLoginResultTexts[] = {
     "The username provided was invalid (letters, numbers, and the underscore are acceptable).",
@@ -130,6 +131,9 @@ constexpr const char* kLoginResultTexts[] = {
 constexpr int32_t kExplainedResultCount =
     static_cast<int32_t>(sizeof kLoginResultTexts / sizeof kLoginResultTexts[0]);
 constexpr const char* kLoginFailedText = "Unable to login to Boneyards, try again later.";
+// Core Prime's result for a registered account whose email address is not confirmed yet. The 3.1c
+// client shows kLoginFailedText for it, as for every result it does not explain.
+constexpr int32_t kEmailUnconfirmedResult = 9;
 constexpr const char* kContactText = "Contact Established";
 constexpr const char* kNoContactText = "Server Not responding";
 constexpr const char* kClearanceText = "Verifying Clearance";
@@ -326,6 +330,10 @@ void ROVER_CALL on_login_progress(
             publish(s);
             rover_call_request_get_profile(s->record.user_id, on_dossier, nullptr);
             return;
+        }
+        if (result == kEmailUnconfirmedResult) {
+            show_login_status(s, shown_text(kLoginEmailUnconfirmedText));
+            break;
         }
         const int32_t index = result - kFirstExplainedResult;
         show_login_status(

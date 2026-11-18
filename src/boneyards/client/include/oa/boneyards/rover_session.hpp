@@ -254,6 +254,11 @@ const RoverPlatform* rover_session_platform();
 // Location text of the entry in a server list written for a host.
 inline constexpr const char* kHostServerLocation = "Command Line Server";
 
+// The login console's line when Core Prime refuses a login because the account's email address is
+// not confirmed yet (login_confirmed result 9). The Boneyards catalogue translates it.
+inline constexpr const char* kLoginEmailUnconfirmedText =
+    "Confirm your email address first: check your inbox for the Core Prime email.";
+
 /// Resolves a server given in place of the saved server list.
 ///
 /// An existing file is the list itself. Otherwise `server` names the yard

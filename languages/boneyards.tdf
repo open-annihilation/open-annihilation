@@ -1172,6 +1172,15 @@
 	zh-Hans=无法连接 %s。请检查网络，或稍后再试。;
 	}
 
+[Confirm your email address first: check your inbox for the Core Prime email.]
+	{
+	de=Bestätige zuerst deine E-Mail-Adresse: Sieh im Posteingang nach der E-Mail von Core Prime.;
+	fr=Confirme d'abord ton adresse e-mail: cherche l'e-mail de Core Prime dans ta boîte de réception.;
+	it=Conferma prima il tuo indirizzo e-mail: cerca l'e-mail di Core Prime nella posta in arrivo.;
+	es=Confirma primero tu dirección de correo: busca el correo de Core Prime en tu bandeja de entrada.;
+	zh-Hans=请先确认你的邮箱地址：在收件箱中查看 Core Prime 发来的邮件。;
+	}
+
 [Fetching the Boneyards… {percent}%]
 	{
 	de=Die Boneyards werden geholt… {percent} %;

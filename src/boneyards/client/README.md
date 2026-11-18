@@ -33,6 +33,15 @@ writes still goes under the player's folder.
 
 `boneyards-client-*`. Replays live under `tests/data/`.
 
+## Login
+
+A refused login says why in the login console's status list. Results 2
+through 8 of `login_confirmed` show 3.1c's lines. Result 9 is Core Prime's:
+the account's email address is not confirmed yet. Its line is read in the
+player's language from `languages/boneyards.tdf`. Any other result shows
+"Unable to login to Boneyards, try again later.", which 3.1c also shows for
+result 9.
+
 ## War map
 
 When the dossier arrives the client asks for the current sector and returns.
