@@ -27,6 +27,7 @@ inline constexpr std::string_view interface_words[] = {
     "Cavedog tilesets",
     "Cavedog units",
     "Choose a folder or an installer",
+    "Confirm your email address first: check your inbox for the Core Prime email.",
     "Core Contingency",
     "Desktop",
     "Documents",

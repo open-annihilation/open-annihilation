@@ -11850,6 +11850,14 @@
 	it=The Boneyards ha bisogno di by.ccx e della cartella Boneyards.;
 	}
 
+[Confirm your email address first: check your inbox for the Core Prime email.]
+	{
+	de=Bestätige zuerst deine E-Mail-Adresse: Sieh im Posteingang nach der E-Mail von Core Prime.;
+	fr=Confirme d'abord ton adresse e-mail: cherche l'e-mail de Core Prime dans ta boîte de réception.;
+	es=Confirma primero tu dirección de correo: busca el correo de Core Prime en tu bandeja de entrada.;
+	it=Conferma prima il tuo indirizzo e-mail: cerca l'e-mail di Core Prime nella posta in arrivo.;
+	}
+
 [The Boneyards needs {registry}'s install ID turned on. Turn it on and continue?]
 	{
 	de=The Boneyards braucht die Installationskennung von {registry}. Schaltest du sie ein und machst weiter?;
