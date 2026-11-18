@@ -3554,6 +3554,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   (`report_unplayed_sound`, `audio::game_audio::known_missing_sound`); a
   sound whose file was not found is not looked for again in the run
   (`sound_found_missing`).
+- Every tenth of a second, as it collects the effects that have finished,
+  the frame writes to stderr what the sound output has to say
+  (`audio::SoundOutput::take_log`): the device it opened, with its driver,
+  name, rate, channels, sample format and the frames it takes at a time,
+  and, at most once a minute, how many of the device's requests for sound
+  came late, how long it went without sound at worst and how long a mix
+  took, for a report of clicks or crackling.
 - `runtime_unit_speech_check.cpp`: `--check-unit-speech`
   (`native-unit-speech`): the commander clicked says its select line, and
   clicked onto open ground its order line, in a skirmish and in a second

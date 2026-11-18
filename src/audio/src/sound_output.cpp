@@ -7,7 +7,9 @@
 #include "oa/platform/machine.hpp"
 #include "oa/platform/system.hpp"
 
+#include <algorithm>
 #include <cstdlib>
+#include <limits>
 #include <optional>
 #include <string_view>
 
@@ -96,6 +98,92 @@ uint32_t frame_bytes(const StreamFormat& format) noexcept {
 
 uint8_t silence_byte(SampleFormat sample) noexcept {
     return sample == SampleFormat::u8 ? unsigned_8_silence : 0;
+}
+
+namespace {
+
+constexpr uint64_t nanoseconds_per_microsecond = 1000;
+constexpr uint32_t microseconds_per_millisecond = 1000;
+/// Microseconds in a hundredth of a millisecond, the last place a report gives.
+constexpr uint32_t microseconds_per_hundredth = 10;
+/// The least number of hundredths written with two digits of its own.
+constexpr uint32_t two_digit_hundredths = 10;
+
+/// Returns a span of nanoseconds in whole microseconds, held to 32 bits.
+///
+/// @param nanoseconds the span
+/// @return the microseconds, rounded down
+uint32_t microseconds_of(uint64_t nanoseconds) noexcept {
+    const uint64_t microseconds = nanoseconds / nanoseconds_per_microsecond;
+    constexpr uint64_t most = std::numeric_limits<uint32_t>::max();
+    return static_cast<uint32_t>(std::min(microseconds, most));
+}
+
+/// Raises a value to at least another, whatever thread raises it too.
+///
+/// @param[in,out] value the value
+/// @param candidate the value it is raised to when that is more
+void raise_to(std::atomic<uint32_t>& value, uint32_t candidate) noexcept {
+    uint32_t seen = value.load(std::memory_order_relaxed);
+    while (seen < candidate &&
+           !value.compare_exchange_weak(seen, candidate, std::memory_order_relaxed)) {
+    }
+}
+
+/// Writes microseconds as milliseconds with two decimal places.
+///
+/// @param microseconds the span
+/// @return the text, such as "25.03 ms"
+std::string milliseconds_text(uint32_t microseconds) {
+    const uint32_t hundredths =
+        microseconds % microseconds_per_millisecond / microseconds_per_hundredth;
+    return std::to_string(microseconds / microseconds_per_millisecond) + '.' +
+           (hundredths < two_digit_hundredths ? "0" : "") + std::to_string(hundredths) + " ms";
+}
+
+} // namespace
+
+void FeedTimer::restart() noexcept {
+    fed_ = false;
+}
+
+void FeedTimer::note_feed(
+    uint64_t asked_ns, uint64_t locked_ns, uint64_t done_ns, uint64_t lasts_ns, uint64_t period_ns
+) noexcept {
+    feeds_.fetch_add(1, std::memory_order_relaxed);
+    // The device held at most the last request's sound and one period.
+    const uint64_t held_ns = last_lasts_ns_ + period_ns;
+    if (fed_ && asked_ns > last_asked_ns_ &&
+        asked_ns - last_asked_ns_ > held_ns + late_feed_margin_ns) {
+        late_feeds_.fetch_add(1, std::memory_order_relaxed);
+        raise_to(longest_silence_us_, microseconds_of(asked_ns - last_asked_ns_ - held_ns));
+    }
+    raise_to(longest_mix_us_, microseconds_of(done_ns > asked_ns ? done_ns - asked_ns : 0));
+    raise_to(longest_wait_us_, microseconds_of(locked_ns > asked_ns ? locked_ns - asked_ns : 0));
+    last_asked_ns_ = asked_ns;
+    last_lasts_ns_ = lasts_ns;
+    fed_ = true;
+}
+
+FeedReport FeedTimer::take() noexcept {
+    FeedReport report;
+    report.feeds = feeds_.exchange(0, std::memory_order_relaxed);
+    report.late_feeds = late_feeds_.exchange(0, std::memory_order_relaxed);
+    report.longest_silence_us = longest_silence_us_.exchange(0, std::memory_order_relaxed);
+    report.longest_mix_us = longest_mix_us_.exchange(0, std::memory_order_relaxed);
+    report.longest_wait_us = longest_wait_us_.exchange(0, std::memory_order_relaxed);
+    return report;
+}
+
+std::string describe_late_feeds(const FeedReport& report, uint32_t seconds) {
+    if (report.late_feeds == 0)
+        return {};
+    return "sound output: late requests from the sound device in the last " +
+           std::to_string(seconds) + " s: " + std::to_string(report.late_feeds) + " of " +
+           std::to_string(report.feeds) + ", the worst after at least " +
+           milliseconds_text(report.longest_silence_us) + " without sound; longest mix " +
+           milliseconds_text(report.longest_mix_us) + ", " +
+           milliseconds_text(report.longest_wait_us) + " of it waiting for the game's sounds\n";
 }
 
 SoundOutput& sound_output() {

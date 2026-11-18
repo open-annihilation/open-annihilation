@@ -338,6 +338,53 @@ void loud_sums_hold() {
     CHECK(out[0] == 32767 && out[1] == -32768);
 }
 
+// The device's requests for sound: on time while each comes within the
+// sound the last one gave the device, one period and the margin; late past
+// that, the device having gone without sound for at least the rest.
+void feed_timer() {
+    constexpr uint64_t ms = 1'000'000;
+    constexpr uint64_t us = 1000;
+    constexpr uint64_t period = 10 * ms;
+    FeedTimer timer;
+    // Each request is given 10 ms of sound; the mix takes 0.2 ms, 0.1 ms of
+    // it waiting for the lock.
+    const auto feed = [&](uint64_t asked, uint64_t wait, uint64_t mix) {
+        timer.note_feed(asked, asked + wait, asked + mix, 10 * ms, period);
+    };
+    feed(1000 * ms, 100 * us, 200 * us); // the first after the device opens
+    feed(1010 * ms, 100 * us, 200 * us);
+    feed(1035 * ms, 100 * us, 200 * us); // 25 ms: 10 given, a period and the margin
+    FeedReport report = timer.take();
+    CHECK(report.feeds == 3 && report.late_feeds == 0);
+    CHECK(report.longest_mix_us == 200 && report.longest_wait_us == 100);
+    CHECK(describe_late_feeds(report, 60).empty());
+
+    feed(1061 * ms, 50 * us, 1050 * us); // 26 ms: 6 ms without sound
+    report = timer.take();
+    CHECK(report.feeds == 1 && report.late_feeds == 1 && report.longest_silence_us == 6000);
+    CHECK(
+        describe_late_feeds(report, 60) ==
+        "sound output: late requests from the sound device in the last 60 s: 1 of 1, the worst "
+        "after at least 6.00 ms without sound; longest mix 1.05 ms, 0.05 ms of it waiting for "
+        "the game's sounds\n"
+    );
+
+    feed(1111 * ms, 11500 * us, 12 * ms); // 50 ms: 30 ms without sound
+    feed(1121 * ms, 100 * us, 200 * us);
+    feed(1146 * ms, 100 * us, 200 * us); // 25 ms
+    feed(1180 * ms, 100 * us, 200 * us); // 34 ms: 14 ms without sound
+    report = timer.take();
+    CHECK(report.feeds == 4 && report.late_feeds == 2 && report.longest_silence_us == 30000);
+    CHECK(report.longest_mix_us == 12000 && report.longest_wait_us == 11500);
+    report = timer.take();
+    CHECK(report.feeds == 0 && report.late_feeds == 0 && report.longest_mix_us == 0);
+
+    // The first request after the device opens again is never late.
+    timer.restart();
+    feed(5000 * ms, 100 * us, 200 * us);
+    CHECK(timer.take().late_feeds == 0);
+}
+
 struct Counter {
     int16_t next{};
     int calls{};
@@ -616,6 +663,7 @@ int main(int argc, char** argv) {
     pcm_resampler_quality();
     conversion_and_gain();
     loud_sums_hold();
+    feed_timer();
     feeds();
     conversion_for_the_mixer();
     buffered_output();

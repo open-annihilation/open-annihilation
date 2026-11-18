@@ -197,7 +197,16 @@ Two outputs exist (`oa/audio/sound_output_backends.hpp`):
   takes that format. The device stream opens with the first `start` or
   stream and closes with the last `stop` once no stream is open; `start`
   and `stop` are SDL's audio subsystem, counted as `SDL_InitSubSystem`
-  counts.
+  counts. SDL's thread asks for the mix as the device plays out what it
+  holds, every device period (about 10 ms on Windows); a `FeedTimer` times
+  each request, and `take_log` gives the game's log a line naming the
+  device as it opens (driver, name, rate, channels, sample format and
+  period) and, at most once a minute (`late_feed_report_ms`), a line for
+  requests that came after the device's sound would have run out: by more
+  than `late_feed_margin_ns` past the last request's sound and one period.
+  The line gives how many came late, the worst time without sound, the
+  longest mix and how much of it waited for the streams' lock, which tells
+  a device starved by the system from one the game held up.
 - The wave-out mixer (`wave_out_output.cpp`), on Windows: a
   `BufferedOutput` that mixes the streams with `SoftwareMixer` into four
   buffers of 1024 frames (16-bit stereo, 44100 Hz, about 93 ms) on the
@@ -239,10 +248,12 @@ tested on a device the test plays by hand.
 Tests: `audio-output` (the integer resampler's limits, lengths, splits,
 accuracy and alignment; the formats, gains, side gains, pausing, clearing,
 feeds and rate conversion of the mixer, a sum of streams past 32 bits held
-to 16, and `convert_for_mixer`; the
+to 16, `convert_for_mixer`, and the feed timer's late requests and its log
+line; the
 buffered output's ring, its start count and a refused buffer),
 `audio-sdl-player` (the WAV player's stream, voices, a placed start's
-two sides and the near effects' level against the loop's) and on Windows
+two sides, the near effects' level against the loop's and the device's log
+line) and on Windows
 `audio-output-wave-out`, which plays a tone on the system's device, or is
 skipped where there is none.
 

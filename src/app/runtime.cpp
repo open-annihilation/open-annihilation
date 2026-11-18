@@ -24,6 +24,7 @@
 #include "oa/base/float_precision.hpp"
 #include "oa/data/defs/version.hpp"
 #include "oa/formats/hpi.hpp"
+#include "oa/audio/sound_output.hpp"
 #include "oa/media/intro_player.hpp"
 #include "oa/platform/app_loop.hpp"
 #include "oa/platform/preferences.hpp"
@@ -1416,6 +1417,10 @@ void Runtime::run_frame(bool& running) {
     const auto now_ms = static_cast<uint32_t>(SDL_GetTicks());
     if (oa::platform::finished_stream_sweep_due(now_ms, last_stream_sweep_ms_)) {
         audio_player_.collect_finished();
+        // The sound device opened, and how late it asked for sound, for a
+        // report of clicks or crackling.
+        if (const std::string log = oa::audio::sound_output().take_log(); !log.empty())
+            std::cerr << log;
         last_stream_sweep_ms_ = now_ms;
     }
     oa::platform::log_files::maintain();

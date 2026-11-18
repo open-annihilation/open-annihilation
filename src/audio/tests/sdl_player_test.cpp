@@ -279,6 +279,15 @@ int main() {
 
         require(player.play_stream("sounds/long.wav", 0, error), "a stream starts");
         require(player.stream_busy(), "a started stream plays");
+        // The device the first stream opened goes to the log once.
+        const std::string log = oa::audio::sound_output().take_log();
+        require(
+            log.starts_with("sound output: SDL's dummy driver plays \"") &&
+                log.find(" frames at a time; the game mixes 2 channels of 16 bits at 44100 Hz\n") !=
+                    std::string::npos,
+            "the device opened is logged with its format"
+        );
+        require(oa::audio::sound_output().take_log().empty(), "the device is logged once");
         player.stop_stream();
         require(!player.stream_busy(), "a stopped stream is silent at once");
 

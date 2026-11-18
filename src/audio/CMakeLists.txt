@@ -105,8 +105,8 @@ if(OA_BUILD_PLATFORM)
 endif()
 if(BUILD_TESTING)
   # The integer resampler, the mixer's conversion, gains, feeds and
-  # clamping, and the buffered output's ring of buffers on a device the
-  # test plays by hand.
+  # clamping, the timer of the device's requests, and the buffered output's
+  # ring of buffers on a device the test plays by hand.
   add_executable(oa-audio-output-test tests/sound_output_test.cpp)
   target_link_libraries(oa-audio-output-test PRIVATE oa-audio-output oa-options oa-base-threads)
   add_test(NAME audio-output COMMAND oa-audio-output-test)
