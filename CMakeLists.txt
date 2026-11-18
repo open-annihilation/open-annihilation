@@ -2583,7 +2583,9 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED key-editor-clean)
       # The playback bar over a short recorded skirmish, at 640x480, 1280x720
-      # and 1920x1080, and the players' stats at the top right there and on a
+      # and 1920x1080, the arrow over it and the match's cursor on the
+      # battlefield beyond it and where it was once it hides,
+      # and the players' stats at the top right there and on a
       # phone; the in-game menu's Save Game, offered in the skirmish and
       # greyed in its replay; the camera a player's view moves onto their
       # commander. Each run starts from a clean folder.
@@ -4578,7 +4580,11 @@ endforeach()
       # The selected commander's pointer moved over several kinds of tree,
       # another reclaimable feature and a wreck through SDL input shows
       # Reclaim wherever its ground point is on their footprints and Move on
-      # the open ground around them. Under the fog a tree on mapped ground
+      # the open ground around them. Over the first tree, Settings opened over
+      # the in-game menu and a screen of the OA layer that is not modal each
+      # show the arrow, the OA Settings button too, the cursor beside that
+      # screen stays the match's, and Reclaim shows again once each closes.
+      # Under the fog a tree on mapped ground
       # shows Reclaim and a click there gives a Reclaim, which the commander
       # carries out; a tree on ground never mapped shows Move and takes a Move.
       # A construction kbot's and a flying construction aircraft's Reclaim of

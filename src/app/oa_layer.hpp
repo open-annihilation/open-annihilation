@@ -263,6 +263,17 @@ class LayerScreen {
     /// @return true for a screen that covers its place, the default
     [[nodiscard]] virtual bool opaque() const { return true; }
 
+    /// Tells whether a point of the screen's place is the screen's own, so
+    /// that the pointer there shows the arrow rather than the cursor of what
+    /// lies under the layer (OaLayer::covers_pointer). A screen whose place
+    /// is larger than what it shows answers for what it shows, as the replay
+    /// bar, whose place is the battlefield, answers for its bar, cards and
+    /// menus.
+    ///
+    /// @param at the point, in the screen's points, inside its place
+    /// @return true, the default: the whole place is the screen's
+    [[nodiscard]] virtual bool covers_point(oa::ui::kit::Point /*at*/) const { return true; }
+
     /// Tells whether the screen draws the kit's focus ring on its own controls.
     ///
     /// One that does is left to that ring. One that does not, and whose
@@ -1004,6 +1015,20 @@ class OaLayer {
     /// @param match true for a match, false for the front end
     /// @return true while a modal screen shows there
     [[nodiscard]] bool modal_shown(bool match) const;
+
+    /// Tells whether the pointer at a point is over the layer, so that it
+    /// shows the arrow rather than the cursor of what lies under the layer
+    /// (Runtime::shown_match_cursor): anywhere while a modal screen shows;
+    /// otherwise inside the place of a screen that shows, such as the keys
+    /// overlay, where that screen covers it (LayerScreen::covers_point), or,
+    /// in a match, over the in-game OA Settings button while it shows. With
+    /// no screen and no button showing it is false.
+    ///
+    /// @param x the pointer's column, in the picture's pixels on the front
+    ///     end and the window's in a match, as input arrives
+    /// @param y the pointer's row
+    /// @return true over the layer
+    [[nodiscard]] bool covers_pointer(float x, float y) const;
 
     /// Takes one input, as the layer's overlay does.
     ///

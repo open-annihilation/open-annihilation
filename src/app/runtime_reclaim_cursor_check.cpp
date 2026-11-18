@@ -3,10 +3,13 @@
 
 // The cursor a selected commander shows over the map's vegetation, another
 // reclaimable feature and a wreck, driven through synthetic SDL pointer motion,
-// its clicks on trees out of sight, on mapped ground and on ground never
-// mapped, and where a construction kbot's and a construction aircraft's
-// Reclaim of a tree draw their markers.
+// and over a tree under the OA layer's screens; its clicks on trees out of
+// sight, on mapped ground and on ground never mapped, and where a
+// construction kbot's and a construction aircraft's Reclaim of a tree draw
+// their markers.
 #include "oa/app/runtime.hpp"
+#include "oa_layer.hpp"
+#include "oa_layer_check.hpp"
 #include "oa/core/map_plot.h"
 #include "oa/formats/png.hpp"
 #include "oa/sim/feature_runtime.hpp"
@@ -21,6 +24,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -61,6 +65,10 @@ constexpr int32_t kKbotApart = 48;
 constexpr int32_t kAircraftApart = 160;
 constexpr int kAircraftFlightTicks = 90;
 constexpr const char* kOverlayPicture = "reclaim-order-overlays.png";
+// Half the side of the screen that is not modal laid over a tree, and how
+// far right of the tree the pointer is moved off it, in canvas pixels.
+constexpr int32_t kMarkHalf = 8;
+constexpr float kBesideMark = 24.0F;
 
 [[noreturn]] void fail(const std::string& what) {
     throw std::runtime_error("reclaim cursor check: " + what);
@@ -252,6 +260,100 @@ void Runtime::check_reclaim_cursor() {
             );
     };
 
+    // Over a screen of the OA layer the cursor is the arrow, whatever lies
+    // under it, and the order cursor again once the screen closes: Settings,
+    // modal, opened over the paused in-game menu as F2's OA Settings opens
+    // it, and a screen that is not modal laid over the tree alone, beside
+    // which the cursor stays the match's.
+    const auto shown_cursor = [&] {
+        const auto cursor = shown_match_cursor();
+        return cursor ? static_cast<int>(*cursor) : -1;
+    };
+    const auto expect_cursor = [&](float x, float y, int cursor, const std::string& what) {
+        send(SDL_EVENT_MOUSE_MOTION, 0, x, y);
+        if (const auto shown = shown_cursor(); shown != cursor)
+            fail(
+                "the pointer at " + std::to_string(static_cast<int>(x)) + "," +
+                std::to_string(static_cast<int>(y)) + " " + what + " shows cursor " +
+                std::to_string(shown) + ", not " + std::to_string(cursor)
+            );
+    };
+    const auto tap_key = [&](SDL_Keycode key) {
+        for (const bool down : {true, false}) {
+            SDL_Event event{};
+            event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+            event.key.windowID = SDL_GetWindowID(sdl_.window);
+            event.key.key = key;
+            event.key.down = down;
+            dispatch_event(event, running);
+        }
+    };
+    const auto check_layer_cursor = [&](const Hovered& tree, std::array<float, 2> point) {
+        const auto tree_at = feature_name(*tree.def) + " at " + std::to_string(tree.cell_x) + "," +
+                             std::to_string(tree.cell_z);
+        const auto on_tree = "on " + tree_at;
+        const auto reclaim = static_cast<int>(input::OrderCursor::reclaim);
+        const auto arrow = static_cast<int>(input::OrderCursor::normal);
+        expect_cursor(point[0], point[1], reclaim, on_tree);
+
+        open_engine_settings_in_match();
+        if (engine_settings_dialog() == nullptr || !oa_layer().modal_shown(true))
+            fail("Settings did not open over the match");
+        expect_cursor(point[0], point[1], arrow, on_tree + " with Settings open");
+        const auto dialog = oa_layer().placement_of("settings").shown;
+        expect_cursor(
+            static_cast<float>(dialog.x + dialog.width / 2),
+            static_cast<float>(dialog.y + dialog.height / 2),
+            arrow,
+            "in the middle of Settings"
+        );
+        tap_key(SDLK_ESCAPE);
+        if (engine_settings_dialog() != nullptr)
+            fail("Escape did not close Settings");
+        if (OaLayer::match_button_shown(*this)) {
+            const auto button =
+                OaLayer::match_button_rect(match_layout_, OaLayer::match_fits_safe_area(*this));
+            expect_cursor(
+                static_cast<float>(button.x + button.width / 2),
+                static_cast<float>(button.y + button.height / 2),
+                arrow,
+                "on the in-game menu's OA Settings button"
+            );
+        }
+        resume_match_pause();
+        if (match_paused_ || ingame_menu_column_shown())
+            fail("the in-game menu did not resume");
+        expect_cursor(point[0], point[1], reclaim, on_tree + " once Settings closed");
+
+        const float beside_x = point[0] + kBesideMark;
+        send(SDL_EVENT_MOUSE_MOTION, 0, beside_x, point[1]);
+        const auto beside = shown_cursor();
+        MarkLook look{};
+        look.name = "reclaim-cursor-mark";
+        look.opaque = true;
+        look.in_match = true;
+        const auto room = oa_layer().view().room;
+        look.area = {
+            static_cast<int32_t>(point[0]) - room.x - kMarkHalf,
+            static_cast<int32_t>(point[1]) - room.y - kMarkHalf,
+            2 * kMarkHalf,
+            2 * kMarkHalf
+        };
+        look.mark = {0, 0, 2 * kMarkHalf, 2 * kMarkHalf};
+        oa_layer().push(std::make_unique<MarkScreen>(look, std::make_shared<MarkSeen>()));
+        const LayerScreen* mark = oa_layer().find(look.name);
+        if (mark == nullptr || oa_layer().placement_of(look.name).shown.width <= 0 ||
+            oa_layer().modal_shown(true))
+            fail("the screen that is not modal does not show over the match");
+        expect_cursor(point[0], point[1], arrow, on_tree + " under a screen that is not modal");
+        expect_cursor(beside_x, point[1], beside, "beside that screen");
+        oa_layer().close(mark);
+        expect_cursor(point[0], point[1], reclaim, on_tree + " once that screen closed");
+        std::cout << "reclaim cursor check: " << tree_at
+                  << " shows the arrow under Settings and under a screen that is not modal, "
+                     "and Reclaim again once each closed\n";
+    };
+
     std::size_t reclaim_samples = 0;
     std::size_t move_samples = 0;
     for (const auto& feature : hovered) {
@@ -354,8 +456,10 @@ void Runtime::check_reclaim_cursor() {
         std::cout << "reclaim cursor check: " << feature_name(def) << " (" << def.footprint_x << "x"
                   << def.footprint_z << ") at cell " << feature.cell_x << "," << feature.cell_z
                   << " shows Reclaim at " << over << " pointer positions\n";
-        if (&feature == &hovered.front())
+        if (&feature == &hovered.front()) {
+            check_layer_cursor(feature, *first_over);
             check_reclaim_click(feature, *first_over);
+        }
     }
 
     std::cout << "reclaim cursor check: " << hovered.size() << " features, " << reclaim_samples

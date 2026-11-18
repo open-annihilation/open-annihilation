@@ -2585,6 +2585,27 @@ bool OaLayer::modal_shown(bool match) const {
     return seen.match == match && top_modal(seen) != nullptr;
 }
 
+bool OaLayer::covers_pointer(float x, float y) const {
+    if (!screens_.empty()) {
+        const LayerView seen = view();
+        if (top_modal(seen) != nullptr)
+            return true;
+        const WindowPosition at = window_position(seen, x, y);
+        const auto column = static_cast<float>(at.x);
+        const auto row = static_cast<float>(at.y);
+        for (const auto& screen : screens_) {
+            const LayerPlacement placed = shown_placement(*screen, seen);
+            if (!empty_rect(placed.shown) && rect_contains(placed.shown, column, row) &&
+                screen->covers_point(layer_point(placed, column, row)))
+                return true;
+        }
+    }
+    return runtime_.screen_ == Screen::match && match_button_shown(runtime_) &&
+           rect_contains(
+               match_button_rect(runtime_.match_layout_, match_fits_safe_area(runtime_)), x, y
+           );
+}
+
 LayerScreen* OaLayer::top_modal(const LayerView& seen) const {
     for (auto it = screens_.rbegin(); it != screens_.rend(); ++it)
         if ((*it)->modal() && !empty_rect((*it)->placement(seen).shown))

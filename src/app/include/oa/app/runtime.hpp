@@ -5484,12 +5484,17 @@ class Runtime final : public menu::Host,
     /// Writes the local player, the unit under the pointer, the armed order and
     /// the ground point into the Game block first, and stores the cursor cell.
     ///
-    /// @return a cursor table index: the normal cursor over a gadget or without a
-    ///     match, the build cursor while build placement owns the pointer
+    /// @return a cursor table index: the normal cursor over a gadget, over the
+    ///     OA layer's screens or without a match, the build cursor while build
+    ///     placement owns the pointer
     uint8_t pick_match_cursor();
 
     /// Picks the cursor the match pointer shows, as pick_match_cursor does,
     /// writing the same into the Game block.
+    ///
+    /// Over the OA layer's screens (OaLayer::covers_pointer), as over a HUD
+    /// button, it is the arrow and nothing is written: the battlefield under
+    /// them is not picked.
     ///
     /// With ui.click-snap, RECLAIM over open ground where a click would snap
     /// onto a feature (snapped_reclaim_point) shows the cursor the click

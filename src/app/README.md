@@ -678,7 +678,17 @@ latched the closing key and drew a backdrop.
   (`refresh_match`), and the composed frame and the window take the same
   layer: it goes over the composed frame (`compose_match`) and is presented
   after the match's other layers and before the frontend dialogs' and the
-  cursor (`present`).
+  cursor (`present`). The pointer over the layer shows the arrow, as over
+  a HUD button, not the order cursor of the unit or feature under it
+  (`covers_pointer`, which `Runtime::shown_match_cursor` asks before it
+  picks the battlefield): anywhere while a modal screen such as Settings
+  shows, inside the place of any other screen that shows where that
+  screen covers it (`LayerScreen::covers_point`: the whole place, but for
+  the replay bar, whose place is the battlefield, only its bar, cards and
+  menus), and over the OA Settings button. With no screen and no button
+  the cursor is the match's as before. `native-reclaim-cursor` holds it
+  over Settings and over a screen that is not modal, a tree under each,
+  and `native-replay-viewer` over the replay bar and off it.
 - **The in-game OA Settings button.** The in-game menu has one OA button,
   under Resume, as wide as it from its left edge (`match_button_rect`, 96
   by 24 source pixels at (14, 455), placed in the column at its own scale,

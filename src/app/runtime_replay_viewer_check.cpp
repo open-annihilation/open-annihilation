@@ -1343,6 +1343,26 @@ void Runtime::check_replay_viewer() {
             forward.text == "Forward 10 seconds" && forward.label == forward.text,
             "Forward is not named from the catalogue"
         );
+        // The pointer shows the arrow over the bar, and the match's cursor
+        // on the battlefield the bar's place covers beyond it.
+        require(
+            oa_layer().covers_pointer(
+                static_cast<float>(play.window_x + play.window_width / 2),
+                static_cast<float>(play.window_y + play.window_height / 2)
+            ),
+            "the pointer over Play is not over the OA layer"
+        );
+        require(
+            !oa_layer().covers_pointer(
+                static_cast<float>(
+                    match_layout_.battlefield_x() + match_layout_.battlefield_width() / 2
+                ),
+                static_cast<float>(
+                    match_layout_.battlefield_y() + match_layout_.battlefield_height() / 2
+                )
+            ),
+            "the pointer in the battlefield's middle is over the OA layer"
+        );
     }
 
     if (playback().paused)
@@ -1460,11 +1480,20 @@ void Runtime::check_replay_viewer() {
     }
 
     const layout::Point above{640, 80};
+    const AutomationControl play_shown =
+        require_named("oa.replay-viewer.play", "Play is not shown");
     pad_down(pad::PadButton::b);
     pointer_at(above, SDL_EVENT_MOUSE_MOTION, 0);
     SDL_Delay(3200);
     frames(1);
     require(!named("oa.replay-viewer.play"), "the bar did not hide after 3 seconds");
+    require(
+        !oa_layer().covers_pointer(
+            static_cast<float>(play_shown.window_x + play_shown.window_width / 2),
+            static_cast<float>(play_shown.window_y + play_shown.window_height / 2)
+        ),
+        "the pointer where the hidden bar's Play was is over the OA layer"
+    );
     pad_down(pad::PadButton::b);
     SDL_Delay(4000);
     frames(1);

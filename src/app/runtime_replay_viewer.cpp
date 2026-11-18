@@ -473,6 +473,30 @@ struct Runtime::ReplayViewerScreen final : LayerScreen {
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
 
+    /// Tells whether a point is on the bar while it shows, or on a card, a
+    /// menu or the export dialog that is open, where the pointer shows the
+    /// arrow. Elsewhere on the battlefield, and in photo mode, the match's
+    /// cursor shows.
+    ///
+    /// @param at the point, in the screen's points
+    /// @return true on what the bar shows
+    [[nodiscard]] bool covers_point(kit::Point at) const override {
+        if (runtime_.photo_mode())
+            return false;
+        const kit::Rect dialog{
+            export_origin_.x + export_dialog_.x,
+            export_origin_.y + export_dialog_.y,
+            export_dialog_.width,
+            export_dialog_.height
+        };
+        if (export_open_ && kit::contains(dialog, at))
+            return true;
+        if (rv::hit_control(layout_, at) != rv::Control::none ||
+            rv::over_watch_chrome(layout_, at) || kit::contains(layout_.speed_menu, at))
+            return true;
+        return layout_.shown && kit::contains(layout_.bar, at);
+    }
+
     /// The clock moves, so the drawing is not kept from the revision alone.
     ///
     /// @return false
