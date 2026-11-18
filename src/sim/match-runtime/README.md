@@ -648,7 +648,16 @@ damaged aircraft that breaks off for a repair pad (attack, strike, seek,
 patrol and repair patrol missions) draws one of the listed pads still
 switched on within 0xf00 world units (`Match::repair_pads_in_reach` and
 `repair_pad_in_reach`), so a pad built or switched on since the last rebuild
-is not chosen until the next one. Offline matches run the wind from the OTA
+is not chosen until the next one. A landing aircraft circling its pad
+leaves the circle for it once the pad has a free landing point that no
+other unit of its owner is already making for (`pad_unclaimed`: fewer
+VTOL_Landings on the pad past their circle than free points), so that one
+aircraft at a time makes for each point. One that finds its pad taken, or
+is turned away from it, makes for the nearest listed pad within that reach
+with a point free and unclaimed instead, the first in the list of pads
+equally near, and keeps its pad while there is none. In 3.1c an
+aircraft keeps the pad it drew and every aircraft waiting for a pad makes
+for it once it is free. Offline matches run the wind from the OTA
 `MinWindSpeed` and `MaxWindSpeed`.
 
 The computer players reach the match through `ComputerHost`

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "tick_internal.hpp"
+#include "oa/sim/detection.hpp"
 
 #include <cstdint>
 
@@ -367,6 +368,94 @@ class TickHost::VtolMissions {
             if (piece != vtol::no_piece && pad_piece_free(pad.record, piece))
                 return piece;
         return vtol::no_piece;
+    }
+
+    /// Counts the other units of the same owner already making for a pad:
+    /// each one's VTOL_Landing on the pad has left the circle (phase 2 or
+    /// later). The owner's units are all simulated where this unit is.
+    ///
+    /// @param pad Air pad.
+    /// @return The number of landings that have claimed a point of the pad.
+    uint32_t pad_claims(const sim::simulation_state::Unit& pad) {
+        uint32_t claims = 0;
+        for (auto& other : match().slots_) {
+            if (!other.unit || other.unit == s.unit || other.record.type_index == 0 ||
+                other.record.owner_index != s.record.owner_index)
+                continue;
+            auto* landing = other.unit->primary;
+            if (!landing || landing->kind != sim::ground_orders::vtol_landing_kind ||
+                landing->phase < 2)
+                continue;
+            const auto& claim = host.owned(*landing);
+            const auto* claimed =
+                claim.construction.target ? claim.construction.target : claim.attack.target;
+            if (claimed == &pad)
+                ++claims;
+        }
+        return claims;
+    }
+
+    /// Counts the different free landing points QueryLandingPad returns for
+    /// a pad.
+    ///
+    /// @param pad Air pad.
+    /// @return The number of free points.
+    uint32_t free_pad_pieces(sim::simulation_state::Unit& pad) {
+        std::array<int32_t, 4> pieces{
+            vtol::no_piece, vtol::no_piece, vtol::no_piece, vtol::no_piece
+        };
+        auto& pad_slot = host.slot(pad);
+        if (auto* instance = match().instance(pad_slot.unit_index); instance && instance->script())
+            (void)instance->script()->query(ScriptFunction::query_landing_pad, pieces);
+        uint32_t free = 0;
+        for (auto at = pieces.begin(); at != pieces.end(); ++at) {
+            // A point returned twice counts once.
+            const bool first = std::find(pieces.begin(), at, *at) == at;
+            if (*at != vtol::no_piece && first && pad_piece_free(pad.record, *at))
+                ++free;
+        }
+        return free;
+    }
+
+    /// Tells whether a pad whose landing points are not all taken
+    /// (free_pad_piece found one) has one left for this unit: fewer other
+    /// units are making for it (pad_claims) than it has points free.
+    ///
+    /// @param pad Air pad with a free landing point.
+    /// @return True when the unit may make for the pad.
+    bool pad_unclaimed(sim::simulation_state::Unit& pad) {
+        const auto claims = pad_claims(pad);
+        return claims == 0 || claims < free_pad_pieces(pad);
+    }
+
+    /// Finds the nearest pad other than `occupied` among those the owner's
+    /// pad list offers within 0xf00 world units (Match::repair_pads_in_reach)
+    /// that has a landing point free and unclaimed (pad_unclaimed); of pads
+    /// equally near, the first in pad list order.
+    ///
+    /// @param occupied The pad the unit is waiting for.
+    /// @return The pad, or null when no other pad in reach is open.
+    sim::simulation_state::Unit* nearest_free_pad(const sim::simulation_state::Unit& occupied) {
+        const auto count = match().repair_pads_in_reach(s.record);
+        sim::simulation_state::Unit* nearest = nullptr;
+        int32_t nearest_distance = 0;
+        for (uint32_t index = 0; index < count; ++index) {
+            auto* candidate = match().repair_pad_in_reach(s.record, index);
+            if (!candidate)
+                continue;
+            auto& pad = host.unit_view(*candidate);
+            if (&pad == &occupied)
+                continue;
+            // World units squared, on the ground plane.
+            const auto distance =
+                sim::detection::squared_distance_high(s.record.position, candidate->position);
+            if ((nearest && distance >= nearest_distance) ||
+                free_pad_piece(pad, vtol::no_piece) == vtol::no_piece || !pad_unclaimed(pad))
+                continue;
+            nearest = &pad;
+            nearest_distance = distance;
+        }
+        return nearest;
     }
 
     /// Tells whether the unit may set down with its footprint centred on a
@@ -1006,9 +1095,12 @@ class TickHost::VtolMissions {
         }
     }
 
-    /// Runs one step of VTOL_Landing: circles the pad until a landing point
-    /// is free, descends onto it and attaches; a damaged unit on a finished
-    /// air base queues SelfRepair.
+    /// Runs one step of VTOL_Landing: circles the pad until it has a landing
+    /// point free that no other unit is making for (pad_unclaimed), unless
+    /// another pad in reach has one, which becomes the order's pad
+    /// (nearest_free_pad);
+    /// descends onto it and attaches; a damaged unit on a finished air base
+    /// queues SelfRepair.
     ///
     /// @return 1 (next phase), 2 (keep waiting), 0 (restart: no free
     ///     landing point), 5 (done: attached), 8 (failed: no pad, or no
@@ -1029,7 +1121,19 @@ class TickHost::VtolMissions {
             piece = static_cast<int32_t>(host.random(vtol::heading_range));
             return 1;
         case 1: {
-            if (free_pad_piece(*pad, free_pad_piece(*pad, vtol::no_piece)) != vtol::no_piece) {
+            // A landing point another unit is already making for is not
+            // free, so that one unit at a time leaves the circle for each;
+            // an occupied pad gives way to the nearest one in reach with a
+            // point free, here and after a landing turned away, which starts
+            // the order again. 3.1c keeps the pad it drew, and every unit
+            // waiting for it makes for it once it is free.
+            if (free_pad_piece(*pad, free_pad_piece(*pad, vtol::no_piece)) != vtol::no_piece &&
+                pad_unclaimed(*pad)) {
+                order.phase = 2;
+                return 2;
+            }
+            if (auto* free_pad = nearest_free_pad(*pad)) {
+                set_target(free_pad);
                 order.phase = 2;
                 return 2;
             }

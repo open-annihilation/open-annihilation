@@ -5445,6 +5445,13 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-air-pads PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Ten damaged stealth fighters all waiting for one Core repair pad go
+        # to two pads placed beside it later, where they are repaired.
+        add_test(NAME native-air-pad-choice COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_air_pad_choice.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-air-pad-choice PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # Gunships past the map's edge: at View past the map's edge 50% a
         # click where one is drawn selects it, and a box dragged from past
         # the edge selects them with the aircraft near it on the map; at Off
