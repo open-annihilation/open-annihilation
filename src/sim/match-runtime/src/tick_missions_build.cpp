@@ -24,6 +24,11 @@ constexpr uint32_t capture_moving_wait = 0x1e;
 constexpr uint32_t reclaim_approach_wait = 0xf;
 constexpr uint32_t reclaim_retry_wait = 0xf;
 constexpr uint32_t nano_step = 2;
+// Ticks a helper waits for its build stance before it looks at its frame
+// again (ten seconds).
+constexpr uint32_t stance_retry_wait = 300;
+// Order.wake_tick of an order with no timer pending.
+constexpr uint32_t no_wake_tick = 0xffffffffu;
 constexpr uint8_t all_weapons = 3;
 using BusyState = data::match_rules::OrdersWeaponsFreeWhileBusyStates;
 constexpr uint8_t reclaim_damage_kind = static_cast<uint8_t>(DeathKind::reclaim);
@@ -181,7 +186,25 @@ uint32_t TickHost::GroundMissions::help_build() {
         refresh_selection();
         return ground::next_phase;
     case 2:
-        return wait_for_build_stance(ground::build_abort_events);
+        // The helper waits for its build stance, and looks at its frame
+        // again each stance_retry_wait ticks without it: a finished frame
+        // ends the order, so that a guard goes on to the factory's next
+        // build, and an unfinished one has StartBuilding run again. A script
+        // whose eight threads are all busy drops the start-script its
+        // StartBuilding makes, and that stance never comes; 3.1c waits for
+        // it for ever.
+        if ((events & ground::timer_event) && !(s.record.build_flags & ground::build_stance_flag)) {
+            if (build::finished(frame->record))
+                return ground::mission_done;
+            start_building_toward(ground::position_of(frame->record));
+        }
+        if (s.record.build_flags & ground::build_stance_flag)
+            return ground::next_phase;
+        if ((events & ground::timer_event) || order.wake_tick == build::no_wake_tick)
+            wait_ticks(build::stance_retry_wait);
+        order.wait_events |=
+            ground::timer_event | ground::build_abort_events | ground::script_value_event;
+        return ground::keep_waiting;
     case 3:
         (void)ConstructionAdapter(host, s, record).construct(*frame, work_rate(def()));
         s.record.decloak_until_tick = tick() + build::build_decloak_hold;

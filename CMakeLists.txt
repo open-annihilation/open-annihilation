@@ -5452,6 +5452,14 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-air-pad-choice PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # An advanced construction kbot guarding an advanced kbot lab helps it
+        # build each of three Mortys, though its StartBuilding for one of them
+        # finds all its script threads busy, and goes back to guarding the lab.
+        add_test(NAME native-guard-assist COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_guard_assist.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-guard-assist PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # Gunships past the map's edge: at View past the map's edge 50% a
         # click where one is drawn selects it, and a box dragged from past
         # the edge selects them with the aircraft near it on the map; at Off

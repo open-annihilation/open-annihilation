@@ -173,6 +173,14 @@ that order is the one the builder is walking or flying to, the approach
 starts again at the new site.
 `match-order-rules` checks each rule and parameter against 3.1c's behaviour.
 
+A HelpBuild helper (a builder guarding a factory joins its build this way)
+that has waited 300 ticks for its build stance looks at its frame again: a
+finished frame ends the order, and an unfinished one has StartBuilding run
+again. A unit script whose eight threads are all busy drops the
+start-script its StartBuilding makes, so the stance it raises never comes,
+and 3.1c leaves the helper waiting for it; `match-missions-orders` and
+`native-guard-assist` check the helper goes on.
+
 The unit rules (`unit_rules.cpp`) keep such a table for the slot reuse delay
 (units.id-reuse-delay), handing its ticks to unit creation. A building's
 facing (units.build-rotation) needs none: it lives in the unit's heading, as
