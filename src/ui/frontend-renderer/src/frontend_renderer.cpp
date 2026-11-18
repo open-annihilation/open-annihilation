@@ -2058,6 +2058,15 @@ void blend_rect(
     const uint32_t share = std::min(opacity, blend_opaque);
     const uint32_t keep = blend_opaque - share;
     constexpr uint32_t half = blend_opaque / 2;
+    if (share == blend_opaque) {
+        // The colour's whole share replaces each pixel: (colour * 256 + 128) / 256.
+        for (int64_t row = top; row < bottom; ++row) {
+            auto* pixel = surface.rgb.data() + static_cast<std::size_t>((row * columns + left) * 3);
+            for (int64_t column = left; column < right; ++column, pixel += 3)
+                std::copy(color.begin(), color.end(), pixel);
+        }
+        return;
+    }
     std::array<uint32_t, 3> painted{};
     for (std::size_t channel = 0; channel < painted.size(); ++channel)
         painted[channel] = uint32_t{color[channel]} * share + half;

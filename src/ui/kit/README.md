@@ -217,7 +217,12 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   (how many pixels a rectangle covers on either form) and `blend_coverage`
   (a colour blended through a map of one byte a pixel). The rounded
   rectangles, `fill_corner_rect`, `blend_corner_rect` and
-  `ring_corner_rect`, work out each corner from 16 samples a pixel;
+  `ring_corner_rect`, work out each corner from 16 samples a pixel; the
+  straight runs between the corners take the share of their first pixel.
+  A drawing thread keeps each rounded shape's coverage at its size, up to
+  512 shapes in 16 MiB, and each state, tag, tool and close icon's, up to
+  64 in 1 MiB, the one drawn longest ago making room for a new one, so a
+  screen drawn again blends what it worked out before.
   `corner_coverage` gives one corner's share of each pixel, filled or as a
   ring, smooth or stepped, with which the OA layer rounds a window's
   corners. `perspective_blit`

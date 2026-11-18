@@ -18,6 +18,8 @@
 
 #include "oa/ui/frontend_renderer/artless.hpp"
 
+#include "kept_coverage.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -26,6 +28,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -1781,6 +1784,52 @@ void draw_maker_icon(const Canvas& canvas, const Rect& rect, StateIcon icon) {
     blend_coverage(canvas, rect, fill, kBoneFill);
 }
 
+/// The icons whose coverage a thread keeps.
+constexpr std::size_t kKeptIcons = 64;
+/// The most bytes of icon coverage a thread keeps, all its icons together.
+/// An icon larger than this is worked out again each time it is drawn.
+constexpr std::size_t kKeptIconBytes = std::size_t{1} << 20U;
+
+/// Which design an icon is drawn from.
+enum class IconFamily : uint8_t {
+    state, ///< a state icon, StateIcon
+    tag,   ///< a tag icon, TagIcon
+    tool,  ///< a tool icon, ToolIcon
+    close, ///< a close mark's ×
+};
+
+/// What an icon's coverage is worked out from.
+struct IconKey {
+    IconFamily family{}; ///< which kind of icon
+    uint8_t icon{};      ///< which of its family, its enumerator's value
+    int32_t columns{};   ///< the pixels across
+    int32_t rows{};      ///< the pixels down
+
+    /// Tells whether two icons are the same at the same size.
+    bool operator==(const IconKey&) const = default;
+};
+
+/// Returns the icons' coverage a thread keeps (KeptCoverage): the icons it
+/// drew most recently, up to kKeptIcons of them in up to kKeptIconBytes.
+///
+/// @return the thread's kept icons
+KeptCoverage<IconKey>& kept_icons() {
+    thread_local KeptCoverage<IconKey> kept{kKeptIcons, kKeptIconBytes};
+    return kept;
+}
+
+/// Returns an icon's coverage at a size, kept or worked out.
+///
+/// @param key the icon and its pixels
+/// @param work_out returns its coverage, key.columns times key.rows bytes
+/// @return the bytes, until the thread asks for another icon's
+template <typename WorkOut>
+const std::vector<uint8_t>& kept_icon_coverage(const IconKey& key, WorkOut&& work_out) {
+    const std::size_t bytes =
+        static_cast<std::size_t>(key.columns) * static_cast<std::size_t>(key.rows);
+    return kept_icons().coverage(key, bytes, std::forward<WorkOut>(work_out));
+}
+
 } // namespace
 
 Point mark_size(Mark mark) noexcept {
@@ -1804,7 +1853,10 @@ void draw_state_icon(const Canvas& canvas, const Rect& rect, StateIcon icon, Col
     const Point pixels = covered_pixels(canvas, rect);
     if (pixels.x <= 0 || pixels.y <= 0 || pixels.x > kMostIconPixels || pixels.y > kMostIconPixels)
         return;
-    const std::vector<uint8_t> coverage = state_icon_coverage(icon, pixels.x, pixels.y);
+    const std::vector<uint8_t>& coverage = kept_icon_coverage(
+        {IconFamily::state, static_cast<uint8_t>(icon), pixels.x, pixels.y},
+        [&] { return state_icon_coverage(icon, pixels.x, pixels.y); }
+    );
     blend_coverage(canvas, rect, coverage, ink);
 }
 
@@ -1814,7 +1866,11 @@ void draw_tag_icon(const Canvas& canvas, const Rect& rect, TagIcon icon, Colour 
     const Point pixels = covered_pixels(canvas, rect);
     if (pixels.x <= 0 || pixels.y <= 0 || pixels.x > kMostIconPixels || pixels.y > kMostIconPixels)
         return;
-    blend_coverage(canvas, rect, stroke_coverage(tag_strokes(icon), pixels.x, pixels.y), ink);
+    const std::vector<uint8_t>& coverage =
+        kept_icon_coverage({IconFamily::tag, static_cast<uint8_t>(icon), pixels.x, pixels.y}, [&] {
+            return stroke_coverage(tag_strokes(icon), pixels.x, pixels.y);
+        });
+    blend_coverage(canvas, rect, coverage, ink);
 }
 
 void draw_tool_icon(const Canvas& canvas, const Rect& rect, ToolIcon icon, Colour ink) {
@@ -1823,7 +1879,11 @@ void draw_tool_icon(const Canvas& canvas, const Rect& rect, ToolIcon icon, Colou
     const Point pixels = covered_pixels(canvas, rect);
     if (pixels.x <= 0 || pixels.y <= 0 || pixels.x > kMostIconPixels || pixels.y > kMostIconPixels)
         return;
-    blend_coverage(canvas, rect, tool_icon_coverage(icon, pixels.x, pixels.y), ink);
+    const std::vector<uint8_t>& coverage =
+        kept_icon_coverage({IconFamily::tool, static_cast<uint8_t>(icon), pixels.x, pixels.y}, [&] {
+            return tool_icon_coverage(icon, pixels.x, pixels.y);
+        });
+    blend_coverage(canvas, rect, coverage, ink);
 }
 
 void draw_focus_ring(const Canvas& canvas, const Rect& control, bool around) {
@@ -1917,7 +1977,11 @@ void draw_close_button(const Canvas& canvas, const Rect& area, const ButtonLook&
     const Point pixels = covered_pixels(canvas, icon);
     if (pixels.x <= 0 || pixels.y <= 0 || pixels.x > kMostIconPixels || pixels.y > kMostIconPixels)
         return;
-    blend_coverage(canvas, icon, close_icon_coverage(pixels.x, pixels.y), ink);
+    const std::vector<uint8_t>& coverage =
+        kept_icon_coverage({IconFamily::close, 0, pixels.x, pixels.y}, [&] {
+            return close_icon_coverage(pixels.x, pixels.y);
+        });
+    blend_coverage(canvas, icon, coverage, ink);
 }
 
 /// Draws a button's refresh arrow and its caption side by side, centred
