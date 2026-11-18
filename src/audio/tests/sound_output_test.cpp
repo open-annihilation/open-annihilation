@@ -20,6 +20,7 @@
 #include <cstring>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <numbers>
 #include <optional>
@@ -318,6 +319,25 @@ void conversion_and_gain() {
     CHECK(lock_depth == 0);
 }
 
+// However many streams play at the highest gain, the sum is held to 16 bits
+// with its own sign: it is clipped and never wraps.
+void loud_sums_hold() {
+    SoftwareMixer mixer(test_lock());
+    std::string error;
+    const auto loudest = bytes_of(std::vector<int16_t>{32767, -32768});
+    // 24 streams at the highest gain sum to more than 32 bits hold.
+    constexpr int streams = 24;
+    std::vector<std::unique_ptr<OutputStream>> open;
+    for (int stream = 0; stream < streams; ++stream) {
+        auto opened = mixer.open_stream({SampleFormat::s16, 2, 44100}, nullptr, nullptr, error);
+        CHECK(opened != nullptr && opened->set_gain(mixer_max_gain));
+        CHECK(opened->put(loudest.data(), 4) && opened->resume());
+        open.push_back(std::move(opened));
+    }
+    const auto out = mix(mixer, 1);
+    CHECK(out[0] == 32767 && out[1] == -32768);
+}
+
 struct Counter {
     int16_t next{};
     int calls{};
@@ -595,6 +615,7 @@ int main(int argc, char** argv) {
     pcm_resampler_lengths_and_chunks();
     pcm_resampler_quality();
     conversion_and_gain();
+    loud_sums_hold();
     feeds();
     conversion_for_the_mixer();
     buffered_output();

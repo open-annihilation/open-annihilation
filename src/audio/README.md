@@ -218,8 +218,9 @@ low 16 bits, float ones times 32768, rounded and held to 16 bits), plays one
 channel on both sides (more than two play their first two), converts other
 rates with `PcmResampler` as the samples arrive, multiplies each side by the
 stream's gain times that side's gain (16 fraction bits), sums the streams
-with 8 fraction bits kept, and rounds the sum to 16 bits, held to
--32768..32767. A stream at 44100 Hz and a gain of one plays its 16-bit
+in 64 bits with 8 fraction bits kept, and rounds the sum to 16 bits, held to
+-32768..32767: a sum past full scale is clipped there, whatever the number
+of streams and their gains, and never wraps. A stream at 44100 Hz and a gain of one plays its 16-bit
 samples unchanged. `PcmResampler` (`oa/audio/resampler.hpp`) is a
 Kaiser-windowed sinc of 6 zero crossings each side (window 0.1102 * (80 -
 8.7), zeros on the lower rate's frames) with 14-bit taps whose phases each
@@ -237,7 +238,8 @@ tested on a device the test plays by hand.
 
 Tests: `audio-output` (the integer resampler's limits, lengths, splits,
 accuracy and alignment; the formats, gains, side gains, pausing, clearing,
-feeds and rate conversion of the mixer, and `convert_for_mixer`; the
+feeds and rate conversion of the mixer, a sum of streams past 32 bits held
+to 16, and `convert_for_mixer`; the
 buffered output's ring, its start count and a refused buffer),
 `audio-sdl-player` (the WAV player's stream, voices, a placed start's
 two sides and the near effects' level against the loop's) and on Windows
