@@ -332,7 +332,6 @@ enum class ErrorCode {
     section_limit,
     field_limit,
     gadget_limit,
-    invalid_integer,
     invalid_root,
     translated_text_limit,
 };
@@ -374,6 +373,11 @@ using TranslationLookup = std::function<std::optional<std::string>(std::string_v
 /// @return The layout, or the first error with its byte offset.
 /// @quirk A file that ends without its final top-level `}` still yields its
 ///        last gadget, as shipped SCORE.GUI needs.
+/// @quirk Stray text with no `=` on its line runs on into the next line's
+///        field, which is then left unread, and a number is read from its
+///        leading digits, text after them ignored and none reading 0, as in
+///        3.1c: a mod's page with a digit left after a closing brace, or a
+///        letter O written for a zero, loads as the game loads it.
 [[nodiscard]] ParseResult
 parse(std::span<const uint8_t> bytes, const TranslationLookup& translation_lookup = {});
 
