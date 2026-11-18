@@ -37,7 +37,7 @@ if(NOT TARGET oa-options)
   # processor, which matters most for oa-game's few hundred sources. Ninja
   # already runs a compiler for each processor, one source each, so only
   # the Visual Studio generators take /MP.
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND CMAKE_GENERATOR MATCHES "^Visual Studio")
+  if(MSVC AND CMAKE_GENERATOR MATCHES "^Visual Studio")
     target_compile_options(oa-options INTERFACE /MP)
   endif()
   # Each basic floating-point operation is rounded as written: never fused
