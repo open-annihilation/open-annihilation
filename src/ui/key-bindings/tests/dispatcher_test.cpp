@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <deque>
 #include <initializer_list>
 #include <optional>
 #include <span>
@@ -860,8 +861,11 @@ void modified_wheel(const KeyboardMap& map) {
         input.platform.primary_is_meta = mac;
         input.own = &own;
         const Resolved resolved = keys::resolve(input);
+        // Each turn's events name actions its dispatcher holds, so every
+        // dispatcher lives until the turns are checked.
+        std::deque<Dispatcher> dispatchers;
         const auto turned = [&](bool up, uint8_t modifiers) {
-            Dispatcher dispatcher;
+            Dispatcher& dispatcher = dispatchers.emplace_back();
             dispatcher.set_bindings(Resolved{resolved});
             dispatcher.set_keyboard(map);
             dispatcher.set_platform(input.platform);
