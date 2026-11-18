@@ -899,7 +899,11 @@ void shade_rectangle(Surface& surface, const Rectangle& rectangle, GrayedShade& 
 // `shade`, as blit then shade_rectangle over that rectangle would: a covered
 // pixel takes its palette entry's darkened colour, found once per entry, and
 // an uncovered one its drawn colour's.
-void blit_grayed(
+//
+// It stays a function of its own: inlined into render_screen_into by GCC 12,
+// it drew frontend-renderer's six grayed 64x64 buttons in 77 us, and on its
+// own in 47.
+[[gnu::noinline]] void blit_grayed(
     Surface& surface,
     const FramePixels& frame,
     int x,
