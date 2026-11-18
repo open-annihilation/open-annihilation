@@ -38,6 +38,15 @@
 // the target again while the source's revision is unchanged. A prescale
 // target is checked by its read-back when made.
 //
+// New textures read back cleared: a streaming texture filled with a colour
+// and cleared, and every texture and tile a TiledTexture makes, as one
+// texture and as tiles. An upload of a scene's corner writes the column and
+// row past it from the corner's last column and row, gutters included, and
+// leaves the rest cleared; a prescale target larger than the enlarged
+// source, and one that held a larger source first, holds the source's last
+// column and row in the column and row past the enlargement, and keeps
+// what it held beyond them.
+//
 // The menus' frame of 640x480 under each way of Menu scaling, in windows of
 // the common sizes, one smaller than the frame, and ones of an odd width and
 // height: the rectangle it is drawn in is whole, centred, as large as the
@@ -1101,6 +1110,272 @@ Picture read_target(const Canvas& canvas, SDL_Texture* texture, uint32_t width, 
     return picture;
 }
 
+/// A colour no picture drawn here is left at, with which a surface is
+/// filled before a texture that should hold black is drawn over it.
+constexpr std::array<uint8_t, 3> under_colour{90, 60, 30};
+
+/// Fills a canvas's surface with under_colour.
+///
+/// @param canvas the canvas
+void fill_under(const Canvas& canvas) {
+    OA_CHECK(SDL_SetRenderDrawColor(
+        canvas.renderer, under_colour[0], under_colour[1], under_colour[2], 255
+    ));
+    OA_CHECK(SDL_RenderClear(canvas.renderer));
+}
+
+/// Says whether every pixel of a rectangle of a read-back is black.
+///
+/// @param read the read-back
+/// @param area the rectangle
+/// @return true when every channel there is 0
+bool black_in(const Picture& read, const SDL_Rect& area) {
+    for (int y = area.y; y < area.y + area.h; ++y)
+        for (int x = area.x; x < area.x + area.w; ++x)
+            for (std::size_t channel = 0; channel < 3; ++channel)
+                if (read.rgb[(static_cast<std::size_t>(y) * read.width + x) * 3U + channel] != 0)
+                    return false;
+    return true;
+}
+
+/// Checks that new textures read back cleared: a streaming texture filled
+/// with a colour and then cleared, and each texture a TiledTexture makes by
+/// ensure and by create, as one texture and as tiles, drawn 1:1 with no
+/// blending over a surface of another colour.
+void test_new_textures_read_back_cleared() {
+    Canvas canvas;
+    constexpr int width = 50;
+    constexpr int height = 40;
+    SDL_Texture* filled = SDL_CreateTexture(
+        canvas.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height
+    );
+    OA_CHECK(filled != nullptr && SDL_SetTextureBlendMode(filled, SDL_BLENDMODE_NONE));
+    void* pixels = nullptr;
+    int pitch = 0;
+    OA_CHECK(SDL_LockTexture(filled, nullptr, &pixels, &pitch));
+    if (pixels != nullptr)
+        std::memset(pixels, 0xA7, static_cast<std::size_t>(pitch) * height);
+    SDL_UnlockTexture(filled);
+    OA_CHECK(oa::app::clear_streaming_texture(filled));
+    fill_under(canvas);
+    const SDL_FRect at{0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height)};
+    OA_CHECK(SDL_RenderTexture(canvas.renderer, filled, nullptr, &at));
+    OA_CHECK(black_in(canvas.read(), {0, 0, width, height}));
+    SDL_DestroyTexture(filled);
+    OA_CHECK(!oa::app::clear_streaming_texture(nullptr));
+
+    const SDL_FRect whole{
+        0.0F,
+        0.0F,
+        static_cast<float>(scene_texture_width),
+        static_cast<float>(scene_texture_height)
+    };
+    const SDL_Rect area{
+        0, 0, static_cast<int>(scene_texture_width), static_cast<int>(scene_texture_height)
+    };
+    for (const uint32_t limit : {0U, small_limit}) {
+        oa::app::ScaledWorldCounts counts;
+        oa::app::TiledTexture made;
+        OA_CHECK(made.ensure(
+            canvas.renderer,
+            SDL_PIXELFORMAT_XRGB8888,
+            static_cast<int>(scene_texture_width),
+            static_cast<int>(scene_texture_height),
+            limit,
+            SDL_BLENDMODE_NONE
+        ));
+        fill_under(canvas);
+        made.draw(canvas.renderer, nullptr, &whole);
+        OA_CHECK(black_in(canvas.read(), area));
+        made.create(
+            canvas.renderer,
+            scene_texture_width,
+            scene_texture_height,
+            limit,
+            SDL_BLENDMODE_NONE,
+            counts
+        );
+        OA_CHECK((limit == 0) == (made.tile_count() == 1));
+        fill_under(canvas);
+        made.draw(canvas.renderer, nullptr, &whole);
+        OA_CHECK(black_in(canvas.read(), area));
+    }
+}
+
+/// Checks that an upload of a scene's corner into a larger texture writes
+/// the column and row past the corner from the corner's last column and
+/// row, the corner's last texel where they meet, and leaves every texel
+/// beyond them cleared: in each tile drawn alone 1:1, gutters included, as
+/// one texture and as tiles whose edges the corner and the texels past it
+/// cross.
+void test_upload_fills_past_the_corner() {
+    const Picture scene = seeded(seed_scene, 240, 160);
+    constexpr uint32_t corner_width = 124;
+    constexpr uint32_t corner_height = 62;
+    // The texel a LINEAR draw of the corner reads at a texel of the texture.
+    const auto expected = [&](uint32_t x, uint32_t y) {
+        std::array<uint8_t, 3> texel{};
+        if (x > corner_width || y > corner_height)
+            return texel;
+        const uint8_t* at =
+            scene.rgb.data() + (std::size_t{std::min(y, corner_height - 1)} * scene.width +
+                                std::min(x, corner_width - 1)) *
+                                   3U;
+        std::copy_n(at, 3, texel.begin());
+        return texel;
+    };
+    for (const uint32_t limit : {0U, small_limit}) {
+        Canvas canvas;
+        oa::app::ScaledWorldCounts counts;
+        oa::app::TiledTexture texture;
+        texture.create(
+            canvas.renderer,
+            scene_texture_width,
+            scene_texture_height,
+            limit,
+            SDL_BLENDMODE_NONE,
+            counts
+        );
+        texture.upload_rgb24(
+            scene.rgb.data(), scene.width * 3U, corner_width, corner_height, nullptr, nullptr
+        );
+        const auto& grid = texture.grid();
+        OA_CHECK((limit == 0) == (grid.columns == 1 && grid.rows == 1));
+        bool held = true;
+        for (uint32_t row = 0; row < grid.rows; ++row)
+            for (uint32_t column = 0; column < grid.columns; ++column) {
+                const auto tile = oa::app::render_policy::tile_at(grid, column, row);
+                if (tile.texture.width > static_cast<uint32_t>(surface_width) ||
+                    tile.texture.height > static_cast<uint32_t>(surface_height))
+                    continue;
+                fill_under(canvas);
+                const SDL_FRect alone{
+                    0.0F,
+                    0.0F,
+                    static_cast<float>(tile.texture.width),
+                    static_cast<float>(tile.texture.height)
+                };
+                OA_CHECK(SDL_RenderTexture(
+                    canvas.renderer, texture.tile_texture(column, row), nullptr, &alone
+                ));
+                const Picture read = canvas.read();
+                for (uint32_t y = 0; y < tile.texture.height; ++y)
+                    for (uint32_t x = 0; x < tile.texture.width; ++x) {
+                        const auto want = expected(tile.texture.x + x, tile.texture.y + y);
+                        held = held && std::memcmp(
+                                           read.rgb.data() + (std::size_t{y} * read.width + x) * 3U,
+                                           want.data(),
+                                           3
+                                       ) == 0;
+                    }
+            }
+        OA_CHECK(held);
+    }
+}
+
+/// Checks that a prescale target larger than the source enlarged into it,
+/// as the HUD's is once a taller page has made it larger, holds the
+/// source's last column and row in the column and row past the
+/// enlargement, the source's last texel where they meet, after a larger
+/// source was drawn into it first; and that every texel beyond them keeps
+/// what the larger source left. As one target and in tiles.
+void test_prescale_fills_past_a_smaller_source() {
+    constexpr uint32_t factor = 3;
+    const Picture larger = seeded(seed_overlay, 50, 40);
+    const Picture smaller = seeded(seed_source, 40, 30);
+    constexpr uint32_t target_width = 160;
+    constexpr uint32_t target_height = 130;
+    const uint32_t filled_width = smaller.width * factor;
+    const uint32_t filled_height = smaller.height * factor;
+    for (const uint32_t limit : {0U, prescale_tile_limit}) {
+        Canvas canvas;
+        oa::app::ScaledWorldCounts counts;
+        oa::app::PrescaleTarget prescale;
+        prescale.ensure(canvas.renderer, nullptr, target_width, target_height, limit, counts);
+        const auto& grid = prescale.grid();
+        OA_CHECK((limit == 0) == (grid.columns == 1 && grid.rows == 1));
+        const CardScale card{ScaleFilter::sharp_bilinear, factor};
+        // Each source drawn into the target by sharp_draw, a new revision each.
+        uint64_t revision = 0;
+        const auto draw_source = [&](const Picture& source) {
+            SDL_Texture* texture = SDL_CreateTexture(
+                canvas.renderer,
+                SDL_PIXELFORMAT_RGB24,
+                SDL_TEXTUREACCESS_STREAMING,
+                static_cast<int>(source.width),
+                static_cast<int>(source.height)
+            );
+            OA_CHECK(
+                texture != nullptr && SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST) &&
+                SDL_UpdateTexture(
+                    texture, nullptr, source.rgb.data(), static_cast<int>(source.width) * 3
+                )
+            );
+            const oa::app::SharpPart part{
+                {0.0F, 0.0F, static_cast<float>(source.width), static_cast<float>(source.height)},
+                {0.0F,
+                 0.0F,
+                 static_cast<float>(source.width) * 2.5F,
+                 static_cast<float>(source.height) * 2.5F}
+            };
+            oa::app::sharp_draw(
+                canvas.renderer,
+                nullptr,
+                texture,
+                source.width,
+                source.height,
+                {&part, 1},
+                card,
+                ++revision,
+                prescale,
+                counts
+            );
+            SDL_DestroyTexture(texture);
+        };
+        draw_source(larger);
+        std::vector<Picture> before;
+        for (uint32_t row = 0; row < grid.rows; ++row)
+            for (uint32_t column = 0; column < grid.columns; ++column) {
+                const auto tile = oa::app::render_policy::tile_at(grid, column, row);
+                before.push_back(read_target(
+                    canvas,
+                    prescale.tile_texture(column, row),
+                    tile.texture.width,
+                    tile.texture.height
+                ));
+            }
+        draw_source(smaller);
+        OA_CHECK(counts.prescale_draws == 2);
+        bool held = true;
+        for (uint32_t row = 0; row < grid.rows; ++row)
+            for (uint32_t column = 0; column < grid.columns; ++column) {
+                const auto tile = oa::app::render_policy::tile_at(grid, column, row);
+                const Picture read = read_target(
+                    canvas,
+                    prescale.tile_texture(column, row),
+                    tile.texture.width,
+                    tile.texture.height
+                );
+                const Picture& was = before[std::size_t{row} * grid.columns + column];
+                for (uint32_t y = 0; y < tile.texture.height; ++y)
+                    for (uint32_t x = 0; x < tile.texture.width; ++x) {
+                        const uint32_t texel_x = tile.texture.x + x;
+                        const uint32_t texel_y = tile.texture.y + y;
+                        const std::size_t at = (std::size_t{y} * read.width + x) * 3U;
+                        const uint8_t* want = was.rgb.data() + at;
+                        if (texel_x <= filled_width && texel_y <= filled_height)
+                            want = smaller.rgb.data() +
+                                   (std::size_t{std::min(texel_y / factor, smaller.height - 1)} *
+                                        smaller.width +
+                                    std::min(texel_x / factor, smaller.width - 1)) *
+                                       3U;
+                        held = held && std::memcmp(read.rgb.data() + at, want, 3) == 0;
+                    }
+            }
+        OA_CHECK(held);
+    }
+}
+
 /// Checks that each tile of a prescale target holds the corner of a
 /// picture enlarged by nearest replication, gutters included.
 ///
@@ -1599,6 +1874,9 @@ int main() {
     card::test_pixelart_is_nearest_here();
     card::test_tiles_hold_their_gutters();
     card::test_prescale_tiles_draw_as_one_target();
+    card::test_new_textures_read_back_cleared();
+    card::test_upload_fills_past_the_corner();
+    card::test_prescale_fills_past_a_smaller_source();
     card::test_overlay_over_a_picture();
     frame_presentation::test_each_way_in_each_window();
     SDL_Quit();

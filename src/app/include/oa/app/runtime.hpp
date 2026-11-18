@@ -13804,11 +13804,12 @@ class Runtime final : public menu::Host,
     void trace_window(std::string_view reason);
 
     /// Makes a streaming texture of a pixel format and size, recreating it
-    /// when the format or the size changed. An alpha format is drawn with no
-    /// blending, as an opaque layer.
+    /// when the format or the size changed. A new texture is cleared
+    /// (clear_streaming_texture). An alpha format is drawn with no blending,
+    /// as an opaque layer.
     ///
-    /// Throws PresentError when SDL cannot create it; the texture is then
-    /// null and its size 0x0, so that the next frame makes it again.
+    /// Throws PresentError when SDL cannot create or clear it; the texture is
+    /// then null and its size 0x0, so that the next frame makes it again.
     ///
     /// @param[in,out] texture current texture, or null; the texture of that
     ///     format and size

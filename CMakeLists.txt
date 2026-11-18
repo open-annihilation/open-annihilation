@@ -848,7 +848,10 @@ if(OA_BUILD_PLATFORM)
     # whole-number scales; PIXELART as NEAREST, as that renderer gives it;
     # scenes and prescale targets in tiles with their gutters, drawing as
     # one texture does; the overlay over a picture; no prescale target
-    # made or drawn again needlessly; and the menus' frame under each way of
+    # made or drawn again needlessly; new textures read back cleared, and
+    # the column and row past an upload's corner and past a prescale
+    # target's enlarged source, one larger source drawn into it before,
+    # hold the picture's edge; and the menus' frame under each way of
     # Menu scaling, its rectangle whole, centred and where it is drawn, and
     # the pointer mapped onto it there.
     add_executable(oa-app-scaled-world-test src/app/scaled_world_test.cpp)

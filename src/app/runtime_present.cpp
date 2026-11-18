@@ -499,6 +499,11 @@ void Runtime::ensure_streaming_texture(
         SDL_DestroyTexture(made);
         throw_present_error("SDL texture scale");
     }
+    // Nothing draws what the card's memory held before the first upload.
+    if (!clear_streaming_texture(made)) {
+        SDL_DestroyTexture(made);
+        throw_present_error("SDL_LockTexture");
+    }
     texture = made;
     stored_w = width;
     stored_h = height;

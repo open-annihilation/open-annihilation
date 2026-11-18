@@ -2298,6 +2298,16 @@ prompts, Settings › Updates and the headers name one state with one size.
   its largest within the prescale budget, then LINEAR; the prescale target is split into tiles with
   gutters beyond the renderer's texture limit, as the scene is, and each of
   the scene's tiles is drawn into each of its tiles (`PrescaleTarget`).
+  Every new streaming texture is cleared before it is drawn
+  (`clear_streaming_texture`, in `ensure_streaming_texture` and
+  `TiledTexture`), and what LINEAR reads just past a picture in a texture
+  or a target larger than it is the picture's edge: an upload of the
+  scene's corner writes the column and row past it from the corner's last
+  column and row, and a draw into a prescale target does the same past the
+  enlarged source, as a texture of the picture's own size gives back there.
+  So a target the HUD's layer keeps at its largest, or a scene texture
+  larger than the frame's scene, shows neither the card's earlier memory
+  nor a larger picture drawn into it before.
   The nearest picture of the scene is kept as
   the base the painters after the fog paint over; what they changed goes up
   as an overlay, transparent elsewhere, in the 32-row bands that hold it now
@@ -3994,8 +4004,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   maps the pointer onto such a frame where it is drawn, on whole pixels
   where SDL reckons half of one. `app-scaled-world-software` checks on
   SDL's software renderer that tiles read back as one texture does, the
-  card's drawing against that renderer's own filters, and the frame's
-  rectangle and the pointer's mapping under each way of Menu scaling.
+  card's drawing against that renderer's own filters, that new textures
+  read back cleared and the column and row past an upload and a prescale
+  draw hold the picture's edge, and the frame's rectangle and the
+  pointer's mapping under each way of Menu scaling.
 - `render_policy.hpp`, `render_policy.cpp` (`oa-app-render-policy`): the
   decisions of hardware-accelerated presentation as pure functions, with
   no SDL, no files and no clock, of which the game uses so far the walk of

@@ -250,7 +250,9 @@ void Runtime::ensure_accelerated_match_textures() {
     const uint32_t limit = state.texture_limit;
     // The HUD layer's prescale target, at the chrome's scale on the
     // display (in placed mode the largest a region draws at), made larger
-    // only when a taller build page needs it.
+    // only when a taller build page needs it. A smaller layer drawn into it
+    // fills the column and row past itself too, so that LINEAR never reads
+    // a larger layer's texels at its edge (PrescaleTarget).
     const double chrome = hud_chrome_scale(match_layout_) * density;
     const uint32_t hud_w = match_hud_cpu_.width;
     const uint32_t hud_h = match_hud_cpu_.height;
