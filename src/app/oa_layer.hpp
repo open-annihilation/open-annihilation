@@ -263,14 +263,13 @@ class LayerScreen {
     /// @return true for a screen that covers its place, the default
     [[nodiscard]] virtual bool opaque() const { return true; }
 
-    /// Tells whether a point of the screen's place is the screen's own, so
-    /// that the pointer there shows the arrow rather than the cursor of what
-    /// lies under the layer (OaLayer::covers_pointer). A screen whose place
-    /// is larger than what it shows answers for what it shows, as the replay
-    /// bar, whose place is the battlefield, answers for its bar, cards and
-    /// menus.
+    /// Tells whether a point of the screen's place, in the screen's points,
+    /// is the screen's own, so that the pointer there shows the arrow rather
+    /// than the cursor of what lies under the layer (OaLayer::covers_pointer).
+    /// A screen whose place is larger than what it shows answers for what it
+    /// shows, as the replay bar, whose place is the battlefield, answers for
+    /// its bar, cards and menus.
     ///
-    /// @param at the point, in the screen's points, inside its place
     /// @return true, the default: the whole place is the screen's
     [[nodiscard]] virtual bool covers_point(oa::ui::kit::Point /*at*/) const { return true; }
 
