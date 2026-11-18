@@ -2027,6 +2027,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   digest, a meteor strike and the camera network play shares take the
   camera held on the map as the game holds it (`on_map_camera`), so a
   view past the map's edges reaches none of them.
+  A turn the bindings give an action other than the zoom, the megamap's
+  wheel or the build tools' wheel, such as Alt and the wheel bound to Speed
+  up, presses that action once a notch as its key would, and neither zooms
+  nor opens the megamap (`take_wheel_actions`). Where the zoom's or the
+  megamap's own chord answers the same turn for its own target, the chord
+  that names more modifiers takes the turn.
   The wheel and a trackpad set the zoom's target (`handle_match_zoom`,
   `wheel_zoom_target`) by the amount `pointer_zoom_amount` gives a turn,
   the wheel's bindings turned round by Invert mouse zoom

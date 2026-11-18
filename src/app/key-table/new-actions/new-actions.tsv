@@ -17,6 +17,13 @@ camera.zoom-in-key:wheel-off	wheel-zoom=off	key LeftBracket	none
 camera.zoom-out-key		key RightBracket	camera=moved
 camera.zoom-out-key:repeat		key RightBracket repeat	camera=moved
 camera.zoom-reset		key Backslash	none
+camera.zoom-in:wheel		wheel up battlefield	none
+camera.zoom-out:alt-wheel		wheel down battlefield alt	none
+game.speed-up:alt-wheel		wheel up battlefield alt	messages=1;speed=+1
+game.speed-up:alt-shift-wheel		wheel up battlefield alt shift	messages=1;speed=+1
+game.speed-down:primary-wheel		wheel down battlefield primary	messages=1;speed=-1
+game.speed-down:primary-wheel-megamap	wheel-zoom=off	wheel down battlefield primary	messages=1;speed=-1
+megamap.open-wheel:alt	wheel-zoom=off	wheel down battlefield alt	megamap=open
 chat.open-allies		key F9	chat=open
 ui.release-pointer		key Insert	none
 ui.keys-overlay	select=commander;armed=build	key Slash primary	none

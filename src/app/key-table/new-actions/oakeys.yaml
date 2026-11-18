@@ -13,7 +13,8 @@ tags: [grid]
 base: oa-default
 bindings:
   # The number row is the build cells. The pages and the speed keys keep the
-  # numpad, and repeat leaves the backslash to the zoom reset.
+  # numpad, and repeat leaves the backslash to the zoom reset. The speed keys
+  # also take Alt and Primary with the wheel.
   build.page-1: ["Numpad1"]
   build.page-2: ["Numpad2"]
   build.page-3: ["Numpad3"]
@@ -23,8 +24,8 @@ bindings:
   build.page-7: ["Numpad7"]
   build.page-8: ["Numpad8"]
   build.page-9: ["Numpad9"]
-  game.speed-down: ["NumpadSubtract"]
-  game.speed-up: ["NumpadAdd"]
+  game.speed-down: ["NumpadSubtract", "Primary+WheelDown"]
+  game.speed-up: ["NumpadAdd", "Alt+WheelUp"]
   game.repeat-command: []
   build.cell-1: ["@Digit1"]
   build.cell-2: ["@Digit2"]

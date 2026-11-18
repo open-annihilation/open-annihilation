@@ -811,6 +811,107 @@ void queue_role(const Resolved& resolved, const KeyboardMap& map) {
     OA_CHECK(!dispatcher.role_active("order.queue-modifier", 0, keys));
 }
 
+/// One wheel notch.
+///
+/// @param up true for a turn up
+/// @param modifiers the physical modifiers held
+/// @return the event
+InputEvent wheel_turn(bool up, uint8_t modifiers) {
+    InputEvent event;
+    event.kind = InputKind::wheel;
+    event.down = true;
+    event.wheel_y = up ? int8_t{1} : int8_t{-1};
+    event.modifiers = modifiers;
+    event.time_ms = 1;
+    return event;
+}
+
+/// One layout line.
+///
+/// @param action the action id
+/// @param text the chord's text
+/// @return the binding
+keys::LayoutBinding wheel_binding(std::string action, std::string_view text) {
+    keys::LayoutBinding line;
+    line.action = std::move(action);
+    keys::ChordError error;
+    const std::optional<keys::Chord> chord = keys::parse_chord(text, error);
+    OA_CHECK(chord.has_value());
+    if (chord)
+        line.chords.push_back(*chord);
+    return line;
+}
+
+/// Alt, Primary and Shift with the wheel, bound by the player, answer their
+/// own actions ahead of the plain turn's zoom, on a PC and on a Mac. A turn
+/// with a modifier no chord names still zooms, as Alt or Shift held beyond
+/// a chord does, and Ctrl that no chord names finds nothing. Alt and Shift
+/// together answer Alt's chord and the zoom, each for its own target.
+void modified_wheel(const KeyboardMap& map) {
+    keys::Layout own;
+    own.bindings.push_back(wheel_binding("game.speed-up", "Alt+WheelUp"));
+    own.bindings.push_back(wheel_binding("game.speed-down", "Primary+WheelDown"));
+    own.bindings.push_back(wheel_binding("camera.zoom-reset", "Shift+WheelDown"));
+    const uint32_t playing = context_bit("match") | context_bit("play");
+    const uint32_t zooming = condition_bit("wheel-zoom") | condition_bit("single-player");
+    for (const bool mac : {false, true}) {
+        keys::ResolveInput input;
+        input.keyboard = &map;
+        input.platform.primary_is_meta = mac;
+        input.own = &own;
+        const Resolved resolved = keys::resolve(input);
+        const auto turned = [&](bool up, uint8_t modifiers) {
+            Dispatcher dispatcher;
+            dispatcher.set_bindings(Resolved{resolved});
+            dispatcher.set_keyboard(map);
+            dispatcher.set_platform(input.platform);
+            use_contexts(dispatcher, playing, zooming);
+            return dispatcher.feed(wheel_turn(up, modifiers));
+        };
+        const uint8_t primary = mac ? keys::meta : keys::ctrl;
+        expect_only("the wheel up zooms in", turned(true, 0), "camera.zoom-in", Phase::pressed);
+        expect_only(
+            "Alt and the wheel up speed up",
+            turned(true, keys::alt),
+            "game.speed-up",
+            Phase::pressed
+        );
+        expect_only(
+            "Alt and the wheel down zoom out",
+            turned(false, keys::alt),
+            "camera.zoom-out",
+            Phase::pressed
+        );
+        expect_only(
+            "Primary and the wheel down slow down",
+            turned(false, primary),
+            "game.speed-down",
+            Phase::pressed
+        );
+        expect_only(
+            "Shift and the wheel down reset the zoom",
+            turned(false, keys::shift),
+            "camera.zoom-reset",
+            Phase::pressed
+        );
+        // With Shift beyond the chord no chord is exact, and the zoom, which
+        // has a target of its own, answers beside it.
+        const Fed both = turned(true, static_cast<uint8_t>(keys::alt | keys::shift));
+        if (!has_phase(both, "game.speed-up", Phase::pressed) ||
+            !has_phase(both, "camera.zoom-in", Phase::pressed))
+            show(both);
+        OA_CHECK(both.events.size() == 2);
+        OA_CHECK(has_phase(both, "game.speed-up", Phase::pressed));
+        OA_CHECK(has_phase(both, "camera.zoom-in", Phase::pressed));
+        if (mac) {
+            const Fed control = turned(false, keys::ctrl);
+            if (!control.events.empty())
+                show(control);
+            OA_CHECK(control.events.empty());
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -835,5 +936,6 @@ int main() {
     release(resolved, map);
     queue_role(resolved, map);
     speed_keys_follow_the_keyboard();
+    modified_wheel(map);
     return oa::test::check_exit_status();
 }

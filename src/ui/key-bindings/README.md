@@ -278,7 +278,12 @@ whether or not a Shift event was fed. On each map of `tests/keyboards.hpp`
 and the US one, the key that types `=` or `+` speeds up, with Shift held
 too, the key that types `-` slows down, and the key a US keyboard has there
 does nothing where it types something else. The PC's AZERTY 6 key stays
-page 6, and its keypad `-` slows down.
+page 6, and its keypad `-` slows down. With the player's Alt, Primary and
+Shift chords on the wheel, on a PC and on a Mac, each turn with those keys
+held answers its own action ahead of the plain wheel's zoom, a turn with a
+modifier no chord names still zooms, and on a Mac Ctrl with the wheel finds
+nothing. Alt and Shift together answer Alt's chord and the zoom, each for
+its own target.
 
 `ui-key-bindings-latches` (`tests/latches_test.cpp`) walks the same kind of
 timeline for the hold helpers: a tap latches and a second tap lets go; a

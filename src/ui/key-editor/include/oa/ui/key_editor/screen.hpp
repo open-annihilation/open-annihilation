@@ -601,16 +601,23 @@ EditorResult editor_text(
     Editor& editor, ScreenState& state, const kit::DisplayList& list, std::string_view utf8
 );
 
-/// Takes a turn of the wheel. It scrolls the pane under the pointer.
+/// Takes a turn of the wheel. It scrolls the pane under the pointer, and in
+/// the capture's well it finishes the chord with the modifier keys held.
 ///
 /// @param[in,out] editor the model
 /// @param[in,out] state the screen's state
 /// @param list the display list the screen shows now
 /// @param at the pointer, in the window's points
 /// @param notches how far the wheel turned
+/// @param modifiers the modifier keys held, as an input event carries them (never Primary)
 /// @return what the host is to do
 EditorResult editor_wheel(
-    Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Point at, float notches
+    Editor& editor,
+    ScreenState& state,
+    const kit::DisplayList& list,
+    kit::Point at,
+    float notches,
+    uint8_t modifiers
 );
 
 /// Takes one of the editor's own commands.

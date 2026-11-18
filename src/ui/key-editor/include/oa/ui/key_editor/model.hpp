@@ -1069,7 +1069,8 @@ void capture_button(
     Capture& capture, const Editor& editor, const oa::ui::key_bindings::InputEvent& event
 );
 
-/// Takes a wheel turn in the well. Positive y is up.
+/// Takes a wheel turn in the well. Positive y is up. The modifier keys the
+/// event carries are the chord's, as a key's are.
 ///
 /// @param[in,out] capture the capture
 /// @param editor the platform

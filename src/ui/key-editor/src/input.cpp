@@ -2629,7 +2629,12 @@ EditorResult editor_text(
 }
 
 EditorResult editor_wheel(
-    Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Point at, float notches
+    Editor& editor,
+    ScreenState& state,
+    const kit::DisplayList& list,
+    kit::Point at,
+    float notches,
+    uint8_t modifiers
 ) {
     if (state.prompt != Prompt::none) {
         if (state.prompt == Prompt::share || state.prompt == Prompt::paste ||
@@ -2664,6 +2669,7 @@ EditorResult editor_wheel(
                 event.wheel_y = 1;
             else if (notches < 0)
                 event.wheel_y = -1;
+            event.modifiers = modifiers;
             capture_wheel(state.capture, editor, event);
             focus_finished(editor, state);
             return redrawn();

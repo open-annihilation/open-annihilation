@@ -1024,6 +1024,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
     // Build rotation and spacing keep their modified-wheel gestures.
     if (handle_build_tool_key(event))
         return true;
+    // A turn the bindings give another action is that action's.
+    if (take_wheel_actions())
+        return true;
     // A held picture keeps its zoom. The wheel is taken.
     if (photo_camera_locked())
         return true;

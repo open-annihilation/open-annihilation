@@ -9,6 +9,7 @@
 // NoticeScreen::placement are empty in a match, so a question, a notice or
 // the name field there is a screen of this file, centred in the match dialog.
 
+#include "device_state.hpp"
 #include "oa_layer.hpp"
 
 #include "oa/app/game_directory.hpp"
@@ -1066,13 +1067,16 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         return take(editor::editor_stick(editor_, state_, list_, notches));
     }
 
-    /// Takes a turn of the wheel.
+    /// Takes a turn of the wheel. A turn in the capture's well binds it with
+    /// the modifier keys held, as the match reads them with a turn.
     ///
     /// @param at the pointer
     /// @param notches how far the wheel turned
     /// @return what the editor did
     LayerAnswer wheel(kit::Point at, float notches) override {
-        return take(editor::editor_wheel(editor_, state_, list_, at, notches));
+        const uint8_t held =
+            capture_modifiers(static_cast<uint16_t>(device_state::modifiers_held()));
+        return take(editor::editor_wheel(editor_, state_, list_, at, notches, held));
     }
 
     /// Takes text typed into the search.

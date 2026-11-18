@@ -15453,6 +15453,17 @@ class Runtime final : public menu::Host,
     /// @return true when a menu action took the key
     bool answer_menu_keys(const SDL_KeyboardEvent& key);
 
+    /// Presses the actions the bindings gave this turn of the wheel in a match,
+    /// other than the zoom, the megamap's wheel and the build tools' wheel.
+    ///
+    /// Each notch presses the action once, as its key would. A turn they take
+    /// neither zooms nor opens or closes the megamap. When the zoom's or the
+    /// megamap's own chord answered the turn too, the chord naming more
+    /// modifiers takes it. [runtime_events.cpp]
+    ///
+    /// @return true when the turn pressed such an action
+    bool take_wheel_actions();
+
     /// Steps a menu list for the wheel.
     ///
     /// The map list and Any Mission's mission list step. A wheel that does not
