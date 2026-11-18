@@ -237,6 +237,10 @@ inline constexpr int32_t look_level_width = 60;
 /// border: room for Estable and Pruebas, its widest captions, with three
 /// clear columns each side.
 inline constexpr int32_t update_channel_level_width = 56;
+/// Performance graph's level strip's segment width, inside the strip's
+/// 1-pixel border: room for 30 s, its widest caption, with three clear
+/// columns each side.
+inline constexpr int32_t frame_graph_level_width = 31;
 /// MANAGE…'s width, Game files' button on its summary row's label line:
 /// room for its caption in the small font with clear columns each side.
 inline constexpr int32_t manage_button_width = 76;
@@ -292,8 +296,8 @@ struct ScrollArea {
     int32_t page_step{}; ///< the rows Page Up and Page Down scroll
 };
 
-// Developer: its rows under the heading, Enable Developer Mode and Show
-// performance statistics, placed closer than a section's so that the list
+// Developer: its rows under the heading, from Enable Developer Mode to
+// Update channel, placed closer than a section's so that the list
 // under them has room; Developer Mode's list of the standard hacks in a view
 // of its own; and a footer of its own with Show Active Only and Restore
 // profile values. Only the list scrolls.

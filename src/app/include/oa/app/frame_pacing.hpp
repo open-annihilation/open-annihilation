@@ -6,10 +6,10 @@
 // tick each frame shows (the presentation fraction the match drawing reads),
 // the camera's scroll for a frame's real time, and the frame statistics the
 // "+stats" overlay shows: each measure's spread over a second, the latest
-// two seconds of frames, and how each time compares with the frame's
-// allowance and a tick. Nothing here reads or writes the match: the loop
-// hands it times and counts, and it hands back waits, fractions and the
-// overlay's table.
+// frames over two seconds or the longer span the player chooses, and how
+// each time compares with the frame's allowance and a tick. Nothing here
+// reads or writes the match: the loop hands it times and counts, and it
+// hands back waits, fractions and the overlay's table.
 #pragma once
 
 #include "oa/base/game_loop.hpp"
@@ -333,25 +333,32 @@ struct MeasureSpread {
     TimeSeverity most_severity{};  ///< the longest sample's grade when it was taken
 };
 
-/// Seconds of frames the frame graph shows.
-inline constexpr uint32_t kFrameGraphSeconds = 2;
-/// Columns a second of the frame graph: one a frame at the loop's default
-/// rate (kDefaultMaxFramesPerSecond).
-inline constexpr uint32_t kFrameGraphColumnsPerSecond = 120;
-/// Columns of the frame graph: kFrameGraphSeconds of them a second.
-inline constexpr std::size_t kFrameGraphColumns =
-    std::size_t{kFrameGraphSeconds} * kFrameGraphColumnsPerSecond;
+/// Columns of the frame graph, whatever span of frames it shows: the span
+/// is cut into this many slices, one a column.
+inline constexpr std::size_t kFrameGraphColumns = 240;
+/// Seconds of frames the frame graph shows unless the player chooses a
+/// longer span (FrameHistory::seconds).
+inline constexpr uint32_t kDefaultFrameGraphSeconds = 2;
+/// The longest span of frames the frame graph shows, in seconds.
+inline constexpr uint32_t kMostFrameGraphSeconds = 30;
+/// Columns a second of the frame graph over its default span: one a frame
+/// at the loop's default rate (kDefaultMaxFramesPerSecond).
+inline constexpr uint32_t kFrameGraphColumnsPerSecond =
+    static_cast<uint32_t>(kFrameGraphColumns) / kDefaultFrameGraphSeconds;
+static_assert(kFrameGraphColumns % kDefaultFrameGraphSeconds == 0);
 /// The frame allowance the statistics grade against until the loop sets
 /// one: a precise wait at kFrameGraphColumnsPerSecond.
 inline constexpr uint64_t kDefaultFrameAllowanceNs =
     kNanosecondsPerSecond / kFrameGraphColumnsPerSecond + kFrameBudgetSlackNs;
 
-/// The latest kFrameGraphSeconds of frames, laid end to end in the order
-/// they ran and cut into columns 1 / kFrameGraphColumnsPerSecond seconds
-/// wide. A frame covers each column whose middle lies after its start and
-/// no later than its end, or, when none does, the column its end lies in;
-/// each column holds the longest frame that covers it and that frame's
-/// grade.
+/// The latest frames over a span of seconds, laid end to end in the order
+/// they ran and cut into kFrameGraphColumns columns, each seconds /
+/// kFrameGraphColumns of a second wide: a 120th of a second over the
+/// default two seconds, an eighth over thirty. A frame covers each column
+/// whose middle lies after its start and no later than its end, or, when
+/// none does, the column its end lies in; each column holds the longest
+/// frame that covers it and that frame's grade, so a slow frame keeps its
+/// column however many shorter frames share it.
 struct FrameHistory {
     /// Each column's longest frame, nanoseconds, by column number modulo
     /// kFrameGraphColumns.
@@ -361,6 +368,10 @@ struct FrameHistory {
     uint64_t end_ns{}; ///< the frames' times summed: where the latest frame ends
     uint64_t
         newest_column{}; ///< the newest column a frame covers, numbered from 0 at the first frame's start
+    /// Seconds of frames the columns share among them
+    /// (set_frame_history_seconds); a span outside 1 to
+    /// kMostFrameGraphSeconds is read as the nearer end.
+    uint32_t seconds{kDefaultFrameGraphSeconds};
 };
 
 /// Adds a frame to the history after the latest; the columns it covers
@@ -370,6 +381,14 @@ struct FrameHistory {
 /// @param elapsed_ns the frame's time, nanoseconds
 /// @param severity the frame's grade when it ran
 void note_frame_history(FrameHistory& history, uint64_t elapsed_ns, TimeSeverity severity) noexcept;
+
+/// Sets the span of frames the history's columns share. Another span
+/// empties the history, so that its columns start afresh from the next
+/// frame; the same span leaves it as it is.
+///
+/// @param[in,out] history the latest frames
+/// @param seconds the span, held to 1 to kMostFrameGraphSeconds
+void set_frame_history_seconds(FrameHistory& history, uint32_t seconds) noexcept;
 
 /// One column of the frame history.
 struct FrameColumn {
@@ -584,7 +603,9 @@ struct FrameStatsTable {
 
 /// Describes the "+stats" overlay's table.
 ///
-/// The title, "Frame stats (ms)"; the value columns' names, "min", "avg"
+/// The title, "Frame stats (ms)", with the graph's span as its note, as
+/// "graph 10 s", when the history spans other than
+/// kDefaultFrameGraphSeconds; the value columns' names, "min", "avg"
 /// and "max"; the frames drawn in the last whole second as the mean
 /// column's value, graded by the mean frame time against the mean of the
 /// frames' allowances, and the rate the loop keeps as the note ("limit
@@ -631,9 +652,9 @@ void set_display_row(FrameStatsRow& row, const FrameStatsDisplay& display) noexc
 
 /// Describes the "+stats" table with the widest text each of its cells
 /// shows in play, which its layout reserves room for: the rows of
-/// frame_stats_table, each time "000.00", the frames a second "0000" with
-/// "limit 0000", the ticks a second "000/s", and "0000" units with "0000
-/// between ticks". A time of a second or more, or a count past these, runs
+/// frame_stats_table, the title's note "graph 00 s", each time "000.00",
+/// the frames a second "0000" with "limit 0000", the ticks a second
+/// "000/s", and "0000" units with "0000 between ticks". A time of a second or more, or a count past these, runs
 /// past its column. The renderer, turned view's device and display rows hold
 /// no text: no room is kept for them, and the panel cuts their texts where
 /// they would pass its width, so the panel is as wide whatever they name.

@@ -149,6 +149,18 @@ AntiAliasing anti_aliasing_from_number(int64_t number) noexcept {
     return level;
 }
 
+/// Returns the span of Performance graph a stored number of seconds reads as.
+///
+/// @param number the stored number
+/// @return the longest span not above `number`; two seconds below 5
+FrameGraphSpan frame_graph_from_number(int64_t number) noexcept {
+    FrameGraphSpan span = FrameGraphSpan::seconds_2;
+    for (const FrameGraphSpan candidate : frame_graph_spans)
+        if (static_cast<int64_t>(candidate) <= number)
+            span = candidate;
+    return span;
+}
+
 /// Returns a text with the spaces, tabs and carriage returns at its ends removed.
 ///
 /// @param text the text
@@ -771,6 +783,8 @@ EngineSettings read_settings(
         settings.anti_aliasing = anti_aliasing_from_number(*number);
     if (const auto number = stored_number(values, key::frame_stats))
         settings.frame_stats = *number > 0;
+    if (const auto number = stored_number(values, key::frame_graph))
+        settings.frame_graph = frame_graph_from_number(*number);
     if (const auto found = values.find(std::string{key::screen_size}); found != values.end())
         settings.screen_size = screen_size_from_text(found->second).value_or(settings.screen_size);
     if (const auto found = values.find(std::string{key::hardware_acceleration});
@@ -1218,6 +1232,14 @@ void write_settings(
         switch_text(chosen.frame_stats),
         chosen.frame_stats != opened.frame_stats,
         chosen.frame_stats == defaults.frame_stats,
+        restored
+    );
+    store(
+        values,
+        key::frame_graph,
+        std::to_string(static_cast<int>(chosen.frame_graph)),
+        chosen.frame_graph != opened.frame_graph,
+        chosen.frame_graph == defaults.frame_graph,
         restored
     );
     store(

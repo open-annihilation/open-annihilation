@@ -24042,16 +24042,19 @@ class Runtime final : public menu::Host,
     /// quarter (frame_stats_panel::place_panel). It darkens the battlefield
     /// under it and has a black outline and a raised edge in the GUI
     /// palette's light and dark edge colours. On it, the table
-    /// frame_stats_table describes: the title in the text's white, the
-    /// column names in a mid gray over a rule, labels and the units count in
-    /// a light gray, and each time in a green, the health bar's yellow or
-    /// its red as it graded within the frame's allowance, within a tick or
-    /// over a tick when it was taken (time_severity), a time over a tick on
-    /// a red cell too. Under the table, a graph of the last two seconds of
-    /// frames (frame_pacing::FrameHistory), the newest at the right, each
-    /// column's bar as high as its longest frame and in that frame's
-    /// grade's colour, over a gray line at a tick and a fainter dotted one
-    /// at the frame's allowance.
+    /// frame_stats_table describes: the title in the text's white, with
+    /// the graph's span after it in a mid gray where the player chose a
+    /// longer one, the column names in a mid gray over a rule, labels and
+    /// the units count in a light gray, and each time in a green, the
+    /// health bar's yellow or its red as it graded within the frame's
+    /// allowance, within a tick or over a tick when it was taken
+    /// (time_severity), a time over a tick on a red cell too. Under the
+    /// table, a graph of the last two seconds of frames, or of the span
+    /// Settings › Developer › Performance graph chooses
+    /// (frame_pacing::FrameHistory), the newest at the right, each column's
+    /// bar as high as its longest frame and in that frame's grade's colour,
+    /// over a gray line at a tick and a fainter dotted one at the frame's
+    /// allowance.
     void draw_frame_stats();
 
     /// Checks "+stats" through the chat line: it needs no passphrase, echoes
@@ -24066,8 +24069,11 @@ class Runtime final : public menu::Host,
     /// newest at the right, covering the lines at a tick and at the frame's
     /// allowance where it reaches them; the table shows each grade's colour,
     /// ends the frame row's times at their columns' right edges and puts a
-    /// red cell behind a time over a tick. Typed again, it takes the overlay
-    /// away, leaving the frame as it was.
+    /// red cell behind a time over a tick. The same frames over the longest
+    /// span of the graph leave the panel, its columns and its graph where
+    /// they were, and add the span after the title, which the default span
+    /// leaves out. Typed again, it takes the overlay away, leaving the frame
+    /// as it was.
     ///
     /// @param enter_line types a line into the chat line and submits it
     void check_console_stats(const std::function<void(const char*)>& enter_line);

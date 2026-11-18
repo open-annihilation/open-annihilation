@@ -1472,6 +1472,10 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // factor instead, which the next Full frame takes (ensure_full_world_target).
     if (chosen.frame_stats != before.frame_stats)
         show_frame_stats(chosen.frame_stats);
+    // Another span of the graph starts it afresh at once.
+    frame_pacing::set_frame_history_seconds(
+        frame_stats_.history, static_cast<uint32_t>(chosen.frame_graph)
+    );
     // Off applies at once; so do Basic and Full, but in a shared game or a
     // replay, which keeps the tier it began with until it ends.
     if (chosen.hardware_acceleration != before.hardware_acceleration) {

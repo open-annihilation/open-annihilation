@@ -46,7 +46,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::always_show_focus) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::frame_graph) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -222,11 +222,12 @@ constexpr std::array<Setting, 3> kGameFilesRows{
     Setting::game_files_backed_up,
     Setting::game_files_location,
 };
-/// Developer's rows, over its list: the gallery after the statistics, then
-/// the channel the check for a new release reads.
+/// Developer's rows, over its list: the statistics and their graph's span,
+/// the gallery, then the channel the check for a new release reads.
 constexpr std::array<Setting, developer_row_count> kDeveloperRows{
     Setting::developer_mode,
     Setting::frame_stats,
+    Setting::frame_graph,
     Setting::kit_gallery,
     Setting::update_channel,
 };
@@ -362,6 +363,12 @@ constexpr std::array<std::string_view, 5> kAntiAliasingCaptions{"Off", "2x", "4x
 static_assert(
     kAntiAliasingCaptions.size() == anti_aliasing_levels.size(),
     "every level of anti-aliasing has its caption"
+);
+/// Performance graph's captions, in frame_graph_spans' order.
+constexpr std::array<std::string_view, 4> kFrameGraphCaptions{"2 s", "5 s", "10 s", "30 s"};
+static_assert(
+    kFrameGraphCaptions.size() == frame_graph_spans.size(),
+    "every span of Performance graph has its caption"
 );
 /// Menu scaling's captions, in menu_scaling_choices' order.
 constexpr std::array<std::string_view, 3> kMenuScalingCaptions{
@@ -655,6 +662,12 @@ std::string text_word(Choice choice) {
 /// factor, Off's 1.
 std::string anti_aliasing_word(AntiAliasing level) {
     return std::to_string(static_cast<int>(level));
+}
+
+/// Returns the word the preferences keep a span of Performance graph as:
+/// its seconds.
+std::string frame_graph_word(FrameGraphSpan span) {
+    return std::to_string(static_cast<int>(span));
 }
 
 /// Returns the word of a way of Zoomed out units: the word the preferences
@@ -3344,6 +3357,11 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
          "always-show-focus",
          "Always show focus",
          {"The focus ring is drawn on the first item when a screen opens.", {}})},
+    {.setting = S::frame_graph,
+     .spec = kit::levels("frame-graph", "Performance graph",
+                         LevelStrip<FrameGraphSpan, 4, frame_graph_spans, &E::frame_graph, kFrameGraphCaptions, &frame_graph_word>::stepper(),
+                         frame_graph_level_width,
+                         {"How many seconds of frames the graph shows.", {}})},
 }};
 // clang-format on
 
@@ -3490,6 +3508,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "speak-lobby",
     "speak-ticker",
     "always-show-focus",
+    "frame-graph",
 };
 
 /// Tells whether every row stands at its setting's place and is named by

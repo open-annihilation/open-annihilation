@@ -430,6 +430,35 @@ void Runtime::check_engine_settings_wiring() {
     apply_engine_settings(chosen);
     require(!frame_stats_shown_, "Show performance statistics did not hide the panel");
 
+    // Performance graph is the span of the panel's graph: another span
+    // starts it afresh, and the same one keeps the frames it holds.
+    frame_pacing::note_frame_measure(
+        frame_stats_, frame_pacing::FrameMeasure::frame, frame_pacing::kTickBudgetNs
+    );
+    chosen.frame_graph = settings::FrameGraphSpan::seconds_30;
+    apply_engine_settings(chosen);
+    require(
+        frame_stats_.history.seconds == 30 &&
+            frame_pacing::frame_history_column(frame_stats_.history, 0).severity ==
+                frame_pacing::TimeSeverity::none,
+        "Performance graph 30 s did not start a graph of 30 seconds"
+    );
+    frame_pacing::note_frame_measure(
+        frame_stats_, frame_pacing::FrameMeasure::frame, frame_pacing::kTickBudgetNs
+    );
+    apply_engine_settings(chosen);
+    require(
+        frame_pacing::frame_history_column(frame_stats_.history, 0).frame_ns ==
+            frame_pacing::kTickBudgetNs,
+        "Performance graph emptied the graph without a change"
+    );
+    chosen.frame_graph = settings::FrameGraphSpan::seconds_2;
+    apply_engine_settings(chosen);
+    require(
+        frame_stats_.history.seconds == frame_pacing::kDefaultFrameGraphSeconds,
+        "Performance graph 2 s did not bring the graph back to two seconds"
+    );
+
     // Select groups without Alt is 3.1c's SwitchAlt, in the match and in the
     // preferences, and saved under its own key.
     const auto switch_alt_on = [&] {

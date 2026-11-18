@@ -281,26 +281,34 @@ void write_scale(float scale, char* out, std::size_t bytes) noexcept {
     std::snprintf(out, bytes, "%.*sx", static_cast<int>(text.size()), text.data());
 }
 
+/// Returns the span a history's columns share.
+///
+/// @param history the latest frames
+/// @return its seconds, held to 1 to kMostFrameGraphSeconds
+uint32_t graph_seconds(const FrameHistory& history) noexcept {
+    return std::clamp<uint32_t>(history.seconds, 1, kMostFrameGraphSeconds);
+}
+
 /// Returns the frame graph's column a time lies in.
 ///
 /// @param time_ns nanoseconds from the first frame's start
+/// @param span_ns the span the graph's columns share, above 0
 /// @return the column, numbered from 0
-uint64_t graph_column(uint64_t time_ns) noexcept {
-    return time_ns / kNanosecondsPerSecond * kFrameGraphColumnsPerSecond +
-           time_ns % kNanosecondsPerSecond * kFrameGraphColumnsPerSecond / kNanosecondsPerSecond;
+uint64_t graph_column(uint64_t time_ns, uint64_t span_ns) noexcept {
+    return time_ns / span_ns * kFrameGraphColumns +
+           time_ns % span_ns * kFrameGraphColumns / span_ns;
 }
 
 /// Counts the frame graph's columns whose middle lies at or before a time.
 ///
 /// @param time_ns nanoseconds from the first frame's start
+/// @param span_ns the span the graph's columns share, above 0
 /// @return the columns, from column 0
-uint64_t middles_by(uint64_t time_ns) noexcept {
-    // Column c's middle lies (2c + 1) / (2 * kFrameGraphColumnsPerSecond)
-    // seconds in.
-    constexpr uint64_t kHalfColumnsPerSecond = 2 * kFrameGraphColumnsPerSecond;
-    return time_ns / kNanosecondsPerSecond * kFrameGraphColumnsPerSecond +
-           (time_ns % kNanosecondsPerSecond * kHalfColumnsPerSecond + kNanosecondsPerSecond) /
-               (2 * kNanosecondsPerSecond);
+uint64_t middles_by(uint64_t time_ns, uint64_t span_ns) noexcept {
+    // Column c's middle lies (2c + 1) / (2 * kFrameGraphColumns) spans in.
+    constexpr uint64_t kHalfColumns = 2 * kFrameGraphColumns;
+    return time_ns / span_ns * kFrameGraphColumns +
+           (time_ns % span_ns * kHalfColumns + span_ns) / (2 * span_ns);
 }
 
 } // namespace
@@ -507,12 +515,13 @@ bool roll_frame_stats(FrameStatsWindow& window, uint64_t now_ns) noexcept {
 void note_frame_history(
     FrameHistory& history, uint64_t elapsed_ns, TimeSeverity severity
 ) noexcept {
+    const uint64_t span = uint64_t{graph_seconds(history)} * kNanosecondsPerSecond;
     const uint64_t start = history.end_ns;
     history.end_ns += elapsed_ns;
-    uint64_t first = middles_by(start);
-    uint64_t past_last = middles_by(history.end_ns);
+    uint64_t first = middles_by(start, span);
+    uint64_t past_last = middles_by(history.end_ns, span);
     if (first == past_last) {
-        first = graph_column(history.end_ns);
+        first = graph_column(history.end_ns, span);
         past_last = first + 1;
     }
     // The columns the frame moves the graph on by start empty.
@@ -536,6 +545,14 @@ void note_frame_history(
         history.longest_ns[slot] = elapsed_ns;
         history.severity[slot] = severity;
     }
+}
+
+void set_frame_history_seconds(FrameHistory& history, uint32_t seconds) noexcept {
+    const uint32_t held = std::clamp<uint32_t>(seconds, 1, kMostFrameGraphSeconds);
+    if (held == history.seconds)
+        return;
+    history = {};
+    history.seconds = held;
 }
 
 FrameColumn frame_history_column(const FrameHistory& history, std::size_t age) noexcept {
@@ -637,6 +654,12 @@ FrameStatsTable frame_stats_table(
     const bool shown = window.shown_span_ns != 0;
     const uint32_t rate = notes.paced_frames_per_second;
     FrameStatsTable table = table_rows(renderer.turned_device);
+    // The graph's span, where the player chose another than the default.
+    if (const uint32_t seconds = graph_seconds(window.history);
+        seconds != kDefaultFrameGraphSeconds) {
+        auto& span = table.rows[kTitleRow].note.text;
+        std::snprintf(span.data(), span.size(), "graph %u s", seconds);
+    }
 
     auto& frames_row = table.rows[kRateRow];
     const auto& frames = spread_of(window.shown, FrameMeasure::frame);
@@ -719,6 +742,9 @@ FrameStatsTable frame_stats_widest_table(bool turned_device) noexcept {
     // draw a text a pixel or two past the room kept for it.
     constexpr std::string_view kWidestTime = "000.00";
     FrameStatsTable table = table_rows(turned_device);
+    // Two digits hold any span's seconds.
+    static_assert(kMostFrameGraphSeconds < 100);
+    set_text(table.rows[kTitleRow].note, "graph 00 s");
     set_text(table.rows[kRateRow].values[kFrameStatsMeanColumn], "0000");
     set_text(table.rows[kRateRow].note, "limit 0000");
     for (std::size_t measure = 0; measure < kFrameMeasureCount; ++measure)

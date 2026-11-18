@@ -9730,6 +9730,14 @@
 	it=In pausa durante la partita;
 	}
 
+[Performance graph]
+	{
+	de=Leistungsdiagramm;
+	fr=Graphique de performance;
+	es=Gráfico de rendimiento;
+	it=Grafico delle prestazioni;
+	}
+
 [Pick the folder that holds totala1.hpi: {places}. It is checked, then copied in.]
 	{
 	de=Wähl den Ordner, der totala1.hpi enthält: {places}. Er wird geprüft, dann hineinkopiert.;
@@ -18472,6 +18480,14 @@
 	fr=Combien de temps dure un maintien : maintenir pour confirmer, et les touches liées à un maintien.;
 	es=Cuánto dura una pulsación larga: mantener para confirmar, y las teclas ligadas a un mantenimiento.;
 	it=Quanto dura una pressione: tieni premuto per confermare, e i tasti legati a una pressione.;
+	}
+
+[How many seconds of frames the graph shows.]
+	{
+	de=Wie viele Sekunden an Bildern das Diagramm zeigt.;
+	fr=Les secondes d'images que montre le graphique.;
+	es=Cuántos segundos de fotogramas muestra el gráfico.;
+	it=Quanti secondi di fotogrammi mostra il grafico.;
 	}
 
 [How soon a held camera, speed or page key repeats, and how fast.]

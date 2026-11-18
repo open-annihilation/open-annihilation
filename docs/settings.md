@@ -1447,6 +1447,14 @@ The Developer section sits at the foot of the column, under the divider.
   battlefield at, and the display's size, refresh rate and scale (2x on a
   Retina display), as the `+stats` console command shows them. It works whether or not Developer Mode is
   on, and takes effect at once.
+- **Performance graph**, 2 s, 5 s, 10 s or 30 s, 2 s by default: how many
+  seconds of frames the graph under the statistics shows, so that a slow
+  frame stays on it long enough to take a screenshot. The graph keeps its
+  size: over a longer span each of its bars covers a longer slice of time
+  and shows the slowest frame in it, so no slow frame is lost. While it is
+  longer than 2 s the statistics' title names it, as "graph 10 s". It works
+  whether or not Developer Mode is on, takes effect at once and starts the
+  graph afresh. The setting is `open-annihilation.frame-graph-seconds`.
 - **UI kit gallery** is not a setting: **Show** opens the gallery over the
   settings, every part of Open Annihilation's own screens in each of its
   states, at the size and layout the window gives them now (see Interface
@@ -1469,8 +1477,8 @@ from an earlier build is left out. **Show Active Only**
 shows only the hacks that are on, and **Restore profile values** clears
 every change. Developer Mode keeps its changes for each mod apart. Restore
 defaults turns it off but keeps the changes. At Regular and Large the list
-scrolls in a view of its own under the four rows. At Compact the whole
-section scrolls as one: the four rows, then the list, then Show Active
+scrolls in a view of its own under the five rows. At Compact the whole
+section scrolls as one: the five rows, then the list, then Show Active
 Only and Restore profile values, and the arrow keys walk from the rows
 into the list and on to those two.
 

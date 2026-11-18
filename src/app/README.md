@@ -3126,7 +3126,15 @@ prompts, Settings › Updates and the headers name one state with one size.
   frame a column at 120 frames a second, a 33 ms idle frame four columns
   wide, and a hitch as wide as it lasted, each bar in its frame's grade's
   colour, capped in white past the graph's 40 ms, over a gray line at a
-  tick and a fainter dotted one at the frame's allowance.
+  tick and a fainter dotted one at the frame's allowance. Settings ›
+  Developer › Performance graph (`EngineSettings::frame_graph`) chooses 5,
+  10 or 30 seconds in place of the two: the graph keeps its 240 columns,
+  each a slice of 1/240 of the span holding the longest frame that covers
+  it, so a slow frame stays on the graph that much longer and is never
+  lost among the frames that share its column; the title names the span,
+  as "graph 10 s", after it in the notes' gray, and the panel keeps its
+  size and place. A change applies at once and starts the graph afresh
+  (`set_frame_history_seconds`).
   `frame_stats_panel` lays the panel out in the match label font for the
   widest texts the table shows (`frame_stats_widest_table`, which keeps no
   room for the rows that run on), so nothing in it moves from frame to
@@ -3141,17 +3149,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   640x480 to 3840x2160, that every column of the graph has its frame's
   height and colour over two seconds of late and slow frames, the lines,
   the colours, alignment and red cells of the table, that the last row
-  names the window and the frame drawn, that nothing moves,
+  names the window and the frame drawn, that nothing moves, also over the
+  graph's longest span, which the title names,
   and that nothing outside the battlefield's bottom right quarter changes. 3.1c
   has no command that shows these times; its frame rate shows as "FRATE:"
   on the debug keys' line (F11 after the developer passphrase), with
   "[Release]" and "MODE DEBUG INFO ON" or "OFF", which
   `draw_debug_status_line` draws as 3.1c does and the console check
   checks. `app-frame-pacing` tests the pacing, the fraction, the figures,
-  the history and the grades over a fake clock, among them a frame for each
+  the history over each span, a slow frame kept in its columns until the
+  span has passed it, and the grades over a fake clock, among them a frame for each
   tick at 30 a second from any start, each shown whole, and how faster and
   slower game speeds show at that rate, and
-  `app-frame-stats-panel` the panel's rows, columns, notes and graph, its
+  `app-frame-stats-panel` the panel's rows, columns, notes and graph, the
+  span after the title leaving the panel as it was, its
   place and scale, the bars and lines and each grade's colour. `--frame-rate FPS` with `--match-ticks` plays
   the headless skirmish frame by frame on a clock of its own, moving the
   camera and stepping the clock as the loop does and drawing each frame as

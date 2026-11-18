@@ -10,7 +10,8 @@
 // clock's reading to 0 at 2^32 milliseconds; the cap just below the
 // display's rate while Vertical sync is in effect; the camera's scroll for
 // a frame's real time; and the "+stats" overlay's figures, its frame
-// history, its grades of each time and its table.
+// history over each span the player may choose, its grades of each time and
+// its table.
 #include "oa/app/frame_pacing.hpp"
 
 #include "oa/base/game_loop.hpp"
@@ -20,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -1259,6 +1261,124 @@ void test_frame_history() {
     CHECK(frame_history_column(window.history, 0).severity == TimeSeverity::within_tick);
 }
 
+// Over each span the player may choose, the graph keeps its 240 columns,
+// each a slice of the span: frames at 120 a second fill every column once
+// the span has passed, and a slow frame among them holds each column whose
+// middle it covers, or the one its end lies in, as the longest frame there,
+// however many shorter frames share it, until the span has passed it by.
+void test_frame_history_spans() {
+    using oa::app::frame_pacing::frame_history_column;
+    using oa::app::frame_pacing::FrameHistory;
+    using oa::app::frame_pacing::kFrameGraphColumns;
+    using oa::app::frame_pacing::note_frame_history;
+    using oa::app::frame_pacing::set_frame_history_seconds;
+    constexpr uint64_t kFrame = kNanosecondsPerSecond / 120;
+    constexpr uint64_t kSlow = 50 * kNanosecondsPerMillisecond;
+
+    struct Span {
+        uint32_t seconds;    ///< the span
+        std::size_t covered; ///< the columns the slow frame holds
+    };
+
+    // The slow frame runs from 1000 to 1050 ms: it holds the middles of six
+    // columns of a 120th of a second and of two of a 48th, and one of a
+    // 24th; it holds no middle of an eighth of a second, so it covers the
+    // column its end lies in.
+    for (const Span span : {Span{2, 6}, Span{5, 2}, Span{10, 1}, Span{30, 1}}) {
+        FrameHistory history{};
+        set_frame_history_seconds(history, span.seconds);
+        CHECK(history.seconds == span.seconds);
+        const uint64_t span_ns = uint64_t{span.seconds} * kNanosecondsPerSecond;
+        uint64_t now = 0;
+        const auto run_to = [&](uint64_t until) {
+            while (now < until) {
+                note_frame_history(history, kFrame, TimeSeverity::within_frame);
+                now += kFrame;
+            }
+        };
+        // The columns holding the slow frame; every other column holds a
+        // frame on time, or nothing before the first frame.
+        const auto slow_columns = [&] {
+            std::size_t found = 0;
+            for (std::size_t age = 0; age < kFrameGraphColumns; ++age) {
+                const auto column = frame_history_column(history, age);
+                if (column.frame_ns == kSlow) {
+                    CHECK(column.severity == TimeSeverity::over_tick);
+                    ++found;
+                } else {
+                    CHECK(column.frame_ns == kFrame || column.severity == TimeSeverity::none);
+                }
+            }
+            return found;
+        };
+        // A second of frames on time: 120 of them, the last ending 40 ns
+        // short of the second.
+        run_to(120 * kFrame);
+        note_frame_history(history, kSlow, TimeSeverity::over_tick);
+        now += kSlow;
+        const uint64_t slow_end = now;
+        CHECK(slow_columns() == span.covered);
+        // Half the span later it still shows.
+        run_to(slow_end + span_ns / 2);
+        CHECK(slow_columns() == span.covered);
+        // A second past the span it has gone, and the frames since fill
+        // every column, and no more.
+        run_to(slow_end + span_ns + kNanosecondsPerSecond);
+        CHECK(slow_columns() == 0);
+        for (std::size_t age = 0; age < kFrameGraphColumns; ++age)
+            CHECK(frame_history_column(history, age).frame_ns == kFrame);
+        CHECK(frame_history_column(history, kFrameGraphColumns).severity == TimeSeverity::none);
+        // The columns stand for slices of the span: the newest is the one
+        // the latest frame ends in, or the one before while the frame ends
+        // short of that one's middle.
+        const uint64_t ends_in = now * kFrameGraphColumns / span_ns;
+        CHECK(history.newest_column == ends_in || history.newest_column + 1 == ends_in);
+    }
+
+    // Another span empties the history, the same one keeps it, and a span
+    // past 1 to 30 seconds is held there.
+    FrameHistory history{};
+    CHECK(history.seconds == oa::app::frame_pacing::kDefaultFrameGraphSeconds);
+    note_frame_history(history, kSlow, TimeSeverity::over_tick);
+    set_frame_history_seconds(history, 2);
+    CHECK(frame_history_column(history, 0).frame_ns == kSlow);
+    set_frame_history_seconds(history, 10);
+    CHECK(history.seconds == 10 && history.end_ns == 0 && history.newest_column == 0);
+    CHECK(frame_history_column(history, 0).severity == TimeSeverity::none);
+    set_frame_history_seconds(history, 0);
+    CHECK(history.seconds == 1);
+    set_frame_history_seconds(history, 600);
+    CHECK(history.seconds == oa::app::frame_pacing::kMostFrameGraphSeconds);
+    // A history whose span was set past those ends is read at the nearer:
+    // a span of 0 as a second, whose columns are a 240th of a second, so a
+    // first frame of 50 ms covers the middles of twelve.
+    FrameHistory unset{};
+    unset.seconds = 0;
+    note_frame_history(unset, kSlow, TimeSeverity::over_tick);
+    CHECK(unset.newest_column == 11);
+}
+
+// The title names the graph's span where the player chose another than
+// two seconds; the widest table keeps room for two digits of it.
+void test_graph_span_in_the_title() {
+    const oa::app::frame_pacing::FrameStatsNotes notes{120, 120, 0, 0};
+    oa::app::frame_pacing::FrameStatsWindow window{};
+    FrameStatsTable table = oa::app::frame_pacing::frame_stats_table(window, notes, {});
+    CHECK(row_reads(table.rows[0], "Frame stats (ms)", "", "", "", ""));
+    for (const uint32_t seconds : {5U, 10U, 30U}) {
+        oa::app::frame_pacing::set_frame_history_seconds(window.history, seconds);
+        table = oa::app::frame_pacing::frame_stats_table(window, notes, {});
+        CHECK(table.rows[0].kind == FrameStatsRowKind::title);
+        CHECK(table.rows[0].note.view() == "graph " + std::to_string(seconds) + " s");
+        CHECK(table.rows[0].label.view() == "Frame stats (ms)");
+    }
+    oa::app::frame_pacing::set_frame_history_seconds(window.history, 2);
+    table = oa::app::frame_pacing::frame_stats_table(window, notes, {});
+    CHECK(table.rows[0].note.view().empty());
+    const auto widest = oa::app::frame_pacing::frame_stats_widest_table();
+    CHECK(row_reads(widest.rows[0], "Frame stats (ms)", "", "", "", "graph 00 s"));
+}
+
 } // namespace
 
 int main() {
@@ -1282,6 +1402,8 @@ int main() {
     test_whole_characters();
     test_time_severity();
     test_frame_history();
+    test_frame_history_spans();
+    test_graph_span_in_the_title();
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

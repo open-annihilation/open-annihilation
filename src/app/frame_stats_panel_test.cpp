@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The "+stats" overlay's panel laid out over texts of known widths: the
-// title, the column names over a rule, labels at the left, values
+// title and the graph's span after it, the column names over a rule, labels
+// at the left, values
 // right-aligned in columns as wide as their widest text, each note after
 // its row's last value, the columns moved right together when the graph is
 // the wider, the graph under the table, and the same layout whatever the
-// figures, and a row taller with the turned view's graphics device; its
+// figures or the graph's span, and a row taller with the turned view's
+// graphics device; its
 // place and scale on windows of several sizes; the height of each frame's
 // bar and of the graph's lines; and each grade's colour.
 #include "frame_stats_panel.hpp"
@@ -411,6 +413,65 @@ void test_display_row_fits_the_panel() {
     }
 }
 
+// The title's note, the graph's span, starts a gap after the title, at the
+// left with the labels however far the columns move, and sets no width
+// while the graph is wider. In the match label font the widest table keeps
+// room for it and lays the panel out exactly as without it, so the panel,
+// its columns and its graph of kFrameGraphColumns columns stay as they are
+// at every span the player may choose, and each span's note fits.
+void test_graph_span_after_the_title() {
+    frame_pacing::FrameStatsTable table{};
+    add_row(
+        table, frame_pacing::FrameStatsRowKind::title, "Frame stats (ms)", "", "", "", "graph 10 s"
+    );
+    add_row(table, frame_pacing::FrameStatsRowKind::heading, "", "min", "avg", "max", "");
+    add_row(
+        table,
+        frame_pacing::FrameStatsRowKind::measure,
+        "present",
+        "10.00",
+        "8.33",
+        "123.45",
+        "30/s"
+    );
+    int pixels = 6;
+    const panel::TextWidthHooks fixed{&pixels, fixed_width};
+    const auto layout = panel::lay_out_panel(table, fixed, kRowHeight);
+    CHECK(layout.note_x[0] == kInner + 16 * pixels + panel::kColumnGap);
+    CHECK(layout.width == 2 * kInner + kFramedGraph);
+    auto plain = table;
+    put(plain.rows[0].note, "");
+    const auto without = panel::lay_out_panel(plain, fixed, kRowHeight);
+    CHECK(layout.width == without.width && layout.height == without.height);
+    CHECK(layout.value_right == without.value_right && layout.note_x[2] == without.note_x[2]);
+
+    const panel::TextWidthHooks measure{nullptr, console_width};
+    const auto widest = frame_pacing::frame_stats_widest_table();
+    CHECK(widest.rows[0].note.view() == "graph 00 s");
+    auto bare = widest;
+    put(bare.rows[0].note, "");
+    const auto kept = panel::lay_out_panel(widest, measure, kRowHeight);
+    const auto unkept = panel::lay_out_panel(bare, measure, kRowHeight);
+    CHECK(kept.width == unkept.width && kept.height == unkept.height);
+    CHECK(kept.value_right == unkept.value_right && kept.row_y == unkept.row_y);
+    CHECK(
+        kept.graph.x == unkept.graph.x && kept.graph.y == unkept.graph.y &&
+        kept.graph.width == unkept.graph.width && kept.graph.height == unkept.graph.height
+    );
+    CHECK(
+        kept.graph.width == static_cast<int>(frame_pacing::kFrameGraphColumns) * panel::kBarWidth
+    );
+    const int right = kept.width - kInner;
+    frame_pacing::FrameStatsWindow window{};
+    for (const uint32_t seconds : {5U, 10U, 30U}) {
+        frame_pacing::set_frame_history_seconds(window.history, seconds);
+        const auto shown = frame_pacing::frame_stats_table(window, {}, {});
+        const auto note = shown.rows[0].note.view();
+        CHECK(!note.empty());
+        CHECK(kept.note_x[0] + console_width(nullptr, note) <= right);
+    }
+}
+
 // With no measure every text is 0 wide: the columns are a gap apart and
 // the graph sets the width.
 void test_without_a_measure() {
@@ -591,6 +652,7 @@ int main() {
     test_columns_under_a_wider_graph();
     test_graph_under_a_wider_table();
     test_without_a_measure();
+    test_graph_span_after_the_title();
     test_renderer_row_sets_no_width();
     test_renderer_row_fits_the_panel();
     test_turned_device_row_fits_the_panel();

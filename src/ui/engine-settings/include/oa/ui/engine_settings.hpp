@@ -92,6 +92,12 @@ inline constexpr std::string_view max_frame_rate = "open-annihilation.max-fps";
 inline constexpr std::string_view anti_aliasing = "open-annihilation.anti-aliasing";
 /// 1 or 0 (EngineSettings::frame_stats).
 inline constexpr std::string_view frame_stats = "open-annihilation.frame-stats";
+/// The seconds of frames the frame statistics' graph shows, 2, 5, 10 or 30,
+/// decimal (EngineSettings::frame_graph). A number between reads as the
+/// span below it; absent, a number below 2 or any other text reads as 2.
+inline constexpr std::string_view frame_graph = "open-annihilation.frame-graph-seconds";
+static_assert(frame_graph.find('|') == std::string_view::npos);
+static_assert(frame_graph.find('\\') == std::string_view::npos);
 /// "desktop", or the width and height in decimal joined by an "x", as
 /// "800x600" (EngineSettings::screen_size).
 inline constexpr std::string_view screen_size = "open-annihilation.screen-size";
@@ -655,6 +661,25 @@ inline constexpr std::array<AntiAliasing, 5> anti_aliasing_levels{
     AntiAliasing::x4,
     AntiAliasing::x8,
     AntiAliasing::x16,
+};
+
+/// Performance graph: how many seconds of frames the frame statistics'
+/// graph shows. The value is that number. The graph keeps its columns, so a
+/// longer span gives each column a longer slice of time, and the column
+/// shows the slowest frame of its slice.
+enum class FrameGraphSpan : uint8_t {
+    seconds_2 = 2,   ///< two seconds, a 120th of a second a column
+    seconds_5 = 5,   ///< five seconds, a 48th of a second a column
+    seconds_10 = 10, ///< ten seconds, a 24th of a second a column
+    seconds_30 = 30, ///< thirty seconds, an eighth of a second a column
+};
+
+/// The spans of Performance graph, in the order the dialog offers them.
+inline constexpr std::array<FrameGraphSpan, 4> frame_graph_spans{
+    FrameGraphSpan::seconds_2,
+    FrameGraphSpan::seconds_5,
+    FrameGraphSpan::seconds_10,
+    FrameGraphSpan::seconds_30,
 };
 
 /// A key the mod options' key settings offer: its SDL key code and name.
@@ -1461,6 +1486,10 @@ struct EngineSettings {
     uint32_t max_frame_rate{highest_frame_rate};   ///< frames a second
     AntiAliasing anti_aliasing{AntiAliasing::off}; ///< enhanced anti-aliasing of units
     bool frame_stats{}; ///< the frame and tick times over the battlefield (+stats)
+    /// How many seconds of frames the frame statistics' graph shows.
+    /// Developer lists it under Show performance statistics; it applies at
+    /// once, whatever Developer Mode is.
+    FrameGraphSpan frame_graph{FrameGraphSpan::seconds_2};
     TouchDrag touch_drag{TouchDrag::automatic};            ///< One-finger drag
     uint32_t touch_hold_ms{default_touch_hold_ms};         ///< Hold delay, ms
     TouchLatches touch_latches{TouchLatches::stay_on};     ///< QUEUE and ADD

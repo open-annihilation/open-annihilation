@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 140> kExpected{{
+constexpr std::array<Expected, 141> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -213,11 +213,12 @@ constexpr std::array<Expected, 140> kExpected{{
     {Setting::speak_lobby, RowKind::toggle, "Speak lobby changes", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::speak_ticker, RowKind::toggle, "Speak the ticker", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::always_show_focus, RowKind::toggle, "Always show focus", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::frame_graph, RowKind::levels, "Performance graph", 1, 1, 4, 31, 4, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::always_show_focus) + 1,
+    kExpected.size() == static_cast<std::size_t>(Setting::frame_graph) + 1,
     "every setting has its row"
 );
 
@@ -557,7 +558,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 36> kStoredChoices{{
+constexpr std::array<StoredChoice, 37> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -594,6 +595,7 @@ constexpr std::array<StoredChoice, 36> kStoredChoices{{
     {Setting::colour_vision, settings::key::colour_vision},
     {Setting::screen_reader, settings::key::screen_reader},
     {Setting::speak_chat, settings::key::speak_chat},
+    {Setting::frame_graph, settings::key::frame_graph},
 }};
 
 void every_row_and_choice_has_an_id_of_one_word() {
@@ -703,6 +705,7 @@ void every_row_and_choice_has_an_id_of_one_word() {
     );
     OA_CHECK(ids_of(Setting::fog_of_war) == (std::vector<std::string>{"classic", "smooth"}));
     OA_CHECK(ids_of(Setting::update_channel) == (std::vector<std::string>{"stable", "testing"}));
+    OA_CHECK(ids_of(Setting::frame_graph) == (std::vector<std::string>{"2", "5", "10", "30"}));
     OA_CHECK(
         ids_of(Setting::keep_replays) ==
         (std::vector<std::string>{"30-days", "90-days", "1-year", "forever"})
@@ -810,17 +813,17 @@ void tab_follows_the_dialogs_focus_order() {
         with_footer_and_list({19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35, 40})
     );
     // Developer with its first area open: the section list, then its rows,
-    // UI kit gallery's SHOW and Update channel last of them, its list's
-    // headers, Show Active Only and Restore profile values, then the footer
-    // and the close mark.
+    // Performance graph's strip, UI kit gallery's SHOW and Update channel
+    // last of them, its list's headers, Show Active Only and Restore profile
+    // values, then the footer and the close mark.
     settings::Dialog developer = controls;
     developer.page = settings::Page::developer;
     developer.chosen.developer_mode = true;
     developer.developer.areas_open[0] = 1;
-    OA_CHECK(tab_order(developer) == with_footer_and_list({19, 20, 21, 22, 25, 26, 27, 28, 29,
+    OA_CHECK(tab_order(developer) == with_footer_and_list({19, 20, 21, 22, 23, 26, 27, 28, 29,
                                                            30, 31, 32, 33, 34, 35, 36, 37, 38,
                                                            39, 40, 41, 42, 43, 44, 45, 46, 47,
-                                                           48, 49, 50, 51, 23, 24}));
+                                                           48, 49, 50, 51, 52, 24, 25}));
 }
 
 void updates_names_its_ways() {

@@ -393,6 +393,8 @@ std::string_view label_of(settings::Setting setting) {
         return "Enable Developer Mode";
     case settings::Setting::frame_stats:
         return "Show performance statistics";
+    case settings::Setting::frame_graph:
+        return "Performance graph";
     case settings::Setting::hardware_acceleration:
         return "Hardware acceleration";
     case settings::Setting::vertical_sync:
@@ -1495,8 +1497,14 @@ void Runtime::check_engine_settings_dialog() {
     chosen.frame_stats = true;
     expect("Show performance statistics On");
     require(frame_stats_shown_, "Show performance statistics did not show the statistics");
+    // Performance graph takes a change while Developer Mode is off, and the
+    // graph spans it at once.
+    click(settings::first_row_control + 2, "10 s", "Performance graph's 10 s");
+    chosen.frame_graph = settings::FrameGraphSpan::seconds_10;
+    expect("Performance graph 10 s");
+    require(frame_stats_.history.seconds == 10, "Performance graph did not reach the graph");
     // Update channel takes a change while Developer Mode is off.
-    click(settings::first_row_control + 3, "Testing", "Update channel's Testing");
+    click(settings::first_row_control + 4, "Testing", "Update channel's Testing");
     chosen.update_channel = settings::UpdateChannel::testing;
     expect("Update channel Testing");
 
@@ -1538,6 +1546,7 @@ void Runtime::check_engine_settings_dialog() {
         {std::string(settings::key::anti_aliasing),
          std::to_string(static_cast<int>(kChosenAntiAliasing))},
         {std::string(settings::key::frame_stats), "1"},
+        {std::string(settings::key::frame_graph), "10"},
         {std::string(settings::key::update_channel), "testing"},
         {std::string(settings::key::modern_fonts), "1"},
         {std::string(settings::key::text_shadow), "0"},
@@ -1814,7 +1823,9 @@ void Runtime::check_engine_settings_dialog() {
         // At Compact Developer scrolls as one: Show Active Only follows the
         // list, and the walk pages down to it.
         require(reveal(active_only_label(0)), "Developer does not show Show Active Only");
-        tap(SDLK_HOME);
+        // The rows over the list leave its first area under the view's
+        // foot at the top: the walk pages down to it.
+        require(reveal(kFirstArea), "Developer does not show its first area");
         click_text(kFirstArea, "first area");
         require(reveal(kRuleHack), "a click on an area did not open it");
         click_hack(kRuleHack, "On");
@@ -2622,9 +2633,23 @@ void Runtime::check_engine_settings_window_sizes() {
                             found = &part;
                     click_part(found, text);
                 };
+                // Compact's list view holds little more than the area's
+                // header, and at Compact the rows over the list leave its
+                // first area under the view's foot: Page Down brings a
+                // text into it, Home back.
+                const auto reveal_text = [&](std::string_view text) {
+                    for (int32_t pages = 0; pages < 40; ++pages) {
+                        if (shows_text(settings::dialog_layout(*engine_settings_dialog()), text))
+                            return;
+                        tap(SDLK_PAGEDOWN);
+                    }
+                };
+                reveal_text(kFirstArea);
                 click_text(kFirstArea);
                 shows_dialog("Developer Mode with an area open");
                 snapshot("menu-dialog-developer-area-" + size);
+                // Home brings Enable Developer Mode back into the view.
+                tap(SDLK_HOME);
                 {
                     const auto area_parts = settings::dialog_layout(*engine_settings_dialog());
                     click_part(
@@ -2634,15 +2659,6 @@ void Runtime::check_engine_settings_window_sizes() {
                 }
                 shows_dialog("Developer Mode on");
                 snapshot("menu-dialog-developer-on-" + size);
-                // Compact's list view holds little more than the area's
-                // header: Page Down brings the hack into it, Home back.
-                const auto reveal_text = [&](std::string_view text) {
-                    for (int32_t pages = 0; pages < 40; ++pages) {
-                        if (shows_text(settings::dialog_layout(*engine_settings_dialog()), text))
-                            return;
-                        tap(SDLK_PAGEDOWN);
-                    }
-                };
                 reveal_text(kShownHack);
                 click_text(kShownHack);
                 {
@@ -2655,6 +2671,7 @@ void Runtime::check_engine_settings_window_sizes() {
                 reveal_text(kShownHack);
                 click_text(kShownHack);
                 tap(SDLK_HOME);
+                reveal_text(kFirstArea);
                 click_text(kFirstArea);
             }
             if (page != settings::Page::graphics)

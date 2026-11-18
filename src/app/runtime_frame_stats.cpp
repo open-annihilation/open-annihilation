@@ -90,7 +90,8 @@ constexpr uint32_t kOverTickCellOpacity = 96;
 /// Rows a match label font's line keeps under its glyphs
 /// (oa::formats::fnt::line_height).
 constexpr int kLineGapRows = 2;
-// The graph shows a frame a column at the loop's default rate.
+// Over its default span the graph shows a frame a column at the loop's
+// default rate; a longer span keeps each column's longest frame.
 static_assert(frame_pacing::kFrameGraphColumnsPerSecond == kDefaultMaxFramesPerSecond);
 /// Times a second of frame time the resource readout eases toward the
 /// stores: once a frame at the loop's default rate, as it eased once a draw.
@@ -606,6 +607,8 @@ void Runtime::draw_frame_stats() {
                 row.label.view(),
                 static_cast<uint8_t>(kUiColorText)
             );
+            // The graph's span, where the player chose a longer one.
+            text(layout.note_x[index] * scale, row_y * scale, row.note.view(), kNoteSlot);
             continue;
         }
         if (frame_pacing::runs_on(row.kind)) {
@@ -835,21 +838,26 @@ void Runtime::check_console_stats(const std::function<void(const char*)>& enter_
     constexpr int kLateEvery = 10;
     constexpr int kSlowEvery = 30;
     constexpr uint64_t kSeconds = 2;
-    frame_stats_ = {};
-    frame_stats_.allowance_ns = allowance;
-    uint64_t now = 0;
-    // The synthetic seconds are read once they are all rolled.
-    std::ignore = roll_frame_stats(frame_stats_, now);
-    for (int frame = 0; now < kSeconds * frame_pacing::kNanosecondsPerSecond; ++frame) {
-        const uint64_t frame_ns = frame % kSlowEvery == kSlowEvery - 1   ? slow
-                                  : frame % kLateEvery == kLateEvery - 1 ? late
-                                                                         : on_time;
-        now += frame_ns;
-        note_frame_measure(frame_stats_, FrameMeasure::frame, frame_ns);
-        note_frame_measure(frame_stats_, FrameMeasure::work, frame_ns);
+    // Notes the two seconds into the statistics, over the graph's span.
+    const auto note_seconds = [&](uint32_t span_seconds) {
+        frame_stats_ = {};
+        frame_pacing::set_frame_history_seconds(frame_stats_.history, span_seconds);
+        frame_stats_.allowance_ns = allowance;
+        uint64_t now = 0;
+        // The synthetic seconds are read once they are all rolled.
         std::ignore = roll_frame_stats(frame_stats_, now);
-    }
-    note_frame_measure(frame_stats_, FrameMeasure::frame, last);
+        for (int frame = 0; now < kSeconds * frame_pacing::kNanosecondsPerSecond; ++frame) {
+            const uint64_t frame_ns = frame % kSlowEvery == kSlowEvery - 1   ? slow
+                                      : frame % kLateEvery == kLateEvery - 1 ? late
+                                                                             : on_time;
+            now += frame_ns;
+            note_frame_measure(frame_stats_, FrameMeasure::frame, frame_ns);
+            note_frame_measure(frame_stats_, FrameMeasure::work, frame_ns);
+            std::ignore = roll_frame_stats(frame_stats_, now);
+        }
+        note_frame_measure(frame_stats_, FrameMeasure::frame, last);
+    };
+    note_seconds(frame_pacing::kDefaultFrameGraphSeconds);
     const auto synthetic = frame_stats_;
     const auto stressed = capture();
     frame_stats_ = kept;
@@ -1004,6 +1012,38 @@ void Runtime::check_console_stats(const std::function<void(const char*)>& enter_
             ))
         throw std::runtime_error(
             "console check: +stats drew no red cell behind a time over a tick"
+        );
+
+    // The same frames over the longest span the player may choose: the
+    // panel, its columns and its graph stay where they were, and the title
+    // names the span after it in the notes' gray, which the default span
+    // leaves out.
+    note_seconds(frame_pacing::kMostFrameGraphSeconds);
+    const auto spanned = capture();
+    frame_stats_ = kept;
+    const auto spanned_place = check_panel(spanned, "over a longer span");
+    if (!same_box(spanned_place.panel, first_place.panel) ||
+        !same_box(spanned_place.graph, first_place.graph) ||
+        spanned_place.value_right != first_place.value_right ||
+        spanned_place.row_top != first_place.row_top)
+        throw std::runtime_error("console check: +stats moved its panel or its columns for a span");
+    const int note_x = place.panel.x + layout.note_x[0] * scale;
+    const int note_right =
+        place.panel.x + place.panel.width - (panel::kBevel + panel::kPadding) * scale;
+    const oa::ui::display_layout::Rect span_note{
+        note_x, place.row_top[0], note_right - note_x, glyph_rows
+    };
+    const auto note_pixels = [&](const renderer::Surface& shown) {
+        const auto color = ui_color_rgb(kNoteSlot);
+        std::size_t count = 0;
+        for (int y = span_note.y; y < span_note.y + span_note.height; ++y)
+            for (int x = span_note.x; x < span_note.x + span_note.width; ++x)
+                count += pixel(shown, x, y) == color ? 1 : 0;
+        return count;
+    };
+    if (note_pixels(spanned) == 0 || note_pixels(stressed) != 0)
+        throw std::runtime_error(
+            "console check: +stats did not name a longer span after its title, and only then"
         );
 
     enter_line("+stats 0");

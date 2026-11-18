@@ -90,6 +90,7 @@ void defaults_play_as_without_the_settings() {
     CHECK(defaults.max_frame_rate == settings::highest_frame_rate);
     CHECK(defaults.anti_aliasing == settings::AntiAliasing::off);
     CHECK(!defaults.frame_stats);
+    CHECK(defaults.frame_graph == settings::FrameGraphSpan::seconds_2);
     CHECK(defaults.hardware_acceleration == HardwareAcceleration::off);
     CHECK(!defaults.vertical_sync);
     CHECK(defaults == settings::EngineSettings{});
@@ -423,7 +424,8 @@ void absent_keys_and_values_that_are_not_numbers_give_the_defaults() {
           settings::key::unit_limit,
           settings::key::max_frame_rate,
           settings::key::anti_aliasing,
-          settings::key::frame_stats}) {
+          settings::key::frame_stats,
+          settings::key::frame_graph}) {
         for (const char* text : {"", "abc", "12x", " 5", "5 ", "-", "+", "0x10", "1.5"})
             CHECK(read_one(key, text) == settings::default_settings({}));
     }
@@ -489,6 +491,22 @@ void stored_values_are_read_and_clamped_into_their_ranges() {
     CHECK(level("15") == AntiAliasing::x8);
     CHECK(level("16") == AntiAliasing::x16);
     CHECK(level("100") == AntiAliasing::x16);
+
+    // Performance graph's seconds: a number between two spans reads as the
+    // one below it, one below the shortest as the shortest.
+    using settings::FrameGraphSpan;
+    const auto span = [](const char* text) {
+        return read_one(settings::key::frame_graph, text).frame_graph;
+    };
+    CHECK(span("-5") == FrameGraphSpan::seconds_2);
+    CHECK(span("0") == FrameGraphSpan::seconds_2);
+    CHECK(span("2") == FrameGraphSpan::seconds_2);
+    CHECK(span("4") == FrameGraphSpan::seconds_2);
+    CHECK(span("5") == FrameGraphSpan::seconds_5);
+    CHECK(span("10") == FrameGraphSpan::seconds_10);
+    CHECK(span("29") == FrameGraphSpan::seconds_10);
+    CHECK(span("30") == FrameGraphSpan::seconds_30);
+    CHECK(span("600") == FrameGraphSpan::seconds_30);
 }
 
 void switch_alt_comes_from_the_games_own_key() {
@@ -513,6 +531,7 @@ settings::EngineSettings changed_settings() {
     chosen.max_frame_rate = 60;
     chosen.anti_aliasing = settings::AntiAliasing::x16;
     chosen.frame_stats = true;
+    chosen.frame_graph = settings::FrameGraphSpan::seconds_30;
     chosen.screen_size = {1024, 768};
     chosen.hardware_acceleration = HardwareAcceleration::basic;
     chosen.vertical_sync = true;
@@ -535,7 +554,7 @@ void only_changed_settings_are_written() {
 
     const auto chosen = changed_settings();
     settings::write_settings(values, defaults, chosen, defaults, false);
-    CHECK(values.size() == 19);
+    CHECK(values.size() == 20);
     CHECK(values.at(std::string{settings::key::path_search_nodes}) == "5332");
     CHECK(values.at(std::string{settings::key::wheel_zoom}) == "0");
     CHECK(values.at(std::string{settings::key::middle_click_pan}) == "0");
@@ -544,6 +563,7 @@ void only_changed_settings_are_written() {
     CHECK(values.at(std::string{settings::key::max_frame_rate}) == "60");
     CHECK(values.at(std::string{settings::key::anti_aliasing}) == "16");
     CHECK(values.at(std::string{settings::key::frame_stats}) == "1");
+    CHECK(values.at(std::string{settings::key::frame_graph}) == "30");
     CHECK(values.at(std::string{settings::key::screen_size}) == "1024x768");
     CHECK(values.at(std::string{settings::key::hardware_acceleration}) == "basic");
     CHECK(values.at(std::string{settings::key::vertical_sync}) == "1");
@@ -781,6 +801,22 @@ void the_round_trip_keeps_every_value() {
             );
             CHECK(!settings::read_settings(against_own, players_own_on_linux, false).vertical_sync);
         }
+    }
+    // Every span of Performance graph but the default is kept as its
+    // seconds, and each is read back.
+    for (const auto span : settings::frame_graph_spans) {
+        auto chosen = changed_settings();
+        chosen.frame_graph = span;
+        Values values;
+        settings::write_settings(values, {}, chosen, {}, false);
+        const auto written = values.find(std::string{settings::key::frame_graph});
+        if (span == settings::FrameGraphSpan::seconds_2)
+            CHECK(written == values.end());
+        else
+            CHECK(
+                written != values.end() && written->second == std::to_string(static_cast<int>(span))
+            );
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
     }
 }
 
