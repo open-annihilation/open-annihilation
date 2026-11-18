@@ -4337,6 +4337,14 @@ class Runtime final : public menu::Host,
     /// A later mod load reads them again. [runtime_gui_actions.cpp]
     void gather_gui_quick_keys();
 
+    /// Reads the GUI quick keys and the units' Category words of the mod the
+    /// match plays, unless they are read already.
+    ///
+    /// The layout in use is loaded first, as resolution loads it, so keys a
+    /// changed profile drops are read again here. The match load calls it,
+    /// so the match's first resolution reads no file. [runtime_gui_actions.cpp]
+    void gather_key_mod_data();
+
     /// The mod data resolution reads: one gui key per gathered button, the
     /// category letters the loaded units use, and every gathered Category word.
     ///
@@ -4357,16 +4365,6 @@ class Runtime final : public menu::Host,
     ///
     /// @return the letters, or empty when no loaded unit uses one
     [[nodiscard]] std::string loaded_category_letters() const;
-
-    /// Gives the shown file's gui actions the play and panel contexts, and a
-    /// unit info file's actions the unit-info context only.
-    ///
-    /// [runtime_gui_actions.cpp]
-    ///
-    /// @param[in,out] resolved the bindings just resolved
-    /// @param shown the stem of the panel on screen, or empty
-    void
-    apply_shown_gui_file(oa::ui::key_bindings::Resolved& resolved, std::string_view shown) const;
 
     /// The order file stem of the side being played, or of the first side outside a match.
     ///
@@ -24562,7 +24560,8 @@ class Runtime final : public menu::Host,
     // The key bindings' dispatcher; null until the first event or frame that feeds it.
     mutable std::unique_ptr<KeyBindingsState, void (*)(KeyBindingsState*) noexcept>
         key_bindings_state_{nullptr, destroy_key_bindings_state};
-    /// GUI quick keys of the mod in use. Empty until the first resolution.
+    /// GUI quick keys of the mod in use. Empty until a match load or the first
+    /// resolution reads them.
     std::vector<GuiQuickKey> gui_quick_keys_{};
     /// Set once the mod's GUI files have been read. Cleared when the mod changes.
     bool gui_quick_keys_gathered_{};

@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -151,6 +152,31 @@ struct Resolved {
 /// @param input the base, the layouts, the mod, the hacks and the scheme
 /// @return the actions, the unknown names and the chords that lost
 [[nodiscard]] Resolved resolve(const ResolveInput& input);
+
+/// The GUI files on screen, which the `gui.` actions' contexts follow.
+///
+/// Each stem is folded as a gui id's piece (`armbuild1` for ARMBUILD1.GUI).
+struct ShownGuis {
+    std::string_view panel{};             ///< the match's side panel on screen, or empty
+    std::span<const std::string> menus{}; ///< the menu files on screen
+};
+
+/// The bindings the dispatcher searches: what `resolve` returned, for the GUI
+/// files on screen and pointer keys.
+///
+/// The side panel's `gui.` actions answer in play and on panels, and every
+/// unit info file's on the unit info panel only. A gathered file's letters
+/// answer in the menus only while that file is on screen, so a letter presses
+/// the button the player sees. Then `pointer_keys_bindings` sets aside the
+/// chords pointer keys take. Nothing else is read, so a new page or new menus
+/// can start again from one kept resolution and get what resolving anew gives.
+///
+/// @param resolved what `resolve` returned, which is left unchanged
+/// @param shown the files on screen
+/// @param pointer_keys true while pointer keys are on
+/// @return the bindings in use
+[[nodiscard]] Resolved
+bindings_for_screen(const Resolved& resolved, const ShownGuis& shown, bool pointer_keys);
 
 /// Reports whether two context masks can be active together.
 ///

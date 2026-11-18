@@ -89,48 +89,6 @@ uint32_t context_bit(std::string_view name) {
     return 0;
 }
 
-/// The stem of a `gui.` action id, between the two dots.
-///
-/// @param id the action id
-/// @return the stem, or empty when the id is not a gui action
-std::string_view gui_id_stem(std::string_view id) {
-    constexpr std::string_view prefix = "gui.";
-    if (!id.starts_with(prefix))
-        return {};
-    const std::string_view rest = id.substr(prefix.size());
-    const auto dot = rest.find('.');
-    if (dot == std::string_view::npos)
-        return rest;
-    return rest.substr(0, dot);
-}
-
-/// Leaves the menus' letters to the GUI files on screen.
-///
-/// Every gathered file's letters start in the menus. A file that is not the one
-/// on screen loses that context, so a letter answers the button the player sees.
-///
-/// @param[in,out] resolved the bindings just resolved
-/// @param stems the file stems on screen, folded as a gui id's
-void keep_current_menu_letters(keys::Resolved& resolved, const std::vector<std::string>& stems) {
-    const uint32_t menus = context_bit("menus");
-    if (menus == 0)
-        return;
-    for (keys::Bound& bound : resolved.actions) {
-        if (!bound.id.starts_with("gui.") || (bound.contexts & menus) == 0)
-            continue;
-        const std::string_view stem = gui_id_stem(bound.id);
-        bool shown = false;
-        for (const std::string& current : stems) {
-            if (stem == current) {
-                shown = true;
-                break;
-            }
-        }
-        if (!shown)
-            bound.contexts &= ~menus;
-    }
-}
-
 /// The file stem of a GUI path, folded as a gui id's piece.
 ///
 /// @param path a GUI file path
@@ -1151,6 +1109,11 @@ struct Runtime::KeyBindingsState {
     std::string shown_stem{};
     /// The menu GUI stems the last resolution used.
     std::vector<std::string> menu_stems{};
+    /// What `keys::resolve` returned last, before the GUI files on screen and
+    /// pointer keys changed it. A new page or new menus start again from it.
+    keys::Resolved resolved{};
+    /// `resolved` was made from the GUI keys and Category words gathered now.
+    bool resolved_kept{};
     uint64_t map_generation{};
     bool ready{};
     /// Pointer keys were on when these bindings were resolved.
@@ -1325,6 +1288,9 @@ void Runtime::load_key_bindings() {
         return;
     gui_quick_keys_gathered_ = false;
     gathered_tags_.clear();
+    // The kept resolution read the keys just dropped.
+    if (key_bindings_state_ != nullptr)
+        key_bindings_state_->resolved_kept = false;
 
     const bool one_run = options_.keys_reset || !options_.keys.empty();
     const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
@@ -1871,12 +1837,15 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     if (bindings_same && state.shown_stem == shown_stem && state.menu_stems == menu_gui_stems_)
         return;
 
-    // The mod list is a local of the lambda. resolve copies what it keeps, and
-    // the returned bindings do not point into it.
-    const auto resolved_for = [&](std::string_view side_stem, std::string_view panel_stem) {
+    // A new page or new menus change nothing resolution reads, so they start
+    // again from the kept resolution: with a mod's thousands of GUI keys,
+    // resolving anew would stall the frame at every selection.
+    if (!bindings_same || !state.resolved_kept) {
         if (!gui_quick_keys_gathered_)
             gather_gui_quick_keys();
-        const keys::ModData mod = gui_mod_data(side_stem);
+        // resolve copies what it keeps, and the returned bindings do not point
+        // into the mod list.
+        const keys::ModData mod = gui_mod_data(order_stem);
         keys::ResolveInput input;
         input.base = state.base;
         input.chosen = state.has_chosen ? &state.chosen : nullptr;
@@ -1887,12 +1856,13 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
         input.scheme = scheme;
         input.number_keys_select_groups = number_keys;
         input.mod = &mod;
-        keys::Resolved made = keys::resolve(input);
-        apply_shown_gui_file(made, panel_stem);
-        keep_current_menu_letters(made, menu_gui_stems_);
-        return keys::pointer_keys_bindings(made, pointer_keys);
-    };
-    keys::Resolved resolved = resolved_for(order_stem, shown_stem);
+        state.resolved = keys::resolve(input);
+        state.resolved_kept = true;
+    }
+    keys::ShownGuis shown;
+    shown.panel = shown_stem;
+    shown.menus = menu_gui_stems_;
+    keys::Resolved resolved = keys::bindings_for_screen(state.resolved, shown, pointer_keys);
     resolved.hold_to_confirm = state.hold_to_confirm;
     // A shown-file change keeps the same action ids, so a held page key, a
     // latch and a key held back stay. Anything else replaces the bindings.

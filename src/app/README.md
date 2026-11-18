@@ -4402,6 +4402,12 @@ saves, recordings and network games are unaffected.
   `advance_input_actions` runs once a frame. Losing the window's focus
   releases every held action and role, and a keymap change rebuilds the
   keyboard map. The action events are kept and nothing acts on them yet.
+  `ensure_key_bindings` keeps what resolution returned: a new side panel page
+  or new menus on screen change nothing it reads, so they start again from
+  that resolution and only move the `gui.` actions' contexts
+  (`bindings_for_screen`). A match load reads the mod's GUI quick keys and
+  its units' Category words with the units (`gather_key_mod_data`), so the
+  match's first resolution reads no file.
 - `runtime_touch_hud.cpp` draws the controls into a layer of their own,
   composed over the CPU frame (`compose_touch_layer`) and presented in every
   tier (`present_touch_layer`), with the primitives of `oa-ui-paint`

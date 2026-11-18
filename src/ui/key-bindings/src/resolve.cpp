@@ -4,8 +4,10 @@
 // Resolution order: which actions exist, the base, the chosen layout, the
 // mod's letters, the player's own changes, the number-key swap, then fixed
 // keys and the four-chord limit. Reads nothing but ResolveInput and the
-// registry.
+// registry. The GUI files on screen and pointer keys then change a copy of
+// the result, so it can be kept while the pages change.
 
+#include "oa/ui/key_bindings/helpers.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
 #include "oa/ui/key_bindings/tags.hpp"
 
@@ -982,6 +984,34 @@ std::vector<Row> registry_rows(const ResolveInput& input) {
     return rows;
 }
 
+/// The stem of a `gui.` action id, between the two dots.
+///
+/// @param id the action id
+/// @return the stem, or empty when the id is not a gui action
+std::string_view gui_stem(std::string_view id) {
+    constexpr std::string_view prefix = "gui.";
+    if (!id.starts_with(prefix))
+        return {};
+    const std::string_view rest = id.substr(prefix.size());
+    const auto dot = rest.find('.');
+    if (dot == std::string_view::npos)
+        return rest;
+    return rest.substr(0, dot);
+}
+
+/// Reports whether one of the stems is this one.
+///
+/// @param stems the stems on screen
+/// @param stem the stem
+/// @return true when the list holds it
+bool stem_listed(std::span<const std::string> stems, std::string_view stem) {
+    for (const std::string& listed_stem : stems) {
+        if (listed_stem == stem)
+            return true;
+    }
+    return false;
+}
+
 /// Copies a row out as a bound action.
 ///
 /// @param row the row
@@ -1028,6 +1058,26 @@ Resolved resolve(const ResolveInput& input) {
     for (Row& row : rows)
         resolved.actions.push_back(bound_of(row));
     return resolved;
+}
+
+Resolved bindings_for_screen(const Resolved& resolved, const ShownGuis& shown, bool pointer_keys) {
+    const uint32_t play = context_bit("play");
+    const uint32_t panel = context_bit("panel");
+    const uint32_t unit_info = context_bit("unit-info");
+    const uint32_t menus = context_bit("menus");
+    Resolved screen = resolved;
+    for (Bound& bound : screen.actions) {
+        if (!bound.id.starts_with("gui."))
+            continue;
+        const std::string_view stem = gui_stem(bound.id);
+        if (stem.starts_with("unitinfo"))
+            bound.contexts = unit_info;
+        else if (!shown.panel.empty() && stem == shown.panel)
+            bound.contexts = play | panel;
+        if ((bound.contexts & menus) != 0 && !stem_listed(shown.menus, stem))
+            bound.contexts &= ~menus;
+    }
+    return pointer_keys_bindings(screen, pointer_keys);
 }
 
 } // namespace oa::ui::key_bindings

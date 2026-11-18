@@ -57,6 +57,13 @@ dispatcher times a double press and a hold from that time.
   its chords. A `select.tag-` id is a family's id in a layout file, and it is
   kept unknown, with its chords, when the loaded words do not make that
   action. A chord that loses records why, and which action kept it.
+- `bindings_for_screen` gives a copy of what `resolve` returned the contexts
+  of the GUI files on screen: the side panel's `gui.` actions answer in play
+  and on panels, a unit info file's on the unit info panel, and a menu file's
+  letters in the menus only while that file is on screen. Then pointer keys
+  set their chords aside (`pointer_keys_bindings`). The resolution is left as
+  it was, so a new page or new menus start again from it and get what
+  resolving anew gives.
 - `tag_action_id` maps one Category word to the action that selects it.
   `CTRL_B`, `CTRL_C`, `CTRL_F` and `CTRL_V` are the named selection actions.
   Any other `CTRL_<letter>` whose Ctrl chord is free in play is
@@ -248,6 +255,15 @@ layout for the left hand might write them, are two clashes on Windows, Linux and
 and none on a Mac, and Primary+5 against Meta+5 is one on a Mac only;
 resolution keeps every chord on each, and the chat line's Primary chord over
 a match's Ctrl chord is a shadow where they are one key.
+
+`ui-key-bindings-pages` (`tests/pages_test.cpp`) checks the contexts the GUI
+files on screen give: the side panel's actions take play and panels, a unit
+info file's the unit info panel, a menu file keeps the menus only while it is
+on screen, and the resolution itself is unchanged. Over eight thousand GUI
+keys of four hundred files, with a chosen layout, own changes, hacks and the
+number-key swap, five pages started from one kept resolution, one with
+pointer keys on, each give what resolving anew gives. It prints how long a
+page change takes each way, and checks no time.
 
 `ui-key-bindings-dispatcher` (`tests/dispatcher_test.cpp`) resolves
 `oa-default` and walks synthetic timelines: Attack on A, including with
