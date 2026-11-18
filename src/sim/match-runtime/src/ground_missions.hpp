@@ -164,19 +164,6 @@ constexpr uint32_t kept_descriptor_bits = 0x600;
 
 constexpr uint8_t build_stance_flag = 0x01; // unit build_flags
 constexpr uint8_t busy_flag = 0x02;         // unit build_flags, COB BUSY
-// Ticks a builder waits for its build stance before its order looks at its
-// work again (ten seconds).
-constexpr uint32_t stance_look_wait = 300;
-// Order.wake_tick of an order with no timer pending.
-constexpr uint32_t no_wake_tick = 0xffffffffu;
-// Order.raised_events bits of the engine's own that a wait for the build
-// stance keeps (GroundMissions::wait_for_build_stance); no event raises
-// them. stance_look_set: the order's timer is the stance look's.
-// held_timer_event: a timer event of the order's own, set before the wait,
-// that 3.1c leaves raised until a later phase waits for the timer; it is
-// held back while the look's timer runs.
-constexpr uint32_t stance_look_set = 0x40000000;
-constexpr uint32_t held_timer_event = 0x80000000;
 constexpr uint32_t occupancy_ground = 1;
 constexpr uint32_t occupancy_air = 2;
 
@@ -491,71 +478,6 @@ class TickHost::GroundMissions {
         if (s.record.build_flags & ground::build_stance_flag)
             return ground::next_phase;
         order.wait_events = extra_events | ground::script_value_event;
-        return ground::keep_waiting;
-    }
-
-    /// Advances once the builder stands in its build stance, as
-    /// wait_for_build_stance(uint32_t) does, and has the order look at its
-    /// work again each stance_look_wait ticks without the stance.
-    ///
-    /// A unit script whose eight threads are all busy drops the start-script
-    /// its StartBuilding makes, so the stance that start-script raises never
-    /// comes, and 3.1c waits for it for ever. The look ends the order when
-    /// its work is done or can no longer be done, or runs StartBuilding
-    /// again.
-    ///
-    /// The look runs on the order's timer, from the first step of the wait
-    /// or, when the order's timer was already set (3.1c's own, from an
-    /// earlier phase), from when that runs out. A timer event of 3.1c's own
-    /// is held while the order waits for the stance and raised again with
-    /// it, as 3.1c leaves it raised until a later phase waits for the timer,
-    /// and the order's timer is left as 3.1c has it: a builder whose stance
-    /// comes within stance_look_wait ticks goes on exactly as in 3.1c.
-    ///
-    /// @param extra_events Order events to wait for besides a script value
-    ///     change and the timer; they replace the order's wait events.
-    /// @param look Runs at each look without the stance; returns 2 (keep
-    ///     waiting) once it has run StartBuilding again, else the result
-    ///     that ends the wait.
-    /// @return 1 (next phase) in the build stance, 2 (keep waiting), or what
-    ///     `look` returned.
-    template <typename Look>
-    uint32_t wait_for_build_stance(uint32_t extra_events, Look&& look) {
-        auto& raised = order.raised_events;
-        bool look_due = false;
-        if (events & ground::timer_event) {
-            if (raised & ground::stance_look_set) {
-                look_due = true;
-                raised &= ~ground::stance_look_set;
-            } else
-                raised |= ground::held_timer_event;
-        }
-        // A timer event left raised before the wait began.
-        if (raised & ground::timer_event)
-            raised = (raised & ~ground::timer_event) | ground::held_timer_event;
-        const auto in_stance = [&] {
-            return (s.record.build_flags & ground::build_stance_flag) != 0;
-        };
-        if (look_due && !in_stance()) {
-            const auto result = look();
-            if (result != ground::keep_waiting) {
-                raised &= ~ground::held_timer_event;
-                return result;
-            }
-        }
-        if (in_stance()) {
-            if (raised & ground::stance_look_set)
-                order.wake_tick = ground::no_wake_tick;
-            if (raised & ground::held_timer_event)
-                raised |= ground::timer_event;
-            raised &= ~(ground::stance_look_set | ground::held_timer_event);
-            return ground::next_phase;
-        }
-        if (!(raised & ground::stance_look_set) && order.wake_tick == ground::no_wake_tick) {
-            order.wake_tick = tick() + ground::stance_look_wait;
-            raised |= ground::stance_look_set;
-        }
-        order.wait_events = extra_events | ground::script_value_event | ground::timer_event;
         return ground::keep_waiting;
     }
 

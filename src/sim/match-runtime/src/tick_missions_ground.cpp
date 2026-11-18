@@ -33,12 +33,7 @@ uint32_t TickHost::GroundMissions::reclaim() {
         return ground::next_phase;
     }
     case 2:
-        // The look runs StartBuilding again; a feature that is gone ended
-        // the order on the look's step already.
-        return wait_for_build_stance(0, [&] {
-            start_building_toward(work_point(*site));
-            return ground::keep_waiting;
-        });
+        return wait_for_build_stance(0);
     case 3:
         // The display rules may say "working" once: the next steps reclaim
         // in stage 4, which also gets to stage 5 one step sooner.
@@ -90,12 +85,7 @@ uint32_t TickHost::GroundMissions::resurrect() {
         start_building_toward(work_point(*site));
         return ground::next_phase;
     case 2:
-        // The look runs StartBuilding again; a wreck that is gone ended the
-        // order on the look's step already.
-        return wait_for_build_stance(0, [&] {
-            start_building_toward(work_point(*site));
-            return ground::keep_waiting;
-        });
+        return wait_for_build_stance(0);
     case 3: {
         // The wreck's name up to its first underscore names the unit type.
         std::string name;
