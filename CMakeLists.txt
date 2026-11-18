@@ -4938,7 +4938,8 @@ endforeach()
         WORKING_DIRECTORY "${oa_hold_confirm_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The order wheel a held mouse button opens, on a skirmish: the cursor
-      # follows the mouse while it is open, and one click ends it. Touch
+      # follows the mouse while it is open, and one click ends it; a hold over
+      # the keys overlay, Settings or a modal screen opens none. Touch
       # controls and the pad HUD stay off. The setting starts off.
       set(oa_order_wheel_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/order-wheel")
       file(MAKE_DIRECTORY "${oa_order_wheel_dir}")

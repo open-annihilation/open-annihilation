@@ -714,7 +714,13 @@ latched the closing key and drew a backdrop.
   where that screen covers it (`LayerScreen::covers_point`: the whole
   place, but for the replay bar, whose place is the battlefield, only its
   bar, cards and menus), and over the OA Settings button. With no screen
-  and no button the cursor is the match's as before. The key-latch chips
+  and no button the cursor is the match's as before. Where the layer
+  covers the pointer the order wheel a held button opens does not wait on
+  a press either (`Runtime::order_wheel_press_eligible`), so the screen
+  takes it: a hold over the keys overlay, over Settings, or anywhere while
+  a modal screen shows over a match that plays on opens no wheel, as
+  `native-order-wheel` holds, and beside the keys overlay it opens one.
+  The key-latch chips
   the match draws over the battlefield with no OA screen open show the
   arrow too (`Runtime::pointer_over_key_latch_chip`, over the places
   `draw_key_latch_chips` keeps), and the battlefield under them is not

@@ -4014,8 +4014,10 @@ class Runtime final : public menu::Host,
     /// Reports whether this press may be held back for the order wheel.
     ///
     /// Playing a seat, on the battlefield, and not on a panel, the minimap, a
-    /// placed HUD region or a key-latch chip, or while placing, the megamap or
-    /// the whiteboard holds the pointer.
+    /// placed HUD region, a key-latch chip or where the OA layer covers the
+    /// pointer (OaLayer::covers_pointer: over a screen, or anywhere while a
+    /// modal one shows), or while placing, the megamap or the whiteboard holds
+    /// the pointer.
     ///
     /// @param x canvas column
     /// @param y canvas row

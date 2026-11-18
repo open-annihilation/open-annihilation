@@ -4,9 +4,13 @@
 // The order wheel a held mouse button opens, on a skirmish. Touch controls
 // and the pad HUD stay off. A short click and a drag are not this wheel.
 // The cursor follows the mouse while the wheel is open, and one click ends it.
+// A hold over an OA screen opens none.
 #include "oa/app/runtime.hpp"
 
 #include "match_fault.hpp"
+#include "oa_layer.hpp"
+#include "oa_layer_check.hpp"
+#include "oa/ui/key_editor/overlay.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "touch_dispatch.hpp"
@@ -20,6 +24,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -645,6 +651,108 @@ void Runtime::check_order_wheel() {
             fail("the right click gave '" + status_ + "'");
         if (radial_open() || order_wheel_mouse_open())
             fail("the right click opened the wheel");
+    }
+
+    center_camera_on_unit(commander);
+    render_match_surface();
+    settle();
+    step(
+        "a right hold over the keys overlay, Settings or a modal screen opens no wheel; beside the "
+        "overlay it does"
+    );
+    {
+        // The OA layer's screens take the pointer over them, as their arrow
+        // says, so the wheel never waits on a press there: not over the keys
+        // overlay, which is not modal and leaves the match playing, not over
+        // Settings, which holds the in-game menu, and not anywhere while a
+        // modal screen shows over a match that plays on.
+        toggle_keys_overlay_screen();
+        if (oa_layer().find(oa::ui::key_editor::name_keys_overlay) == nullptr)
+            fail("the keys overlay did not open");
+        render_match_surface();
+        // A point of the battlefield the overlay covers, and open ground it
+        // leaves bare, scanned from the battlefield's right edge.
+        const auto scan = [&](bool covered) -> std::optional<std::pair<float, float>> {
+            const auto& layout = match_layout_;
+            for (int32_t x = layout.left + layout.battlefield_width() - 24; x > layout.left;
+                 x -= 16)
+                for (int32_t y = layout.top + 24; y < layout.top + layout.battlefield_height();
+                     y += 16) {
+                    const auto at_x = static_cast<float>(x);
+                    const auto at_y = static_cast<float>(y);
+                    if (radar_contains(at_x, at_y) || placed_hud_covers(at_x, at_y) ||
+                        key_latch_chip_at(at_x, at_y) ||
+                        oa_layer().covers_pointer(at_x, at_y) != covered)
+                        continue;
+                    update_pointer(at_x, at_y);
+                    if (hovered_.has_value() || hovered_match_unit_ != 0 ||
+                        !match_world_point(at_x, at_y))
+                        continue;
+                    return std::pair{at_x, at_y};
+                }
+            return std::nullopt;
+        };
+        const auto over = scan(true);
+        const auto beside = scan(false);
+        if (!over)
+            fail("the keys overlay covers no ground of the battlefield");
+        if (!beside)
+            fail("the keys overlay leaves no open ground bare");
+        const auto opens_none = [&](float at_x, float at_y, const std::string& where) {
+            const auto before = orders_of().count;
+            const auto before_status = status_;
+            hold_still(SDL_BUTTON_RIGHT, at_x, at_y);
+            if (radial_open() || order_wheel_mouse_open())
+                fail("a right hold " + where + " opened the wheel");
+            if (!arrow_shown())
+                fail("the pointer " + where + " does not show the arrow");
+            let_go(SDL_BUTTON_RIGHT, at_x, at_y);
+            if (radial_open() || order_wheel_mouse_open())
+                fail("the release " + where + " opened the wheel");
+            if (orders_of().count != before || status_ != before_status)
+                fail("a right hold " + where + " gave an order: " + match_state());
+        };
+        opens_none(over->first, over->second, "over the keys overlay");
+        hold_still(SDL_BUTTON_RIGHT, beside->first, beside->second);
+        require_drawn();
+        shut(SDL_BUTTON_RIGHT, beside->first, beside->second);
+        if (radial_open() || order_wheel_mouse_open())
+            fail("the wheel beside the keys overlay stayed open");
+        toggle_keys_overlay_screen();
+        if (oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr)
+            fail("the keys overlay did not close");
+
+        open_engine_settings_in_match();
+        if (engine_settings_dialog() == nullptr || !oa_layer().modal_shown(true))
+            fail("Settings did not open over the match");
+        render_match_surface();
+        const auto dialog = oa_layer().placement_of("settings").shown;
+        opens_none(
+            static_cast<float>(dialog.x + dialog.width / 2),
+            static_cast<float>(dialog.y + dialog.height / 2),
+            "over Settings"
+        );
+        opens_none(beside->first, beside->second, "beside Settings");
+        key_escape(true);
+        key_escape(false);
+        if (engine_settings_dialog() != nullptr)
+            fail("Escape did not close Settings");
+        resume_match_pause();
+        if (match_paused_ || ingame_menu_column_shown())
+            fail("the in-game menu did not resume");
+
+        MarkLook look{};
+        look.name = "order-wheel-modal";
+        look.modal = true;
+        look.in_match = true;
+        oa_layer().push(std::make_unique<MarkScreen>(look, std::make_shared<MarkSeen>()));
+        const LayerScreen* modal = oa_layer().find(look.name);
+        if (modal == nullptr || !oa_layer().modal_shown(true) || match_paused_)
+            fail("the modal screen does not show over the playing match");
+        opens_none(beside->first, beside->second, "under a modal screen");
+        oa_layer().close(modal);
+        if (oa_layer().modal_shown(true))
+            fail("the modal screen did not close");
     }
 
     apply_wheel(settings::OrderWheel::hold_middle);

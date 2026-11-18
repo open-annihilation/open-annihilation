@@ -185,7 +185,10 @@ the selection can take, it gives that order; anywhere else, it closes the
 wheel and gives nothing. That click does nothing else. A click shorter than
 the long press, or a press that moves past the drag threshold, does what
 that button does today, at the point it went down. Off, the buttons are
-unchanged. A mouse player sees the wheel alone.
+unchanged. A mouse player sees the wheel alone. A hold over one of Open
+Annihilation's own screens in the match, such as the keys overlay or
+Settings, or over a latch chip, opens no wheel: the screen takes the
+press, as it takes a click.
 The wheel's Stop, and a pad button's Stop, press **Stop** (`order.stop`).
 Moving Stop off S in the [key editor](keys.md#the-key-editor) leaves
 them where they are.
