@@ -320,35 +320,44 @@ uint8_t Runtime::pointer_radar_scroll_button() const {
 float Runtime::pointer_zoom_amount(float turn) {
     if (!std::isfinite(turn) || turn == 0.F)
         return turn;
-    std::array<PointerRoleChord, kPointerRoleChordLimit> in_chords{};
-    std::array<PointerRoleChord, kPointerRoleChordLimit> out_chords{};
-    uint8_t in_count = 0;
-    uint8_t out_count = 0;
-    copy_role_chords("camera.zoom-in", in_chords, in_count);
-    copy_role_chords("camera.zoom-out", out_chords, out_count);
-    const uint8_t wheel = static_cast<uint8_t>(keys::TriggerKind::wheel);
-    int8_t in_sign = 1;
-    int8_t out_sign = -1;
-    for (uint8_t index = 0; index < in_count; ++index) {
-        if (in_chords[index].kind == wheel && in_chords[index].wheel != 0) {
-            in_sign = in_chords[index].wheel > 0 ? int8_t{1} : int8_t{-1};
-            break;
-        }
-    }
-    for (uint8_t index = 0; index < out_count; ++index) {
-        if (out_chords[index].kind == wheel && out_chords[index].wheel != 0) {
-            out_sign = out_chords[index].wheel > 0 ? int8_t{1} : int8_t{-1};
-            break;
-        }
-    }
     const int8_t turn_sign = turn > 0.F ? int8_t{1} : int8_t{-1};
+    // The modifiers as the bindings read this turn: the keys held, and a
+    // sticky modifier as it was when the event began.
+    const auto held = static_cast<uint8_t>(pointer_modifier_bits() | sticky_modifier_bits());
+    const bool zoom_in = zoom_chord_answers("camera.zoom-in", turn_sign, held);
+    const bool zoom_out = zoom_chord_answers("camera.zoom-out", turn_sign, held);
+    // A turn neither zoom's chord answers zooms not at all, as a turn no
+    // chord of another action answers does nothing.
+    if (!zoom_in && !zoom_out)
+        return 0.F;
     const float magnitude = std::fabs(turn);
     float amount = turn;
-    if (turn_sign == in_sign && turn_sign != out_sign)
+    if (zoom_in && !zoom_out)
         amount = magnitude;
-    else if (turn_sign == out_sign && turn_sign != in_sign)
+    else if (zoom_out && !zoom_in)
         amount = -magnitude;
     return camera_inversion::wheel_zoom(amount, {.zoom = engine_settings().invert_mouse_zoom});
+}
+
+bool Runtime::zoom_chord_answers(std::string_view action, int8_t turn, uint8_t modifiers) const {
+    const int slot = role_slot(action);
+    if (slot < 0)
+        return false;
+    // copy_role_chords would give a role that kept no chord the stock ones;
+    // a zoom the player unbound zooms on no turn.
+    if (pointer_roles_.ready && pointer_roles_.counts[static_cast<std::size_t>(slot)] == 0)
+        return false;
+    std::array<PointerRoleChord, kPointerRoleChordLimit> chords{};
+    uint8_t count = 0;
+    copy_role_chords(action, chords, count);
+    const uint8_t wheel = static_cast<uint8_t>(keys::TriggerKind::wheel);
+    for (uint8_t index = 0; index < count; ++index) {
+        const PointerRoleChord& chord = chords[index];
+        if (chord.kind == wheel && chord.wheel == turn &&
+            modifiers_match(chord.modifiers, modifiers))
+            return true;
+    }
+    return false;
 }
 
 Runtime::PointerCameraDrag Runtime::pointer_camera_drag(uint8_t button, uint8_t modifiers) {

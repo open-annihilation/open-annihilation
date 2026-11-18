@@ -2081,6 +2081,17 @@ prompts, Settings › Updates and the headers name one state with one size.
   nor opens the megamap (`take_wheel_actions`). Where the zoom's or the
   megamap's own chord answers the same turn for its own target, the chord
   that names more modifiers takes the turn.
+  The zoom answers only a turn its own wheel chords answer
+  (`zoom_chord_answers`): a chord answers a turn its way while the
+  modifiers it names are held, others held too or not, as the pointer
+  roles' chords do, so the stock WheelUp and WheelDown zoom on every turn
+  as before, with Ctrl or any other modifier held; Zoom in and Zoom out on
+  Alt and the wheel leave the plain wheel doing nothing, and a zoom the
+  player unbound zooms on no turn. The megamap's wheel and the build
+  tools' rotate and spacing already answered only their own chords: with
+  Mouse wheel zoom off the megamap takes every turn and opens or closes
+  only on its chords, and the build tools pass on a turn their chords do
+  not answer.
   The wheel and a trackpad set the zoom's target (`handle_match_zoom`,
   `wheel_zoom_target`) by the amount `pointer_zoom_amount` gives a turn,
   the wheel's bindings turned round by Invert mouse zoom

@@ -123,6 +123,7 @@ struct Shot {
     std::string armed = "none";
     int32_t camera_x = 0;
     int32_t camera_z = 0;
+    float zoom_target = 0; ///< the zoom the view eases to
     bool paused = false;
     int speed = 0;
     std::string panel;
@@ -665,6 +666,8 @@ std::string effect_of(const Shot& before, const Shot& after) {
             camera_word(after.camera_x - before.camera_x, after.camera_z - before.camera_z);
         !moved.empty())
         put("camera", moved);
+    if (before.zoom_target != after.zoom_target)
+        put("zoom", after.zoom_target > before.zoom_target ? "in" : "out");
     if (before.paused != after.paused)
         put("paused", after.paused ? "on" : "off");
     if (before.speed != after.speed)
@@ -1650,6 +1653,7 @@ void Runtime::check_key_table() {
                 self.pending_build_type_ != 0 ? "build" : command_word(self.match_command_);
             shot.camera_x = self.match_camera_x_;
             shot.camera_z = self.match_camera_z_;
+            shot.zoom_target = self.match_zoom_target_;
             const auto& game = self.match_->state().game;
             shot.paused =
                 self.match_paused_ || (game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;

@@ -14,7 +14,8 @@ base: oa-default
 bindings:
   # The number row is the build cells. The pages and the speed keys keep the
   # numpad, and repeat leaves the backslash to the zoom reset. The speed keys
-  # also take Alt and Primary with the wheel.
+  # also take Alt and Primary with the wheel. Zoom in is unbound, and Zoom
+  # out moved to Alt with the wheel down.
   build.page-1: ["Numpad1"]
   build.page-2: ["Numpad2"]
   build.page-3: ["Numpad3"]
@@ -26,6 +27,8 @@ bindings:
   build.page-9: ["Numpad9"]
   game.speed-down: ["NumpadSubtract", "Primary+WheelDown"]
   game.speed-up: ["NumpadAdd", "Alt+WheelUp"]
+  camera.zoom-in: []
+  camera.zoom-out: ["Alt+WheelDown"]
   game.repeat-command: []
   build.cell-1: ["@Digit1"]
   build.cell-2: ["@Digit2"]

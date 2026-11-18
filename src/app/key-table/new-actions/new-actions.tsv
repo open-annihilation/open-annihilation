@@ -11,14 +11,16 @@ build.cell-9	select=commander	key 9	none
 build.cell-10	select=commander	key 0	none
 build.cell-11	select=commander	key Minus	none
 build.cell-12	select=commander	key Equals	none
-camera.zoom-in-key		key LeftBracket	camera=moved
-camera.zoom-in-key:repeat		key LeftBracket repeat	camera=moved
+camera.zoom-in-key		key LeftBracket	camera=moved;zoom=in
+camera.zoom-in-key:repeat		key LeftBracket repeat	camera=moved;zoom=in
 camera.zoom-in-key:wheel-off	wheel-zoom=off	key LeftBracket	none
-camera.zoom-out-key		key RightBracket	camera=moved
-camera.zoom-out-key:repeat		key RightBracket repeat	camera=moved
+camera.zoom-out-key		key RightBracket	camera=moved;zoom=out
+camera.zoom-out-key:repeat		key RightBracket repeat	camera=moved;zoom=out
 camera.zoom-reset		key Backslash	none
-camera.zoom-in:wheel		wheel up battlefield	none
-camera.zoom-out:alt-wheel		wheel down battlefield alt	none
+camera.zoom-in:unbound		wheel up battlefield	none
+camera.zoom-out:alt-wheel		wheel down battlefield alt	zoom=out
+camera.zoom-out:wheel		wheel down battlefield	none
+camera.zoom-out:shift-wheel		wheel down battlefield shift	none
 game.speed-up:alt-wheel		wheel up battlefield alt	messages=1;speed=+1
 game.speed-up:alt-shift-wheel		wheel up battlefield alt shift	messages=1;speed=+1
 game.speed-down:primary-wheel		wheel down battlefield primary	messages=1;speed=-1

@@ -4541,14 +4541,34 @@ class Runtime final : public menu::Host,
 
     /// The signed wheel amount `camera.zoom-in` and `camera.zoom-out` give one turn.
     ///
-    /// The magnitude is the turn's, including a fraction. The sign follows those roles, so the
-    /// stock bindings pass the turn through, and Invert mouse zoom then turns it round
-    /// (camera_inversion::wheel_zoom). The classic view and the turned one both zoom by it.
+    /// Only a turn one of their own wheel chords answers zooms
+    /// (zoom_chord_answers), with the modifier keys and sticky modifiers held
+    /// now; any other gives 0, as the other actions answer only their own
+    /// chords. The magnitude is the turn's, including a fraction. The sign
+    /// follows those roles, so the stock bindings pass every turn through, and
+    /// Invert mouse zoom then turns it round (camera_inversion::wheel_zoom).
+    /// The classic view and the turned one both zoom by it.
     /// [runtime_pointer_roles.cpp]
     ///
     /// @param turn the wheel's y, as the event gave it
-    /// @return the amount to zoom by; positive zooms in
+    /// @return the amount to zoom by; positive zooms in, 0 zooms not at all
     [[nodiscard]] float pointer_zoom_amount(float turn);
+
+    /// Tells whether a zoom role's own wheel chords answer a turn.
+    ///
+    /// A chord answers a turn its way while every modifier it names is held;
+    /// others held as well do not stop it, as with the other pointer roles,
+    /// so the stock WheelUp and WheelDown answer every turn. Once the
+    /// bindings are resolved, a role that kept no wheel chord is unbound and
+    /// answers none; until then the stock chords stand in.
+    /// [runtime_pointer_roles.cpp]
+    ///
+    /// @param action `camera.zoom-in` or `camera.zoom-out`
+    /// @param turn 1 for a turn up, -1 for a turn down
+    /// @param modifiers the binding modifier bits held
+    /// @return true when one of its chords answers the turn
+    [[nodiscard]] bool
+    zoom_chord_answers(std::string_view action, int8_t turn, uint8_t modifiers) const;
 
     /// The camera drag this button starts for the modifiers held now.
     ///

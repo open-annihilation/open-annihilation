@@ -575,11 +575,16 @@ default; On the map is 3.1c's double click. **Select same type**
 (Ctrl+Z) selects the selected types on the whole map either way.
 
 **Zoom in** and **Zoom out** zoom the way the wheel is bound, and
-**Invert mouse zoom** in [Settings › Controls](settings.md#controls) turns
-them round. **Invert 3D camera rotation** turns **Orbit camera**'s drags
-round, and **Invert 3D camera pan** those of **Pan camera** and of **Pan**
-in the rotated view, whichever buttons they are on. The camera's keys,
-such as **Pan left**, keep the way their names say.
+**Invert mouse zoom** in [Settings › Controls](settings.md#controls)
+turns them round. The wheel zooms only on the turns they are bound to:
+bound to Alt and the wheel, the wheel alone no longer zooms, and with
+neither bound the wheel does not zoom. Their turn still zooms with other
+modifiers held, unless another action is bound to that turn with them, as
+Alt and the wheel turn a building being placed. **Invert 3D camera
+rotation** turns **Orbit camera**'s drags round, and **Invert 3D camera
+pan** those of **Pan camera** and of **Pan** in the rotated view,
+whichever buttons they are on. The camera's keys, such as **Pan left**,
+keep the way their names say.
 
 ### Selection
 

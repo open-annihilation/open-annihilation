@@ -53,8 +53,8 @@ build.queue-modifier:right-click	interface=right-click;select=factory	button rig
 pointer.select-type:right-click	interface=right-click;select=combat	button right unit clicks=2	selected=2
 pointer.pan:right-click	interface=right-click	button middle battlefield	none
 pointer.mouse-look:right-click	interface=right-click	button left battlefield ctrl	none
-camera.zoom-in:right-click	interface=right-click	wheel up battlefield	none
-camera.zoom-out:right-click	interface=right-click	wheel down battlefield	none
+camera.zoom-in:right-click	interface=right-click	wheel up battlefield	zoom=in
+camera.zoom-out:right-click	interface=right-click	wheel down battlefield	zoom=out
 camera.edge-scroll:left:right-click	interface=right-click	button right edge-left	camera=left
 camera.edge-scroll:right:right-click	interface=right-click	button right edge-right	camera=right
 camera.edge-scroll:top:right-click	interface=right-click	button right edge-top	camera=up
@@ -72,8 +72,8 @@ build.queue-modifier:left-click	interface=left-click;select=factory	button right
 pointer.select-type:left-click	interface=left-click;select=combat	button right unit clicks=2	selected=2
 pointer.pan:left-click	interface=left-click	button middle battlefield	none
 pointer.mouse-look:left-click	interface=left-click	button left battlefield ctrl	camera=centred
-camera.zoom-in:left-click	interface=left-click	wheel up battlefield	none
-camera.zoom-out:left-click	interface=left-click	wheel down battlefield	none
+camera.zoom-in:left-click	interface=left-click	wheel up battlefield	zoom=in
+camera.zoom-out:left-click	interface=left-click	wheel down battlefield	zoom=out
 camera.edge-scroll:left:left-click	interface=left-click	button right edge-left	camera=left
 camera.edge-scroll:right:left-click	interface=left-click	button right edge-right	camera=right
 camera.edge-scroll:top:left-click	interface=left-click	button right edge-top	camera=up

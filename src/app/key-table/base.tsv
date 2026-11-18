@@ -55,8 +55,8 @@ pointer.select-type:far:right-click	interface=right-click;select=combat;far=comb
 pointer.select-type:on-map:right-click	interface=right-click;select=combat;far=combat;double-click=map	button left unit clicks=2	selected=3
 pointer.pan:right-click	interface=right-click	button middle battlefield	none
 pointer.mouse-look:right-click	interface=right-click	button right battlefield ctrl	none
-camera.zoom-in:right-click	interface=right-click	wheel up battlefield	none
-camera.zoom-out:right-click	interface=right-click	wheel down battlefield	none
+camera.zoom-in:right-click	interface=right-click	wheel up battlefield	zoom=in
+camera.zoom-out:right-click	interface=right-click	wheel down battlefield	zoom=out
 camera.edge-scroll:left:right-click	interface=right-click	button left edge-left	camera=left
 camera.edge-scroll:right:right-click	interface=right-click	button left edge-right	camera=right
 camera.edge-scroll:top:right-click	interface=right-click	button left edge-top	camera=up
@@ -76,8 +76,8 @@ pointer.select-type:far:left-click	interface=left-click;select=combat;far=combat
 pointer.select-type:on-map:left-click	interface=left-click;select=combat;far=combat;double-click=map	button left unit clicks=2	selected=3
 pointer.pan:left-click	interface=left-click	button middle battlefield	none
 pointer.mouse-look:left-click	interface=left-click	button right battlefield ctrl	camera=centred
-camera.zoom-in:left-click	interface=left-click	wheel up battlefield	none
-camera.zoom-out:left-click	interface=left-click	wheel down battlefield	none
+camera.zoom-in:left-click	interface=left-click	wheel up battlefield	zoom=in
+camera.zoom-out:left-click	interface=left-click	wheel down battlefield	zoom=out
 camera.edge-scroll:left:left-click	interface=left-click	button left edge-left	camera=left
 camera.edge-scroll:right:left-click	interface=left-click	button left edge-right	camera=right
 camera.edge-scroll:top:left-click	interface=left-click	button left edge-top	camera=up
