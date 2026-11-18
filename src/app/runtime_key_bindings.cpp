@@ -2377,7 +2377,8 @@ bool Runtime::order_wheel_press_eligible(float x, float y) {
         return false;
     if (resource_panel_.dragging || order_drag_unit_ != 0 || build_queue_drag_.has_value())
         return false;
-    if (!battlefield_contains(x, y) || radar_contains(x, y) || placed_hud_covers(x, y))
+    if (!battlefield_contains(x, y) || radar_contains(x, y) || placed_hud_covers(x, y) ||
+        key_latch_chip_at(x, y))
         return false;
     if (unit_info_panel_.has_value() && unit_info_point(x, y))
         return false;

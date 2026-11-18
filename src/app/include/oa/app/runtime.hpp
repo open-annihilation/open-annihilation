@@ -4014,8 +4014,8 @@ class Runtime final : public menu::Host,
     /// Reports whether this press may be held back for the order wheel.
     ///
     /// Playing a seat, on the battlefield, and not on a panel, the minimap, a
-    /// placed HUD region, or while placing, the megamap or the whiteboard holds
-    /// the pointer.
+    /// placed HUD region or a key-latch chip, or while placing, the megamap or
+    /// the whiteboard holds the pointer.
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -5483,16 +5483,17 @@ class Runtime final : public menu::Host,
     /// the ground point into the Game block first, and stores the cursor cell.
     ///
     /// @return a cursor table index: the normal cursor over a gadget, over the
-    ///     OA layer's screens or without a match, the build cursor while build
-    ///     placement owns the pointer
+    ///     OA layer's screens or a key-latch chip, or without a match, the
+    ///     build cursor while build placement owns the pointer
     uint8_t pick_match_cursor();
 
     /// Picks the cursor the match pointer shows, as pick_match_cursor does,
     /// writing the same into the Game block.
     ///
-    /// Over the OA layer's screens (OaLayer::covers_pointer), as over a HUD
-    /// button, it is the arrow and nothing is written: the battlefield under
-    /// them is not picked.
+    /// Over the OA layer's screens (OaLayer::covers_pointer) and the key-latch
+    /// chips (pointer_over_key_latch_chip), as over a HUD button, it is the
+    /// arrow and nothing is written: the battlefield under them is not picked,
+    /// since they take its clicks.
     ///
     /// With ui.click-snap, RECLAIM over open ground where a click would snap
     /// onto a feature (snapped_reclaim_point) shows the cursor the click
@@ -5538,8 +5539,7 @@ class Runtime final : public menu::Host,
     /// Steps and draws the software cursor, the cursor half of the GUI update.
     ///
     /// The elapsed ticks, the cursor step and pointer read, the match's order
-    /// cursor (shown_match_cursor), or the arrow over a key-latch chip
-    /// (pointer_over_key_latch_chip), then the cursor for the pointer over or
+    /// cursor (shown_match_cursor), then the cursor for the pointer over or
     /// off the top panel; the cursor is drawn into the frame unless the match
     /// presents in layers, or the system's pointer shows instead
     /// (pointer_shows_cursor).
@@ -22740,6 +22740,31 @@ class Runtime final : public menu::Host,
     /// @return true over a chip
     [[nodiscard]] bool pointer_over_key_latch_chip() const;
 
+    /// Tells whether a point lies on a key-latch chip the last frame drew.
+    /// [runtime_hud.cpp]
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true on a chip
+    [[nodiscard]] bool key_latch_chip_at(float x, float y) const;
+
+    /// Gives the key-latch chips the clicks on them, as the OA layer's screens
+    /// take theirs in a match.
+    ///
+    /// A press of any button on a chip is the chip's: it gives the
+    /// battlefield under it no order, selection, box or pan, and does nothing
+    /// else, since a chip only shows a latch. Its release is the chip's
+    /// wherever it comes up. A press the HUD, a placed HUD region or a
+    /// running middle-click pan holds first is left to them, and so is the
+    /// release of a press made elsewhere, so a box dragged from the
+    /// battlefield ends over a chip. [runtime_hud.cpp]
+    ///
+    /// @param event a mouse event, in canvas coordinates
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true when a chip took the event
+    bool key_latch_chip_pointer(const SDL_Event& event, float x, float y);
+
     /// What the hold ring and its card draw from the press that is running.
     struct HoldConfirmDraw {
         bool show{false};            ///< a hold is running
@@ -24662,6 +24687,10 @@ class Runtime final : public menu::Host,
     /// Where the chips last drawn lie, one a chip, in match canvas pixels.
     /// Empty when none show.
     std::vector<oa::ui::display_layout::Rect> key_latch_chip_places_{};
+    /// The buttons whose press a key-latch chip took, one bit a button
+    /// (1 << the SDL button), so that their releases are the chips' too. A
+    /// new press of a button clears its bit: its release was lost.
+    uint16_t key_latch_chip_buttons_{0};
     /// The key of the press being handled, so a hold can tell which key lets it go.
     uint16_t hold_key_scancode_{0};
     /// The button release just seen started a hold, so that release activates nothing.

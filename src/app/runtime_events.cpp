@@ -369,6 +369,10 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         // ends it, before anything under it; the side column takes none.
         if (unit_info_pointer(event, x, y))
             return;
+        // A key-latch chip takes a press on it, and that press's release,
+        // before the panels and the battlefield it lies over.
+        if (key_latch_chip_pointer(event, x, y))
+            return;
         // The commander placement (setup.commander-warp) takes the pointer
         // first; ui.resource-panel's panel floats over the battlefield and
         // takes it next; ui.build-tools' drag with the snap override key

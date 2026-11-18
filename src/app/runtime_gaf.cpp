@@ -500,12 +500,12 @@ uint8_t Runtime::pick_match_cursor() {
 
 std::optional<uint8_t> Runtime::shown_match_cursor() {
     // Over a HUD button, while the order wheel a mouse button opened is up,
-    // in photo mode and over the OA layer's screens, the cursor is the
-    // arrow: a click gives the battlefield no order. Photo mode's pointer
-    // reads nothing of the match, and the battlefield under an OA screen is
-    // not picked.
+    // in photo mode, over the OA layer's screens and over a key-latch chip,
+    // the cursor is the arrow: a click gives the battlefield no order.
+    // Photo mode's pointer reads nothing of the match, and the battlefield
+    // under an OA screen or a chip, which take its clicks, is not picked.
     if (hovered_ || !match_ || order_wheel_mouse_open() || photo_mode() ||
-        oa_layer().covers_pointer(pointer_x_, pointer_y_))
+        oa_layer().covers_pointer(pointer_x_, pointer_y_) || pointer_over_key_latch_chip())
         return static_cast<uint8_t>(input::OrderCursor::normal);
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;
@@ -586,16 +586,10 @@ void Runtime::tick_and_draw_cursor() {
     gui_context_.last_tick = tick;
     oa::ui::gui_input::tick_cursor_and_read_pointer(gui_context_);
     // Build placement over the battlefield keeps the cursor the pointer
-    // brought, whose point is the footprint's middle. Over a key-latch chip
-    // the arrow shows, as over the OA layer's screens; the pick still runs,
-    // since a click there reaches the battlefield under the chip.
-    if (screen_ == Screen::match) {
-        const auto cursor = shown_match_cursor();
-        if (pointer_over_key_latch_chip())
-            select_game_cursor(static_cast<uint8_t>(input::OrderCursor::normal));
-        else if (cursor)
+    // brought, whose point is the footprint's middle.
+    if (screen_ == Screen::match)
+        if (const auto cursor = shown_match_cursor())
             select_game_cursor(*cursor);
-    }
     oa::ui::gui_input::follow_hover_cursor(gui_context_, pointer_over_top_panel());
     // A middle-click pan draws its own direction at the pointer. Photo mode
     // draws no marks, so its pointer stays.

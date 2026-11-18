@@ -4904,7 +4904,8 @@ endforeach()
       # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
       # with a layout that lists those two holds; the pointer over QUEUE's
       # chip shows the arrow, and the order cursor under it and where it
-      # lay once it goes.
+      # lay once it goes; a click on the chip gives no order and changes no
+      # selection, and one just under it orders.
       set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")
       file(MAKE_DIRECTORY "${oa_key_latches_dir}")
       file(WRITE "${oa_key_latches_dir}/oakeys.yaml"

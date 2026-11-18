@@ -318,7 +318,9 @@ join the queue without Shift held down, and a chip at the top of the
 battlefield, or with Move overlays on where [Arrange overlays](#arrange-overlays) put the chips,
 reads QUEUE · latched until Shift is tapped again. The same row
 shows each other latched hold, and, with Sticky modifiers on, a tapped
-Shift, Ctrl or Alt. Losing the window clears every latch and sticky
+Shift, Ctrl or Alt. The pointer over a chip shows the arrow, and a click
+on a chip does nothing: the ground and units under it take no order or
+selection from it. Losing the window clears every latch and sticky
 modifier, including a QUEUE latched from the touch controls.
 
 ## Helping a factory

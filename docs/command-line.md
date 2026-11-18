@@ -470,7 +470,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-single-player-offers` | Opens Single Player and checks New Campaign and Any Mission when a side has a campaign, and when neither side has one. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
-| `--check-key-latches` | Checks a latched Shift and Space, then sticky Ctrl and Alt, on a skirmish. |
+| `--check-key-latches` | Checks a latched Shift and Space, then sticky Ctrl and Alt, on a skirmish, and that a click on a latch's chip gives no order and selects nothing. |
 | `--check-hold-confirm` | Checks Hold to confirm: self-destruct, the order button and the surrender question, on a skirmish. |
 | `--check-away-pause` | Checks When the window loses focus: Pause single player pauses while the window is away and goes on a moment after it is back, the player's own pause stays, Keep playing plays on, and a multiplayer game never pauses. With `--campaign` and `--mission` it starts that mission; otherwise it starts a skirmish. |
 | `--check-order-wheel` | Checks the order wheel on a skirmish: a held right or middle button opens it, a short click and a drag do not, the cursor follows the mouse while it is open, letting go or clicking on a wedge gives that order, and one click elsewhere closes it; in full screen too, and in the turned view when the graphics card's Full tier draws it. |

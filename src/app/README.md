@@ -717,11 +717,26 @@ latched the closing key and drew a backdrop.
   and no button the cursor is the match's as before. The key-latch chips
   the match draws over the battlefield with no OA screen open show the
   arrow too (`Runtime::pointer_over_key_latch_chip`, over the places
-  `draw_key_latch_chips` keeps); the battlefield under them is still
-  picked, since a click there reaches it. `native-reclaim-cursor` holds it
+  `draw_key_latch_chips` keeps), and the battlefield under them is not
+  picked: they take its clicks as the screens do
+  (`Runtime::key_latch_chip_pointer`, before the panels and the
+  battlefield). A press of any button on a chip is the chip's, and so is
+  its release wherever it comes up, so it gives no order, selection, box
+  or pan, and the order wheel does not wait on it
+  (`order_wheel_press_eligible`). The click does nothing more: a chip only
+  shows a latch, as the keys overlay's On line does, and the latch's own
+  key lets it go. The bindings still see the click first, as they see one
+  on a screen, so it uses up a modifier made sticky for the next key or
+  click, as any click does; a locked one stays. A press the HUD, a placed
+  HUD region or a running middle-click pan holds is theirs, and the
+  release of a press made elsewhere goes on, so a box dragged from the
+  battlefield ends over a chip. `native-reclaim-cursor` holds the arrow
   over Settings and over a screen that is not modal, a tree under each,
   `native-replay-viewer` over the replay bar and off it, and
-  `native-key-latches` over QUEUE's chip, under it and where it lay.
+  `native-key-latches` over QUEUE's chip, under it and where it lay;
+  `native-key-latches` also clicks the chip with each button on both
+  interfaces, drags from it and presses it with the order wheel on, none
+  of which orders or selects, and clicks just under it, which orders.
 - **The in-game OA Settings button.** The in-game menu has one OA button,
   under Resume, as wide as it from its left edge (`match_button_rect`, 96
   by 24 source pixels at (14, 455), placed in the column at its own scale,
