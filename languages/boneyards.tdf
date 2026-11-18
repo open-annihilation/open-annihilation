@@ -868,7 +868,7 @@
 
 [REGISTRATION]
 	{
-	de=ANMELDUNG;
+	de=REGISTRIERUNG;
 	fr=DOSSIER;
 	it=ISCRIZIONE;
 	es=REGISTRO;
@@ -895,29 +895,29 @@
 
 [Enlist on Core Prime's]
 	{
-	de=Auf der Seite von;
-	fr=Sur le site de;
-	it=Sul sito di;
-	es=En el sitio de;
+	de=Konto auf der Seite von;
+	fr=Créer un compte sur;
+	it=Iscriviti sul sito di;
+	es=Regístrate en la web;
 	zh-Hans=在 Core Prime;
 	}
 
 [web site, then log in]
 	{
-	de=Core Prime anmelden.;
-	fr=Core Prime, puis entrer.;
-	it=Core Prime, poi entrare.;
-	es=Core Prime, y entrar.;
-	zh-Hans=然后登录。;
+	de=Core Prime erstellen,;
+	fr=le site de Core Prime,;
+	it=Core Prime, poi entra;
+	es=de Core Prime y luego;
+	zh-Hans=网站报名，然后;
 	}
 
 [with your new name.]
 	{
-	de=Dann mit dem Namen rein.;
-	fr=Avec le nouveau nom.;
-	it=Col nuovo nome.;
-	es=Con el nombre nuevo.;
-	zh-Hans=用新名字进入。;
+	de=dann damit anmelden.;
+	fr=puis se connecter ici.;
+	it=col nuovo nome.;
+	es=entra con ese nombre.;
+	zh-Hans=用新名字登录。;
 	}
 
 [No CD key or proof of]
@@ -958,10 +958,10 @@
 
 [When your dossier is ready, come back and log in.]
 	{
-	de=Wenn der Eintrag fertig ist, zurück und anmelden.;
-	fr=Quand le dossier est prêt, reviens et entre.;
-	it=Quando la scheda e pronta, torna ed entra.;
-	es=Cuando la ficha este lista, vuelve y entra.;
+	de=Ist das Konto erstellt, komm zurück und melde dich an.;
+	fr=Quand le compte est prêt, reviens et connecte-toi.;
+	it=Quando la scheda è pronta, torna ed entra.;
+	es=Cuando la ficha esté lista, vuelve y entra.;
 	zh-Hans=档案就绪后回来登录。;
 	}
 
@@ -1012,10 +1012,10 @@
 
 [Enlist without leaving]
 	{
-	de=Anmelden, ohne das;
+	de=Registrieren, ohne das;
 	fr=S'inscrire sans;
 	it=Iscriversi senza;
-	es=Alta sin salir;
+	es=Regístrate sin salir;
 	zh-Hans=不离开游戏;
 	}
 
@@ -1084,11 +1084,20 @@
 
 [REGISTER]
 	{
-	de=ANMELDEN;
-	fr=INSCRIRE;
-	it=ISCRIVI;
-	es=ALTA;
+	de=REGISTRIEREN;
+	fr=S'INSCRIRE;
+	it=ISCRIVITI;
+	es=REGISTRARSE;
 	zh-Hans=报名;
+	}
+
+[LOGIN]
+	{
+	de=ANMELDEN;
+	fr=CONNEXION;
+	it=ENTRA;
+	es=ENTRAR;
+	zh-Hans=登录;
 	}
 
 [CANCEL]
@@ -1102,7 +1111,7 @@
 
 [This server does not take\nregistrations from the game yet.\nPlease use the web page.]
 	{
-	de=Dieser Server nimmt\nnoch keine Anmeldung an.\nBitte die Webseite.;
+	de=Dieser Server nimmt im Spiel\nnoch keine Registrierung an.\nBitte die Webseite nutzen.;
 	fr=Ce serveur ne prend\npas encore d'inscription.\nUtilise la page web.;
 	it=Questo server non\nprende ancora iscrizioni.\nUsa la pagina web.;
 	es=Este servidor aun\nno toma altas.\nUsa la pagina web.;
@@ -1138,7 +1147,7 @@
 
 [The Registration console needs the Boneyards mod.]
 	{
-	de=Die Anmeldung braucht das Boneyards-Mod.;
+	de=Die Registrierung braucht das Boneyards-Mod.;
 	fr=Le dossier exige le mod Boneyards.;
 	it=L'iscrizione esige il mod Boneyards.;
 	es=El registro exige el mod Boneyards.;
