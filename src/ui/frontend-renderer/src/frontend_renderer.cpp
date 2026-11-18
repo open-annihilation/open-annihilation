@@ -903,7 +903,10 @@ void shade_rectangle(Surface& surface, const Rectangle& rectangle, GrayedShade& 
 // It stays a function of its own: inlined into render_screen_into by GCC 12,
 // it drew frontend-renderer's six grayed 64x64 buttons in 77 us, and on its
 // own in 47.
-[[gnu::noinline]] void blit_grayed(
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
+void blit_grayed(
     Surface& surface,
     const FramePixels& frame,
     int x,
