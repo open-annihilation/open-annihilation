@@ -7,8 +7,9 @@
 // effect, the loop and the stream at once; and the effects' voice policy.
 // On a mixer the test runs by hand, a placed start weighs its two sides by
 // the placement's levels, a held loop is silent until the hold ends, an
-// effect at the near volume plays 5.85 dB below the loop, and each layout of
-// WAV plays its samples with their sign, level and sides.
+// effect at the near volume plays 5.85 dB below the loop, each layout of
+// WAV plays its samples with their sign, level and sides, and a sound stays
+// in the cache while a voice holds it.
 #include "audio_test_support.hpp"
 #include "oa/audio/sdl_audio.hpp"
 #include "oa/audio/software_mixer.hpp"
@@ -101,6 +102,116 @@ class HandMixedOutput final : public oa::audio::SoundOutput {
 
     oa::audio::SoftwareMixer mixer{oa::audio::MixerLock{}};
 };
+
+// A stream that holds sound until its owner has asked a given number of
+// times: one that plays out while the player is busy with a start.
+class ScriptedStream final : public oa::audio::OutputStream {
+  public:
+
+    // `answers` questions are answered "still playing", later ones "played out".
+    ScriptedStream(int answers, int32_t& last_put) : answers_(answers), last_put_(last_put) {}
+
+    bool put(const void*, int32_t count) override {
+        last_put_ = count;
+        return true;
+    }
+
+    bool flush() override { return true; }
+
+    int32_t queued_bytes() override {
+        if (answers_ <= 0)
+            return 0;
+        --answers_;
+        return 1;
+    }
+
+    int32_t available_bytes() override { return 0; }
+
+    void clear() override {}
+
+    bool set_gain(float) override { return true; }
+
+    bool pause() override { return true; }
+
+    bool resume() override { return true; }
+
+    void lock() override {}
+
+    void unlock() override {}
+
+  private:
+
+    int answers_;
+    int32_t& last_put_;
+};
+
+// A sound output of ScriptedStreams, which notes the bytes last put to any.
+class ScriptedOutput final : public oa::audio::SoundOutput {
+  public:
+
+    explicit ScriptedOutput(int answers) : answers_(answers) {}
+
+    bool start(std::string&) override { return true; }
+
+    void stop() override {}
+
+    bool started() const override { return true; }
+
+    std::unique_ptr<oa::audio::OutputStream> open_stream(
+        const oa::audio::StreamFormat&, oa::audio::StreamFeed, void*, std::string&
+    ) override {
+        return std::make_unique<ScriptedStream>(answers_, last_put);
+    }
+
+    std::string driver_name() const override { return "scripted"; }
+
+    std::string last_error() const override { return ""; }
+
+    int32_t last_put{}; ///< bytes the last start put to its stream
+
+  private:
+
+    int answers_;
+};
+
+// A sound whose last voice plays out while a later start decodes a sound
+// that needs its room in the cache is kept until its voice is freed: no
+// voice is left holding a buffer the cache has dropped, and its next start
+// plays the samples the cache kept rather than reading the file again.
+void cache_keeps_held_sound(const std::filesystem::path& root) {
+    // 60 s and 45 s at 11025 Hz convert to 5.3 MB and 4.0 MB, more than the
+    // cache's 8 MiB together.
+    constexpr uint32_t rate = 11025;
+    constexpr uint32_t held_seconds = 60;
+    write_slow(root / "sounds" / "held.wav", rate, rate * held_seconds);
+    write_slow(root / "sounds" / "newer.wav", rate, rate * 45);
+    // Each start of the first sound puts its 16-bit samples at the mixer's rate.
+    constexpr int32_t held_bytes =
+        static_cast<int32_t>(oa::audio::mixer_output_rate * held_seconds * sizeof(int16_t));
+    // A stream holds sound while the start of another sound first looks at
+    // the voices and the buffers, and has played out when the cache is
+    // made room in.
+    ScriptedOutput output(2);
+    oa::audio::set_sound_output(&output);
+    {
+        const oa::AssetStore assets(root);
+        SdlWavPlayer player(assets);
+        std::string error;
+        require(player.play_resource("sounds/held.wav", error), "the first sound starts");
+        require(output.last_put == held_bytes, "the first sound plays whole");
+        require(player.play_resource("sounds/newer.wav", error), "a newer sound starts");
+        // The file changes; a sound read again would play the new one.
+        write_slow(root / "sounds" / "held.wav", rate, rate * 50);
+        require(player.play_resource("sounds/held.wav", error), "the first sound starts again");
+        require(
+            output.last_put == held_bytes,
+            "the first sound stays in the cache while a voice holds it"
+        );
+        require(player.effect_voices() == 2, "the played-out voice is freed");
+        player.stop_all();
+    }
+    oa::audio::set_sound_output(nullptr);
+}
 
 // A placed start plays each side at the placement's level: against the same
 // start unplaced, within a step of 16 bits for the rounding of the gains.
@@ -541,6 +652,7 @@ int main(int argc, char** argv) {
     held_loop(root);
     near_level(root);
     formats_play(root);
+    cache_keeps_held_sound(root);
     std::filesystem::remove_all(root);
     SDL_Quit();
     return 0;

@@ -175,6 +175,23 @@ struct SdlWavPlayer::Impl {
                     release_stream(buffer);
     }
 
+    /// Tells whether a voice holds one of a sound's buffers.
+    ///
+    /// A voice is freed only as the player collects it, so a buffer that
+    /// has just stopped playing may still be held by one.
+    ///
+    /// @param sound the sound
+    /// @return true while a voice holds one of its buffers
+    [[nodiscard]] bool voice_holds(const CachedSound& sound) const {
+        return std::any_of(voices.begin(), voices.end(), [&sound](const SoundVoice& voice) {
+            return std::any_of(
+                sound.buffers.begin(), sound.buffers.end(), [&voice](const SoundBuffer& buffer) {
+                    return voice.buffer == &buffer;
+                }
+            );
+        });
+    }
+
     /// Stops the buffer of the oldest voice and frees that voice.
     ///
     /// @return false when no voice plays
@@ -369,13 +386,18 @@ bool SdlWavPlayer::play_placed(
         if (!load_converted(impl.assets, resource, max_cached_sound_bytes, format, samples, error))
             return false;
         const std::size_t length = sample_bytes_of(samples);
-        // The least recently started sounds that no buffer plays make room.
+        // The least recently started sounds that no buffer plays and no
+        // voice holds make room. A buffer may stop while the new sound
+        // decodes, after the voices were collected; its sound stays until
+        // its voice is freed, so that no voice holds a buffer that is gone.
         while (impl.cached_bytes + length > max_cached_sound_bytes) {
             auto oldest = impl.sounds.end();
             for (auto it = impl.sounds.begin(); it != impl.sounds.end(); ++it) {
-                const bool busy = std::any_of(
-                    it->second.buffers.begin(), it->second.buffers.end(), buffer_playing
-                );
+                const bool busy =
+                    impl.voice_holds(it->second) ||
+                    std::any_of(
+                        it->second.buffers.begin(), it->second.buffers.end(), buffer_playing
+                    );
                 if (!busy && (oldest == impl.sounds.end() ||
                               it->second.last_started < oldest->second.last_started))
                     oldest = it;

@@ -37,7 +37,9 @@ the one that has played furthest, which then holds two voices until it
 stops. Each sound file is read and decoded on its first start, converted
 once to the mixer's rate (`convert_for_mixer`), and kept, with up to 8 MiB
 of others in that form, the least recently started that no voice
-plays giving way first; a buffer plays on a stream it holds while it plays,
+plays giving way first (a sound whose voice has played out stays until the
+next start frees the voice, so no voice holds a buffer the cache has
+dropped); a buffer plays on a stream it holds while it plays,
 and up to eight idle streams are kept for the next starts. A placed start
 weighs the stream's sides with `spatial_stereo_gain`'s levels
 (`set_side_gains`) rather than converting its samples. The loop and the
@@ -255,13 +257,13 @@ timer's late requests and its log line; the buffered output's ring, its
 start count and a refused buffer), `audio-sdl-player` (the WAV player's
 stream, voices, a placed start's two sides, the near effects' level against
 the loop's, the sign, level and sides of each layout of WAV, 8-bit and
-16-bit, one and two channels, and the device's log line),
-`audio-sdl-player-data` (every RIFF sound of the installed game decodes as
-the player reads it to the samples and format the game's loader finds; the
-game's two headerless and DIGI sounds, the novelty voice's, are listed,
-since SDL's reader does not take them) and on Windows
-`audio-output-wave-out`, which plays a tone on the system's device, or is
-skipped where there is none.
+16-bit, one and two channels, a sound kept in the cache while a voice holds
+it, and the device's log line), `audio-sdl-player-data` (every RIFF sound of
+the installed game decodes as the player reads it to the samples and format
+the game's loader finds; the game's two headerless and DIGI sounds, the
+novelty voice's, are listed, since SDL's reader does not take them) and on
+Windows `audio-output-wave-out`, which plays a tone on the system's device,
+or is skipped where there is none.
 
 ## Offline mix
 
