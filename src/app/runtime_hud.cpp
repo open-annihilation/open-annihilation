@@ -2008,6 +2008,7 @@ void Runtime::draw_key_badges() {
 
 void Runtime::draw_key_latch_chips() {
     key_latch_chips_drawn_.clear();
+    key_latch_chip_places_.clear();
     // While the keys overlay is open the chips sit in its On line.
     if (oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr)
         return;
@@ -2105,12 +2106,31 @@ void Runtime::draw_key_latch_chips() {
     }
     for (const Placed& item : row) {
         key_latch_chips_drawn_.push_back(item.text);
+        key_latch_chip_places_.push_back(
+            {area.x + origin * scale,
+             area.y + row_top * scale,
+             item.width * scale,
+             chip_height * scale}
+        );
         kit::ChipLook look;
         look.text = item.text;
         look.state = item.filled ? kit::ChipState::playing : kit::ChipState::installed;
         kit::draw_chip(canvas, {origin, row_top, item.width, chip_height}, look);
         origin += item.width + gap;
     }
+}
+
+bool Runtime::pointer_over_key_latch_chip() const {
+    return std::any_of(
+        key_latch_chip_places_.begin(),
+        key_latch_chip_places_.end(),
+        [this](const oa::ui::display_layout::Rect& chip) {
+            return pointer_x_ >= static_cast<float>(chip.x) &&
+                   pointer_y_ >= static_cast<float>(chip.y) &&
+                   pointer_x_ < static_cast<float>(chip.x + chip.width) &&
+                   pointer_y_ < static_cast<float>(chip.y + chip.height);
+        }
+    );
 }
 
 namespace {

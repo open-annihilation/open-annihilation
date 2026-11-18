@@ -586,10 +586,16 @@ void Runtime::tick_and_draw_cursor() {
     gui_context_.last_tick = tick;
     oa::ui::gui_input::tick_cursor_and_read_pointer(gui_context_);
     // Build placement over the battlefield keeps the cursor the pointer
-    // brought, whose point is the footprint's middle.
-    if (screen_ == Screen::match)
-        if (const auto cursor = shown_match_cursor())
+    // brought, whose point is the footprint's middle. Over a key-latch chip
+    // the arrow shows, as over the OA layer's screens; the pick still runs,
+    // since a click there reaches the battlefield under the chip.
+    if (screen_ == Screen::match) {
+        const auto cursor = shown_match_cursor();
+        if (pointer_over_key_latch_chip())
+            select_game_cursor(static_cast<uint8_t>(input::OrderCursor::normal));
+        else if (cursor)
             select_game_cursor(*cursor);
+    }
     oa::ui::gui_input::follow_hover_cursor(gui_context_, pointer_over_top_panel());
     // A middle-click pan draws its own direction at the pointer. Photo mode
     // draws no marks, so its pointer stays.

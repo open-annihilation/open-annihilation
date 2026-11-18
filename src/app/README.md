@@ -686,9 +686,14 @@ latched the closing key and drew a backdrop.
   screen covers it (`LayerScreen::covers_point`: the whole place, but for
   the replay bar, whose place is the battlefield, only its bar, cards and
   menus), and over the OA Settings button. With no screen and no button
-  the cursor is the match's as before. `native-reclaim-cursor` holds it
+  the cursor is the match's as before. The key-latch chips the match draws
+  over the battlefield with no OA screen open show the arrow too
+  (`Runtime::pointer_over_key_latch_chip`, over the places
+  `draw_key_latch_chips` keeps); the battlefield under them is still
+  picked, since a click there reaches it. `native-reclaim-cursor` holds it
   over Settings and over a screen that is not modal, a tree under each,
-  and `native-replay-viewer` over the replay bar and off it.
+  `native-replay-viewer` over the replay bar and off it, and
+  `native-key-latches` over QUEUE's chip, under it and where it lay.
 - **The in-game OA Settings button.** The in-game menu has one OA button,
   under Resume, as wide as it from its left edge (`match_button_rect`, 96
   by 24 source pixels at (14, 455), placed in the column at its own scale,

@@ -4897,7 +4897,9 @@ endforeach()
         WORKING_DIRECTORY "${oa_key_table_tags_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
-      # with a layout that lists those two holds.
+      # with a layout that lists those two holds; the pointer over QUEUE's
+      # chip shows the arrow, and the order cursor under it and where it
+      # lay once it goes.
       set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")
       file(MAKE_DIRECTORY "${oa_key_latches_dir}")
       file(WRITE "${oa_key_latches_dir}/oakeys.yaml"

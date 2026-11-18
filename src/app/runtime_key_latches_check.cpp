@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // A latched Shift queues two moves, a latched Space shows the status strip,
-// and sticky Ctrl and Alt select and lock, on a skirmish.
+// and sticky Ctrl and Alt select and lock, on a skirmish; the pointer over a
+// latch's chip shows the arrow.
 #include "oa/app/runtime.hpp"
 #include "touch_state.hpp"
+#include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
 #include "oa/sim/simulation_state.hpp"
 #include "oa/ui/hud/status_panel.hpp"
@@ -26,6 +28,9 @@ namespace oa::app {
 namespace {
 
 namespace fs = std::filesystem;
+
+/// Canvas pixels under a latch's chip the pointer is moved to, off the chip.
+constexpr int32_t kUnderChip = 12;
 
 /// The path `--snapshot` writes for one window size.
 ///
@@ -185,6 +190,34 @@ void Runtime::check_key_latches() {
             fail("QUEUE · latched was not drawn:" + listed(texts));
     }
 
+    step("the arrow over QUEUE's chip");
+    // The pointer over the chip shows the arrow, as over the OA layer's
+    // screens, and the commander's order cursor on the ground under it;
+    // once the chip goes, the ground where it lay shows the order cursor
+    // again. The frame's cursor pass runs as the main loop runs it, on the
+    // left-click interface, whose order cursor on open ground is Move: the
+    // right-click interface's is the arrow.
+    if (!cursors_loaded_)
+        fail("the game's cursors are not loaded");
+    if (key_latch_chip_places_.size() != 1)
+        fail(std::to_string(key_latch_chip_places_.size()) + " places were kept for one chip");
+    const oa::ui::display_layout::Rect chip = key_latch_chip_places_.front();
+    const float chip_x = static_cast<float>(chip.x + chip.width / 2);
+    const float chip_y = static_cast<float>(chip.y + chip.height / 2);
+    const auto arrow = static_cast<uint8_t>(oa::sim::gameplay_input::OrderCursor::normal);
+    const auto cursor_at = [&](float x, float y) {
+        auto& game = match_->state().game;
+        game.interface_type = oa::sim::gameplay_input::interface_left_click;
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, x, y);
+        tick_and_draw_cursor();
+        game.interface_type = oa::sim::gameplay_input::interface_right_click;
+        return cursor_index_;
+    };
+    if (const uint8_t shown = cursor_at(chip_x, chip_y); shown != arrow)
+        fail("the pointer over QUEUE's chip shows cursor " + std::to_string(int{shown}));
+    if (cursor_at(chip_x, static_cast<float>(chip.y + chip.height + kUnderChip)) == arrow)
+        fail("the ground under QUEUE's chip shows the arrow");
+
     step("two queued moves");
     // A short step in world pixels still sits under the commander's sprite, and
     // a press there selects instead of moving. These are canvas pixels from
@@ -240,6 +273,10 @@ void Runtime::check_key_latches() {
         if (has_chip(texts, "QUEUE · latched"))
             fail("QUEUE · latched was still drawn");
     }
+    if (!key_latch_chip_places_.empty())
+        fail("a chip's place was kept with no chip drawn");
+    if (cursor_at(chip_x, chip_y) == arrow)
+        fail("the ground where QUEUE's chip lay shows the arrow");
 
     const auto settle_strip = [&](int32_t goal) {
         int32_t& offset = match_->state().game.status_panel_offset;
@@ -365,7 +402,7 @@ void Runtime::check_key_latches() {
         fail("focus loss left QUEUE latched");
     if (sticky_modifier_bits() != 0)
         fail("focus loss left a sticky modifier");
-    if (!key_latch_chips_drawn_.empty())
+    if (!key_latch_chips_drawn_.empty() || !key_latch_chip_places_.empty())
         fail("focus loss left a chip recorded");
     {
         const std::vector<std::string> texts = drawn();

@@ -2721,6 +2721,7 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
         sticky_event_mods_ = 0;
         key_latch_seen_.clear();
         key_latch_chips_drawn_.clear();
+        key_latch_chip_places_.clear();
         cancel_hold_confirm();
         cancel_order_wheel();
         refresh_pointer_modifiers();

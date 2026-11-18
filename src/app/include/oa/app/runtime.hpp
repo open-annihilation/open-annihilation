@@ -5538,7 +5538,8 @@ class Runtime final : public menu::Host,
     /// Steps and draws the software cursor, the cursor half of the GUI update.
     ///
     /// The elapsed ticks, the cursor step and pointer read, the match's order
-    /// cursor (shown_match_cursor), then the cursor for the pointer over or
+    /// cursor (shown_match_cursor), or the arrow over a key-latch chip
+    /// (pointer_over_key_latch_chip), then the cursor for the pointer over or
     /// off the top panel; the cursor is drawn into the frame unless the match
     /// presents in layers, or the system's pointer shows instead
     /// (pointer_shows_cursor).
@@ -22728,8 +22729,16 @@ class Runtime final : public menu::Host,
 
     /// Draws those chips centred on the battlefield, 6 points under its top,
     /// or where the player put them with Arrange overlays
-    /// (OaLayer::overlay_shown). [runtime_hud.cpp]
+    /// (OaLayer::overlay_shown), and keeps where each lies
+    /// (key_latch_chip_places_). [runtime_hud.cpp]
     void draw_key_latch_chips();
+
+    /// Tells whether the pointer is over a key-latch chip the last frame drew
+    /// on the battlefield (draw_key_latch_chips), where it shows the arrow as
+    /// over the OA layer's screens. [runtime_hud.cpp]
+    ///
+    /// @return true over a chip
+    [[nodiscard]] bool pointer_over_key_latch_chip() const;
 
     /// What the hold ring and its card draw from the press that is running.
     struct HoldConfirmDraw {
@@ -24650,6 +24659,9 @@ class Runtime final : public menu::Host,
     uint64_t key_latch_seen_next_{1};
     /// The chip texts last drawn, including an overflow chip. Empty when none show.
     std::vector<std::string> key_latch_chips_drawn_{};
+    /// Where the chips last drawn lie, one a chip, in match canvas pixels.
+    /// Empty when none show.
+    std::vector<oa::ui::display_layout::Rect> key_latch_chip_places_{};
     /// The key of the press being handled, so a hold can tell which key lets it go.
     uint16_t hold_key_scancode_{0};
     /// The button release just seen started a hold, so that release activates nothing.
