@@ -444,6 +444,84 @@ void feeds() {
         CHECK(sample == 0);
 }
 
+// A fed stream's samples: a ramp that never passes through zero, so a
+// silent frame in a mix is one the stream did not fill. The feed gives
+// nothing while it is starved, as a decoder that has fallen behind does.
+struct Ramp {
+    uint32_t next{};
+    bool starved{};
+};
+
+void feed_ramp(void* context, OutputStream& stream, int32_t wanted) {
+    auto& ramp = *static_cast<Ramp*>(context);
+    if (ramp.starved)
+        return;
+    // Ramps of 100 steps from 4000, one channel.
+    constexpr uint32_t ramp_steps = 100;
+    constexpr int16_t ramp_floor = 4000;
+    std::vector<int16_t> samples(static_cast<std::size_t>(wanted) / 2);
+    for (auto& sample : samples)
+        sample = static_cast<int16_t>(ramp_floor + static_cast<int16_t>(ramp.next++ % ramp_steps));
+    (void)stream.put(samples.data(), static_cast<int32_t>(samples.size() * 2));
+}
+
+// Mixes a fed stream of one channel at `rate` in mixes of the given sizes,
+// cycling through them, and returns the left side of `total` frames.
+std::vector<int16_t>
+mix_ramp(uint32_t rate, std::span<const uint32_t> sizes, uint32_t total, int starve_every = 0) {
+    SoftwareMixer mixer(test_lock());
+    Ramp ramp;
+    std::string error;
+    auto stream = mixer.open_stream({SampleFormat::s16, 1, rate}, feed_ramp, &ramp, error);
+    CHECK(stream != nullptr && stream->resume());
+    std::vector<int16_t> left;
+    for (std::size_t call = 0; left.size() < total; ++call) {
+        ramp.starved = starve_every > 0 && call % static_cast<std::size_t>(starve_every) == 1;
+        const auto out = mix(mixer, sizes[call % sizes.size()]);
+        for (std::size_t frame = 0; frame < out.size() / 2; ++frame)
+            left.push_back(out[2 * frame]);
+    }
+    left.resize(total);
+    return left;
+}
+
+// A stream plays on across the boundaries of the device's requests, of any
+// size, with no frame dropped, repeated or changed, at the output rate and
+// converted from another; and a feed that falls behind leaves silence where
+// it did not keep up, after which the stream plays on from where it was,
+// with no frame lost to the gap.
+void continuity() {
+    constexpr uint32_t total = 20000;
+    const uint32_t whole[] = {total};
+    const uint32_t odd[] = {1, 2, 3, 5, 7, 11, 441, 480, 1024, 13, 4096};
+    for (const uint32_t rate : {44100U, 22050U, 11025U, 22254U}) {
+        const auto reference = mix_ramp(rate, whole, total);
+        CHECK(mix_ramp(rate, odd, total) == reference);
+
+        // Every fourth request finds the feed starved: silence, then the
+        // frames the reference has, in its order. The conversion's first
+        // frames rise from silence, so the comparison starts past them.
+        const uint32_t requests[] = {441};
+        const auto starved = mix_ramp(rate, requests, total * 2, 4);
+        std::vector<int16_t> sounding;
+        bool silent = false;
+        for (std::size_t frame = 0; frame < starved.size(); ++frame) {
+            if (starved[frame] == 0) {
+                silent = true;
+                continue;
+            }
+            sounding.push_back(starved[frame]);
+        }
+        CHECK(silent);
+        CHECK(sounding.size() >= total);
+        sounding.resize(total);
+        constexpr std::size_t rising = 64;
+        CHECK(std::equal(reference.begin() + rising, reference.end(), sounding.begin() + rising));
+        for (std::size_t frame = rising; frame < reference.size(); ++frame)
+            CHECK(reference[frame] != 0);
+    }
+}
+
 void conversion_for_the_mixer() {
     // One channel stays one, at four times the frames from 11025 Hz and at
     // half its level.
@@ -665,6 +743,7 @@ int main(int argc, char** argv) {
     loud_sums_hold();
     feed_timer();
     feeds();
+    continuity();
     conversion_for_the_mixer();
     buffered_output();
     std::puts("sound output: ok");

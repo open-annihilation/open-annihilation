@@ -248,12 +248,18 @@ tested on a device the test plays by hand.
 Tests: `audio-output` (the integer resampler's limits, lengths, splits,
 accuracy and alignment; the formats, gains, side gains, pausing, clearing,
 feeds and rate conversion of the mixer, a sum of streams past 32 bits held
-to 16, `convert_for_mixer`, and the feed timer's late requests and its log
-line; the
-buffered output's ring, its start count and a refused buffer),
-`audio-sdl-player` (the WAV player's stream, voices, a placed start's
-two sides, the near effects' level against the loop's and the device's log
-line) and on Windows
+to 16, a fed stream at 44100, 22050, 11025 and 22254 Hz played in requests
+of any size with no frame dropped or changed, and after a feed that falls
+behind playing on from where it was, `convert_for_mixer`, and the feed
+timer's late requests and its log line; the buffered output's ring, its
+start count and a refused buffer), `audio-sdl-player` (the WAV player's
+stream, voices, a placed start's two sides, the near effects' level against
+the loop's, the sign, level and sides of each layout of WAV, 8-bit and
+16-bit, one and two channels, and the device's log line),
+`audio-sdl-player-data` (every RIFF sound of the installed game decodes as
+the player reads it to the samples and format the game's loader finds; the
+game's two headerless and DIGI sounds, the novelty voice's, are listed,
+since SDL's reader does not take them) and on Windows
 `audio-output-wave-out`, which plays a tone on the system's device, or is
 skipped where there is none.
 

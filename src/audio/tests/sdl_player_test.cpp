@@ -6,14 +6,18 @@
 // takes the place of the one playing; stop_all, which silences every
 // effect, the loop and the stream at once; and the effects' voice policy.
 // On a mixer the test runs by hand, a placed start weighs its two sides by
-// the placement's levels, a held loop is silent until the hold ends, and an
-// effect at the near volume plays 5.85 dB below the loop.
+// the placement's levels, a held loop is silent until the hold ends, an
+// effect at the near volume plays 5.85 dB below the loop, and each layout of
+// WAV plays its samples with their sign, level and sides.
 #include "audio_test_support.hpp"
 #include "oa/audio/sdl_audio.hpp"
 #include "oa/audio/software_mixer.hpp"
 #include "oa/audio/sound_output.hpp"
 #include "oa/audio/spatial_gain.hpp"
+#include "oa/audio/wave_chunks.hpp"
 #include "oa/formats/hpi.hpp"
+#include "oa/test/game_assets.hpp"
+#include "oa/test/game_data.hpp"
 #include "oa/test/scratch_directory.hpp"
 
 #include <SDL3/SDL.h>
@@ -138,6 +142,88 @@ void placed_sides(const std::filesystem::path& root) {
     oa::audio::set_sound_output(nullptr);
 }
 
+// Writes a WAV of half a second of one frame repeated.
+//
+// @param path the file
+// @param rate frames per second
+// @param bits 8 (unsigned) or 16 (signed)
+// @param frame one frame's samples, each as the file stores it
+void write_constant(
+    const std::filesystem::path& path, uint32_t rate, uint16_t bits, std::vector<uint16_t> frame
+) {
+    std::vector<uint8_t> samples;
+    for (uint32_t index = 0; index < rate / 2; ++index)
+        for (const uint16_t sample : frame) {
+            if (bits == 8)
+                samples.push_back(static_cast<uint8_t>(sample));
+            else
+                audio_test::put16(samples, sample);
+        }
+    const auto riff =
+        audio_test::make_riff(rate, bits, static_cast<uint16_t>(frame.size()), samples);
+    std::ofstream(path, std::ios::binary)
+        .write(
+            reinterpret_cast<const char*>(riff.data()), static_cast<std::streamsize>(riff.size())
+        );
+}
+
+// Each layout of WAV the game's sound files and mods use plays its samples
+// with their own sign, level and sides, at the rates the files give: 8-bit
+// samples as unsigned about 128, 16-bit as signed, one channel on both
+// sides and two each on its own. The loop plays them at full scale with
+// the effects at full volume.
+void formats_play(const std::filesystem::path& root) {
+    struct Case {
+        const char* name;
+        uint32_t rate;
+        uint16_t bits;
+        std::vector<uint16_t> frame; // as the file stores it
+        int16_t left;                // as the mix plays it
+        int16_t right;
+    };
+
+    const Case cases[] = {
+        {"u8-mono-11025.wav", 11025, 8, {0x40}, -16384, -16384},
+        {"u8-stereo-22254.wav", 22254, 8, {0xc0, 0x40}, 16384, -16384},
+        {"s16-mono-22050.wav", 22050, 16, {static_cast<uint16_t>(-8192)}, -8192, -8192},
+        {"s16-stereo-44100.wav",
+         44100,
+         16,
+         {static_cast<uint16_t>(8192), static_cast<uint16_t>(-12288)},
+         8192,
+         -12288},
+    };
+    // The store lists the folder as it opens, so the files come first.
+    for (const auto& c : cases)
+        write_constant(root / "sounds" / c.name, c.rate, c.bits, c.frame);
+    HandMixedOutput output;
+    oa::audio::set_sound_output(&output);
+    {
+        const oa::AssetStore assets(root);
+        SdlWavPlayer player(assets);
+        player.set_volume(
+            oa::audio::game_audio::full_wave_out_volume, oa::audio::game_audio::maximum_fx_volume
+        );
+        std::string error;
+        constexpr uint32_t frames = 4096;
+        // The left sample of a frame in the middle of the mix.
+        constexpr std::size_t middle = frames;
+        for (const auto& c : cases) {
+            require(
+                player.start_loop_resource(std::string("sounds/") + c.name, error),
+                "each layout of WAV plays"
+            );
+            const auto mix = output.mix(frames);
+            require(
+                std::abs(mix[middle] - c.left) <= 1 && std::abs(mix[middle + 1] - c.right) <= 1,
+                "each layout of WAV plays its samples with their sign, level and sides"
+            );
+            player.stop_loop();
+        }
+    }
+    oa::audio::set_sound_output(nullptr);
+}
+
 // An effect at the near volume plays 5.85 dB below its samples, as a sound
 // buffer at -585 does, while the loop plays them at full scale; at the
 // default effects volume three full-scale effects starting together add up
@@ -239,6 +325,57 @@ void held_loop(const std::filesystem::path& root) {
     oa::audio::set_sound_output(nullptr);
 }
 
+// Every sound file of the installed game in RIFF form decodes as the WAV
+// player reads it, in the rate, sample width and channels the game's own
+// loader finds, to exactly the samples its data chunk holds. The headerless
+// and DIGI files, which the game also plays, are listed.
+void installed_sounds_decode(const oa::AssetStore& assets) {
+    int decoded = 0;
+    std::vector<std::string> other;
+    for (const auto& name : assets.list_effective_recursive("", ".wav")) {
+        const auto bytes = oa::test::read_game_file(assets, name);
+        if (bytes.empty())
+            continue;
+        oa::audio::WaveCursor cursor =
+            oa::audio::wave_cursor(bytes.data(), static_cast<uint32_t>(bytes.size()));
+        oa::audio::WaveLayout layout{};
+        require(oa::audio::describe_wave(cursor, layout), name.c_str());
+        if (layout.container != oa::audio::WaveContainer::riff) {
+            other.push_back(name);
+            continue;
+        }
+        SDL_AudioSpec spec{};
+        Uint8* samples = nullptr;
+        Uint32 length = 0;
+        SDL_IOStream* io = SDL_IOFromConstMem(bytes.data(), bytes.size());
+        require(io != nullptr && SDL_LoadWAV_IO(io, true, &spec, &samples, &length), name.c_str());
+        const SDL_AudioFormat expected = layout.format.bits == 8 ? SDL_AUDIO_U8 : SDL_AUDIO_S16LE;
+        require(
+            spec.format == expected && spec.freq == static_cast<int>(layout.format.sample_rate) &&
+                spec.channels == static_cast<int>(layout.format.channels),
+            name.c_str()
+        );
+        // The data chunk, as far as the file holds it, in whole frames.
+        const std::size_t frame =
+            static_cast<std::size_t>(layout.format.channels) * (layout.format.bits / 8U);
+        std::size_t held =
+            std::min<std::size_t>(layout.data_bytes, bytes.size() - layout.data_offset);
+        held -= held % frame;
+        require(
+            length == held &&
+                std::equal(samples, samples + length, bytes.begin() + layout.data_offset),
+            name.c_str()
+        );
+        SDL_free(samples);
+        ++decoded;
+    }
+    std::printf("installed sounds: %d decode to their own samples; not RIFF:", decoded);
+    for (const auto& name : other)
+        std::printf(" %s", name.c_str());
+    std::printf("\n");
+    require(decoded >= 500, "the installed sounds are present");
+}
+
 // Waits until `done` holds or `timeout_ms` passes.
 template <typename Done>
 bool wait_for(Done done, uint64_t timeout_ms) {
@@ -253,9 +390,14 @@ bool wait_for(Done done, uint64_t timeout_ms) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
     require(SDL_Init(SDL_INIT_AUDIO), "SDL audio init");
+    if (oa::test::game_data_requested(argc, argv)) {
+        installed_sounds_decode(oa::test::require_game_assets("the installed sounds' decoding"));
+        SDL_Quit();
+        return 0;
+    }
     const auto root = oa::test::make_scratch_directory("oa-sdl-player-test");
     std::filesystem::create_directories(root / "sounds");
     write_tone(root / "sounds" / "long.wav", 5000);
@@ -398,6 +540,7 @@ int main() {
     placed_sides(root);
     held_loop(root);
     near_level(root);
+    formats_play(root);
     std::filesystem::remove_all(root);
     SDL_Quit();
     return 0;
