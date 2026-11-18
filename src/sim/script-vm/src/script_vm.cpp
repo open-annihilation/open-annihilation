@@ -493,7 +493,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
             return context.slots[static_cast<std::size_t>(context.sp - depth)];
         };
         // A value below the top that the stack may lack, which then reads 0.
-        auto operand = [&](int32_t depth) -> uint32_t {
+        auto stack_operand = [&](int32_t depth) -> uint32_t {
             return depth <= context.sp ? top(depth) : 0U;
         };
         auto note_piece =
@@ -599,8 +599,8 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 );
             // The values the transform takes, the top one first; one the
             // stack lacks reads 0.
-            const uint32_t first = operand(0);
-            const uint32_t second = pop_count == 2 ? operand(1) : 0U;
+            const uint32_t first = stack_operand(0);
+            const uint32_t second = pop_count == 2 ? stack_operand(1) : 0U;
             auto unsafe_scale = [&](uint32_t value) {
                 return time_scale_ == -1 && as_signed(value) == std::numeric_limits<int32_t>::min();
             };
@@ -735,7 +735,7 @@ Vm::execute_context(std::size_t index, std::size_t& instructions, std::size_t in
                 return fail(ErrorCode::truncated_instruction, "piece effect lacks a piece operand");
             const auto piece = program_->code[pc + 1];
             const int32_t held = std::min(1, context.sp + 1);
-            const auto value = as_signed(operand(0));
+            const auto value = as_signed(stack_operand(0));
             context.sp -= held;
             context.pc += 2;
             if (!valid_piece(piece)) {

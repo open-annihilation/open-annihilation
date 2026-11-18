@@ -1766,15 +1766,15 @@ void Runtime::check_replay_viewer() {
     require(playback().paused, "the replay did not pause for the views");
     {
         const oa::World& world = match_->state();
-        int recorded = 0;
+        int players_recorded = 0;
         for (const oa::Player& player : world.game.players) {
             const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
             if (player.in_use != 0 && info != nullptr &&
                 (info->options & OA_SETUP_OPTION_WATCHER) == 0)
-                ++recorded;
+                ++players_recorded;
         }
         require(
-            recorded >= 3,
+            players_recorded >= 3,
             "a recorded player had left by tick " + std::to_string(playback().tick) +
                 ", before the views"
         );

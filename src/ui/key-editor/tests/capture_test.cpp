@@ -1295,8 +1295,8 @@ void well_not_the_buttons() {
                 "the well dropped Alt: " + keys::chord_text(*alt_state.capture.chord)
             );
         const kit::DisplayList chosen = editor::editor_layout(alt_turn, alt_state, frame, fonts());
-        if (const std::optional<kit::Point> ok = centre_named(chosen, editor::name_capture_ok))
-            click_at(alt_turn, alt_state, chosen, *ok);
+        if (const std::optional<kit::Point> use = centre_named(chosen, editor::name_capture_ok))
+            click_at(alt_turn, alt_state, chosen, *use);
         expect(
             shows_chord(alt_turn, "game.speed-up", "Alt+Wheel down"),
             "Use did not write Alt and the wheel: " + chord_line(alt_turn, "game.speed-up")
