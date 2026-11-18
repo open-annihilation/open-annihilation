@@ -703,6 +703,34 @@ void construction_orders() {
     f.match->stop_orders(id);
 }
 
+// Leaves a builder out of its build stance, as a script that dropped the
+// start-script raising it does.
+void drop_stance(sim::unit_spawn::Slot& builder) {
+    builder.record.build_flags =
+        static_cast<uint8_t>(builder.record.build_flags & ~OA_UNIT_BUILD_IN_BUILD_STANCE);
+}
+
+// Puts a builder in its build stance, as its script does.
+void raise_stance(sim::unit_spawn::Slot& builder) {
+    builder.record.build_flags =
+        static_cast<uint8_t>(builder.record.build_flags | OA_UNIT_BUILD_IN_BUILD_STANCE);
+}
+
+// Steps an order that waits for its builder's build stance once without the
+// stance, which arms the look 300 ticks on, then runs that look as the sweep
+// does when its timer runs out.
+//
+// @return the look's result
+uint32_t look_without_stance(
+    Fixture& f, sim::unit_spawn::Slot& builder, sim::simulation_state::Order& order
+) {
+    drop_stance(builder);
+    CHECK(step(*f.match, builder, order) == 2 && order.wake_tick == f.tick() + 300);
+    CHECK((order.wait_events & 0x5) == 0x5);
+    order.wake_tick = 0xffffffffu;
+    return step(*f.match, builder, order, 1);
+}
+
 // HelpBuild's helper looks at its frame again after 300 ticks without its
 // build stance, which a script with all its threads busy never raises: for an
 // unfinished frame StartBuilding runs again (this builder's script has none,
@@ -716,23 +744,135 @@ void help_build_recovers_a_missing_stance() {
     auto& help = f.match->issue_help_build(id, frame.unit_index, false);
     CHECK(step(*f.match, builder, help) == 1);
     CHECK(step(*f.match, builder, help) == 1 && help.phase == 2);
-    const auto clear_stance = [&] {
-        builder.record.build_flags =
-            static_cast<uint8_t>(builder.record.build_flags & ~OA_UNIT_BUILD_IN_BUILD_STANCE);
-    };
-    clear_stance();
+    drop_stance(builder);
     CHECK(step(*f.match, builder, help) == 2 && help.wait_events == 0xf);
     const auto look = help.wake_tick;
     CHECK(look == f.tick() + 300);
     CHECK(step(*f.match, builder, help, 4) == 2 && help.wait_events == 0xf);
     CHECK(help.wake_tick == look);
+    help.wake_tick = 0xffffffffu;
     CHECK(step(*f.match, builder, help, 1) == 1 && help.phase == 3);
     CHECK(builder.record.build_flags & OA_UNIT_BUILD_IN_BUILD_STANCE);
 
     help.phase = 2;
-    clear_stance();
     frame.record.build_remaining = 0.0F;
-    CHECK(step(*f.match, builder, help, 1) == 5);
+    CHECK(look_without_stance(f, builder, help) == 5);
+    f.match->stop_orders(id);
+}
+
+// MobileBuild, RepairUnit, ReclaimUnit and Capture look at their work again
+// after 300 ticks without the build stance, as HelpBuild does. Work still to
+// do has StartBuilding run again and the order goes on; a finished frame, or
+// a patient at full health, ends the order; a unit that can no longer be
+// reclaimed starts the reclaim over, and its first phase refuses it.
+void stance_waits_recover_a_missing_stance() {
+    Fixture f;
+    auto& builder = f.spawn(0, builder_type, 100, 100);
+    const auto id = builder.unit_index;
+
+    auto& build = f.match->issue_mobile_build(id, factory_type, point(150, 101), false);
+    CHECK(step(*f.match, builder, build) == 1);
+    CHECK(step(*f.match, builder, build) == 1 && build.phase == 2);
+    sim::unit_spawn::Slot* frame = nullptr;
+    for (auto& slot : f.match->world().slots)
+        if (slot.unit && slot.record.type_index == factory_type)
+            frame = &slot;
+    CHECK(frame && frame->record.build_remaining != 0.0F);
+    CHECK(look_without_stance(f, builder, build) == 1 && build.phase == 3);
+    CHECK(builder.record.build_flags & OA_UNIT_BUILD_IN_BUILD_STANCE);
+    build.phase = 2;
+    frame->record.build_remaining = 0.0F;
+    CHECK(look_without_stance(f, builder, build) == 5);
+    f.match->stop_orders(id);
+    f.match->stop_orders(frame->unit_index);
+    (void)f.services.take();
+
+    auto& patient = f.spawn(0, tank_type, 104, 100);
+    patient.record.health = 40;
+    auto& repair = f.match->issue_repair(id, patient.unit_index, false);
+    CHECK(step(*f.match, builder, repair) == 1);
+    CHECK(step(*f.match, builder, repair) == 1 && repair.phase == 2);
+    CHECK(look_without_stance(f, builder, repair) == 1 && repair.phase == 3);
+    repair.phase = 2;
+    patient.record.health = 100;
+    CHECK(look_without_stance(f, builder, repair) == 5);
+    f.match->stop_orders(id);
+    (void)f.services.take();
+
+    auto& enemy = f.spawn(1, tank_type, 104, 96);
+    auto& reclaim = f.match->issue_reclaim(id, enemy.unit_index, false);
+    CHECK(step(*f.match, builder, reclaim) == 1);
+    reclaim.phase = 2;
+    CHECK(step(*f.match, builder, reclaim) == 1 && reclaim.phase == 3);
+    CHECK(look_without_stance(f, builder, reclaim) == 1 && reclaim.phase == 4);
+    reclaim.phase = 3;
+    enemy.record.flags = (enemy.record.flags & ~OA_UNIT_FLAG_OCCUPANCY_MASK) | 2u;
+    CHECK(look_without_stance(f, builder, reclaim) == 0 && reclaim.phase == 0);
+    (void)f.services.take();
+    CHECK(step(*f.match, builder, reclaim) == 8);
+    CHECK((f.services.take() == std::vector<uint32_t>{7, 7}));
+    CHECK(
+        (f.services.taken ==
+         std::vector<std::string>{"That unit cannot be reclaimed", "Reclamation failed"})
+    );
+    enemy.record.flags = (enemy.record.flags & ~OA_UNIT_FLAG_OCCUPANCY_MASK) | 1u;
+    f.match->stop_orders(id);
+
+    auto& capture = f.match->issue_capture(id, enemy.unit_index, false);
+    CHECK(step(*f.match, builder, capture) == 1);
+    CHECK(step(*f.match, builder, capture) == 1 && capture.phase == 2);
+    CHECK(look_without_stance(f, builder, capture) == 1 && capture.phase == 3);
+    f.match->stop_orders(id);
+}
+
+// A wait for the build stance leaves the order's own timer as 3.1c has it.
+// A timer set before the wait (RepairUnit's walk to its patient sets one)
+// still runs out at its tick; its event, which 3.1c leaves raised until the
+// order next waits for the timer, is raised again when the stance comes, and
+// the look counts its 300 ticks from then. A timer event already raised when
+// the wait begins is kept the same way.
+void stance_wait_keeps_the_orders_timer() {
+    constexpr uint32_t timer_event = 1;
+    constexpr uint32_t no_timer = 0xffffffffu;
+    Fixture f;
+    auto& builder = f.spawn(0, builder_type, 100, 100);
+    const auto id = builder.unit_index;
+    auto& patient = f.spawn(0, tank_type, 104, 100);
+    patient.record.health = 40;
+    auto& repair = f.match->issue_repair(id, patient.unit_index, false);
+    CHECK(step(*f.match, builder, repair) == 1);
+    CHECK(step(*f.match, builder, repair) == 1 && repair.phase == 2);
+
+    // The stance comes before the timer runs out: the timer is left running.
+    const auto own = f.tick() + 40;
+    repair.wake_tick = own;
+    drop_stance(builder);
+    CHECK(step(*f.match, builder, repair) == 2 && repair.wait_events == 0xd);
+    CHECK(repair.wake_tick == own);
+    raise_stance(builder);
+    CHECK(step(*f.match, builder, repair, 4) == 1 && repair.phase == 3);
+    CHECK(repair.wake_tick == own && repair.raised_events == 0);
+
+    // The timer runs out first.
+    repair.phase = 2;
+    drop_stance(builder);
+    CHECK(step(*f.match, builder, repair) == 2 && repair.wake_tick == own);
+    repair.wake_tick = no_timer;
+    CHECK(step(*f.match, builder, repair, timer_event) == 2);
+    CHECK(repair.wake_tick == f.tick() + 300 && !(repair.raised_events & timer_event));
+    raise_stance(builder);
+    CHECK(step(*f.match, builder, repair, 4) == 1 && repair.phase == 3);
+    CHECK(repair.raised_events == timer_event && repair.wake_tick == no_timer);
+
+    // The timer's event is raised already.
+    repair.phase = 2;
+    drop_stance(builder);
+    CHECK(step(*f.match, builder, repair) == 2 && repair.wake_tick == f.tick() + 300);
+    CHECK(!(repair.raised_events & timer_event));
+    CHECK(step(*f.match, builder, repair, 4) == 2 && repair.wake_tick == f.tick() + 300);
+    raise_stance(builder);
+    CHECK(step(*f.match, builder, repair, 4) == 1 && repair.phase == 3);
+    CHECK(repair.raised_events == timer_event && repair.wake_tick == no_timer);
     f.match->stop_orders(id);
 }
 
@@ -1857,6 +1997,8 @@ int main() {
         guard_and_teleport();
         construction_orders();
         help_build_recovers_a_missing_stance();
+        stance_waits_recover_a_missing_stance();
+        stance_wait_keeps_the_orders_timer();
         queued_build_can_be_moved();
         factory_orders();
         abandoned_frame_decays_away();

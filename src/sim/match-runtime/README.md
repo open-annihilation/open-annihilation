@@ -173,13 +173,21 @@ that order is the one the builder is walking or flying to, the approach
 starts again at the new site.
 `match-order-rules` checks each rule and parameter against 3.1c's behaviour.
 
-A HelpBuild helper (a builder guarding a factory joins its build this way)
-that has waited 300 ticks for its build stance looks at its frame again: a
-finished frame ends the order, and an unfinished one has StartBuilding run
-again. A unit script whose eight threads are all busy drops the
-start-script its StartBuilding makes, so the stance it raises never comes,
-and 3.1c leaves the helper waiting for it; `match-missions-orders` and
-`native-guard-assist` check the helper goes on.
+A builder whose order has waited 300 ticks for its build stance looks at
+its work again (`GroundMissions::wait_for_build_stance`): MobileBuild,
+HelpBuild (a builder guarding a factory joins its build this way),
+RepairUnit, ReclaimUnit, Capture, Reclaim and Resurrect. Work that is done
+or can no longer be done ends the order: a finished frame, a patient at
+full health, a target or feature that is gone, or a unit that can no longer
+be reclaimed, which starts ReclaimUnit over so that its first phase refuses
+it. Otherwise StartBuilding runs again. A unit script whose eight threads
+are all busy drops the start-script its StartBuilding makes, so the stance
+it raises never comes, and 3.1c leaves the builder waiting for it. The look
+runs on the order's timer; a timer the order set before the wait keeps its
+tick and its event, so a builder whose stance comes within the 300 ticks
+goes on as in 3.1c. `match-missions-orders` and `match-missions-ground`
+check each order, `native-guard-assist` a builder guarding a factory and
+`native-build-assist` a builder guarded by another.
 
 The unit rules (`unit_rules.cpp`) keep such a table for the slot reuse delay
 (units.id-reuse-delay), handing its ticks to unit creation. A building's

@@ -24,11 +24,6 @@ constexpr uint32_t capture_moving_wait = 0x1e;
 constexpr uint32_t reclaim_approach_wait = 0xf;
 constexpr uint32_t reclaim_retry_wait = 0xf;
 constexpr uint32_t nano_step = 2;
-// Ticks a helper waits for its build stance before it looks at its frame
-// again (ten seconds).
-constexpr uint32_t stance_retry_wait = 300;
-// Order.wake_tick of an order with no timer pending.
-constexpr uint32_t no_wake_tick = 0xffffffffu;
 constexpr uint8_t all_weapons = 3;
 using BusyState = data::match_rules::OrdersWeaponsFreeWhileBusyStates;
 constexpr uint8_t reclaim_damage_kind = static_cast<uint8_t>(DeathKind::reclaim);
@@ -125,7 +120,17 @@ uint32_t TickHost::GroundMissions::mobile_build() {
         return ground::next_phase;
     }
     case 2:
-        return wait_for_build_stance(ground::build_abort_events);
+        // A look without the stance ends the order once its frame is gone or
+        // finished (by other builders), or runs StartBuilding again.
+        return wait_for_build_stance(ground::build_abort_events, [&] {
+            auto* frame = target();
+            if (!frame)
+                return ground::mission_invalid;
+            if (build::finished(frame->record))
+                return ground::mission_done;
+            start_building_toward(ground::position_of(frame->record));
+            return ground::keep_waiting;
+        });
     case 3: {
         // A lost frame makes the step invalid; the loss event normally ends
         // the order first.
@@ -186,25 +191,15 @@ uint32_t TickHost::GroundMissions::help_build() {
         refresh_selection();
         return ground::next_phase;
     case 2:
-        // The helper waits for its build stance, and looks at its frame
-        // again each stance_retry_wait ticks without it: a finished frame
-        // ends the order, so that a guard goes on to the factory's next
-        // build, and an unfinished one has StartBuilding run again. A script
-        // whose eight threads are all busy drops the start-script its
-        // StartBuilding makes, and that stance never comes; 3.1c waits for
-        // it for ever.
-        if ((events & ground::timer_event) && !(s.record.build_flags & ground::build_stance_flag)) {
+        // A look without the stance ends the order once the frame is
+        // finished, so that a guard goes on to the factory's next build, or
+        // runs StartBuilding again.
+        return wait_for_build_stance(ground::build_abort_events, [&] {
             if (build::finished(frame->record))
                 return ground::mission_done;
             start_building_toward(ground::position_of(frame->record));
-        }
-        if (s.record.build_flags & ground::build_stance_flag)
-            return ground::next_phase;
-        if ((events & ground::timer_event) || order.wake_tick == build::no_wake_tick)
-            wait_ticks(build::stance_retry_wait);
-        order.wait_events |=
-            ground::timer_event | ground::build_abort_events | ground::script_value_event;
-        return ground::keep_waiting;
+            return ground::keep_waiting;
+        });
     case 3:
         (void)ConstructionAdapter(host, s, record).construct(*frame, work_rate(def()));
         s.record.decloak_until_tick = tick() + build::build_decloak_hold;
@@ -283,7 +278,12 @@ uint32_t TickHost::GroundMissions::capture() {
         start_building_toward(ground::position_of(prize->record));
         return ground::next_phase;
     case 2:
-        return wait_for_build_stance(ground::target_lost_events);
+        // The look runs StartBuilding again; a prize that is gone ended the
+        // order on the look's step already.
+        return wait_for_build_stance(ground::target_lost_events, [&] {
+            start_building_toward(ground::position_of(prize->record));
+            return ground::keep_waiting;
+        });
     case 3:
         speak(ground::speech_work_started);
         return ground::next_phase;
@@ -348,7 +348,15 @@ uint32_t TickHost::GroundMissions::reclaim_unit() {
         start_building_toward(ground::position_of(victim->record));
         return ground::next_phase;
     case 3:
-        return wait_for_build_stance(ground::target_lost_events);
+        // A look without the stance starts the order over for a unit that
+        // can no longer be reclaimed (one that took off), so that the first
+        // phase refuses it, or runs StartBuilding again.
+        return wait_for_build_stance(ground::target_lost_events, [&] {
+            if (!can_reclaim(victim->record))
+                return ground::restart_mission;
+            start_building_toward(ground::position_of(victim->record));
+            return ground::keep_waiting;
+        });
     case 4:
         speak(ground::speech_work_started);
         return ground::next_phase;
@@ -397,6 +405,10 @@ uint32_t TickHost::GroundMissions::repair_unit() {
         speak(ground::speech_failed, "Repairs unsuccessful.");
         return ground::mission_done;
     }
+    const auto repaired = [&] {
+        return static_cast<uint32_t>(static_cast<int32_t>(patient->record.health)) >=
+               def_of(patient->record).max_damage;
+    };
     switch (order.phase) {
     case 0:
         if (!s.record.movement || !(def().flags & OA_UNIT_DEF_FLAG_BUILDER) ||
@@ -420,10 +432,16 @@ uint32_t TickHost::GroundMissions::repair_unit() {
         order.wait_events |= ground::build_goal_events;
         return ground::keep_waiting;
     case 2:
-        return wait_for_build_stance(ground::repair_step_event);
+        // A look without the stance ends the order once the patient is at
+        // full health, or runs StartBuilding again.
+        return wait_for_build_stance(ground::repair_step_event, [&] {
+            if (repaired())
+                return ground::mission_done;
+            start_building_toward(ground::position_of(patient->record));
+            return ground::keep_waiting;
+        });
     case 3:
-        if (static_cast<uint32_t>(static_cast<int32_t>(patient->record.health)) >=
-            def_of(patient->record).max_damage)
+        if (repaired())
             return ground::next_phase;
         if (patient->record.flags & OA_UNIT_FLAG_MOVE_RATE_MASK) {
             stop_building();

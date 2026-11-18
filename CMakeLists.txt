@@ -5468,6 +5468,14 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-guard-assist PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Six advanced construction kbots, each guarded by another, build
+        # lines of radar towers; those whose StartBuilding finds all their
+        # script threads busy go on once their guard finishes the tower.
+        add_test(NAME native-build-assist COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_build_assist.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-build-assist PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # Gunships past the map's edge: at View past the map's edge 50% a
         # click where one is drawn selects it, and a box dragged from past
         # the edge selects them with the aircraft near it on the map; at Off

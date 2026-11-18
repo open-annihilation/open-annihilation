@@ -400,7 +400,16 @@ int main() {
             (order.flags & sim::match_runtime::MatchTickAccess::building_flag) &&
             (builder->record.build_flags & 1)
         );
-        CHECK(step(match, *builder, order) == 1 && order.phase == 3);
+        // Without the stance, which a script with all its threads busy never
+        // raises, the order looks again 300 ticks on: StartBuilding runs
+        // again (this builder's script has none, so the stance is set at
+        // once) and the reclaim goes on.
+        builder->record.build_flags = 0;
+        CHECK(step(match, *builder, order) == 2 && order.wait_events == 5);
+        CHECK(order.wake_tick == game.tick + 300);
+        order.wake_tick = 0xffffffffu;
+        CHECK(step(match, *builder, order, 1) == 1 && order.phase == 3);
+        CHECK(builder->record.build_flags & 1);
         services.speech.clear();
         CHECK(step(match, *builder, order) == 2);
         CHECK(services.speech == std::vector<uint32_t>{0x0b});
@@ -441,7 +450,13 @@ int main() {
         auto& order = match.insert_ground_order(builder_id, 37, cell_point(20, 20));
         CHECK(step(match, *builder, order) == 1 && order.wait_events == 0xe0);
         CHECK(step(match, *builder, order) == 1);
-        CHECK(step(match, *builder, order) == 1);
+        // Without the stance the order looks again 300 ticks on, as Reclaim
+        // does.
+        builder->record.build_flags = 0;
+        CHECK(step(match, *builder, order) == 2 && order.wait_events == 5);
+        CHECK(order.wake_tick == game.tick + 300);
+        order.wake_tick = 0xffffffffu;
+        CHECK(step(match, *builder, order, 1) == 1 && order.phase == 3);
         services.speech.clear();
         CHECK(step(match, *builder, order) == 1 && services.speech == std::vector<uint32_t>{0x0b});
         uint32_t steps = 0;
