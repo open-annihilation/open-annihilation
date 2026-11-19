@@ -166,6 +166,8 @@ BrandingText "${OA_NAME} ${OA_VERSION}"
 !define MUI_FINISHPAGE_TEXT "Open Annihilation is installed.$\r$\n$\r$\nYour saved games stay in the Open Annihilation folder in Documents."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\open-annihilation.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Start Open Annihilation"
+# A helper the section moves aside while it runs is deleted at the next
+# restart Windows makes for its own reasons; the finish page never asks for one.
 !define MUI_FINISHPAGE_NOREBOOTSUPPORT
 
 !insertmacro MUI_PAGE_WELCOME
@@ -244,7 +246,23 @@ Section "Open Annihilation" SecProgram
   File "${OA_PACKAGE_DIR}/oa-intro.exe"
   File "${OA_PACKAGE_DIR}/oa-tool.exe"
   !if /FileExists "${OA_PACKAGE_DIR}/oa-update.exe"
+    # The update helper that runs this setup may be running from this folder.
+    # No Windows lets a running program's file be written, and a silent setup
+    # skips a file it cannot write, so the helper that was there would stay.
+    # Vista and later let that file be renamed: it moves aside to
+    # oa-update-old.exe, the new helper takes its name, and the old file goes
+    # at once, or at the next restart while it still runs. Where the rename
+    # fails, as in a first install, the setup goes on as before; a new helper
+    # that could not be written gives the old one its name back.
+    Delete "$INSTDIR\oa-update-old.exe"
+    Rename "$INSTDIR\oa-update.exe" "$INSTDIR\oa-update-old.exe"
+    ClearErrors
     File "${OA_PACKAGE_DIR}/oa-update.exe"
+    ${IfNot} ${FileExists} "$INSTDIR\oa-update.exe"
+      Rename "$INSTDIR\oa-update-old.exe" "$INSTDIR\oa-update.exe"
+    ${EndIf}
+    Delete /REBOOTOK "$INSTDIR\oa-update-old.exe"
+    ClearErrors
   !endif
   File "${OA_PACKAGE_DIR}/LICENSE"
   File "${OA_PACKAGE_DIR}/ATTRIBUTIONS.md"
@@ -541,6 +559,7 @@ Section "Uninstall"
   Delete "$INSTDIR\oa-intro.exe"
   Delete "$INSTDIR\oa-tool.exe"
   Delete "$INSTDIR\oa-update.exe"
+  Delete "$INSTDIR\oa-update-old.exe"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\ATTRIBUTIONS.md"
   Delete "$INSTDIR\brains\classic.oabrain"

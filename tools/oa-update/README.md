@@ -55,7 +55,10 @@ install's own `oa-update.exe` can be renamed or replaced. A setup cannot
 write the file of a program that is running, and the silent setup skips a
 file it cannot write and still exits 0, so a helper run from the install
 would keep itself, not the release's helper, in place. The copy draws its
-window with the install's fonts.
+window with the install's fonts. The setup itself also renames an installed
+`oa-update.exe` to `oa-update-old.exe` before it writes the new one, which
+Vista and later allow while it runs, so an install whose helper does not
+step aside, one older than this, still gets the release's helper.
 
 A release zip holds one top folder, named for the release and its package:
 `open-annihilation-v0.8.8-macos-universal`, as the releases spell it, or

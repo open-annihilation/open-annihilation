@@ -434,7 +434,9 @@ The version you had is kept, and a copy of the preferences file sits in
 `updates/previous`. `updates/state.json` records what is installed and what
 was kept. On Windows, an installed copy keeps the program files in
 `updates/previous` and then runs the new setup, from a copy of the helper
-in the updates folder so that the setup replaces the helper too. If you decline the
+in the updates folder so that the setup replaces the helper too. The setup
+also moves aside a helper still running from the game's folder, so a copy
+whose helper is older than this is given the new helper by its next update. If you decline the
 permission prompt, nothing changes and the game says "The update was
 cancelled." If the setup fails, the helper puts those files back; where
 your account cannot change the game's folder, as in Program Files, Windows

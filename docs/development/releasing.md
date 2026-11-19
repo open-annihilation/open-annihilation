@@ -341,8 +341,14 @@ a Windows 95 folder has none, and the installer does not require it.
 Every language file in the folder is installed, and the uninstaller
 removes those files. `fonts/` is copied as a tree, so page-font folders
 in the package are installed and removed with the text fonts. When the folder also holds
-`oa-update.exe`, the installer packs that too. The uninstaller removes
-`oa-update.exe` whether or not this package carried it. The same goes for
+`oa-update.exe`, the installer packs that too. An installed
+`oa-update.exe` is renamed to `oa-update-old.exe` first, since the helper
+that runs the setup may run from it and no Windows lets a running
+program's file be written; Vista and later let it be renamed. The old file
+is deleted once the new one is written, or at the next restart while it
+still runs, and a failed rename leaves things as they were. The
+uninstaller removes `oa-update.exe` and `oa-update-old.exe` whether or not
+this package carried them. The same goes for
 `accesskit.dll`, the screen reader's library, which every package but
 Windows 95's carries; its notices are the `AccessKit-*` files in
 `licenses/`. The installer
@@ -386,9 +392,13 @@ shape, using the tree's notices, catalogue and registries and stand-in
 executables, including a stand-in `oa-update.exe`, and a stand-in
 `accesskit.dll` in every folder but Windows 95's, and builds all four
 with Homebrew's `makensis`. It checks that each installer lists
-`oa-update.exe`, that the three that are not Windows 95's list
-`accesskit.dll` and the Windows 95 one does not, that a folder without
-`oa-update.exe` still builds, and that
+`oa-update.exe` and moves an installed helper aside first (a leftover
+`oa-update-old.exe` deleted, the helper renamed to it, the new one written,
+the old name given back when it was not, the old file deleted now or at the
+next restart, and the uninstaller deleting it too), that the three that are
+not Windows 95's list `accesskit.dll` and the Windows 95 one does not, that
+a folder without `oa-update.exe` still builds and moves nothing aside, and
+that
 an unknown package name, a folder missing `LICENSE` and a folder missing
 `classic.oabrain` in `brains/` are refused.
 

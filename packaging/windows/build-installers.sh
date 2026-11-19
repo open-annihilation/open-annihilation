@@ -111,6 +111,36 @@ expect_installer() {
     grep -q "writing output ($target)" "$log" || fail "$package: log has no $target"
 }
 
+# The first line of a verbose compile log that holds `text`, or 0.
+first_line() {
+    local log=$1
+    local text=$2
+    local found
+    found=$(grep -n -F -m 1 -- "$text" "$log" | cut -d: -f1)
+    echo "${found:-0}"
+}
+
+# A helper that runs the setup from the install folder is moved aside
+# before the new one is written, since a running program's file cannot be
+# written: a leftover is deleted, the helper renamed to oa-update-old.exe,
+# the new one written, the old name given back when it was not, and the old
+# file deleted now or at the next restart. The uninstaller deletes it too.
+expect_helper_moved_aside() {
+    local package=$1
+    local log=$2
+    local leftover rename write back after uninstall
+    leftover=$(first_line "$log" 'Delete: "$INSTDIR\oa-update-old.exe"')
+    rename=$(first_line "$log" 'Rename: $INSTDIR\oa-update.exe->$INSTDIR\oa-update-old.exe')
+    write=$(first_line "$log" 'File: "oa-update.exe"')
+    back=$(first_line "$log" 'Rename: $INSTDIR\oa-update-old.exe->$INSTDIR\oa-update.exe')
+    after=$(first_line "$log" 'Delete: /REBOOTOK "$INSTDIR\oa-update-old.exe"')
+    uninstall=$(grep -c -F 'Delete: "$INSTDIR\oa-update-old.exe"' "$log" || true)
+    (( leftover > 0 && leftover < rename && rename < write && write < back && back < after )) \
+        || fail "$package: the running helper is not moved aside before oa-update.exe is written"
+    (( uninstall == 2 )) || fail "$package: the uninstaller does not delete oa-update-old.exe"
+    echo "G82: $package moves a running helper aside"
+}
+
 # One verbose compile shows the paths stored in the installer.
 x64_dir=$out/open-annihilation-$version-windows-x64
 lay_out "$x64_dir" yes
@@ -140,6 +170,7 @@ grep -q 'SetOutPath: "\$INSTDIR\\brains"' "$x64_log" \
 grep -q 'File: "classic.oabrain"' "$x64_log" || fail "windows-x64: classic.oabrain was not stored"
 grep -q 'File: "oa-update.exe"' "$x64_log" || fail "windows-x64: oa-update.exe was not stored"
 echo "G82: windows-x64 lists oa-update.exe"
+expect_helper_moved_aside windows-x64 "$x64_log"
 grep -q 'File: "accesskit.dll"' "$x64_log" || fail "windows-x64: accesskit.dll was not stored"
 grep -q 'File: "AccessKit-MIT.txt"' "$x64_log" || fail "windows-x64: AccessKit's notice was not stored"
 echo "G82: windows-x64 lists accesskit.dll"
@@ -157,6 +188,7 @@ build_one() {
     expect_installer "$package" "$dir" "$target" "$log"
     grep -q 'File: "oa-update.exe"' "$log" || fail "$package: oa-update.exe was not stored"
     echo "G82: $package lists oa-update.exe"
+    expect_helper_moved_aside "$package" "$log"
     if [[ "$package" != windows-95 ]]; then
         grep -q 'File: "accesskit.dll"' "$log" || fail "$package: accesskit.dll was not stored"
         echo "G82: $package lists accesskit.dll"
@@ -210,6 +242,9 @@ if ! compile_log windows-x64 "$plain" "$plain_log" -V4; then
 fi
 if grep -q 'File: "oa-update.exe"' "$plain_log"; then
     fail "a package without oa-update.exe still packed it"
+fi
+if grep -q -F 'Rename: $INSTDIR\oa-update.exe' "$plain_log"; then
+    fail "a package without oa-update.exe still moves the installed helper aside"
 fi
 echo "G82: an installer without oa-update.exe still builds"
 
