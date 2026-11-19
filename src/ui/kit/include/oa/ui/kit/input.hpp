@@ -553,7 +553,9 @@ automation_entries(const DisplayList& list, const Interaction& interaction);
 /// where it is drawn:
 /// - a control a switch item draws (Role::toggle): its halves, named
 ///   <name>.off and <name>.on, each half the switch, the On half's the
-///   wider by the odd column; checked on the half the switch shows;
+///   wider by the odd column; checked on the half the switch shows. A press
+///   anywhere on a switch flips it, so a press on a half sets that half's
+///   value only while the other half is checked;
 /// - a strip of levels (Role::levels): each level where level_at finds it,
 ///   or, on a strip wrapped onto rows (LevelsLook::columns), at its row and
 ///   column, checked on the chosen level and enabled only where it is

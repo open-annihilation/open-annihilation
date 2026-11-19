@@ -474,8 +474,8 @@ struct Part {
     return nullptr;
 }
 
-/// Returns a switch's halves: Off on the left, On on the right, as a press
-/// on its right half from its middle column turns it on.
+/// Returns a switch's halves: Off on the left, On on the right, the On half
+/// from the middle column, each checked while the switch shows its value.
 ///
 /// @param area the switch
 /// @param look its state and captions

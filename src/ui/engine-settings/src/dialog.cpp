@@ -2941,16 +2941,14 @@ DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y) {
             press_registered_row(dialog, control, {x, y}))
         return *registered;
     if (layout::developer_page(dialog)) {
-        if (control == active_only_control) {
-            const layout::SourceRect& active = open.active_only_switch;
-            return developer::set_active_only(dialog, x >= active.x + active.width / 2);
-        }
+        if (control == active_only_control)
+            return developer::set_active_only(dialog, !dialog.developer.active_only);
         if (const layout::ListRow* row = layout::list_row(open.list, control))
             return developer::release_on(dialog, *row, x);
     }
-    // A row takes the release as its row spec says: a switch's half sets
-    // it, a strip's level is chosen, a drop-down opens its list, MANAGE…
-    // and the button of Your files the press held ask the host to act.
+    // A row takes the release as its row spec says: a switch flips, a
+    // strip's level is chosen, a drop-down opens its list, MANAGE… and the
+    // button of Your files the press held ask the host to act.
     const layout::Row* row = row_of(open.rows, control);
     if (row == nullptr)
         return activate(dialog, open, control);

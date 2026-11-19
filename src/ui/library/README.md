@@ -132,12 +132,13 @@ and `export_tad_bytes` are the sizes, and 0 while a replay is not ready.
     asks of `Library::key_hooks` once as it opens, from the layout in use
     to the one named: `kept` with the own changes on top, `clean` without,
     a command on one of the player's own keys listed even when its key
-    stays, marked "yours"); then one switch per helper, under the note that
-    helpers act in every game. A layout that already holds the player's own
-    changes keeps them: the question says so in place of the choice, and
-    `key_use_keeps` is false, so Use never writes over them. Use's button
-    names the answer to Where (`key_use_button`: "Use for {mod}" or "Use
-    for every game"). Cancel writes nothing. The question's controls are
+    stays, marked "yours"); then one switch per helper, which a press
+    anywhere on it flips, under the note that helpers act in every game. A
+    layout that already holds the player's own changes keeps them: the
+    question says so in place of the choice, and `key_use_keeps` is false,
+    so Use never writes over them. Use's button names the answer to Where
+    (`key_use_button`: "Use for {mod}" or "Use for every game"). Cancel
+    writes nothing. The question's controls are
     `library.use.for.game`, `library.use.for.mod`, `library.use.keep`,
     `library.use.aside`, `library.use.helper.<name>`, `library.use.block`,
     `prompt.use` and `prompt.cancel`, and its labels `library.use.saved`
@@ -678,7 +679,8 @@ recording setting). Its state is `Library::replays` (`ReplayView`).
     or already being asked, and the refresh mark beside it turns while it
     is. When the ask reads a catalogue the mark shows a check
     (`ButtonLook::check_ms`) and then the arrow; a failed ask leaves the
-    arrow. The Off/On switch is the kit's switch. A built-in registry has a
+    arrow. The Off/On switch is the kit's switch: a press anywhere on it
+    flips it, Left turns it Off and Right On. A built-in registry has a
     neutral Built in pill on the title's line, at its right. REMOVE and
     ADD MIRROR… sit under the subtitle for one the
     player added. A note under the last card (`registry_note`) names the
@@ -1288,8 +1290,9 @@ and pressing it asks for nothing; that REFRESH asks for that registry and
 is greyed, with the refresh mark turning beside it, while the registry is
 off or already being asked; that a refresh which reads a list shows the
 check and then the arrow, and one which fails shows the arrow; that a
-switch's halves, Space, REMOVE, ADD
-MIRROR… and ADD REGISTRY… ask for those actions, with ADD REGISTRY… and
+press on a switch's knob or on its track's other side asks to flip it,
+each way, as Space does, and that REMOVE, ADD MIRROR… and ADD REGISTRY…
+ask for those actions, with ADD REGISTRY… and
 ADD MIRROR… absent during a match; that
 Tab follows the declared order and the
 arrows reach every control that takes the focus from the first tab, and
@@ -1300,7 +1303,8 @@ the details; and that Use's question puts Where, the own changes, What
 moves and the helpers in that order above its buttons, its choices radio
 rows, the marked one's dot showing, its choices and buttons at Kit 2's
 control height, What moves naming each command's keys
-and the player's own, Use named by the answer to Where, and that it still
+and the player's own, Use named by the answer to Where, a press on a
+helper's knob flipping its switch each way, and that it still
 fits every class with two helpers and the interface note. Regular shows more rows than Compact, and every size shows the section list. It then drives the screens: Enter at Compact and at Regular,
 Escape's three cases, the tab commands both ways, the controller's X, Y
 and B, the list's keys, Tab's walk, presses, double presses and taps on

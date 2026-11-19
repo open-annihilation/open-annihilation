@@ -149,8 +149,9 @@ shows, Enter presses the focused control and hides the ring.
 | Page Up, Page Down | scrolls the section |
 | Home, End | scrolls to the section's top or end |
 
-On a touch screen a finger takes the nearest control within reach, so a
-small switch is easy to hit.
+A click anywhere on a switch, its knob included, flips it. On a touch
+screen a finger takes the nearest control within reach, so a small switch
+is easy to hit.
 
 A setting that cannot change now is faded, with a padlock and the reason:
 

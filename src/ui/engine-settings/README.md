@@ -764,10 +764,10 @@ a control that dropped under it, and stops at the status, so that the
 status keeps its strength.
 
 Changes show at once; OK keeps them, Cancel puts back what the dialog opened
-with, Restore defaults resets every setting that is not locked. A click on a
-switch's half sets it, and a click on a strip's level chooses it; a press on
-a slider moves its knob to the nearest stop and drags it. A click on a
-drop-down's field opens its list under the field, or over it where the list
+with, Restore defaults resets every setting that is not locked. A click
+anywhere on a switch flips it, its knob included, and a click on a strip's
+level chooses it; a press on a slider moves its knob to the nearest stop
+and drags it. A click on a drop-down's field opens its list under the field, or over it where the list
 would reach below the footer's line: an item a line, as many as eight, the
 chosen one marked as the section list marks its open section and the one
 under the pointer lit. A click on an item chooses it and closes the list; a
@@ -1531,6 +1531,7 @@ its parts apart, each section's entry fitting its words, each control
 pressed where it is drawn, hints kept to their lines, Graphics showing more
 whole rows than at Compact and scrolling less, and the footer's buttons at
 their Compact sizes and in their order; its sections, switches and their one table,
+a click on a switch's knob or anywhere else on it flipping it each way,
 slider stops, both level strips, keys, footer buttons, locks and the faces
 it draws; the arrows by geometry (`the_arrows_move_by_geometry`: down a
 section's rows to the footer and back, from a section's entry to the row
@@ -1566,9 +1567,10 @@ Restore defaults and locks; Developer: its five rows and their places over
 the list, Show performance statistics and Performance graph taking changes
 whatever Developer Mode is, the list's areas closed at first and opening, the list static
 while Off, a hack turned on and off, a switch, a slider and a set's value
-set through the pointer and the keys, the overrides kept and dropped as
-the profile's own values come back, Restore profile values, Show Active
-Only and its count, the list's scrolling and focus, and its summaries'
+set through the pointer and the keys, a press on the knob of a hack's
+switch, a parameter's switch and Show Active Only flipping each, each
+way, the overrides kept and dropped as the profile's own values come
+back, Restore profile values, Show Active Only and its count, the list's scrolling and focus, and its summaries'
 lines; Controller: listed only once a gamepad has sent input, after
 User Interface and Touch and before Game files, each entry's number kept, the
 focus walking it, `set_controller_section` listing and unlisting it, its
@@ -1593,9 +1595,9 @@ Developer under it, its entry numbered 8 with Touch 5, Controller 6,
 Developer 7, Downloads 9, System 10, Game Content 11 and Updates 12, the
 focus walking it, its three rows and their texts, Manage… returning
 `manage_game_files` to a click, to Space and to a finger beside it, the
-switch by either half and the keys, Restore defaults and Cancel, where the
-files are taking no press and no focus, and the lines a location breaks
-into; the Language dialog: its one entry at the top, its focus,
+switch flipped by a click at either end and by the keys, Restore defaults
+and Cancel, where the files are taking no press and no focus, and the
+lines a location breaks into; the Language dialog: its one entry at the top, its focus,
 Restore defaults restoring its section alone and keeping a locked
 language, and with fonts that hold no glyphs every text drawn and measured
 in scripted modern fonts; Your files: its place, its buttons under the

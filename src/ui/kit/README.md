@@ -181,12 +181,15 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   For automation, `automation_entries` lists the named controls, and
   `automation_parts` lists each control followed by the parts of it that
   take a press of their own (an `AutomationEntry` with `part` set): a
-  switch's halves `<name>.off` and `<name>.on`, a strip's levels where
-  `level_at` finds them, a row of buttons' buttons, and an open drop-down's
-  items at `choice_item`, each named by its control's `Control::parts`
-  word, else its place from 1. A control's rectangle there is the part of
-  it a press reaches. `focused` is true for the control that holds the
-  keyboard focus whether or not the ring is drawn; a part is never focused.
+  switch's halves `<name>.off` and `<name>.on`, checked on the value the
+  switch shows (a press anywhere on a switch flips it, so a press on a
+  half sets that half's value only while the other is checked), a strip's
+  levels where `level_at` finds them, a row of buttons' buttons, and an
+  open drop-down's items at `choice_item`, each named by its control's
+  `Control::parts` word, else its place from 1. A control's rectangle
+  there is the part of it a press reaches. `focused` is true for the
+  control that holds the keyboard focus whether or not the ring is drawn;
+  a part is never focused.
   Each entry also carries `role`, `label`, `value_text`, `has_value` and
   `value`, `least`, `most` and `step` (when `has_range`), `place` and
   `set_size`, `chosen` and `pressed`. A named composite is listed too, after
@@ -749,8 +752,10 @@ the carousel slides flat and the call to action holds a steady ring.
   `switch_track_width` wide, the area the screens give a switch
   `switch_width`), with a round knob
   two points in: lime with the knob at the right in the dark ink while
-  On, the selected surface with the knob at the left while Off. Its Off
-  and On words name its halves to automation and are not drawn.
+  On, the selected surface with the knob at the left while Off. A press
+  anywhere on it, the knob included, flips it, as Space does; Left turns
+  it Off and Right On. Its Off and On words name its halves to automation
+  and are not drawn.
 - Every token's value is pinned by `ui-kit-theme`.
 - One wrap. Its rules are the only differences between its callers.
 - The kit never looks text up in the interface catalogue, and it forces no
@@ -1022,14 +1027,16 @@ modern fonts' taller hints, locked and not, against values computed with
 the dialog's own placement, and the scroll against the dialog's; the names,
 kinds, Tab order and drawing order of the display list; the ids of a
 drop-down's items and a strip's levels, and the parts they name; rows of two models
-in one column; every event on every kind; and the page painted.
+in one column; every event on every kind, a press on a switch's knob and
+anywhere else on it flipping it each way; and the page painted.
 
 `ui-kit-gallery` checks the gallery at Compact, Large and Regular, as
 [Gallery](#gallery) says: every drawn role of `all_roles` present, five
 states of every component role that takes input, every part in the frame
 or its scroll area, no two controls overlapping, Tab and Down, the names,
 no text holding the build's version (which the test is given), and the
-working samples changing the model alone; and that it draws. Each case
+working samples changing the model alone, a click on the switch's knob
+flipping it each way; and that it draws. Each case
 runs in both looks, the modern one with the fonts beside the test, where
 the header's title is Barlow Condensed's width and the pixels differ from
 the classic look's.

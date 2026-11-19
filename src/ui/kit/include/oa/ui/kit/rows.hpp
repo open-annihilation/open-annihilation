@@ -1309,8 +1309,8 @@ RowResult activate(const RowSpec<Model>& spec, Model& model, std::size_t marked_
     return {};
 }
 
-/// Acts on a press on a row's control: a switch's left half sets Off and its
-/// right half On; a strip chooses the level under the point when it is
+/// Acts on a press on a row's control: a press anywhere on a switch flips
+/// it, as Space does; a strip chooses the level under the point when it is
 /// offered; a slider moves to the stop nearest the point; a drop-down opens
 /// its menu; a button, the button under the point and a link ask for their
 /// action. A text field, a text row, and a locked or disabled row take nothing.
@@ -1328,7 +1328,7 @@ RowResult press(const RowSpec<Model>& spec, Model& model, const PlacedRow& place
     switch (spec.kind) {
     case RowKind::toggle: {
         const bool before = row_on(spec, model);
-        set_row_on(spec, model, point.x >= area.x + area.width / 2);
+        set_row_on(spec, model, !before);
         return changed_if(row_on(spec, model) != before);
     }
     case RowKind::levels: {

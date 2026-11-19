@@ -579,8 +579,9 @@ std::optional<Event> event_for(
     case Action::click:
         event.kind = EventKind::press;
         put_centre(node, event);
-        // A switch's middle is the edge between its Off and On halves, which
-        // is the half it already shows. Press the other half.
+        // A switch flips on a press anywhere on it. The press lands on the
+        // half it does not show, which flips it as well where a screen sets
+        // a switch by the half pressed.
         if (node.role == Role::switch_control && node.toggled_known)
             event.x = node.x + node.width * (node.toggled ? 0.25 : 0.75);
         return event;

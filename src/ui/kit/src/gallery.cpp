@@ -2959,9 +2959,7 @@ GalleryResult press_at(GalleryModel& model, const GalleryLayout& laid, ControlId
     } else if (id == kButton || id == kLink || id == kOaButton) {
         ++model.presses;
     } else if (id == kToggle) {
-        // The half it lands on: Off on the left, On on the right.
-        const int32_t half = (control->rect.width - 2) / 2;
-        model.toggle_on = at.x >= control->rect.x + 1 + half;
+        model.toggle_on = !model.toggle_on;
     } else if (id == kLevels) {
         model.level = level_at(control->rect, kLevelCount, kLevelWidth, at.x);
     } else if (id == kChoice) {

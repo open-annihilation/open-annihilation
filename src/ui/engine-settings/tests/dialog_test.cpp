@@ -61,6 +61,7 @@
 #include "oa/ui/engine_settings/notice.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/paint/painter.hpp"
@@ -548,6 +549,18 @@ struct Point {
 
 Point centre(const renderer::SourceRect& rect) {
     return {rect.x + rect.width / 2, rect.y + rect.height / 2};
+}
+
+/// Returns the middle of a switch's knob, as the kit draws it: at its
+/// track's right while On and its left while Off.
+///
+/// @param area the switch
+/// @param on true while it is On
+/// @return the knob's middle
+Point knob_of(const renderer::SourceRect& area, bool on) {
+    const renderer::SourceRect track = kit::switch_track(area);
+    const int32_t radius = track.height / 2;
+    return {on ? track.x + track.width - radius : track.x + radius, track.y + radius};
 }
 
 /// Tells whether two rectangles are the same.
@@ -1076,22 +1089,28 @@ void accessibility_choose_opens_latchable_and_edit_keys_stays_on_all() {
     CHECK(!sticky.opened.sticky_modifiers);
 }
 
-void switches_take_a_click_on_either_half_and_keys() {
+void switches_flip_on_a_click_anywhere_and_take_keys() {
     settings::Dialog dialog = opened(Page::controls);
     const auto rows = geometry::place_rows(Page::controls, {});
     // EDIT KEYS… is the first row's button. Show keys on buttons is the
-    // switch under it, Off until a click on its On half.
+    // switch under it, Off until a click on it. A click anywhere on the
+    // switch flips it: on its knob, at the track's left while Off and its
+    // right while On, and at either end of the switch.
     CHECK(click(dialog, centre(rows.rows[0].control_area)) == DialogAction::edit_keys);
     const auto& keys = rows.rows[1].control_area;
-    const Point off{keys.x + 4, keys.y + keys.height / 2};
-    const Point on{keys.x + keys.width - 4, keys.y + keys.height / 2};
+    const Point left{keys.x + 4, keys.y + keys.height / 2};
+    const Point right{keys.x + keys.width - 4, keys.y + keys.height / 2};
     CHECK(!dialog.chosen.show_keys_on_buttons);
-    CHECK(click(dialog, on) == DialogAction::changed);
+    CHECK(click(dialog, knob_of(keys, false)) == DialogAction::changed);
     CHECK(dialog.chosen.show_keys_on_buttons);
-    CHECK(click(dialog, on) == DialogAction::redraw);
-    CHECK(dialog.chosen.show_keys_on_buttons);
-    CHECK(click(dialog, off) == DialogAction::changed);
+    CHECK(click(dialog, knob_of(keys, true)) == DialogAction::changed);
     CHECK(!dialog.chosen.show_keys_on_buttons);
+    for (const Point end : {right, left}) {
+        CHECK(click(dialog, end) == DialogAction::changed);
+        CHECK(dialog.chosen.show_keys_on_buttons);
+        CHECK(click(dialog, end) == DialogAction::changed);
+        CHECK(!dialog.chosen.show_keys_on_buttons);
+    }
 
     // Keys: the first moves the focus to Key layout; Space opens the editor.
     // Down reaches Show keys on buttons, then the wheel, then the limits.
@@ -1244,26 +1263,29 @@ void language_and_text_shows_a_language_five_switches_and_a_size() {
     for (const auto& row : geometry::open_rows(dialog).rows.rows)
         CHECK(row.lock == Lock::none);
 
-    // A click on each switch's Off half sets it Off, and its On half On;
-    // the text style follows at once.
-    const auto off_of = [](const renderer::SourceRect& area) {
+    // A click on a switch flips it, at either end and on its knob; the text
+    // style follows at once.
+    const auto left_end = [](const renderer::SourceRect& area) {
         return Point{area.x + 4, area.y + area.height / 2};
     };
-    const auto on_of = [](const renderer::SourceRect& area) {
+    const auto right_end = [](const renderer::SourceRect& area) {
         return Point{area.x + area.width - 4, area.y + area.height / 2};
     };
     CHECK(settings::text_style(dialog.chosen) == oa::present::TextStyle{});
-    CHECK(click(dialog, off_of(placed.rows[1].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, left_end(placed.rows[1].control_area)) == DialogAction::changed);
     CHECK(!dialog.chosen.modern_fonts && !settings::text_style(dialog.chosen).modern_fonts);
     dialog.scroll[static_cast<std::size_t>(Page::language)] = 129;
     const auto scrolled = geometry::open_rows(dialog).rows.rows;
-    CHECK(click(dialog, off_of(scrolled[3].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, left_end(scrolled[3].control_area)) == DialogAction::changed);
     CHECK(!settings::text_style(dialog.chosen).outline);
-    CHECK(click(dialog, off_of(scrolled[4].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, knob_of(scrolled[4].control_area, true)) == DialogAction::changed);
     CHECK(!settings::text_style(dialog.chosen).shadow);
-    CHECK(click(dialog, on_of(scrolled[5].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, right_end(scrolled[5].control_area)) == DialogAction::changed);
     CHECK(settings::text_style(dialog.chosen).background);
-    CHECK(click(dialog, on_of(scrolled[5].control_area)) == DialogAction::redraw);
+    CHECK(click(dialog, right_end(scrolled[5].control_area)) == DialogAction::changed);
+    CHECK(!settings::text_style(dialog.chosen).background);
+    CHECK(click(dialog, knob_of(scrolled[5].control_area, false)) == DialogAction::changed);
+    CHECK(settings::text_style(dialog.chosen).background);
     dialog.scroll[static_cast<std::size_t>(Page::language)] = 0;
     const oa::present::TextStyle plain_text{
         .modern_fonts = false,
@@ -4134,15 +4156,16 @@ void every_switch_reads_and_sets_through_one_table() {
     CHECK(geometry::level_at(strip_area, strip, 0) == 0);
     CHECK(geometry::level_at(strip_area, strip, 900) == 2);
 
-    // Vertical sync's switch takes a click on either half and the keys;
-    // Hardware acceleration's strip a click on each level.
+    // Vertical sync's switch flips on a click anywhere on it, its knob
+    // included, and takes the keys; Hardware acceleration's strip a click on
+    // each level.
     settings::Dialog dialog = graphics_page();
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 80;
     const auto rows = geometry::open_rows(dialog).rows.rows;
-    const auto on_half = [](const renderer::SourceRect& area) {
+    const auto right_end = [](const renderer::SourceRect& area) {
         return Point{area.x + area.width - 4, area.y + area.height / 2};
     };
-    const auto off_half = [](const renderer::SourceRect& area) {
+    const auto left_end = [](const renderer::SourceRect& area) {
         return Point{area.x + 4, area.y + area.height / 2};
     };
     const auto level_centre = [](const renderer::SourceRect& area, int32_t level) {
@@ -4152,9 +4175,18 @@ void every_switch_reads_and_sets_through_one_table() {
             area.y + area.height / 2
         };
     };
-    CHECK(click(dialog, on_half(rows[4].control_area)) == DialogAction::changed);
+    CHECK(!dialog.chosen.vertical_sync);
+    CHECK(click(dialog, knob_of(rows[4].control_area, false)) == DialogAction::changed);
     CHECK(dialog.chosen.vertical_sync);
-    CHECK(click(dialog, off_half(rows[4].control_area)) == DialogAction::changed);
+    CHECK(click(dialog, knob_of(rows[4].control_area, true)) == DialogAction::changed);
+    CHECK(!dialog.chosen.vertical_sync);
+    CHECK(click(dialog, right_end(rows[4].control_area)) == DialogAction::changed);
+    CHECK(dialog.chosen.vertical_sync);
+    CHECK(click(dialog, right_end(rows[4].control_area)) == DialogAction::changed);
+    CHECK(!dialog.chosen.vertical_sync);
+    CHECK(click(dialog, left_end(rows[4].control_area)) == DialogAction::changed);
+    CHECK(dialog.chosen.vertical_sync);
+    CHECK(click(dialog, left_end(rows[4].control_area)) == DialogAction::changed);
     CHECK(!dialog.chosen.vertical_sync);
     CHECK(dialog.forget_renderer_failures == 0);
 
@@ -5358,10 +5390,12 @@ geometry::ListRow parameter_row(
     });
 }
 
-/// Returns the point of a switch's half.
+/// Returns a point near one end of a switch: the On side or the Off side.
+/// A press anywhere on a switch flips it, so the tests press the side of
+/// the value they ask for while the switch shows the other.
 ///
 /// @param area the switch
-/// @param on true for its On half
+/// @param on true for its right end, the On side
 /// @return the point
 Point switch_half(const renderer::SourceRect& area, bool on) {
     return {on ? area.x + area.width - 4 : area.x + 4, area.y + area.height / 2};
@@ -6030,7 +6064,7 @@ void every_kind_of_parameter_has_its_control() {
     for (const auto& override : on)
         open_hack(dialog, override.hack);
 
-    // A boolean: a switch, set by its halves.
+    // A boolean: a switch, which a press flips.
     auto kickout = parameter_row(dialog, "orders.build-site-kickout", 1);
     CHECK(kickout.kind == geometry::ListRowKind::toggle && kickout.on && kickout.text == "kickout");
     CHECK(click(dialog, switch_half(kickout.control_area, false)) == DialogAction::changed);
@@ -6135,6 +6169,41 @@ void every_kind_of_parameter_has_its_control() {
             ));
         }
     }
+}
+
+/// A press on a switch's knob flips it, each way, as a press anywhere on
+/// it does: Show Active Only, a hack's header and a parameter's switch. The
+/// knob lies at the track's right while On and its left while Off.
+void a_press_on_a_switch_knob_flips_it() {
+    settings::Dialog dialog =
+        developer_dialog(true, {profiles::HackOverride{"orders.build-site-kickout", true, {}}});
+    CHECK(!dialog.developer.active_only);
+    const auto active_only = [&] { return geometry::open_rows(dialog).active_only_switch; };
+    CHECK(click(dialog, knob_of(active_only(), false)) == DialogAction::redraw);
+    CHECK(dialog.developer.active_only);
+    CHECK(click(dialog, knob_of(active_only(), true)) == DialogAction::redraw);
+    CHECK(!dialog.developer.active_only);
+
+    open_hack(dialog, "ai.patrol-group-size");
+    auto header = hack_header(dialog, "ai.patrol-group-size");
+    CHECK(!header.on && !header.locked);
+    CHECK(click(dialog, knob_of(header.toggle, false)) == DialogAction::changed);
+    header = hack_header(dialog, "ai.patrol-group-size");
+    CHECK(header.on);
+    CHECK(click(dialog, knob_of(header.toggle, true)) == DialogAction::changed);
+    CHECK(!hack_header(dialog, "ai.patrol-group-size").on);
+
+    open_hack(dialog, "orders.build-site-kickout");
+    auto kickout = parameter_row(dialog, "orders.build-site-kickout", 1);
+    CHECK(kickout.kind == geometry::ListRowKind::toggle && kickout.on);
+    CHECK(click(dialog, knob_of(kickout.control_area, true)) == DialogAction::changed);
+    CHECK(
+        override_value(chosen_override(dialog, "orders.build-site-kickout"), "kickout") == "false"
+    );
+    kickout = parameter_row(dialog, "orders.build-site-kickout", 1);
+    CHECK(!kickout.on);
+    CHECK(click(dialog, knob_of(kickout.control_area, false)) == DialogAction::changed);
+    CHECK(parameter_row(dialog, "orders.build-site-kickout", 1).on);
 }
 
 void restore_profile_values_and_show_active_only() {
@@ -8200,8 +8269,8 @@ void manage_asks_the_host_and_the_backups_switch_changes_at_once() {
     CHECK(dialog.pressed == settings::no_control);
     static_cast<void>(settings::dialog_pointer_up(dialog, location.x + 4, location.y + 4));
 
-    // The switch, Off at first, turns on by either half and by the keys, and
-    // each change asks the host to put it in effect at once.
+    // The switch, Off at first, flips on a click at either end and by the
+    // keys, and each change asks the host to put it in effect at once.
     CHECK(!dialog.chosen.game_files_backed_up);
     CHECK(click(dialog, {backups.x + backups.width - 4, backups.y + 4}) == DialogAction::changed);
     CHECK(dialog.chosen.game_files_backed_up);
@@ -13090,7 +13159,7 @@ int main(int argc, char** argv) {
         every_control_is_pressed_where_it_is_drawn();
         accessibility_choose_opens_latchable_and_edit_keys_stays_on_all();
         colour_and_speech_rows_follow_the_choice();
-        switches_take_a_click_on_either_half_and_keys();
+        switches_flip_on_a_click_anywhere_and_take_keys();
         language_and_text_shows_a_language_five_switches_and_a_size();
         language_drop_down_names_each_language_in_itself();
         language_drop_down_opens_marks_and_chooses();
@@ -13161,6 +13230,7 @@ int main(int argc, char** argv) {
         developer_mode_off_shows_the_profile_and_takes_no_change();
         hacks_turn_on_and_off_and_their_overrides_follow_the_profile();
         every_kind_of_parameter_has_its_control();
+        a_press_on_a_switch_knob_flips_it();
         restore_profile_values_and_show_active_only();
         restore_defaults_turns_developer_mode_off_and_keeps_the_overrides();
         the_list_scrolls_and_shows_the_focused_row();

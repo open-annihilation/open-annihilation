@@ -702,21 +702,59 @@ kit::Point show_and_find(kit::GalleryModel& model, const kit::Frame& frame, std:
     return {};
 }
 
+/// Returns the middle of a switch's knob, as a model's layout draws it: at
+/// the track's right while On and its left while Off.
+///
+/// @param model the model
+/// @param frame the frame
+/// @param name the switch's name
+/// @return the knob's middle, in the gallery's points; the origin when nothing draws it
+kit::Point knob_of(const kit::GalleryModel& model, const kit::Frame& frame, std::string_view name) {
+    const kit::GalleryLayout laid = kit::gallery_layout(model, frame, fonts());
+    const kit::ControlId id = kit::control_named(laid.list, name);
+    for (const kit::Item& part : laid.list.items) {
+        if (part.control != id || part.role != kit::Role::toggle)
+            continue;
+        const kit::Rect track = kit::switch_track(part.rect);
+        const int32_t radius = track.height / 2;
+        const int32_t x = part.state.on ? track.x + track.width - radius : track.x + radius;
+        return {x, track.y + radius};
+    }
+    return {};
+}
+
 /// Toggling, choosing and typing change the model alone, each its own
 /// sample's value, and the layout shows the new value.
 void using_the_samples_changes_the_model_alone(const Case& shown, const kit::Frame& frame) {
-    // The switch's On half turns it On, and Space turns it Off again.
+    // A click on the switch's knob turns it On, a click on its knob again
+    // turns it Off, a click on the track's other side turns it On, and Space
+    // turns it Off again.
     {
         kit::GalleryModel model;
-        const kit::Point middle = show_and_find(model, frame, "gallery.toggle.1");
-        kit::GalleryModel before = model;
-        std::ignore = click(model, frame, {middle.x + 10, middle.y});
+        std::ignore = show_and_find(model, frame, "gallery.toggle.1");
+        const kit::GalleryModel before = model;
+        const kit::Point off_knob = knob_of(model, frame, "gallery.toggle.1");
+        std::ignore = click(model, frame, off_knob);
         kit::GalleryModel expected = before;
         expected.toggle_on = true;
         expect(
             model.toggle_on && same_samples(model, expected),
             shown,
-            "a click on On did not turn the switch On alone"
+            "a click on the knob did not turn the switch On alone"
+        );
+        const kit::Point on_knob = knob_of(model, frame, "gallery.toggle.1");
+        expect(on_knob.x > off_knob.x, shown, "the knob did not move right");
+        std::ignore = click(model, frame, on_knob);
+        expect(
+            !model.toggle_on && same_samples(model, before),
+            shown,
+            "a click on the knob did not turn the switch Off alone"
+        );
+        std::ignore = click(model, frame, on_knob);
+        expect(
+            model.toggle_on && same_samples(model, expected),
+            shown,
+            "a click on the track's empty side did not turn the switch On alone"
         );
         const kit::GalleryLayout laid = kit::gallery_layout(model, frame, fonts());
         const kit::ControlId id = kit::control_named(laid.list, "gallery.toggle.1");

@@ -937,26 +937,19 @@ show_tab(Library& library, ScreenState& state, const kit::DisplayList& list, Tab
 
 /// Returns what a Registries-tab control asks for.
 ///
-/// A switch's left half and Left turn it off, its right half and Right turn
-/// it on, and Space or Enter toggles it. Nothing is asked when that is
-/// already its state. REFRESH names the registry and asks for it while it
-/// is on and not already being asked. The key icon asks for nothing. REMOVE
-/// and ADD MIRROR… name the registry; ADD REGISTRY… does not. During a match
-/// ADD REGISTRY… and ADD MIRROR… do nothing.
+/// Left turns a switch off and Right on, and a press anywhere on it, Space
+/// or Enter flips it. Nothing is asked when that is already its state.
+/// REFRESH names the registry and asks for it while it is on and not
+/// already being asked. The key icon asks for nothing. REMOVE and ADD
+/// MIRROR… name the registry; ADD REGISTRY… does not. During a match ADD
+/// REGISTRY… and ADD MIRROR… do nothing.
 ///
 /// @param library the model
-/// @param list the display list
 /// @param id the control
-/// @param key the key, when one was pressed
-/// @param point the point, when the pointer let go on it
+/// @param key the key, when one was pressed; none for a press
 /// @return what the host is to do; none when the control is not one of these
-std::optional<ScreenResult> registry_press(
-    const Library& library,
-    const kit::DisplayList& list,
-    kit::ControlId id,
-    std::optional<kit::Key> key,
-    std::optional<kit::Point> point
-) {
+std::optional<ScreenResult>
+registry_press(const Library& library, kit::ControlId id, std::optional<kit::Key> key) {
     const bool on_switch = controls::registry_switch_control(id);
     const bool on_remove = controls::registry_remove_control(id);
     const bool on_mirror = controls::registry_mirror_control(id);
@@ -997,11 +990,6 @@ std::optional<ScreenResult> registry_press(
                 next = !registry.on;
             else
                 return ScreenResult{};
-        } else if (point) {
-            const kit::Control* control = kit::control_of(list, id);
-            if (control == nullptr)
-                return ScreenResult{};
-            next = point->x >= control->rect.x + control->rect.width / 2;
         } else {
             next = !registry.on;
         }
@@ -1092,21 +1080,15 @@ ScreenResult begin_key_use(Library& library, ScreenState& state, const Entry& en
 /// Answers a press while USE's question is open. Other controls are covered.
 ///
 /// USE returns Action::use_layout and leaves the question open, so the host
-/// can read key_use_result. CANCEL and Escape close it and write nothing.
+/// can read key_use_result. CANCEL and Escape close it and write nothing. A
+/// helper's switch turns off with Left and on with Right, and a press
+/// anywhere on it, Space or Enter flips it.
 ///
 /// @param[in,out] library the model
-/// @param list the display list
 /// @param id the control
-/// @param key the key, when one was pressed on the control
-/// @param point the point, when the pointer let go on the control
+/// @param key the key, when one was pressed on the control; none for a press
 /// @return what the host is to do
-ScreenResult key_use_press(
-    Library& library,
-    const kit::DisplayList& list,
-    kit::ControlId id,
-    std::optional<kit::Key> key,
-    std::optional<kit::Point> point
-) {
+ScreenResult key_use_press(Library& library, kit::ControlId id, std::optional<kit::Key> key) {
     if (id == controls::use_blocker)
         return {};
     if (id == controls::use_cancel) {
@@ -1147,11 +1129,6 @@ ScreenResult key_use_press(
                 next = true;
             else if (*key != kit::Key::space && *key != kit::Key::enter)
                 return {};
-        } else if (point) {
-            const kit::Control* control = kit::control_of(list, id);
-            if (control == nullptr)
-                return {};
-            next = point->x >= control->rect.x + control->rect.width / 2;
         }
         if (next == library.key_use.helpers[index].on)
             return {};
@@ -1361,23 +1338,22 @@ ScreenResult share_press(Library& library, kit::ControlId id) {
 /// No press on a row gets, updates or installs anything: it selects the
 /// row, and at Compact opens its details page. A row's state icon that
 /// takes a press selects its row and asks for its GET or UPDATE, as that
-/// button would, while the button allows it. A Registries-tab switch reads
-/// the key or the point so each half sets its own state.
+/// button would, while the button allows it. A switch reads the key: Left
+/// turns it off and Right on, and a press anywhere on it, Space or Enter
+/// flips it.
 ///
 /// @param[in,out] library the model
 /// @param[in,out] state the screen's state
 /// @param list the display list
 /// @param id the control
-/// @param key the key, when one was pressed on the control
-/// @param point the point, when the pointer let go on the control
+/// @param key the key, when one was pressed on the control; none for a press
 /// @return what the host is to do
 ScreenResult activate(
     Library& library,
     ScreenState& state,
     const kit::DisplayList& list,
     kit::ControlId id,
-    std::optional<kit::Key> key,
-    std::optional<kit::Point> point
+    std::optional<kit::Key> key
 ) {
     const kit::Control* control = kit::control_of(list, id);
     if (control == nullptr || !control->enabled)
@@ -1390,8 +1366,8 @@ ScreenResult activate(
     if (library.export_dialog.open)
         return export_press(library, id);
     if (library.key_use.open)
-        return key_use_press(library, list, id, key, point);
-    if (const std::optional<ScreenResult> registry = registry_press(library, list, id, key, point))
+        return key_use_press(library, id, key);
+    if (const std::optional<ScreenResult> registry = registry_press(library, id, key))
         return *registry;
     if (menu_item_control(id))
         return choose_item(library, state, list, id - controls::first_menu_item);
@@ -1923,23 +1899,21 @@ ScreenResult account_question_key(
         if (busy) {
             if ((share && focus == controls::share_cancel) ||
                 (!share && focus == controls::sign_in_cancel))
-                return activate(library, state, list, focus, pressed, std::nullopt);
+                return activate(library, state, list, focus, pressed);
             return {};
         }
         if (share) {
             if (focus == controls::share_public || focus == controls::share_unlisted ||
                 focus == controls::share_cancel)
-                return activate(library, state, list, focus, pressed, std::nullopt);
+                return activate(library, state, list, focus, pressed);
             if (share_can_submit(library.share_question))
-                return activate(
-                    library, state, list, controls::share_submit, pressed, std::nullopt
-                );
+                return activate(library, state, list, controls::share_submit, pressed);
             return {};
         }
         if (focus == controls::sign_in_cancel)
-            return activate(library, state, list, focus, pressed, std::nullopt);
+            return activate(library, state, list, focus, pressed);
         if (sign_in_can_submit(library.sign_in))
-            return activate(library, state, list, controls::sign_in_submit, pressed, std::nullopt);
+            return activate(library, state, list, controls::sign_in_submit, pressed);
         return {};
     }
     const bool in_question = share ? controls::share_control(interaction.focused)
@@ -1983,7 +1957,7 @@ ScreenResult account_question_key(
     case kit::KeyResult::redraw:
         return redrawn();
     case kit::KeyResult::to_control:
-        return activate(library, state, list, outcome.control, pressed, std::nullopt);
+        return activate(library, state, list, outcome.control, pressed);
     case kit::KeyResult::accept:
     case kit::KeyResult::scroll:
     case kit::KeyResult::cancel:
@@ -2087,7 +2061,7 @@ ScreenResult library_pointer(
                 return {};
             const kit::PointerOutcome outcome = kit::pointer_up(interaction, list, at);
             if (outcome.result == kit::PointerResult::activated)
-                return activate(library, state, list, outcome.control, std::nullopt, at);
+                return activate(library, state, list, outcome.control, std::nullopt);
             ScreenResult result;
             result.redraw = outcome.result != kit::PointerResult::none;
             return result;
@@ -2244,7 +2218,7 @@ ScreenResult library_pointer(
         }
         const kit::PointerOutcome outcome = kit::pointer_up(interaction, list, at);
         if (outcome.result == kit::PointerResult::activated)
-            return activate(library, state, list, outcome.control, std::nullopt, at);
+            return activate(library, state, list, outcome.control, std::nullopt);
         ScreenResult result;
         result.redraw = outcome.result != kit::PointerResult::none;
         return result;
@@ -2271,15 +2245,11 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         if (pressed == kit::Key::enter) {
             const ExportDialog& dialog = library.export_dialog;
             if (dialog.browsing)
-                return activate(
-                    library, state, list, controls::export_browse_use, pressed, std::nullopt
-                );
+                return activate(library, state, list, controls::export_browse_use, pressed);
             if (dialog.done)
-                return activate(library, state, list, controls::export_show, pressed, std::nullopt);
+                return activate(library, state, list, controls::export_show, pressed);
             if (export_can_run(dialog))
-                return activate(
-                    library, state, list, controls::export_confirm, pressed, std::nullopt
-                );
+                return activate(library, state, list, controls::export_confirm, pressed);
             return {};
         }
         if (!controls::export_control(interaction.focused) && !list.tab_order.empty())
@@ -2291,7 +2261,7 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         case kit::KeyResult::redraw:
             return redrawn();
         case kit::KeyResult::to_control:
-            return activate(library, state, list, outcome.control, pressed, std::nullopt);
+            return activate(library, state, list, outcome.control, pressed);
         case kit::KeyResult::accept:
         case kit::KeyResult::scroll:
         case kit::KeyResult::cancel:
@@ -2307,7 +2277,7 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         // Enter answers USE wherever the focus sits. The other keys stay
         // with the question's own controls.
         if (pressed == kit::Key::enter)
-            return activate(library, state, list, controls::use_confirm, pressed, std::nullopt);
+            return activate(library, state, list, controls::use_confirm, pressed);
         const kit::KeyOutcome outcome = kit::key(interaction, list, pressed);
         switch (outcome.result) {
         case kit::KeyResult::none:
@@ -2315,7 +2285,7 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         case kit::KeyResult::redraw:
             return redrawn();
         case kit::KeyResult::to_control:
-            return activate(library, state, list, outcome.control, pressed, std::nullopt);
+            return activate(library, state, list, outcome.control, pressed);
         case kit::KeyResult::accept:
         case kit::KeyResult::scroll:
         case kit::KeyResult::cancel:
@@ -2335,7 +2305,7 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         case kit::KeyResult::redraw:
             return redrawn();
         case kit::KeyResult::to_control:
-            return activate(library, state, list, outcome.control, pressed, std::nullopt);
+            return activate(library, state, list, outcome.control, pressed);
         case kit::KeyResult::accept:
         case kit::KeyResult::scroll:
         case kit::KeyResult::cancel:
@@ -2422,20 +2392,20 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
             return enter_list(library, state, list);
         if (on_drop_down) {
             interaction.focus_shown = false;
-            return activate(library, state, list, focus, std::nullopt, std::nullopt);
+            return activate(library, state, list, focus, std::nullopt);
         }
         // Enter on a switch toggles it and hides the ring. The kit sends Enter
         // only to a button, a link, a list row or a tab.
         if (controls::registry_switch_control(focus)) {
             interaction.focus_shown = false;
-            return activate(library, state, list, focus, pressed, std::nullopt);
+            return activate(library, state, list, focus, pressed);
         }
         break;
     case kit::Key::space:
         if (on_list)
             return enter_list(library, state, list);
         if (on_drop_down)
-            return activate(library, state, list, focus, std::nullopt, std::nullopt);
+            return activate(library, state, list, focus, std::nullopt);
         break;
     case kit::Key::up:
     case kit::Key::down:
@@ -2578,7 +2548,7 @@ library_key(Library& library, ScreenState& state, const kit::DisplayList& list, 
         show_in_filters(state, list, interaction.focused);
         return redrawn();
     case kit::KeyResult::to_control:
-        return activate(library, state, list, outcome.control, pressed, std::nullopt);
+        return activate(library, state, list, outcome.control, pressed);
     case kit::KeyResult::accept:
         return enter_list(library, state, list);
     case kit::KeyResult::scroll:

@@ -1554,18 +1554,15 @@ DialogAction toggle_open(Dialog& dialog, const geometry::ListRow& row) {
 }
 
 DialogAction release_on(Dialog& dialog, const geometry::ListRow& row, int32_t x) {
-    const auto on_half = [x](const geometry::SourceRect& area) {
-        return x >= area.x + area.width / 2;
-    };
     switch (row.kind) {
     case geometry::ListRowKind::area:
         return toggle_open(dialog, row);
     case geometry::ListRowKind::hack:
         if (x >= row.toggle.x && x < row.toggle.x + row.toggle.width)
-            return set_toggle(dialog, row, on_half(row.toggle));
+            return set_toggle(dialog, row, !row.on);
         return toggle_open(dialog, row);
     case geometry::ListRowKind::toggle:
-        return set_toggle(dialog, row, on_half(row.control_area));
+        return set_toggle(dialog, row, !row.on);
     default:
         return DialogAction::redraw;
     }

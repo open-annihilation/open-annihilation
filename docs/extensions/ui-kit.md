@@ -800,7 +800,8 @@ can drive an extension's page, screen, notice or prompt by name, as the
 Kit fixture's check does. A part of a control that takes a press of its own
 is named after it with one word more: a switch's halves `.off` and `.on`, a
 strip's levels and an open drop-down's items by their ids, a row of
-buttons' buttons by their words.
+buttons' buttons by their words. A press anywhere on a switch flips it, so
+a program sets a switch by clicking the half that is not checked.
 
 | What | Dialog | Names |
 |---|---|---|

@@ -25,6 +25,7 @@
 #include "oa/formats/fnt.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
@@ -2908,33 +2909,49 @@ void registries_tab_lists_every_registry() {
     const lib::ScreenResult add = click(library, state, list, "library.add-registry");
     OA_CHECK(add.action == lib::Action::add_registry && add.registry.empty());
 
-    // The switch's right half turns it on, and its left half turns it off.
-    // Space toggles. A half that is already chosen asks for nothing.
-    const kit::Control* core_switch = fixture::named(list, "library.registry.fixture-core");
-    OA_CHECK(core_switch != nullptr);
-    if (core_switch != nullptr) {
-        const kit::Point on_half{
-            core_switch->rect.x + core_switch->rect.width * 3 / 4, core_switch->rect.y + 1
+    // A press anywhere on the switch flips it. On, its knob lies at the
+    // track's right, and a press there asks for Off, as one at the track's
+    // left does; Off, its knob lies at the left, and a press there asks for
+    // On, as one at the right does. Space flips it too.
+    const auto press_switch = [&](const kit::DisplayList& shown, bool right) {
+        const kit::Control* found = fixture::named(shown, "library.registry.fixture-core");
+        OA_CHECK(found != nullptr);
+        if (found == nullptr)
+            return lib::ScreenResult{};
+        const kit::Rect track = kit::switch_track(found->rect);
+        const int32_t radius = track.height / 2;
+        const kit::Point at{
+            right ? track.x + track.width - radius : track.x + radius, track.y + radius
         };
         static_cast<void>(
-            lib::library_pointer(library, state, list, lib::PointerKind::down, 1, on_half, 0)
+            lib::library_pointer(library, state, shown, lib::PointerKind::down, 1, at, 0)
         );
-        const lib::ScreenResult already =
-            lib::library_pointer(library, state, list, lib::PointerKind::up, 1, on_half, 0);
-        OA_CHECK(!already.action);
-        const kit::Point off_half{
-            core_switch->rect.x + core_switch->rect.width / 4, core_switch->rect.y + 1
-        };
-        static_cast<void>(
-            lib::library_pointer(library, state, list, lib::PointerKind::down, 1, off_half, 0)
-        );
-        const lib::ScreenResult turned =
-            lib::library_pointer(library, state, list, lib::PointerKind::up, 1, off_half, 0);
+        return lib::library_pointer(library, state, shown, lib::PointerKind::up, 1, at, 0);
+    };
+    for (const bool right : {true, false}) {
+        const lib::ScreenResult turned = press_switch(list, right);
         OA_CHECK(
             turned.action == lib::Action::set_registry && turned.registry == fixture::core &&
             !turned.registry_on
         );
     }
+    for (lib::Registry& registry : library.inputs.registries)
+        if (registry.id == fixture::core)
+            registry.on = false;
+    {
+        const kit::DisplayList off_list = laid_out(library, state, regular);
+        for (const bool right : {false, true}) {
+            const lib::ScreenResult turned = press_switch(off_list, right);
+            OA_CHECK(
+                turned.action == lib::Action::set_registry && turned.registry == fixture::core &&
+                turned.registry_on
+            );
+        }
+    }
+    for (lib::Registry& registry : library.inputs.registries)
+        if (registry.id == fixture::core)
+            registry.on = true;
+    list = laid_out(library, state, regular);
     state = focused_on(list, "library.registry.fixture-core");
     const lib::ScreenResult keyed = lib::library_key(library, state, list, kit::Key::space);
     OA_CHECK(
@@ -5998,6 +6015,35 @@ void keys_tab_names_its_controls() {
         OA_EXPECT_NONE(name_problems(list), named.name + " keys use");
         OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " keys use");
         OA_EXPECT_NONE(check_question(list, named.frame.size_class), named.name + " keys use");
+    }
+    // A press on a helper's knob flips its switch, each way: at the track's
+    // right while it is On and its left while it is Off.
+    {
+        lib::ScreenState state;
+        const kit::Frame& regular = fixture::frames()[1].frame;
+        const bool before = library.key_use.helpers.front().on;
+        for (const bool after : {!before, before}) {
+            const kit::DisplayList list = laid_out(library, state, regular);
+            const kit::Control* helper =
+                fixture::named(list, "library.use.helper.sticky-modifiers");
+            OA_CHECK(helper != nullptr);
+            if (helper == nullptr)
+                break;
+            const kit::Rect track = kit::switch_track(helper->rect);
+            const int32_t radius = track.height / 2;
+            const kit::Point knob{
+                library.key_use.helpers.front().on ? track.x + track.width - radius
+                                                   : track.x + radius,
+                track.y + radius
+            };
+            static_cast<void>(
+                lib::library_pointer(library, state, list, lib::PointerKind::down, 1, knob, 0)
+            );
+            static_cast<void>(
+                lib::library_pointer(library, state, list, lib::PointerKind::up, 1, knob, 0)
+            );
+            OA_CHECK(library.key_use.helpers.front().on == after);
+        }
     }
     // Only with Ridge renames USE's button.
     lib::set_key_use_scope(library, true);

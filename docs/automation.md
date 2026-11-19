@@ -189,8 +189,11 @@ a text as the player sees it, so no name changes with the language:
 A part of a control that takes a press of its own is listed after it with
 one word more: a switch's halves `.off` and `.on`, a strip's levels and an
 open drop-down's items by their values, a row of buttons' buttons by their
-words. A click at a part's centre presses that part; a click at a switch's
-centre would land on the line between Off and On.
+words. A click at a part's centre presses that part. A click anywhere on a
+switch flips it, either half and its centre alike, so a click on a half
+sets that half's value only while the switch shows the other: a program
+that sets a value clicks the half that is not checked, and leaves a
+checked one alone.
 
 | Control | Name | Kind, and what it reports |
 |---|---|---|

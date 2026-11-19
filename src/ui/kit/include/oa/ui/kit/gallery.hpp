@@ -174,8 +174,8 @@ enum class GalleryResult : uint8_t {
 ///
 /// The pointer and a finger hover, hold and press the working samples
 /// (kit::pointer_move and the like); a release over the control it held
-/// presses it. A press opens a tab, flips the switch to the half it lands
-/// on, chooses the level under it, opens the drop-down's menu, moves the
+/// presses it. A press opens a tab, flips the switch wherever it lands on
+/// it, chooses the level under it, opens the drop-down's menu, moves the
 /// slider (a held press drags it), gives the search field the focus,
 /// turns a filter chip on or off, chooses a nav entry, a row or a card,
 /// counts a press of the button, the link or the OA button, and CLOSE

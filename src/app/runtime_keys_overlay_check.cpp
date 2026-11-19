@@ -1067,7 +1067,14 @@ void Runtime::check_keys_overlay() {
     };
     const auto set_move_overlays = [&](bool on) {
         show_overlay_rows();
-        click_named(on ? "oa.settings.move-overlays.on" : "oa.settings.move-overlays.off");
+        // A press anywhere on a switch flips it, so the half is pressed only
+        // while the switch shows the other one.
+        const std::string_view half =
+            on ? "oa.settings.move-overlays.on" : "oa.settings.move-overlays.off";
+        const std::optional<AutomationControl> shown = named(half);
+        require(shown.has_value(), std::string(half) + " is not shown");
+        if (!shown->checked)
+            click_named(half);
         frames(1);
         const settings::Dialog* dialog = engine_settings_dialog();
         require(

@@ -1358,32 +1358,52 @@ bool asks(kit::RowResult result, kit::ActionId action) {
     return result.event == kit::RowEvent::action && result.action == action;
 }
 
-/// Left and Right step a switch Off and On, Space flips it, and a press on
-/// its left half sets Off and on its right half On; locked, it takes nothing.
-void a_switch_steps_flips_and_takes_either_half() {
+/// Left and Right step a switch Off and On, Space flips it, and a press
+/// anywhere on it flips it, both ways: on its knob, on the track's other
+/// side and on the area beside the track. Locked, it takes nothing.
+void a_switch_steps_flips_and_takes_a_press_anywhere() {
     using kit::RowEvent;
     Sample sample;
     const kit::RowSpec<Sample>& spec = kEveryKind[0];
     const kit::PlacedRows placed = place_every_kind(sample);
     const kit::PlacedRow& row = placed_row(placed, 0); // {415, 63, 52, 16}
+    // The track is {425, 63, 42, 16}: the knob lies on columns 453 to 464
+    // while On and 427 to 438 while Off.
+    OA_CHECK(same(kit::switch_track(row.control_area), {425, 63, 42, 16}));
+    constexpr kit::Point on_knob{459, 70};
+    constexpr kit::Point off_knob{433, 70};
     OA_CHECK(is(kit::step(spec, sample, true), RowEvent::changed) && sample.vertical_sync);
     OA_CHECK(is(kit::step(spec, sample, true), RowEvent::none) && sample.vertical_sync);
     OA_CHECK(is(kit::step(spec, sample, false), RowEvent::changed) && !sample.vertical_sync);
     OA_CHECK(is(kit::step(spec, sample, false), RowEvent::none));
     OA_CHECK(is(kit::activate(spec, sample, 0), RowEvent::changed) && sample.vertical_sync);
+    // On, a press on the knob turns it Off; Off, a press on the knob turns
+    // it On.
     OA_CHECK(
-        is(kit::press(spec, sample, row, {440, 70}), RowEvent::changed) && !sample.vertical_sync
+        is(kit::press(spec, sample, row, on_knob), RowEvent::changed) && !sample.vertical_sync
     );
-    OA_CHECK(is(kit::press(spec, sample, row, {416, 70}), RowEvent::none));
     OA_CHECK(
-        is(kit::press(spec, sample, row, {441, 70}), RowEvent::changed) && sample.vertical_sync
+        is(kit::press(spec, sample, row, off_knob), RowEvent::changed) && sample.vertical_sync
+    );
+    // The track's other side flips it too, each way.
+    OA_CHECK(
+        is(kit::press(spec, sample, row, off_knob), RowEvent::changed) && !sample.vertical_sync
+    );
+    OA_CHECK(is(kit::press(spec, sample, row, on_knob), RowEvent::changed) && sample.vertical_sync);
+    // So do the area's first column, left of the track, and its last.
+    OA_CHECK(
+        is(kit::press(spec, sample, row, {415, 70}), RowEvent::changed) && !sample.vertical_sync
+    );
+    OA_CHECK(
+        is(kit::press(spec, sample, row, {466, 70}), RowEvent::changed) && sample.vertical_sync
     );
     OA_CHECK(is(kit::drag(spec, sample, row, 416), RowEvent::none) && sample.vertical_sync);
     OA_CHECK(is(kit::choose(spec, sample, 0), RowEvent::none) && sample.vertical_sync);
     sample.in_game = true;
     OA_CHECK(is(kit::step(spec, sample, false), RowEvent::none));
     OA_CHECK(is(kit::activate(spec, sample, 0), RowEvent::none));
-    OA_CHECK(is(kit::press(spec, sample, row, {416, 70}), RowEvent::none) && sample.vertical_sync);
+    OA_CHECK(is(kit::press(spec, sample, row, on_knob), RowEvent::none) && sample.vertical_sync);
+    OA_CHECK(is(kit::press(spec, sample, row, off_knob), RowEvent::none) && sample.vertical_sync);
     // Read and set through functions, as Escape opens the menu is.
     const auto controls = controls_rows();
     sample.in_game = false;
@@ -1859,7 +1879,7 @@ int main() {
     the_display_list_names_and_orders_every_control();
     choices_and_levels_name_their_parts_by_their_ids();
     locked_rows_and_disabled_buttons_take_no_focus();
-    a_switch_steps_flips_and_takes_either_half();
+    a_switch_steps_flips_and_takes_a_press_anywhere();
     a_drop_down_steps_opens_and_takes_a_choice();
     a_slider_steps_and_follows_the_pointer();
     a_strip_steps_within_its_offered_levels();
