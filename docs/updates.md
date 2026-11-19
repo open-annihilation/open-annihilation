@@ -347,7 +347,15 @@ details.
 The release is then held: it is not offered, downloaded or installed by
 itself, and a scheduled install is taken back, until you press Try again
 here, on Settings › Updates or in the update centre
-(`open-annihilation.update-held`). A newer release is offered as usual. A
+(`open-annihilation.update-held`).
+
+With more than one copy of the game open, each copy hands a release to
+the helper only while nothing has changed since it started or since it
+showed you a receipt. A copy you close after another copy's quit started
+the helper, while that helper is at work or after it has finished, closes
+without starting anything: a release that helper could not install is
+held in that copy's settings too, and one it installed is no longer
+scheduled. The next start shows how that helper's run went, once. A newer release is offered as usual. A
 receipt the helper left running for ten minutes was cut short and reads as
 recovery that could not finish.
 

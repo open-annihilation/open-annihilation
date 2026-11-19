@@ -96,6 +96,13 @@ folder. The main thread reads snapshots. Nothing here installs a package.
   installed and what was kept. `count_failed_start` counts a start that has
   not reached the main menu, `uncount_quit_start` takes back one the player
   quit, and `start_end` tells how a watched start ended.
+- `hand_off_stop` decides whether a quit hands a ready release to the
+  helper, from `HandOffFacts` that `read_hand_off_facts` fills from the
+  updates directory: a held release, a helper's receipt still running, and a
+  receipt that is not the one the run read (`same_helper_run`) each stop
+  it. The helper's `journal.json` and a Windows setup's `installer-pending`
+  marker (`journal_file_name`, `installer_pending_name`) count only with
+  such a receipt.
 - `read_receipt`, `receipt_text`, `write_receipt` and `load_receipt` are
   the receipt the helper leaves: its steps, its `Outcome`, the versions and
   the times. `failed_outcome`, `holds_release` and `failure_outcome` read
@@ -162,8 +169,11 @@ scheduling and taking it back, Later kept apart from Skip, a held release,
 each failure's words, a release installed by hand, the time left and the
 rate. `app-update-offer` covers the question's words, a release installed
 by hand, the notes and the skip. `app-update-receipt`
-covers the receipt's names, outcomes, round trip, refusals and file, and
-the state file's quit marker.
+covers the receipt's names, outcomes, round trip, refusals and file, the
+state file's quit marker, and when a quit hands a release over: the
+receipt the run read, a failure another copy's helper left with or without
+its journal and marker, a receipt running then and failed now, a helper at
+work and one cut short, a held release, and the facts read from a folder.
 
 ## Limitations
 

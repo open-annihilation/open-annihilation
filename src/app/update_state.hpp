@@ -92,6 +92,13 @@ struct Runtime::UpdateState {
     std::optional<update::Receipt> receipt;
     /// `receipt` has been read this run.
     bool receipt_loaded = false;
+    /// The helper's receipt as this run last read it: at its first tick, and
+    /// again where the settled menu shows a receipt. A different receipt at
+    /// the quit means a helper ran since, started by another copy of the
+    /// game, and the quit does not hand a release over (update::hand_off_stop).
+    std::optional<update::Receipt> receipt_seen;
+    /// `receipt_seen` has been read this run.
+    bool receipt_seen_read = false;
     /// The way this copy installs, as the update centre names its install
     /// action, for the offer `centre_way_page_only` describes. Meaningful
     /// when `centre_way_known`.

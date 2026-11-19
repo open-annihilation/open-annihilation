@@ -121,9 +121,6 @@ constexpr std::string_view kNeverChecks = "OA never checks";
 constexpr std::string_view kReadyBadge = "ready";
 /// The ready prompt's heading over its three answers.
 [[maybe_unused]] constexpr std::string_view kWhenShouldItGoIn = "When should it go in?";
-/// A receipt left running this long was cut short, in seconds. A younger one
-/// may belong to a helper that is still at work.
-constexpr int64_t kReceiptCutShortSeconds = 600;
 /// The Updated notice's name on the layer.
 constexpr std::string_view kUpdatedNotice = "updated-notice";
 
@@ -1088,6 +1085,65 @@ bool Runtime::hand_off_requested() const {
 #endif
 }
 
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+bool Runtime::hand_off_stopped(const fs::path& updates) {
+    update::HandOffFacts facts;
+    facts.held = update::release_held(preference_values_, update_->download_release);
+    facts.seen = update_->receipt_seen;
+    facts.now = wall_seconds();
+    update::read_hand_off_facts(updates, facts);
+    const update::HandOffStop stop = update::hand_off_stop(facts);
+    if (stop == update::HandOffStop::none)
+        return false;
+    switch (stop) {
+    case update::HandOffStop::held:
+        std::cerr << "open-annihilation: update: not handed over: the release waits for Try "
+                     "again\n";
+        break;
+    case update::HandOffStop::helper_at_work:
+        std::cerr << "open-annihilation: update: not handed over: a helper is still at work\n";
+        break;
+    case update::HandOffStop::left_unfinished:
+        std::cerr << "open-annihilation: update: not handed over: a helper another copy started "
+                     "left files to put back\n";
+        break;
+    case update::HandOffStop::receipt_changed:
+        std::cerr << "open-annihilation: update: not handed over: a helper another copy started "
+                     "has run since this copy read its receipt\n";
+        break;
+    case update::HandOffStop::none:
+        break;
+    }
+    // The schedule is taken back as the receipt screen takes it back: a
+    // held release waits for Try again, a release the other copy's helper
+    // could not install is held from now on, and one it installed is spent.
+    // A helper still at work keeps it, and its receipt tells at the next start.
+    bool changed = false;
+    if (stop == update::HandOffStop::held) {
+        changed = true;
+    } else if (
+        stop != update::HandOffStop::helper_at_work && facts.receipt.has_value() &&
+        facts.receipt->action == update::Action::install &&
+        facts.receipt->release == update_->download_release &&
+        facts.receipt->outcome != update::Outcome::running
+    ) {
+        if (update::holds_release(facts.receipt->outcome))
+            update::write_held(preference_values_, facts.receipt->release);
+        changed = true;
+    }
+    if (changed && update::read_scheduled(preference_values_).has_value()) {
+        update::clear_scheduled(preference_values_);
+        preferences_dirty_ = true;
+        try {
+            flush_preferences();
+        } catch (const std::exception& thrown) {
+            std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+        }
+    }
+    return true;
+}
+#endif
+
 void Runtime::hand_off_update() {
 #if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
     return;
@@ -1103,6 +1159,8 @@ void Runtime::hand_off_update() {
         std::cerr << "open-annihilation: update: " << failure << '\n';
         return;
     }
+    if (hand_off_stopped(*folder))
+        return;
     const feed::Way way = update_->held.offer.way == feed::Way::page_only ? feed::Way::page_only
                                                                           : feed::Way::in_place;
     const update::Where where = route_for(options_, way);
@@ -1696,14 +1754,18 @@ void Runtime::offer_updated_notice() {
             updates ? update::load_receipt(receipt_path) : std::nullopt;
         // A receipt still running may belong to a helper at work; one left
         // running long enough was cut short.
-        const bool finished = receipt.has_value() &&
-                              (receipt->outcome != update::Outcome::running ||
-                               wall_seconds() - receipt->started_at >= kReceiptCutShortSeconds);
+        const bool finished =
+            receipt.has_value() &&
+            (receipt->outcome != update::Outcome::running ||
+             wall_seconds() - receipt->started_at >= update::receipt_cut_short_seconds);
         if (finished && !receipt->shown) {
             receipt->shown = true;
             std::string why;
             if (!update::write_receipt(receipt_path, *receipt, &why))
                 std::cerr << "open-annihilation: update: " << why << '\n';
+            // This run has shown it, and holds a failed release below, so a
+            // quit may hand a release over again (update::hand_off_stop).
+            update_->receipt_seen = *receipt;
             if (update::failed_outcome(receipt->outcome)) {
                 if (update::holds_release(receipt->outcome) && receipt->release > 0) {
                     update::write_held(preference_values_, receipt->release);

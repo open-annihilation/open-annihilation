@@ -746,6 +746,9 @@ class Runtime final : public menu::Host,
     /// Writes the install plan and starts oa-update, or records that start.
     ///
     /// A helper that cannot start leaves the package ready and says why.
+    /// Nothing is handed over while the release is held, while a helper is at
+    /// work, or after a helper another copy of the game started has run since
+    /// this run read the receipt (hand_off_stopped).
     void hand_off_update();
 
     /// Tells whether ROLL BACK asked to put the kept version back.
@@ -8713,6 +8716,18 @@ class Runtime final : public menu::Host,
     /// Queues "Updated to {version}" once, when this start was newer than
     /// --updated-from and the main menu has settled.
     void offer_updated_notice();
+
+    /// Tells whether this quit must not hand the ready release to the helper
+    /// (update::hand_off_stop), and says why on the error stream.
+    ///
+    /// Stopped, the schedule is taken back as the receipt screen takes it
+    /// back: a held release keeps waiting for Try again, a release another
+    /// copy's helper could not install is held from now on, and one it
+    /// installed is spent. A helper still at work keeps the schedule.
+    ///
+    /// @param updates the data folder's updates directory
+    /// @return true when nothing is handed over
+    [[nodiscard]] bool hand_off_stopped(const std::filesystem::path& updates);
 
     /// Applies --rolled-back-from to the preferences and the state, once.
     ///

@@ -436,6 +436,15 @@ void Runtime::start_update_check(bool asked) {
 void Runtime::tick_update_check(bool start_automatic) {
     if (update_ == nullptr)
         update_.reset(new UpdateState());
+    // The receipt as this run starts, so a quit can tell a helper that
+    // another copy started since.
+    if (!update_->receipt_seen_read) {
+        update_->receipt_seen_read = true;
+        std::string failure;
+        if (const std::optional<fs::path> folder = updates_folder(options_, failure))
+            update_->receipt_seen =
+                update::load_receipt(*folder / std::string(update::receipt_file_name));
+    }
     // The first menu reads the feed an earlier check stored, once, with no
     // request: a release out is offered again (Later asks at the next
     // start), and a package already downloaded is found. Never reads nothing.

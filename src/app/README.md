@@ -1972,7 +1972,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   installer on the macOS installer route, Close the game on a Steam Deck)
   and Install when I quit (`when-i-quit`, marked). A quit installs only a
   release scheduled for it, or `--update-and-quit`
-  (`Runtime::hand_off_requested`); quitting otherwise never installs.
+  (`Runtime::hand_off_requested`); quitting otherwise never installs. Nor
+  does a quit hand a release over (`Runtime::hand_off_stopped`,
+  `update::hand_off_stop`) while the release is held, while a helper's
+  receipt is running and under ten minutes old, or when the receipt is not
+  the one this run read at its start or showed at the menu: a helper that
+  another copy of the game started has run since. That copy may have
+  scheduled the same release, and its helper may have left the files
+  half-moved; a second hand-off would try the same files again. The copy
+  closes as usual and starts nothing. Its schedule is taken back as the
+  recovery screen takes it back: a release that helper could not install
+  is held, and one it installed is spent; a helper still at work keeps it.
+  The next start shows that helper's receipt once, as it shows any. A
+  journal or a setup's marker that came with the receipt this run read is
+  left for the next helper, which puts it back before it moves anything.
 - **The recovery screen** (`update-receipt`) shows a receipt the helper
   left that did not end well, once, at the first settled menu: the
   outcome's words as its lead, a callout, What happened with each step
