@@ -2721,7 +2721,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   drawn as the image leaves it, clear: it draws nothing and cuts what it
   covers out of the polygons of the unit's picture drawn before it, as a
   model's walls of the key hide its pieces sunk below the ground (drawn
-  flat, it is a colour); texture frames go on
+  flat, it is a colour), what it clears found once a draw whatever the
+  polygons under it and a piece apart from it kept whole
+  (`cut_under_clearing`, `cut_away`), so that a large factory's walls of
+  the key are not cut again for every polygon under them and its pieces
+  are not cut along lines that miss them;
+  texture frames go on
   sprite pages on first sight in two variants, the image key transparent
   as in a cached image or a colour as in a flat draw; shadows go into a
   transparent shadow target the battlefield's size, every silhouette

@@ -551,6 +551,10 @@ struct ModelStageCounts {
     uint64_t frames_placed{};    ///< texture frames placed on the pages
     uint64_t page_uploads{};     ///< page rectangles uploaded
     uint64_t target_creations{}; ///< shadow targets made
+    /// Regions the polygons of a unit's picture filled with the image key
+    /// clear of the polygons drawn before them, each found once a draw
+    /// whatever the polygons under it.
+    uint64_t cleared_regions{};
 };
 
 /// The model stage: the meshes, the texture pages and the shadow target

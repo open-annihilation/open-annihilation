@@ -787,7 +787,9 @@ if(OA_BUILD_PLATFORM)
     # rest and turned, a depth-sorted unit, units whose polygons cross or
     # lie each over the next, drawn with holes, a lit building and its bright
     # page, a cloaked unit, a unit under construction, units under water
-    # of both sides, carried units, shadows into the target and straight
+    # of both sides, polygons of the image key clearing what lies under
+    # them, each one's region found once and a piece apart from it kept
+    # whole, carried units, shadows into the target and straight
     # into the frame, the game's own shadows each drawn with its model (New
     # unit shadows off), shadows lighter at zoom 0.5 and none at a quarter on
     # both sides, a projectile, a debris piece and a fragment, a

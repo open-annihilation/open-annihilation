@@ -16,19 +16,21 @@
 // building under construction with its bands and outline, units under the
 // water line of the viewpoint's side and the other, a digger's clipped
 // polygons, a polygon of the image key clearing what it covers of the
-// picture, a carried unit composed into its carrier, vehicle and building
-// shadows through the shadow target and straight into the frame, the
-// game's own shadows drawn with their models (New unit shadows off), a
-// projectile with its shadow sprite, a debris piece and a shatter fragment,
-// the texture frames placed once and uploaded once and the pages emptied by
-// a palette change, and a frame at zoom 2 against the raster enlarged. With
-// --data, every unit model of the installed game at zoom 1, from a cached
-// image without a depth plane and unlit, at rest and turned, and with one
-// as a lit building, held to the bounds of runtime_full.hpp and the figures
-// printed; and every model with a depth plane, each face in a colour of its
-// own, at rest and with the pieces below its root turned and drawn as
-// moving pieces, as a metal extractor's arms spin, the face shown at each
-// pixel held to the processor's.
+// picture, a strip of the key clearing a row of squares, its region found
+// once, and a square parted by the key, the half apart from the key's other
+// polygon drawn whole, a carried unit composed into its carrier, vehicle
+// and building shadows through the shadow target and straight into the
+// frame, the game's own shadows drawn with their models (New unit shadows
+// off), a projectile with its shadow sprite, a debris piece and a shatter
+// fragment, the texture frames placed once and uploaded once and the pages
+// emptied by a palette change, and a frame at zoom 2 against the raster
+// enlarged. With --data, every unit model of the installed game at zoom 1,
+// from a cached image without a depth plane and unlit, at rest and turned,
+// and with one as a lit building, held to the bounds of runtime_full.hpp and
+// the figures printed; and every model with a depth plane, each face in a
+// colour of its own, at rest and with the pieces below its root turned and
+// drawn as moving pieces, as a metal extractor's arms spin, the face shown
+// at each pixel held to the processor's.
 #include "runtime_full.hpp"
 #include "renderer_water_shading.hpp"
 
@@ -417,6 +419,41 @@ std::shared_ptr<Model> circled_model() {
     add_sloped_quad(object, 4, 12, -12, 12, {low, low, high, high}, second_ink);
     add_sloped_quad(object, -12, 12, 4, 12, {high, low, low, high}, third_ink);
     add_sloped_quad(object, -12, -4, -12, 12, {high, high, low, low}, fourth_ink);
+    model->objects.push_back(object);
+    return model;
+}
+
+/// Three squares side by side at the ground and a strip of the image key
+/// four units up over their northern halves: the strip clears the three, its
+/// region found once for all of them.
+std::shared_ptr<Model> cleared_row_model() {
+    auto model = std::make_shared<Model>();
+    Object object;
+    constexpr std::array<int32_t, 4> ground{0, 0, 0, 0};
+    constexpr std::array<int32_t, 4> key_height{4, 4, 4, 4};
+    add_sloped_quad(object, -12, -4, -4, 4, ground, ink);
+    add_sloped_quad(object, -4, 4, -4, 4, ground, second_ink);
+    add_sloped_quad(object, 4, 12, -4, 4, ground, third_ink);
+    add_sloped_quad(object, -12, 12, -4, 0, key_height, draw::image_key);
+    model->objects.push_back(object);
+    return model;
+}
+
+/// A square at the ground and, four units up, a strip of the image key down
+/// its middle, taller than it, and a smaller square of the key over one of
+/// its halves, whose corners start on its northern edge: the strip parts the
+/// square in two halves, the half apart from the smaller square is kept
+/// whole, and the other half keeps the four parts round it.
+std::shared_ptr<Model> parted_cleared_model() {
+    auto model = std::make_shared<Model>();
+    Object object;
+    constexpr std::array<int32_t, 4> key_height{4, 4, 4, 4};
+    add_sloped_quad(object, -8, 8, -8, 8, {0, 0, 0, 0}, ink);
+    add_sloped_quad(object, -1, 1, -12, 12, key_height, draw::image_key);
+    add_sloped_quad(object, 3, 7, 3, 7, key_height, draw::image_key);
+    // The same corners, the first on the northern edge.
+    auto& corners = object.primitives.back().vertex_indices;
+    std::rotate(corners.begin(), corners.begin() + 3, corners.end());
     model->objects.push_back(object);
     return model;
 }
@@ -2023,6 +2060,70 @@ void test_clearing() {
     }
 }
 
+// A strip of the image key over a row of three squares: each square's
+// northern half cleared, as the processor's picture leaves it, the strip's
+// region found once for the three.
+void test_clearing_found_once() {
+    for (const bool depth_plane : {true, false}) {
+        Scene scene;
+        SceneUnit& row = scene.add_unit(cleared_row_model(), 1, unit_x, unit_z);
+        if (depth_plane)
+            row.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        Card card(scene);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(row);
+        scene.raster_processor(processor);
+        const CardPicture drawn = card.raster(scene);
+        check_exact(
+            depth_plane ? "a row cleared, with a depth plane" : "a row cleared",
+            compare(drawn, processor, scene)
+        );
+        for (const int32_t x : {unit_x - 8, unit_x, unit_x + 8}) {
+            OA_CHECK(drawn.at(x, unit_z - 3)[3] == 0);
+            OA_CHECK(drawn.at(x, unit_z + 2)[3] == 255);
+        }
+        OA_CHECK(card.stage.counts().cleared_regions == 1);
+    }
+}
+
+// A square parted by a strip of the image key, with a smaller square of the
+// key over one half: the picture is the processor's, and the half apart from
+// the smaller square is drawn whole, two triangles, where cutting it along
+// the lines of the smaller square's edges would part it again. The other
+// half keeps the four parts round the smaller square, two triangles each.
+void test_clearing_apart() {
+    for (const bool depth_plane : {true, false}) {
+        Scene scene;
+        SceneUnit& parted = scene.add_unit(parted_cleared_model(), 1, unit_x, unit_z);
+        if (depth_plane)
+            parted.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        Card card(scene);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(parted);
+        scene.raster_processor(processor);
+        const CardPicture drawn = card.raster(scene);
+        check_exact(
+            depth_plane ? "parted, with a depth plane" : "parted", compare(drawn, processor, scene)
+        );
+        // Under the strip, clear; beside it, the square.
+        OA_CHECK(drawn.at(unit_x, unit_z)[3] == 0);
+        OA_CHECK(drawn.at(unit_x - 5, unit_z - 5)[0] == ink);
+        OA_CHECK(drawn.at(unit_x + 5, unit_z - 5)[0] == ink);
+        constexpr std::size_t whole_half = 2;
+        constexpr std::size_t parts_round = 4 * 2;
+        std::printf(
+            "parted%s: %zu triangles, %llu regions cleared\n",
+            depth_plane ? ", with a depth plane" : "",
+            card.frame.indices.size() / 3,
+            static_cast<unsigned long long>(card.stage.counts().cleared_regions)
+        );
+        OA_CHECK(card.frame.indices.size() == 3 * (whole_half + parts_round));
+        OA_CHECK(card.stage.counts().cleared_regions == 2);
+    }
+}
+
 // A carried unit: composed into its carrier's depth image at its offset,
 // its height over the carrier lifting it and ordering it in the plane; and
 // drawn flat over a carrier without a depth plane.
@@ -3162,6 +3263,8 @@ int main(int argc, char** argv) {
         test_water_attenuation_and_contact();
         test_digger();
         test_clearing();
+        test_clearing_found_once();
+        test_clearing_apart();
         test_carried();
         test_shadows();
         test_aircraft_shadows();

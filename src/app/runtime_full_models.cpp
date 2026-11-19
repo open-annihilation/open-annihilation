@@ -635,6 +635,15 @@ struct KeptPlaneOrder {
     std::vector<PlanePoint> cut_points;
 };
 
+/// What a polygon of the image key clears of the polygons drawn before it
+/// (cut_under_clearing): region_count convex regions from first_region, once
+/// found.
+struct ClearedRegions {
+    bool found{};
+    uint32_t first_region{};
+    uint32_t region_count{};
+};
+
 /// The cuts of a unit's polygons in drawing order (KeptPlaneOrder), with the
 /// frame pixel their points are placed from.
 struct PlaneCuts {
@@ -1336,10 +1345,57 @@ PlaneCuts order_as_depth_plane(
     };
 }
 
+/// Tells whether a convex piece lies apart from a convex part of the frame
+/// of positive winding: the rectangles round them do not overlap, or the
+/// whole piece lies on the outer side of one of the part's edges or on it.
+///
+/// @param piece the piece's points
+/// @param region the part's corners
+/// @return true when no area of the piece lies inside the part
+bool lies_apart(std::span<const CutPoint> piece, std::span<const PlanePoint> region) noexcept {
+    if (piece.empty() || region.size() < 3)
+        return true;
+    double piece_left = piece[0].x;
+    double piece_right = piece_left;
+    double piece_top = piece[0].y;
+    double piece_bottom = piece_top;
+    for (const CutPoint& point : piece) {
+        piece_left = std::min(piece_left, point.x);
+        piece_right = std::max(piece_right, point.x);
+        piece_top = std::min(piece_top, point.y);
+        piece_bottom = std::max(piece_bottom, point.y);
+    }
+    double region_left = region[0].x;
+    double region_right = region_left;
+    double region_top = region[0].y;
+    double region_bottom = region_top;
+    for (const PlanePoint& corner : region) {
+        region_left = std::min(region_left, corner.x);
+        region_right = std::max(region_right, corner.x);
+        region_top = std::min(region_top, corner.y);
+        region_bottom = std::max(region_bottom, corner.y);
+    }
+    if (piece_right <= region_left || region_right <= piece_left || piece_bottom <= region_top ||
+        region_bottom <= piece_top)
+        return true;
+    for (size_t k = 0; k < region.size(); ++k) {
+        const PlanePoint& from = region[k];
+        const PlanePoint& to = region[(k + 1) % region.size()];
+        if (from.x == to.x && from.y == to.y)
+            continue;
+        if (std::all_of(piece.begin(), piece.end(), [&](const CutPoint& point) {
+                return edge_side(from, to, {point.x, point.y}) <= 0.0;
+            }))
+            return true;
+    }
+    return false;
+}
+
 /// Leaves out of a polygon's pieces what lies inside a convex part of the
-/// frame of positive winding: each piece keeps its parts outside the part's
-/// edges, taken one edge at a time, an edge of no length, where two of the
-/// part's corners meet, dividing nothing.
+/// frame of positive winding: a piece apart from the part is kept whole
+/// (lies_apart), and any other keeps its parts outside the part's edges,
+/// taken one edge at a time, an edge of no length, where two of the part's
+/// corners meet, dividing nothing.
 ///
 /// @param[in,out] left the pieces, each convex
 /// @param region the part's corners, in frame pixels at zoom 1
@@ -1354,7 +1410,11 @@ void cut_away(
     std::vector<CutPoint>& side
 ) {
     kept.clear();
-    for (const std::vector<CutPoint>& piece : left) {
+    for (std::vector<CutPoint>& piece : left) {
+        if (lies_apart(piece, region)) {
+            kept.push_back(std::move(piece));
+            continue;
+        }
         rest = piece;
         for (size_t k = 0; k < region.size() && rest.size() >= 3; ++k) {
             const PlanePoint& from = region[k];
@@ -1425,8 +1485,14 @@ struct ModelStage::Impl {
     std::vector<std::vector<CutPoint>> cut_kept;
     std::vector<CutPoint> cut_rest;
     std::vector<CutPoint> cut_side;
-    std::vector<PlanePoint> cut_region;
     std::vector<std::vector<CutPoint>> cut_clears;
+    /// What each polygon of the picture that clears clears (cut_under_clearing),
+    /// by its place from the picture's first polygon, found the first time a
+    /// polygon under it needs it: its regions, from clear_regions, and their
+    /// points, from clear_points.
+    std::vector<ClearedRegions> cleared_by;
+    std::vector<PlaneCut> clear_regions;
+    std::vector<PlanePoint> clear_points;
     /// The parts of the frame the unit's polygons leave out under nearer
     /// polygons (cut_under_nearer), their points in frame pixels at zoom 1.
     std::vector<PlaneCut> holes;
@@ -2428,7 +2494,10 @@ void Emitter::cut_under_nearer(const PlaneCuts& cuts) {
 /// polygons that clear draw nothing. One that faces away clears nothing, as
 /// it fills nothing, and one with holes under nearer polygons
 /// (cut_under_nearer) clears nothing there. A model hides its pieces sunk
-/// below the ground behind walls of the key so.
+/// below the ground behind walls of the key so. What each polygon that
+/// clears clears is found once a draw, whatever the polygons under it, and
+/// a piece apart from it is kept whole (cut_away), not cut along the lines
+/// of its edges.
 ///
 /// @param first_polygon the picture's first polygon, in drawing order
 /// @param end_polygon one past its last
@@ -2450,10 +2519,46 @@ void Emitter::cut_under_clearing(size_t first_polygon, size_t end_polygon) {
         ))
         return;
     auto& left = impl_.cut_left;
-    auto& region = impl_.cut_region;
-    // What each polygon that clears clears: its corners, or the pieces
-    // left of it.
-    std::vector<std::vector<CutPoint>>& clears = impl_.cut_clears;
+    // What a polygon that clears clears: where it shows, its corners but its
+    // holes. A polygon that clears is never cut, so that is the same for
+    // every polygon under it, and is found once, the first time one needs it.
+    auto& cleared_by = impl_.cleared_by;
+    cleared_by.assign(end_polygon - first_polygon, ClearedRegions{});
+    impl_.clear_regions.clear();
+    impl_.clear_points.clear();
+    const auto regions_of = [&](size_t index) {
+        ClearedRegions& cleared = cleared_by[index - first_polygon];
+        if (!cleared.found) {
+            const Polygon& over = polygons[index];
+            std::vector<std::vector<CutPoint>>& clears = impl_.cut_clears;
+            pieces_of(over, clears);
+            for (uint32_t h = over.first_hole; h < over.first_hole + over.hole_count; ++h) {
+                const PlaneCut& hole = impl_.holes[h];
+                cut_away(
+                    clears,
+                    std::span<const PlanePoint>(impl_.hole_points)
+                        .subspan(hole.first_point, hole.point_count),
+                    impl_.cut_kept,
+                    impl_.cut_rest,
+                    impl_.cut_side
+                );
+            }
+            cleared.found = true;
+            cleared.first_region = static_cast<uint32_t>(impl_.clear_regions.size());
+            cleared.region_count = static_cast<uint32_t>(clears.size());
+            counts_.cleared_regions += clears.size();
+            for (const std::vector<CutPoint>& clear : clears) {
+                impl_.clear_regions.push_back(
+                    {static_cast<uint32_t>(impl_.clear_points.size()),
+                     static_cast<uint32_t>(clear.size())}
+                );
+                for (const CutPoint& point : clear)
+                    impl_.clear_points.push_back({point.x, point.y});
+            }
+        }
+        return std::span<const PlaneCut>(impl_.clear_regions)
+            .subspan(cleared.first_region, cleared.region_count);
+    };
     for (size_t i = first_polygon; i < end_polygon; ++i) {
         Polygon& polygon = polygons[i];
         if (polygon.clears || polygon.corner_count < 3)
@@ -2474,25 +2579,15 @@ void Emitter::cut_under_clearing(size_t first_polygon, size_t end_polygon) {
                 pieces_of(polygon, left);
                 cut = true;
             }
-            // What it clears: where it shows, its pieces but its holes.
-            pieces_of(over, clears);
-            for (uint32_t h = over.first_hole; h < over.first_hole + over.hole_count; ++h) {
-                const PlaneCut& hole = impl_.holes[h];
+            for (const PlaneCut& region : regions_of(j))
                 cut_away(
-                    clears,
-                    std::span<const PlanePoint>(impl_.hole_points)
-                        .subspan(hole.first_point, hole.point_count),
+                    left,
+                    std::span<const PlanePoint>(impl_.clear_points)
+                        .subspan(region.first_point, region.point_count),
                     impl_.cut_kept,
                     impl_.cut_rest,
                     impl_.cut_side
                 );
-            }
-            for (const std::vector<CutPoint>& clear : clears) {
-                region.clear();
-                for (const CutPoint& point : clear)
-                    region.push_back({point.x, point.y});
-                cut_away(left, region, impl_.cut_kept, impl_.cut_rest, impl_.cut_side);
-            }
         }
         if (cut)
             keep_pieces(polygon, left);
