@@ -427,7 +427,11 @@ The version you had is kept, and a copy of the preferences file sits in
 was kept. On Windows, an installed copy keeps the program files in
 `updates/previous` and then runs the new setup. If you decline the
 permission prompt, nothing changes and the game says "The update was
-cancelled." A zip copy keeps the program files in `previous` beside the
+cancelled." If the setup fails, the helper puts those files back; where
+your account cannot change the game's folder, as in Program Files, Windows
+asks for permission for that too. If you decline it, the files stay
+half-moved, the game says recovery did not finish, and the next update
+asks again before it does anything else. A zip copy keeps the program files in `previous` beside the
 game. On Windows 95, 98 and Me the window says "Restart Windows to finish
 installing {version}." and the game waits for that restart. On the other
 systems the game starts again. If a step fails after the helper has

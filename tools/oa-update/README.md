@@ -18,6 +18,10 @@ From a build tree, `build/oa-update` is the program. It is built beside
   or a roll back, and nothing else (see
   [An administrator's rights on macOS](#an-administrators-rights-on-macos)).
 - `oa-update --recover --updates DIR` undoes a journal a killed run left.
+- `oa-update --put-back --updates DIR` is the copy a Windows run starts
+  with raised rights to put a setup's kept files back (see
+  [The Windows setup's kept files](#the-windows-setups-kept-files)). It
+  does nothing else, writes no receipt and starts nothing.
 - `oa-update --version` prints the game's version line and exits 0.
 - `oa-update --help` prints the usage and exits 0.
 - A self-check build also accepts `--feed-key ID=ed25519:` and the key's
@@ -82,6 +86,21 @@ that names no outcome of its own is not installed. An elevated copy that
 only swaps a folder leaves the receipt to the run that started it. The
 game shows the receipt once (`src/app/update`, `receipt.hpp`). The staging folder
 and the journal are removed after the new version has started.
+
+## The Windows setup's kept files
+
+The installer route copies the install's program files, except this
+program's own, into `previous/` under the updates folder, writes
+`installer-pending` naming the install, and runs the setup. When the setup
+fails, or the game it put in place does not start, those files are put back
+and the marker removed; a run that finds the marker left by a run that was
+cut short puts them back first. Putting them back needs the rights the
+install folder needs: where the player cannot write it on Vista or later,
+as in Program Files, the run starts this program with `runas` and
+`--put-back`, as a roll back does, and waits for it (`put_back_kept`). When
+the player declines that prompt, or the copy fails, the marker and the
+journal stay, the receipt says recovery did not finish, and the next run
+asks again once nothing else runs from the install.
 
 ## An administrator's rights on macOS
 
@@ -197,7 +216,11 @@ is never started by a process with an administrator's rights.
 that does not match the feed, which processes count as other copies (letter
 case, either slash, a bundle's inner folder, the helper's own process), the
 wait for them giving up, a run that stops with nothing moved while another
-copy runs and puts a setup's kept files back once it has closed, a feed of the other channel than the one the
+copy runs and puts a setup's kept files back once it has closed, those
+files put back by the copy with raised rights where the player cannot
+write the install folder (and by this process where the player can, or on
+Windows 9x), the prompt declined or the copy failing with the marker kept,
+a marker put back once while every run before it stops at the wait, a feed of the other channel than the one the
 plan names, the testing channel's feed checked for a testing plan, zip-slip, the executable bit, a journal that
 fails at each step of a five-step list, a journal left on disk, the wait
 giving up, the window's text placed without fonts, the receipt beside the

@@ -513,10 +513,12 @@ OpeningResult open_run(
 
     // Putting files back replaces the installed font files, which the
     // window may hold open since it asked for the other windows.
-    if (hooks.window != nullptr)
+    if (hooks.window != nullptr) {
+        hooks.window->show(plan.title, plan.line, 0, false);
         hooks.window->release_installed_files();
+    }
     const fs::path updates = path_from(plan.updates);
-    const UpdatesGateResult pending = take_pending(updates);
+    const UpdatesGateResult pending = take_pending(updates, hooks.put_back);
     if (pending.gate == UpdatesGate::restart) {
         result.opening = Opening::restart_windows;
         result.version = pending.version;
@@ -1590,6 +1592,29 @@ int run_plan(
 #else
     return carry_out(*plan, plan_path, {}, elevated_swap, false, helper_parent);
 #endif
+}
+
+int put_back_updates(const fs::path& updates) {
+    std::error_code io;
+    if (!fs::is_directory(updates, io) || io) {
+        std::cerr << "oa-update: the updates folder could not be read\n";
+        return exit_usage;
+    }
+    UpdateLock held;
+    std::string error;
+    if (!held.try_lock(updates, &error) && error != "another update is running") {
+        std::cerr << "oa-update: " << error << '\n';
+        return exit_usage;
+    }
+    Log log;
+    static_cast<void>(log.open(updates, nullptr));
+    error.clear();
+    if (!put_back_marked(updates, &error)) {
+        log.line(error.empty() ? "the kept copy could not be put back" : error);
+        return exit_undone;
+    }
+    log.line("put the kept copy back with an administrator's rights");
+    return exit_swapped;
 }
 
 int recover_updates(const fs::path& updates) {

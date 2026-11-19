@@ -108,12 +108,16 @@ struct OpeningResult {
 };
 
 class ProgressWindow;
+struct PutBackHooks;
 
 /// The waits a test injects, and the window. Null members are the real waits
 /// and no window.
 struct OpeningHooks {
     const WaitHooks* game{};     ///< the clock and the check for the game's own process
     const CopiesHooks* copies{}; ///< the clock, the process list and the line for other copies
+    /// The Windows version, the write check and the copy with raised rights
+    /// that puts a setup's kept files back.
+    const PutBackHooks* put_back{};
     /// The window, which lets go of the installed font files while what a
     /// killed run left is put back.
     ProgressWindow* window{};
@@ -197,6 +201,19 @@ enum class StartWay : uint8_t {
     bool stage_only,
     int64_t helper_parent
 );
+
+/// Puts back the files kept before a Windows setup that did not finish, for
+/// the run that started this copy with raised rights (`--put-back`).
+///
+/// The copy puts the kept files back into the install the marker names and
+/// removes the marker (put_back_marked). It writes no receipt and starts
+/// nothing. The run that started it holds the lock, so a lock held by
+/// another run does not stop it.
+///
+/// @param updates the data folder's updates directory
+/// @return exit_swapped when nothing is left to put back, exit_undone when
+///         the files are not all back, exit_usage when the folder cannot be used
+[[nodiscard]] int put_back_updates(const std::filesystem::path& updates);
 
 /// Undoes a journal left under `updates`.
 ///
