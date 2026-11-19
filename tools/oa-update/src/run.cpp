@@ -54,11 +54,6 @@ constexpr std::string_view install_prompt =
 constexpr std::string_view roll_back_prompt =
     "Open Annihilation wants to put {version} back in place of the copy in {folder}.";
 
-/// The window line when an update stopped before anything changed for a
-/// reason the player can try again.
-constexpr std::string_view update_not_installed =
-    "The update was not installed. Nothing was changed.";
-
 struct Note {
     Log* log{};
 };
@@ -495,6 +490,48 @@ StartWay start_way(const update::Plan& plan, bool administrator) noexcept {
     return StartWay::program;
 }
 
+OpeningResult open_run(
+    const update::Plan& plan,
+    bool elevated_swap,
+    int64_t own_pid,
+    const OpeningHooks& hooks,
+    const JournalHooks& journal
+) {
+    OpeningResult result;
+    std::string error;
+    if (wait_for_process(plan.wait_for, hooks.game, &error) == WaitOutcome::still_running) {
+        result.opening = Opening::game_running;
+        result.detail = std::string(still_running_text);
+        return result;
+    }
+    if (!elevated_swap && wait_for_other_copies(plan.install, own_pid, hooks.copies, &error) ==
+                              WaitOutcome::still_running) {
+        result.opening = Opening::copies_running;
+        result.detail = std::string(other_windows_open_text);
+        return result;
+    }
+
+    // Putting files back replaces the installed font files, which the
+    // window may hold open since it asked for the other windows.
+    if (hooks.window != nullptr)
+        hooks.window->release_installed_files();
+    const fs::path updates = path_from(plan.updates);
+    const UpdatesGateResult pending = take_pending(updates);
+    if (pending.gate == UpdatesGate::restart) {
+        result.opening = Opening::restart_windows;
+        result.version = pending.version;
+    } else if (pending.gate == UpdatesGate::restore_failed) {
+        result.opening = Opening::restore_failed;
+        result.detail = pending.detail;
+    } else if (!undo_journal(updates, journal, &error)) {
+        result.opening = Opening::undo_failed;
+        result.detail = error.empty() ? "a previous update could not be undone" : error;
+    }
+    if (hooks.window != nullptr)
+        hooks.window->allow_installed_files();
+    return result;
+}
+
 std::vector<Operation> kept_record_operations(
     const update::Plan& plan, std::string_view installed_version, int64_t installed_release
 ) {
@@ -807,6 +844,28 @@ int restore_kept(
 
 namespace {
 
+/// The window kept up while the helper waits for other copies of the game.
+struct WaitingWindow {
+    ProgressWindow* window{}; ///< the window
+    std::string_view title;   ///< its title
+    Log* log{};               ///< the log, which notes the wait once
+    bool noted{false};        ///< the wait has been noted
+};
+
+/// Shows the line that asks the player to close the other copies, and keeps
+/// the window answering while the wait goes on. The first call notes the
+/// wait in the log.
+///
+/// @param context the WaitingWindow
+void ask_to_close_other_windows(void* context) {
+    auto* const shown = static_cast<WaitingWindow*>(context);
+    if (!shown->noted && shown->log != nullptr) {
+        shown->noted = true;
+        shown->log->line("waiting for the other copies of the game to close");
+    }
+    shown->window->show(shown->title, close_other_windows_text, 0, true);
+}
+
 /// When this process is the install's own helper, a folder swap cannot rename
 /// that file on Windows XP. Copy it under the updates folder, start the copy,
 /// and leave. The copy waits until this process has left, which frees the
@@ -1115,27 +1174,19 @@ int carry_out(
         return moved;
     }
 
-    const UpdatesGateResult pending = take_pending(updates);
-    if (pending.gate == UpdatesGate::restart) {
-        const std::string version = pending.version.empty() ? plan.from_version : pending.version;
-        log.set_to_version(version);
-        log.finish(update::Outcome::restart_windows);
-        if (!elevated_swap)
-            window.show(plan.title, restart_line(version), 0, true);
-        window.close();
-        return exit_swapped;
-    }
-    if (pending.gate == UpdatesGate::restore_failed) {
-        log.line(pending.detail.empty() ? "the kept copy could not be put back" : pending.detail);
-        log.step(update::Step::undo, update::StepResult::failed, pending.detail);
-        log.finish(update::failure_outcome(plan.action, true, false));
-        start_old(plan, log, window, !elevated_swap);
-        return exit_undone;
-    }
-
-    const bool undone = undo_journal(updates, hooks, &error);
-    const WaitOutcome waited = wait_for_process(plan.wait_for, nullptr, &error);
-    if (waited == WaitOutcome::still_running) {
+    // Nothing moves while the game, or another copy of it, still runs from
+    // the install: a file it holds could not be replaced. The window asks
+    // the player to close the other copies while the helper waits.
+    WaitingWindow waiting{&window, plan.title, &log};
+    CopiesHooks copies;
+    copies.context = &waiting;
+    copies.waiting = ask_to_close_other_windows;
+    OpeningHooks opening_hooks;
+    opening_hooks.copies = &copies;
+    opening_hooks.window = &window;
+    const OpeningResult opening =
+        open_run(plan, elevated_swap, helper_process_id(), opening_hooks, hooks);
+    if (opening.opening == Opening::game_running) {
         log.line(still_running_text);
         log.step(update::Step::wait, update::StepResult::failed, still_running_text);
         log.finish(update::failure_outcome(plan.action, false, true));
@@ -1143,10 +1194,41 @@ int carry_out(
         window.close();
         return exit_refused;
     }
+    if (opening.opening == Opening::copies_running) {
+        // The version that was running is still open in the other windows,
+        // so it is not started again.
+        log.line(opening.detail);
+        log.step(update::Step::wait, update::StepResult::failed, opening.detail);
+        log.finish(update::failure_outcome(plan.action, false, true));
+        window.show(
+            plan.title,
+            plan.action == update::Action::roll_back ? roll_back_failed_kept : update_not_installed,
+            0,
+            true
+        );
+        window.close();
+        return exit_refused;
+    }
     log.step(update::Step::wait, update::StepResult::done);
-    if (!undone) {
-        log.line(error.empty() ? "a previous update could not be undone" : error);
-        log.step(update::Step::undo, update::StepResult::failed, error);
+    if (opening.opening == Opening::restart_windows) {
+        const std::string version = opening.version.empty() ? plan.from_version : opening.version;
+        log.set_to_version(version);
+        log.finish(update::Outcome::restart_windows);
+        if (!elevated_swap)
+            window.show(plan.title, restart_line(version), 0, true);
+        window.close();
+        return exit_swapped;
+    }
+    if (opening.opening == Opening::restore_failed) {
+        log.line(opening.detail.empty() ? "the kept copy could not be put back" : opening.detail);
+        log.step(update::Step::undo, update::StepResult::failed, opening.detail);
+        log.finish(update::failure_outcome(plan.action, true, false));
+        start_old(plan, log, window, !elevated_swap);
+        return exit_undone;
+    }
+    if (opening.opening == Opening::undo_failed) {
+        log.line(opening.detail);
+        log.step(update::Step::undo, update::StepResult::failed, opening.detail);
         log.finish(update::failure_outcome(plan.action, true, false));
         start_old(plan, log, window, !elevated_swap);
         return exit_undone;

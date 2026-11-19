@@ -402,7 +402,13 @@ the [preferences](../src/platform/preferences/README.md).
 
 When a verified package is scheduled for the quit and you quit, or you
 choose to install it now, the game writes a plan and starts `oa-update`,
-then quits. The helper waits until the game has left. It
+then quits. The helper waits until the game has left, and until every other
+program started from the same folder has closed: another copy of the game,
+which a script may have started beside it, or one of its tools. While one is
+open the window says "Close the other Open Annihilation windows." If one is
+still open after a minute, nothing is changed, the version you had is not
+started again, since it is still open, and the next start shows that the
+update was not installed, with **Try again**. The helper then
 checks the saved feed's signature against the keys this build pins, that
 the feed names the channel the game fetched it for, and the downloaded
 package's name, size and SHA-256 against that feed. A

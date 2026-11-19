@@ -1,10 +1,10 @@
 # oa-update
 
 `oa-update` puts a release in place after the game has quit, then starts
-the game again. The game writes the plan and exits. This program waits,
-checks the saved feed and the downloaded package, unpacks into a staging
-folder, carries out the route under a journal, and starts the game. It
-makes no request of its own.
+the game again. The game writes the plan and exits. This program waits for
+the game and for every other copy of it, checks the saved feed and the
+downloaded package, unpacks into a staging folder, carries out the route
+under a journal, and starts the game. It makes no request of its own.
 
 From a build tree, `build/oa-update` is the program. It is built beside
 `oa-tool`, and only where the build may start another program.
@@ -144,6 +144,22 @@ is never started by a process with an administrator's rights.
 
 ## Invariants
 
+- Nothing moves while the game that wrote the plan, or any other program
+  run from the install, is still running: another copy of the game, its
+  tools or a second helper hold files the route replaces. The helper waits
+  for the game, then lists the system's processes (`running_programs`) and
+  waits for every other one whose program lies inside the install
+  (`copies_in_install`; letter case is ignored on Windows and macOS), with
+  the line "Close the other Open Annihilation windows." Each wait gives up
+  after a minute. A copy still open then stops the run before any file
+  moves: the receipt records the wait as failed with "Other Open
+  Annihilation windows are still open." and the outcome not installed (a
+  roll back that failed, for a roll back), the window says "The update was
+  not installed. Nothing was changed.", and the old version is not started,
+  since it is still open. Only after both waits does the run put back what a
+  killed run left: a setup's kept files and a journal. The copy started with
+  `--elevated-swap` does not wait for other programs; the run that started it
+  has.
 - The feed's signature is checked, and the package's name, size and
   SHA-256 are compared with that feed, before anything is unpacked or
   moved. The plan's own fields do not stand in for the feed.
@@ -178,7 +194,10 @@ is never started by a process with an administrator's rights.
 ## Tests
 
 `tools-oa-update` covers the plan and state texts, the refusals, a package
-that does not match the feed, a feed of the other channel than the one the
+that does not match the feed, which processes count as other copies (letter
+case, either slash, a bundle's inner folder, the helper's own process), the
+wait for them giving up, a run that stops with nothing moved while another
+copy runs and puts a setup's kept files back once it has closed, a feed of the other channel than the one the
 plan names, the testing channel's feed checked for a testing plan, zip-slip, the executable bit, a journal that
 fails at each step of a five-step list, a journal left on disk, the wait
 giving up, the window's text placed without fonts, the receipt beside the
