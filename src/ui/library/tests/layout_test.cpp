@@ -6020,7 +6020,7 @@ void keys_tab_names_its_controls() {
     // right while it is On and its left while it is Off.
     {
         lib::ScreenState state;
-        const kit::Frame& regular = fixture::frames()[1].frame;
+        const kit::Frame regular = fixture::frames()[1].frame;
         const bool before = library.key_use.helpers.front().on;
         for (const bool after : {!before, before}) {
             const kit::DisplayList list = laid_out(library, state, regular);
