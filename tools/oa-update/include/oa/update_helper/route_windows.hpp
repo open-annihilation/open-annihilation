@@ -214,8 +214,9 @@ struct FolderPlan {
 
 /// True when `program` is this helper's file inside the install folder.
 ///
-/// A folder swap renames that file. On Windows XP a running program cannot
-/// be renamed, so the swap copies it out of the install and continues there.
+/// A folder swap renames that file, and a setup writes it. No Windows lets
+/// a running program's file be written, and Windows XP does not let it be
+/// renamed, so the run copies it out of the install and continues there.
 ///
 /// @param program the running program
 /// @param install the install folder
@@ -224,17 +225,22 @@ struct FolderPlan {
     const std::filesystem::path& program, const std::filesystem::path& install
 );
 
-/// True when this process should hand the folder swap to a copy outside the
-/// install.
+/// True when this process should hand a Windows route to a copy outside
+/// the install.
 ///
-/// A process that was already started as that copy (`helper_parent` is not
-/// 0) carries on, so the hand-off happens once.
+/// The folder swap renames the helper's own file and the setup writes it,
+/// so both routes step aside. The silent setup skips a file it cannot
+/// write and still exits 0, which would leave the old helper in the install
+/// after every update. A process that was already started as that copy
+/// (`helper_parent` is not 0) carries on, so the hand-off happens once.
 ///
+/// @param route the plan's route
 /// @param program the running program
 /// @param install the install folder
 /// @param helper_parent the process that copied this helper out; 0 for the first process
 /// @return true when the caller should start the copy and leave
-[[nodiscard]] bool folder_swap_must_step_aside(
+[[nodiscard]] bool helper_must_step_aside(
+    oa::app::update::Route route,
     const std::filesystem::path& program,
     const std::filesystem::path& install,
     int64_t helper_parent
@@ -242,7 +248,8 @@ struct FolderPlan {
 
 /// Where the copy runs.
 ///
-/// `<updates>/oa-update-running.exe` is not a name the folder swap renames.
+/// `<updates>/oa-update-running.exe` is not a name the folder swap renames
+/// or the setup writes.
 ///
 /// @param updates the data folder's updates directory
 /// @return the copy's path

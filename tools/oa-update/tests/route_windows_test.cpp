@@ -595,6 +595,12 @@ void postponed_rename_undoes_as_nothing() {
 
 void a_closed_window_can_let_go_of_font_files() {
     helper::ProgressWindow window;
+    // The copy outside the install draws with the install's fonts.
+    const fs::path beside = window.font_directory();
+    OA_CHECK(beside.empty() || beside.filename() == "fonts");
+    const fs::path installed = fs::path("Open Annihilation") / "fonts";
+    window.use_font_directory(installed);
+    OA_CHECK(window.font_directory() == installed);
     window.release_installed_files();
     window.show("Open Annihilation", "Installing", 0, false);
     window.allow_installed_files();
@@ -656,12 +662,25 @@ void the_running_helper_steps_aside_before_the_swap() {
     OA_CHECK(helper::helper_image_blocks_swap(install / "oa-update", install));
     OA_CHECK(!helper::helper_image_blocks_swap(install / "open-annihilation.exe", install));
     OA_CHECK(!helper::helper_image_blocks_swap(updates / "oa-update.exe", install));
-    OA_CHECK(helper::folder_swap_must_step_aside(running, install, 0));
-    OA_CHECK(!helper::folder_swap_must_step_aside(running, install, 4242));
+    // The folder swap renames the helper's file and the setup writes it, so
+    // both Windows routes continue from a copy outside the install; the
+    // silent setup would otherwise skip the running helper and keep the old one.
+    const update::Route folder_route = update::Route::windows_folder;
+    const update::Route installer_route = update::Route::windows_installer;
+    OA_CHECK(helper::helper_must_step_aside(folder_route, running, install, 0));
+    OA_CHECK(helper::helper_must_step_aside(installer_route, running, install, 0));
+    OA_CHECK(!helper::helper_must_step_aside(folder_route, running, install, 4242));
+    OA_CHECK(!helper::helper_must_step_aside(installer_route, running, install, 4242));
+    for (const update::Route other : {
+             update::Route::check_folder, update::Route::macos_bundle, update::Route::linux_versions
+         }) {
+        OA_CHECK(!helper::helper_must_step_aside(other, running, install, 0));
+    }
     const fs::path aside = helper::helper_aside_path(updates);
     OA_CHECK(aside.filename() == "oa-update-running.exe");
     OA_CHECK(!helper::helper_image_blocks_swap(aside, install));
-    OA_CHECK(!helper::folder_swap_must_step_aside(aside, install, 0));
+    OA_CHECK(!helper::helper_must_step_aside(folder_route, aside, install, 0));
+    OA_CHECK(!helper::helper_must_step_aside(installer_route, aside, install, 0));
 
     const fs::path plan_file = scratch.path / "plan.json";
     const helper::FeedKey feed_key{"ridge", "ed25519:abc"};

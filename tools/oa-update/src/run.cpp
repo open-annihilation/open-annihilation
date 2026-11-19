@@ -9,6 +9,7 @@
 #include "oa/app/update/route.hpp"
 #include "oa/platform/machine.hpp"
 #include "oa/platform/preferences.hpp"
+#include "oa/platform/text_font.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/lock.hpp"
@@ -869,9 +870,11 @@ void ask_to_close_other_windows(void* context) {
 }
 
 /// When this process is the install's own helper, a folder swap cannot rename
-/// that file on Windows XP. Copy it under the updates folder, start the copy,
-/// and leave. The copy waits until this process has left, which frees the
-/// lock and the install's helper file, and only then renames anything.
+/// that file on Windows XP, and a setup cannot write it on any Windows: the
+/// silent setup skips it, and the old helper would stay. Copy it under the
+/// updates folder, start the copy, and leave. The copy waits until this
+/// process has left, which frees the lock and the install's helper file, and
+/// only then changes anything.
 ///
 /// @return an exit status when this process should stop; nothing when it should carry on
 std::optional<int> step_aside_from_install(
@@ -884,10 +887,8 @@ std::optional<int> step_aside_from_install(
     Log& log,
     ProgressWindow& window
 ) {
-    if (plan.route != update::Route::windows_folder)
-        return std::nullopt;
     const fs::path running = running_helper_program();
-    if (!folder_swap_must_step_aside(running, path_from(plan.install), helper_parent))
+    if (!helper_must_step_aside(plan.route, running, path_from(plan.install), helper_parent))
         return std::nullopt;
     const fs::path updates = path_from(plan.updates);
     const fs::path aside = helper_aside_path(updates);
@@ -1152,6 +1153,12 @@ int carry_out(
         std::cerr << "oa-update: " << error << '\n';
     ProgressWindow window;
     window.set_log(&log);
+    // The copy outside the install has no fonts beside it; it draws with the
+    // install's, which it lets go of while files move.
+    if (helper_parent > 0)
+        window.use_font_directory(
+            path_from(plan.install) / std::string(oa::platform::text_font::font_folder)
+        );
     Note note{&log};
     JournalHooks hooks;
     hooks.context = &note;

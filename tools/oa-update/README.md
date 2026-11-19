@@ -49,9 +49,13 @@ line a step, kept under 1 MiB), `receipt.json` for the game, `journal.json`
 and `journal-held/` while a swap is in progress, `<release>/stage/` for the
 unpacked package, `previous/` for the version that was kept and the
 preferences copy, and `state.json` for what is installed and what was kept.
-A Windows folder swap copies this program, and the libraries beside it, to
-`oa-update-running.exe` and continues from there, so the install's own
-`oa-update.exe` can be renamed.
+A Windows folder swap or setup copies this program, and the libraries
+beside it, to `oa-update-running.exe` and continues from there, so the
+install's own `oa-update.exe` can be renamed or replaced. A setup cannot
+write the file of a program that is running, and the silent setup skips a
+file it cannot write and still exits 0, so a helper run from the install
+would keep itself, not the release's helper, in place. The copy draws its
+window with the install's fonts.
 
 A release zip holds one top folder, named for the release and its package:
 `open-annihilation-v0.8.8-macos-universal`, as the releases spell it, or
@@ -220,7 +224,9 @@ copy runs and puts a setup's kept files back once it has closed, those
 files put back by the copy with raised rights where the player cannot
 write the install folder (and by this process where the player can, or on
 Windows 9x), the prompt declined or the copy failing with the marker kept,
-a marker put back once while every run before it stops at the wait, a feed of the other channel than the one the
+a marker put back once while every run before it stops at the wait,
+both Windows routes continuing from a copy outside the install and the
+copy drawing with the install's fonts, a feed of the other channel than the one the
 plan names, the testing channel's feed checked for a testing plan, zip-slip, the executable bit, a journal that
 fails at each step of a five-step list, a journal left on disk, the wait
 giving up, the window's text placed without fonts, the receipt beside the

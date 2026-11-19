@@ -97,6 +97,14 @@ void ProgressWindow::allow_installed_files() {
     hold_files_ = false;
 }
 
+void ProgressWindow::use_font_directory(std::filesystem::path directory) {
+    font_directory_ = std::move(directory);
+}
+
+std::filesystem::path ProgressWindow::font_directory() const {
+    return font_directory_.empty() ? text_font::bundled_font_directory() : font_directory_;
+}
+
 void ProgressWindow::show(
     std::string_view title, std::string_view line, int32_t progress, bool now
 ) {
@@ -125,7 +133,7 @@ void ProgressWindow::show(
         display_open_ = true;
     }
     if (shown_->fonts == nullptr && !hold_files_)
-        shown_->fonts = text_font::FontStack::open(text_font::bundled_font_directory());
+        shown_->fonts = text_font::FontStack::open(font_directory());
     if (shown_->window == nullptr) {
         const std::string caption =
             title.empty() ? std::string("Open Annihilation") : std::string(title);

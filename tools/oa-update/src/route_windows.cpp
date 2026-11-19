@@ -1019,9 +1019,11 @@ bool helper_image_blocks_swap(const fs::path& program, const fs::path& install) 
     return same_folder(program.parent_path(), install);
 }
 
-bool folder_swap_must_step_aside(
-    const fs::path& program, const fs::path& install, int64_t helper_parent
+bool helper_must_step_aside(
+    update::Route route, const fs::path& program, const fs::path& install, int64_t helper_parent
 ) {
+    if (route != update::Route::windows_folder && route != update::Route::windows_installer)
+        return false;
     if (helper_parent != 0)
         return false;
     return helper_image_blocks_swap(program, install);
