@@ -992,9 +992,42 @@ bool apply_build_effect(const ModelRenderer& renderer, Sprite& image, const Mode
         return false;
     if (model.state != nullptr && model.state->build_bands) {
         const BuildEffectBands& bands = *model.state->build_bands;
-        remap_depth_range(
-            image, bands.band_low, bands.band_end, bands.above, bands.below, bands.band
-        );
+        if (bands.scan) {
+            const auto& scan = *bands.scan;
+            auto* pixels = static_cast<uint8_t*>(image.data);
+            const auto* depths = static_cast<const uint8_t*>(image.aux);
+            const int32_t samples = static_cast<int32_t>(std::max(renderer.samples, 1U));
+            const int32_t base =
+                model_depth_base +
+                ((def_flags(model) & OA_UNIT_DEF_FLAG_DIGGER) != 0 ? digger_depth_bias : 0);
+            for (int32_t y = 0; y < image.height; ++y) {
+                for (int32_t x = 0; x < image.width; ++x) {
+                    const auto at = static_cast<std::size_t>(y) * image.width + x;
+                    if (pixels[at] == image.key)
+                        continue;
+                    const auto depth = depths[at];
+                    int32_t value = depth < bands.band_low   ? bands.below
+                                    : depth < bands.band_end ? bands.band
+                                                             : bands.above;
+                    const float ground_x = static_cast<float>(x - image.origin_x) / samples;
+                    const int32_t height = int32_t{depth} - base;
+                    const float ground_z =
+                        static_cast<float>(y - image.origin_y + ((height * samples) >> 1)) /
+                        samples;
+                    const float along = scan.axis_x * ground_x + scan.axis_z * ground_z;
+                    if (along >= scan.low && along < scan.high)
+                        value = scan.colour;
+                    if (value == remap_clear)
+                        pixels[at] = image.key;
+                    else if (value != remap_keep)
+                        pixels[at] = static_cast<uint8_t>(value);
+                }
+            }
+        } else {
+            remap_depth_range(
+                image, bands.band_low, bands.band_end, bands.above, bands.below, bands.band
+            );
+        }
         outline_at(image, model, bands.outline, renderer.samples);
         return true;
     }

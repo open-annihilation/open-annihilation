@@ -381,13 +381,19 @@ inline constexpr uint32_t build_preview_scan_ticks = 15;
 /// The palette entry of a build preview's scanline: bright green.
 inline constexpr uint8_t build_preview_scan_colour = 0xfa;
 
+/// Returns the preview sweep's direction on the map. South increases z.
+///
+/// @param facing the facing shown by the build preview
+/// @return the x and z components of the unit direction
+[[nodiscard]] std::array<float, 2> build_preview_scan_axis(BuildFacing facing) noexcept;
+
 /// How a build preview draws its building at a tick of its pulse.
 struct BuildPreviewLook {
     uint8_t outline{}; ///< palette entry of the model's outline
     /// Palette entry the model is filled with; none without the fill.
     std::optional<uint8_t> fill{};
-    /// The heights the scanline lights, in pixels above the model's lowest
-    /// point, from scan_low through scan_high; none between climbs.
+    /// The ground coordinates the scanline lights, in pixels from the model's
+    /// back, from scan_low through scan_high; none between sweeps.
     bool scanning{};
     int32_t scan_low{};
     int32_t scan_high{};
@@ -402,18 +408,17 @@ struct BuildPreviewLook {
 /// steps every 30 ticks: the outline starts 24 steps into the walk, on its
 /// way back from black, and the fill, with the profile's fill, half a walk
 /// away from the outline. For the first build_preview_scan_ticks of each
-/// pulse the scanline climbs the model from its lowest point to its
-/// highest: on tick k of the pulse it lights the heights whose place up
-/// the model, counted from 1 at the lowest point to 255 at the highest and
+/// pulse the scanline crosses the model from its back to its front:
+/// on tick k of the pulse it lights the ground coordinates whose place
+/// along the model, counted from 1 at the back to 255 at the front and
 /// rounded, lies within 2 of 1 + 254 k / 14, rounded down.
 ///
 /// @param pulse_tick ticks since the pulse started
 /// @param fill the preview fills the model (ui.build-preview fill)
-/// @param height the model's height, its highest point less its lowest,
-///     in pixels
+/// @param depth the model's ground span from back to front, in pixels
 /// @return the look
 [[nodiscard]] BuildPreviewLook
-build_preview_look(uint32_t pulse_tick, bool fill, int32_t height) noexcept;
+build_preview_look(uint32_t pulse_tick, bool fill, int32_t depth) noexcept;
 
 /// A rectangle in the game's 640 by 480 source pixels.
 struct SourceBox {

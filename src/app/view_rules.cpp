@@ -486,7 +486,21 @@ bool preview_skips_piece(std::string_view piece) noexcept {
     });
 }
 
-BuildPreviewLook build_preview_look(uint32_t pulse_tick, bool fill, int32_t height) noexcept {
+std::array<float, 2> build_preview_scan_axis(BuildFacing facing) noexcept {
+    switch (facing) {
+    case BuildFacing::east:
+        return {1, 0};
+    case BuildFacing::north:
+        return {0, -1};
+    case BuildFacing::west:
+        return {-1, 0};
+    case BuildFacing::south:
+    default:
+        return {0, 1};
+    }
+}
+
+BuildPreviewLook build_preview_look(uint32_t pulse_tick, bool fill, int32_t depth) noexcept {
     // The walk takes 32 steps over the pulse; at the pulse's start the
     // outline is 23 ticks of it on, 24 steps into it.
     constexpr uint32_t walk_steps = 32;
@@ -510,15 +524,15 @@ BuildPreviewLook build_preview_look(uint32_t pulse_tick, bool fill, int32_t heig
         look.fill = shade(step + half_walk);
     if (at >= build_preview_scan_ticks)
         return look;
-    // Places up the model run from 1 at its lowest point to 255 at its
-    // highest; the scanline is at 1 on the climb's first tick and at 255 on
+    // Places along the model run from 1 at its back to 255 at its front;
+    // the scanline is at 1 on the sweep's first tick and at 255 on
     // its last.
     constexpr int32_t places = 254;
     constexpr int32_t reach = 2;
     const auto climb = static_cast<int32_t>(build_preview_scan_ticks - 1);
     const int32_t scan = 1 + static_cast<int32_t>(at) * places / climb;
-    const int32_t span = std::max(height, 1);
-    for (int32_t up = 0; up <= std::max(height, 0); ++up) {
+    const int32_t span = std::max(depth, 1);
+    for (int32_t up = 0; up <= std::max(depth, 0); ++up) {
         const int32_t place = (up * places + span / 2) / span + 1;
         if (std::abs(place - scan) > reach)
             continue;

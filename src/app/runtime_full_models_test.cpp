@@ -1703,6 +1703,76 @@ void test_nanoframe() {
     }
 }
 
+/// Sweeps flat previews toward each facing in the processor and Full renderers.
+void test_directional_preview_scan() {
+    for (const auto axis :
+         {std::array{0.0F, 1.0F},
+          std::array{1.0F, 0.0F},
+          std::array{0.0F, -1.0F},
+          std::array{-1.0F, 0.0F}}) {
+        Scene scene;
+        auto& site = scene.add_unit(square_model(), 1, unit_x, unit_z);
+        site.unit->flags |= OA_UNIT_FLAG_BUILDING;
+        site.unit->build_remaining = 1;
+        site.state.build_bands = draw::BuildEffectBands{
+            .below = draw::remap_clear,
+            .band = draw::remap_clear,
+            .above = draw::remap_clear,
+            .outline = 0xa8,
+            .scan = draw::BuildEffectScan{axis[0], axis[1], -4, -2, 250}
+        };
+        Card card(scene);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(site);
+        scene.raster_processor(processor);
+        const auto drawn = card.raster(scene);
+        check_exact("directional preview", compare(drawn, processor, scene));
+        int count = 0;
+        for (int y = unit_z - half_side + 1; y < unit_z + half_side - 1; ++y)
+            for (int x = unit_x - half_side + 1; x < unit_x + half_side - 1; ++x)
+                if (drawn.at(x, y)[3] != 0 && drawn.at(x, y)[0] == 250)
+                    ++count;
+        OA_CHECK(count > 0);
+    }
+}
+
+/// A nearer surface hides the sweep on a lower surface even without the preview fill.
+void test_preview_scan_occlusion() {
+    auto source = square_model();
+    auto& object = source->objects.front();
+    const auto count = static_cast<uint16_t>(object.vertices.size());
+    const auto lower = object.vertices;
+    for (auto vertex : lower) {
+        vertex.y += 8 * unit;
+        object.vertices.push_back(vertex);
+    }
+    auto upper = object.primitives.front();
+    for (auto& index : upper.vertex_indices)
+        index += count;
+    object.primitives.push_back(upper);
+    Scene scene;
+    auto& site = scene.add_unit(source, 1, unit_x, unit_z);
+    site.unit->flags |= OA_UNIT_FLAG_BUILDING;
+    site.unit->build_remaining = 1;
+    site.state.build_bands = draw::BuildEffectBands{
+        .below = draw::remap_clear,
+        .band = draw::remap_clear,
+        .above = draw::remap_clear,
+        .outline = 0xa8,
+        .scan = draw::BuildEffectScan{0, 1, -4, -2, 250}
+    };
+    Card card(scene);
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(site);
+    scene.raster_processor(processor);
+    const auto drawn = card.raster(scene);
+    check_exact("preview sweep hidden by nearer surface", compare(drawn, processor, scene));
+    OA_CHECK(drawn.at(unit_x, unit_z - 7)[0] == 250);
+    OA_CHECK(drawn.at(unit_x, unit_z - 3)[3] == 0);
+}
+
 // A nanoframe barely begun in a view zoomed out to a sixth: its outline's
 // runs span a sixth of a screen pixel, and are drawn a screen pixel across
 // and down, so that both of its sides still show on screen, with the
@@ -3252,6 +3322,8 @@ int main(int argc, char** argv) {
         test_lit_building();
         test_cloaked();
         test_nanoframe();
+        test_directional_preview_scan();
+        test_preview_scan_occlusion();
         test_nanoframe_zoomed_out();
         test_nanoframe_pulse_lag();
         test_mobile_nanoframe_once_built();
