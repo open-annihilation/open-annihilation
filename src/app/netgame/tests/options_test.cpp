@@ -145,11 +145,65 @@ int main() {
         "demo runs take a trace"
     );
 
+    // A keyframe check names a tick, runs headless and needs a recording to replay.
+    const auto keyframes = parse(
+        {"--play-demo", "game.tad", "--replay-keyframe-check", "21482", "--match-ticks", "9"}
+    );
+    expect(keyframes.net.replay_keyframe_check == 21482u, "--replay-keyframe-check takes a tick");
+    expect(keyframes.app.headless_check, "--replay-keyframe-check runs headless");
+    expect(keyframes.app.unattended, "--replay-keyframe-check is unattended");
+    expect(keyframes.app.skip_intro, "--replay-keyframe-check skips the intro");
+    expect(
+        !parse({"--play-demo", "game.tad"}).net.replay_keyframe_check.has_value(),
+        "no keyframe check unless asked for"
+    );
+
+    // A viewing speed and a seek need a recording, and neither makes the run headless.
+    using oa::session::demo::PlaybackSpeed;
+    const auto paced = parse({"--play-demo", "game.tad", "--replay-speed", "16"});
+    expect(
+        paced.net.replay_speed == PlaybackSpeed::sixteen && !paced.app.headless_check &&
+            !paced.app.unattended && !paced.app.skip_intro,
+        "--replay-speed 16 watches at 16x and leaves the run as it is"
+    );
+    expect(
+        parse({"--play-demo", "game.tad", "--replay-speed", "0.5"}).net.replay_speed ==
+                PlaybackSpeed::half &&
+            parse({"--play-demo", "game.tad", "--replay-speed", ".5"}).net.replay_speed ==
+                PlaybackSpeed::half &&
+            parse({"--play-demo", "game.tad", "--replay-speed", "1/2"}).net.replay_speed ==
+                PlaybackSpeed::half &&
+            parse({"--play-demo", "game.tad", "--replay-speed", "1"}).net.replay_speed ==
+                PlaybackSpeed::normal &&
+            parse({"--play-demo", "game.tad", "--replay-speed", "2"}).net.replay_speed ==
+                PlaybackSpeed::twice &&
+            parse({"--play-demo", "game.tad", "--replay-speed", "4"}).net.replay_speed ==
+                PlaybackSpeed::quadruple &&
+            parse({"--play-demo", "game.tad", "--replay-speed", "8"}).net.replay_speed ==
+                PlaybackSpeed::octuple,
+        "--replay-speed takes a half and the whole speeds"
+    );
+    const auto sought = parse(
+        {"--play-demo", "game.tad", "--replay-seek", "40000:10000", "--replay-seek", "10000:70000"}
+    );
+    expect(
+        sought.net.replay_seeks.size() == 2 && sought.net.replay_seeks[0].from == 40000u &&
+            sought.net.replay_seeks[0].to == 10000u && sought.net.replay_seeks[1].from == 10000u &&
+            sought.net.replay_seeks[1].to == 70000u && !sought.net.replay_seeks[0].immediate &&
+            !sought.app.headless_check,
+        "--replay-seek takes each FROM:TO and does not run headless"
+    );
+
     // A recording named in Chinese (U+5F55 U+50CF) is read by its UTF-8 name.
     const auto named = parse({"--play-demo", "\xe5\xbd\x95\xe5\x83\x8f.tad"});
     expect(named.net.play_demo.u8string() == u8"\u5f55\u50cf.tad", "--play-demo reads UTF-8");
     const auto recorded = parse({"--net-record", "\xe5\xbd\x95\xe5\x83\x8f.tad"});
     expect(recorded.net.net_record.u8string() == u8"\u5f55\u50cf.tad", "--net-record reads UTF-8");
+    const auto kept = parse({"--record-game", "\xe5\xbd\x95\xe5\x83\x8f.oademo"});
+    expect(
+        kept.net.record_game.u8string() == u8"\u5f55\u50cf.oademo" && kept.net.net_record.empty(),
+        "--record-game reads UTF-8 and leaves --net-record alone"
+    );
 
     // The 3.1c network switches reach network play's handler.
     const auto hosted = parse({"-nTCPIP", "-hHost", "-t60", "-e5"});
@@ -157,6 +211,14 @@ int main() {
 
     // A network loopback run is unattended, so it opens no folder dialog.
     expect(parse({"--net-loopback-check", "300"}).app.unattended, "--net-loopback-check");
+    expect(
+        parse({"--net-loopback-check", "300", "--net-loopback-photo"}).net.net_loopback_photo,
+        "--net-loopback-photo"
+    );
+    expect(
+        !parse({"--net-loopback-check", "300"}).net.net_loopback_photo,
+        "no photo flag without --net-loopback-photo"
+    );
     expect(
         rejection({"--net-loopback-check", "300", "--choose-game-dir"})
                 .find("--choose-game-dir opens a dialog") == 0,
@@ -307,12 +369,31 @@ int main() {
         "the names and the password need --host or --join"
     );
     expect(rejection({"--join"}) == "--join requires a value", "--join needs an address");
+    expect(
+        rejection({"--replay-keyframe-check", "100"}) ==
+                "--replay-keyframe-check needs --play-demo" &&
+            !rejection({"--play-demo", "game.tad", "--replay-keyframe-check", "5000000000"})
+                 .empty(),
+        "the keyframe check needs a recording and a tick"
+    );
+    expect(
+        rejection({"--replay-speed", "3"}) == "--replay-speed expects 1/2, 1, 2, 4, 8 or 16" &&
+            rejection({"--replay-speed", "16"}) == "--replay-speed needs --play-demo" &&
+            rejection({"--replay-seek", "40000"}) == "--replay-seek expects FROM:TO" &&
+            rejection({"--replay-seek", "1:2:3"}) == "--replay-seek expects FROM:TO" &&
+            rejection({"--replay-seek", "40000:10000"}) == "--replay-seek needs --play-demo",
+        "a viewing speed and a seek need a recording, and a speed or a seek can be refused"
+    );
 
     // Without the extension the demo and loopback flags do not exist.
     for (const char* flag :
          {"--play-demo",
           "--demo-unit-table",
+          "--replay-keyframe-check",
+          "--replay-speed",
+          "--replay-seek",
           "--net-loopback-check",
+          "--net-loopback-photo",
           "--net-loopback-watcher",
           "--check-host-not-found",
           "--dplay-guid",

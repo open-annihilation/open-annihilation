@@ -47,8 +47,13 @@ override, Status strip and Draw. Line build, Snap override and Draw are
 there while their hacks are on.
 
 A held key repeats only for a command the game marks as a repeat: panning
-the camera, the zoom keys, the build pages, and the game's speed, and,
-while those hacks are on, a building line's spacing and the rotate key.
+the camera, the zoom keys, the build pages, the game's speed, and the
+focus keys (Next button, Previous button, the focus arrows, the list
+keys, and Page up, Page down, Go to start and Go to end), and, while
+those hacks are on, a building line's spacing and the rotate key. A held
+focus key follows Key repeat delay and Key repeat rate only on the
+multiplayer screens and in the lobby's consoles. On every other screen it
+repeats at the system's pace.
 
 The [default keys](#the-default-keys) are what Open Annihilation ships,
 with no mod hack changing them. A hack's own commands, and the chords a
@@ -225,8 +230,9 @@ keyboard, in the inspector, in Find by key or on a way out of a clash
 writes a chord until its own button does.
 
 The editor's areas, in order, are Orders, Pointer, Selection, Groups,
-Camera, Building, Game, Chat, Watching, Window, Menus, and then Developer
-while Developer Mode is on. Megamap and Whiteboard are areas of their own
+Camera, Building, Game, Chat, Watching, Window, Menus, Photo mode, and then
+Developer while Developer Mode is on. Photo mode has no legend letter, so
+F9 does not wear the Game tint. Megamap and Whiteboard are areas of their own
 while those hacks are on. A hack's other commands stay in the area they
 belong to, and the keys panel groups the ones that exist only because a
 hack is on under **This mod**. Tags, for the units' category words, and
@@ -361,8 +367,8 @@ at the head of Groups.
 
 | Tool | Key | Action | Where it is set now |
 | --- | --- | --- | --- |
-| tdraw, zdraw | Tab | `megamap.toggle` | The megamap hack's default. The editor lists it in Megamap. Import reads tdraw's MegaMapKey and MegamapKey |
-| tdraw, zdraw | Wheel down, wheel up | `megamap.open-wheel`, `megamap.close-wheel` | The megamap hack's defaults |
+| tdraw, zdraw | Tab | `megamap.toggle` | The megamap hack's default, with Mouse wheel zoom on or off. The editor lists it in Megamap. Import reads tdraw's MegaMapKey and MegamapKey |
+| tdraw, zdraw | Wheel down, wheel up | `megamap.open-wheel`, `megamap.close-wheel` | The megamap hack's defaults. Wheel down opens it only while Mouse wheel zoom is off; wheel up over it closes it either way |
 | tdraw, zdraw | none | `megamap.jump` | Unbound. Set it in the editor |
 | tdraw | hold `\` | `whiteboard.draw` | The whiteboard hack's default, `@Backslash`. Import reads WhiteboardKey |
 | tdraw | Ctrl+`\` | `whiteboard.jump` | The whiteboard hack's default |
@@ -569,11 +575,16 @@ default; On the map is 3.1c's double click. **Select same type**
 (Ctrl+Z) selects the selected types on the whole map either way.
 
 **Zoom in** and **Zoom out** zoom the way the wheel is bound, and
-**Invert mouse zoom** in [Settings › Controls](settings.md#controls) turns
-them round. **Invert 3D camera rotation** turns **Orbit camera**'s drags
-round, and **Invert 3D camera pan** those of **Pan camera** and of **Pan**
-in the rotated view, whichever buttons they are on. The camera's keys,
-such as **Pan left**, keep the way their names say.
+**Invert mouse zoom** in [Settings › Controls](settings.md#controls)
+turns them round. The wheel zooms only on the turns they are bound to:
+bound to Alt and the wheel, the wheel alone no longer zooms, and with
+neither bound the wheel does not zoom. Their turn still zooms with other
+modifiers held, unless another action is bound to that turn with them, as
+Alt and the wheel turn a building being placed. **Invert 3D camera
+rotation** turns **Orbit camera**'s drags round, and **Invert 3D camera
+pan** those of **Pan camera** and of **Pan** in the rotated view,
+whichever buttons they are on. The camera's keys, such as **Pan left**,
+keep the way their names say.
 
 ### Selection
 
@@ -706,6 +717,65 @@ such as **Pan left**, keep the way their names say.
 | Open chat | `Enter` | `chat.open` |
 | Open allies chat | — | `chat.open-allies` |
 
+### Photo mode
+
+These answer only while photo mode is open, except Photo mode itself, which
+opens it while you play or watch. The same chord can do both, because the
+two commands are not active together. The keys panel's title is "Keys in
+photo mode".
+
+| Command | Default keys | Action |
+| --- | --- | --- |
+| Photo mode | `F9` | `game.photo-mode` |
+| Leave | `F9` | `photo.leave` |
+| Take photo | `Enter, Ctrl+F9` | `photo.capture` |
+| Copy last photo | `Primary+C` | `photo.copy` |
+| Freeze / Hold picture | `Space` | `photo.freeze` |
+| Step a tick | `.` | `photo.step` |
+| Step back | `,` | `photo.step-back` |
+| Back 10 seconds | `J` | `photo.scrub-back` |
+| Forward 10 seconds | `L` | `photo.scrub-forward` |
+| Back a minute | `Shift+J` | `photo.scrub-back-long` |
+| Forward a minute | `Shift+L` | `photo.scrub-forward-long` |
+| Shutter back | `Shift+,` | `photo.shutter-back` |
+| Shutter on | `Shift+.` | `photo.shutter-on` |
+| Pan | `MouseLeft` | `photo.pan` |
+| Zoom in | `PageUp` | `photo.zoom-in` |
+| Zoom out | `PageDown` | `photo.zoom-out` |
+| Turn left | `Alt+Left` | `photo.turn-left` |
+| Turn right | `Alt+Right` | `photo.turn-right` |
+| Tilt up | `Alt+Up` | `photo.tilt-up` |
+| Tilt down | `Alt+Down` | `photo.tilt-down` |
+| Hide panel | `H` | `photo.panel` |
+| Guides | `G` | `photo.guides` |
+| Mark area | `M` | `photo.mark` |
+| Grow the mark left | `Left` | `photo.mark-left` |
+| Grow the mark right | `Right` | `photo.mark-right` |
+| Grow the mark up | `Up` | `photo.mark-up` |
+| Grow the mark down | `Down` | `photo.mark-down` |
+
+### Replay
+
+These answer while a replay plays, and not while a live game is watched. Slower and faster stay Speed down and Speed up (`game.speed-down`, `game.speed-up`). Leave stays the game menu (`F2`, `Escape`, `game.menu`).
+
+| Command | Default keys | Action |
+| --- | --- | --- |
+| Play or pause | `Pause, K` | `watch.replay-pause` |
+| Back 10 seconds | `J` | `watch.replay-back` |
+| Forward 10 seconds | `L` | `watch.replay-forward` |
+| Back a minute | `Shift+J` | `watch.replay-back-long` |
+| Forward a minute | `Shift+L` | `watch.replay-forward-long` |
+| Previous marker | `,` | `watch.replay-previous-marker` |
+| Next marker | `.` | `watch.replay-next-marker` |
+| Go to the start | `Ctrl+Home` | `watch.replay-start` |
+| Go to the end | `Ctrl+End` | `watch.replay-end` |
+| Pin the bar | `B` | `watch.replay-bar` |
+| Shortcut card | `?` | `watch.replay-keys` |
+| Next player's view | `Tab` | `watch.next-player-view` |
+| Previous player's view | `Shift+Tab` | `watch.previous-player-view` |
+| All players' view | `Q` | `watch.whole-view` |
+| Camera mode | `C` | `watch.camera-mode` |
+
 ### Chat
 
 | Command | Default keys | Action |
@@ -746,6 +816,14 @@ such as **Pan left**, keep the way their names say.
 
 ### Menus
 
+Next button, Previous button, the focus arrows and the list keys follow
+this layout on the original menus, the multiplayer screens, the battle
+room and the lobby. Open Annihilation's own screens use Next control,
+Previous control and the other commands under [Window](#window).
+Focus the panel's buttons and the twelve build cells ship with no key.
+During a match F6 is Go to bookmark 2.
+[Accessibility](accessibility.md#the-keyboard) is the full account.
+
 | Command | Default keys | Action |
 | --- | --- | --- |
 | Accept | `Enter` | `ui.menu-accept` |
@@ -759,6 +837,7 @@ such as **Pan left**, keep the way their names say.
 | Focus right | `Right` | `ui.menu-focus-right` |
 | List up | `Up, WheelUp` | `ui.menu-list-up` |
 | List down | `Down, WheelDown` | `ui.menu-list-down` |
+| Focus the panel's buttons | — | `ui.hud-focus` |
 
 ### Developer
 

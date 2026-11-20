@@ -278,8 +278,10 @@ void check_game_files_options(Options& options) {
         {!options.archives.empty(), "--archive"},
         {options.no_game_files_screen, "--no-game-files-screen"},
         {!options.generate_script.empty(), "--generate-script"},
+        {!options.replay_index.empty(), "--replay-index"},
         {!options.render_script.empty(), "--render-script"},
         {options.check_director_view, "--check-director-view"},
+        {options.check_photo, "--check-photo"},
         {options.check_director_render, "--check-director-render"},
         {options.check_interpolation, "--check-interpolation"},
         {options.check_unit_playout, "--check-unit-playout"},
@@ -301,6 +303,7 @@ void check_game_files_options(Options& options) {
         {options.check_map_packs, "--check-map-packs"},
         {options.check_map_browser, "--check-map-browser"},
         {options.check_key_editor, "--check-key-editor"},
+        {options.check_replay_viewer, "--check-replay-viewer"},
         {options.check_key_capture, "--check-key-capture"},
         {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
@@ -326,6 +329,10 @@ void check_game_files_options(Options& options) {
         {options.check_library_map_previews, "--check-library-map-previews"},
         {options.check_library_content, "--check-library-content"},
         {options.check_library_update_question, "--check-library-update-question"},
+        {options.check_library_replays, "--check-library-replays"},
+        {options.check_replay_import, "--check-replay-import"},
+        {options.check_replays_content, "--check-replays-content"},
+        {options.check_replays_core_prime, "--check-replays-core-prime"},
         {!options.open_files.empty(), "--open"},
         {options.check_renderer_ladder, "--check-renderer-ladder"},
         {options.check_renderer_proof, "--check-renderer-proof"},
@@ -346,6 +353,8 @@ void check_game_files_options(Options& options) {
         {options.check_replay_loadout, "--check-replay-loadout"},
         {options.check_side_data_per_match, "--check-side-data-per-match"},
         {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
+        {options.check_picture_frames, "--check-picture-frames"},
+        {options.check_build_page_fallback, "--check-build-page-fallback"},
         {options.check_download_builds, "--check-download-builds"},
         {options.check_stockpile_builds, "--check-stockpile-builds"},
         {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -420,6 +429,47 @@ void check_game_files_options(Options& options) {
             std::to_string(oa::platform::job_pool::max_threads)
         );
     return value;
+}
+
+/// Returns the photo check's group a word after --check-photo names, or
+/// nothing when it names none.
+///
+/// @param text the word after --check-photo
+/// @return the group, or nothing
+[[nodiscard]] std::optional<PhotoGroup> photo_group_named(std::string_view text) {
+    if (text == "mode")
+        return PhotoGroup::mode;
+    if (text == "time")
+        return PhotoGroup::time;
+    if (text == "camera")
+        return PhotoGroup::camera;
+    if (text == "capture")
+        return PhotoGroup::capture;
+    if (text == "live")
+        return PhotoGroup::live;
+    if (text == "keys")
+        return PhotoGroup::keys;
+    if (text == "panel")
+        return PhotoGroup::panel;
+    if (text == "sizes")
+        return PhotoGroup::sizes;
+    if (text == "pad-touch")
+        return PhotoGroup::pad_touch;
+    if (text == "looks")
+        return PhotoGroup::looks;
+    if (text == "replay")
+        return PhotoGroup::replay;
+    if (text == "tiles")
+        return PhotoGroup::tiles;
+    if (text == "tiles-live")
+        return PhotoGroup::tiles_live;
+    if (text == "depth-live")
+        return PhotoGroup::depth_live;
+    if (text == "poster")
+        return PhotoGroup::poster;
+    if (text == "close")
+        return PhotoGroup::close;
+    return std::nullopt;
 }
 
 /// Returns the navigation check's group a word after --check-navigation
@@ -579,9 +629,9 @@ void take_effect(
 }
 
 /// Checks the director's options against the others, and has a director
-/// run headless: --generate-script and --render-script run on their own,
-/// on the fixed clock and seed, so that a script's analysis and its render
-/// replay the recording alike.
+/// run headless: --generate-script, --render-script and --replay-index run
+/// on their own, on the fixed clock and seed, so that a script's analysis,
+/// its render and a recording's index replay the recording alike.
 ///
 /// Throws std::runtime_error naming the options that cannot be used
 /// together.
@@ -589,16 +639,21 @@ void take_effect(
 /// @param[in,out] options the parsed options; a director run gets
 ///        headless_check and skip_intro
 void check_director_options(Options& options) {
+    if (!options.replay_map_pack.empty() && options.replay_index.empty())
+        throw std::runtime_error("--replay-map-pack needs --replay-index");
     const bool generate = !options.generate_script.empty();
     const bool render = !options.render_script.empty();
+    const bool index = !options.replay_index.empty();
     const bool effects = std::any_of(
         options.director_effects.begin(),
         options.director_effects.end(),
         [](const std::optional<uint32_t>& percent) { return percent.has_value(); }
     );
-    if (!generate && !render) {
+    if (!generate && !render && !index) {
         if (!options.director_output.empty())
-            throw std::runtime_error("--output needs --generate-script or --render-script");
+            throw std::runtime_error(
+                "--output needs --generate-script, --render-script or --replay-index"
+            );
         if (options.director_chunks)
             throw std::runtime_error("--chunks needs --render-script");
         if (!options.director_stills.empty())
@@ -609,12 +664,21 @@ void check_director_options(Options& options) {
     }
     if (generate && render)
         throw std::runtime_error("--generate-script and --render-script cannot be used together");
-    if (generate && options.director_chunks)
+    if (index && (generate || render))
+        throw std::runtime_error(
+            std::string(generate ? "--generate-script" : "--render-script") +
+            " and --replay-index cannot be used together"
+        );
+    if (!render && options.director_chunks)
         throw std::runtime_error("--chunks needs --render-script");
-    if (generate && !options.director_stills.empty())
+    if (!render && !options.director_stills.empty())
         throw std::runtime_error("--stills needs --render-script");
-    if (generate && effects)
+    if (!render && effects)
         throw std::runtime_error("--effect needs --render-script");
+    if (index && options.director_output.empty())
+        throw std::runtime_error("--replay-index needs --output");
+    if (index && options.window_resolution)
+        throw std::runtime_error("--replay-index draws nothing, so it takes no --resolution");
     if (render && options.window_resolution)
         throw std::runtime_error(
             "--render-script takes the frame size from the script, not from --resolution"
@@ -627,7 +691,11 @@ void check_director_options(Options& options) {
             "--render-script draws its frames on the processor, or on the graphics card with "
             "--hardware-acceleration=full; Basic draws no frames of its own"
         );
-    const char* run = generate ? "--generate-script" : "--render-script";
+    const char* run = "--render-script";
+    if (generate)
+        run = "--generate-script";
+    else if (index)
+        run = "--replay-index";
     // Options of other runs, and those that would change the match, its
     // seed or its camera.
     const std::pair<bool, const char*> refused[] = {
@@ -673,6 +741,8 @@ void check_director_options(Options& options) {
         {options.check_replay_loadout, "--check-replay-loadout"},
         {options.check_side_data_per_match, "--check-side-data-per-match"},
         {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
+        {options.check_picture_frames, "--check-picture-frames"},
+        {options.check_build_page_fallback, "--check-build-page-fallback"},
         {options.check_download_builds, "--check-download-builds"},
         {options.check_stockpile_builds, "--check-stockpile-builds"},
         {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -720,6 +790,7 @@ void check_director_options(Options& options) {
         {options.check_running_while_inactive, "--check-running-while-inactive"},
         {options.check_multiplayer_menu, "--check-multiplayer-menu"},
         {options.check_director_view, "--check-director-view"},
+        {options.check_photo, "--check-photo"},
         {options.check_director_render, "--check-director-render"},
         {options.check_interpolation, "--check-interpolation"},
         {options.check_unit_playout, "--check-unit-playout"},
@@ -731,6 +802,7 @@ void check_director_options(Options& options) {
         {options.check_map_packs, "--check-map-packs"},
         {options.check_map_browser, "--check-map-browser"},
         {options.check_key_editor, "--check-key-editor"},
+        {options.check_replay_viewer, "--check-replay-viewer"},
         {options.check_key_capture, "--check-key-capture"},
         {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
@@ -756,6 +828,10 @@ void check_director_options(Options& options) {
         {options.check_library_map_previews, "--check-library-map-previews"},
         {options.check_library_content, "--check-library-content"},
         {options.check_library_update_question, "--check-library-update-question"},
+        {options.check_library_replays, "--check-library-replays"},
+        {options.check_replay_import, "--check-replay-import"},
+        {options.check_replays_content, "--check-replays-content"},
+        {options.check_replays_core_prime, "--check-replays-core-prime"},
         {!options.open_files.empty(), "--open"},
         {options.check_renderer_ladder, "--check-renderer-ladder"},
         {options.check_renderer_proof, "--check-renderer-proof"},
@@ -800,6 +876,8 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_replay_loadout, "--check-replay-loadout"},
             {options.check_side_data_per_match, "--check-side-data-per-match"},
             {options.check_gadget_art_per_match, "--check-gadget-art-per-match"},
+            {options.check_picture_frames, "--check-picture-frames"},
+            {options.check_build_page_fallback, "--check-build-page-fallback"},
             {options.check_download_builds, "--check-download-builds"},
             {options.check_stockpile_builds, "--check-stockpile-builds"},
             {options.check_unit_page_memory, "--check-unit-page-memory"},
@@ -861,6 +939,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {!options.check_installer.empty(), "--check-installer"},
             {options.check_multiplayer_menu, "--check-multiplayer-menu"},
             {options.check_director_view, "--check-director-view"},
+            {options.check_photo, "--check-photo"},
             {options.check_director_render, "--check-director-render"},
             {options.check_interpolation, "--check-interpolation"},
             {options.check_unit_playout, "--check-unit-playout"},
@@ -872,6 +951,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_map_packs, "--check-map-packs"},
             {options.check_map_browser, "--check-map-browser"},
             {options.check_key_editor, "--check-key-editor"},
+            {options.check_replay_viewer, "--check-replay-viewer"},
             {options.check_key_capture, "--check-key-capture"},
             {options.check_key_share, "--check-key-share"},
             {options.check_key_views, "--check-key-views"},
@@ -897,6 +977,10 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_library_map_previews, "--check-library-map-previews"},
             {options.check_library_content, "--check-library-content"},
             {options.check_library_update_question, "--check-library-update-question"},
+            {options.check_library_replays, "--check-library-replays"},
+            {options.check_replay_import, "--check-replay-import"},
+            {options.check_replays_content, "--check-replays-content"},
+            {options.check_replays_core_prime, "--check-replays-core-prime"},
             {options.check_renderer_ladder, "--check-renderer-ladder"},
             {options.check_renderer_proof, "--check-renderer-proof"},
             {options.check_live_renderer, "--check-live-renderer"},
@@ -997,9 +1081,11 @@ namespace {
 /// Tells whether a bare argument names a file to open, by its extension, any case.
 ///
 /// @param argument the argument
-/// @return true for a .oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or .oareg file
+/// @return true for a .oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys, .oareg,
+///         .oademo or .tad file
 [[nodiscard]] bool names_opened_file(std::string_view argument) {
-    return package_install::opens_file(path_from_utf8(argument));
+    const fs::path file = path_from_utf8(argument);
+    return package_install::opens_file(file) || package_install::opens_replay(file);
 }
 
 /// An option that takes no value and turns on one member of Options.
@@ -1041,6 +1127,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-map-packs", &Options::check_map_packs},
     {"--check-map-browser", &Options::check_map_browser},
     {"--check-key-editor", &Options::check_key_editor},
+    {"--check-replay-viewer", &Options::check_replay_viewer},
     {"--check-key-capture", &Options::check_key_capture},
     {"--check-key-share", &Options::check_key_share},
     {"--check-key-views", &Options::check_key_views},
@@ -1066,6 +1153,10 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-library-map-previews", &Options::check_library_map_previews},
     {"--check-library-content", &Options::check_library_content},
     {"--check-library-update-question", &Options::check_library_update_question},
+    {"--check-library-replays", &Options::check_library_replays},
+    {"--check-replay-import", &Options::check_replay_import},
+    {"--check-replays-content", &Options::check_replays_content},
+    {"--check-replays-core-prime", &Options::check_replays_core_prime},
     {"--check-renderer-ladder", &Options::check_renderer_ladder},
     {"--check-renderer-proof", &Options::check_renderer_proof},
     {"--check-live-renderer", &Options::check_live_renderer},
@@ -1087,6 +1178,8 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-replay-loadout", &Options::check_replay_loadout},
     {"--check-side-data-per-match", &Options::check_side_data_per_match},
     {"--check-gadget-art-per-match", &Options::check_gadget_art_per_match},
+    {"--check-picture-frames", &Options::check_picture_frames},
+    {"--check-build-page-fallback", &Options::check_build_page_fallback},
     {"--check-download-builds", &Options::check_download_builds},
     {"--check-stockpile-builds", &Options::check_stockpile_builds},
     {"--check-unit-page-memory", &Options::check_unit_page_memory},
@@ -1495,8 +1588,9 @@ take_match_option(std::string_view argument, ArgumentCursor& cursor, Options& op
 }
 
 /// Reads a self-check's option that takes a value, or a word after it: the
-/// navigation check and its group, the failure the renderer ladder check
-/// narrows to, and the pages and the language the unit checks show.
+/// navigation check and its group, the photo check and its group, the failure
+/// the renderer ladder check narrows to, and the pages and the language the
+/// unit checks show.
 ///
 /// @param argument the option
 /// @param[in,out] cursor the command line, standing on the option; moved
@@ -1511,6 +1605,16 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         if (*cursor.index + 1 < cursor.argc)
             if (const auto group = navigation_group_named(cursor.argv[*cursor.index + 1])) {
                 options.navigation_group = *group;
+                ++*cursor.index;
+            }
+        return true;
+    }
+    if (argument == "--check-photo") {
+        options.check_photo = true;
+        // A group's name may follow; any other word is read as before.
+        if (*cursor.index + 1 < cursor.argc)
+            if (const auto group = photo_group_named(cursor.argv[*cursor.index + 1])) {
+                options.photo_group = *group;
                 ++*cursor.index;
             }
         return true;
@@ -1663,6 +1767,14 @@ take_recording_option(std::string_view argument, ArgumentCursor& cursor, Options
         options.generate_script = path_from_utf8(option_value(cursor));
         return true;
     }
+    if (argument == "--replay-index") {
+        options.replay_index = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--replay-map-pack") {
+        options.replay_map_pack = path_from_utf8(option_value(cursor));
+        return true;
+    }
     if (argument == "--render-script") {
         options.render_script = path_from_utf8(option_value(cursor));
         return true;
@@ -1725,6 +1837,10 @@ take_recording_option(std::string_view argument, ArgumentCursor& cursor, Options
 /// @return true when the option is one of these
 [[nodiscard]] bool
 take_engine_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
+    if (argument == "--core-prime-api") {
+        options.core_prime_api = std::string(option_value(cursor));
+        return true;
+    }
     if (argument == "--mutator") {
         const std::string value{option_value(cursor)};
         std::string error;
@@ -1893,7 +2009,7 @@ void write_startup_line(std::string_view text) {
                      "[--accept-unimplemented-hacks] "
                      "[--skip-intro] [--first-run] [--frames N] [--headless-check] "
                      "[--snapshot PATH.ppm] [--preferences-file PATH] [--data-dir PATH] "
-                     "[--user-folder PATH] [--log-dir PATH] "
+                     "[--user-folder PATH] [--core-prime-api URL] [--log-dir PATH] "
                      "[--mute] "
                      "[--check-navigation [screens|orders|outcomes|zoom|zoom-1366x768|"
                      "zoom-1920x1080|zoom-2560x1440|campaign]] "
@@ -1905,7 +2021,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-unit-speech] [--check-mutator-layer] [--check-mutator-verdicts] "
                      "[--check-replay-loadout] "
                      "[--check-side-data-per-match] "
-                     "[--check-gadget-art-per-match] "
+                     "[--check-gadget-art-per-match] [--check-picture-frames] "
+                     "[--check-build-page-fallback] "
                      "[--check-download-builds] [--check-stockpile-builds] "
                      "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
                      "[--check-unit-pages whole|scaled:TYPE,...] "
@@ -1945,7 +2062,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-registered-kit] [--check-kit-gallery] "
                      "[--check-user-folder] [--check-mod-switch] [--check-map-packs] "
                      "[--check-map-pack-lists] [--check-mod-map-settings] "
-                     "[--check-map-browser] [--check-key-editor] [--check-key-capture] "
+                     "[--check-map-browser] [--check-key-editor] [--check-replay-viewer] "
+                     "[--check-key-capture] "
                      "[--check-key-views] [--check-key-share] [--check-keys-overlay] "
                      "[--check-selection-keys] "
                      "[--check-mutator-button] [--check-mutator-picker] "
@@ -1959,9 +2077,15 @@ void write_startup_line(std::string_view text) {
                      "[--check-library] [--check-library-install] "
                      "[--check-library-map-previews] [--check-library-content] "
                      "[--check-library-update-question] "
+                     "[--check-library-replays] "
+                     "[--check-replay-import] "
+                     "[--check-replays-content] [--check-replays-core-prime] "
                      "[--check-renderer-ladder [--render-fault POINT[@FRAME]]] "
                      "[--check-renderer-proof] [--check-live-renderer] "
-                     "[--check-briefing-narration] [--check-director-view] "
+                     "[--check-briefing-narration] "
+                     "[--check-photo [mode|time|camera|capture|live|keys|panel|sizes|"
+                     "pad-touch|looks|replay|depth-live|poster|close]] "
+                     "[--check-director-view] "
                      "[--check-director-render] [--check-interpolation] "
                      "[--check-unit-playout] [--check-running-while-inactive] "
                      "[--trace-input] "
@@ -2008,6 +2132,8 @@ void write_startup_line(std::string_view text) {
                      "[--resolution WxH]] "
                      "[--render-script PATH.oascript|PATH.oamovie [--output DIR] "
                      "[--chunks A-B] [--stills F,F...]] "
+                     "[--replay-index RECORDING --output PATH.json "
+                     "[--replay-map-pack PATH]] "
                      "[game switches such as "
                   << extension_text(extension, ExtensionText::usage_switches, "")
                   << "-d|-df -f -l -r TEXT -s -w] "
@@ -2015,7 +2141,11 @@ void write_startup_line(std::string_view text) {
                      "--generate-script plans a director script from a recording an "
                      "extension of this build replays;\n"
                      "--render-script renders a director script, or a bundle of one and "
-                     "its recording, to video (docs/director.md).\n"
+                     "its recording, to video (docs/director.md);\n"
+                     "--replay-index writes a recording's index: its length, markers, "
+                     "totals and result (docs/replays.md).\n"
+                     "--replay-map-pack mounts one kept map pack while --replay-index reads "
+                     "the recording.\n"
                   << extension_text(extension, ExtensionText::usage_note, "");
             write_startup_line(usage.str());
         } else if (argument.starts_with("--")) {
@@ -2036,8 +2166,8 @@ void write_startup_line(std::string_view text) {
             // macOS names the process it started from the Finder; nothing to read.
             continue;
         } else if (names_opened_file(argument)) {
-            // One of the seven file types the game installs or adds, opened with the
-            // game or dropped on it.
+            // One of the seven file types the game installs or adds, or a replay
+            // (.oademo or .tad), opened with the game or dropped on it.
             result.open_files.push_back(opened_file_path(argument));
         } else {
             switch_words.push_back(argv[index]);
@@ -2190,12 +2320,15 @@ void write_startup_line(std::string_view text) {
         !result.draw_threads && env && !env->empty())
         result.draw_threads = parse_draw_threads(*env, "OA_DRAW_THREADS");
     // These checks skip the window and intro; an offscreen GPU check starts
-    // only the SDL subsystems it needs.
+    // only the SDL subsystems it needs. Photo mode opens a window, as the
+    // key table does, so its pointer and resize steps have one.
     if (result.check_director_view || result.check_director_render || result.check_interpolation ||
         result.check_unit_playout || result.check_renderer_proof || result.check_live_renderer) {
         result.headless_check = true;
         result.skip_intro = true;
     }
+    if (result.check_photo)
+        result.skip_intro = true;
     if (result.check_live_renderer)
         result.experimental_3d = true;
     check_director_options(result);
@@ -2302,11 +2435,11 @@ void write_startup_line(std::string_view text) {
         );
     if (result.force_capable && !result.check_render_tiers && !result.check_build_preview &&
         !result.check_dialog_backdrop && !result.check_engine_settings &&
-        !result.check_kill_board && !result.check_underwater_features)
+        !result.check_kill_board && !result.check_photo && !result.check_underwater_features)
         throw std::runtime_error(
             "--force-capable is accepted only with --check-render-tiers, "
             "--check-build-preview, --check-dialog-backdrop, --check-engine-settings, "
-            "--check-kill-board and --check-underwater-features"
+            "--check-kill-board, --check-photo and --check-underwater-features"
         );
     if (result.render_fault && !result.check_renderer_ladder)
         throw std::runtime_error("--render-fault needs --check-renderer-ladder");
@@ -2345,19 +2478,26 @@ void write_startup_line(std::string_view text) {
         result.check_dialog_backdrop || result.check_pointer_interfaces ||
         result.check_megamap_clicks || result.check_single_player_offers ||
         result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
-        result.check_running_while_inactive || result.check_director_view ||
+        result.check_running_while_inactive || result.check_director_view || result.check_photo ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
         result.check_enhanced_mode || result.check_zoom_memory || result.check_map_packs ||
-        result.check_map_browser || result.check_key_editor || result.check_key_capture ||
-        result.check_key_share || result.check_key_views || result.check_keys_overlay ||
-        result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
-        result.check_mutator_picker || result.check_brain_picker ||
-        result.check_brain_seat_buttons || result.check_brain_campaign ||
-        result.check_mutator_prompts || result.check_map_pack_lists ||
-        result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||
-        result.check_mod_limits || result.check_click_snap || result.check_build_past_edge ||
-        result.check_selection_keys || result.check_factory_departure;
+        result.check_map_browser || result.check_key_editor || result.check_replay_viewer ||
+        result.check_key_capture || result.check_key_share || result.check_key_views ||
+        result.check_keys_overlay || result.check_mutator_button || result.check_mutator_room ||
+        result.check_brain_room || result.check_mutator_picker || result.check_brain_picker ||
+        result.check_picture_frames || result.check_brain_seat_buttons ||
+        result.check_brain_campaign || result.check_mutator_prompts ||
+        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
+        result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap ||
+        result.check_build_past_edge || result.check_selection_keys ||
+        result.check_factory_departure || result.check_build_page_fallback;
+    // The Library's Replays section, a replay opened into it, a replay that
+    // fetches what it needs and Core Prime's replays are walked on the fixed
+    // clock too.
+    result.fixed_clock = result.fixed_clock || result.check_library_replays ||
+                         result.check_replay_import || result.check_replays_content ||
+                         result.check_replays_core_prime;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||
@@ -2474,7 +2614,8 @@ void write_startup_line(std::string_view text) {
     // run nobody watches never shows; --check-mod-install answers them itself.
     if (!result.open_files.empty() && result.headless_check)
         throw std::runtime_error(
-            "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or .oareg), after "
+            "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys, .oareg, .oademo "
+            "or .tad), after "
             "--open or "
             "on its "
             "own, "
@@ -2482,7 +2623,8 @@ void write_startup_line(std::string_view text) {
         );
     if (!result.open_files.empty() && result.unattended && !result.check_mod_install)
         throw std::runtime_error(
-            "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or .oareg), after "
+            "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys, .oareg, .oademo "
+            "or .tad), after "
             "--open or "
             "on its "
             "own, "

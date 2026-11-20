@@ -83,6 +83,12 @@ folder, and any other recording by its absolute path.
 a second, the game's 30 ticks a second, cut into one-minute chunks. The same
 recording always gives the same script, byte for byte, on every platform.
 
+The same replay and the same timeline recorder serve a recording's index:
+`--replay-index RECORDING --output INDEX.json` keeps the recorder to the
+players' standings, every hit and the commanders created and killed, and
+writes the replay's length, markers, totals and result instead of a script
+([the replay index](replays.md#the-replay-index)).
+
 ## Rendering a script
 
 ```sh

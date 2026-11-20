@@ -8,6 +8,7 @@
 #include "oa/platform/system.hpp"
 #include "oa/platform/files.hpp"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -387,6 +388,52 @@ void test_player_row(Toolkit* tk) {
     CHECK(latency->width == 0xb && latency->height == 0xb);
     // Until the member reply sets them: User_Icons from 0x13, Latency_Icons from 1.
     CHECK(doe->icons.user_frame == 0x13 && doe->icons.latency_frame == 1);
+
+    // The shown state is the second frame of the bound pair. Grade 1 draws
+    // the red square, grade 2 the amber and grade 3 the green, and the words
+    // name those colours.
+    const struct {
+        int grade;
+        const char* phrase;
+        int low;
+        int high;
+    } grades[] = {
+        {1, "Latency poor", 201, 205},
+        {2, "Latency fair", 195, 199},
+        {3, "Latency good", 160, 164},
+    };
+
+    for (const auto& grade : grades) {
+        player_row_set_latency(&doe->icons, grade.grade);
+        PlayerIconWords words{};
+        CHECK(player_icon_words(latency, &words));
+        CHECK(words.kind == PlayerIconKind::latency && words.latency_grade == grade.grade);
+        CHECK_STR(latency_grade_phrase(grade.grade), grade.phrase);
+        toolkit_compose(tk, nullptr);
+        image_draw(0, 0, 0xb, 0xb, latency->states.images[1]);
+        const Surface* drawn = toolkit_surface(tk);
+        bool body = false;
+        for (int32_t y = 0; y < 0xb; ++y) {
+            const uint8_t* line = drawn->pixels + static_cast<std::ptrdiff_t>(y) * drawn->pitch;
+            for (int32_t x = 0; x < 0xb; ++x) {
+                const int index = line[x];
+                if (index == k_overlay_transparent || index == 90)
+                    continue;
+                CHECK(index >= grade.low && index <= grade.high);
+                body = true;
+            }
+        }
+        CHECK(body);
+        toolkit_compose(tk, nullptr);
+    }
+    player_row_set_latency(&doe->icons, 0);
+    PlayerIconWords unnamed{};
+    CHECK(player_icon_words(latency, &unnamed) && unnamed.latency_grade == 0);
+    CHECK_STR(latency_grade_phrase(0), "Latency unknown");
+    player_row_set_latency(&doe->icons, 4);
+    CHECK(player_icon_words(latency, &unnamed) && unnamed.latency_grade == 0);
+    CHECK_STR(latency_grade_phrase(4), "Latency unknown");
+    player_row_set_latency(&doe->icons, 1);
     const Handle user_icon = image_load("Widgets.gaf", "User_Icons", 0x14, kWidgetKey);
     CHECK(same_pixels(tk, rank->states.images[1], user_icon));
     image_release(user_icon);

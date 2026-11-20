@@ -27,6 +27,7 @@ inline constexpr std::string_view interface_words[] = {
     "Cavedog tilesets",
     "Cavedog units",
     "Choose a folder or an installer",
+    "Confirm your email address first: check your inbox for the Core Prime email.",
     "Core Contingency",
     "Desktop",
     "Documents",
@@ -74,7 +75,10 @@ inline constexpr std::string_view interface_words[] = {
     "Switch your mod off to play in the Boneyards.",
     "The Boneyards needs Open Annihilation's online features: update checks and the content "
     "catalogue. Turn them on and continue?",
+    "The Boneyards needs Open Annihilation's online features: update checks, the content "
+    "catalogue and {registry}'s install ID. Turn them on and continue?",
     "The Boneyards needs by.ccx and the Boneyards folder.",
+    "The Boneyards needs {registry}'s install ID turned on. Turn it on and continue?",
     "The Boneyards plays Total Annihilation without mods. "
     "Switch {mod} off and enter the Boneyards?",
     "The installer of the Total Annihilation demo (1997).",

@@ -80,15 +80,20 @@ PanelLayout lay_out_panel(
     layout.row_height = row_height;
     const std::size_t rows = std::min(table.row_count, table.rows.size());
     // The columns' widths, then where they end with the labels at 0. The
-    // title runs across the columns and sets none of them; the rows that
-    // run on set nothing, as their texts are fitted where they are drawn.
+    // title, and its note a gap after it, run across the columns and set
+    // none of them; the rows that run on set nothing, as their texts are
+    // fitted where they are drawn.
     int labels = 0;
     int title = 0;
     std::array<int, kFrameStatsValueColumns> widths{};
+    std::array<int, frame_pacing::kFrameStatsRowsMost> notes{};
     for (std::size_t row = 0; row < rows; ++row) {
         const auto& cells = table.rows[row];
         if (cells.kind == FrameStatsRowKind::title) {
-            title = std::max(title, text_width(measure, cells.label));
+            const int label = text_width(measure, cells.label);
+            const int note = text_width(measure, cells.note);
+            notes[row] = label + kColumnGap;
+            title = std::max(title, note != 0 ? notes[row] + note : label);
             continue;
         }
         if (frame_pacing::runs_on(cells.kind))
@@ -105,7 +110,6 @@ PanelLayout lay_out_panel(
     }
     // Each row's note follows the last value it shows; the widest row sets
     // the table's width.
-    std::array<int, frame_pacing::kFrameStatsRowsMost> notes{};
     int table_width = title;
     for (std::size_t row = 0; row < rows; ++row) {
         const auto& cells = table.rows[row];
@@ -134,9 +138,12 @@ PanelLayout lay_out_panel(
     layout.rule_y = -1;
     int y = inner;
     for (std::size_t row = 0; row < rows; ++row) {
+        // The title's note stays after the title, at the left with the labels.
+        const FrameStatsRowKind kind = table.rows[row].kind;
+        layout.note_x[row] = frame_pacing::runs_on(kind)        ? inner
+                             : kind == FrameStatsRowKind::title ? inner + notes[row]
+                                                                : inner + notes[row] + shift;
         layout.row_y[row] = y;
-        layout.note_x[row] =
-            frame_pacing::runs_on(table.rows[row].kind) ? inner : inner + notes[row] + shift;
         y += row_height;
         if (table.rows[row].kind == FrameStatsRowKind::heading && layout.rule_y < 0) {
             layout.rule_y = y;

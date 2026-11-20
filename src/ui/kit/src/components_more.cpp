@@ -14,6 +14,7 @@
 #include "oa/ui/kit/chrome.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/controls.hpp"
+#include "oa/ui/kit/state_colours.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/paint/painter.hpp"
 
@@ -654,7 +655,7 @@ void draw_text_line(const Canvas& canvas, const PlacedLine& line, std::string_vi
         text,
         line.rect,
         Align::left,
-        line.failure ? colour::lock : (line.path ? colour::hint : colour::text)
+        line.failure ? state_ink(StateTone::caution) : (line.path ? colour::hint : colour::text)
     );
 }
 
@@ -712,7 +713,8 @@ void add_text_line(DisplayList& list, const PlacedLine& line, std::string text) 
     item.text = std::move(text);
     item.font = line.path || line.lead ? FontRole::regular : FontRole::small;
     item.align = Align::left;
-    item.colour = line.failure ? colour::lock : (line.path ? colour::hint : colour::text);
+    item.colour =
+        line.failure ? state_ink(StateTone::caution) : (line.path ? colour::hint : colour::text);
     list.items.push_back(std::move(item));
 }
 
@@ -939,9 +941,9 @@ renderer::Mark line_mark_bits(LineMark mark) noexcept {
 Colour line_mark_colour(LineMark mark) noexcept {
     switch (mark) {
     case LineMark::done:
-        return colour::accent;
+        return state_ink(StateTone::ok);
     case LineMark::failed:
-        return colour::danger;
+        return state_ink(StateTone::danger);
     case LineMark::bullet:
     case LineMark::none:
         break;
@@ -992,15 +994,15 @@ renderer::Mark tone_bits(CalloutTone tone) noexcept {
 Colour tone_colour(CalloutTone tone) noexcept {
     switch (tone) {
     case CalloutTone::ok:
-        return colour::accent;
+        return state_ink(StateTone::ok);
     case CalloutTone::caution:
-        return colour::lock;
+        return state_ink(StateTone::caution);
     case CalloutTone::danger:
-        return colour::danger;
+        return state_ink(StateTone::danger);
     case CalloutTone::information:
         break;
     }
-    return colour::information;
+    return state_ink(StateTone::information);
 }
 
 /// Returns a callout's ground, its tone's tint.
@@ -1010,15 +1012,15 @@ Colour tone_colour(CalloutTone tone) noexcept {
 Colour tone_tint(CalloutTone tone) noexcept {
     switch (tone) {
     case CalloutTone::ok:
-        return colour::ok_tint;
+        return state_tint(StateTone::ok);
     case CalloutTone::caution:
-        return colour::caution_tint;
+        return state_tint(StateTone::caution);
     case CalloutTone::danger:
-        return colour::danger_tint;
+        return state_tint(StateTone::danger);
     case CalloutTone::information:
         break;
     }
-    return colour::information_tint;
+    return state_tint(StateTone::information);
 }
 
 /// Returns the glyph a callout's mark is listed by to automation.
@@ -1492,6 +1494,24 @@ std::vector<Rect> place_question_buttons(
 
 } // namespace
 
+void draw_state_mark(const Canvas& canvas, StateTone tone, Point at, Colour ink) {
+    CalloutTone callout = CalloutTone::information;
+    switch (tone) {
+    case StateTone::ok:
+        callout = CalloutTone::ok;
+        break;
+    case StateTone::caution:
+        callout = CalloutTone::caution;
+        break;
+    case StateTone::danger:
+        callout = CalloutTone::danger;
+        break;
+    case StateTone::information:
+        break;
+    }
+    draw_mark(canvas, tone_bits(callout), at, ink);
+}
+
 PlacedNotice place_notice(const Notice& notice, const Measure& regular, const Measure& small) {
     const int32_t width = box_width(notice.size_class);
     PlacedNotice placed{};
@@ -1700,7 +1720,7 @@ DisplayList notice_list(const Notice& notice, const Fonts* fonts, const LookUp& 
             placed.open_button,
             button_look(open, false, notice_open, notice.hovered, notice.pressed),
             notice_open,
-            notice.marked == notice_open
+            notice.focus_shown && !notice.pointer_hid_ring && notice.marked == notice_open
         );
     }
     add_button_item(
@@ -1708,7 +1728,7 @@ DisplayList notice_list(const Notice& notice, const Fonts* fonts, const LookUp& 
         placed.ok_button,
         button_look(ok, true, notice_ok, notice.hovered, notice.pressed),
         notice_ok,
-        notice.marked == notice_ok
+        notice.focus_shown && !notice.pointer_hid_ring && notice.marked == notice_ok
     );
     add_edge(list, placed.height, width);
     return list;
@@ -1840,7 +1860,7 @@ DisplayList question_list(const Question& question, const Fonts* fonts) {
             placed.buttons[index],
             question_button_look(button, control, question.hovered, question.pressed),
             control,
-            question.marked == control
+            question.focus_shown && !question.pointer_hid_ring && question.marked == control
         );
     }
     add_edge(list, placed.height, width);
@@ -1854,7 +1874,14 @@ NoticeAction notice_pointer_move(Notice& notice, Point at, int32_t height) {
         at.y += notice.finger_shift_y;
     }
     const ControlId hovered = hit(notice_controls(notice, height), at);
-    if (hovered == notice.hovered)
+    // A move hides the ring. The marked button keeps the keys, so the next
+    // key still acts on it. An opening focus is left for its key table.
+    bool hid = false;
+    if (notice.focus_shown && !notice.pointer_hid_ring) {
+        notice.pointer_hid_ring = true;
+        hid = true;
+    }
+    if (hovered == notice.hovered && !hid)
         return NoticeAction::none;
     notice.hovered = hovered;
     return NoticeAction::redraw;
@@ -1933,6 +1960,94 @@ NoticeAction notice_key(Notice& notice, Key key) {
     }
 }
 
+namespace {
+
+/// Returns a notice's buttons in Tab order: the open button, then OK.
+///
+/// @param notice the notice
+/// @return the order; OK alone when it has no open caption
+std::vector<ControlId> notice_tab_order(const Notice& notice) {
+    if (notice_opens(notice))
+        return {notice_open, notice_ok};
+    return {notice_ok};
+}
+
+/// Moves a mark one step along an order and wraps.
+///
+/// @param marked the mark
+/// @param order the buttons
+/// @param forward true to move on, false to move back
+/// @return the button
+ControlId step_order(ControlId marked, const std::vector<ControlId>& order, bool forward) {
+    if (order.empty())
+        return marked;
+    const auto found = std::find(order.begin(), order.end(), marked);
+    if (found == order.end())
+        return forward ? order.front() : order.back();
+    const auto count = static_cast<std::ptrdiff_t>(order.size());
+    const std::ptrdiff_t at = found - order.begin();
+    const std::ptrdiff_t step = forward ? 1 : count - 1;
+    return order[static_cast<std::size_t>((at + step) % count)];
+}
+
+/// Tells whether a key shows the ring again after the pointer hid it.
+///
+/// Escape, Yes, No and Info do what they do without revealing it.
+///
+/// @param key the key
+/// @return true when the key shows the ring
+bool reveals_ring(Key key) noexcept {
+    return key != Key::escape && key != Key::yes && key != Key::no && key != Key::info;
+}
+
+} // namespace
+
+NoticeAction notice_model_key(Notice& notice, Key key) {
+    // The pointer hid the ring. The marked button still has the keys, and
+    // this key shows the ring again there.
+    const bool reveal = notice.focus_shown && notice.pointer_hid_ring && reveals_ring(key);
+    if (reveal)
+        notice.pointer_hid_ring = false;
+    NoticeAction action = NoticeAction::none;
+    if (!notice.focus_shown) {
+        const std::vector<ControlId> order = notice_tab_order(notice);
+        switch (key) {
+        case Key::tab:
+        case Key::back_tab:
+            notice.marked = step_order(notice.marked, order, key == Key::tab);
+            notice.focus_shown = true;
+            action = NoticeAction::redraw;
+            break;
+        case Key::up:
+            if (!order.empty())
+                notice.marked = order.back();
+            notice.focus_shown = true;
+            action = NoticeAction::redraw;
+            break;
+        case Key::down:
+        case Key::left:
+        case Key::right:
+        case Key::space:
+            if (!order.empty())
+                notice.marked = order.front();
+            notice.focus_shown = true;
+            action = NoticeAction::redraw;
+            break;
+        default:
+            action = notice_key(notice, key);
+            break;
+        }
+    } else if (key == Key::enter) {
+        notice.focus_shown = false;
+        action = notice_key(notice, Key::space);
+    } else {
+        action = notice_key(notice, key);
+    }
+    if (reveal && action == NoticeAction::none)
+        return NoticeAction::redraw;
+    return action;
+}
+
 QuestionAnswer
 question_pointer_move(Question& question, Point at, int32_t height, const Fonts* fonts) {
     if (question.pressed != no_control) {
@@ -1940,7 +2055,14 @@ question_pointer_move(Question& question, Point at, int32_t height, const Fonts*
         at.y += question.finger_shift_y;
     }
     const ControlId hovered = hit(question_controls(question, height, fonts), at);
-    if (hovered == question.hovered)
+    // A move hides the ring. The marked button keeps the keys, so the next
+    // key still acts on it. An opening focus is left for its key table.
+    bool hid = false;
+    if (question.focus_shown && !question.pointer_hid_ring) {
+        question.pointer_hid_ring = true;
+        hid = true;
+    }
+    if (hovered == question.hovered && !hid)
         return {};
     question.hovered = hovered;
     return look_changed(true);
@@ -2018,6 +2140,53 @@ QuestionAnswer question_key(Question& question, Key key) {
     }
 }
 
+QuestionAnswer question_model_key(Question& question, Key key) {
+    // The pointer hid the ring. The marked button still has the keys, and
+    // this key shows the ring again there.
+    const bool reveal = question.focus_shown && question.pointer_hid_ring && reveals_ring(key);
+    if (reveal)
+        question.pointer_hid_ring = false;
+    const auto count =
+        static_cast<int32_t>(std::min(question.buttons.size(), most_question_buttons));
+    QuestionAnswer outcome{};
+    if (!question.focus_shown && count > 0) {
+        const auto marked = static_cast<int32_t>(question.marked);
+        switch (key) {
+        case Key::tab:
+        case Key::back_tab: {
+            const int32_t next = marked < 0 || marked >= count
+                                     ? (key == Key::tab ? 0 : count - 1)
+                                     : (marked + (key == Key::tab ? 1 : count - 1)) % count;
+            question.marked = static_cast<ControlId>(next);
+            question.focus_shown = true;
+            return look_changed(true);
+        }
+        case Key::up:
+            question.marked = static_cast<ControlId>(count - 1);
+            question.focus_shown = true;
+            return look_changed(true);
+        case Key::down:
+        case Key::left:
+        case Key::right:
+        case Key::space:
+            question.marked = 0;
+            question.focus_shown = true;
+            return look_changed(true);
+        default:
+            return question_key(question, key);
+        }
+    }
+    if (question.focus_shown && key == Key::enter) {
+        question.focus_shown = false;
+        outcome = question_key(question, Key::enter);
+    } else {
+        outcome = question_key(question, key);
+    }
+    if (reveal && outcome.action == QuestionAction::none)
+        return look_changed(true);
+    return outcome;
+}
+
 void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_up) {
     const PlacedNotice placed = place_notice(notice, canvas.fonts);
     const int32_t width = box_width(notice.size_class);
@@ -2042,7 +2211,7 @@ void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_
                 notice.hovered,
                 notice.pressed
             ),
-            notice.marked == notice_open
+            notice.focus_shown && !notice.pointer_hid_ring && notice.marked == notice_open
         );
     }
     draw_marked_button(
@@ -2051,7 +2220,7 @@ void draw_notice(const Canvas& canvas, const Notice& notice, const LookUp& look_
         button_look(
             shown(look_up, notice.ok_caption), true, notice_ok, notice.hovered, notice.pressed
         ),
-        notice.marked == notice_ok
+        notice.focus_shown && !notice.pointer_hid_ring && notice.marked == notice_ok
     );
     draw_window_edge(canvas, whole);
 }
@@ -2126,7 +2295,7 @@ void draw_question(const Canvas& canvas, const Question& question) {
             canvas,
             placed.buttons[index],
             question_button_look(button, control, question.hovered, question.pressed),
-            question.marked == control
+            question.focus_shown && !question.pointer_hid_ring && question.marked == control
         );
     }
     draw_window_edge(canvas, whole);
@@ -2148,7 +2317,7 @@ void draw_progress(
             canvas,
             {bar.x, bar.y, filled, bar.height},
             radius,
-            paused ? colour::lock : colour::accent
+            paused ? state_ink(StateTone::caution) : colour::accent
         );
 }
 
@@ -2291,23 +2460,22 @@ DisplayList pill_controls(const UpdatePill& pill, const PlacedUpdatePill& placed
 void draw_pill_icon(const Canvas& canvas, const Rect& rect, UpdatePillIcon icon) {
     switch (icon) {
     case UpdatePillIcon::download:
-        draw_state_icon(canvas, rect, StateIcon::download_arrow, colour::information);
+        draw_state_icon(canvas, rect, StateIcon::download_arrow, state_ink(StateTone::information));
         return;
     case UpdatePillIcon::paused: {
         const int32_t bar = std::max(rect.width / 4, int32_t{2});
         const int32_t top = rect.y + rect.height / 6;
         const int32_t tall = rect.height - 2 * (rect.height / 6);
-        fill_rect(canvas, {rect.x + rect.width / 5, top, bar, tall}, colour::lock);
-        fill_rect(
-            canvas, {rect.x + rect.width - rect.width / 5 - bar, top, bar, tall}, colour::lock
-        );
+        const Colour ink = state_ink(StateTone::caution);
+        fill_rect(canvas, {rect.x + rect.width / 5, top, bar, tall}, ink);
+        fill_rect(canvas, {rect.x + rect.width - rect.width / 5 - bar, top, bar, tall}, ink);
         return;
     }
     case UpdatePillIcon::ready:
         draw_state_icon(canvas, rect, StateIcon::circled_check, colour::text_secondary);
         return;
     case UpdatePillIcon::scheduled:
-        draw_state_icon(canvas, rect, StateIcon::circled_check, colour::accent);
+        draw_state_icon(canvas, rect, StateIcon::circled_check, state_ink(StateTone::ok));
         return;
     case UpdatePillIcon::problem:
         draw_mark(
@@ -2315,7 +2483,7 @@ void draw_pill_icon(const Canvas& canvas, const Rect& rect, UpdatePillIcon icon)
             kWarning,
             {rect.x + (rect.width - kWarning.width) / 2,
              rect.y + (rect.height - kWarning.height) / 2},
-            colour::lock
+            state_ink(StateTone::caution)
         );
         return;
     }

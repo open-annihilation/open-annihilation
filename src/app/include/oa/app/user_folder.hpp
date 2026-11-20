@@ -36,8 +36,16 @@ inline constexpr std::string_view screenshots_folder_name = "Screenshots";
 /// Image Output Directory is set, in a folder for each mod.
 inline constexpr std::string_view films_folder_name = "Films";
 /// The folder of the player's own folder the recordings of network games go
-/// in, in a folder for each mod, unless --net-record names the file.
+/// in, in a folder for each mod, unless --net-record or --record-game names
+/// the file.
 inline constexpr std::string_view recordings_folder_name = "Recordings";
+/// The folder of Recordings that holds what the game keeps about its
+/// replays rather than a replay: the recordings being made. A mod's folder
+/// is never named so, since a mod's id is kebab-case.
+inline constexpr std::string_view replays_folder_name = ".replays";
+/// The folder of replays_folder_name that holds the recordings of games not
+/// yet finished, in a folder for each mod (mod_subfolder_name).
+inline constexpr std::string_view partial_folder_name = "partial";
 /// The folder of Saves, Screenshots, Films and Recordings that holds the
 /// files of games played without a mod's profile: 3.1c's, and a mod
 /// folder's that holds no oamod.yaml.
@@ -73,6 +81,24 @@ inline constexpr std::string_view partial_copy_suffix = ".moving";
 /// The preference that moves the player's own folder, as an absolute UTF-8
 /// path; absent or not absolute for the default.
 inline constexpr std::string_view user_folder_preference = "open-annihilation.user-folder";
+/// The preference that says whether every game the player plays, a network
+/// game and a skirmish, is kept as a replay: `on`, or `off`. Only the word
+/// `off` turns it off; absent, or any other text, is on. The game never
+/// draws it: Settings does.
+inline constexpr std::string_view replays_record_preference = "open-annihilation.replays.record";
+/// The preference that says how long the replays the game recorded are
+/// kept: `30-days`, `90-days`, `1-year` or `forever`. Absent, or any other
+/// text, is `30-days`. Recording does not read it.
+inline constexpr std::string_view replays_keep_preference = "open-annihilation.replays.keep";
+/// The preference that records the player's answer the first time old
+/// replays would go: `keep` or `let-go`. Absent, or any other text, means
+/// the question has not been answered, and nothing is removed.
+inline constexpr std::string_view replays_retention_asked_preference =
+    "open-annihilation.replays.retention-asked";
+/// replays_retention_asked_preference when the player keeps every old replay.
+inline constexpr std::string_view replays_retention_keep = "keep";
+/// replays_retention_asked_preference when the player lets the old replays go.
+inline constexpr std::string_view replays_retention_let_go = "let-go";
 /// The preference that records that the saved games were moved, so that the
 /// move never runs again: the saved games moved and the ones left where
 /// they were, as two decimal numbers, "12 0".
@@ -212,7 +238,7 @@ screenshots_folder(const std::filesystem::path& user_folder, std::string_view mo
 films_folder(const std::filesystem::path& user_folder, std::string_view mod_id);
 
 /// Returns the folder the recordings of a game's or a mod's network games
-/// are written to, unless --net-record names the file.
+/// are written to, unless --net-record or --record-game names the file.
 ///
 /// @param user_folder the player's own folder
 /// @param mod_id the id of the mod's profile; empty without one
@@ -221,15 +247,39 @@ films_folder(const std::filesystem::path& user_folder, std::string_view mod_id);
 [[nodiscard]] std::filesystem::path
 recordings_folder(const std::filesystem::path& user_folder, std::string_view mod_id);
 
+/// Returns the folder the recordings of games not yet finished are streamed
+/// to, for a mod's games.
+///
+/// @param user_folder the player's own folder
+/// @param mod_id the id of the mod's profile; empty without one
+/// @return Recordings/.replays/partial/<mod_subfolder_name(mod_id)>
+[[nodiscard]] std::filesystem::path
+recordings_partial_folder(const std::filesystem::path& user_folder, std::string_view mod_id);
+
+/// Returns the folder that holds the recordings of games not yet finished
+/// for every mod.
+///
+/// @param user_folder the player's own folder
+/// @return Recordings/.replays/partial
+[[nodiscard]] std::filesystem::path
+recordings_partial_root(const std::filesystem::path& user_folder);
+
+/// Tells whether the player's setting keeps every game, a network game and a
+/// skirmish, as a replay.
+///
+/// @param values the loaded preferences
+/// @return false only when replays_record_preference is the word `off`
+[[nodiscard]] bool replays_record_setting(const platform::preferences::Values& values);
+
 /// Returns the file a network game's recording is written to: the file
-/// --net-record names, as it is given, else the file of that name in the
+/// --net-record or --record-game names, as it is given, else the file of that name in the
 /// folder of the mod played in Recordings (recordings_folder).
 ///
-/// @param net_record the --net-record file; empty when none is given
+/// @param net_record the --net-record or --record-game file; empty when none is given
 /// @param user_folder the player's own folder
 /// @param mod_id the id of the mod's profile; empty without one
 /// @param name the recording's file name: .record's, or the date, time and
-///        map's, with the recorder's extension
+///        map's, with the recorder's extension or .oademo
 /// @return the file
 [[nodiscard]] std::filesystem::path recording_file(
     const std::filesystem::path& net_record,

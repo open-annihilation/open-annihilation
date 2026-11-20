@@ -469,10 +469,15 @@ void Runtime::check_unit_playout() {
             }
         } step_end{*this, records};
         extension_.simulation_step = [](void* /*context*/, Runtime& runtime) {
-            if (step_records == nullptr)
+            const std::function<void()>* pending = step_records;
+            if (pending == nullptr)
                 return false;
+            // The headless step asks this hook too. With the records put
+            // aside, that ask leaves the tick to the step, which runs it once.
+            step_records = nullptr;
             runtime.step_match_simulation();
-            (*step_records)();
+            step_records = pending;
+            (*pending)();
             return true;
         };
         // The local runner's place at each tick, which the other machine's

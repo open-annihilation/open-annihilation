@@ -74,6 +74,7 @@ void check_lines() {
     const automation::EventHooks hooks = stream.hooks();
     OA_CHECK(hooks.wanted(hooks.context, event_kind::screen));
     OA_CHECK(!hooks.wanted(hooks.context, event_kind::transfer));
+    OA_CHECK(!hooks.wanted(hooks.context, event_kind::focus));
     automation::watch_events(stream.watch(), now, hooks);
     stream.finish(7);
     stream.finish(9);

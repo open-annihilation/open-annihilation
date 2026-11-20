@@ -64,6 +64,7 @@ done
 case "$build_dir" in /*) ;; *) build_dir="$PWD/$build_dir" ;; esac
 
 python3 "$ios_dir/tools/bootstrap_ios_deps.py" --sdk "$sdk"
+python3 "$repo_dir/tools/bootstrap_accesskit.py"
 configure_args=(
     -S "$ios_dir" -B "$build_dir" -G Xcode
     "-DCMAKE_TOOLCHAIN_FILE=$ios_dir/cmake/OaIosToolchain.cmake"

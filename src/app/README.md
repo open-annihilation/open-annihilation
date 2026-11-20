@@ -260,6 +260,25 @@ latched the closing key and drew a backdrop.
   screen on the stack back to the top by closing every screen above it in
   that way, so that a screen asking for one already under it goes back to
   it rather than stacking a second.
+- **The family's ring.** After the screens have drawn, the layer draws
+  `kit::draw_focus_ring` around the focused gadget of an original menu, and
+  around an extension window that itself holds the focus, at that control's
+  window rectangle and at the layer's scale. A screen that draws the kit's
+  own ring is left to it. A button of an OA screen that joins an original
+  menu's Tab order, such as the mutators button, takes this ring instead,
+  and the tree's `focus_shown` follows it. The ring is hidden when a
+  screen, a dialog, a page of the in-game panel or an extension window
+  opens (`note_family_opened` on load and on the in-game menu, and again in
+  `present_family_ring` when what is showing has changed), unless Always
+  show focus is on. An arrow, Home, End or page key a screen takes while
+  the ring shows calls `note_family_tab` too, so the ring stays through a
+  window that key opens or closes, such as a battle's pane opened from the
+  battle list.
+  `note_family_tab` shows it, for Tab, Shift+Tab and F6. `note_family_return` hides it, and
+  `note_family_pointer` hides it when the pointer moves. Where a screen
+  focuses nothing, the tree reports a first item (SINGLE on the main menu).
+  The ring is drawn around that item on an original menu. On an extension's
+  windows it waits until the window itself holds the focus.
 - **Pushed or queued.** A screen somebody asked for at that moment joins at
   once with `push`: Settings, or a question a screen asks of its own over
   that screen (the Library's Switch Mod question over the Library). One nobody
@@ -536,7 +555,12 @@ latched the closing key and drew a backdrop.
   the extensions' overlays, under the frontend's message boxes) hands the
   layer every input. The key that closed a screen comes first: its presses
   do nothing until it is released. Then the top modal screen that shows
-  takes every input, and nothing under it sees any. With none, each screen
+  takes every input, and nothing under it sees any. While one shows, the
+  pointer's moves a frame finds queued one after another are dispatched as
+  one move, to where the last ends and as far as they went together
+  (`Runtime::run_frame`), since the screen finds what lies under the
+  pointer for each move it takes; with no modal screen every move is
+  dispatched as it comes. With none, each screen
   that shows sees the input from the top, and the first that answers other
   than `pass` takes it; what none takes goes on to the overlays and the
   screen under the layer, and in a match first to the in-game OA button.
@@ -655,11 +679,70 @@ latched the closing key and drew a backdrop.
   at 150%, never drawn at 1× and enlarged, and copied into the layer pixel
   for pixel; the OA Settings button's face, at its source size, and on a
   phone the fitted Settings, drawn at a whole scale, are fitted to their
-  places by the nearest pixel (`stamp`). The layer is drawn again only when what it shows changes
-  (`refresh_match`), and the composed frame and the window take the same
-  layer: it goes over the composed frame (`compose_match`) and is presented
-  after the match's other layers and before the frontend dialogs' and the
-  cursor (`present`).
+  places by the nearest pixel (`stamp`). The layer is drawn again only
+  when what it shows changes (`refresh_match`), and then only what changed.
+  A screen whose revision covers what it draws (`revision_covers_drawing`;
+  in a match Settings too, whose tick moves its revision for every change
+  it takes from outside its input) keeps its drawing while its revision
+  and what it is drawn from hold (`MatchPiece`, the `DrawingInputs` the
+  front end keys its drawings by); every other screen, such as the replay
+  bar with its clock, is drawn again each time the layer is. The layer
+  keeps its pixels between frames and is composed again only where a
+  drawing differs from the one it replaces, the smallest rectangle holding
+  each pixel that differs (`changed_part`), where a screen came, went or
+  moved, and where the button's face or place changed: there the backdrop
+  or clear, the button and the screens are laid again from the bottom
+  (`compose_match_part`), so that every pixel is the one composing the
+  whole layer anew gives. A new size, the backdrop coming or going,
+  screens that change their order and `redraw` compose the whole layer and
+  `redraw` draws every screen anew. Only the part composed again since the
+  last upload goes to the texture, at the display gamma
+  (`upload_match_part`, `TiledTexture::update_rect`); a new texture or gamma
+  takes the whole layer. So a hover change costs about what drawing the
+  screen that changed costs, not the window: the gallery, which covers the
+  window, is still drawn whole. `OaLayer::check_match_redraws`, under
+  `native-engine-settings`, holds the layer to the one composed whole
+  through hover changes, screens over one another, a new window size,
+  Interface size and gamma. The composed frame and the window take the
+  same layer: it goes over the composed frame (`compose_match`) and is
+  presented after the match's other layers and before the frontend
+  dialogs' and the cursor (`present`). The pointer over the layer shows
+  the arrow, as over a HUD button, not the order cursor of the unit or
+  feature under it (`covers_pointer`, which `Runtime::shown_match_cursor`
+  asks before it picks the battlefield): anywhere while a modal screen
+  such as Settings shows, inside the place of any other screen that shows
+  where that screen covers it (`LayerScreen::covers_point`: the whole
+  place, but for the replay bar, whose place is the battlefield, only its
+  bar, cards and menus), and over the OA Settings button. With no screen
+  and no button the cursor is the match's as before. Where the layer
+  covers the pointer the order wheel a held button opens does not wait on
+  a press either (`Runtime::order_wheel_press_eligible`), so the screen
+  takes it: a hold over the keys overlay, over Settings, or anywhere while
+  a modal screen shows over a match that plays on opens no wheel, as
+  `native-order-wheel` holds, and beside the keys overlay it opens one.
+  The key-latch chips
+  the match draws over the battlefield with no OA screen open show the
+  arrow too (`Runtime::pointer_over_key_latch_chip`, over the places
+  `draw_key_latch_chips` keeps), and the battlefield under them is not
+  picked: they take its clicks as the screens do
+  (`Runtime::key_latch_chip_pointer`, before the panels and the
+  battlefield). A press of any button on a chip is the chip's, and so is
+  its release wherever it comes up, so it gives no order, selection, box
+  or pan, and the order wheel does not wait on it
+  (`order_wheel_press_eligible`). The click does nothing more: a chip only
+  shows a latch, as the keys overlay's On line does, and the latch's own
+  key lets it go. The bindings still see the click first, as they see one
+  on a screen, so it uses up a modifier made sticky for the next key or
+  click, as any click does; a locked one stays. A press the HUD, a placed
+  HUD region or a running middle-click pan holds is theirs, and the
+  release of a press made elsewhere goes on, so a box dragged from the
+  battlefield ends over a chip. `native-reclaim-cursor` holds the arrow
+  over Settings and over a screen that is not modal, a tree under each,
+  `native-replay-viewer` over the replay bar and off it, and
+  `native-key-latches` over QUEUE's chip, under it and where it lay;
+  `native-key-latches` also clicks the chip with each button on both
+  interfaces, drags from it and presses it with the order wheel on, none
+  of which orders or selects, and clicks just under it, which orders.
 - **The in-game OA Settings button.** The in-game menu has one OA button,
   under Resume, as wide as it from its left edge (`match_button_rect`, 96
   by 24 source pixels at (14, 455), placed in the column at its own scale,
@@ -1024,6 +1107,168 @@ runtime goes).
   tabs on the next frames, and it is still there once the update is no
   longer offered. A FIXTURES_SETUP test (`library-update-question-clean`)
   clears its folders before each run.
+- **Replays.** `runtime_library_replays.cpp` hosts the Replays section
+  (`ReplayShelf`, the host's `replays`, made on first use). Each opening of
+  the Library asks its worker, a thread of its own, to read `Recordings`
+  again (`oa::data::replays::scan`, from the index it last read; the first
+  read loads `Recordings/.replays/index.json`); `pump_replays`, each tick off
+  a match, takes the rows read so far while the folder is read for the first
+  time, then the whole index, which it saves, and how far a read has come. A
+  `index.json` that does not read is moved to `index.json.damaged` (then
+  `index.json.damaged-2` and on) before the
+  new one is written (`oa::data::replays::set_aside`), and the log says so.
+  `scan_replays` marks the section as reading at once, so that it never says
+  "No replays yet." while the folder is read. `fill_replay_inputs` gives the model each replay with the local day and
+  minute it was recorded (`localtime`), its map's picture, the kinds
+  extensions registered (`oa::data::replays::registered_kinds`), today and
+  the recording setting, and, from a timeline the index pass stored, who won,
+  each player's kills and losses, and the card's timeline marks.
+  `pump_replay_pictures` decodes one map picture a
+  layout for the rows shown, from `maps/<map>.tnt` in the game's files.
+  WATCH reads the replay's file and hands its bytes to the extension that
+  replays recordings (`Extension::open_recording`, strict, as `--play-demo`
+  is), which starts its match in the running game; the Library keeps what it
+  showed as `library_return_`, so leaving the match opens it again on
+  Replays with the same row selected and scrolled as it was
+  (`reopen_kept_library`). The replay's hooks are closed once its match has
+  gone (`end_watched_replay`), which writes the tick sampled while the match
+  ran (`note_watched_replay`, through `replay_state`) into the index.
+  **Watch from** stores that tick and asks `replay_seek` on the first frame
+  the replay can say where it is. A replay opened after a restart to switch
+  the mod or the expansions is remembered from that same sampled tick. It
+  keeps no place once the tick has reached the recording's length. The index
+  pass does not read a replay that needs a package or an expansion, so that
+  length is the one in the replay's description. Watch from keeps its tick in
+  `open-annihilation.replay-watch-from` across that restart and seeks once
+  the replay can say where it is. A refusal is the hook's sentence, without the
+  file's name the hook puts before it, shown in the card. The hook can refuse
+  after its match began loading (the recording's unit table is not the
+  installed one): the screen is then the loading screen with a half-made
+  match, so the host tears that down (`leave_match`), shows the main menu
+  (`load`), and leaves the Library open on the same row, at the same scroll,
+  with the refusal in its card. KEEP marks the replays in
+  `Recordings/.replays/kept.json` (`oa::data::replays::KeptMarks`), by
+  recording, and saves it at once, whatever the folder's read is doing, so a
+  Keep is never lost and no change to the index forgets one; a `kept.json`
+  that does not read is set aside as `kept.json.damaged` (then
+  `kept.json.damaged-2` and on) and is not overwritten; a start whose file
+  cannot be read removes nothing. A replay the player exported is marked in
+  `exported.json` the same way. At the main menu, old replays are considered
+  once: Forever reads nothing, and any other span is read on a worker, which
+  saves the index, and the question shows after that read. OPEN FOLDER shows
+  the replay's folder (`open_player_folder`); TURN ON RECORDING writes
+  `open-annihilation.replays.record` `on`. OPEN A REPLAY FILE asks for a
+  `.oademo` or a `.tad` where the platform has a file dialog. A replay opened
+  from outside (`take_opened_replays`, one a frame once the main menu can
+  open the Library) is copied into `Recordings/Imported` by
+  `oa::data::replays::import_replay`, or selected when that recording is
+  already under `Recordings`, and the Library opens on it. A copy is told in
+  a notice, "Added {title} to Replays". A file that does not parse is refused
+  in the same notice. EXPORT… opens the dialog on the
+  marked replays, or the one chosen, and `open_replay_export` opens it on
+  one replay for the viewer's end card. While a replay plays, the bar
+  (`runtime_replay_viewer.cpp`, `src/ui/replay-viewer`) shows play, pause,
+  the speed and the timeline, and hides until the pointer is at the
+  battlefield's lower edge or a playback key is pressed.
+  `--check-replay-viewer` (`native-replay-viewer`) records a short skirmish
+  and presses that bar. The files are made when the dialog
+  opens and written one each pump, after two frames, into Downloads
+  (`SDL_GetUserFolder`) or a folder the dialog's chooser lists. The
+  game-install locator is not used: it refuses a folder that is not an
+  install, and Downloads is not one. Cancelling closes the dialog and the
+  next pump writes nothing more. An export carries the index's timeline when
+  the source `.oademo` has none or an empty one, and when a `.tad` is
+  wrapped; a timeline already in a `.oademo` is kept. The string is copied
+  onto the export on the main thread. While the Library is open and no match
+  is running, `pump_replays` also advances one index pass
+  (`--replay-index` of the game's own executable, low priority, standard
+  output discarded). The Library and the playback bar both start it through
+  `launch_index_pass` (`replay_index_pass.cpp`); the bar reads the pass's
+  `replay index: progress N` lines through a pipe that never blocks, N
+  counted against the recording's own length. The child runs in the
+  player's own folder, and with `--mod-dir` when the replay's mod is
+  installed. Its standard error goes
+  to `.index-pass/errors.txt`. The game logs one line per pass. One process
+  at a time. A row with a gap Watch would fetch, turn on or refuse is left
+  out. A refused read stores `read_stamp` and is tried again when it
+  changes. Closing the Library, a match, Watch and leaving the game stop
+  it, and a stopped pass writes nothing.
+  A build that cannot start a process (iOS, Android) shows header fields
+  only and no Reading… chip. The pointer's press reads Shift, Ctrl or
+  Command through `Runtime::input_modifiers(ModifierUse::keyboard)`, so a
+  key the automation endpoint holds counts, and sets `ScreenState::row_pick`.
+- **The import check.** `native-replays-import` (`--check-replay-import`,
+  `runtime_library_replays_check.cpp`) copies a made-up `.oademo` and a
+  made-up `.tad` into `Recordings/Imported`, selects each, copies nothing the
+  second time, leaves sector 6 out of the `.tad`, and refuses a damaged file
+  and a version this game does not play. It clears `Recordings` as it starts
+  and again as it ends.
+- **The Replays check.** `native-library-replays`
+  (`--check-library-replays`, `runtime_library_replays_check.cpp`) writes
+  made-up replays from the game `native-library-replays-source` records
+  first (a headless loopback game with `--record-game`, into
+  `library-replays-source.oademo` beside the run): copies under other days,
+  kinds, maps and players, a `.tad`, an imported one, a damaged file and one
+  whose map is not installed. It finds Replays second with an empty folder
+  and with replays, the filters, the kind menu, the search and the sort
+  giving their rows, Keep read back from `kept.json` by a section made afresh
+  with the index whole, deleted, truncated and full of noise, a ten-player
+  replay's card scrolled to Kept until, a refusal in the card before loading
+  and one after it began (a recording whose unit table differs: the game on
+  the main menu again, the Library on the same row and scroll), WATCH
+  playing 30 ticks and leaving it coming back to the same row and scroll,
+  Watch from starting at that tick, a campaign titled by its mission name,
+  a Ctrl key the automation endpoint holds marking a second row, and, where
+  a process can be started, Reading… on an unindexed row, no index process
+  after the Library closes, and the watched replay's result and timeline
+  strip. Turn on recording writes the setting, and Export writes one replay as a
+  `.oademo` and three as `.tad` files into `Exported replays`. It then shows
+  the old-replays question, Keep them all, a second consideration that asks
+  nothing, and Let them go, and checks a kept file whose bytes changed, two
+  copies of one recording, a delete the trash refuses and a damaged
+  `kept.json` set aside. With `--snapshot` it pictures the section and the
+  Export dialog at 640x480, 960x540, 1280x720 and 1920x1080, while the folder
+  is first read, the damaged replay, the ten-player card at its foot, the
+  refusals, the Reading… chip and the indexed replay's result and timeline
+  strip. It removes `Recordings`, `Exported replays` and `Mods/ridge`, and
+  puts the setting back as it ends;
+  a FIXTURES_SETUP test (`library-replays-clean`) clears its folders first.
+- **Missing replay content.** `native-replays-content`
+  (`--check-replays-content`, `runtime_replays_content_check.cpp`, driven by
+  `tools/check_native_replays_content.py`) serves Ridge on 127.0.0.1. A
+  replay that needs an older map pack and a mutator fetches both with one
+  press and plays; the pack is only in the releases list, and the key
+  request names that release and its digest. The mutator is no longer
+  selected when the match ends. A digest neither list holds reads as not in
+  the catalogue, and with the registry stopped the card reads "You're
+  offline." `beside` starts with Ridge 2.9 installed, fetches 2.8 beside
+  it, plays that replay, and puts 2.9 back, including after a stop during
+  the replay. With the registry then stopped, Watch plays the kept 2.8 and
+  puts 2.9 back again. That copy is then moved to `Mods/ridge-2.8`, as
+  Install alongside leaves it, and Watch plays that folder. `update`
+  updates Ridge 2.8 in `Mods/ridge` to 2.9 with Update all, and in the same
+  run the replay offers Get Ridge 2.8 and watch. `packs` plays a replay of a
+  hand-copied map pack with no fetch, then fetches an older release into
+  `Replay releases`, plays it, and leaves the pack in `Maps`. It then plays
+  that kept release when the copy in `Maps` is greyed and when `Maps` holds
+  no copy, reads it in an index pass, watches a file-installed copy with no
+  fetch, and plays an older pack with an older mod across a restart.
+  With `--snapshot` it pictures the card at 1280x720.
+  `replays-content-clean` clears the working folder first.
+- **Core Prime's replays.** `runtime_library_core_prime.cpp` asks the feed at
+  `--core-prime-api`, or `https://api.coreprime.net` when that option is
+  unset. A page is kept for one minute. One `.oademo` is fetched at a time
+  into `Recordings/Core Prime`, with a key request of kind `oademo`. A `.tad`
+  is never fetched. Watch plays the file once it is saved and the replay's
+  needs have been offered.
+- **Core Prime's replay check.** `native-replays-core-prime`
+  (`--check-replays-core-prime`, `runtime_library_core_prime_check.cpp`,
+  `tools/check_native_replays_core_prime.py`) serves a loopback feed and key
+  server. The next page arrives, a planet narrows the list, a download writes
+  the file, Watch plays it, a release that changed is read again, a digest
+  that differs is refused, and with the server stopped the list reads offline.
+  With `--snapshot` it pictures the section at 1280x720.
+  `replays-core-prime-clean` clears the working folder first.
 - **Limitations.** A held update is replaced by a Roll back of the mod
   being played, which waits for the run to end in its place; the download
   queue has counted the update installed by then. CANCEL on the held line
@@ -1180,10 +1425,11 @@ at once: the map picker is its own screen.
   `place_block`, MORE MAPS…'s rule, at the button's own size. The screen's
   place also covers the room's focus marker round the button and the open
   card.
-- **Focus.** The button is pushed onto the screen's own Tab order. Tab
-  from the record just before it, and Shift+Tab from the one just after,
-  hand the focus over: the GUI's focus goes to none and the room's own
-  focus marker shows on the button. On SKIRMISH, Down from Difficulty and
+- **Focus.** The button is pushed onto the screen's own Tab order. On
+  the skirmish setup Tab from Select Map, and on NEWGAME and Any Mission
+  Tab from Difficulty, hand the focus over, and Shift+Tab from Start does
+  the same when no brain seat sits between them. The GUI's focus goes to
+  none and the room's own focus marker shows on the button. On SKIRMISH, Down from Difficulty and
   Up from the next record in
   its column do too, and the arrows hand the focus to the nearest record
   that way. On NEWGAME and Any Mission, Up and Down are not taken: they
@@ -1518,10 +1764,11 @@ stop for the keyboard.
   with its level, or the built-in player with the word the Difficulty
   button shows), or the right button anywhere on the Player button, opens
   the brain menu; the left button elsewhere on it keeps 3.1c's own press,
-  which cycles the row. Tab stops on the notch just after its Player
-  button, the arrows and a controller's L1, R1 and A reach it, and while
-  it has the focus the setup's own focus is none and the room's focus
-  marker shows on it. Y still opens Mutators.
+  which cycles the row. Tab stops on the notch just after that row's
+  Energy. Shift+Tab from the next row's Player button, or from Select Map
+  when that is the next stop, returns to it. The arrows and a controller's
+  L1, R1 and A reach it, and while it has the focus the setup's own focus
+  is none and the room's focus marker shows on it. Y still opens Mutators.
 - **The brain menu** is the room's list box under the button, or above it
   where there is no room below, moved in from the room's edges: the title
   "Computer player for this seat", the built-in player, whose level the
@@ -1560,7 +1807,7 @@ stop for the keyboard.
   at Firm on place 1. It requires the notch, `oa.brain-seat.1`, reading
   that label inside the right end of the row's own Player button; a second
   computer row reading the built-in player and the Difficulty button's
-  word, which cycling Difficulty changes; Tab from Player1 onto the notch
+  word, which cycling Difficulty changes; Tab from Energy1 onto the notch
   and on, and Shift+Tab back; Return opening the brain menu on Steady
   Commander at Firm, its next level stepping the seat to Bold and back,
   its Options... opening the picker, whose USE THIS keeps the brain with
@@ -1598,8 +1845,9 @@ screens are unchanged.
   Use for every computer seat. A row sets the campaign's seat at place 1,
   which every mission of the run starts with; Options... opens the brain
   picker on it.
-- **Focus.** Tab and Shift+Tab, and a controller's L1, R1 and A, reach the
-  button. Up and Down stay with the campaign and mission lists. The card
+- **Focus.** Tab from Mutators and Shift+Tab from Start reach the button,
+  and so do a controller's L1, R1 and A. Up and Down stay with the campaign
+  and mission lists. The card
   shows when the pointer rests on the button, and on the information key.
 - **Saves.** Once a campaign save has loaded, the campaign's seat becomes
   the brain, level and options that save seated on player 1. A save that
@@ -1724,7 +1972,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   installer on the macOS installer route, Close the game on a Steam Deck)
   and Install when I quit (`when-i-quit`, marked). A quit installs only a
   release scheduled for it, or `--update-and-quit`
-  (`Runtime::hand_off_requested`); quitting otherwise never installs.
+  (`Runtime::hand_off_requested`); quitting otherwise never installs. Nor
+  does a quit hand a release over (`Runtime::hand_off_stopped`,
+  `update::hand_off_stop`) while the release is held, while a helper's
+  receipt is running and under ten minutes old, or when the receipt is not
+  the one this run read at its start or showed at the menu: a helper that
+  another copy of the game started has run since. That copy may have
+  scheduled the same release, and its helper may have left the files
+  half-moved; a second hand-off would try the same files again. The copy
+  closes as usual and starts nothing. Its schedule is taken back as the
+  recovery screen takes it back: a release that helper could not install
+  is held, and one it installed is spent; a helper still at work keeps it.
+  The next start shows that helper's receipt once, as it shows any. A
+  journal or a setup's marker that came with the receipt this run read is
+  left for the next helper, which puts it back before it moves anything.
 - **The recovery screen** (`update-receipt`) shows a receipt the helper
   left that did not end well, once, at the first settled menu: the
   outcome's words as its lead, a callout, What happened with each step
@@ -1833,6 +2094,25 @@ prompts, Settings › Updates and the headers name one state with one size.
   digest, a meteor strike and the camera network play shares take the
   camera held on the map as the game holds it (`on_map_camera`), so a
   view past the map's edges reaches none of them.
+  A turn the bindings give an action other than the zoom, the megamap's
+  wheel or the build tools' wheel, such as Alt and the wheel bound to Speed
+  up, presses that action once a notch as its key would, and neither zooms
+  nor opens the megamap (`take_wheel_actions`). Where the zoom's or the
+  megamap's own chord answers the same turn for its own target, the chord
+  that names more modifiers takes the turn.
+  The zoom answers only a turn its own wheel chords answer
+  (`zoom_chord_answers`): a chord answers a turn its way while the
+  modifiers it names are held, others held too or not, as the pointer
+  roles' chords do, so the stock WheelUp and WheelDown zoom on every turn
+  as before, with Ctrl or any other modifier held; Zoom in and Zoom out on
+  Alt and the wheel leave the plain wheel doing nothing, and a zoom the
+  player unbound zooms on no turn. The megamap's wheel and the build
+  tools' rotate and spacing already answered only their own chords: with
+  Mouse wheel zoom off the megamap takes every turn and opens or closes
+  only on its chords, and over the open megamap it does so with the
+  setting on too, so no turn zooms the battlefield it hides; the build
+  tools pass on a turn their chords do not answer. The megamap's toggle on
+  a turn is one of those other actions (`handle_match_action`).
   The wheel and a trackpad set the zoom's target (`handle_match_zoom`,
   `wheel_zoom_target`) by the amount `pointer_zoom_amount` gives a turn,
   the wheel's bindings turned round by Invert mouse zoom
@@ -2104,6 +2384,16 @@ prompts, Settings › Updates and the headers name one state with one size.
   its largest within the prescale budget, then LINEAR; the prescale target is split into tiles with
   gutters beyond the renderer's texture limit, as the scene is, and each of
   the scene's tiles is drawn into each of its tiles (`PrescaleTarget`).
+  Every new streaming texture is cleared before it is drawn
+  (`clear_streaming_texture`, in `ensure_streaming_texture` and
+  `TiledTexture`), and what LINEAR reads just past a picture in a texture
+  or a target larger than it is the picture's edge: an upload of the
+  scene's corner writes the column and row past it from the corner's last
+  column and row, and a draw into a prescale target does the same past the
+  enlarged source, as a texture of the picture's own size gives back there.
+  So a target the HUD's layer keeps at its largest, or a scene texture
+  larger than the frame's scene, shows neither the card's earlier memory
+  nor a larger picture drawn into it before.
   The nearest picture of the scene is kept as
   the base the painters after the fog paint over; what they changed goes up
   as an overlay, transparent elsewhere, in the 32-row bands that hold it now
@@ -2433,7 +2723,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   drawn as the image leaves it, clear: it draws nothing and cuts what it
   covers out of the polygons of the unit's picture drawn before it, as a
   model's walls of the key hide its pieces sunk below the ground (drawn
-  flat, it is a colour); texture frames go on
+  flat, it is a colour), what it clears found once a draw whatever the
+  polygons under it and a piece apart from it kept whole
+  (`cut_under_clearing`, `cut_away`), so that a large factory's walls of
+  the key are not cut again for every polygon under them and its pieces
+  are not cut along lines that miss them;
+  texture frames go on
   sprite pages on first sight in two variants, the image key transparent
   as in a cached image or a colour as in a flat draw; shadows go into a
   transparent shadow target the battlefield's size, every silhouette
@@ -2475,7 +2770,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   its colour's; their foregrounds go on the canvas as in every tier. The
   executor runs the frame within the battlefield's scissor; the canvas
   goes up as the overlay by its key (`convert_rgb24_keyed_overlay_argb`),
-  in the bands that hold paint, laid over the card's picture 1:1, so
+  in the bands that hold paint or held it, and of those only the bands
+  that differ from the canvas uploaded last are converted and uploaded
+  again (`convert_changed_rgb24_keyed_overlay_argb`), laid over the
+  card's picture 1:1, so
   Basic's overlay by difference, which cannot tell a paint of the base's
   own colour from the base, is not needed; the sprite pages' texels and
   the model stage's pages go up as they change; the HUD strips
@@ -2485,7 +2783,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   that keep a picture, the capture and the checks among them, get the
   standard tier's draw (`ensure_screen_world`), since the world layer
   holds no picture, but for the dialogs drawn over a picture of the paused
-  match, which keep the card's (`compose_shown_match`). Between the frame and the overlay, the effects pass
+  match, which keep the card's (`compose_shown_match`). A frame whose
+  painters covered the whole battlefield, as the open megamap does
+  (`draw_megamap`, `note_full_world_covered`), builds and runs no card
+  frame and no effects pass: the overlay alone is laid on the
+  battlefield, at its corner, and the frame counts towards no stage of
+  Full's first frames. Between the frame and the overlay, the effects pass
   (`full_effects::compose`) works within the lights' bounds. Light alone,
   the weapons', the nanolathes' and the wrecks', is painted over opaque
   black on the processor and added by the card (`full_effects::Pass::light`),
@@ -2702,7 +3005,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   once; Basic and Full apply at once too, except in a shared game or a replay, known
   from its bootstrap (`MatchBootstrap::multiplayer`, `replay`), which keeps
   the tier it began with until it ends (`begin_render_tier_match`,
-  `end_render_tier_match`). Setting it to Off and back, raising it from
+  `end_render_tier_match`). A replay decides its tier first, running the
+  function test where only that is missing, so a replay that is the first
+  scene (`--play-demo`, or a pending replay after a soft restart) begins in
+  the tier asked for and its loading screen makes Full's pages; a shared
+  game keeps the tier it has. Setting it to Off and back, raising it from
   Basic to Full, or Restore defaults,
   clears the renderer records' strikes and failure records in memory, lets
   a failed function test or an unwritten trial try again, lifts a drop of
@@ -2910,7 +3217,15 @@ prompts, Settings › Updates and the headers name one state with one size.
   frame a column at 120 frames a second, a 33 ms idle frame four columns
   wide, and a hitch as wide as it lasted, each bar in its frame's grade's
   colour, capped in white past the graph's 40 ms, over a gray line at a
-  tick and a fainter dotted one at the frame's allowance.
+  tick and a fainter dotted one at the frame's allowance. Settings ›
+  Developer › Performance graph (`EngineSettings::frame_graph`) chooses 5,
+  10 or 30 seconds in place of the two: the graph keeps its 240 columns,
+  each a slice of 1/240 of the span holding the longest frame that covers
+  it, so a slow frame stays on the graph that much longer and is never
+  lost among the frames that share its column; the title names the span,
+  as "graph 10 s", after it in the notes' gray, and the panel keeps its
+  size and place. A change applies at once and starts the graph afresh
+  (`set_frame_history_seconds`).
   `frame_stats_panel` lays the panel out in the match label font for the
   widest texts the table shows (`frame_stats_widest_table`, which keeps no
   room for the rows that run on), so nothing in it moves from frame to
@@ -2925,17 +3240,20 @@ prompts, Settings › Updates and the headers name one state with one size.
   640x480 to 3840x2160, that every column of the graph has its frame's
   height and colour over two seconds of late and slow frames, the lines,
   the colours, alignment and red cells of the table, that the last row
-  names the window and the frame drawn, that nothing moves,
+  names the window and the frame drawn, that nothing moves, also over the
+  graph's longest span, which the title names,
   and that nothing outside the battlefield's bottom right quarter changes. 3.1c
   has no command that shows these times; its frame rate shows as "FRATE:"
   on the debug keys' line (F11 after the developer passphrase), with
   "[Release]" and "MODE DEBUG INFO ON" or "OFF", which
   `draw_debug_status_line` draws as 3.1c does and the console check
   checks. `app-frame-pacing` tests the pacing, the fraction, the figures,
-  the history and the grades over a fake clock, among them a frame for each
+  the history over each span, a slow frame kept in its columns until the
+  span has passed it, and the grades over a fake clock, among them a frame for each
   tick at 30 a second from any start, each shown whole, and how faster and
   slower game speeds show at that rate, and
-  `app-frame-stats-panel` the panel's rows, columns, notes and graph, its
+  `app-frame-stats-panel` the panel's rows, columns, notes and graph, the
+  span after the title leaving the panel as it was, its
   place and scale, the bars and lines and each grade's colour. `--frame-rate FPS` with `--match-ticks` plays
   the headless skirmish frame by frame on a clock of its own, moving the
   camera and stepping the clock as the loop does and drawing each frame as
@@ -3281,7 +3599,14 @@ prompts, Settings › Updates and the headers name one state with one size.
   `window_edges`, `pointer_place`), so that a log tells why an edge stopped
   scrolling ([`--trace-input`](../../docs/command-line.md#--trace-input));
   `app-full-screen` checks the lines.
-- `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD.
+- `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD. A unit's build page
+  with no GUI file of its own is drawn on the side's download page with the
+  download entries that name it, as 3.1c draws it (`open_match_build_page`).
+  A page that cannot be loaded, its file or that download page unreadable,
+  is the mod's data fault: it is logged once (`report_data_fault`), naming
+  the unit, the page and the files, never put up as an alert, and PREV,
+  NEXT, the page keys and a selection pass it over for the unit's next page
+  (`turn_match_build_page`).
 - `runtime_messages.cpp`: the in-game message log (`Game.chat_lines`) drawn
   over the battlefield, and the speed and message part of `--check-navigation`.
 - `runtime_seat_chat.cpp`: chat a computer seat on this machine reads and
@@ -3317,6 +3642,13 @@ prompts, Settings › Updates and the headers name one state with one size.
   (`report_unplayed_sound`, `audio::game_audio::known_missing_sound`); a
   sound whose file was not found is not looked for again in the run
   (`sound_found_missing`).
+- Every tenth of a second, as it collects the effects that have finished,
+  the frame writes to stderr what the sound output has to say
+  (`audio::SoundOutput::take_log`): the device it opened, with its driver,
+  name, rate, channels, sample format and the frames it takes at a time,
+  and, at most once a minute, how many of the device's requests for sound
+  came late, how long it went without sound at worst and how long a mix
+  took, for a report of clicks or crackling.
 - `runtime_unit_speech_check.cpp`: `--check-unit-speech`
   (`native-unit-speech`): the commander clicked says its select line, and
   clicked onto open ground its order line, in a skirmish and in a second
@@ -3362,6 +3694,18 @@ prompts, Settings › Updates and the headers name one state with one size.
   button is linked with no picture, then draws the picture after the mod
   folder gains its GAF, then has no picture once that file is gone. A GAF
   the previous match could not read is read again.
+- `runtime_picture_frames_check.cpp`: `--check-picture-frames`
+  (`native-picture-frames`): a unit written into the mod folder whose page's
+  picture has one frame. Pressed and held, the picture asks for the frame
+  after its own and is drawn without a picture, the match playing on; the
+  fault is logged once (`report_match_hud_faults`), naming the page, the
+  unit and the GAF.
+- `runtime_build_page_fallback_check.cpp`: `--check-build-page-fallback`
+  (`native-build-page-fallback`): a construction kbot written into the mod
+  folder whose page 2 is only download entries. The side's download page
+  stands in for it with the Advanced Kbot Lab and the Advanced Vehicle
+  Plant linked; with an empty download page hiding the game's, page 2 is
+  passed over, the match plays on and the fault is logged once.
 - `runtime_match_menus.cpp` also registers the load-game overlay
   (`register_load_game_screens`).
 - The Open Annihilation settings ([oa/ui/engine_settings.hpp](../ui/engine-settings/README.md)):
@@ -3775,7 +4119,8 @@ prompts, Settings › Updates and the headers name one state with one size.
 - `scaled_world.hpp`, `scaled_world.cpp`: `TiledTexture`, a streaming
   texture made as one texture within the renderer's limit and as tiles
   with one-texel gutters beyond it, for the standard tier's window-size
-  layers and the accelerated tier's scene and overlay; `PresentError` and
+  layers and the accelerated tier's scene and overlay, updated whole, by
+  runs of rows or by a rectangle (`update_rect`); `PresentError` and
   `AccelerationError`; and the accelerated tier's drawing on the card
   (`PrescaleTarget`, `draw_scaled_world`, `sharp_draw`, `probe_pixelart`);
   and a screen of one frame, letterboxed or in whole steps as Menu scaling
@@ -3784,8 +4129,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   maps the pointer onto such a frame where it is drawn, on whole pixels
   where SDL reckons half of one. `app-scaled-world-software` checks on
   SDL's software renderer that tiles read back as one texture does, the
-  card's drawing against that renderer's own filters, and the frame's
-  rectangle and the pointer's mapping under each way of Menu scaling.
+  card's drawing against that renderer's own filters, that new textures
+  read back cleared and the column and row past an upload and a prescale
+  draw hold the picture's edge, and the frame's rectangle and the
+  pointer's mapping under each way of Menu scaling.
 - `render_policy.hpp`, `render_policy.cpp` (`oa-app-render-policy`): the
   decisions of hardware-accelerated presentation as pure functions, with
   no SDL, no files and no clock, of which the game uses so far the walk of
@@ -3834,6 +4181,36 @@ prompts, Settings › Updates and the headers name one state with one size.
   (`world_scaling`), the native-density rule, which needs 2 GiB as the
   accelerated tier does, and the probe's report join the policy with the
   code that uses them.
+- Photo mode ([docs/photo-mode.md](../../docs/photo-mode.md)):
+  `runtime_photo_mode.cpp` and `photo_state.hpp` put the running match's
+  interface away and show the battlefield alone from the camera the player
+  had (`enter_photo_mode`, `leave_photo_mode`). The match keeps its own
+  presenter and sound. Leaving, the match ending, or the match being torn
+  down puts the layout, camera, zoom, follow and keys overlay back.
+  Selection boxes and health bars can be drawn over that battlefield and
+  start off. The on-screen test keeps the player's own view, so unit
+  announcements stay the ones that view would have posted.
+  `runtime_photo_check.cpp`, a self-check that release builds leave out,
+  runs `--check-photo mode` (`native-photo-mode`):
+  two drawn passes of the fight in a window, one of them through photo mode,
+  read back as one world, including a shared match and a watcher. Clicks,
+  follow, Settings, Escape and a resize go through that window. The photo
+  steps of network play's loopback check (`exercise_shared_photo`), which
+  every build keeps, are in `runtime_photo_mode.cpp`.
+  `runtime_photo_capture.cpp` saves that battlefield (`take_photo`) in the
+  render mode in use, or, while a shared match's picture is held, the held
+  copy with the player's gamma. Every capture reads the battlefield before
+  the Open Annihilation layer and the cursor are drawn, so the pointer,
+  which photo mode shows as the arrow (`shown_match_cursor`), is in no
+  photo. A request to close the window asks over photo mode on the layer
+  (`ask_photo_close`, `--check-photo close`, `native-photo-close`). `photo_writer.cpp` encodes the PNG and
+  writes it on its own thread, into the screenshots folder. The same check
+  runs `--check-photo capture` (`native-photo-capture`,
+  `native-photo-capture-basic`, `native-photo-capture-full`) and
+  `--check-photo live` (`native-photo-capture-live`) and
+  `--check-photo depth-live` (`native-photo-depth-live`).
+  `--check-photo keys` (`native-photo-keys`) presses each photo command,
+  then Take photo moved to K.
 - Director scripts ([docs/director.md](../../docs/director.md)):
   `runtime_director.cpp` runs `--generate-script` (the recording replayed
   undrawn through the extension that replays it, its timeline recorded and
@@ -3858,6 +4235,27 @@ prompts, Settings › Updates and the headers name one state with one size.
   PNG pictures), run `ffmpeg` on
   the chunks and join them, and read and write the `.oamovie` bundle;
   `app-director-output` tests them without an encoder.
+- The replay index ([docs/replays.md](../../docs/replays.md#the-replay-index)):
+  `runtime_director.cpp` also runs `--replay-index`, which replays a recording
+  as `--generate-script` does, with no director view, through a timeline
+  recorder that keeps only the players' standings, every hit and the
+  commanders created and killed (`Detail::standings`), and writes the
+  replay's `timeline.json` to `--output`. `replay_index.hpp` and
+  `replay_index.cpp` (`oa-app-replay-index`) are its two parts that need no
+  match: `read_stream_notes` walks a `.tad` or `.oademo` once and notes the
+  chat lines, pauses, departures, alliances and end-of-game records it holds,
+  each on the tick of its packet as playback numbers the packets, and
+  `build_index` combines those notes with the timeline into the index
+  (`oa/formats/oademo/timeline_index.hpp` writes it). `app-replay-index`
+  tests them on a made-up recording and timeline;
+  `native-replay-index` indexes a recorded loopback game twice and a copy cut
+  at half its packets.
+- Keyframes of a playback ([docs/replays.md](../../docs/replays.md#keyframes-of-a-playback-session)):
+  `runtime_demo.cpp` runs `--replay-keyframe-check TICK` as a part of the
+  headless `--play-demo` run (`NetworkPlay::run_keyframe_check`). The session's
+  keyframes carry the meteor storm's state too, which the runtime keeps
+  (`Runtime::meteor_state_bytes`) and the match's next tick reads.
+  `native-replay-keyframes` runs it on a recorded loopback game.
 - Frames between ticks: `presentation_interpolation.hpp` and `.cpp` keep
   each unit's pose (place, heading and the pieces its script moved and
   turned), the projectile pool and the debris table at the last two ticks
@@ -4118,6 +4516,12 @@ saves, recordings and network games are unaffected.
   `advance_input_actions` runs once a frame. Losing the window's focus
   releases every held action and role, and a keymap change rebuilds the
   keyboard map. The action events are kept and nothing acts on them yet.
+  `ensure_key_bindings` keeps what resolution returned: a new side panel page
+  or new menus on screen change nothing it reads, so they start again from
+  that resolution and only move the `gui.` actions' contexts
+  (`bindings_for_screen`). A match load reads the mod's GUI quick keys and
+  its units' Category words with the units (`gather_key_mod_data`), so the
+  match's first resolution reads no file.
 - `runtime_touch_hud.cpp` draws the controls into a layer of their own,
   composed over the CPU frame (`compose_touch_layer`) and presented in every
   tier (`present_touch_layer`), with the primitives of `oa-ui-paint`
@@ -4388,8 +4792,10 @@ effect:
   A relative path whose `..` parts would leave its folder, such as a saved
   game's name taken from a downloaded save's description, has no place,
   and nothing is written for it. A network game's recording goes in the
-  mod's folder in `Recordings`, unless `--net-record` names the file,
-  which is written as it is given (`recording_file`). A stored Image Output Directory that is
+  mod's folder in `Recordings`, unless `--net-record` or `--record-game`
+  names the file, which is written as it is given (`recording_file`); while
+  the game is played it is streamed to `Recordings/.replays/partial/<mod>`
+  (`recordings_partial_folder`). A stored Image Output Directory that is
   the game's default, the game folder's folder named after the user, gives
   way to it; any other one the player chose wins, used as it is.
 - **The moves:** the first start with the player's own preferences file
@@ -4650,7 +5056,8 @@ runtime then:
   (`Runtime::saves_folder`), screenshots and films in
   `Screenshots/<id>` and `Films/<id>` (`Runtime::game_file_path`), and
   the recordings of network games in `Recordings/<id>`
-  (`recording_file`);
+  (`recording_file`), and the recordings being made in
+  `Recordings/.replays/partial/<id>` (`recordings_partial_folder`);
 - reads the movies, the music folder and the disc archives through the
   folders, the mod folder first; a profile whose `cd-check` is false always
   finds its disc.
@@ -4751,7 +5158,9 @@ in place, and how what a stop leaves is settled). The runtime's part:
   where the system registers at run
   time (`oa/platform/file_types.hpp`); none does with `--preferences-file`,
   `--user-folder`, `--data-dir`, unattended, headless or on SDL's dummy or
-  offscreen video driver.
+  offscreen video driver. The same start registers `.oademo` and offers
+  `.tad`, or withdraws that registration, as Open replay files says
+  (`open-annihilation.replays.open-files`). System's eight are unchanged.
 
 `native-mod-install` (`--check-mod-install`, `runtime_mod_install_check.cpp`)
 drives every prompt over five runs, pressing each where the OA layer shows
@@ -4805,6 +5214,8 @@ from the manifest. A manifest is read once, and again only when the pack's
 key changes. The key is the SHA-256 in the pack's origin record, or the
 SHA-256 of its `oamap.yaml` when it has no record. A terrain's size is the
 size of the map's TNT file. The index does not open a map.
+`use_replay_map_pack` lays one pack kept for a replay over `Maps` while
+that replay plays, with that pack's maps in place of those of the same name.
 
 ### Map packs in the game
 
@@ -5213,8 +5624,10 @@ tidal line and the shared camera rectangles, and switches a watcher's view;
 `runtime_whiteboard.cpp` takes the whiteboard's pointer, keys and text and
 makes and applies its batches (`take_whiteboard_batch`,
 `receive_whiteboard_batch`); `runtime_megamap.cpp` opens, draws and clicks
-the megamap and redraws the enhanced minimap, while the Mouse wheel zoom
-setting is off (`megamap_on`, `megamap_wheel_zoom_changed`), its clicks
+the megamap whatever the Mouse wheel zoom setting is (`megamap_on`), and,
+only while that setting is off, opens it with the wheel on the battlefield
+and redraws the enhanced minimap (`megamap_takes_wheel`,
+`megamap_wheel_zoom_changed`), its clicks
 acting as the battlefield's do in the chosen interface type, a drop of the
 selection closing the unit info panel, and a panel over it, such as the exit
 menu, taking its own; a press takes the icon last drawn under it
@@ -5260,11 +5673,15 @@ battlefield it opens over, so a frame under it draws at the zoom in the
 accelerated tier too (`megamap_shown`, `world_scaling`) and the megamap is
 presented as the processor composes it, never through the card's
 magnification of the scene it hides; in the Full tier it covers the
-canvas. `native-render-tiers-visual-rules` runs the render tiers check
-under a profile that turns the visual rules on and checks these overlays
+canvas, and the card draws none of the battlefield under it: the overlay
+alone is laid on the battlefield (`note_full_world_covered`,
+`present_full_match_layers`), and the first frame after it closes draws
+the battlefield whole again. `native-render-tiers-visual-rules` runs the
+render tiers check under a profile that turns the visual rules on and checks these overlays
 in the standard and accelerated tiers, and in the Full tier after its own
-cases (`check_visual_rule_overlays`), with the megamap opening only while
-the Mouse wheel zoom setting is off and closing when it is turned on.
+cases (`check_visual_rule_overlays`), with Tab opening and closing the
+megamap whatever the Mouse wheel zoom setting is, the wheel opening it only
+while the setting is off, and turning the setting on leaving it open.
 
 ## Mutators at the start of a match
 
@@ -5369,7 +5786,21 @@ that throw. `OA_EXTENSION_API_VERSION` in `extension.hpp` numbers
 the table's contract; an extension checks its typed copy,
 `oa::app::extension_api_version`, with `static_assert`, and any change to
 the contract raises it (its comment says what counts). The recorder test
-extension checks it too, beside its count of the table's hooks.
+extension checks it too, beside its count of the table's hooks. Version 21
+adds the replay viewer's eight hooks, after `release_runtime`:
+`replay_frame` runs one frame in place of the match clock while a replay
+plays, `replay_hold` forgets the time an open menu held, and
+`replay_play`, `replay_pause`, `replay_set_speed`, `replay_step_speed`,
+`replay_seek` and `replay_state` are the viewer's controls and the state a
+caller reads. `ReplayFrameHost` and `ReplayPlaybackView` are the records
+those hooks use. They are not on `ReplayHooks`, which the director fills.
+Version 21 also adds the rectangle where an extension window's art takes
+the press (`ExtensionWindow`'s `press_x`, `press_y`, `press_width` and
+`press_height`). A screen button that lies wholly inside it is listed
+hidden, and stays enabled as the screen reported it. It is not a hook.
+Version 21 also adds `ScreenServices::main_menu_order_owns_key`. The
+main-menu overlay calls it, and passes the key on when the host owns it.
+The engine fills it. It is not a hook an extension fills.
 
 Version 9 adds `open_recording`, through which `--generate-script` and
 `--render-script` replay the recording a director script names. The
@@ -5673,7 +6104,26 @@ Network play adds no members to `Runtime`. Its state for one runtime, the
 network session, the replay of a recording and the match report, is its
 own: `NetworkPlay` (`netgame/network_play.hpp`), which network play's
 extension creates the first time a hook is called for a runtime, finds
-again for each later hook and frees through `release_runtime`.
+again for each later hook and frees through `release_runtime`. A replay
+the viewer watches is reached through the replay hooks above, not through
+a member network play adds. The battle's recording, which Share… after a
+battle opens in the Library, reaches the engine through a declared header:
+network play calls `note_battle_recording` (`oa/app/battle_recording.hpp`)
+as the recording starts, when it is refused and when a finished game's file
+is renamed, and with an empty path for a game that is not recorded.
+What a replay tells the engine about the watch reaches it the same way,
+through `oa/app/replay_watch.hpp`: as a replay starts, network play calls
+`seat_replay_watcher` with the slot it is watched from, and after each
+frame it plays, `note_replay_watch` with the income and shared cameras the
+playback bar's player list shows (`ReplayShownSlot`, one per slot) and
+whether the recording has shared a camera.
+Two private flags, `replay_skip_presentation_`
+and `replay_end_requested_`, are the engine's own: `runtime.cpp` sets them
+while a replay frame runs a tick that is not drawn, and when that frame
+asks to leave the match after the hook has returned.
+The playback bar keeps `replay_viewer_`, the recording's path in
+`replay_recording_path_`, and `replay_chat_hidden_` while Chat hides the
+recorded lines.
 `NetworkPlay` is still a friend of `Runtime` and reaches some of its
 private names until hooks and declared headers cover everything:
 `tools/check_runtime_surface.py` (`netgame-runtime-surface`) holds the
@@ -5715,7 +6165,8 @@ binds the network session (`src/netgame`) to the
 multiplayer screens (`src/ui/frontend-multiplayer`), launches the
 match from the battle room and runs it over the network, and replays
 recorded games (`.tad`, `src/formats/tad` and `src/session/demo`) through
-`open_recording` and `--play-demo FILE.tad`. Its long options include
+`open_recording` and `--play-demo FILE.tad`. It records the games played
+(see below). Its long options include
 `--net-loopback-check N`, which hosts and joins a match in one process
 over 127.0.0.1 and compares both worlds after N ticks (when the run
 chooses mutators, the unit sync is read over the shared mutator layer,
@@ -5734,6 +6185,44 @@ A transport named with no game to host or join (`-n`, or the `-c` file's
 3.1c: each frame asks for a frontend pass until a multiplayer screen shows
 (`transport_frame`), and the screens take the transport, so `-n1:ADDRESS`
 alone lists the games at that address for the player to choose.
+A network game is recorded (`NetHost::start_recording`, `plan_recording`) in
+one of two layouts, never both: the recorder hack's `.tad`, when the
+profile's `recorder.ta-demo-recorder` is on or `--net-record` names the file
+(or `--record-game` names a `.tad`), and a `.oademo` (`src/formats/oademo`,
+zstd level 3), when the player's setting keeps every game
+(`open-annihilation.replays.record`, on by default) or `--record-game` names
+the file. A run nobody plays, a check or a headless run, is recorded only when
+`--net-record` or `--record-game` names a file
+(`Runtime::records_games_by_setting`). A skirmish is recorded for the same
+reasons (`NetworkPlay::consider_skirmish_recording`), and its log says
+`skirmish: recorded the game to FILE`. Recording because of the setting never
+presents a recorder to the other players: `WireRules::recorder_protocol` and
+every byte of the lobby and the game stay as the profile makes them, which
+the loopback check shows (`setup blocks presenting a recorder`). The
+recording is streamed from the start (`oa::session::demo::RecordingStream`,
+whose own thread writes what the game queues, so no frame waits for the
+disk) to `Recordings/.replays/partial/<mod>/<name>.oademo.part` (a replay) or
+`<name>.tad.part` (the hack's layout; the layout is told by that name, never
+by what other files are there), with its `.start` (a replay's description and
+manifest as they stood when the game began, written before the stream is
+made: a game whose description cannot be kept is not recorded), its `.note`
+(the content note's text) and its `.lock` (held while the game is played). When the game ends the stream is finished into place
+(`finish_partial`): the recording is cut to its last whole packet, and a
+replay is compressed and written off the thread that draws, the content note
+becoming `<file>.oa-content`. A recording a crash left is finished at the start of the
+next run (`finish_partial_recordings`, from `run_mode`'s `start` phase), as
+a replay with `recorded.after_crash` true and `game.ended` `cut`, or a `.tad`
+cut to its last whole packet; a recording whose lock another game holds is
+left alone, one that holds no packet is dropped, a replay's stream with no
+readable description is kept as `<name>.part.failed` and never put in
+`Recordings`, and a stream the disk would not read or write is left for a later
+start. A finished file takes the next free name rather than replace one
+(`place_file`); on another volume it is copied with the permissions of any new file and none of the
+original's, and a copy that fails leaves no file. No recording holds a player's
+network address: the `.tad` is written with no sector 6. An extension built
+on network play says what it knows of a game it launched through
+`extension_api::Hooks::recorded_game`, which fills the replay's `game.kind` and
+the object under `game` named for it.
 A launch's player and game names keep 16 characters and its password 10,
 the battle room's and the session's own limits (`kPlayerNameLimit`,
 `kGameNameLimit`, `kPasswordLimit` in `launch_file.hpp`, which

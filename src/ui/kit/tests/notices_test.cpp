@@ -610,11 +610,17 @@ void question_buttons_fit_their_captions() {
     const kit::QuestionAnswer answered =
         kit::question_pointer_up(question, left_part, height, &wide);
     OA_CHECK(answered.action == kit::QuestionAction::answered && answered.button == 1);
+    // The first move hides the ring and leaves the marked button taking the
+    // keys. The hover was already on that button, so only the ring changes.
+    OA_CHECK(
+        kit::question_pointer_move(question, left_part, height, &wide).action ==
+        kit::QuestionAction::redraw
+    );
+    OA_CHECK(question.hovered == 1 && question.focus_shown && question.pointer_hid_ring);
     OA_CHECK(
         kit::question_pointer_move(question, left_part, height, &wide).action ==
         kit::QuestionAction::none
     );
-    OA_CHECK(question.hovered == 1);
     const kit::Point under{left_part.x, in_fonts[1].y + in_fonts[1].height + 3};
     OA_CHECK(
         kit::question_finger_down(question, under, height, 6, &wide).action ==
@@ -1930,6 +1936,89 @@ void the_update_pill_takes_its_button_and_itself() {
     OA_CHECK(amber);
 }
 
+/// A notice and a question open on the button the caller marked, with the
+/// ring hidden. Tab and Shift+Tab move on from it and show the ring. Return
+/// with the ring hidden answers that button. Return with the ring shown
+/// answers the marked button and hides the ring. A question whose default
+/// is not its first button still answers that default.
+void the_model_keys_keep_the_callers_default() {
+    kit::Notice opened = short_notice();
+    opened.focus_shown = false;
+    OA_CHECK(opened.marked == kit::notice_ok);
+    OA_CHECK(!opened.focus_shown);
+
+    kit::Notice tabbed = opened;
+    OA_CHECK(kit::notice_model_key(tabbed, kit::Key::tab) == kit::NoticeAction::redraw);
+    OA_CHECK(tabbed.marked == kit::notice_open && tabbed.focus_shown);
+
+    kit::Notice backed = opened;
+    OA_CHECK(kit::notice_model_key(backed, kit::Key::back_tab) == kit::NoticeAction::redraw);
+    OA_CHECK(backed.marked == kit::notice_open && backed.focus_shown);
+
+    kit::Notice hidden_return = opened;
+    OA_CHECK(kit::notice_model_key(hidden_return, kit::Key::enter) == kit::NoticeAction::closed);
+    OA_CHECK(hidden_return.marked == kit::notice_ok && !hidden_return.focus_shown);
+
+    kit::Notice shown_return = opened;
+    shown_return.focus_shown = true;
+    OA_CHECK(kit::notice_model_key(shown_return, kit::Key::enter) == kit::NoticeAction::closed);
+    OA_CHECK(!shown_return.focus_shown);
+
+    kit::Notice shown_open = opened;
+    shown_open.marked = kit::notice_open;
+    shown_open.focus_shown = true;
+    OA_CHECK(kit::notice_model_key(shown_open, kit::Key::enter) == kit::NoticeAction::open_folder);
+    OA_CHECK(!shown_open.focus_shown);
+
+    kit::Question asked = question_of({"CANCEL", "KEEP", "REPLACE"});
+    asked.focus_shown = false;
+    OA_CHECK(asked.marked == 2);
+    OA_CHECK(!asked.focus_shown);
+
+    kit::Question question_tab = asked;
+    const kit::QuestionAnswer tabbed_question =
+        kit::question_model_key(question_tab, kit::Key::tab);
+    OA_CHECK(tabbed_question.action == kit::QuestionAction::redraw);
+    OA_CHECK(tabbed_question.button == -1);
+    OA_CHECK(question_tab.marked == 0 && question_tab.focus_shown);
+
+    kit::Question question_back = asked;
+    const kit::QuestionAnswer backed_question =
+        kit::question_model_key(question_back, kit::Key::back_tab);
+    OA_CHECK(backed_question.action == kit::QuestionAction::redraw);
+    OA_CHECK(question_back.marked == 1 && question_back.focus_shown);
+
+    kit::Question question_hidden = asked;
+    const kit::QuestionAnswer hidden = kit::question_model_key(question_hidden, kit::Key::enter);
+    OA_CHECK(hidden.action == kit::QuestionAction::answered && hidden.button == 2);
+    OA_CHECK(question_hidden.marked == 2 && !question_hidden.focus_shown);
+
+    kit::Question question_shown = asked;
+    question_shown.focus_shown = true;
+    const kit::QuestionAnswer shown = kit::question_model_key(question_shown, kit::Key::enter);
+    OA_CHECK(shown.action == kit::QuestionAction::answered && shown.button == 2);
+    OA_CHECK(!question_shown.focus_shown);
+}
+
+/// A pointer move hides a question's ring and leaves the marked button
+/// taking the keys: Down moves on from it, and Space answers it.
+void a_move_keeps_a_questions_keys() {
+    kit::Question asked = question_of({"CANCEL", "KEEP", "REPLACE"});
+    asked.focus_shown = true;
+    asked.marked = 1;
+    OA_CHECK(kit::question_pointer_move(asked, {5, 5}, 150).action == kit::QuestionAction::redraw);
+    OA_CHECK(asked.marked == 1 && asked.focus_shown && asked.pointer_hid_ring);
+
+    kit::Question moved = asked;
+    const kit::QuestionAnswer down = kit::question_model_key(moved, kit::Key::down);
+    OA_CHECK(down.action == kit::QuestionAction::redraw);
+    OA_CHECK(moved.marked == 2 && moved.focus_shown && !moved.pointer_hid_ring);
+
+    const kit::QuestionAnswer space = kit::question_model_key(asked, kit::Key::space);
+    OA_CHECK(space.action == kit::QuestionAction::answered && space.button == 1);
+    OA_CHECK(asked.focus_shown && !asked.pointer_hid_ring);
+}
+
 int main() {
     notices_place_as_before();
     questions_place_as_before();
@@ -1944,6 +2033,8 @@ int main() {
     a_notice_with_no_open_caption_offers_ok_alone();
     notes_keep_a_line_each();
     every_key_on_a_question();
+    the_model_keys_keep_the_callers_default();
+    a_move_keeps_a_questions_keys();
     paint_draws_what_draw_notice_draws();
     a_question_title_is_cut_to_its_header();
     paint_draws_what_draw_question_draws();

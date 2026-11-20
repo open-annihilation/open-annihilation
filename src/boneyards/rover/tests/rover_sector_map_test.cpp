@@ -129,7 +129,7 @@ void check_header() {
         {"<I:connectors=1>", "", "a missing count"},
         {"<I:id=45>", "<I:id=-1>", "an id of -1"},
         {"<I:width=2000>", "<S:width=2000>", "a width that is not type I"},
-        {"<S:name=New Hub>", "<S:name=>", "an empty value never parses"},
+        {"<S:name=New Hub>", "<S:name=>", "an empty sector name is refused"},
         {"<S:name=New Hub>",
          "<S:name=123456789012345678901234567890123456789012345678901>",
          "a 51-character name"},

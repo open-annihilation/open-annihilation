@@ -6,6 +6,7 @@
 // received batch applied and echoed, the erase squares and marker hits.
 #include "oa/ui/hud/whiteboard.hpp"
 
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 
 #include "check.hpp"
@@ -97,6 +98,24 @@ void receiving() {
     CHECK(whiteboard_echo_line(*w.world, 3, "x").empty());
 }
 
+void recorded_stock_colour() {
+    namespace vision = oa::present::colour_vision;
+    hud_test::TestWorld w;
+    w.add_player(0, 0);
+    w.world->player_info[0].color = 0;
+    vision::set_active(vision::Mode::protanopia, false);
+    Whiteboard sent;
+    whiteboard_place_marker(sent, 4, 5, stock_dot_color(*w.world, 0), "");
+    const auto batch = whiteboard_take_batch(sent);
+    // Count, then the marker: type, pad, x, y, the recorded colour, no text.
+    CHECK(batch.size() == 1 + 8 && batch[7] == 227);
+    CHECK(whiteboard_echo_line(*w.world, 227, "mark") == "*Player 0: mark");
+    CHECK(drawn_dot_color(227) == vision::player_dot(0));
+    CHECK(drawn_dot_color(1) == 1);
+    vision::set_active(vision::Mode::off, false);
+    CHECK(drawn_dot_color(227) == 227);
+}
+
 void erasing() {
     Whiteboard board;
     whiteboard_draw_line(board, 100, 100, 400, 400, 1); // anchored at its first end
@@ -118,6 +137,7 @@ int main() {
     records();
     batches();
     receiving();
+    recorded_stock_colour();
     erasing();
     std::puts("ui-hud-whiteboard-test: ok");
     return 0;

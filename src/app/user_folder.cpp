@@ -227,6 +227,20 @@ fs::path recordings_folder(const fs::path& user_folder, std::string_view mod_id)
            from_utf8(mod_subfolder_name(mod_id));
 }
 
+fs::path recordings_partial_root(const fs::path& user_folder) {
+    return user_folder / std::string(recordings_folder_name) / std::string(replays_folder_name) /
+           std::string(partial_folder_name);
+}
+
+fs::path recordings_partial_folder(const fs::path& user_folder, std::string_view mod_id) {
+    return recordings_partial_root(user_folder) / from_utf8(mod_subfolder_name(mod_id));
+}
+
+bool replays_record_setting(const platform::preferences::Values& values) {
+    const auto stored = values.find(std::string(replays_record_preference));
+    return stored == values.end() || stored->second != "off";
+}
+
 fs::path recording_file(
     const fs::path& net_record,
     const fs::path& user_folder,

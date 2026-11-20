@@ -49,6 +49,8 @@ struct PackMap {
 /// `refresh` reads the folder. A pack's manifest is parsed only when the pack
 /// is new or its key changed. The key is the SHA-256 in the pack's origin
 /// record, or the SHA-256 of its oamap.yaml when it has no record.
+/// `set_replay_folder` adds one pack kept for a replay. Its maps replace any
+/// of the same name from Maps, so playback mounts that folder.
 class MapPacks {
   public:
 
@@ -61,8 +63,25 @@ class MapPacks {
     ///
     /// A folder whose name starts with '.' is skipped, and so is anything that
     /// is not a folder. A pack whose manifest cannot be read is left out of
-    /// `maps` and named by `problems`. A missing Maps folder lists nothing.
+    /// `maps` and named by `problems`. A missing Maps folder lists nothing
+    /// from Maps. A folder given to `set_replay_folder` is still read, and
+    /// its maps replace Maps maps of the same name.
     void refresh();
+
+    /// Mounts one kept pack for the next refresh, or clears it.
+    ///
+    /// An empty path clears it. The same path as last time changes nothing,
+    /// so an unchanged folder does not drop the cached manifests. A different
+    /// path is read on the next `refresh` or `maps` call. The folder is one
+    /// pack, not a parent of packs. Nothing is written.
+    ///
+    /// @param folder the pack's folder; empty to read Maps only
+    void set_replay_folder(std::filesystem::path folder);
+
+    /// The pack `set_replay_folder` is holding. Empty when playback uses Maps only.
+    ///
+    /// @return the folder
+    [[nodiscard]] const std::filesystem::path& replay_folder() const { return replay_folder_; }
 
     /// Returns the maps of the last refresh, sorted by name.
     ///
@@ -101,6 +120,8 @@ class MapPacks {
     void ensure() const;
 
     std::filesystem::path maps_folder_{};
+    /// One pack kept for a replay. Empty when playback uses Maps only.
+    std::filesystem::path replay_folder_{};
     std::vector<PackMap> maps_{};
     std::vector<std::string> problems_{};
     bool ready_{};

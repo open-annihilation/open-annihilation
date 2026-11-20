@@ -19,6 +19,9 @@ namespace `oa::netgame::http`.
 - `Request` names the method (GET, HEAD or POST), the address, the caller's
   headers, a POST body, a byte range, gzip, the redirect allow-list, the
   time and size limits, a cancel flag and a progress callback.
+- `encode_form` (`form.hpp`) builds a `multipart/form-data` body and its
+  content type from named text and file parts. The caller posts that body.
+  A boundary that already occurs in a part is replaced.
 - `Response` is the outcome: a failure, the status, the headers, the address
   after redirects, the content length as sent, a 206's content range, and
   how many decoded bytes the sink was given. `failure_text` is a short

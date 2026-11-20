@@ -770,6 +770,44 @@ struct Pair {
     }
 };
 
+/// Preparing an existing match for recording keeps its ranges and canonical records.
+void preparing_a_binding_keeps_canonical_records() {
+    constexpr uint32_t cardinal_queue_mode = 13;
+    constexpr int16_t recorded_squad = 7;
+    for (const uint32_t version : {released_mode, enhanced_capacity_mode, cardinal_queue_mode}) {
+        Pair pair(0, kMapCells, false, false, false, false, version);
+        for (auto* machine : {pair.host.get(), pair.joiner.get()}) {
+            CHECK(machine->match->fault() == nullptr);
+            if (machine->match->fault() != nullptr)
+                continue;
+            auto& world = machine->match->state();
+            CHECK(world.game.players[1].first_unit == oa_ref_from_index(1));
+            CHECK(world.game.players[0].first_unit == oa_ref_from_index(kUnitsPerPlayer + 1));
+            // Reassigning ranges now would reverse both participants' ranges
+            // and overwrite the recorded unit's owner and squad.
+            std::swap(world.game.players[0].player_id, world.game.players[1].player_id);
+            world.units[1].squad = recorded_squad;
+            const Game game = world.game;
+            std::vector<uint8_t> units(sizeof(Unit) * world.unit_slot_count);
+            std::memcpy(units.data(), world.units, units.size());
+
+            MatchBinding prepared;
+            prepared.created_remote = 1;
+            prepared.refused_creates = 1;
+            prepared.creates_past_table = 1;
+            match_binding_prepare(&prepared, machine->match.get(), machine->net.get());
+
+            CHECK(prepared.match == machine->match.get());
+            CHECK(prepared.net == machine->net.get());
+            CHECK(prepared.movement.size() == world.unit_slot_count);
+            CHECK(prepared.created_remote == 0 && prepared.refused_creates == 0);
+            CHECK(prepared.creates_past_table == 0);
+            CHECK(std::memcmp(&game, &world.game, sizeof game) == 0);
+            CHECK(std::memcmp(units.data(), world.units, units.size()) == 0);
+        }
+    }
+}
+
 void replicated_play() {
     Pair pair;
     auto& host = pair.host;
@@ -3077,6 +3115,7 @@ void wide_interceptions_reach_the_shot_s_owner() {
 }
 
 int main() {
+    preparing_a_binding_keeps_canonical_records();
     replicated_play();
     local_traffic_heads_keep_their_copies();
     restored_traffic_heads_publish_their_effective_route();

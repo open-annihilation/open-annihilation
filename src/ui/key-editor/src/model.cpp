@@ -4,6 +4,7 @@
 #include "oa/ui/key_editor/model.hpp"
 
 #include "oa/data/input_actions/actions.hpp"
+#include "oa/data/languages/turkish_case.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/key_bindings/layout_file.hpp"
 #include "oa/ui/key_bindings/tags.hpp"
@@ -13,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace oa::ui::key_editor {
@@ -46,6 +48,7 @@ constexpr AreaRow kAreas[] = {
     {"watching", words::area_watching, kit::KeyTint::none, words::letter_watching, true},
     {"window", words::area_window, kit::KeyTint::window, words::letter_window, true},
     {"menus", words::area_menus, kit::KeyTint::none, words::letter_menus, true},
+    {"photo", words::area_photo, kit::KeyTint::none, {}, true},
     {"developer", words::area_developer, kit::KeyTint::developer, words::letter_developer, false},
     {"megamap", words::area_megamap, kit::KeyTint::hacks, words::letter_hacks, false},
     {"whiteboard", words::area_whiteboard, kit::KeyTint::hacks, words::letter_hacks, false},
@@ -102,15 +105,66 @@ struct Listed {
     std::string letter{};
 };
 
+/// Title case over letters, while the interface is Turkish or Azerbaijani.
+///
+/// The same words as title_case_words. i becomes İ, ı becomes I, and a
+/// capital I that is made small becomes ı. ç ğ ö ş ü are one letter each.
+///
+/// @param text the words
+/// @return the title
+std::string title_case_turkish(std::string_view text) {
+    namespace letters = oa::data::languages;
+    std::string out;
+    out.reserve(text.size());
+    bool word = true;
+    bool small_before = false;
+    while (!text.empty()) {
+        const letters::Utf8Character decoded = letters::leading_character(text);
+        if (decoded.bytes == 0)
+            break;
+        text.remove_prefix(decoded.bytes);
+        if (decoded.character == U' ' || decoded.character == U'\t') {
+            if (!out.empty() && out.back() != ' ')
+                out.push_back(' ');
+            word = true;
+            small_before = false;
+            continue;
+        }
+        char32_t written = decoded.character;
+        if (letters::capital_turkish_letter(decoded.character)) {
+            if (!word && !small_before)
+                written = letters::turkish_small(decoded.character);
+            word = false;
+            small_before = false;
+        } else if (letters::small_turkish_letter(decoded.character)) {
+            if (word)
+                written = letters::turkish_capital(decoded.character);
+            word = false;
+            small_before = true;
+        } else {
+            word = false;
+            small_before = false;
+        }
+        letters::append_character(out, written);
+    }
+    while (!out.empty() && out.back() == ' ')
+        out.pop_back();
+    return out;
+}
+
 /// Title case, as the editor's other names.
 ///
 /// The first letter of the text, and of each word, is a capital. A capital
 /// that follows a small letter stays a capital, so a name written in parts
 /// keeps them. Every other ASCII letter is small. A space starts a word.
+/// While the interface is Turkish or Azerbaijani, the Turkish letters are
+/// used; every other language keeps the ASCII letters, byte for byte.
 ///
 /// @param text the words
 /// @return the title
 std::string title_case_words(std::string_view text) {
+    if (oa::data::languages::interface_uses_turkish_case())
+        return title_case_turkish(text);
     std::string out;
     out.reserve(text.size());
     bool word = true;
@@ -281,6 +335,8 @@ std::string_view context_word(std::size_t index) {
         return words::context_placing;
     case 12:
         return words::context_box;
+    case 13:
+        return words::context_photo;
     default:
         return {};
     }
@@ -586,6 +642,8 @@ where_text(const TextHooks& hooks, uint32_t bits, bool held, const std::string& 
         context = show(hooks, words::while_playing);
     else if ((bits & (1U << 5)) != 0)
         context = show(hooks, words::while_watching);
+    else if ((bits & (1U << 13)) != 0)
+        context = show(hooks, words::in_photo_mode);
     else {
         std::vector<std::string> titles;
         const std::size_t count = acts::contexts().size();

@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -33,6 +34,9 @@ namespace hud = oa::ui::hud;
 /// Palette index of the top bar line's labels, the wind's range and the
 /// time: a light grey.
 constexpr uint8_t kClockLineGrey = 0x55;
+/// Source pixels between a replay's stats panel and the overlays' area's top
+/// and right edges, and the playback bar under it.
+constexpr int32_t kReplayPanelMargin = 6;
 
 /// A wind generator's output, from the unit type the game's own wind
 /// generator names; kDefaultWindGenerator without it.
@@ -146,13 +150,116 @@ void Runtime::follow_shared_cameras() {
     );
 }
 
+hud::ResourcePanelRows Runtime::resource_panel_rows_shown() const {
+    const auto& world = match_->state();
+    // A replay lists the recording's playing players as its view control
+    // does: the first slot included, the watcher's seat left out, each in
+    // the colour the control draws it in.
+    if ((current_extension_state() & extension_state::replay) != 0) {
+        const auto seats = replay_panel_seats();
+        return hud::resource_panel_seat_rows(world, seats);
+    }
+    return hud::resource_panel_rows(world, local_player_watches(), shared_views_);
+}
+
+Runtime::ReplayPanelPlace Runtime::replay_panel_place(const hud::ResourcePanelRows& rows) const {
+    ReplayPanelPlace place{};
+    if (rows.count == 0)
+        return place;
+    // The top right of the overlays' area, where the playback bar's Watching
+    // list was: clear of the touch controls' rail and MENU on a phone, and
+    // above the playback bar, whose photo button is in its row. The panel
+    // keeps the game font's whole steps, the HUD's at most, and takes a
+    // smaller step, then fewer rows, where it would reach the bar.
+    const auto area = overlay_area();
+    const int32_t floor = std::min(area.y + area.height, replay_bar_top());
+    for (int scale = hud_text_scale(); scale >= 1; --scale) {
+        const int32_t margin = kReplayPanelMargin * scale;
+        const int32_t width = hud::kResourcePanelWidth * scale;
+        const int32_t room = floor - area.y - margin * 2;
+        const int32_t fits = room / (hud::kResourcePanelRowHeight * scale);
+        if (width + margin * 2 > area.width && scale > 1)
+            continue;
+        if (fits < rows.count && scale > 1)
+            continue;
+        place.scale = scale;
+        place.rows = static_cast<uint8_t>(std::clamp<int32_t>(fits, 0, rows.count));
+        place.corner = {area.x + area.width - margin - width, area.y + margin};
+        break;
+    }
+    return place;
+}
+
+void Runtime::draw_replay_stats_panel() {
+    if (!match_ || replay_stats_hidden_ || photo_mode())
+        return;
+    auto rows = resource_panel_rows_shown();
+    const ReplayPanelPlace place = replay_panel_place(rows);
+    if (place.rows == 0)
+        return;
+    rows.count = place.rows;
+    // The ground under it is darkened as under the kills board, so its lines
+    // read over any ground and the battlefield still shows through.
+    shade_canvas_rect(
+        place.corner.x,
+        place.corner.y,
+        hud::kResourcePanelWidth * place.scale,
+        hud::kResourcePanelRowHeight * place.scale * rows.count,
+        hud::kBoardShadeLevel
+    );
+    // Its rows are laid out for the game's font.
+    const PanelText panel(*this);
+
+    struct Painter {
+        Runtime* runtime{};
+        ReplayPanelPlace place{};
+    } painter{this, place};
+
+    hud::ResourcePanelSink sink{};
+    sink.user = &painter;
+    sink.fill = [](void* user, int32_t x, int32_t y, int32_t width, int32_t height, uint8_t color) {
+        auto& paint = *static_cast<Painter*>(user);
+        const int scale = paint.place.scale;
+        const auto at = paint.runtime->canvas_paint(
+            paint.place.corner.x + x * scale, paint.place.corner.y + y * scale
+        );
+        paint.runtime->fill_hud_rect(at.x, at.y, width * scale, height * scale, color);
+    };
+    sink.text = [](void* user, int32_t x, int32_t y, const char* text, uint8_t color) {
+        auto& paint = *static_cast<Painter*>(user);
+        const int scale = paint.place.scale;
+        const auto at = paint.runtime->canvas_paint(
+            paint.place.corner.x + x * scale, paint.place.corner.y + y * scale
+        );
+        paint.runtime->draw_match_label(at.x, at.y, text, color, scale);
+    };
+    // The view control marks whose view is on show; the panel's rows are not
+    // lit, and the panel stays where it is put.
+    hud::ResourcePanel drawn = resource_panel_;
+    drawn.x = 0;
+    drawn.y = 0;
+    drawn.viewed_slot = 0;
+    drawn.locked_slot = 0;
+    hud::draw_resource_panel(match_->state(), drawn, rows, sink);
+    resource_panel_.flash = drawn.flash;
+}
+
+void Runtime::replay_toggle_stats_panel() {
+    replay_stats_hidden_ = !replay_stats_hidden_;
+}
+
 void Runtime::draw_resource_panel_overlay() {
+    // Every replay shows its players' stats, with the hack or without.
+    if (match_ && (current_extension_state() & extension_state::replay) != 0) {
+        draw_replay_stats_panel();
+        return;
+    }
     if (!match_ || !ui_rules().resource_panel.enabled || resource_panel_.hidden)
         return;
     // Its rows are laid out for the game's font.
     const PanelText panel(*this);
     const auto& world = match_->state();
-    const auto rows = hud::resource_panel_rows(world, local_player_watches(), shared_views_);
+    const auto rows = resource_panel_rows_shown();
     if (resource_panel_.x < 0)
         resource_panel_.x = oa::ui::display_layout::kSourceWidth - hud::kResourcePanelWidth;
     hud::ResourcePanelSink sink{};
@@ -263,7 +370,49 @@ void Runtime::keep_room_for_clock_line() {
         return;
     const auto laid_out = make_room_for_clock_line(match_layout_);
     if (laid_out.scale != match_layout_.scale || laid_out.left != match_layout_.left)
-        match_layout_ = laid_out;
+        match_layout_ = drop_replay_top_bar(laid_out);
+}
+
+bool Runtime::replay_top_bar_hidden() const {
+    // Only the playback bar's replay: a headless run draws its replay as it
+    // always has.
+    if (!match_ || replay_viewer_ == nullptr ||
+        (current_extension_state() & extension_state::replay) == 0)
+        return false;
+    return watched_player_ >= OA_PLAYER_COUNT || watched_sight_ != WatchedSight::player;
+}
+
+oa::ui::display_layout::MatchLayout
+Runtime::drop_replay_top_bar(const oa::ui::display_layout::MatchLayout& laid_out) const {
+    if (laid_out.phone || oa::ui::display_layout::placed_mode(laid_out) || !replay_top_bar_hidden())
+        return laid_out;
+    auto without = laid_out;
+    without.top = 0;
+    return without;
+}
+
+void Runtime::keep_replay_top_bar() {
+    namespace layout = oa::ui::display_layout;
+    if (!match_ || screen_ != Screen::match || photo_mode() || match_layout_.phone ||
+        layout::placed_mode(match_layout_))
+        return;
+    const bool hidden = replay_top_bar_hidden();
+    if (hidden == (match_layout_.top == 0))
+        return;
+    const int top_before = match_layout_.top;
+    apply_output_mode();
+    // The map stays under the same rows of the window: the view's top edge
+    // moves down the map as far as the battlefield's top edge moves down
+    // the window, and back up. A view on the map's top rows stays flush with
+    // them rather than show the rows past the map the bar covered.
+    const int moved = match_layout_.top - top_before;
+    const double zoom = match_zoom() > 0.0F ? static_cast<double>(match_zoom()) : 1.0;
+    const auto rows = static_cast<int32_t>(std::lround(static_cast<double>(moved) / zoom));
+    int32_t z = match_camera_z_ + rows;
+    if (rows < 0 && match_camera_z_ >= 0)
+        z = std::max(z, int32_t{0});
+    if (z != match_camera_z_)
+        set_camera_position(match_camera_x_, z, 0);
 }
 
 hud::ClockLinePlace Runtime::clock_line_place() const {
@@ -363,7 +512,45 @@ void Runtime::draw_clock_line(PaintLayer layer) {
     label(rows.tidal, lines.tidal);
 }
 
+bool Runtime::replay_stats_panel_pointer(const SDL_Event& event, float x, float y) {
+    if (!match_ || screen_ != Screen::match || replay_stats_hidden_ || photo_mode())
+        return false;
+    if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN)
+        return false;
+    auto rows = resource_panel_rows_shown();
+    const ReplayPanelPlace place = replay_panel_place(rows);
+    if (place.rows == 0)
+        return false;
+    rows.count = place.rows;
+    const float scale = static_cast<float>(place.scale);
+    const auto column =
+        static_cast<int32_t>(std::floor((x - static_cast<float>(place.corner.x)) / scale));
+    const auto row =
+        static_cast<int32_t>(std::floor((y - static_cast<float>(place.corner.y)) / scale));
+    hud::ResourcePanel at_origin{};
+    at_origin.x = 0;
+    at_origin.y = 0;
+    const auto hit = hud::resource_panel_hit(at_origin, rows, column, row);
+    if (!hit.inside)
+        return false;
+    // A double-click on a row is the watch actions: it shows the view of the
+    // player the row lists, as the view control does. Any press on the panel
+    // is the panel's, not the battlefield's under it.
+    for (const oa::ui::key_bindings::ActionEvent& fed : match_action_events()) {
+        if (fed.phase != oa::ui::key_bindings::Phase::double_press)
+            continue;
+        if ((fed.action == "watch.player-view" || fed.action == "watch.lock-view") &&
+            hit.row >= 0) {
+            replay_choose_panel_row(hit.row);
+            break;
+        }
+    }
+    return true;
+}
+
 bool Runtime::resource_panel_pointer(const SDL_Event& event, float x, float y) {
+    if (match_ && (current_extension_state() & extension_state::replay) != 0)
+        return replay_stats_panel_pointer(event, x, y);
     if (!match_ || screen_ != Screen::match || !ui_rules().resource_panel.enabled ||
         resource_panel_.hidden || resource_panel_.x < 0)
         return false;
@@ -386,9 +573,8 @@ bool Runtime::resource_panel_pointer(const SDL_Event& event, float x, float y) {
     }
     if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN)
         return false;
-    const auto& world = match_->state();
     const bool watching = local_player_watches();
-    const auto rows = hud::resource_panel_rows(world, watching, shared_views_);
+    const auto rows = resource_panel_rows_shown();
     const auto hit = hud::resource_panel_hit(panel, rows, point.x, point.y);
     if (!hit.inside)
         return false;
@@ -421,7 +607,7 @@ bool Runtime::resource_panel_f4_key() {
     if (!match_ || !ui_rules().resource_panel.enabled)
         return false;
     const auto& world = match_->state();
-    const auto rows = hud::resource_panel_rows(world, local_player_watches(), shared_views_);
+    const auto rows = resource_panel_rows_shown();
     return hud::resource_panel_f4(
         resource_panel_,
         (world.game.graphics_flags & hud::kGraphicsBoardPinned) != 0,
@@ -445,6 +631,10 @@ uint8_t Runtime::match_view_player() const noexcept {
 void Runtime::switch_watched_view(oa::ui::hud::ViewSwitch change) {
     if (!match_)
         return;
+    // A replay keeps the recorded viewpoint for the simulation. The view on
+    // show is presentation: watched_player_ and watched_sight_. A player who
+    // has left is still seated, and the view is the sight the match still holds.
+    const bool replay = (current_extension_state() & extension_state::replay) != 0;
     auto& world = match_->state();
     switch (change) {
     case hud::ViewSwitch::none:
@@ -455,31 +645,35 @@ void Runtime::switch_watched_view(oa::ui::hud::ViewSwitch change) {
         // The watcher's own view shows the whole map.
         watched_player_ = OA_PLAYER_COUNT;
         watched_sight_ = WatchedSight::whole_map;
-        world.game.viewpoint_player = match_local_player_;
+        if (!replay)
+            world.game.viewpoint_player = match_local_player_;
         break;
     case hud::ViewSwitch::view_player: {
         // A slot not in the game leaves the view as it was, but the sight
         // shows the whole map.
         const auto slot = resource_panel_.viewed_slot;
         const auto& player = world.game.players[slot < OA_PLAYER_COUNT ? slot : 0];
-        const bool active = slot < OA_PLAYER_COUNT && player.in_use != 0 &&
-                            player.index != OA_PLAYER_COUNT && player.status >= 1 &&
-                            player.status <= 4;
+        const bool seated =
+            slot < OA_PLAYER_COUNT && player.in_use != 0 && player.index != OA_PLAYER_COUNT;
+        const bool active = seated && player.status >= 1 && player.status <= 4;
         watched_sight_ = WatchedSight::whole_map;
-        if (active) {
+        if (replay ? seated : active) {
             watched_player_ = slot;
             watched_sight_ = WatchedSight::player;
-            world.game.viewpoint_player = slot;
+            if (!replay)
+                world.game.viewpoint_player = slot;
         }
         break;
     }
     }
     // A replay viewer without a slot watches with full radar in its own view
-    // only.
-    match_->set_slotless_view_switched(watched_player_ < OA_PLAYER_COUNT);
-    // The selection is dropped and the panels and sight drawn again.
-    clear_local_selection();
-    apply_match_hud_for_selection();
+    // only. Switching the view during a replay does not change that, and does
+    // not clear a selection the simulation hashed.
+    if (!replay) {
+        match_->set_slotless_view_switched(watched_player_ < OA_PLAYER_COUNT);
+        clear_local_selection();
+        apply_match_hud_for_selection();
+    }
     reset_sight_presentation();
 }
 

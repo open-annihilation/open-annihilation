@@ -649,6 +649,118 @@ void keyed_overlay_holds_what_was_painted() {
     CHECK(short_bands == std::vector<uint8_t>(bands - 1, 7));
 }
 
+/// A keyed canvas converted again against the canvas held from the last
+/// conversion converts only the bands that differ, each as the whole
+/// canvas's conversion converts it, and copies them into the held canvas:
+/// none for an equal canvas, a band painted, a band cleared back to the key,
+/// on every pool and with a gamma table; too few entries write nothing.
+void changed_keyed_overlay_converts_changed_bands() {
+    std::array<uint8_t, 256> gamma{};
+    for (std::size_t level = 0; level < gamma.size(); ++level)
+        gamma[level] = static_cast<uint8_t>(255U - level);
+    constexpr uint32_t width = 61;
+    constexpr uint32_t height = 130; // five bands, the last a part one
+    constexpr std::array<uint8_t, 3> key{0, 0, 3};
+    const uint32_t bands = job_pool::bands_of_rows(height, oa::app::xrgb_band_rows);
+    const std::size_t pitch = static_cast<std::size_t>(width) * 4U + row_slack;
+    std::vector<uint8_t> first(static_cast<std::size_t>(width) * height * 3U);
+    for (std::size_t at = 0; at < first.size(); at += 3)
+        std::memcpy(&first[at], key.data(), 3);
+    const auto paint =
+        [&](std::vector<uint8_t>& canvas, uint32_t x, uint32_t y, std::array<uint8_t, 3> colour) {
+            std::memcpy(&canvas[(static_cast<std::size_t>(y) * width + x) * 3U], colour.data(), 3);
+        };
+    paint(first, 3, 1, {200, 10, 20});
+    paint(first, 60, 70, {1, 2, 3});
+    // The next canvas: band 1 painted, band 2 cleared back to the key, and
+    // the last band painted at its last pixel.
+    auto second = first;
+    paint(second, 0, 40, {9, 9, 9});
+    paint(second, 60, 70, key);
+    paint(second, width - 1, height - 1, {255, 0, 0});
+    std::vector<std::unique_ptr<job_pool::Pool>> pools;
+    pools.push_back(nullptr);
+    for (const uint32_t threads : pool_sizes)
+        pools.push_back(std::make_unique<job_pool::Pool>(threads));
+    const std::array<uint8_t, 256>* const tables[] = {nullptr, &gamma};
+    for (const auto* table : tables)
+        for (const auto& pool : pools) {
+            // The first canvas converted whole and held.
+            std::vector<uint8_t> pixels(pitch * height, untouched);
+            std::vector<uint8_t> opaque(bands, 7);
+            oa::app::convert_rgb24_keyed_overlay_argb(
+                first.data(), key, width, height, pixels.data(), pitch, table, opaque, pool.get()
+            );
+            auto held = first;
+            // The same canvas again: nothing converted, nothing changed.
+            const auto before = pixels;
+            std::vector<uint8_t> changed(bands, 7);
+            oa::app::convert_changed_rgb24_keyed_overlay_argb(
+                first.data(),
+                held.data(),
+                key,
+                width,
+                height,
+                pixels.data(),
+                pitch,
+                table,
+                opaque,
+                changed,
+                pool.get()
+            );
+            CHECK(changed == std::vector<uint8_t>(bands, 0));
+            CHECK(pixels == before);
+            CHECK(held == first);
+            CHECK((opaque == std::vector<uint8_t>{1, 0, 1, 0, 0}));
+            // The next canvas: its changed bands converted, the rest left,
+            // and the whole as its own conversion makes it.
+            oa::app::convert_changed_rgb24_keyed_overlay_argb(
+                second.data(),
+                held.data(),
+                key,
+                width,
+                height,
+                pixels.data(),
+                pitch,
+                table,
+                opaque,
+                changed,
+                pool.get()
+            );
+            std::vector<uint8_t> whole(pitch * height, untouched);
+            std::vector<uint8_t> whole_opaque(bands, 7);
+            oa::app::convert_rgb24_keyed_overlay_argb(
+                second.data(), key, width, height, whole.data(), pitch, table, whole_opaque, nullptr
+            );
+            CHECK((changed == std::vector<uint8_t>{0, 1, 1, 0, 1}));
+            CHECK(pixels == whole);
+            CHECK(opaque == whole_opaque);
+            CHECK((opaque == std::vector<uint8_t>{1, 1, 0, 0, 1}));
+            CHECK(held == second);
+        }
+    // Too few band entries: nothing is written.
+    std::vector<uint8_t> pixels(pitch * height, untouched);
+    auto held = first;
+    std::vector<uint8_t> opaque(bands, 7);
+    std::vector<uint8_t> short_changed(bands - 1, 7);
+    oa::app::convert_changed_rgb24_keyed_overlay_argb(
+        second.data(),
+        held.data(),
+        key,
+        width,
+        height,
+        pixels.data(),
+        pitch,
+        nullptr,
+        opaque,
+        short_changed,
+        nullptr
+    );
+    CHECK(pixels == std::vector<uint8_t>(pitch * height, untouched));
+    CHECK(held == first);
+    CHECK(short_changed == std::vector<uint8_t>(bands - 1, 7));
+}
+
 /// Fills pictures of many sizes with one colour, each pixel that colour and
 /// nothing past the picture written.
 void fill_writes_every_pixel() {
@@ -785,6 +897,7 @@ int main() {
     overlay_holds_what_was_painted();
     key_colour_is_the_first_outside_the_palette();
     keyed_overlay_holds_what_was_painted();
+    changed_keyed_overlay_converts_changed_bands();
     fill_writes_every_pixel();
     identity_gamma_is_no_gamma();
     changed_bands_are_found();
@@ -796,6 +909,7 @@ int main() {
         "xrgb conversion: every pixel packed alike on every pool, RGB565 as SDL packs it, "
         "rectangles as the whole frame's, the front end as opaque ARGB8888, "
         "overlays of what was painted, over a base and over a key colour, "
+        "a keyed overlay's changed bands alone converted again, "
         "pictures filled with one colour, a gamma of 1 as no gamma, "
         "and the bands two frames differ in"
     );

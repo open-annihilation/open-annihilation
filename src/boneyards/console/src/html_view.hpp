@@ -39,6 +39,8 @@ struct HtmlViewState {
 // Code an HTMLView sends its parent when a link is clicked (the value the
 // toolkit also uses for a released scroll button).
 inline constexpr NotifyCode k_html_link_notify = static_cast<NotifyCode>(200);
+// Links past this many are not keyboard stops. The page still shows them.
+inline constexpr int32_t k_html_link_stop_cap = 64;
 // Palette index the view's canvas leaves transparent when drawn.
 inline constexpr uint8_t k_html_view_key = 9;
 
@@ -51,6 +53,19 @@ struct HtmlView {
     // Target of the last clicked link.
     const char* link;
     StatusWidget* owner; // image store and host tables
+    // One hotspot per link, in document order. The coordinates are the
+    // document's, so a scroll can move the hotspot without rebuilding it.
+    // The hrefs point into the document buffer and die with the next page.
+    Window* link_stops[k_html_link_stop_cap]{};
+    const char* link_hrefs[k_html_link_stop_cap]{};
+    int32_t link_doc_x[k_html_link_stop_cap]{};
+    int32_t link_doc_top[k_html_link_stop_cap]{};
+    int32_t link_doc_width[k_html_link_stop_cap]{};
+    int32_t link_doc_height[k_html_link_stop_cap]{};
+    int32_t link_stop_count{};
+    // Where the keyboard goes when a followed link takes its stop away: the
+    // console's list. Null leaves it on the page.
+    Window* keyboard_home{};
 };
 
 /// Creates a hidden HTML view inside its parent with its slider.

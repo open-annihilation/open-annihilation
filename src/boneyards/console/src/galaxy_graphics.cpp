@@ -5,14 +5,18 @@
 #include "galaxy_graphics.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "oa/present/blit.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/display.hpp"
 
 namespace oa::boneyards::console {
@@ -206,6 +210,137 @@ Rect32 clip_within(const Surface& target, const Rect32& clip) {
     };
 }
 
+// Arm is slot 0 and Core slot 1 of the saved aura pixels. The independent aura is never saved.
+int aura_saved_slot(AuraSide side) {
+    if (side == AuraSide::arm)
+        return 0;
+    if (side == AuraSide::core)
+        return 1;
+    return -1;
+}
+
+void collect_pixel_buffers(
+    formats::gaf::Frame& frame, std::vector<std::vector<uint8_t>*>& buffers
+) {
+    if (!frame.pixels.empty())
+        buffers.push_back(&frame.pixels);
+    for (formats::gaf::Frame& layer : frame.layers)
+        collect_pixel_buffers(layer, buffers);
+}
+
+std::vector<std::vector<uint8_t>*> aura_pixel_buffers(formats::gaf::Archive& archive) {
+    std::vector<std::vector<uint8_t>*> buffers;
+    for (formats::gaf::Sequence& sequence : archive.sequences)
+        for (formats::gaf::Frame& frame : sequence.frames)
+            collect_pixel_buffers(frame, buffers);
+    return buffers;
+}
+
+std::span<const uint8_t> graphics_palette(const GalaxyGraphics& graphics) {
+    if (graphics.palette == nullptr)
+        return {};
+    return std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(graphics.palette->entries), sizeof(oa::Palette)
+    );
+}
+
+void restore_aura(GalaxyGraphics& graphics, AuraSide side) {
+    const int slot = aura_saved_slot(side);
+    if (slot < 0)
+        return;
+    const auto saved_slot = static_cast<std::size_t>(slot);
+    const std::vector<std::vector<uint8_t>>& saved = graphics.aura_originals[saved_slot];
+    const auto archive_slot = static_cast<std::size_t>(side);
+    if (saved.empty() || !graphics.auras[archive_slot])
+        return;
+    const std::vector<std::vector<uint8_t>*> buffers =
+        aura_pixel_buffers(*graphics.auras[archive_slot]);
+    if (buffers.size() != saved.size())
+        return;
+    for (std::size_t i = 0; i < buffers.size(); ++i) {
+        if (buffers[i]->size() == saved[i].size())
+            *buffers[i] = saved[i];
+    }
+}
+
+void save_aura(GalaxyGraphics& graphics, AuraSide side) {
+    const int slot = aura_saved_slot(side);
+    if (slot < 0)
+        return;
+    std::vector<std::vector<uint8_t>>& saved =
+        graphics.aura_originals[static_cast<std::size_t>(slot)];
+    if (!saved.empty())
+        return;
+    const auto archive_slot = static_cast<std::size_t>(side);
+    if (!graphics.auras[archive_slot])
+        return;
+    for (const std::vector<uint8_t>* buffer : aura_pixel_buffers(*graphics.auras[archive_slot]))
+        saved.push_back(*buffer);
+}
+
+void remap_aura(GalaxyGraphics& graphics, AuraSide side, std::span<const uint8_t> palette) {
+    const auto archive_slot = static_cast<std::size_t>(side);
+    if (!graphics.auras[archive_slot])
+        return;
+    const std::array<uint8_t, 256> map = screens::galaxy_aura_map(side == AuraSide::arm, palette);
+    for (std::vector<uint8_t>* buffer : aura_pixel_buffers(*graphics.auras[archive_slot]))
+        present::colour_vision::remap_indices(*buffer, map, static_cast<int>(screens::kWidgetKey));
+}
+
+void forget_aura(GalaxyGraphics& graphics, AuraSide side) {
+    const auto archive_slot = static_cast<std::size_t>(side);
+    if (graphics.auras[archive_slot])
+        forget_decoded(graphics, *graphics.auras[archive_slot]);
+}
+
+// A colour-vision mode recolours the Arm and Core auras in place, and off puts the saved pixels
+// back. The same mode applied twice leaves the pixels alone, so an unchanged mode does not rewrite
+// a frame.
+void apply_aura_colours(GalaxyGraphics& graphics) {
+    const auto now = static_cast<uint8_t>(present::colour_vision::active_mode());
+    if (now == graphics.aura_mode)
+        return;
+    restore_aura(graphics, AuraSide::arm);
+    restore_aura(graphics, AuraSide::core);
+    if (now == static_cast<uint8_t>(present::colour_vision::Mode::off)) {
+        const bool restored =
+            !graphics.aura_originals[0].empty() || !graphics.aura_originals[1].empty();
+        graphics.aura_originals[0].clear();
+        graphics.aura_originals[1].clear();
+        graphics.aura_mode = now;
+        if (restored) {
+            forget_aura(graphics, AuraSide::arm);
+            forget_aura(graphics, AuraSide::core);
+        }
+        return;
+    }
+    const std::span<const uint8_t> palette = graphics_palette(graphics);
+    if (palette.size() < static_cast<std::size_t>(oa::present::colour_vision::kPaletteColours) * 4U)
+        return;
+    save_aura(graphics, AuraSide::arm);
+    save_aura(graphics, AuraSide::core);
+    remap_aura(graphics, AuraSide::arm, palette);
+    remap_aura(graphics, AuraSide::core, palette);
+    graphics.aura_mode = now;
+    forget_aura(graphics, AuraSide::arm);
+    forget_aura(graphics, AuraSide::core);
+}
+
+uint8_t shown_link_colour(const GalaxyGraphics& graphics, int32_t stored) {
+    return static_cast<uint8_t>(screens::galaxy_link_index(stored, graphics_palette(graphics)));
+}
+
+char upper_letter(char side) noexcept {
+    return (side >= 'a' && side <= 'z') ? static_cast<char>(side - 'a' + 'A') : side;
+}
+
+bool symbol_edge(SideSymbol symbol, int32_t x, int32_t y) noexcept {
+    if (!side_symbol_covers(symbol, x, y))
+        return false;
+    return !side_symbol_covers(symbol, x - 1, y) || !side_symbol_covers(symbol, x + 1, y) ||
+           !side_symbol_covers(symbol, x, y - 1) || !side_symbol_covers(symbol, x, y + 1);
+}
+
 } // namespace
 
 const formats::gaf::Sequence*
@@ -233,6 +368,13 @@ bool galaxy_load_auras(GalaxyGraphics& graphics, char side, const FileReader& fi
     const auto index = static_cast<std::size_t>(slot);
     auto& archive = graphics.auras[index];
     auto& sequences = graphics.aura_sequences[index];
+    if (slot == AuraSide::arm || slot == AuraSide::core) {
+        const int saved = aura_saved_slot(slot);
+        if (saved >= 0)
+            graphics.aura_originals[static_cast<std::size_t>(saved)].clear();
+        // Not a mode: the next draw puts back any side still recoloured, then applies the mode.
+        graphics.aura_mode = 0xFF;
+    }
     archive = load_archive(files, k_aura_gafs[index]);
     if (!archive)
         return false;
@@ -405,8 +547,76 @@ void galaxy_render_label(GalaxyGraphics& graphics, std::size_t index, const char
     );
 }
 
+SideSymbol held_side_symbol(char side) noexcept {
+    const char held = upper_letter(side);
+    if (held == 'A')
+        return SideSymbol::arm;
+    if (held == 'C')
+        return SideSymbol::core;
+    return SideSymbol::none;
+}
+
+SideSymbol founded_side_symbol(bool capitol, char initial_side) noexcept {
+    if (!capitol)
+        return SideSymbol::none;
+    const char founded = upper_letter(initial_side);
+    if (founded == 'A')
+        return SideSymbol::arm;
+    if (founded == 'C')
+        return SideSymbol::core;
+    return SideSymbol::none;
+}
+
+int32_t side_symbol_reach(int32_t radius, int32_t scale) noexcept {
+    const int32_t level = scale < 0 ? 0 : scale;
+    return (radius + k_label_drop) * (level + 1) / screens::kMapUnitsPerPixelAtLevel0;
+}
+
+SideSymbolPlace
+side_symbol_place(int32_t anchor_x, int32_t anchor_y, int32_t reach, bool founder) noexcept {
+    const int32_t out = reach + k_side_symbol_gap;
+    const int32_t span = k_side_symbol_side - 1;
+    if (founder)
+        return SideSymbolPlace{anchor_x - out - span, anchor_y + out};
+    return SideSymbolPlace{anchor_x + out, anchor_y - out - span};
+}
+
+bool side_symbol_covers(SideSymbol symbol, int32_t x, int32_t y) noexcept {
+    if (symbol == SideSymbol::none || x < 0 || y < 0 || x >= k_side_symbol_side ||
+        y >= k_side_symbol_side)
+        return false;
+    if (symbol == SideSymbol::core)
+        return x >= 1 && x <= 5 && y >= 1 && y <= 5;
+    const int32_t span = y < 1 ? 0 : (y + 1) / 2;
+    const int32_t from_centre = x - 3;
+    const int32_t distance = from_centre < 0 ? -from_centre : from_centre;
+    return distance <= span;
+}
+
+void draw_side_symbol(
+    Surface* target, int32_t left, int32_t top, SideSymbol symbol, bool hollow
+) noexcept {
+    if (target == nullptr || target->pixels == nullptr || symbol == SideSymbol::none)
+        return;
+    for (int32_t row = 0; row < k_side_symbol_side; ++row) {
+        for (int32_t column = 0; column < k_side_symbol_side; ++column) {
+            if (!side_symbol_covers(symbol, column, row))
+                continue;
+            const bool edge = symbol_edge(symbol, column, row);
+            if (hollow && !edge)
+                continue;
+            put_pixel(
+                target,
+                left + column,
+                top + row,
+                edge && !hollow ? k_side_symbol_outline : k_side_symbol_ink
+            );
+        }
+    }
+}
+
 void galaxy_draw_line(
-    Surface* target, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint8_t color
+    Surface* target, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint8_t color, bool dashed
 ) {
     const int32_t dy = y1 - y0;
     const int32_t dx = x1 - x0;
@@ -420,8 +630,11 @@ void galaxy_draw_line(
             y = y0;
         }
         const double slope = static_cast<double>(dy) / dx;
+        int32_t step = 0;
         for (; x < end; ++x) {
-            put_pixel(target, x, static_cast<int32_t>(y), color);
+            if (!dashed || (step & 1) == 0)
+                put_pixel(target, x, static_cast<int32_t>(y), color);
+            ++step;
             y += slope;
         }
         return;
@@ -435,8 +648,11 @@ void galaxy_draw_line(
         x = x0;
     }
     const double slope = static_cast<double>(dx) / dy;
+    int32_t step = 0;
     for (; y < end; ++y) {
-        put_pixel(target, static_cast<int32_t>(x), y, color);
+        if (!dashed || (step & 1) == 0)
+            put_pixel(target, static_cast<int32_t>(x), y, color);
+        ++step;
         x += slope;
     }
 }
@@ -507,6 +723,7 @@ void galaxy_draw_star_layer(Surface* target, const screens::GalaxyStarLayer& lay
 }
 
 void galaxy_draw(GalaxyGraphics& graphics, const screens::GalaxyView& view, Surface* viewer) {
+    apply_aura_colours(graphics);
     if (screens::galaxy_shows_war_map(&view)) {
         for (const screens::GalaxyStarLayer& layer : view.star_layers)
             galaxy_draw_star_layer(viewer, layer);
@@ -519,7 +736,10 @@ void galaxy_draw(GalaxyGraphics& graphics, const screens::GalaxyView& view, Surf
                     c.view_ay,
                     c.view_bx,
                     c.view_by,
-                    static_cast<uint8_t>(c.color)
+                    shown_link_colour(graphics, c.color),
+                    c.color == screens::connector_color::arm &&
+                        present::colour_vision::active_mode() ==
+                            present::colour_vision::Mode::achromatopsia
                 );
         }
         const int32_t scale = view.scale;
@@ -595,6 +815,19 @@ void galaxy_draw(GalaxyGraphics& graphics, const screens::GalaxyView& view, Surf
                         p.view_y,
                     k_label_key
                 );
+            if (present::colour_vision::shape_cues_active()) {
+                const int32_t reach = side_symbol_reach(p.radius, scale);
+                const SideSymbol held = held_side_symbol(p.side);
+                const SideSymbol founded = founded_side_symbol(p.capitol, p.initial_side);
+                if (held != SideSymbol::none) {
+                    const SideSymbolPlace at = side_symbol_place(p.view_x, p.view_y, reach, false);
+                    draw_side_symbol(viewer, at.left, at.top, held, false);
+                }
+                if (founded != SideSymbol::none) {
+                    const SideSymbolPlace at = side_symbol_place(p.view_x, p.view_y, reach, true);
+                    draw_side_symbol(viewer, at.left, at.top, founded, true);
+                }
+            }
         }
     }
     if (view.loading && !view.show_map_while_loading && graphics.map_static != nullptr)

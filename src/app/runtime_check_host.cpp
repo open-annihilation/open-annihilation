@@ -194,6 +194,17 @@ struct CheckHostAccess {
     /// @param game the runtime
     /// @return its options
     static const Options& options(const Runtime& game) { return game.options_; }
+
+    /// Writes the shown window, kit screens included. The console surface
+    /// does not hold a notice drawn over it. The extension sees Runtime
+    /// incomplete.
+    static void snapshot_stage(Runtime& game, const char* stage) {
+        if (stage != nullptr)
+            game.write_presented_snapshot(stage);
+    }
+
+    /// Asks the Library to open on the battle just played.
+    static void queue_battle_share(Runtime& game) { game.open_replays_to_share_battle(); }
 };
 
 namespace {
@@ -238,6 +249,18 @@ CheckHost check_host(Runtime& runtime) {
 
 const Options& runtime_options(const Runtime& runtime) {
     return CheckHostAccess::options(runtime);
+}
+
+void snapshot_presented_stage(Runtime& runtime, const char* stage) {
+    CheckHostAccess::snapshot_stage(runtime, stage);
+}
+
+void queue_battle_replay_share(Runtime& runtime) {
+    CheckHostAccess::queue_battle_share(runtime);
+}
+
+bool battle_has_recording(const Runtime& runtime) {
+    return runtime.battle_has_recording();
 }
 
 } // namespace oa::app

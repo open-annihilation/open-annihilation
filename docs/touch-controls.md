@@ -74,8 +74,16 @@ float over it:
   last. The armed order is lit.
 - **Group chips** along the bottom for the stored groups, and **+**.
 
-**MENU** opens a small menu: Game menu (the in-game menu), Slower, Faster
-and Chat. A phone match starts at zoom 1.25, so units are a little larger,
+**MENU** opens a small menu: Game menu (the in-game menu), Slower, Faster,
+Chat and Photo mode. At the larger Control sizes the items take two
+columns, so the sheet stays to the right of the minimap. In photo mode a
+one-finger drag pans, a pinch zooms, and a two-finger twist turns when the
+view can turn. While Area is the picture, a one-finger drag marks the area
+and two fingers pan. The panel's controls are a finger's height. One section is
+open at a time. Leave and Take photo stay in reach, and the rows between
+them scroll. A row the view cuts is drawn and hit in the part that shows.
+A tablet's MENU opens the in-game menu, which has no Photo mode button yet. A phone match
+starts at zoom 1.25, so units are a little larger,
 or at the game's own scale with Maximum zoom in at None; the zoom then
 stays where the player puts it. A pinch and the zoom buttons keep to the
 Maximum zoom out and Maximum zoom in settings, with Mouse wheel zoom off
@@ -96,6 +104,8 @@ prompt and Done button stand in it.
 | Gesture | What it does |
 |---|---|
 | Tap | Selects a unit, or gives the order the cursor shows for what lies under the finger: a left click |
+| Tap the battlefield while a replay plays | Shows the playback bar |
+| Drag on the replay's timeline | Seeks to that moment |
 | Double tap a unit | Selects the units of its type, as a double click does |
 | One-finger drag | Tablet: a selection box; with ATTACK, RECLAIM or REPAIR armed, an area order. Phone: scrolls the map |
 | Hold, then drag | A selection box, on both layouts |
@@ -175,7 +185,10 @@ the selection can take, it gives that order; anywhere else, it closes the
 wheel and gives nothing. That click does nothing else. A click shorter than
 the long press, or a press that moves past the drag threshold, does what
 that button does today, at the point it went down. Off, the buttons are
-unchanged. A mouse player sees the wheel alone.
+unchanged. A mouse player sees the wheel alone. A hold over one of Open
+Annihilation's own screens in the match, such as the keys overlay or
+Settings, or over a latch chip, opens no wheel: the screen takes the
+press, as it takes a click.
 The wheel's Stop, and a pad button's Stop, press **Stop** (`order.stop`).
 Moving Stop off S in the [key editor](keys.md#the-key-editor) leaves
 them where they are.

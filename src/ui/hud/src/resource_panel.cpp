@@ -33,6 +33,18 @@ bool slot_in_use(const Player& player) noexcept {
     return player.in_use != 0;
 }
 
+/// A slot's own stored amounts, storage and incomes.
+ResourcePanelFigures figures_of(const Player& player) noexcept {
+    return {
+        player.metal,
+        player.metal_storage,
+        player.metal_produced,
+        player.energy,
+        player.energy_storage,
+        player.energy_produced
+    };
+}
+
 /// Copies a player's name, which need not end in a NUL.
 void copy_name(char* out, std::size_t size, const Player& player) {
     std::snprintf(out, size, "%.*s", static_cast<int>(sizeof player.name), player.name);
@@ -98,10 +110,37 @@ resource_panel_rows(const World& world, bool watching, const SharedPlayerViews& 
         const Player& player = world.game.players[slot];
         const bool listed =
             watching ? slot_in_use(player) && player.name[0] != '\0' : shared.shares_position[slot];
-        if (listed)
-            rows.slots[rows.count++] = slot;
+        if (!listed)
+            continue;
+        rows.slots[rows.count] = slot;
+        rows.colours[rows.count] = player_dot_color(world, slot);
+        rows.figures[rows.count] = figures_of(player);
+        ++rows.count;
     }
     rows.own_view_row = watching;
+    return rows;
+}
+
+ResourcePanelRows
+resource_panel_seat_rows(const World& world, std::span<const ResourcePanelSeat> seats) noexcept {
+    ResourcePanelRows rows{};
+    for (const ResourcePanelSeat& seat : seats) {
+        if (rows.count >= OA_PLAYER_COUNT)
+            break;
+        if (seat.slot >= OA_PLAYER_COUNT)
+            continue;
+        rows.slots[rows.count] = seat.slot;
+        rows.colours[rows.count] = seat.colour;
+        if (seat.economy && !seat.gone) {
+            ResourcePanelFigures figures = figures_of(world.game.players[seat.slot]);
+            if (seat.income) {
+                figures.metal_income = seat.metal_income;
+                figures.energy_income = seat.energy_income;
+            }
+            rows.figures[rows.count] = figures;
+        }
+        ++rows.count;
+    }
     return rows;
 }
 
@@ -149,7 +188,7 @@ void draw_resource_panel(
         );
     for (uint8_t row = 0; row < rows.count; ++row) {
         const uint8_t slot = rows.slots[row];
-        const Player& player = world.game.players[slot];
+        const Player& player = world.game.players[slot < OA_PLAYER_COUNT ? slot : 0];
         const int32_t x = panel.x;
         const int32_t y = panel.y + row * kResourcePanelRowHeight;
         if (sink.fill != nullptr) {
@@ -166,44 +205,46 @@ void draw_resource_panel(
                     kResourcePanelRowHeight,
                     kResourcePanelViewRowColor
                 );
-            const PlayerSetupInfo* info = world_player_info(&world, &player);
             sink.fill(
                 sink.user,
                 x + kResourcePanelSquareX,
                 y + 1,
                 kSquareSide,
                 kSquareSide,
-                info != nullptr ? info->color : uint8_t{0}
+                rows.colours[row]
             );
         }
         char text[64];
         copy_name(text, sizeof text, player);
         if (sink.text != nullptr)
             sink.text(sink.user, x + kResourcePanelBarX, y, text, kResourcePanelNameColor);
-        draw_amount(sink, x, y + kMetalLineY, player.metal);
+        const std::optional<ResourcePanelFigures>& figures = rows.figures[row];
+        if (!figures)
+            continue;
+        draw_amount(sink, x, y + kMetalLineY, figures->metal);
         draw_bar(
             panel,
             sink,
             x + kResourcePanelBarX,
             y + kMetalLineY,
-            panel_bar_pixels(player.metal, player.metal_storage),
+            panel_bar_pixels(figures->metal, figures->metal_storage),
             kResourcePanelMetalBarColor
         );
-        format_panel_income(text, sizeof text, player.metal_produced, true);
+        format_panel_income(text, sizeof text, figures->metal_income, true);
         if (sink.text != nullptr)
             sink.text(
                 sink.user, x + kResourcePanelIncomeX, y + kMetalLineY, text, kResourcePanelTextColor
             );
-        draw_amount(sink, x, y + kEnergyLineY, player.energy);
+        draw_amount(sink, x, y + kEnergyLineY, figures->energy);
         draw_bar(
             panel,
             sink,
             x + kResourcePanelBarX,
             y + kEnergyLineY,
-            panel_bar_pixels(player.energy, player.energy_storage),
+            panel_bar_pixels(figures->energy, figures->energy_storage),
             kResourcePanelEnergyBarColor
         );
-        format_panel_income(text, sizeof text, player.energy_produced, false);
+        format_panel_income(text, sizeof text, figures->energy_income, false);
         if (sink.text != nullptr)
             sink.text(
                 sink.user,

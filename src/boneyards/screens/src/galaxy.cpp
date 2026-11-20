@@ -306,6 +306,20 @@ int32_t galaxy_find_planet(const GalaxyView* v, int32_t id) {
     return kNoPlanet;
 }
 
+int32_t galaxy_player_capitol(const GalaxyView* v, char allegiance) {
+    if (v == nullptr)
+        return kNoPlanet;
+    const char side = upper_side(allegiance);
+    if (side != 'A' && side != 'C')
+        return kNoPlanet;
+    for (std::size_t i = 0; i < v->planet_count; ++i) {
+        const GalaxyPlanet& planet = v->planets[i];
+        if (planet.capitol && upper_side(planet.initial_side) == side)
+            return static_cast<int32_t>(i);
+    }
+    return kNoPlanet;
+}
+
 void galaxy_place_hotspot(GalaxyView* v, GalaxyPlanet* p) {
     const bool visible = p->left < v->scroll_x + v->view_width &&
                          p->top < v->scroll_y + v->view_height && v->scroll_x <= p->right &&

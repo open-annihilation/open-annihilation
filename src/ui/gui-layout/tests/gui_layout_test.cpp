@@ -186,12 +186,6 @@ void malformed_and_bounded_inputs() {
         "missing assignment separator was not rejected"
     );
 
-    const auto invalid_integer = parse_text("[GADGET0]{[COMMON]{id=oops;}totalgadgets=0;}");
-    require(
-        !invalid_integer.ok() && invalid_integer.error->code == gui::ErrorCode::invalid_integer,
-        "invalid numeric field was not rejected"
-    );
-
     const auto translated_too_long = parse_text(
         "[GADGET0]{" + common(0, "ROOT") +
             "totalgadgets=1;}"
@@ -280,6 +274,87 @@ void shipped_score_eof_is_an_implicit_top_level_close() {
     );
 }
 
+void stray_text_runs_on_into_the_next_field() {
+    // A build page's button whose COMMON block ends "}1", as some mods'
+    // pages do: the stray digit runs on into the next line's grayedout,
+    // which is left unread, and the rest of the page loads.
+    const auto stray = parse_text(
+        "[GADGET0]\r\n{\r\n\t" + common(0, "HEADER") +
+        "\r\n\ttotalgadgets=2;\r\n}\r\n"
+        "[GADGET1]\r\n\t{\r\n\t[COMMON]\r\n\t\t{\r\n\t\tid=1;\r\n\t\tname=ARMVPE;\r\n"
+        "\t\tcommonattribs=4;\r\n\t\t}1\r\n\tgrayedout=1;\r\n\tquickkey=118;\r\n\t}\r\n"
+        "[GADGET2]\r\n{\r\n\t" +
+        common(1, "ARMALAB") + "\r\n\tgrayedout=1;\r\n}\r\n"
+    );
+    require(stray.ok(), stray.error ? stray.error->message : "the stray digit was rejected");
+    require(stray.layout->gadgets.size() == 3, "the gadgets after the stray digit were lost");
+    const auto& stray_button = std::get<gui::ButtonFields>(stray.layout->gadgets[1].fields);
+    require(
+        stray.layout->gadgets[1].common.name == "ARMVPE" &&
+            stray.layout->gadgets[1].common.common_attributes == 4 && !stray_button.grayed_out &&
+            stray_button.quick_key == 118,
+        "the stray digit did not take only the next field with it"
+    );
+    require(
+        stray.layout->gadgets[2].common.name == "ARMALAB" &&
+            std::get<gui::ButtonFields>(stray.layout->gadgets[2].fields).grayed_out,
+        "the gadget after the stray digit did not load"
+    );
+
+    // A name whose '=' starts the next line is still that name.
+    const auto split = parse_text(
+        "[GADGET0]{" + common(0, "ROOT") + "totalgadgets=1;}[GADGET1]{" + common(1, "B") +
+        "grayedout\r\n  =1;}"
+    );
+    require(
+        split.ok() && std::get<gui::ButtonFields>(split.layout->gadgets[1].fields).grayed_out,
+        "a name whose '=' starts the next line was not read"
+    );
+
+    // Comments between the stray text and the field are passed over.
+    const auto commented = parse_text(
+        "[GADGET0]{" + common(0, "ROOT") + "totalgadgets=1;}[GADGET1]{" + common(1, "B") +
+        "1\n// stray=0;\n/* text=x; */ grayedout=1;\nquickkey=7;}"
+    );
+    require(
+        commented.ok() &&
+            !std::get<gui::ButtonFields>(commented.layout->gadgets[1].fields).grayed_out &&
+            std::get<gui::ButtonFields>(commented.layout->gadgets[1].fields).quick_key == 7,
+        "a comment after the stray text ended its run"
+    );
+
+    // Stray text with no field after it in its section is still refused.
+    const auto unfinished = parse_text("[GADGET0]{" + common(0, "ROOT") + "totalgadgets=0;\n1\n}");
+    require(
+        !unfinished.ok() && unfinished.error->code == gui::ErrorCode::malformed_syntax,
+        "stray text that ran into its section's end was accepted"
+    );
+}
+
+void numbers_read_their_leading_digits() {
+    // As the game reads a number: leading spaces, one sign and the digits
+    // after it; what follows is ignored, no digits read 0, and a value past
+    // 32 bits wraps before the field keeps its low bits.
+    const auto result = parse_text(
+        "[GADGET0]{[COMMON]{id=oops;xpos=+12;ypos= -3px;width=4294967297;height=0x40;"
+        "commonattribs=O;}totalgadgets=1;}"
+        "[GADGET1]{" +
+        common(1, "PATCH") + "status=7th;grayedout=1.5;quickkey= 105;stages=-;}"
+    );
+    require(result.ok(), result.error ? result.error->message : "the numbers were rejected");
+    const auto& root = result.layout->gadgets[0].common;
+    require(
+        root.type == gui::GadgetType::panel && root.x == 12 && root.y == -3 && root.width == 1 &&
+            root.height == 0 && root.common_attributes == 0,
+        "a number was not read from its leading digits"
+    );
+    const auto& button = std::get<gui::ButtonFields>(result.layout->gadgets[1].fields);
+    require(
+        button.status == 7 && button.grayed_out && button.quick_key == 105 && button.stages == 0,
+        "a button's numbers were not read from their leading digits"
+    );
+}
+
 void skin_tiles_end_flush_with_the_far_edges() {
     using Tile = gui::SkinTile;
     // 400x100 with 64-pixel tiles: seven columns, the last moved left to 336,
@@ -354,6 +429,8 @@ int main() {
         malformed_and_bounded_inputs();
         positioned_rectangle_adds_root_origin_only_for_nonzero_type();
         shipped_score_eof_is_an_implicit_top_level_close();
+        stray_text_runs_on_into_the_next_field();
+        numbers_read_their_leading_digits();
         skin_tiles_end_flush_with_the_far_edges();
         button_captions_follow_their_alignment();
     } catch (const std::exception& error) {

@@ -265,42 +265,43 @@ void Runtime::check_key_views() {
         "the drop-down did not write open-annihilation.keys.keyboard as jis"
     );
 
-    note("selecting Repair, then the free F9 inspects it, and Use F9 for Repair… gives F9");
+    // F9 opens photo mode, so the free named key is F10.
+    note("selecting Repair, then the free F10 inspects it, and Use F10 for Repair… gives F10");
     click_named("oa.key-editor.view.list");
     type_search("repair");
     show_row("oa.key-editor.row.order.repair");
     click_named("oa.key-editor.row.order.repair");
     click_named("oa.key-editor.view.keyboard");
     click_named("oa.key-editor.layer.none");
-    click_named("oa.key-editor.keyboard.f9");
-    require(!named("oa.key-editor.capture").has_value(), "a click on F9 opened the capture");
+    click_named("oa.key-editor.keyboard.f10");
+    require(!named("oa.key-editor.capture").has_value(), "a click on F10 opened the capture");
     require(
-        require_named("oa.key-editor.key-card", "the inspector is not shown").text.find("F9") !=
+        require_named("oa.key-editor.key-card", "the inspector is not shown").text.find("F10") !=
             std::string::npos,
-        "the inspector does not name F9"
+        "the inspector does not name F10"
     );
     click_named("oa.key-editor.key-card.use");
     const AutomationControl prompt =
-        require_named("oa.key-editor.capture", "the capture prompt did not open for F9");
-    require(prompt.text.find("F9") != std::string::npos, "the prompt does not show F9");
+        require_named("oa.key-editor.capture", "the capture prompt did not open for F10");
+    require(prompt.text.find("F10") != std::string::npos, "the prompt does not show F10");
     require(
         require_named("oa.key-editor.capture.ok", "OK is not shown").enabled,
-        "OK is disabled for the free F9"
+        "OK is disabled for the free F10"
     );
     click_named("oa.key-editor.capture.ok");
     require(!named("oa.key-editor.capture").has_value(), "OK left the capture open");
     click_named("oa.key-editor.view.list");
-    bool repair_f9 = false;
+    bool repair_f10 = false;
     {
         std::vector<AutomationControl> controls;
         oa_layer().automation_controls(controls);
         for (const AutomationControl& control : controls) {
             if (control.name.starts_with("oa.key-editor.detail.chord.") &&
-                control.text.find("F9") != std::string::npos)
-                repair_f9 = true;
+                control.text.find("F10") != std::string::npos)
+                repair_f10 = true;
         }
     }
-    require(repair_f9, "Repair's details do not show F9");
+    require(repair_f10, "Repair's details do not show F10");
 
     note("the Mouse view's Forward opens the prompt for its role");
     click_named("oa.key-editor.view.mouse");

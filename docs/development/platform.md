@@ -44,24 +44,51 @@ the project's CMake asks for SDL 3.2 or newer. The `oa-platform` target links
 `SDL3::SDL3`, which `tools/bootstrap_sdl.py` builds at the pinned version
 into `local/deps`; SDL3 is not vendored in the tree.
 
+The screen-reader bridge is AccessKit's C bindings.
+`tools/bootstrap_accesskit.py` fetches the pinned release into `local/deps`.
+On macOS it joins the two static libraries; another host does not run that
+join. A Linux arm64 or armhf host has no library in the release, so it also
+needs `python3 tools/bootstrap_accesskit.py --from-source --target
+aarch64-unknown-linux-gnu` or `--target armv7-unknown-linux-gnueabihf`.
+A source build needs Rust 1.87 or later (the pinned `Cargo.toml`'s
+`rust-version`), and `cargo` and `rustup` on `PATH`. The bootstrap runs
+`rustup target list --installed`, and `rustup target add` only for those
+two triples and `aarch64-pc-windows-gnullvm`. The first build reaches
+crates.io. It builds
+`--locked`, and after that it works offline from cargo's cache. A cross
+build passes `--linker <cc>`.
+`-DOA_ACCESSKIT_DIR=` points a configuration at a prepared tree. A platform
+with no library leaves the bridge out. A configuration that needs a library
+and does not have it stops and names the command
+([screen reader](../../src/platform/screen-reader/README.md)). Nothing is
+created when the game starts.
+
 Text outside the game's own fonts is drawn through FreeType from fonts that
 travel with the game, the same on every platform
 ([text font](../../src/platform/text-font/README.md)).
-`tools/bootstrap_text_fonts.py` fetches FreeType and the fonts, pinned by
-SHA-256, checks each licence text against the one `licenses/` holds,
-builds FreeType as a static library into
-`local/deps/freetype-install-<release>` and puts the fonts in
+`tools/bootstrap_text_fonts.py` fetches FreeType, HarfBuzz and the fonts,
+pinned by SHA-256, checks each licence text against the one `licenses/`
+holds, builds FreeType and HarfBuzz as static libraries into
+`local/deps/freetype-install-<release>` and
+`local/deps/harfbuzz-install-<release>`, and puts the fonts in
 `local/deps/text-fonts`: DejaVu Sans Bold, DejaVu Sans,
-`NotoSansCJKsc-Bold-Endonyms.otf` and Noto Emoji for game text, and the
+`NotoSansCJKsc-Bold-Endonyms.otf`, `NotoSansBengali-Bold-Endonyms.ttf` (a
+cut of Noto Sans Bengali Bold that keeps its shaping tables) and Noto Emoji
+for game text, and the
 interface faces of OA's modern look, Barlow 1.422 Regular, Medium,
 SemiBold and Bold and Barlow Condensed SemiBold and Bold, from the Barlow
 project's release
-([Look](../settings.md#user-interface)). The build copies the ten fonts
+([Look](../settings.md#user-interface)). The build copies the eleven fonts
 beside the game. A configuration without them stops and says so
 (`cmake/OaTextFonts.cmake`), so a checkout made before Barlow joined runs
-`python3 tools/bootstrap_text_fonts.py`, or `--fonts-only`, once. Neither
-FreeType nor the fonts is vendored in the tree. The macOS and
-Windows dependency bootstraps build the same FreeType for their targets.
+`python3 tools/bootstrap_text_fonts.py`, or `--fonts-only`, once. FreeType,
+HarfBuzz and the fonts stay out of the tree. The macOS and
+Windows dependency bootstraps build the same FreeType and HarfBuzz for
+their targets. FreeType stays built without HarfBuzz, so text that is not
+shaped keeps the advances it has today. HarfBuzz shapes Bengali and
+Devanagari. A configuration that does not find HarfBuzz still succeeds and
+leaves that shaping off. `-DOA_REQUIRE_TEXT_SHAPING=ON` makes a missing
+HarfBuzz a configure error.
 
 ## What a platform can do
 

@@ -383,6 +383,8 @@ void detail_lines(const char* detail, Handle font, char lines[][k_detail_line_by
     }
 }
 
+int32_t row_clicked(const LocatorHost* host, const Window* source);
+
 Window*
 add_static(Window* parent, const char* name, int32_t x, int32_t y, int32_t width, int32_t height) {
     Window* window = static_create();
@@ -526,10 +528,19 @@ void refresh(LocatorHost* host) {
         set_text(detail, lines[i], k_line_style);
         use_font(detail, fonts->small_light);
     }
+    // A result that has the keyboard is about to be destroyed. The rebuilt
+    // row of the same index takes it, or Relocate when that row is gone.
+    int32_t held_row = -1;
+    if (Desktop* desktop = services().desktop; desktop != nullptr)
+        held_row = row_clicked(host, desktop->focus);
     clear_rows(host);
     Window* list = named(host, "Results");
     if (list == nullptr) {
         focus_locator_field(host);
+        if (held_row >= 0) {
+            if (Window* next = named(host, "Relocate"); next != nullptr)
+                services_desktop_focus(next);
+        }
         return;
     }
     int32_t limit = list->height / k_row_height;
@@ -542,7 +553,21 @@ void refresh(LocatorHost* host) {
     for (int32_t i = 0; i < count; ++i)
         add_result_row(host, list, i, screens::locator_result(&model, i));
     host->row_count = count;
+    // The five find rows stay where the layout put them. Then Name, Search,
+    // the result rows, Relocate and Page.
+    window_move_child_last(host->root, name_field);
+    window_move_child_last(host->root, named(host, "Search"));
+    for (int32_t i = 0; i < count; ++i)
+        window_move_child_last(host->root, host->rows[i].hit);
+    window_move_child_last(host->root, named(host, "Relocate"));
+    window_move_child_last(host->root, named(host, "Page"));
     focus_locator_field(host);
+    if (held_row >= 0) {
+        Window* next =
+            held_row < host->row_count ? host->rows[held_row].hit : named(host, "Relocate");
+        if (next != nullptr)
+            services_desktop_focus(next);
+    }
 }
 
 int32_t kind_clicked(const Window* source) {
@@ -773,6 +798,8 @@ Window* locator_console_create(
     host->model.open_join = open_join;
     clear_fill(named(host, "Name"));
     set_text(named(host, "Name"), "", text_style::left);
+    // Before the first focus, so raising Name does not move it past Page.
+    window_keep_place(named(host, "Name"));
     refresh(host);
     return root;
 }

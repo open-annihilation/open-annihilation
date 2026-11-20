@@ -229,8 +229,20 @@ void Runtime::activate() {
     // Dispatching unconditionally every rendered frame would repeatedly
     // rebuild MAINMENU while its signal remains initialize, clearing a
     // mouse-down selection before the matching mouse-up arrives.
+    const uint32_t movies = frontend_movies_;
     step(frontend::Step::reload_unit_overrides, state_);
     frontend::dispatch(state_, *this, frontend_states_);
+    // Credits' callback selects a signal, not a state: the first pass enters
+    // the movie's state, and the second takes the main menu down, plays the
+    // movie and returns to the main menu, whose initialize sets it up again
+    // only on the pass after, as 3.1c's frontend does on its next frame.
+    // That pass runs now, so the menu comes back as it was, with an
+    // extension's overlay that went down with it, and not as the movie left
+    // it.
+    if (frontend_movies_ != movies && screen_ != Screen::match) {
+        step(frontend::Step::reload_unit_overrides, state_);
+        frontend::dispatch(state_, *this, frontend_states_);
+    }
     if (options_.trace_input)
         std::cerr << "input activate after state=" << static_cast<int>(state_.state)
                   << " signal=" << static_cast<int>(state_.signal)
@@ -400,11 +412,17 @@ oa::sim::selection::Hooks Runtime::selection_hooks() {
     };
     hooks.center_camera = [](void* context, const FixedVec3& position, bool) {
         auto& self = *static_cast<Runtime*>(context);
+        const auto whole_pixel = [](oa_fixed coord) {
+            return static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(coord) >> 16));
+        };
+        int32_t row = whole_pixel(position.z);
+        // Photo mode centres the place the unit is drawn. Play keeps the ground
+        // point, as 3.1c does.
+        if (self.photo_mode())
+            row -= whole_pixel(position.y) / 2;
         self.set_camera_position(
-            static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(position.x) >> 16)) -
-                self.visible_map_width() / 2,
-            static_cast<int32_t>(static_cast<int16_t>(static_cast<uint32_t>(position.z) >> 16)) -
-                self.visible_map_height() / 2,
+            whole_pixel(position.x) - self.visible_map_width() / 2,
+            row - self.visible_map_height() / 2,
             0
         );
         self.render_match_surface();
@@ -454,6 +472,10 @@ void Runtime::rebuild_on_screen_units() {
         world.game.hot_unit_count = count;
     } else
         oa::sim::selection::collect_visible_units(world, on_screen_lists(), selection_hooks());
+    // Photo mode leaves the Game block on the player's camera, so this
+    // collect lists that view. The notices keep testing the view it kept.
+    if (photo_mode())
+        refresh_photo_kept_view();
 }
 
 void Runtime::refresh_on_screen_view() {

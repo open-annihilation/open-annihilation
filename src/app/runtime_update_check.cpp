@@ -285,6 +285,15 @@ void Runtime::check_engine_feed() {
             require(std::chrono::steady_clock::now() < deadline, "the hour's check did not finish");
             idle_tick();
         }
+        // The server logs the feed's request before it answers, and the
+        // signature is asked for only after that answer: count once the
+        // check has finished. The checker's own state is read: the held one
+        // can still be the last check's, from before this one started.
+        while (update_->checker != nullptr &&
+               update_->checker->snapshot().state == update::CheckState::checking) {
+            require(std::chrono::steady_clock::now() < deadline, "the hour's check did not finish");
+            idle_tick();
+        }
         require(
             update_snapshot().state == update::CheckState::offered,
             "the hour's check did not offer a release (" + update_snapshot().failure + ")"

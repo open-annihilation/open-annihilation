@@ -8,8 +8,9 @@ target_link_libraries(oa-ui-hud PRIVATE oa-base-game-math)
 target_include_directories(oa-ui-hud PUBLIC include)
 target_link_libraries(oa-ui-hud PUBLIC oa-core-types oa-data-campaign oa-data-persist oa-present
   oa-platform-job-pool
-  PRIVATE oa-data-defs oa-data-languages oa-formats-tdf oa-sim-feature-runtime oa-sim-messages
-  oa-sim-unit-movement oa-ui-console oa-options)
+  PRIVATE oa-data-defs oa-data-languages oa-formats-tdf oa-present-colour-vision
+  oa-sim-feature-runtime oa-sim-messages oa-sim-unit-movement oa-ui-console oa-ui-gui-input
+  oa-options)
 target_compile_features(oa-ui-hud PUBLIC cxx_std_20)
 
 if(BUILD_TESTING)
@@ -26,6 +27,8 @@ if(BUILD_TESTING)
     add_test(NAME ui-hud-${test_case} COMMAND oa-ui-hud-${test_case}-test)
   endforeach()
   # The installed game's side layouts and build pages.
+  target_link_libraries(oa-ui-hud-whiteboard-test PRIVATE oa-present-colour-vision)
+  target_link_libraries(oa-ui-hud-shared-views-test PRIVATE oa-present-colour-vision)
   foreach(test_case IN ITEMS hud-labels order-panel)
     target_link_libraries(oa-ui-hud-${test_case}-test PRIVATE oa-formats-hpi oa-test-game-data)
     oa_add_game_data_test(ui-hud-${test_case}-data oa-ui-hud-${test_case}-test --data)

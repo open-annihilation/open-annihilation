@@ -81,8 +81,10 @@ export CCACHE_NOHASHDIR="${CCACHE_NOHASHDIR:-1}"
 
 if [[ "$print_bundle" == 1 ]]; then
     python3 "$ios_dir/tools/bootstrap_ios_deps.py" --sdk "$sdk" --jobs "$jobs" >&2
+    python3 "$repo_dir/tools/bootstrap_accesskit.py" >&2
 else
     python3 "$ios_dir/tools/bootstrap_ios_deps.py" --sdk "$sdk" --jobs "$jobs"
+    python3 "$repo_dir/tools/bootstrap_accesskit.py"
 fi
 
 configure_args=(

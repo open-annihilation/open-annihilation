@@ -146,7 +146,7 @@ bool held(const ScreenState& state, kit::ControlId id) noexcept {
 /// @param id the control
 /// @return true when it is shown there
 bool focused_on(const ScreenState& state, kit::ControlId id) noexcept {
-    return state.interaction.focus_shown && state.interaction.focused == id;
+    return kit::focus_ring_visible(state.interaction) && state.interaction.focused == id;
 }
 
 /// A button's width: the kit's button, or the caption when that is wider.
@@ -360,6 +360,8 @@ void add_header(
     const std::size_t before = built.list.controls.size();
     kit::add_button(built.list, rect, button, controls::close_mark, std::string(name_close));
     steal(built.list, built.rest, before);
+    if (!built.rest.empty())
+        built.rest.back().label = show(editor.text(), words::close_word);
     built.close = controls::close_mark;
 }
 
@@ -1206,6 +1208,7 @@ void add_list(
     list_control.focusable = true;
     list_control.name = std::string(name_list);
     list_control.kind = kit::ControlKind::list;
+    list_control.label = show(editor.text(), words::keys);
     built.rest.push_back(std::move(list_control));
     built.tabs.push_back(controls::list);
 
@@ -1780,6 +1783,9 @@ void add_details(
         steal(built.list, built.rest, before);
         if (!piece.said.empty() && !built.rest.empty() && built.rest.back().id == piece.id)
             built.rest.back().text = piece.said;
+        if (piece.mark == kit::ButtonMark::close && piece.text.empty() && !built.rest.empty() &&
+            built.rest.back().id == piece.id && built.rest.back().text.empty())
+            built.rest.back().label = show(editor.text(), words::close_word);
         built.details.push_back(piece.id);
     }
     if (!scrolling)
@@ -2093,7 +2099,7 @@ void add_menu(
     look.total = count;
     look.chosen = menu_chosen(editor, state.menu, state, entries);
     look.marked = marked;
-    look.focus_shown = state.interaction.focus_shown;
+    look.focus_shown = kit::focus_ring_visible(state.interaction);
     look.row_height = metrics.row_height;
     look.heading_gap = metrics.space;
     look.rule_height = std::max(metrics.space, int32_t{4});
@@ -2157,7 +2163,7 @@ void add_menu(
 void add_focus(
     Built& built, const ScreenState& state, const kit::Metrics& metrics, const Window& window
 ) {
-    if (!state.interaction.focus_shown || state.interaction.focused == kit::no_control)
+    if (!kit::focus_ring_visible(state.interaction) || state.interaction.focused == kit::no_control)
         return;
     if (state.interaction.focused == controls::search)
         return;
@@ -6532,7 +6538,8 @@ lay(const Editor& editor,
                 search.focused = focused_on(state, controls::search);
                 search.hovered = hot(state, controls::search);
                 search.magnifier = true;
-                std::string placeholder = show(editor.text(), words::search_commands);
+                const std::string search_label = show(editor.text(), words::search_commands);
+                std::string placeholder = search_label;
                 const int32_t text_room = kit::field_text_rect(rect, search).width;
                 if (kit::text_width(fonts, kit::FontRole::regular, placeholder) > text_room)
                     placeholder = kit::cut_to_width(
@@ -6544,6 +6551,8 @@ lay(const Editor& editor,
                     built.list, rect, search, controls::search, std::string(name_search)
                 );
                 steal(built.list, built.rest, before);
+                if (!built.rest.empty())
+                    built.rest.back().label = search_label;
                 built.tabs.push_back(controls::search);
                 place_button(built, find_rect, find, controls::find, std::string(name_find), true);
                 return;
@@ -6553,15 +6562,18 @@ lay(const Editor& editor,
             search.focused = focused_on(state, controls::search);
             search.hovered = hot(state, controls::search);
             search.magnifier = true;
+            const std::string search_label = show(editor.text(), words::search_commands);
             search.placeholder = kit::cut_to_width(
                 fonts,
                 kit::FontRole::regular,
-                show(editor.text(), words::search_commands),
+                search_label,
                 std::max(kit::field_text_rect(rect, search).width, int32_t{0})
             );
             const std::size_t before = built.list.controls.size();
             kit::add_search(built.list, rect, search, controls::search, std::string(name_search));
             steal(built.list, built.rest, before);
+            if (!built.rest.empty())
+                built.rest.back().label = search_label;
             built.tabs.push_back(controls::search);
         };
         auto place_category = [&](const kit::Rect& rect) {

@@ -466,10 +466,12 @@ void Runtime::refresh_placed_hud_regions() {
     add(
         kMinimapSource, laid_out ? frame.minimap : fallback.minimap, layout::RegionRole::minimap, -1
     );
-    add(kResourcesSource,
-        laid_out ? frame.resources : fallback.resources,
-        layout::RegionRole::readout,
-        -1);
+    // A replay shows no resources under every player or the whole map.
+    if (!replay_top_bar_hidden())
+        add(kResourcesSource,
+            laid_out ? frame.resources : fallback.resources,
+            layout::RegionRole::readout,
+            -1);
     // An open sheet's gadgets, each fitted whole into its cell.
     const auto sheet = hud.sheet;
     const auto add_gadget = [&](int16_t index, const layout::Rect& cell) {

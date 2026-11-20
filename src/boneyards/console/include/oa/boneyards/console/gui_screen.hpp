@@ -128,7 +128,8 @@ struct GuiLoadError {
 /// installed desktop. A click on a control, or Enter or Escape while the
 /// screen handles the key, records that control. Enter runs the panel's
 /// crdefault and activates it when that control is not disabled. Escape
-/// records the panel's escdefault.
+/// runs the panel's escdefault the same way. A screen with none passes
+/// the key to the window behind it.
 ///
 /// @param path GUI file path; null fails the load
 /// @param[out] error failure message; may be null
@@ -153,6 +154,15 @@ void gui_screen_set_user(
     void (*on_fired)(void* user, Window* source),
     void (*on_destroy)(void* user)
 );
+
+/// Names the control Escape presses, when the layout did not.
+///
+/// A name the screen does not have is ignored, and a layout that already
+/// named one is left as it is.
+///
+/// @param[in,out] screen loaded screen; null is ignored
+/// @param name control Escape should press; null is ignored
+void gui_screen_set_escape(GuiScreen* screen, const char* name);
 
 /// Destroys a screen and every control it built.
 ///

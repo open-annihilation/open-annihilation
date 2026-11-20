@@ -3,6 +3,7 @@
 
 #include "oa/boneyards/screens/quickplay.hpp"
 
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/shown_text.hpp"
 
 #include <cstdio>
@@ -601,6 +602,7 @@ QuickPlayEffect quickplay_decide(QuickPlay* play, int32_t accept) {
     else if (play->offer_game_known)
         effect.launch_join = true;
     if (effect.launch_host || effect.launch_join) {
+        arm_after_battle(play->offer_game_type);
         // The battle ends the search; the offer stays for the launch to read.
         play->searching = false;
         play->awaiting_status = false;
@@ -650,6 +652,7 @@ bool quickplay_host_request(const QuickPlay* play, HostGameRequest* out) {
     out->skill = play->offer_skill;
     out->players = quickplay_players_radio(play->offer_seats);
     out->commander_death = play->offer_on_death;
+    arm_after_battle(play->offer_game_type);
     return true;
 }
 

@@ -50,6 +50,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -95,6 +96,24 @@ class DemoFailure(Exception):
     """A behaviour that differs from the expected one."""
 
 
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding="utf-8") if target.is_file() else "open-annihilation-preferences 1\n"
+    if "open-annihilation.update-check" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.update-check" "never"\n'
+    if "open-annihilation.content-updates" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding="utf-8")
+
+
 def expect(condition, what, output=""):
     """Fails the check with `what`, printing `output`, unless `condition` holds."""
     if not condition:
@@ -112,6 +131,7 @@ def listing(folder):
 def start(native, folder, data, workdir):
     """Starts open-annihilation on `folder` with `data` as its data folder; returns its output."""
     environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy")
+    _offline_preferences(workdir / "preferences.conf")
     result = subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(folder), "--data-dir", str(data), "--skip-intro",
          "--mute", "--headless-check", "--frames", FRAMES,
@@ -210,6 +230,7 @@ def game_check(native, name, installer, workdir):
     switches, passed = GAME_CHECKS[name]
     environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy",
                        SDL_RENDER_DRIVER="software")
+    _offline_preferences(workdir / "preferences.conf")
     result = subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(installer.parent), "--data-dir", str(workdir / "data"),
          "--skip-intro", "--mute", *switches, "--preferences-file", str(workdir / "preferences.conf")],

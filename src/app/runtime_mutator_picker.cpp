@@ -14,6 +14,7 @@
 // that other On mutators need asks before it goes off.
 
 #include "oa_layer.hpp"
+
 #include "library_host.hpp"
 
 #include "oa/app/game_directory.hpp"
@@ -2217,6 +2218,13 @@ void Runtime::MutatorPickerScreen::relayout() {
         return;
     }
     list_ = picker::picker_layout(picker_, state_, frame_, *fonts);
+    // The ring is drawn from the state this layout reads. Place the opening
+    // focus first, then lay out again when that moved it.
+    const kit::ControlId was_focused = state_.interaction.focused;
+    const bool was_shown = state_.interaction.focus_shown;
+    kit::focus_opened(state_.interaction, list_, runtime_.oa_layer().always_show_focus());
+    if (state_.interaction.focused != was_focused || state_.interaction.focus_shown != was_shown)
+        list_ = picker::picker_layout(picker_, state_, frame_, *fonts);
 }
 
 bool Runtime::MutatorPickerScreen::is_on(std::string_view id) const {

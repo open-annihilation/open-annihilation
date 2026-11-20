@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <exception>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -213,6 +214,10 @@ bool try_sources(
             source,
             std::string(verb) + ", sequence " + std::to_string(checked.catalogue->sequence)
         );
+        for (const std::string& problem : checked.catalogue->problems) {
+            if (problem.rfind("releases", 0) == 0)
+                log_outcome(state, plan.id, source, "left out " + problem);
+        }
         kept.ok = true;
         kept.unchanged = checked.verdict == data::catalogue::Verdict::unchanged;
         kept.bytes = std::move(body);
@@ -344,6 +349,103 @@ void publish_failed(
     publish(state);
 }
 
+/// Fetches the releases list once per new digest and stores it on the registry.
+///
+/// A catalogue with no `releases` member drops the list that was held. A
+/// digest already held is not fetched again. A failed or mismatched fetch
+/// keeps the list that was held. The caller does not hold the mutex.
+///
+/// @param state the service
+/// @param index the registry
+/// @param http the worker's client
+/// @param plan the registry's sources
+/// @param kept the catalogue just accepted
+void refresh_releases(
+    ServiceState& state,
+    std::size_t index,
+    netgame::http::Client& http,
+    const Plan& plan,
+    const Kept& kept
+) {
+    data::catalogue::HeldReleases held;
+    {
+        base::threads::LockGuard guard(state.mutex);
+        if (state.stop || index >= state.registries.size())
+            return;
+        const RegistryRecord& record = state.registries[index];
+        held.digest = record.releases_digest;
+        if (record.releases)
+            held.list = *record.releases;
+    }
+    data::catalogue::HeldReleases next;
+    std::vector<uint8_t> accepted;
+    bool write = false;
+    const bool named = kept.catalogue && kept.catalogue->releases.has_value();
+    if (!named) {
+        next = {};
+    } else if (held.digest.has_value() && *held.digest == kept.catalogue->releases->sha256) {
+        next = std::move(held);
+    } else {
+        const data::catalogue::ReleasesRef& member = *kept.catalogue->releases;
+        RegistryView view;
+        view.catalogue = kept.catalogue;
+        view.served_from = kept.served_from;
+        view.sources = plan.sources;
+        const std::vector<formats::url::Url> urls = reference_urls(view, member.file);
+        bool got = false;
+        for (const formats::url::Url& url : urls) {
+            if (state.cancel.load())
+                break;
+            std::vector<uint8_t> body;
+            const netgame::http::Response response = fetch_bytes(
+                http, url, true, data::catalogue::max_catalogue_bytes, &state.cancel, body
+            );
+            if (response.failure == netgame::http::Failure::cancelled || state.cancel.load())
+                break;
+            if (response.failure != netgame::http::Failure::none || response.status != 200) {
+                log_outcome(state, plan.id, url, "the releases list was not fetched");
+                continue;
+            }
+            data::catalogue::ReleasesTake how = data::catalogue::ReleasesTake::mismatch;
+            data::catalogue::HeldReleases taken =
+                data::catalogue::take_releases(member, body, held, &how);
+            if (how == data::catalogue::ReleasesTake::taken) {
+                next = std::move(taken);
+                accepted = std::move(body);
+                write = true;
+                got = true;
+                log_outcome(state, plan.id, url, "releases list accepted");
+                break;
+            }
+            if (how == data::catalogue::ReleasesTake::ignored) {
+                log_outcome(state, plan.id, url, "releases list ignored");
+                next = held;
+                got = true;
+                break;
+            }
+            log_outcome(state, plan.id, url, "releases list did not match the catalogue");
+        }
+        if (!got)
+            next = std::move(held);
+    }
+    if (write)
+        write_releases_cache(state, plan.id, accepted);
+    {
+        base::threads::LockGuard guard(state.mutex);
+        if (state.stop || index >= state.registries.size())
+            return;
+        RegistryRecord& record = state.registries[index];
+        if (next.digest.has_value()) {
+            record.releases_digest = next.digest;
+            record.releases =
+                std::make_shared<const data::catalogue::ReleasesList>(std::move(next.list));
+        } else {
+            record.releases.reset();
+            record.releases_digest.reset();
+        }
+    }
+}
+
 } // namespace
 
 void refresh_registry(ServiceState& state, std::size_t index, netgame::http::Client& http) {
@@ -382,6 +484,7 @@ void refresh_registry(ServiceState& state, std::size_t index, netgame::http::Cli
         );
         data::registry::PlayerRegistries updated;
         const bool saved_keys = save_rotation(state, plan, kept, updated);
+        refresh_releases(state, index, http, plan, kept);
         publish_kept(state, index, plan, kept, saved_keys, std::move(updated), http);
         return;
     }

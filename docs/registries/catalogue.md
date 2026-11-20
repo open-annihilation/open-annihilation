@@ -3,7 +3,9 @@
 A catalogue lists the packages a registry offers. OA reads the file whole,
 at most 16 MiB, as UTF-8 JSON without a byte-order mark (RFC 8259), nested
 at most 64 objects and arrays deep. `catalogue` MUST be `1`. A member this
-version does not know is ignored. A member named twice in one object,
+version does not know is ignored. A `releases` member that is present and
+malformed is left out, the reason is kept, and the catalogue is read as one
+with no older releases. A member named twice in one object,
 anywhere in the tree, refuses the whole catalogue. One package that breaks
 a rule is left out, the reason is kept for the first 100 such packages, and
 the rest stay. Two packages with the same key, ignoring case, are both left
@@ -28,6 +30,7 @@ signs.
 | `keys` | no | At most 8 current signing keys. See [signatures.md](signatures.md). |
 | `mirrors` | no | At most 8 `http` or `https` addresses with no query. |
 | `icon` | no | A picture reference ending `.png`. The registry's own icon. |
+| `releases` | no | A pointer at the [releases list](#releases-list). Absent, or present and malformed, leaves the catalogue as one with no older releases. A malformed member is noted and the catalogue is still read. |
 | `packages` | yes | The entries. At most 20,000. An empty array is a catalogue. |
 
 A UTC time is `YYYY-MM-DDTHH:MM:SSZ`. A fraction of a second may follow the
@@ -47,6 +50,62 @@ a rotation. See [signatures.md](signatures.md).
 `downloads` on a catalogue is any `http` or `https` address the URL reader
 accepts, including one with a query. The descriptor's `catalogue`,
 `mirrors` and `api` are `http` or `https` and still forbid a query.
+
+## Releases list
+
+A catalogue may name one file of older releases. The catalogue's signature
+covers that file through the digest on `releases`: the signature is over the
+catalogue, and the catalogue names the file's SHA-256. OA fetches the file
+once for a new digest, checks its size and SHA-256 against the member before
+reading it, and keeps the list it already held when the fetch fails or the
+bytes differ. A list whose `releases` is not `1` is ignored the same way.
+A catalogue that drops the member drops the held list. A catalogue without
+the member is unchanged.
+
+| Member | Required | Rule |
+|---|---|---|
+| `file` | yes | A reference whose last segment is `<sha256>.json`. |
+| `sha256` | yes | 64 lower-case hex digits. |
+| `size` | yes | A whole number of bytes from 1 to 16777216. |
+
+The file is UTF-8 JSON:
+
+```json
+{"releases":1,"registry":"…","sequence":60,"generated":"…","packages":[…]}
+```
+
+| Member | Required | Rule |
+|---|---|---|
+| `releases` | yes | The whole number `1`. Any other whole number, with a digest that matches, is ignored. |
+| `registry` | yes | The registry id, as in the descriptor. |
+| `sequence` | yes | A whole number, at least 0. |
+| `generated` | yes | UTC time. |
+| `packages` | yes | The entries. At most 20,000. |
+
+A member this version does not know is ignored. A member named twice in one
+object refuses the file. That refusal, and bytes that are not a list, are
+treated as a file that is not the one named: the list already held stays.
+
+Each entry is one older release. One that breaks a rule is left out, and the
+reason is kept for the first 100 such entries.
+
+| Member | Required | Rule |
+|---|---|---|
+| `kind` | yes | `oamod`, `oamap`, `oalang`, `expansion`, `oamut`, `oabrain` or `oakeys`. |
+| `id` | yes | The package key, by the same rule as a catalogue entry. |
+| `name` | yes | 1 to 64 bytes. |
+| `version` | mods, expansions, mutators, brains and key layouts | 1 to 32 bytes. Optional for a map pack or a language pack, and the same bound when it is present. |
+| `revision` | no | A whole number from 1 to 65535 when present. |
+| `release` | yes | A whole number from 1 to 2147483647. |
+| `published` | no | A day, `YYYY-MM-DD`, or a UTC time. |
+| `requires` | no | An object. `engine`, when present, is an engine range, as on a catalogue entry. Other members are ignored. |
+| `size` | yes | A whole number of bytes from 1 to 4294967296. |
+| `sha256` | yes | 64 lower-case hex digits. |
+| `file` | yes | A reference whose last segment is `<sha256>.<kind>`, or `<sha256>.oaexp` for an expansion. |
+
+OA asks the download service for the release and the digest a replay names.
+A digest in the catalogue's current entries is that entry. A digest only in
+this list is the older release. A newer release is never fetched in its place.
 
 ## Every package
 
@@ -260,7 +319,7 @@ ignored.
 | `word` | no | 1 to 32 bytes. |
 | `locales` | no | At most 16 language tags. |
 | `fallbacks` | no | At most 8 language tags. |
-| `needs` | no | `game-fonts` or `modern-fonts`. |
+| `needs` | no | `game-fonts`, `modern-fonts` or `shaping`. |
 
 The manifest inside the package is described by
 [languages.md](../languages.md).

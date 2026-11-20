@@ -7,6 +7,7 @@
 #include "oa/base/sha256.hpp"
 #include "oa/base/signing/ed25519.hpp"
 #include "oa/data/catalogue/catalogue.hpp"
+#include "oa/data/catalogue/releases.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/formats/url.hpp"
 #include "oa/test/check.hpp"
@@ -1924,11 +1925,164 @@ void test_oakeys() {
     }
 }
 
+/// A package line for a releases list, named by the hash of `label`.
+std::string release_entry(std::string_view kind, std::string_view id, std::string_view label) {
+    const std::string hash = hex_of(label);
+    std::string extension(kind);
+    if (kind == "expansion")
+        extension = "oaexp";
+    std::string json = "{\"kind\":\"";
+    json += kind;
+    json += "\",\"id\":\"";
+    json += id;
+    json += "\",\"name\":\"Name\",\"version\":\"1\",\"release\":1,\"size\":4,\"sha256\":\"";
+    json += hash;
+    json += "\",\"file\":\"/v1/p/";
+    json += hash;
+    json += '.';
+    json += extension;
+    json += "\"}";
+    return json;
+}
+
+void test_releases_member() {
+    const auto plain = read_ok(catalogue_of(bare("oamod", "keeper")));
+    OA_CHECK(!plain.releases.has_value());
+    OA_CHECK(plain.packages.size() == 1);
+
+    const std::string good = release_entry("oamod", "ridge", "ridge-28");
+    const std::string bad =
+        "{\"kind\":\"nope\",\"id\":\"ridge\",\"name\":\"Name\",\"version\":\"1\","
+        "\"release\":1,\"size\":4,\"sha256\":\"" +
+        hex_of("bad") + "\",\"file\":\"/v1/p/" + hex_of("bad") + ".oamod\"}";
+    const std::string pack = release_entry("oamap", "fixture-isles", "fixture-isles-old");
+    std::string list = "{\"releases\":1,\"registry\":\"coreprime\",\"sequence\":60,"
+                       "\"generated\":\"2026-11-02T04:10:00Z\",\"packages\":[";
+    list += good;
+    list += ',';
+    list += bad;
+    list += ',';
+    list += pack;
+    list += "]}";
+    const std::string hash = hex_of(list);
+    const std::string member = "\"releases\":{\"file\":\"/v1/releases/" + hash +
+                               ".json\",\"sha256\":\"" + hash +
+                               "\",\"size\":" + std::to_string(list.size()) + "}";
+    const auto with_list = read_ok(catalogue_of(bare("oamod", "keeper"), member));
+    OA_CHECK(with_list.releases.has_value());
+    OA_CHECK(with_list.packages.size() == 1);
+    if (with_list.packages.size() == 1)
+        OA_CHECK(with_list.packages[0].id == "keeper");
+    OA_CHECK(with_list.registry == "coreprime");
+
+    catalogue::HeldReleases held;
+    held.list.registry = "kept-registry";
+    held.list.sequence = 3;
+    catalogue::ReleasesTake how = catalogue::ReleasesTake::mismatch;
+    const catalogue::HeldReleases taken =
+        catalogue::take_releases(*with_list.releases, bytes_of(list), held, &how);
+    OA_CHECK(how == catalogue::ReleasesTake::taken);
+    OA_CHECK(taken.digest.has_value());
+    OA_CHECK(taken.list.registry == "coreprime");
+    OA_CHECK(taken.list.sequence == 60);
+    OA_CHECK(taken.list.packages.size() == 2);
+    OA_CHECK(taken.list.problems.size() == 1);
+    if (taken.list.packages.size() == 2) {
+        OA_CHECK(taken.list.packages[0].id == "ridge");
+        OA_CHECK(taken.list.packages[0].kind == catalogue::Kind::oamod);
+        OA_CHECK(taken.list.packages[1].id == "fixture-isles");
+        OA_CHECK(taken.list.packages[1].kind == catalogue::Kind::oamap);
+    }
+    if (!taken.list.problems.empty())
+        OA_CHECK(taken.list.problems[0].find("unknown kind") != std::string::npos);
+
+    std::string wrong_size = list;
+    wrong_size.push_back(' ');
+    how = catalogue::ReleasesTake::taken;
+    const catalogue::HeldReleases kept_size =
+        catalogue::take_releases(*with_list.releases, bytes_of(wrong_size), held, &how);
+    OA_CHECK(how == catalogue::ReleasesTake::mismatch);
+    OA_CHECK(kept_size.list.registry == "kept-registry");
+    OA_CHECK(kept_size.list.sequence == 3);
+    OA_CHECK(!kept_size.digest.has_value());
+
+    std::string wrong_bytes = list;
+    wrong_bytes[0] = ' ';
+    const std::string wrong_hash = hex_of(wrong_bytes);
+    const std::string wrong_member = "\"releases\":{\"file\":\"/v1/releases/" + wrong_hash +
+                                     ".json\",\"sha256\":\"" + wrong_hash +
+                                     "\",\"size\":" + std::to_string(wrong_bytes.size()) + "}";
+    const auto wrong_catalogue = read_ok(catalogue_of(bare("oamod", "keeper"), wrong_member));
+    OA_CHECK(wrong_catalogue.releases.has_value());
+    how = catalogue::ReleasesTake::taken;
+    const catalogue::HeldReleases kept_hash =
+        catalogue::take_releases(*wrong_catalogue.releases, bytes_of(list), held, &how);
+    OA_CHECK(how == catalogue::ReleasesTake::mismatch);
+    OA_CHECK(kept_hash.list.registry == "kept-registry");
+
+    std::string ignored_list = list;
+    const std::string version_key = "\"releases\":1";
+    const auto version_at = ignored_list.find(version_key);
+    OA_CHECK(version_at != std::string::npos);
+    if (version_at != std::string::npos)
+        ignored_list.replace(version_at, version_key.size(), "\"releases\":2");
+    const std::string ignored_hash = hex_of(ignored_list);
+    const std::string ignored_member = "\"releases\":{\"file\":\"/v1/releases/" + ignored_hash +
+                                       ".json\",\"sha256\":\"" + ignored_hash +
+                                       "\",\"size\":" + std::to_string(ignored_list.size()) + "}";
+    const auto ignored_catalogue = read_ok(catalogue_of(bare("oamod", "keeper"), ignored_member));
+    how = catalogue::ReleasesTake::taken;
+    const catalogue::HeldReleases kept_ignored =
+        catalogue::take_releases(*ignored_catalogue.releases, bytes_of(ignored_list), held, &how);
+    OA_CHECK(how == catalogue::ReleasesTake::ignored);
+    OA_CHECK(kept_ignored.list.registry == "kept-registry");
+    OA_CHECK(kept_ignored.list.packages.empty());
+
+    const auto drops_releases = [](std::string_view json, std::string_view needle) {
+        const catalogue::Catalogue out = read_ok(json);
+        OA_CHECK(!out.releases.has_value());
+        OA_CHECK(out.packages.size() == 1);
+        if (!out.packages.empty())
+            OA_CHECK(out.packages[0].id == "keeper");
+        bool noted = false;
+        for (const std::string& problem : out.problems) {
+            if (problem.find(needle) != std::string::npos)
+                noted = true;
+        }
+        OA_CHECK(noted);
+    };
+    drops_releases(
+        catalogue_of(bare("oamod", "keeper"), "\"releases\":1"), "releases is not an object"
+    );
+    drops_releases(
+        catalogue_of(bare("oamod", "keeper"), "\"releases\":{}"),
+        "releases.sha256 is not 64 lower-case hex digits"
+    );
+    drops_releases(
+        catalogue_of(
+            bare("oamod", "keeper"),
+            "\"releases\":{\"file\":\"/v1/releases/" + hash + ".json\",\"sha256\":\"" + hash +
+                "\",\"size\":0}"
+        ),
+        "releases.size"
+    );
+    const std::string other = hex_of("other-file");
+    drops_releases(
+        catalogue_of(
+            bare("oamod", "keeper"),
+            "\"releases\":{\"file\":\"/v1/releases/" + other + ".json\",\"sha256\":\"" + hash +
+                "\",\"size\":" + std::to_string(list.size()) + "}"
+        ),
+        "releases.file is not named by its sha256"
+    );
+}
+
 } // namespace
 
 int main() {
     test_sample();
     test_registry_icon();
+    test_releases_member();
     test_skipped_entries();
     test_language_key_and_fields();
     test_coverage_and_bounds();

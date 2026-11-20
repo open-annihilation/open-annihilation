@@ -24,9 +24,10 @@ namespace oa::ui::engine_settings::developer {
 DialogAction toggle_open(Dialog& dialog, const geometry::ListRow& row);
 
 /// Takes a released press on a row's control: an area's header opens or
-/// closes it; a hack's header turns the hack off or on on its switch's
-/// halves and opens or closes it elsewhere; a parameter's switch is set by
-/// the half pressed. A locked row changes nothing but its header's opening.
+/// closes it; a hack's header flips the hack off or on anywhere on its
+/// switch and opens or closes it elsewhere; a press anywhere on a
+/// parameter's switch flips it. A locked row changes nothing but its
+/// header's opening.
 ///
 /// @param[in,out] dialog the dialog
 /// @param row the row
@@ -59,7 +60,7 @@ DialogAction step(Dialog& dialog, const geometry::ListRow& row, bool up);
 /// @return what it asks of the host
 DialogAction drag_to(Dialog& dialog, const geometry::ListRow& row, int32_t column);
 
-/// Takes Show Active Only's switch: sets it On or Off.
+/// Sets Show Active Only's switch On or Off.
 ///
 /// @param[in,out] dialog the dialog
 /// @param on true for On

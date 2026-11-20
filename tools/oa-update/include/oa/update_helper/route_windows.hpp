@@ -214,8 +214,9 @@ struct FolderPlan {
 
 /// True when `program` is this helper's file inside the install folder.
 ///
-/// A folder swap renames that file. On Windows XP a running program cannot
-/// be renamed, so the swap copies it out of the install and continues there.
+/// A folder swap renames that file, and a setup writes it. No Windows lets
+/// a running program's file be written, and Windows XP does not let it be
+/// renamed, so the run copies it out of the install and continues there.
 ///
 /// @param program the running program
 /// @param install the install folder
@@ -224,17 +225,22 @@ struct FolderPlan {
     const std::filesystem::path& program, const std::filesystem::path& install
 );
 
-/// True when this process should hand the folder swap to a copy outside the
-/// install.
+/// True when this process should hand a Windows route to a copy outside
+/// the install.
 ///
-/// A process that was already started as that copy (`helper_parent` is not
-/// 0) carries on, so the hand-off happens once.
+/// The folder swap renames the helper's own file and the setup writes it,
+/// so both routes step aside. The silent setup skips a file it cannot
+/// write and still exits 0, which would leave the old helper in the install
+/// after every update. A process that was already started as that copy
+/// (`helper_parent` is not 0) carries on, so the hand-off happens once.
 ///
+/// @param route the plan's route
 /// @param program the running program
 /// @param install the install folder
 /// @param helper_parent the process that copied this helper out; 0 for the first process
 /// @return true when the caller should start the copy and leave
-[[nodiscard]] bool folder_swap_must_step_aside(
+[[nodiscard]] bool helper_must_step_aside(
+    oa::app::update::Route route,
     const std::filesystem::path& program,
     const std::filesystem::path& install,
     int64_t helper_parent
@@ -242,7 +248,8 @@ struct FolderPlan {
 
 /// Where the copy runs.
 ///
-/// `<updates>/oa-update-running.exe` is not a name the folder swap renames.
+/// `<updates>/oa-update-running.exe` is not a name the folder swap renames
+/// or the setup writes.
 ///
 /// @param updates the data folder's updates directory
 /// @return the copy's path
@@ -336,6 +343,79 @@ struct FolderPlan {
 /// @return how the relaunch ended
 [[nodiscard]] ElevatedRelaunch relaunch_elevated_plan(const std::filesystem::path& plan_file);
 
+/// Starts this helper again with `runas`, `--put-back --updates` and the
+/// updates folder, and waits for it.
+///
+/// That copy puts back the files kept before a setup that did not finish,
+/// and does nothing else. Off Windows the relaunch does not run.
+///
+/// @param updates the data folder's updates directory
+/// @return how the relaunch ended
+[[nodiscard]] ElevatedRelaunch relaunch_elevated_put_back(const std::filesystem::path& updates);
+
+/// How putting back the files kept before a setup went.
+enum class PutBack : uint8_t {
+    done,      ///< every kept file is back, and the marker is gone
+    cancelled, ///< the player declined the permission prompt; nothing was put back
+    failed,    ///< the kept files are not all back; the marker stays
+};
+
+/// The Windows version, the write check and the copy with raised rights a
+/// test injects. Each null member is the real one.
+struct PutBackHooks {
+    void* context{}; ///< passed back to the hooks
+    /// The `GetVersion` value. The real one is 0 off Windows.
+    uint32_t (*windows_version)(void* context){};
+    /// True when this process can write a new file in `folder`.
+    bool (*writable)(void* context, const std::filesystem::path& folder){};
+    /// Starts the copy with raised rights that puts the kept files back
+    /// under `updates`, and waits for it.
+    ElevatedRelaunch (*raise)(void* context, const std::filesystem::path& updates){};
+};
+
+/// True when putting kept files back into `install` needs a copy with
+/// raised rights: the folder does not take a file from this process, on
+/// Vista or later, as for a roll back.
+///
+/// @param install the install folder
+/// @param hooks test hooks; null for the real ones
+/// @return true when the files go back through the copy with raised rights
+[[nodiscard]] bool
+put_back_needs_elevation(const std::filesystem::path& install, const PutBackHooks* hooks);
+
+/// Puts back the files the installer route kept in `<updates>/previous`,
+/// into the install the `installer-pending` marker names, and removes the
+/// marker once they are all back.
+///
+/// This is what the copy started with `--put-back` does. No marker is
+/// nothing to put back.
+///
+/// @param updates the data folder's updates directory
+/// @param[out] error why the files are not back; may be null
+/// @return true when nothing is left to put back
+[[nodiscard]] bool put_back_marked(const std::filesystem::path& updates, std::string* error);
+
+/// Puts back the files kept before a setup that did not finish.
+///
+/// The marker is written first, naming `install`, so the copy with raised
+/// rights and a later run find it. Where the player cannot write the
+/// install folder on Vista or later (put_back_needs_elevation), a copy of
+/// this helper started with `runas` and `--put-back` puts the files back,
+/// as a roll back does; otherwise this process does (put_back_marked). A
+/// missing install folder fails without asking.
+///
+/// @param updates the data folder's updates directory
+/// @param install the install folder
+/// @param hooks test hooks; null for the real ones
+/// @param[out] error why the files are not back; may be null
+/// @return how it went
+[[nodiscard]] PutBack put_back_kept(
+    const std::filesystem::path& updates,
+    const std::filesystem::path& install,
+    const PutBackHooks* hooks,
+    std::string* error
+);
+
 /// Writes DisplayVersion when `program` is `oa-display-version`.
 ///
 /// @param program the journal step's program
@@ -381,12 +461,18 @@ struct UpdatesGateResult {
 ///
 /// A reboot marker drops the journal and asks for a restart, so a deferred
 /// Windows 9x swap is not undone. An installer marker puts the kept program
-/// files back first; a failed restore leaves the journal. Postponed renames
-/// without a reboot marker drop any `WININIT.INI` lines they added.
+/// files back first (put_back_kept), with raised rights where the player
+/// cannot write the install folder; a restore that fails, or a permission
+/// prompt the player declines, leaves the marker and the journal. Postponed
+/// renames without a reboot marker drop any `WININIT.INI` lines they added.
+///
+/// The caller settles markers only once nothing else runs from the install.
 ///
 /// @param updates the data folder's updates directory
+/// @param hooks test hooks for putting files back; null for the real ones
 /// @return what the caller should do before undoing a journal
-[[nodiscard]] UpdatesGateResult take_pending(const std::filesystem::path& updates);
+[[nodiscard]] UpdatesGateResult
+take_pending(const std::filesystem::path& updates, const PutBackHooks* hooks = nullptr);
 
 /// Carries out a Windows route after the package has been checked.
 ///
@@ -394,7 +480,8 @@ struct UpdatesGateResult {
 /// setup, and starts the game only when the setup exits 0 and
 /// `open-annihilation.exe` changed. The helper's own file is not kept and
 /// not put back. Declining the prompt changes nothing. A setup that fails
-/// after files were changed puts the other files back and says so. A folder
+/// after files were changed puts the other files back, with raised rights
+/// where the player cannot write the install folder, and says so. A folder
 /// is swapped in place. Elevation starts a second copy and this copy starts
 /// the game. Windows 9x writes `WININIT.INI` and starts nothing.
 /// `elevated_swap` never starts the game.

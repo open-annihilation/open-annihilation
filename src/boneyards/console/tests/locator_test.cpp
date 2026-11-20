@@ -1341,6 +1341,63 @@ void test_pixels(Desktop* desktop, Surface* overlay) {
     CHECK(relocate->states.current == button_state::unpressed);
     CHECK(page_button->states.current == button_state::unpressed);
 
+    // The five find rows, Name and Search, then the result, Relocate and Page.
+    // Return in Name already ran above, before this walk.
+    console->region = 1;
+    Window* row0 = window_find_named(console, "row_0", nullptr);
+    desktop_set_focus(desktop, row0);
+    std::vector<std::string> stops;
+    stops.emplace_back("row_0");
+    for (int32_t step = 0; step < 24; ++step) {
+        Message tab{};
+        tab.code = MessageCode::key_down;
+        tab.key = key::tab;
+        desktop_route(desktop, &tab);
+        Window* focus = desktop->focus;
+        if (focus == row0)
+            break;
+        stops.emplace_back(focus != nullptr && focus->name != nullptr ? focus->name : "");
+    }
+    int32_t previous = -1;
+    for (const char* stop :
+         {"row_0",
+          "row_1",
+          "row_2",
+          "row_3",
+          "row_4",
+          "Name",
+          "Search",
+          "rhit0",
+          "Relocate",
+          "Page"}) {
+        int32_t found = -1;
+        for (int32_t i = 0; i < static_cast<int32_t>(stops.size()); ++i) {
+            if (stops[static_cast<std::size_t>(i)] == stop) {
+                found = i;
+                break;
+            }
+        }
+        CHECK(found > previous);
+        previous = found;
+    }
+
+    // Return on a result rebuilds the row. The keyboard stays on that row,
+    // so the next Tab reaches Relocate and Return relocates.
+    Window* hit = window_find_named(console, "rhit0", nullptr);
+    desktop_set_focus(desktop, hit);
+    desktop_route(desktop, &enter);
+    console->ops->pulse(console);
+    Window* kept = desktop->focus;
+    CHECK(kept != nullptr && kept->name != nullptr && std::strcmp(kept->name, "rhit0") == 0);
+    Message tab_on{};
+    tab_on.code = MessageCode::key_down;
+    tab_on.key = key::tab;
+    desktop_route(desktop, &tab_on);
+    CHECK(desktop->focus == relocate);
+    const int32_t switches = rig.tape.switches;
+    desktop_route(desktop, &enter);
+    CHECK(rig.tape.switches == switches + 1);
+
     desktop_set_focus(desktop, nullptr);
     clear_overlay(overlay);
     desktop_draw(desktop);

@@ -260,13 +260,17 @@ void draw_build_site_overlay(
 /// @param color Palette index of the lines.
 /// @param label Label text, or null for none.
 /// @param label_slot Which third of the segments the label follows.
+/// @param dashed true draws every other segment. A ring the game already
+///        draws is dashed, while shape cues are in effect, for a unit that
+///        is not the local player's and not an ally's.
 void draw_range_circle(
     const OverlayContext& context,
     const FixedVec3& center,
     uint32_t radius,
     uint8_t color,
     const char* label,
-    int32_t label_slot
+    int32_t label_slot,
+    bool dashed = false
 );
 /// Draws the ordered unit's range circles.
 ///

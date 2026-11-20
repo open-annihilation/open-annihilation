@@ -207,6 +207,7 @@ void write_leaf(
         else
             writer.string(control.scroll_down);
     }
+    write_control_access(writer, control);
 }
 
 /// Writes a tree node and its children.
@@ -384,20 +385,31 @@ std::optional<ClickPoint> list_row_point(const AutomationControl& row_list, int3
 }
 
 void fill_observed(
-    const CheckHost& check, const AutomationHost& automation, Observed& now, bool dialogs
+    const CheckHost& check,
+    const AutomationHost& automation,
+    Observed& now,
+    bool dialogs,
+    bool read_focus
 ) {
     now = Observed{};
+    now.focus_read = read_focus;
     now.screen = screen_name(check.screen(check.context));
     if (automation.match_world != nullptr)
         now.match = automation.match_world(automation.context);
     const ScreenId shown = check.screen(check.context);
     if (shown == mp::kScreenBattleroom && mp::multiplayer_lobby().game != nullptr)
         now.room = &mp::multiplayer_lobby();
-    if (dialogs) {
-        std::vector<AutomationControl> controls;
-        collect_controls(check, automation, controls);
+    // The tree is walked only for a frame that names its dialogs or reads
+    // the focus. A launcher's status line does neither on an ordinary frame.
+    if (!dialogs && !read_focus)
+        return;
+    std::vector<AutomationControl> controls;
+    collect_controls(check, automation, controls);
+    if (dialogs)
         now.dialogs = dialog_names(controls);
-    }
+    if (!read_focus)
+        return;
+    read_shown_focus(now, controls);
 }
 
 } // namespace oa::app::automation

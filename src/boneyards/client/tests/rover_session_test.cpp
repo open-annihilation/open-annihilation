@@ -17,6 +17,8 @@
 #include "oa/boneyards/rover_string.hpp"
 #include "oa/boneyards/screens/navigator.hpp"
 #include "oa/boneyards/screens/profile.hpp"
+#include "oa/data/languages.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/rover/platform.h"
 #include "record.h"
 #include "requests.h"
@@ -687,7 +689,15 @@ void fail_password() {
     g_fake.progress(8, 4, 0, 0, nullptr);
 }
 
+void fail_unavailable() {
+    g_fake.progress(8, 1, 0, 0, nullptr);
+}
+
 void fail_unknown() {
+    g_fake.progress(8, 10, 0, 0, nullptr);
+}
+
+void fail_email_unconfirmed() {
     g_fake.progress(8, 9, 0, 0, nullptr);
 }
 
@@ -717,10 +727,26 @@ void test_login_failures() {
     CHECK(g_reports.resets == 1 && g_fake.resets == 1 && level() == SessionLevel::client_active);
 
     g_reports.statuses.clear();
+    pump(fail_unavailable);
+    CHECK(
+        g_reports.statuses.size() == 1 &&
+        g_reports.statuses[0] == "Unable to login to Boneyards, try again later."
+    );
+
+    g_reports.statuses.clear();
     pump(fail_unknown);
     CHECK(
         g_reports.statuses.size() == 1 &&
         g_reports.statuses[0] == "Unable to login to Boneyards, try again later."
+    );
+
+    // Core Prime's result 9: the account's email address is not confirmed yet.
+    g_reports.statuses.clear();
+    pump(fail_email_unconfirmed);
+    CHECK(
+        g_reports.statuses.size() == 1 &&
+        g_reports.statuses[0] ==
+            "Confirm your email address first: check your inbox for the Core Prime email."
     );
 
     g_reports.statuses.clear();
@@ -737,12 +763,44 @@ void test_login_failures() {
     g_reports.statuses.clear();
     pump(fail_relay);
     CHECK(g_reports.statuses.size() == 2 && g_reports.statuses[0] == "Transmision Relay Failure");
-    CHECK(g_reports.resets == 5 && g_fake.resets == 5);
+    CHECK(g_reports.resets == 7 && g_fake.resets == 7);
 
     // Other stages are not reported.
     g_reports.statuses.clear();
     g_fake.progress(1, 0, 0, 0, nullptr);
-    CHECK(g_reports.statuses.empty() && g_reports.resets == 5);
+    CHECK(g_reports.statuses.empty() && g_reports.resets == 7);
+}
+
+// The unconfirmed email line is read in the player's language; the 3.1c lines stay as they are.
+void test_login_failure_language() {
+    oa::data::languages::InterfaceText catalogue;
+    CHECK(catalogue.add(
+        "[Confirm your email address first: check your inbox for the Core Prime email.]\n"
+        "\t{\n\tde=Bestätige zuerst deine E-Mail-Adresse.;\n\t}\n"
+    ));
+    const oa::data::languages::Language* german = oa::data::languages::find_by_tag("de");
+    CHECK(german != nullptr);
+    if (german == nullptr)
+        return;
+    oa::data::languages::set_interface_language(&catalogue, *german);
+    reset_all();
+    CHECK(g_service.activate(g_service.user) == ActivationResult::ok);
+    login("kestrel", "secret");
+    pump(fail_email_unconfirmed);
+    CHECK(
+        g_reports.statuses.size() == 1 &&
+        g_reports.statuses[0] == "Bestätige zuerst deine E-Mail-Adresse."
+    );
+    CHECK(g_reports.resets == 1 && level() == SessionLevel::client_active);
+    g_reports.statuses.clear();
+    pump(fail_password);
+    CHECK(
+        g_reports.statuses.size() == 1 &&
+        g_reports.statuses[0] ==
+            "The password you provided was not correct for the username.  Check the values and "
+            "try again."
+    );
+    oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());
 }
 
 void test_dossier_refused() {
@@ -2337,6 +2395,7 @@ int main() {
     test_member_login();
     test_guest_and_explicit_server();
     test_login_failures();
+    test_login_failure_language();
     test_dossier_refused();
     test_cancel();
     test_live_holds_until_logout_or_disconnect();

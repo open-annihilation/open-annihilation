@@ -33,6 +33,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -54,6 +55,24 @@ class HostNotFoundFailure(Exception):
     """A behaviour that differs from the expected one."""
 
 
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding="utf-8") if target.is_file() else "open-annihilation-preferences 1\n"
+    if "open-annihilation.update-check" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.update-check" "never"\n'
+    if "open-annihilation.content-updates" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding="utf-8")
+
+
 def check(native, game_dir, workdir):
     """Runs the join; raises HostNotFoundFailure when it does not end as expected."""
     environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy",
@@ -62,6 +81,7 @@ def check(native, game_dir, workdir):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as silent:
         silent.bind((ADDRESS, 0))
         port = silent.getsockname()[1]
+        _offline_preferences(workdir / "host-not-found.conf")
         result = subprocess.run(
             [*RUNNER, str(native), "--game-dir", str(game_dir), "--mute", "--check-host-not-found",
              "--frames", FRAMES, "--preferences-file", str(workdir / "host-not-found.conf"),

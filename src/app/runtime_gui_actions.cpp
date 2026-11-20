@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The gui actions gathered from a mod's GUI files, and which of them are
-// live for the panel on screen.
+// The gui actions gathered from a mod's GUI files, and the panel on screen
+// and the order file they follow.
 #include "oa/app/runtime.hpp"
 
 #include "gui_actions.hpp"
@@ -14,7 +14,6 @@
 #include "oa/data/defs/files.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/sides.hpp"
-#include "oa/data/input_actions/actions.hpp"
 #include "oa/formats/tdf.hpp"
 #include "oa/ui/gui_layout.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
@@ -32,23 +31,9 @@
 
 namespace oa::app {
 
-namespace actions = oa::data::input_actions;
 namespace keys = oa::ui::key_bindings;
 
 namespace {
-
-/// The bit of a context, or 0 when the table has no such name.
-///
-/// @param name the context id
-/// @return the bit
-uint32_t context_bit(std::string_view name) {
-    const std::span<const actions::Context> table = actions::contexts();
-    for (std::size_t index = 0; index < table.size() && index < 32; ++index) {
-        if (table[index].name == name)
-            return uint32_t{1} << static_cast<uint32_t>(index);
-    }
-    return 0;
-}
 
 /// The file stem of a resource path, folded as a gui id piece.
 ///
@@ -190,21 +175,6 @@ std::string screen_title(const oa::ui::gui_layout::Layout& layout, std::string_v
     return std::string(stem);
 }
 
-/// The stem of a `gui.` action id, between the two dots.
-///
-/// @param id the action id
-/// @return the stem, or empty when the id is not a gui action
-std::string_view stem_of_gui_id(std::string_view id) {
-    constexpr std::string_view prefix = "gui.";
-    if (!id.starts_with(prefix))
-        return {};
-    const auto rest = id.substr(prefix.size());
-    const auto dot = rest.find('.');
-    if (dot == std::string_view::npos)
-        return rest;
-    return rest.substr(0, dot);
-}
-
 } // namespace
 
 void copy_button_letter(
@@ -273,6 +243,13 @@ void Runtime::gather_gui_quick_keys() {
     }
     gui_quick_keys_gathered_ = true;
     gather_tag_words();
+}
+
+void Runtime::gather_key_mod_data() {
+    if (key_bindings_armed_)
+        load_key_bindings();
+    if (!gui_quick_keys_gathered_)
+        gather_gui_quick_keys();
 }
 
 void Runtime::gather_tag_words() {
@@ -371,21 +348,6 @@ std::string Runtime::loaded_category_letters() const {
     }
     std::sort(letters.begin(), letters.end());
     return letters;
-}
-
-void Runtime::apply_shown_gui_file(keys::Resolved& resolved, std::string_view shown) const {
-    const uint32_t play = context_bit("play");
-    const uint32_t panel = context_bit("panel");
-    const uint32_t unit_info = context_bit("unit-info");
-    for (keys::Bound& bound : resolved.actions) {
-        if (!bound.id.starts_with("gui."))
-            continue;
-        const std::string_view stem = stem_of_gui_id(bound.id);
-        if (stem.starts_with("unitinfo"))
-            bound.contexts = unit_info;
-        else if (!shown.empty() && stem == shown)
-            bound.contexts = play | panel;
-    }
 }
 
 std::string Runtime::order_side_stem() const {

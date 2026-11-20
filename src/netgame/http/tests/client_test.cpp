@@ -20,6 +20,10 @@
 #include <string_view>
 #include <vector>
 
+#if defined(OA_HTTP_TLS_OPENSSL)
+#include <dlfcn.h>
+#endif
+
 namespace {
 
 using oa::netgame::http::BodySink;
@@ -885,6 +889,29 @@ int main() {
         OA_CHECK(is_text(body, "yes"));
         OA_CHECK(response.final_url == "http://127.0.0.1:" + std::to_string(server.port()) + "/x");
     }
+
+#if defined(OA_HTTP_TLS_OPENSSL)
+    say("tls where the system has libssl");
+    {
+        // The client loads the same pairs. Where one opens here, HTTPS must be
+        // there too: a symbol the client asks for that the library does not
+        // export reads every https address as http.
+        const auto opens = [](const char* ssl, const char* crypto) {
+            void* crypto_handle = dlopen(crypto, RTLD_NOW | RTLD_LOCAL);
+            void* ssl_handle = dlopen(ssl, RTLD_NOW | RTLD_LOCAL);
+            const bool both = crypto_handle != nullptr && ssl_handle != nullptr;
+            if (ssl_handle != nullptr)
+                dlclose(ssl_handle);
+            if (crypto_handle != nullptr)
+                dlclose(crypto_handle);
+            return both;
+        };
+        if (opens("libssl.so.3", "libcrypto.so.3") || opens("libssl.so.1.1", "libcrypto.so.1.1"))
+            OA_CHECK(oa::netgame::http::tls_available());
+        else
+            say("  no libssl on this system");
+    }
+#endif
 
     say("https does not fall back when tls fails");
     {

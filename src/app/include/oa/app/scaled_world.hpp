@@ -104,6 +104,8 @@ struct ScaledWorldCounts {
 /// then throws PresentError. The accelerated tier's scene and overlay make
 /// it with create, ARGB8888 and at the largest size they are to hold, its
 /// tiles counted, and every SDL failure then throws AccelerationError.
+/// Either way each new tile is cleared (clear_streaming_texture) before it
+/// is drawn.
 class TiledTexture {
   public:
 
@@ -117,8 +119,8 @@ class TiledTexture {
     /// Makes the texture or its tiles for the standard tier unless they
     /// already match: a format, size, limit or blend mode that differs makes
     /// them again. Each is a streaming texture scaled NEAREST with the given
-    /// blend mode; an alpha format with SDL_BLENDMODE_NONE has its blending
-    /// turned off, which SDL turns on for alpha formats.
+    /// blend mode, cleared; an alpha format with SDL_BLENDMODE_NONE has its
+    /// blending turned off, which SDL turns on for alpha formats.
     ///
     /// Throws PresentError when SDL cannot make one.
     ///
@@ -140,7 +142,7 @@ class TiledTexture {
 
     /// Makes the texture or its tiles for the accelerated tier, ARGB8888,
     /// replacing any made before; each is streaming, scaled NEAREST, with
-    /// the blend mode given.
+    /// the blend mode given, and cleared.
     ///
     /// Throws AccelerationError when a tile cannot be made; the tiles made
     /// by then are destroyed.
@@ -199,11 +201,30 @@ class TiledTexture {
         uint32_t end_row = UINT32_MAX
     );
 
-    /// Uploads the top-left corner of an ARGB8888 texture from an RGB24
-    /// picture through the gamma table, each texel opaque.
+    /// Copies a rectangle of a picture into the texture's tiles with
+    /// SDL_UpdateTexture, each tile's gutters with the rest of it; the
+    /// texels outside the rectangle keep what they hold.
     ///
-    /// Only the tiles, and the parts of them, that the corner covers are
-    /// written, gutters included. Throws when a tile cannot be locked (fail).
+    /// Throws when SDL refuses a tile (fail).
+    ///
+    /// @param pixels the rectangle's top left pixel, in the texture's format
+    /// @param pitch bytes from one row of the rectangle to the next
+    /// @param bytes_per_pixel bytes of one pixel of the format
+    /// @param rect the rectangle, in the picture's pixels, within the texture
+    void update_rect(
+        const uint8_t* pixels, int pitch, int bytes_per_pixel, const render_policy::TexelRect& rect
+    );
+
+    /// Uploads the top-left corner of an ARGB8888 texture from an RGB24
+    /// picture through the gamma table, each texel opaque, and the column
+    /// and row past it where the texture holds them: a LINEAR draw of the
+    /// corner reads them at its edge, and they take the corner's last
+    /// column and row, the corner's last texel where they meet, as a
+    /// texture of the corner's own size gives back past its edge.
+    ///
+    /// Only the tiles, and the parts of them, that the corner and the column
+    /// and row past it cover are written, gutters included. Throws when a
+    /// tile cannot be locked (fail).
     ///
     /// @param rgb the picture's first row, 3 bytes a pixel
     /// @param rgb_pitch bytes from one row of the picture to the next
@@ -363,6 +384,11 @@ class TiledTexture {
 /// source drawn into it again only when it changed. Beyond the renderer's
 /// texture limit it is split into tiles (render_policy's plan_tiles), each
 /// with a gutter that holds its neighbour's texels, as TiledTexture is.
+/// Each draw into it also fills the column and row past the enlarged
+/// source from the source's last column and row, so that LINEAR reads at
+/// the source's edge what a target of the source's own size gives back
+/// there, never the colour a new target is cleared to or a larger source
+/// drawn into it before.
 class PrescaleTarget {
   public:
 
@@ -443,6 +469,16 @@ class PrescaleTarget {
     std::vector<SDL_Texture*> tiles_; ///< row after row of the grid
     ScaledWorldCounts* counts_{};     ///< where destroyed tiles are counted
 };
+
+/// Clears a streaming texture: every byte of each of its rows set to 0, which
+/// is black in an opaque format and clear in a format with alpha. A new
+/// texture's pixels are left undefined by the graphics card until something
+/// writes them, and a LINEAR draw at the edge of what was uploaded, or a
+/// draw before the first upload, would show them.
+///
+/// @param texture a streaming texture
+/// @return false when SDL cannot lock it
+[[nodiscard]] bool clear_streaming_texture(SDL_Texture* texture) noexcept;
 
 /// How the card scales a picture: the filter, and the prescale target's
 /// factor where the filter is sharp-bilinear.

@@ -80,10 +80,13 @@ rule, so the lines do not meet the cards as a table.
 ![The same step in a 640 by 480 window.](images/first-run/language-640x480.png)
 
 The card in the middle is the one the step marks: the accent ring once
-it faces the player, the keyboard focus, and, while the step speaks its
-language, the accent badge and the **Active** pill. Left and Right, a
-controller, the wheel, the arrows and a press on a side card all move
-that mark with the carousel, at every moment of the move. The language
+it faces the player and, while the step speaks its language, the accent
+badge and the **Active** pill. The cards are one stop. Tab and
+Shift+Tab leave them. While the ring is hidden the keyboard focus is
+Skip, the first stop. While the ring is on a card it is the middle
+card. Left and Right, a controller, the wheel, the arrows and a press
+on a side card all move that mark with the carousel, at every moment of
+the move. The language
 in use loses it while another card is chosen, and its pill then says
 **Built in** or **Installed**. While a pack that is not installed is in
 the middle, no card says **Active**.
@@ -299,8 +302,9 @@ Tab and the arrows move between the controls. Enter, or A on a controller,
 presses the one with the focus. Escape, or B, is **Back** on the online
 step, and does nothing on the first step. On the last step Escape and Enter
 finish the walk, as **Start playing** does. On the language step the
-shoulder buttons, the wheel and the focus keys also move the carousel one
-card, wrapping at either end.
+cards are one stop, so Tab and Shift+Tab leave them. The shoulder
+buttons, the wheel and the arrows still move the carousel one card,
+wrapping at either end.
 
 ## Showing it again
 

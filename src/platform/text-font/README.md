@@ -24,6 +24,11 @@ the first open font of the stack's chain that has it:
 | `dejavu_sans` | `DejaVuSans.ttf` | the same scripts in the regular weight, and what the bold face lacks |
 | `endonyms` | `NotoSansCJKsc-Bold-Endonyms.otf` | the languages' own names and the notice shown before a language pack is installed; required |
 | `noto_emoji` | `NotoEmoji.ttf` | emoji, in one colour like any character; its weight axis follows the line's weight |
+| `endonyms_bengali` | `NotoSansBengali-Bold-Endonyms.ttf` | Bengali's own name and its notice before that pack is installed, shaped with the face's own layout tables; required |
+
+The table is in `Face` order, which is `face_files` order. `endonyms_bengali`
+is last, so no other face's value moved when it joined; the chain still looks
+in it before `noto_emoji`.
 
 The interface faces open with the stack from the same folder,
 `interface_face_files`, each when its file is there: a missing one leaves
@@ -41,8 +46,11 @@ while the stack is open (`add_face`). An `ideographs` face is drawn at
 the related size and no less than the style's least size. A `letters`
 face is drawn at the sans faces' size. Bold looks in DejaVu Sans Bold,
 DejaVu Sans, the letters pack faces in the order they were added, the
-ideographs pack faces in that order, the endonym face, then Noto Emoji.
-Regular is the same without DejaVu Sans Bold. Semibold looks as bold
+ideographs pack faces in that order, the endonym face, the Bengali endonym
+face, then Noto Emoji. The Bengali endonym face is drawn at the sans faces'
+size, as a letters pack face is, and comes after the pack faces: once the
+Bengali pack is installed, its full face draws Bengali, and before then
+this one does. Regular is the same without DejaVu Sans Bold. Semibold looks as bold
 does and medium as regular. `Style::family` chooses the faces looked in
 first: the sans family (`Family::sans`, the default) is the chain above;
 the interface family (`Family::interface`) puts the Barlow face of the
@@ -61,11 +69,15 @@ spaces and joiners, and the byte-order mark draw nothing and take no room
 
 `tools/bootstrap_text_fonts.py` fetches the fonts and FreeType, pinned by
 SHA-256, into `local/deps`, and cuts Noto Sans CJK SC Bold down to the
-languages' own names and the notice in `tools/text-fonts/endonyms.txt`.
-Barlow and Barlow Condensed are the static faces of the project's release
+languages' own names and the notice in `tools/text-fonts/endonyms.txt`, and
+Noto Sans Bengali Bold down to Bengali's own name and notice in
+`tools/text-fonts/endonyms-bengali.txt`. The Bengali cut keeps its GSUB,
+GPOS and GDEF and every glyph at the id the full face gives it, so HarfBuzz
+shapes a Bengali line with it to the glyphs and positions the full face
+gives. Barlow and Barlow Condensed are the static faces of the project's release
 1.422 (<https://github.com/jpt/barlow>), unmodified. The full CJK face
-comes with the Simplified Chinese language pack. The build copies the ten
-fonts into the `fonts` folder beside the game
+comes with the Simplified Chinese language pack. The build copies the
+eleven fonts into the `fonts` folder beside the game
 (`cmake/OaTextFonts.cmake`), which `bundled_font_directory` finds at run
 time: the bundle's `Contents/Resources/fonts` on macOS, the fonts folder
 beside the executable elsewhere. Their licences are in the repository's
@@ -81,9 +93,10 @@ beside the executable elsewhere. Their licences are in the repository's
   game's pixel fonts; `Rendering::antialiased` hints them and draws 256
   levels. `Style::family` chooses the faces looked in first. The pen starts at the coverage's `origin` column and moves by each
   character's advance rounded to a whole pixel, plus the letter spacing
-  after each character that moves it. Characters are not shaped, kerned or
-  reordered, so scripts that need shaping (Arabic, Hebrew, the Indic
-  scripts) are drawn letter by letter, left to right.
+  after each character that moves it. Bengali and Devanagari are shaped
+  with HarfBuzz first, and their glyphs are drawn at the positions shaping
+  gave. Every other script is drawn letter by letter, left to right, not
+  shaped, kerned or reordered.
 - The coverage is at least the line's ascent and descent tall
   (`FontStack::metrics`), and grows for a glyph that reaches past them;
   `baseline` gives the baseline's row and `advance` how far the pen moved.
@@ -109,13 +122,16 @@ beside the executable elsewhere. Their licences are in the repository's
   as a scalable font.
 - `FontStack::face_metrics` gives one face's pixel size and rows at the size
   a style draws it at, and is empty when the face is not open. The sans
-  faces, the interface faces and letters pack faces take the style's pixel
-  size. The endonym
+  faces, the Bengali endonym face, the interface faces and letters pack
+  faces take the style's pixel size. The endonym
   face and ideographs pack faces take `related_pixel_size` of it, and no
   less than the style's least size. Noto Emoji takes `related_pixel_size`.
   `FontStack::metrics` is the greatest ascent and descent of the open base
-  faces and of an interface family's face for the weight. A pack's faces
-  never change the line's rows. The endonym face
+  faces, the Bengali endonym face apart, and of an interface family's face
+  for the weight. A pack's faces and the Bengali endonym face never change
+  the line's rows: its descent is deeper than the others', and every line
+  without Bengali keeps the rows it had before the face joined the chain.
+  The endonym face
   keeps the rows a CJK face has, so the line is 14 above the baseline and
   4 below at 14 px bold.
 - `related_pixel_size` gives the size the endonym face, ideographs pack
@@ -194,11 +210,17 @@ its font files free for an exclusive open
 `platform-text-font-pixels`
 runs the same program with `--pixels`: "Ab", a Chinese character and an emoji
 in bold at 14 px, mono, pixel for pixel as FreeType 2.14.3 draws them; it
-skips with another FreeType. `--show TEXT` prints a line as it is drawn.
+skips with another FreeType. `platform-text-font-shaping` runs it with
+`--shape`: the Bengali syllable "ক্ষি", a conjunct with a reordered vowel
+sign, its glyph order and advances checked against HarfBuzz's own output.
+It skips when the Bengali test face is not beside the test, and when the
+build does not shape. `--show TEXT` prints a line as it is drawn.
 
 ## Limitations
 
-- No shaping, kerning or bidirectional text, and no colour emoji.
+- Bengali and Devanagari are shaped with HarfBuzz on a build that has it,
+  left to right. Other scripts are not shaped, kerned or reordered, and
+  there is no colour emoji.
 - Barlow holds no Greek or Cyrillic: a line in those alphabets is drawn in
   DejaVu Sans in the interface families too.
 - Ideographs other than the languages' own names draw from a pack's face.

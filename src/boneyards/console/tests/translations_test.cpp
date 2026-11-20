@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Each new screen shows a translated line when the language changes, and no
-// line of a shipped language is wider than the control that draws it.
+// line of a shipped language is wider than the control that draws it. The
+// login console's LOGIN, REGISTER and CANCEL are translated in every shipped
+// language and fit their buttons, and so is its line for an account whose
+// email address is not confirmed yet.
 #include "oa/boneyards/console/gui_screen.hpp"
 #include "oa/boneyards/font_atlases.hpp"
 #include "oa/boneyards/rover_session.hpp"
+#include "oa/boneyards/screens/lobby_widgets.hpp"
 #include "oa/boneyards/screens/matchmaking.hpp"
 #include "oa/boneyards/shown_text.hpp"
 #include "oa/boneyards/utf8.hpp"
@@ -372,7 +376,7 @@ void check_switch(const oa::data::languages::InterfaceText& catalogue) {
     }
     GuiScreen* registration = load_screen("gui/registration.gui");
     if (registration != nullptr) {
-        expect_caption(registration, "Title", "ANMELDUNG");
+        expect_caption(registration, "Title", "REGISTRIERUNG");
         gui_screen_destroy(registration);
     }
     GuiScreen* form = load_screen("gui/registration_form.gui");
@@ -419,6 +423,77 @@ void check_switch(const oa::data::languages::InterfaceText& catalogue) {
         expect_contains(unavailable, "Text", "page web");
         expect_caption(unavailable, "Ok", "OK!");
         gui_screen_destroy(unavailable);
+    }
+}
+
+// The login console's function buttons: each caption is a word of the language
+// and fits the button in the font the console draws captions in.
+void check_login_buttons(const oa::data::languages::InterfaceText& catalogue, GameWords* words) {
+    constexpr const char* k_buttons[] = {"LOGIN", "REGISTER", "CANCEL"};
+    const Handle font = font_load("BYHatFontMedium90.gaf");
+    CHECK(font != k_no_handle);
+    if (font == k_no_handle)
+        return;
+    oa::data::languages::TranslationHooks hook{};
+    hook.context = words;
+    hook.translate = game_translate;
+    oa::data::languages::set_translation_hooks(hook);
+    for (const char* tag : k_tags) {
+        words->word = game_word(tag);
+        use_language(catalogue, tag);
+        for (const char* english : k_buttons) {
+            const std::string caption = shown_text(english);
+            if (caption == english) {
+                std::fprintf(stderr, "%s login console %s is not translated\n", tag, english);
+                ++g_failures;
+                continue;
+            }
+            if (missing_glyph(font, caption.c_str())) {
+                std::fprintf(
+                    stderr,
+                    "%s login console %s missing glyph in \"%s\"\n",
+                    tag,
+                    english,
+                    caption.c_str()
+                );
+                ++g_failures;
+                continue;
+            }
+            const int32_t width = measure_width(font, caption.c_str());
+            if (width > screens::function_button::large_width) {
+                std::fprintf(
+                    stderr,
+                    "%s login console %s \"%s\" width %d room %d\n",
+                    tag,
+                    english,
+                    caption.c_str(),
+                    width,
+                    screens::function_button::large_width
+                );
+                ++g_failures;
+            }
+        }
+    }
+    font_release(font);
+}
+
+// The login console's line for an account whose email address is not
+// confirmed yet is read in every shipped language.
+void check_login_status_lines(const oa::data::languages::InterfaceText& catalogue) {
+    oa::data::languages::set_translation_hooks(oa::data::languages::TranslationHooks{});
+    for (const char* tag : k_tags) {
+        use_language(catalogue, tag);
+        const std::string line = shown_text(kLoginEmailUnconfirmedText);
+        if (line == kLoginEmailUnconfirmedText) {
+            std::fprintf(stderr, "%s \"%s\" is not translated\n", tag, kLoginEmailUnconfirmedText);
+            ++g_failures;
+        }
+        if (line.size() > k_shown_text_limit) {
+            std::fprintf(
+                stderr, "%s \"%s\" is over %zu bytes\n", tag, line.c_str(), k_shown_text_limit
+            );
+            ++g_failures;
+        }
     }
 }
 
@@ -562,6 +637,8 @@ int main() {
     if (g_failures == 0) {
         check_switch(catalogue);
         check_languages(catalogue, &words);
+        check_login_buttons(catalogue, &words);
+        check_login_status_lines(catalogue);
         check_templates(catalogue_text);
         check_bad_template();
     }

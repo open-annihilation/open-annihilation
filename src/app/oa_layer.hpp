@@ -263,6 +263,25 @@ class LayerScreen {
     /// @return true for a screen that covers its place, the default
     [[nodiscard]] virtual bool opaque() const { return true; }
 
+    /// Tells whether a point of the screen's place, in the screen's points,
+    /// is the screen's own, so that the pointer there shows the arrow rather
+    /// than the cursor of what lies under the layer (OaLayer::covers_pointer).
+    /// A screen whose place is larger than what it shows answers for what it
+    /// shows, as the replay bar, whose place is the battlefield, answers for
+    /// its bar, cards and menus.
+    ///
+    /// @return true, the default: the whole place is the screen's
+    [[nodiscard]] virtual bool covers_point(oa::ui::kit::Point /*at*/) const { return true; }
+
+    /// Tells whether the screen draws the kit's focus ring on its own controls.
+    ///
+    /// One that does is left to that ring. One that does not, and whose
+    /// control joins a screen of the original game's gadgets, takes the
+    /// family's ring instead, with the family's show and hide rule.
+    ///
+    /// @return true when the screen draws kit::draw_focus_ring, the default
+    [[nodiscard]] virtual bool draws_kit_focus_ring() const { return true; }
+
     /// Draws the screen from its own top left corner at the canvas's scale,
     /// through the kit's draw functions on whichever form the canvas has: an
     /// opaque screen every pixel of its points_width × points_height points,
@@ -996,6 +1015,20 @@ class OaLayer {
     /// @return true while a modal screen shows there
     [[nodiscard]] bool modal_shown(bool match) const;
 
+    /// Tells whether the pointer at a point is over the layer, so that it
+    /// shows the arrow rather than the cursor of what lies under the layer
+    /// (Runtime::shown_match_cursor): anywhere while a modal screen shows;
+    /// otherwise inside the place of a screen that shows, such as the keys
+    /// overlay, where that screen covers it (LayerScreen::covers_point), or,
+    /// in a match, over the in-game OA Settings button while it shows. With
+    /// no screen and no button showing it is false.
+    ///
+    /// @param x the pointer's column, in the picture's pixels on the front
+    ///     end and the window's in a match, as input arrives
+    /// @param y the pointer's row
+    /// @return true over the layer
+    [[nodiscard]] bool covers_pointer(float x, float y) const;
+
     /// Takes one input, as the layer's overlay does.
     ///
     /// @param input the input, in the picture's pixels on the front end and
@@ -1055,9 +1088,13 @@ class OaLayer {
     /// Forgets the latched key, as its release would.
     void forget_latched_key() noexcept { latched_key_ = 0; }
 
-    /// Draws the match's layer again at its next refresh: for a change made
-    /// to a screen's model from outside its events.
-    void redraw() noexcept { ++revision_; }
+    /// Draws the match's layer again at its next refresh, every screen drawn
+    /// anew and the whole layer composed: for a change made to a screen's
+    /// model from outside its events.
+    void redraw() noexcept {
+        ++revision_;
+        match_redraw_ = true;
+    }
 
     /// Lays every screen out again for the size in effect.
     ///
@@ -1110,6 +1147,16 @@ class OaLayer {
     /// layer pixel for pixel; one with no scale of its own (the phone's
     /// fitted Settings) is drawn at 1× and fitted to its place (stamp).
     ///
+    /// Only what changed is drawn again. A screen whose revision covers what
+    /// it draws (LayerScreen::revision_covers_drawing) keeps its drawing
+    /// while its revision and everything else it is drawn from hold, as on
+    /// the front end; every other screen is drawn again each time the layer
+    /// is. The layer is then composed again only where a drawing differs from
+    /// the one it replaces, a screen came, went or moved, or the button
+    /// changed: the rest keeps its pixels, which are those composing the
+    /// whole layer anew would give. A new size, the backdrop coming or going,
+    /// screens that change their order and redraw compose the whole layer.
+    ///
     /// @return true when the layer shows anything
     bool refresh_match();
 
@@ -1137,6 +1184,58 @@ class OaLayer {
     /// pixels, while a client is connected. Draws nothing otherwise, and
     /// puts the renderer's state back either way.
     void present_mcp_badge() noexcept;
+
+    /// Draws the kit's focus ring around the focused control of a screen that
+    /// does not draw that ring itself, in the window's own pixels, above
+    /// everything else already drawn. Draws nothing while the ring is hidden,
+    /// and puts the renderer's state back either way. A newly shown screen,
+    /// dialog or extension window hides the ring unless Always show focus is
+    /// on, whatever opened it.
+    void present_family_ring() noexcept;
+
+    /// Hides the family's focus ring, or shows it when Always show focus is on.
+    ///
+    /// Load and the in-game menu call it as they open. Any other newly shown
+    /// screen hides the ring the same way, when it is drawn. The pointer's
+    /// place then is the one a later move is compared with, so a move that
+    /// does not change the pixel does not hide the ring.
+    void note_family_opened() noexcept;
+
+    /// Shows the family's focus ring. Tab and Shift+Tab call it, and so can
+    /// the key A05 adds.
+    void note_family_tab() noexcept;
+
+    /// Hides the family's focus ring. Return calls it before the press, so a
+    /// screen the press opens starts from its own rule.
+    void note_family_return() noexcept;
+
+    /// Hides the family's focus ring when the pointer has moved to another
+    /// pixel, the one that holds the point as the Boneyards toolkit counts it
+    /// (the coordinate truncated). The first place, and a move that stays on
+    /// the same pixel, leave it as it is.
+    ///
+    /// @param x the pointer's column, in the coordinates the screen is given
+    /// @param y the pointer's row, in the coordinates the screen is given
+    void note_family_pointer(float x, float y) noexcept;
+
+    /// Tells whether the family's focus ring is drawn.
+    ///
+    /// @return true while the ring shows
+    [[nodiscard]] bool family_ring_shown() const noexcept { return family_ring_shown_; }
+
+    /// Names the screen the main menu's cross-family order has landed on.
+    ///
+    /// Empty names none. The update pill and More maps… open on Return only
+    /// while they are the named stop and the family's ring is showing.
+    ///
+    /// @param screen the screen's name, or empty
+    void note_menu_keyboard_stop(std::string_view screen);
+
+    /// Tells whether the cross-family order has landed on this screen.
+    ///
+    /// @param screen the screen's name
+    /// @return true when note_menu_keyboard_stop was given that name
+    [[nodiscard]] bool menu_keyboard_stop_is(std::string_view screen) const noexcept;
 
     /// Tells whether this frame's OA badges are drawn here, at the window's
     /// own pixels, rather than into the 640 by 480 frame.
@@ -1174,6 +1273,15 @@ class OaLayer {
     ///
     /// @param[in,out] controls the list they are appended to
     void automation_controls(std::vector<AutomationControl>& controls) const;
+
+    /// Tells whether a kit screen opens with its focus ring drawn.
+    ///
+    /// `open-annihilation.access.always-show-focus` is 0 or 1. Absent, or
+    /// anything that is not a whole number above 0, leaves the ring hidden
+    /// until a key shows it.
+    ///
+    /// @return true when the preference is on
+    [[nodiscard]] bool always_show_focus() const;
 
     /// Returns how far the nearest pressable control of a screen that shows
     /// lies from a point, in the same canvas pixels a finger's claim uses.
@@ -1441,6 +1549,29 @@ class OaLayer {
     /// Throws std::runtime_error naming the first thing that failed.
     void check_clear_screens();
 
+    /// Checks, for --check-engine-settings, that the match's layer drawn
+    /// again only where it changed (refresh_match) holds, after each step,
+    /// every pixel composing it whole from screens drawn anew gives, and
+    /// that the window, presented with no cursor, shows the frame composed
+    /// with that layer at the display gamma (present_match uploads it where
+    /// it changed). The steps, in a match on a 1280 by 720 window: the
+    /// pointer over the OA button and its press, which opens Settings; hover
+    /// changes in Settings; the gallery opened over it and hover changes in
+    /// the gallery; an opaque modal screen and one that is not opaque, each
+    /// pushed over the gallery and taken off; Escape back to Settings; a
+    /// 2560 by 1440 window; another whole Interface size and 150% in the
+    /// modern fonts, with hover changes at each; a display gamma that
+    /// changes colours, with hover changes; and Settings closed. Each hover
+    /// change composes the layer again within the hovered screen, and some
+    /// only part of it. The pointer's moves queued in one frame then reach a
+    /// modal screen as one, where the last ends, and each reaches a screen
+    /// that is not modal. Last it times a hover change in Settings, and in
+    /// the gallery over it, on a 3840 by 2160 window, drawn where it changed
+    /// and drawn whole, and prints the times.
+    ///
+    /// Throws std::runtime_error naming the first thing that failed.
+    void check_match_redraws();
+
   private:
 
     /// What the match's layer shows, at which size: it is drawn again only
@@ -1477,8 +1608,8 @@ class OaLayer {
         uint64_t drawing{};
     };
 
-    /// Everything but the screen itself that a front-end screen's drawing
-    /// is drawn from.
+    /// Everything but the screen itself that a screen's drawing is drawn
+    /// from, on the front end and in a match.
     struct DrawingInputs {
         /// Its place's size, in window pixels: 0, 0, width and height. Where
         /// it shows does not change what it draws, so a window moved keeps
@@ -1528,6 +1659,21 @@ class OaLayer {
         int32_t picture_height{};         ///< the picture's height, in its pixels
         std::array<float, 4> area{};      ///< the picture's rectangle in the window
         std::vector<FrontPiece> pieces{}; ///< the screens that show, bottom first
+    };
+
+    /// One screen of the match's layer as rgba_ holds it, and what its
+    /// drawing was drawn from.
+    struct MatchPiece {
+        uint64_t screen{};                    ///< the screen's identity
+        oa::ui::display_layout::Rect shown{}; ///< where it shows, in window pixels
+        /// Its drawing is kept while its revision and inputs hold
+        /// (LayerScreen::revision_covers_drawing); otherwise it is drawn
+        /// again each time the layer is.
+        bool kept{};
+        uint64_t revision{};                         ///< its revision when it was drawn; 0 unkept
+        DrawingInputs inputs{};                      ///< what else it was drawn from
+        std::shared_ptr<const LayerDrawing> drawn{}; ///< its drawing, darkened
+        uint64_t drawing{}; ///< the drawing's number (match_drawing_count_)
     };
 
     /// Returns the top modal screen that shows.
@@ -1686,6 +1832,44 @@ class OaLayer {
         const LayerScreen& screen, const LayerPlacement& placed, int32_t scale_percent
     ) const;
 
+    /// Returns what every screen's drawing is drawn from now besides its
+    /// own place and scale: the layer's fonts, the icon, the interface's
+    /// language and words, and the text settings.
+    ///
+    /// @return the inputs; the screen's own left at their defaults
+    [[nodiscard]] DrawingInputs common_drawing_inputs() const;
+
+    /// Returns everything but the screen itself that a screen's drawing is
+    /// drawn from.
+    ///
+    /// @param common what every screen is drawn from (common_drawing_inputs)
+    /// @param screen the screen
+    /// @param placed where it shows
+    /// @param scale_percent the scale it is drawn at, in percent
+    /// @param darkenings the modal screens with a backdrop above it
+    /// @return the inputs
+    [[nodiscard]] DrawingInputs screen_drawing_inputs(
+        const DrawingInputs& common,
+        const LayerScreen& screen,
+        const LayerPlacement& placed,
+        int32_t scale_percent,
+        uint32_t darkenings
+    ) const;
+
+    /// Composes a part of the match's layer in rgba_ from what it shows: the
+    /// backdrop or clear, then the button's face (match_button_face_), then
+    /// each screen's drawing (match_pieces_), bottom first, as composing the
+    /// whole layer would give each pixel of the part.
+    ///
+    /// @param part the part, in window pixels; clipped to the layer
+    void compose_match_part(const oa::ui::display_layout::Rect& part);
+
+    /// Uploads a part of the match's layer to the texture at the display
+    /// gamma, the gamma applied to that part alone.
+    ///
+    /// @param part the part, in window pixels, within the layer
+    void upload_match_part(const oa::ui::display_layout::Rect& part);
+
     /// Draws the front end's screens into the window.
     ///
     /// @param area where the picture lies in the window, in window pixels
@@ -1704,10 +1888,41 @@ class OaLayer {
     void present_presence_badges(const LayerView& seen, int output_width, int output_height);
 
     /// Draws the match's layer into the window, as the match's other layers
-    /// laid out 1:1 are drawn (one_to_one_scale_mode).
+    /// laid out 1:1 are drawn (one_to_one_scale_mode). Only the part of the
+    /// layer composed again since the texture took it is uploaded, at the
+    /// display gamma; a new texture or a new gamma uploads the whole layer.
     void present_match();
 
     Runtime& runtime_; ///< the runtime it hosts screens for
+    /// The kit's ring is drawn on the focused control of a screen that does
+    /// not draw that ring itself. Hidden as a screen opens, unless Always
+    /// show focus is on.
+    bool family_ring_shown_{};
+    /// The screen the cross-family order has landed on; empty when it has not.
+    std::string menu_keyboard_stop_{};
+    /// Tab or Shift+Tab asked for the ring since it was last drawn, so a
+    /// screen that opened on that key still shows it.
+    bool family_tabbed_{};
+    /// A pointer place is known, so the next move can be compared with it.
+    bool family_pointer_known_{};
+    int32_t family_pointer_x_{}; ///< the last pointer column, rounded to a pixel
+    int32_t family_pointer_y_{}; ///< the last pointer row, rounded to a pixel
+
+    /// What was showing when the ring was last drawn: the screen, the dialogs,
+    /// the match's panel page and the extension windows. A change hides the
+    /// ring unless Always show focus is on, or a key just asked for it.
+    struct FamilyPlace {
+        std::string screen;               ///< the screen's name
+        std::vector<std::string> dialogs; ///< the dialogs, in the tree's order
+        /// The in-game panel's page in a match, which the tree does not list
+        /// as a dialog (the in-game menu's Options page); empty elsewhere.
+        std::string panel;
+        std::vector<std::string> windows; ///< the extension windows, front first
+        bool operator==(const FamilyPlace&) const = default;
+    };
+
+    FamilyPlace family_place_{}; ///< the place the ring was last drawn on
+    bool family_place_known_{};  ///< family_place_ has been drawn once
     /// The press on a window's title that moves it; none while no title is held.
     std::optional<window_placement::TitleDrag> drag_{};
     /// The screen drag_ moves; null while no title is held.
@@ -1741,7 +1956,24 @@ class OaLayer {
     /// blue, opacity), before the display gamma.
     std::vector<uint8_t> rgba_{};
     oa::ui::display_layout::Rect bounds_{}; ///< the part of the match's layer that is not clear
-    std::optional<MatchLook> uploaded_{};   ///< the match's layer the texture holds
+    /// The screens rgba_ holds, bottom first, with their drawings, which the
+    /// next refresh keeps where it may.
+    std::vector<MatchPiece> match_pieces_{};
+    /// The OA button's face rgba_ holds; empty while the button does not show.
+    LayerDrawing match_button_face_{};
+    /// Where rgba_ holds the button's face, in window pixels; empty while
+    /// the button does not show.
+    oa::ui::display_layout::Rect match_button_at_{};
+    uint64_t match_drawing_count_{}; ///< counts the match's screen drawings, numbering each
+    /// redraw asked for every screen to be drawn anew and the whole layer
+    /// composed at the next refresh.
+    bool match_redraw_{};
+    /// The texture holds the match's layer as rgba_ holds it, at the gamma
+    /// uploaded_gamma_, but for the part composed again since (unuploaded_).
+    bool uploaded_{};
+    /// The part of rgba_ composed again since the texture took it, in
+    /// window pixels; empty when none.
+    oa::ui::display_layout::Rect unuploaded_{};
     /// The front end's screens the texture holds, at their places; none
     /// while it holds the match's layer or nothing.
     std::optional<FrontLook> front_uploaded_{};
@@ -2142,9 +2374,12 @@ class QuestionScreen final : public LayerScreen {
     [[nodiscard]] const oa::ui::kit::Question& question() const noexcept { return question_; }
 
     /// Tells the screen its host changed the question: it keeps the size
-    /// class the layer lays it out at, whatever the host put in its place.
+    /// class the layer lays it out at, and the ring state the screen holds,
+    /// whatever the host put in its place.
     void changed() noexcept {
         question_.size_class = size_class_;
+        question_.focus_shown = focus_shown_;
+        question_.pointer_hid_ring = pointer_hid_ring_;
         ++revision_;
     }
 
@@ -2155,6 +2390,9 @@ class QuestionScreen final : public LayerScreen {
 
     /// Shows the question on any menu screen. It still shows in no match.
     void show_on_any_menu() noexcept { any_menu_ = true; }
+
+    /// Shows the question over the match too, as photo mode asks there.
+    void show_over_match() noexcept { over_match_ = true; }
 
     /// Returns the question's word (kit::question_word_of): "prompt" unless
     /// it gives its own.
@@ -2169,8 +2407,8 @@ class QuestionScreen final : public LayerScreen {
     /// makes it at that width, over its own screen of the game.
     ///
     /// @param view what the screen is placed on
-    /// @return its place; empty in a match, over another screen unless it shows
-    ///     on any menu, or without fonts
+    /// @return its place; empty in a match unless it shows over the match,
+    ///     over another screen unless it shows on any menu, or without fonts
     [[nodiscard]] LayerPlacement placement(const LayerView& view) const override;
 
     /// Lays the question out at the view's size class
@@ -2274,7 +2512,13 @@ class QuestionScreen final : public LayerScreen {
     uint64_t revision_{};            ///< counts the changes to its look
     /// The size class the layer lays the question out at (lay_out).
     oa::ui::kit::SizeClass size_class_{oa::ui::kit::SizeClass::compact};
-    bool any_menu_{}; ///< shows on any menu, never in a match
+    /// The ring state, kept across a host replacing the question. A key that
+    /// showed the ring keeps it; an untouched prompt stays without one.
+    bool focus_shown_{};
+    /// The pointer hid the ring, kept across a host replacing the question.
+    bool pointer_hid_ring_{};
+    bool any_menu_{};   ///< shows on any menu
+    bool over_match_{}; ///< shows over the match as well
 };
 
 /// The UI kit gallery (kit::gallery_layout) as a screen of the OA layer:

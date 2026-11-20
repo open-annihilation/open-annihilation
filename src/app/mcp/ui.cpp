@@ -662,7 +662,8 @@ void UiState::before_pump(const CheckHost& check, const AutomationHost& automati
     const std::string shown = automation::screen_name(check.screen(check.context));
     const bool dialogs = automation::screen_event_due(state_->watch, shown);
     automation::Observed now;
-    automation::fill_observed(check, automation, now, dialogs);
+    // events.read keeps every kind, so this feed always reads the focus.
+    automation::fill_observed(check, automation, now, dialogs, true);
     automation::EventHooks hooks;
     hooks.context = state_.get();
     hooks.wanted = [](void*, uint32_t) { return true; };
@@ -1460,8 +1461,9 @@ void add_ui_tools(Session& session, Serve& serve) {
 
     Tool tree;
     tree.name = "ui.tree";
-    tree.description = "Reads the screen's controls as a tree. Each control has its name, its "
-                       "place and its parent. Extension windows come first, then the screen.";
+    tree.description =
+        "Reads the screen's controls as a tree: each control's name, place, parent, "
+        "role, label, value and states, with extension windows first, then the screen.";
     tree.input_schema = std::string(kEmptySchema);
     tree.reads = true;
     tree.call = call_tree;

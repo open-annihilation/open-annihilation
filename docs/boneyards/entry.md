@@ -45,7 +45,10 @@ game's; the plate is always drawn in the base game's palette.
 
 While the strip is drawn, it takes every pointer event inside its own rows,
 so a button of the menu under its art takes no click. Credits, under the
-strip's credits spot, still opens the credits. A press that began above the
+strip's credits spot, still opens the credits. In button mode the plate
+takes a click on its own art only. A click under the plate reaches the
+menu, and the order's Credits stop is the menu's own Credits, ringed where
+that control is drawn. A press that began above the
 strip keeps its release wherever it lands. A gadget only partly under the
 strip keeps its visible part. A gadget wholly under it takes no keyboard
 focus and no quick key, unless it is one of the menu's own SINGLE, MULTI,
@@ -124,20 +127,43 @@ the plate's ENTER at the default place; and the same with the place
 ## What ENTER does
 
 ENTER, on the strip or the plate, the B key and starting with `-y` do not
-open the Boneyards at once. The game first makes sure of four things, in
+open the Boneyards at once. The game first makes sure of five things, in
 this order, and only then shows the update screen and opens the
 Boneyards. A player never lands in a half-installed or out-of-date
 Boneyards.
 
-1. **The online features.** The Boneyards needs the check for updates and
-   the check for content updates. When either is Never (the welcome's Off
-   sets both), the game asks "The Boneyards needs Open Annihilation's
-   online features: update checks and the content catalogue. Turn them on
-   and continue?" **Turn on** sets each that is off to Automatically,
-   saves the settings and goes on; **Cancel** stays on the main menu and
-   changes nothing. [What entering the Boneyards turns on](../settings.md#what-entering-the-boneyards-turns-on)
-   names the two settings.
-2. **The latest Open Annihilation.** The game asks the update feed for the
+1. **The online features.** The Boneyards needs the check for updates, the
+   check for content updates, and, when the registry the package will come
+   from requires one, that registry's install ID. When any of those is
+   off, the game asks. Either check being off names both checks, as 0.9.0
+   did: "The Boneyards needs Open Annihilation's online features: update
+   checks and the content catalogue. Turn them on and continue?" When the
+   game already has that registry's list, from this start or an earlier
+   one, one question names the checks and the install ID together: "The
+   Boneyards needs Open Annihilation's online features: update checks, the
+   content catalogue and {registry}'s install ID. Turn them on and
+   continue?" The install ID on its own is "The Boneyards needs
+   {registry}'s install ID turned on. Turn it on and continue?"
+   `{registry}` is the registry's name, Core Prime for the one the game
+   ships. A player with a check off and no list kept sees the checks
+   question first, then the install-ID question. **Turn on** sets each
+   check that is off to Automatically, and, when the question named an
+   install ID, clears that registry's off choice. When the question comes
+   as you press ENTER, Turn on goes on to the update check first. A
+   question asked once the catalogue has answered, such as the install-ID
+   question after the checks question, goes straight to the fetch, which
+   makes the install ID. **Cancel** stays on the main menu and changes
+   nothing. A registry that does not require an install ID is never asked
+   about one, even when its key is off. A player who went offline at first
+   run has both checks off and Core Prime's install ID off. When the game
+   already has Core Prime's list, from this start or an earlier one, that
+   player sees the one question that names the checks and Core Prime's
+   install ID. With no list kept, that player sees the checks question
+   first, then the install-ID question.
+   [What entering the Boneyards turns on](../settings.md#what-entering-the-boneyards-turns-on)
+   names these settings.
+2. **Total Annihilation's own files** ([below](#the-game-files)).
+3. **The latest Open Annihilation.** The game asks the update feed for the
    player's channel and waits for its answer; it does not go on without
    one.
    - When a newer release is out, it asks "Open Annihilation {version} is
@@ -153,8 +179,8 @@ Boneyards.
      not answer within half a minute, the game says "Open Annihilation
      could not check for updates." with **Try again**, which asks the feed
      again and waits, and **Cancel**.
-3. **The mod**, when one is on (below).
-4. **The latest Boneyards.** The game asks each catalogue once more for its
+4. **The mod**, when one is on (below).
+5. **The latest Boneyards.** The game asks each catalogue once more for its
    current list and waits for the answer. The expansion's `.oa-content`
    record names the package it was installed from, the whole `.oaexp`'s
    SHA-256 and its release. The package is downloaded and installed only
@@ -201,11 +227,16 @@ an update and changes no setting. Its log says what a player would have
 been asked, as `open-annihilation: entry: a player would be asked: ...`,
 and it goes on as such a run always has: `-y` stops when both checks are
 off and does not wait for an update check that has not answered, and a
-newer release is not taken. It still brings the Boneyards package up to
-date, and no question ever holds it: like a player's entry it asks every
-registry, the built-in one included, for its current list, and replaces a
-missing, unrecorded or changed copy from it. A machine nobody watches, such
-as a test machine playing on a live server, so takes a newly published
+newer release is not taken. When a needed install ID is off, the same log
+line names that question, the off choice is left as it was, and the
+download then stops with "Downloads are off for {registry}.", for example
+"Downloads are off for Core Prime." Every stop is also logged as
+`open-annihilation: entry: stopped: ...`. The run still brings the
+Boneyards package up to date when the install ID is not off, and no
+question ever holds it: like a player's entry it asks every registry, the
+built-in one included, for its current list, and replaces a missing,
+unrecorded or changed copy from it. A machine nobody watches, such as a
+test machine playing on a live server, so takes a newly published
 Boneyards package on its own.
 
 The game's own checks are the exception. A `--headless-check` run, or a
@@ -218,6 +249,60 @@ copy that no added registry lists stops with the catalogue's message. It
 starts no update check of its own either, unless it named a feed
 (`--update-feed`), as the checks do with a feed on the same machine. A
 check never contacts a live server.
+
+### The game files
+
+The Boneyards plays only Total Annihilation's own files, and refuses the
+others outright. Entering is refused while a file of the base game, or of
+an expansion that changes the rules, is not a copy the game knows, or while
+a stray archive lies in one of those bundles' folders
+([Game content](../game-content.md#only-the-bundles-own-archives)). Music
+changes no rules and is not counted. The Boneyards expansion's own files
+are left to its update below, but a stray archive in its folder counts. The
+question names the file and its folder:
+
+- a stray archive: "rev31.gp3 in …/Expansions/totala/battle-tactics is not
+  one of Total Annihilation's files, so the Boneyards cannot be entered.
+  Remove it to enter.";
+- a file that is not a known copy: "totala1.hpi in …/Games/totala does not
+  match Total Annihilation's, so the Boneyards cannot be entered. Copy the
+  game again from your own install or CD to enter.";
+- a game folder that is not Open Annihilation's own copy, checked as the
+  player enters by the bundle hashes: "Cometctr.ufo in … is not one of Total
+  Annihilation's files. The Boneyards plays only Open Annihilation's own
+  copy of the game: copy it from your own install or CD to enter."
+
+**Repair…** stays on the main menu and opens Settings at Game Content,
+where the stray archive has its **Remove…** and **Copy again from…** copies
+the game from the player's own install or CD
+([Settings](../settings.md#game-content)). Retail files are never
+downloaded. **Cancel** stays on the main menu. Once the files match,
+ENTER goes in.
+
+`-y`, and a run with nobody to answer, asks nothing: Open Annihilation's
+own copy with such a file stops the entry with the same sentence in the log
+(`open-annihilation: entry: stopped: ...`). A game folder that is not that
+copy is not checked on such a run, nor by the game's own checks
+(`--headless-check` and the Boneyards' check options), which play an
+install as it is.
+
+`native-boneyards-entry-files` enters as a player, over a game folder that
+is not the copy and holds archives no bundle lists. The entry stops before
+anything is fetched, the question names the first such archive, and Repair…
+opens Settings at Game Content. Its line is `boneyards entry check: files:
+Cometctr.ufo refused the entry, the question named it, and Repair opened
+Game Content`. The other entry checks link their game folder without such
+archives.
+
+A battle the Boneyards launches, from the Main Frame, QuickPlay or the
+Locator, is refused the same way, as the mod is: the console's message names
+the file, "rev31.gp3 in … is not Total Annihilation's own. The Boneyards
+launches and reports games only on Total Annihilation's own files. Leave the
+Boneyards and repair it in Settings › Game Content.", and the client leaves
+that battle. A game is not reported on such files either. In the battle room
+of a Boneyards battle, **START** is refused while any player's presence says
+their files differ, and the room names that player
+([Content in the battle room](../multiplayer/content.md#battles-that-count-for-a-ladder)).
 
 ### The mod
 
@@ -302,3 +387,9 @@ package: the online features, Update and Cancel, the carried request, the
 page-only release, Try again and the quiet runs; and which registries a
 check that faces a player, a headless check, `-y`, a player's entry and a
 run that plays unwatched reach, with the package each then takes.
+
+The login console opens with Registered User chosen and the password field
+shown. Guest Login is drawn grey and cannot be chosen. LOGIN stays grey
+until a name and a password are filled. Clicking LOGIN, once it is lit, or
+pressing Enter in the password field, starts the login. A click while
+LOGIN is grey does nothing.

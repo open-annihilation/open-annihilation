@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Game Content's rows (content_page.cpp): the sentence about the copy, one
-// text row for each bundle the host listed, then Check again, Copy again
-// from… and Open folder. The dialog's events call take for those buttons.
+// text row for each bundle the host listed, one row with Remove… for each
+// stray archive it named, then Check again, Copy again from… and Open
+// folder. The dialog's events call take for those buttons.
 #pragma once
 
 #include "oa/ui/engine_settings/dialog.hpp"
@@ -37,12 +38,14 @@ namespace oa::ui::engine_settings::content {
     const geometry::Sizes* sizes = nullptr
 );
 
-/// Returns what one of the three buttons asks for.
+/// Returns what one of the buttons asks for.
 ///
-/// @param dialog the dialog, whose bundle count places the buttons
+/// A stray's Remove… sets Dialog::stray_pressed to that stray.
+///
+/// @param dialog the dialog, whose bundle and stray counts place the buttons
 /// @param row the row
 /// @return the button's action, or DialogAction::none for the sentence and
 ///     a bundle's row
-[[nodiscard]] DialogAction take(const Dialog& dialog, const geometry::Row& row) noexcept;
+[[nodiscard]] DialogAction take(Dialog& dialog, const geometry::Row& row) noexcept;
 
 } // namespace oa::ui::engine_settings::content

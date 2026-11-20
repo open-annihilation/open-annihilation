@@ -54,9 +54,10 @@ class MixerStream;
 /// converted by PcmResampler, as its samples arrive, and keeps the
 /// conversion's overshoot past full scale until the sum is held. Each side is
 /// multiplied by the stream's gain times that side's gain, both rounded to
-/// mixer_gain_bits fraction bits, and the streams are summed with
+/// mixer_gain_bits fraction bits, and the streams are summed in 64 bits with
 /// mixer_sum_bits fraction bits kept; the sum is rounded to nearest (halves
-/// upward) and held to -32768..32767. A stream at the output rate and a
+/// upward) and held to -32768..32767, so a loud sum is clipped there and never
+/// wraps. A stream at the output rate and a
 /// gain of one plays its 16-bit samples unchanged. A paused stream keeps
 /// its samples and adds nothing, as does a stream with nothing left to
 /// play.
@@ -109,7 +110,9 @@ class SoftwareMixer {
     /// The streams open when the current mix() call began; room for every
     /// open stream is kept, so a mix does not allocate it.
     std::vector<MixerStream*> mixing_;
-    std::vector<int32_t> sum_; ///< the mix of one call, with mixer_sum_bits fraction bits
+    /// The mix of one call, with mixer_sum_bits fraction bits, in 64 bits so
+    /// that no number of streams at any gain passes its range.
+    std::vector<int64_t> sum_;
 };
 
 /// Converts samples to mixer_output_rate, as SoftwareMixer converts a

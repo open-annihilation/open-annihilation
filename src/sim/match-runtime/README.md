@@ -196,6 +196,14 @@ that order is the one the builder is walking or flying to, the approach
 starts again at the new site.
 `match-order-rules` checks each rule and parameter against 3.1c's behaviour.
 
+A HelpBuild helper (a builder guarding a factory joins its build this way)
+that has waited 300 ticks for its build stance looks at its frame again: a
+finished frame ends the order, and an unfinished one has StartBuilding run
+again. A unit script whose eight threads are all busy drops the
+start-script its StartBuilding makes, so the stance it raises never comes,
+and 3.1c leaves the helper waiting for it; `match-missions-orders` and
+`native-guard-assist` check the helper goes on.
+
 The unit rules (`unit_rules.cpp`) keep such a table for the slot reuse delay
 (units.id-reuse-delay), handing its ticks to unit creation. A building's
 facing (units.build-rotation) needs none: it lives in the unit's heading, as
@@ -671,7 +679,16 @@ damaged aircraft that breaks off for a repair pad (attack, strike, seek,
 patrol and repair patrol missions) draws one of the listed pads still
 switched on within 0xf00 world units (`Match::repair_pads_in_reach` and
 `repair_pad_in_reach`), so a pad built or switched on since the last rebuild
-is not chosen until the next one. Offline matches run the wind from the OTA
+is not chosen until the next one. A landing aircraft circling its pad
+leaves the circle for it once the pad has a free landing point that no
+other unit of its owner is already making for (`pad_unclaimed`: fewer
+VTOL_Landings on the pad past their circle than free points), so that one
+aircraft at a time makes for each point. One that finds its pad taken, or
+is turned away from it, makes for the nearest listed pad within that reach
+with a point free and unclaimed instead, the first in the list of pads
+equally near, and keeps its pad while there is none. In 3.1c an
+aircraft keeps the pad it drew and every aircraft waiting for a pad makes
+for it once it is free. Offline matches run the wind from the OTA
 `MinWindSpeed` and `MaxWindSpeed`.
 
 The computer players reach the match through `ComputerHost`
@@ -850,3 +867,33 @@ queries, the move-rate bits) does so through `MatchTickAccess`
 tick host as the tick does; no test includes the match's private headers.
 The attachment links of a unit as slot indices are public
 (`oa/sim/match_runtime/attachment_links.hpp`).
+
+## Keyframes
+
+`Match::write_keyframe` and `read_keyframe` copy everything the next tick of a
+playback session reads out of the match and back: the world's tables
+(`oa/core/world_image.hpp`), each live unit's model and script, its mirrored
+movement object and air driver, the weapon slots, the spatial projection and
+the plots' occupants, the sight grids and sightings, the effect world, the
+wind, both random streams, the squads, wrecks, rule-state tables and the
+campaign conditions. The sections and the writer and reader that make them
+are in `oa/sim/match_runtime/keyframe.hpp`; `docs/replays.md` lists every
+member of the match and says whether a keyframe keeps it, and why not.
+Records that are made on the stack and then copied in (a player's sighting
+counts and seen units, a wreck, a binding's movement record) are written with
+the bytes between their fields zero (`oa/sim/match_runtime/keyframe_padding.hpp`):
+as padding those bytes hold what the stack held, so two images of one state
+would differ there.
+
+A match that holds an order, a computer player, a radar picture kept for a
+player, or a unit or aircraft steered on this machine is refused with a
+sentence, not written wrongly: a playback holds none, and the path search, the
+movement maps and the computer players' knowledge, which a keyframe leaves
+out, serve only those. `keyframe_census` counts what a match holds.
+
+The game record comes back whole but for the video capture's settings, the
+profiler's times and the chat ring, which are the player's and the
+clock's, not the game's. The camera and interface fields in the record (the
+followed unit, the bookmarks, the overlay, the pointer) and each unit's
+selection flag come back as they were at the keyframe, and the program that
+plays the replay puts back its own (docs/replays.md).

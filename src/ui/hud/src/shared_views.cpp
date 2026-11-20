@@ -3,6 +3,8 @@
 
 #include "oa/ui/hud/shared_views.hpp"
 
+#include "oa/present/colour_vision/colour_vision.hpp"
+
 namespace oa::ui::hud {
 namespace {
 
@@ -20,14 +22,44 @@ int32_t on_minimap(
     return static_cast<int32_t>(placed);
 }
 
-} // namespace
-
-uint8_t player_dot_color(const World& world, uint8_t slot) noexcept {
+uint8_t player_color_number(const World& world, uint8_t slot) noexcept {
     if (slot >= OA_PLAYER_COUNT)
-        return kPlayerDotColors[0];
+        return 0;
     const PlayerSetupInfo* info = world_player_info(&world, &world.game.players[slot]);
     const uint8_t color = info != nullptr ? info->color : uint8_t{0};
-    return color < kPlayerDotColors.size() ? kPlayerDotColors[color] : kPlayerDotColors[0];
+    if (color >= kPlayerDotColors.size())
+        return 0;
+    return color;
+}
+
+} // namespace
+
+uint8_t stock_dot_color(const World& world, uint8_t slot) noexcept {
+    return kPlayerDotColors[player_color_number(world, slot)];
+}
+
+uint8_t colour_dot_index(uint8_t colour) noexcept {
+    if (colour >= kPlayerDotColors.size())
+        colour = 0;
+    // Off is the table above, unchanged. A mode is the anchor matched to the palette in use.
+    if (oa::present::colour_vision::active_mode() == oa::present::colour_vision::Mode::off)
+        return kPlayerDotColors[colour];
+    return oa::present::colour_vision::player_dot(static_cast<int>(colour));
+}
+
+uint8_t player_dot_color(const World& world, uint8_t slot) noexcept {
+    return colour_dot_index(player_color_number(world, slot));
+}
+
+uint8_t drawn_dot_color(uint8_t stored) noexcept {
+    if (oa::present::colour_vision::active_mode() == oa::present::colour_vision::Mode::off)
+        return stored;
+    for (uint8_t color = 0; color < kPlayerDotColors.size(); ++color) {
+        if (kPlayerDotColors[color] != stored)
+            continue;
+        return oa::present::colour_vision::player_dot(static_cast<int>(color));
+    }
+    return stored;
 }
 
 void take_reported_cameras(

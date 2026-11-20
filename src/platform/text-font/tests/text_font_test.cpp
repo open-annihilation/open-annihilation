@@ -6,14 +6,25 @@
 // not UTF-8, the limits, a font file that a started program is not given,
 // an open stack that does not keep its font files open in the Windows 95
 // build, and, with --pixels, a short mixed line drawn pixel for pixel as the pinned
-// FreeType draws it. --show TEXT prints a line as it is drawn.
+// FreeType draws it. --shape checks a Bengali syllable against HarfBuzz.
+// --show TEXT prints a line as it is drawn. --shape skips when this build
+// does not shape.
 
 #include "oa/platform/text_font.hpp"
 #include "oa/test/check.hpp"
 
+#if defined(OA_TEXT_SHAPING)
+#include <hb-ft.h>
+#include <hb.h>
+
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#endif
+
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -43,6 +54,15 @@ using text_font::Family;
 using text_font::Rendering;
 using text_font::Style;
 using text_font::Weight;
+
+// The base faces' values never move: a face added later takes the next one,
+// whatever place the chain looks in it.
+static_assert(static_cast<int>(Face::dejavu_sans_bold) == 0);
+static_assert(static_cast<int>(Face::dejavu_sans) == 1);
+static_assert(static_cast<int>(Face::endonyms) == 2);
+static_assert(static_cast<int>(Face::noto_emoji) == 3);
+static_assert(static_cast<int>(Face::endonyms_bengali) == 4);
+static_assert(text_font::face_count == 5);
 
 /// The FreeType release whose drawing the pixel check pins.
 constexpr std::string_view pinned_freetype = "2.14.3";
@@ -168,14 +188,15 @@ void falls_back_through_the_chain() {
         return;
     const auto bold = text_font::fallback_chain(Weight::bold);
     const auto regular = text_font::fallback_chain(Weight::regular);
-    OA_CHECK(bold.size() == 4 && regular.size() == 3);
+    OA_CHECK(bold.size() == 5 && regular.size() == 4);
     OA_CHECK(
         bold[0] == Face::dejavu_sans_bold && bold[1] == Face::dejavu_sans &&
-        bold[2] == Face::endonyms && bold[3] == Face::noto_emoji
+        bold[2] == Face::endonyms && bold[3] == Face::endonyms_bengali &&
+        bold[4] == Face::noto_emoji
     );
     OA_CHECK(
         regular[0] == Face::dejavu_sans && regular[1] == Face::endonyms &&
-        regular[2] == Face::noto_emoji
+        regular[2] == Face::endonyms_bengali && regular[3] == Face::noto_emoji
     );
     OA_CHECK(stack->face_for(U'A', Weight::bold) == bold.front());
     OA_CHECK(stack->face_for(U'A', Weight::regular) == regular.front());
@@ -210,13 +231,17 @@ void falls_back_through_the_chain() {
     }
 }
 
-/// The line's rows are the greatest rows of the faces its weight looks in.
+/// The line's rows are the greatest rows of the faces its weight looks in,
+/// the Bengali endonym face apart: its descent is deeper than the others'
+/// and it never changes the rows of a line.
 void chain_rows_match(text_font::FontStack& stack, const Style& style) {
     const auto line = stack.metrics(style);
     OA_CHECK(line.has_value());
     int32_t ascent = 0;
     int32_t descent = 0;
     for (const Face face : text_font::fallback_chain(style.weight)) {
+        if (face == Face::endonyms_bengali)
+            continue;
         const auto measured = stack.face_metrics(face, style);
         OA_CHECK(measured.has_value());
         if (!measured)
@@ -532,6 +557,50 @@ void endonyms_draw_without_the_cjk_face() {
     OA_CHECK(line && line->ascent == 14 && line->descent == 4);
 }
 
+/// "বাংলা", Bengali's own name: BA, the vowel sign AA, ANUSVARA, LA and the
+/// vowel sign AA.
+constexpr std::string_view bengali_name =
+    "\xE0\xA6\xAC\xE0\xA6\xBE\xE0\xA6\x82\xE0\xA6\xB2\xE0\xA6\xBE";
+
+void bengali_endonyms_draw_before_the_pack() {
+    TemporaryFonts fonts;
+    auto stack = text_font::FontStack::open(fonts.directory);
+    OA_CHECK(stack != nullptr);
+    if (!stack)
+        return;
+    OA_CHECK(stack->has_face(Face::endonyms_bengali));
+    // The name is held by the Bengali endonym face in both weights and in the
+    // interface family, with no Bengali pack installed.
+    OA_CHECK(stack->draws(bengali_name, Weight::bold));
+    OA_CHECK(stack->draws(bengali_name, Weight::regular));
+    OA_CHECK(stack->draws(bengali_name, Weight::semibold, Family::interface));
+    for (const char32_t letter :
+         {char32_t{0x09AC}, char32_t{0x09BE}, char32_t{0x0982}, char32_t{0x09B2}}) {
+        OA_CHECK(stack->face_for(letter, Weight::bold) == Face::endonyms_bengali);
+        OA_CHECK(stack->face_for(letter, Weight::regular) == Face::endonyms_bengali);
+    }
+    // The danda ends a Bengali sentence, and the face holds it.
+    OA_CHECK(stack->face_for(0x0964, Weight::bold) == Face::endonyms_bengali);
+    // The other faces keep what they draw.
+    OA_CHECK(stack->face_for(U'A', Weight::bold) == Face::dejavu_sans_bold);
+    OA_CHECK(stack->face_for(0x4E2D, Weight::bold) == Face::endonyms);
+    OA_CHECK(stack->face_for(0x1F680, Weight::bold) == Face::noto_emoji);
+    // The face is drawn at the sans faces' size, as a letters pack face is,
+    // and is not held to the least size of an ideograph face.
+    auto floored = style_of(8, Weight::bold);
+    floored.least_cjk_pixel_size = text_font::least_cjk_language_pixel_size;
+    const auto bengali_face = stack->face_metrics(Face::endonyms_bengali, floored);
+    OA_CHECK(bengali_face && bengali_face->pixel_size == 8);
+    const auto log = style_of(text_font::message_log_pixel_size, Weight::bold);
+    const auto bengali_at_log = stack->face_metrics(Face::endonyms_bengali, log);
+    OA_CHECK(bengali_at_log && bengali_at_log->pixel_size == text_font::message_log_pixel_size);
+    // The line's rows are the ones every line had before the face joined the
+    // chain: 14 above the baseline and 4 below at 14 px bold.
+    const auto line = stack->metrics(log);
+    OA_CHECK(line && line->ascent == 14 && line->descent == 4);
+    OA_CHECK(ink_height(*stack, bengali_name, log) > 0);
+}
+
 void pack_faces_join_the_chain() {
     TemporaryFonts fonts;
     auto stack = text_font::FontStack::open(fonts.directory);
@@ -560,21 +629,23 @@ void pack_faces_join_the_chain() {
     OA_CHECK(stack->add_face(fonts.directory / "DejaVuSans.ttf", FaceRole::letters));
     const auto bold = stack->chain(Weight::bold);
     const auto regular = stack->chain(Weight::regular);
-    OA_CHECK(bold.size() == 6 && regular.size() == 5);
-    if (bold.size() == 6) {
+    OA_CHECK(bold.size() == 7 && regular.size() == 6);
+    if (bold.size() == 7) {
         OA_CHECK(bold[0] == Face::dejavu_sans_bold);
         OA_CHECK(bold[1] == Face::dejavu_sans);
         OA_CHECK(bold[2] == text_font::pack_face(1));
         OA_CHECK(bold[3] == text_font::pack_face(0));
         OA_CHECK(bold[4] == Face::endonyms);
-        OA_CHECK(bold[5] == Face::noto_emoji);
+        OA_CHECK(bold[5] == Face::endonyms_bengali);
+        OA_CHECK(bold[6] == Face::noto_emoji);
     }
-    if (regular.size() == 5) {
+    if (regular.size() == 6) {
         OA_CHECK(regular[0] == Face::dejavu_sans);
         OA_CHECK(regular[1] == text_font::pack_face(1));
         OA_CHECK(regular[2] == text_font::pack_face(0));
         OA_CHECK(regular[3] == Face::endonyms);
-        OA_CHECK(regular[4] == Face::noto_emoji);
+        OA_CHECK(regular[4] == Face::endonyms_bengali);
+        OA_CHECK(regular[5] == Face::noto_emoji);
     }
     // U+4E2D is still the ideographs face: the letters face has no such character.
     OA_CHECK(stack->face_for(0x4E2D, Weight::bold) == text_font::pack_face(0));
@@ -661,6 +732,7 @@ void interface_faces_go_first() {
         Face::dejavu_sans_bold,
         Face::dejavu_sans,
         Face::endonyms,
+        Face::endonyms_bengali,
         Face::noto_emoji,
     };
     OA_CHECK(semibold == semibold_chain);
@@ -863,6 +935,163 @@ int check_pixels() {
     return oa::test::check_exit_status();
 }
 
+#if defined(OA_TEXT_SHAPING)
+/// Whole pixels of a signed 26.6 length, half away from zero, as shaping rounds.
+int32_t rounded_advance(int32_t length) noexcept {
+    const int64_t wide = length;
+    if (wide >= 0)
+        return static_cast<int32_t>((wide + 32) >> 6);
+    return static_cast<int32_t>(-(((-wide) + 32) >> 6));
+}
+
+/// "ক্ষি": KA, virama, SSA and vowel sign I. Four letters, one conjunct,
+/// and the vowel sign drawn before that conjunct.
+constexpr std::string_view bengali_syllable = "\xE0\xA6\x95\xE0\xA7\x8D\xE0\xA6\xB7\xE0\xA6\xBF";
+
+/// The Bengali face the shaping check uses, copied beside the test and
+/// never into the fonts folder.
+std::filesystem::path bengali_test_font() {
+    return text_font::bundled_font_directory().parent_path() / "NotoSansBengali-Bold.ttf";
+}
+#endif
+
+/// Shapes "ক্ষি" at 14 px bold mono and checks the glyphs and advances
+/// against an independent HarfBuzz shape of the same face. Skips when this
+/// build does not shape, and when the face is not beside the test.
+int check_shaping() {
+#if !defined(OA_TEXT_SHAPING)
+    std::cout << "platform-text-font --shape: skipped, this build does not shape\n";
+    return 77;
+#else
+    const std::filesystem::path file = bengali_test_font();
+    if (!std::filesystem::is_regular_file(file)) {
+        std::cout << "platform-text-font --shape: skipped, " << file.string()
+                  << " is not beside the test\n";
+        return 77;
+    }
+    auto stack = open_beside();
+    if (!stack)
+        return oa::test::check_exit_status();
+    const bool added = stack->add_face(file, FaceRole::letters);
+    OA_CHECK(added);
+    if (!added)
+        return oa::test::check_exit_status();
+    const Style style = style_of(14, Weight::bold, Rendering::mono);
+
+    struct HeldFace {
+        FT_Library library{};
+        FT_Face face{};
+
+        HeldFace() = default;
+
+        ~HeldFace() {
+            if (face != nullptr)
+                FT_Done_Face(face);
+            if (library != nullptr)
+                FT_Done_FreeType(library);
+        }
+
+        HeldFace(const HeldFace&) = delete;
+        HeldFace& operator=(const HeldFace&) = delete;
+    };
+
+    HeldFace held;
+    OA_CHECK(FT_Init_FreeType(&held.library) == 0);
+    if (held.library == nullptr)
+        return oa::test::check_exit_status();
+    OA_CHECK(FT_New_Face(held.library, file.string().c_str(), 0, &held.face) == 0);
+    if (held.face == nullptr)
+        return oa::test::check_exit_status();
+    OA_CHECK(FT_Set_Pixel_Sizes(held.face, 0, 14) == 0);
+
+    const FT_Int32 load = FT_LOAD_NO_BITMAP | FT_LOAD_TARGET_MONO;
+    hb_font_t* shaped_font = hb_ft_font_create(held.face, nullptr);
+    OA_CHECK(shaped_font != nullptr);
+    if (shaped_font == nullptr)
+        return oa::test::check_exit_status();
+    hb_ft_font_set_load_flags(shaped_font, static_cast<int>(load));
+    hb_buffer_t* buffer = hb_buffer_create();
+    OA_CHECK(buffer != nullptr);
+    if (buffer == nullptr) {
+        hb_font_destroy(shaped_font);
+        return oa::test::check_exit_status();
+    }
+    hb_buffer_add_utf8(
+        buffer,
+        bengali_syllable.data(),
+        static_cast<int>(bengali_syllable.size()),
+        0,
+        static_cast<int>(bengali_syllable.size())
+    );
+    hb_buffer_set_direction(buffer, HB_DIRECTION_LTR);
+    hb_buffer_set_script(buffer, HB_SCRIPT_BENGALI);
+    OA_CHECK(hb_buffer_allocation_successful(buffer));
+    hb_shape(shaped_font, buffer, nullptr, 0);
+    unsigned int glyph_count = 0;
+    const hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(buffer, &glyph_count);
+    const hb_glyph_position_t* positions = hb_buffer_get_glyph_positions(buffer, &glyph_count);
+    OA_CHECK(infos != nullptr && positions != nullptr && glyph_count > 0);
+
+    // The pack's full face draws a Bengali name once it is installed, and
+    // the Bengali endonym face draws it before then.
+    const auto from_pack = stack->shape(bengali_name, style);
+    auto plain = open_beside();
+    OA_CHECK(plain != nullptr);
+    const auto from_endonyms = plain ? plain->shape(bengali_name, style) : std::nullopt;
+    OA_CHECK(from_pack && from_endonyms && !from_pack->empty() && !from_endonyms->empty());
+    if (from_pack && from_endonyms) {
+        for (const text_font::ShapedGlyph& one : *from_pack)
+            OA_CHECK(one.face == text_font::pack_face(0));
+        for (const text_font::ShapedGlyph& one : *from_endonyms)
+            OA_CHECK(one.face == Face::endonyms_bengali);
+    }
+
+    const auto shaped = stack->shape(bengali_syllable, style);
+    OA_CHECK(shaped.has_value());
+    if (shaped && infos != nullptr && positions != nullptr) {
+        OA_CHECK(shaped->size() == glyph_count);
+        const std::size_t count = std::min(shaped->size(), static_cast<std::size_t>(glyph_count));
+        for (std::size_t glyph_at = 0; glyph_at < count; ++glyph_at) {
+            const text_font::ShapedGlyph& one = (*shaped)[glyph_at];
+            OA_CHECK(one.glyph == infos[glyph_at].codepoint);
+            OA_CHECK(one.x_advance == static_cast<int32_t>(positions[glyph_at].x_advance));
+            OA_CHECK(one.y_advance == static_cast<int32_t>(positions[glyph_at].y_advance));
+            OA_CHECK(one.x_offset == static_cast<int32_t>(positions[glyph_at].x_offset));
+            OA_CHECK(one.y_offset == static_cast<int32_t>(positions[glyph_at].y_offset));
+            OA_CHECK(one.cluster == infos[glyph_at].cluster);
+        }
+        const FT_UInt nominal = FT_Get_Char_Index(held.face, 0x0995);
+        const bool fewer = shaped->size() < 4;
+        const bool moved =
+            !shaped->empty() && shaped->front().glyph != static_cast<uint32_t>(nominal);
+        // Side-by-side drawing would keep four nominal glyphs, the first of
+        // them KA. A conjunct or a reordered vowel sign does neither.
+        OA_CHECK(fewer || moved);
+
+        int32_t rounded = 0;
+        for (const text_font::ShapedGlyph& shaped_glyph : *shaped)
+            rounded += rounded_advance(shaped_glyph.x_advance);
+        const auto laid = stack->layout(bengali_syllable, style);
+        OA_CHECK(laid.has_value());
+        if (laid) {
+            OA_CHECK(laid->size() == 4);
+            OA_CHECK(laid->front().character == 0x0995);
+            int32_t placed = 0;
+            for (const text_font::Placement& place : *laid)
+                placed += place.advance;
+            OA_CHECK(placed == rounded);
+            const auto line = stack->draw(bengali_syllable, style);
+            OA_CHECK(line.has_value());
+            if (line)
+                OA_CHECK(line->advance == placed);
+        }
+    }
+    hb_buffer_destroy(buffer);
+    hb_font_destroy(shaped_font);
+    return oa::test::check_exit_status();
+#endif
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -877,6 +1106,8 @@ int main(int argc, char** argv) {
     }
     if (argc == 2 && std::string_view(argv[1]) == "--pixels")
         return check_pixels();
+    if (argc == 2 && std::string_view(argv[1]) == "--shape")
+        return check_shaping();
     decodes_only_utf8();
     refuses_what_it_cannot_draw();
     falls_back_through_the_chain();
@@ -886,6 +1117,7 @@ int main(int argc, char** argv) {
     holds_ideographs_to_a_least_size();
     endonyms_keep_the_cjk_rows();
     endonyms_draw_without_the_cjk_face();
+    bengali_endonyms_draw_before_the_pack();
     pack_faces_join_the_chain();
     removed_faces_leave_no_glyphs();
     interface_faces_go_first();

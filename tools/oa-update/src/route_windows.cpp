@@ -163,7 +163,6 @@ std::string folder_text(std::string_view folder) {
     return text;
 }
 
-#if defined(_WIN32)
 bool write_bytes(const fs::path& path, std::string_view bytes, std::string* error) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out) {
@@ -180,7 +179,6 @@ bool write_bytes(const fs::path& path, std::string_view bytes, std::string* erro
     }
     return true;
 }
-#endif
 
 std::string read_bytes(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
@@ -205,6 +203,27 @@ void remove_stage(const fs::path& stage) {
     fs::remove_all(stage, io);
 }
 #endif
+
+/// True when `folder` takes a new file from this process: a scratch file is
+/// written and removed.
+bool folder_accepts_file(const fs::path& folder) {
+    std::error_code io;
+    if (!fs::is_directory(folder, io) || io)
+        return false;
+    const fs::path scratch = folder / scratch_name;
+    {
+        std::ofstream out(scratch, std::ios::binary | std::ios::trunc);
+        if (!out)
+            return false;
+        out << 'x';
+        if (!out) {
+            fs::remove(scratch, io);
+            return false;
+        }
+    }
+    fs::remove(scratch, io);
+    return true;
+}
 
 bool restore_entry(const fs::path& from, const fs::path& to, std::string* error) {
     // The running helper cannot be replaced. Leaving it out lets the undo finish.
@@ -315,25 +334,6 @@ bool exe_changed(const ExeStamp& before, const ExeStamp& after) {
     if (!before.present)
         return true;
     return before.bytes != after.bytes || before.when != after.when;
-}
-
-bool folder_accepts_file(const fs::path& folder) {
-    std::error_code io;
-    if (!fs::is_directory(folder, io) || io)
-        return false;
-    const fs::path scratch = folder / scratch_name;
-    {
-        std::ofstream out(scratch, std::ios::binary | std::ios::trunc);
-        if (!out)
-            return false;
-        out << 'x';
-        if (!out) {
-            fs::remove(scratch, io);
-            return false;
-        }
-    }
-    fs::remove(scratch, io);
-    return true;
 }
 
 // GetVersion is deprecated and the Windows build treats that warning as an
@@ -743,16 +743,21 @@ bool windows_roll_back_elevate(const fs::path& install) {
 #endif
 }
 
-ElevatedRelaunch relaunch_elevated_plan(const fs::path& plan_file) {
+namespace {
+
+/// Starts this helper again with `runas` and `arguments`, and waits for it.
+///
+/// @param arguments the arguments, without the program
+/// @return how the relaunch ended
+ElevatedRelaunch relaunch_elevated(const std::vector<std::string>& arguments) {
     ElevatedRelaunch result;
 #if !defined(_WIN32)
-    (void)plan_file;
+    (void)arguments;
     result.error = "this route is not carried out";
     return result;
 #else
     const fs::path helper = this_program();
     const std::wstring file = helper.wstring();
-    const std::vector<std::string> arguments{"--elevated-swap", "--plan", utf8_of(plan_file)};
     const std::wstring parameters = wide_from_utf8(join_quoted(arguments));
     const std::wstring verb = verb_wide("runas");
     const ShellWait ran = file.empty() ? ShellWait{} : shell_w(verb, file, parameters);
@@ -762,6 +767,106 @@ ElevatedRelaunch relaunch_elevated_plan(const fs::path& plan_file) {
     result.error = ran.error;
     return result;
 #endif
+}
+
+uint32_t real_windows_version(void*) {
+#if defined(_WIN32)
+    return current_windows_version();
+#else
+    return 0;
+#endif
+}
+
+bool real_writable(void*, const fs::path& folder) {
+    return folder_accepts_file(folder);
+}
+
+ElevatedRelaunch real_raise(void*, const fs::path& updates) {
+    return relaunch_elevated_put_back(updates);
+}
+
+/// The hooks with every null member replaced by the real one.
+PutBackHooks filled_hooks(const PutBackHooks* hooks) {
+    PutBackHooks used;
+    if (hooks != nullptr)
+        used = *hooks;
+    if (used.windows_version == nullptr)
+        used.windows_version = real_windows_version;
+    if (used.writable == nullptr)
+        used.writable = real_writable;
+    if (used.raise == nullptr)
+        used.raise = real_raise;
+    return used;
+}
+
+} // namespace
+
+ElevatedRelaunch relaunch_elevated_plan(const fs::path& plan_file) {
+    return relaunch_elevated({"--elevated-swap", "--plan", utf8_of(plan_file)});
+}
+
+ElevatedRelaunch relaunch_elevated_put_back(const fs::path& updates) {
+    return relaunch_elevated({"--put-back", "--updates", utf8_of(updates)});
+}
+
+bool put_back_needs_elevation(const fs::path& install, const PutBackHooks* hooks) {
+    const PutBackHooks used = filled_hooks(hooks);
+    return folder_needs_elevation(
+        used.writable(used.context, install), used.windows_version(used.context)
+    );
+}
+
+bool put_back_marked(const fs::path& updates, std::string* error) {
+    const fs::path marker = updates / installer_marker_name;
+    std::error_code io;
+    if (!fs::is_regular_file(marker, io) || io)
+        return true;
+    const std::string install_text = read_bytes(marker);
+    if (install_text.empty()) {
+        set_error(error, "the install folder is missing");
+        return false;
+    }
+    if (!restore_kept_copy(updates / previous_name, path_from(install_text), error))
+        return false;
+    fs::remove(marker, io);
+    return true;
+}
+
+PutBack put_back_kept(
+    const fs::path& updates, const fs::path& install, const PutBackHooks* hooks, std::string* error
+) {
+    std::error_code io;
+    if (install.empty() || !fs::is_directory(install, io) || io) {
+        set_error(error, "the install folder is missing");
+        return PutBack::failed;
+    }
+    // The marker names the install for the copy with raised rights, and for
+    // the next run when this one is cut short.
+    const fs::path marker = updates / installer_marker_name;
+    if (!write_bytes(marker, utf8_of(install), error))
+        return PutBack::failed;
+    if (!put_back_needs_elevation(install, hooks))
+        return put_back_marked(updates, error) ? PutBack::done : PutBack::failed;
+    const PutBackHooks used = filled_hooks(hooks);
+    const ElevatedRelaunch raised = used.raise(used.context, updates);
+    if (raised.cancelled) {
+        set_error(error, std::string(permission_not_given));
+        return PutBack::cancelled;
+    }
+    if (!raised.ran || raised.code != exit_swapped) {
+        set_error(
+            error,
+            raised.error.empty()
+                ? std::string("the kept copy could not be put back with an administrator's rights")
+                : raised.error
+        );
+        return PutBack::failed;
+    }
+    if (fs::exists(marker, io)) {
+        set_error(error, "the kept copy could not be put back");
+        return PutBack::failed;
+    }
+    return PutBack::done;
 }
 
 std::vector<std::string> setup_arguments(std::string_view install_folder) {
@@ -914,9 +1019,11 @@ bool helper_image_blocks_swap(const fs::path& program, const fs::path& install) 
     return same_folder(program.parent_path(), install);
 }
 
-bool folder_swap_must_step_aside(
-    const fs::path& program, const fs::path& install, int64_t helper_parent
+bool helper_must_step_aside(
+    update::Route route, const fs::path& program, const fs::path& install, int64_t helper_parent
 ) {
+    if (route != update::Route::windows_folder && route != update::Route::windows_installer)
+        return false;
     if (helper_parent != 0)
         return false;
     return helper_image_blocks_swap(program, install);
@@ -1247,7 +1354,7 @@ bool restore_kept_copy(const fs::path& previous, const fs::path& install, std::s
     return true;
 }
 
-UpdatesGateResult take_pending(const fs::path& updates) {
+UpdatesGateResult take_pending(const fs::path& updates, const PutBackHooks* hooks) {
     UpdatesGateResult result;
     std::error_code io;
     const fs::path reboot = updates / reboot_marker_name;
@@ -1261,15 +1368,20 @@ UpdatesGateResult take_pending(const fs::path& updates) {
     clear_postponed_wininit(updates);
     const fs::path marker = updates / installer_marker_name;
     if (fs::is_regular_file(marker, io) && !io) {
+        // Put back as the install's own setup would need it: with raised
+        // rights where the player cannot write the install folder.
         const std::string install_text = read_bytes(marker);
         std::string restore_error;
-        if (!restore_kept_copy(updates / previous_name, path_from(install_text), &restore_error)) {
+        const PutBack back =
+            install_text.empty()
+                ? PutBack::failed
+                : put_back_kept(updates, path_from(install_text), hooks, &restore_error);
+        if (back != PutBack::done) {
             result.gate = UpdatesGate::restore_failed;
             result.detail =
                 restore_error.empty() ? "the kept copy could not be put back" : restore_error;
             return result;
         }
-        fs::remove(marker, io);
     }
     return result;
 }
@@ -1475,15 +1587,17 @@ int finish_windows_route(
             return failed(line_after_failed_change(updates), exit_undone);
         }
 
+        // The kept files go back with raised rights where the player cannot
+        // write the install folder, as Program Files is for a player the
+        // setup's own prompt raised.
         auto put_back = [&]() {
             std::string restore_error;
-            if (!restore_kept_copy(kept, install, &restore_error)) {
+            if (put_back_kept(updates, install, nullptr, &restore_error) != PutBack::done) {
                 log.line(
                     restore_error.empty() ? "the kept copy could not be put back" : restore_error
                 );
                 return false;
             }
-            fs::remove(marker, io);
             undo_or_log(updates, hooks, log);
             return true;
         };

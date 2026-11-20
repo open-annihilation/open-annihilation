@@ -89,7 +89,8 @@ inline constexpr int wrong = 57;
 /// From the main menu the check enters the Boneyards and logs in as the guest
 /// its replay confirms (oa_host or oa_joiner), waits for the galactic map and
 /// presses the planet of area kLaunchCheckArea. It opens that planet's battle
-/// list. The host presses HOST, names the battle, picks Galactic War and
+/// list. The host presses HOST, names the battle, picks Galactic War (or For
+/// Fun, with --boneyards-launch-for-fun) and
 /// presses START; the joiner presses the forming battle and JOIN. The replay
 /// answers with the launch_game record the Boneyards sends; the console takes
 /// it and the frontend's pass leads through the connection selection to the
@@ -117,7 +118,18 @@ inline constexpr int wrong = 57;
 ///
 /// @param[in,out] registry the runtime's registry
 /// @param role the side the check plays
-void register_boneyards_launch_check(ScreenRegistry* registry, LaunchCheckRole role);
+/// @param for_fun the host picks For Fun; otherwise it picks Galactic War
+void register_boneyards_launch_check(
+    ScreenRegistry* registry, LaunchCheckRole role, bool for_fun = false
+);
+
+/// The after-battle notice is up and has not been pictured yet.
+///
+/// @return true for a few frames of the launch check's return
+bool boneyards_launch_notice_pending();
+
+/// The presented frame has pictured the after-battle notice.
+void boneyards_launch_notice_taken();
 
 /// Registers the overlay that plays --check-boneyards-features, ticked on every screen.
 ///

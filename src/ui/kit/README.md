@@ -79,6 +79,11 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     screens' own layouts (Settings, the Library, the key editor, the
     pickers) are built on those sizes and do not hold Kit 2's yet: each
     moves to Kit 2's sizes as its shell is rebuilt.
+- `state_colours.hpp`: ok, caution, danger and information, and their
+  tinted fills. With colour vision off they are the tokens above. A mode
+  substitutes that mode's kit colours. Chips, pills, callouts, line marks,
+  the lock and the OA button's warning dot read them. The accent as a
+  selection, a switch, the OK button and the focus ring stay the tokens.
 - `text.hpp`: the game's two text faces, their width, drawing a line and a
   boxed line, and the one wrap; `fitting_start`, where the wrap breaks a word
   wider than a line; `path_break`, a `WordBreak` that breaks a folder's path
@@ -149,19 +154,49 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   fraction of a point for a screen at a fractional scale, and by the
   `DisabledControl` rule, a disabled control the finger is on blocking the
   press and every search), `mark_states` (the focused and held parts of an
-  `Interaction`), the keys, Tab in a declared order, the arrows by where
+  `Interaction`; the focused mark is drawn only while the ring is visible,
+  `focus_ring_visible`), the keys, Tab in a declared order, the arrows by where
   controls sit (`focus_toward`; given the scroll areas, judged with them
   laid out whole), the wheel, and a text
   field's editing: `insert_text` for typed text and `edit_text` for Backspace,
-  Delete, Left, Right, Home and End. For automation, `automation_entries`
-  lists the named controls, and `automation_parts` lists each control
-  followed by the parts of it that take a press of their own (an
-  `AutomationEntry` with `part` set): a switch's halves `<name>.off` and
-  `<name>.on`, a strip's levels where `level_at` finds them, a row of
-  buttons' buttons, and an open drop-down's items at `choice_item`, each
-  named by its control's `Control::parts` word, else its place from 1. A
-  control's rectangle there is the part of it a press reaches. The
-  endpoint lists them after `oa.` (docs/automation.md).
+  Delete, Left, Right, Home and End. `focus_opened` puts the focus on the
+  first control of the declared order. The ring stays hidden unless the
+  caller asks for it; the kit does not read the preference. That hidden-ring
+  table applies at open, and again once Enter has hidden the ring: Tab moves to the next control and shows the ring, Shift+Tab to
+  the previous (from the first, the last), Up shows the last, and Down,
+  Left, Right and Space the first. Enter accepts and does not show the
+  ring. Once a click or a key has placed the focus, the keys act on that
+  control whether or not the pointer has hidden the ring. While the ring shows, the keys
+  work as before, and Enter then hides the ring. A pointer move hides the
+  ring on every control except a text field, which keeps its ring, its
+  caret and its typing. The focused control stays, and the next key still
+  acts on it: Return presses it, the arrows move on from it, Space acts on
+  it, and the ring shows again there.
+  A `Composite` groups part controls on one axis, a row, a column or a grid,
+  into one stop of the declared order. Tab and Shift+Tab leave it. The arrows
+  along its axis move between its parts and do not wrap. Home and End go to
+  its ends. Return and Space go to the part. The part it lands on is the one
+  it remembers, the chosen tab or row, else the first. `next_in_tab_order`
+  and `focus_toward` return that part, never the composite.
+  For automation, `automation_entries` lists the named controls, and
+  `automation_parts` lists each control followed by the parts of it that
+  take a press of their own (an `AutomationEntry` with `part` set): a
+  switch's halves `<name>.off` and `<name>.on`, checked on the value the
+  switch shows (a press anywhere on a switch flips it, so a press on a
+  half sets that half's value only while the other is checked), a strip's
+  levels where `level_at` finds them, a row of buttons' buttons, and an
+  open drop-down's items at `choice_item`, each named by its control's
+  `Control::parts` word, else its place from 1. A control's rectangle
+  there is the part of it a press reaches. `focused` is true for the
+  control that holds the keyboard focus whether or not the ring is drawn;
+  a part is never focused.
+  Each entry also carries `role`, `label`, `value_text`, `has_value` and
+  `value`, `least`, `most` and `step` (when `has_range`), `place` and
+  `set_size`, `chosen` and `pressed`. A named composite is listed too, after
+  those entries, with its role (`tab_list` or `list`) and each part's place
+  in the group, as in "2 of 9". The endpoint lists them after `oa.`
+  (docs/automation.md). The screen object, not each control, says whether
+  the ring is drawn (`focus_shown`).
 - `looks.hpp`: how a control looks. A look owns its texts. A text field's
   state, `TextField`, is its text and its caret. A picture item draws its
   `PictureLook`'s picture, such as a mod's badge, or else the canvas's icon.
@@ -185,7 +220,12 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   (how many pixels a rectangle covers on either form) and `blend_coverage`
   (a colour blended through a map of one byte a pixel). The rounded
   rectangles, `fill_corner_rect`, `blend_corner_rect` and
-  `ring_corner_rect`, work out each corner from 16 samples a pixel;
+  `ring_corner_rect`, work out each corner from 16 samples a pixel; the
+  straight runs between the corners take the share of their first pixel.
+  A drawing thread keeps each rounded shape's coverage at its size, up to
+  512 shapes in 16 MiB, and each state, tag, tool and close icon's, up to
+  64 in 1 MiB, the one drawn longest ago making room for a new one, so a
+  screen drawn again blends what it worked out before.
   `corner_coverage` gives one corner's share of each pixel, filled or as a
   ring, smooth or stepped, with which the OA layer rounds a window's
   corners. `perspective_blit`
@@ -216,7 +256,16 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   the mark's size, and otherwise that same kind of shape: a rounded plate
   with the letters in the lock colour. `draw_tag_icon` draws a tag icon
   the same way, strokes 2.5 units wide on the 24-unit square, sampled at
-  the canvas's own pixels. `paint` draws a display list. The
+  the canvas's own pixels. `draw_tool_icon` draws a tool icon
+  (`ToolIcon`, every one in `all_tool_icons`), the mark a button wears in
+  place of its word, as the replay bar's do: an arrow turning back or
+  forward round "10", play, pause, a camera, a speech bubble with two
+  lines, that bubble empty and struck through, a keyboard, and an arrow
+  leaving through a door's frame. They are drawn as the tag icons are,
+  with strokes of the same width; play, pause and the turning arrows'
+  heads are shapes filled inside their strokes, so their corners are as
+  round as a stroke's end, and the "10" is 2 units wide so that it stays
+  open at 18 points. `paint` draws a display list. The
   OA button (`draw_oa_button`, `OaButtonLook`) may wear the kit's attention
   dot, as the main menu's does while updates wait: a disc
   `oa_button_dot_side` (7) points across in the warning token
@@ -428,7 +477,10 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   `view_of` reads a row's `RowView` from its spec and the model through the
   caller's text function; `place_rows` places a column of views,
   `rows_scroll` and `scroll` scroll it, and `add_rows` lists what the rows
-  draw and their controls, named `<prefix>.<id>`. A drop-down's items and a
+  draw and their controls, named `<prefix>.<id>`. A locked row's control
+  stays listed, disabled and out of Tab, with the lock's words as its
+  `description`, so that a screen reader hears the row and why it cannot
+  change; what is drawn does not change. A drop-down's items and a
   strip's levels have ids too, beside their captions: an index field's
   `choice_ids` (the `choice` factory that takes them) and a stepper's `id`
   function (`row_choice_id` reads either). `add_rows` gives a control its
@@ -700,8 +752,10 @@ the carousel slides flat and the call to action holds a steady ring.
   `switch_track_width` wide, the area the screens give a switch
   `switch_width`), with a round knob
   two points in: lime with the knob at the right in the dark ink while
-  On, the selected surface with the knob at the left while Off. Its Off
-  and On words name its halves to automation and are not drawn.
+  On, the selected surface with the knob at the left while Off. A press
+  anywhere on it, the knob included, flips it, as Space does; Left turns
+  it Off and Right On. Its Off and On words name its halves to automation
+  and are not drawn.
 - Every token's value is pinned by `ui-kit-theme`.
 - One wrap. Its rules are the only differences between its callers.
 - The kit never looks text up in the interface catalogue, and it forces no
@@ -838,11 +892,27 @@ the arrows judge every control where it lies with the areas laid out whole:
 a row moved back by its area's offset, a control under an area's view moved
 down by its limit, every row a candidate whether its area shows it or not,
 so that from a button under a list Up reaches the list's last row, as the
-folder chooser's arrows do. Tab follows the declared order and wraps. Up and Down
-never follow that order. Left and Right go to a focused text field, which
-moves its caret, as do Home, End, Backspace and Delete. Tabs and cards do not
-take Left and Right: the arrows move the focus between them. Enter goes to a
-focused button, link, list row or tab.
+folder chooser's arrows do. A screen opens on the first control of its
+declared order, with the ring hidden unless it asks for the ring. The
+Library opens on its tab's search, with the ring shown, as it did before.
+The hidden-ring table applies at open, and again once Enter has hidden the
+ring. Tab from the opening control moves to the next
+and shows the ring; Shift+Tab moves to the previous, which from the first
+is the last, and shows it. With the ring hidden, Up shows it on the last
+control and Down, Left, Right and Space on the first, and Enter accepts
+without showing it. Once a click or a key has placed the focus, the keys
+act on that control whether or not the pointer has hidden the ring. With the
+ring shown,
+Tab follows the declared order and wraps. Up and Down never follow that
+order. Left and Right go to a focused text field, which moves its caret,
+as do Home, End, Backspace and Delete. Tabs and cards do not take Left and
+Right: the arrows move the focus between them. Enter goes to a focused
+button, link, list row or tab, and then the ring is hidden; on a text field
+Enter accepts and the field keeps its ring. A pointer move
+hides the ring on every control except a text field, which keeps its ring,
+its caret and its typing. The focused control stays, and the next key still
+acts on it: Return presses it, the arrows move on from it, Space acts on
+it, and the ring shows again there.
 
 ## Tests
 
@@ -853,7 +923,10 @@ shares (Kit 2's focus ring, window bands, switch and badge, and the
 screens' sizes, 0.7.3's), each class's steps on Kit 2's type, spacing and
 shape scales and what follows from them, the design's table of dialog
 sizes, that Regular and Large differ from Compact in nothing else, and
-that each class's dialog and notices fit the least window of their class. `ui-kit-text` checks the UTF-8
+that each class's dialog and notices fit the least window of their class.
+`ui-kit-state-colours` checks each mode's good, mid and bad palette indices
+and each state colour, and that the focus ring stays the accent's light.
+`ui-kit-text` checks the UTF-8
 helpers, the estimated width, the stand-ins, the wrap against copies of
 the six wraps it replaces, `fit` and `fitting_start` against the Game files
 screen's copies, `path_break` at its separators and against the folder
@@ -889,9 +962,11 @@ lies outside it, a picture drawn filtered, a mark, a moved origin, and a
 button and a display list drawn through the same functions as on the crisp
 form. Its text checks read the bundled fonts beside the test.
 `ui-kit-input` checks reach (with a reach of a fraction of a point too, and
-a disabled control blocking a finger), `mark_states`, the pointer, Tab, the
-arrows (with a scroll area laid out whole too), the keys and
-their values, the wheel's fractions, the names, the parts automation lists
+a disabled control blocking a finger), `mark_states` (the ring's mark only
+while it is shown, and the focused entry while it is not), the pointer (a
+move hides the ring), Tab, the arrows (with a scroll area laid out whole
+too), the keys with the ring hidden and with it shown, the wheel's
+fractions, the names, the parts automation lists
 (a switch's halves splitting it, a strip's levels where `level_at` finds
 them, an open drop-down's items at `choice_item` and a screen's own item
 control listed once, a menu with a divider naming the other items by their
@@ -952,14 +1027,16 @@ modern fonts' taller hints, locked and not, against values computed with
 the dialog's own placement, and the scroll against the dialog's; the names,
 kinds, Tab order and drawing order of the display list; the ids of a
 drop-down's items and a strip's levels, and the parts they name; rows of two models
-in one column; every event on every kind; and the page painted.
+in one column; every event on every kind, a press on a switch's knob and
+anywhere else on it flipping it each way; and the page painted.
 
 `ui-kit-gallery` checks the gallery at Compact, Large and Regular, as
 [Gallery](#gallery) says: every drawn role of `all_roles` present, five
 states of every component role that takes input, every part in the frame
 or its scroll area, no two controls overlapping, Tab and Down, the names,
 no text holding the build's version (which the test is given), and the
-working samples changing the model alone; and that it draws. Each case
+working samples changing the model alone, a click on the switch's knob
+flipping it each way; and that it draws. Each case
 runs in both looks, the modern one with the fonts beside the test, where
 the header's title is Barlow Condensed's width and the pixels differ from
 the classic look's.
@@ -971,7 +1048,11 @@ coach mark sits, and that every first-run component draws at Compact,
 Regular and Large, on the crisp form and at 150%, with its states differing.
 
 `ui-kit-tag-icons` checks the eight tag ids, each icon at 8, 12, 20, 28
-and 40 points at 1x, 2x, 3x and 150%, a badge's picture, tag, letters and
+and 40 points at 1x, 2x, 3x and 150%, each tool icon at 12, 16, 18, 20
+and 40 points the same way and each a drawing of its own at 18 and 20,
+the turning arrows mirrored, play and pause filled, a hidden chat's bubble
+struck through, a tool icon in the middle square of a wide rectangle,
+a badge's picture, tag, letters and
 blank, a row, pill, nav entry and question with nothing new pinned to the
 pixels from before the change, a byline's colour, a drag handle in each
 state, and a question that grows by two item lines and names them.

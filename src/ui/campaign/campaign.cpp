@@ -99,7 +99,15 @@ void briefing_update_text(
         panel->page.highlight_count = 0;
         return;
     }
-    wrap_text(text, wrap_width, measure, measure_context, panel->wrapped, sizeof(panel->wrapped));
+    wrap_text(
+        text,
+        wrap_width,
+        measure,
+        measure_context,
+        panel->wrapped,
+        sizeof(panel->wrapped),
+        region->keep_hyphen
+    );
     reflow_span_text(panel->wrapped, panel->text, sizeof(panel->text));
     briefing_pager_reset(&panel->pager, panel->text);
     briefing_next_page(&panel->pager, region, measure, measure_context, &panel->page);

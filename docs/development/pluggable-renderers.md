@@ -321,6 +321,20 @@ which finds the same surfaces by a raster of its own after the read-back.
 Classic rendering has no depth buffer, so its effects use screen-space
 falloff and visibility masks rather than physical occlusion. Neither path
 casts dynamic light shadows. Source counts and radii are bounded.
+While photo mode has depth of field or haze on in the turned view, one more
+pass reads that same depth. It runs after the lights, over the picture the
+lights left, and only for that photo and for the turned preview. Play's
+frames do not run it, and neither do the director's. Depth of field keeps
+the ground under the middle of the window and blurs a pixel by how far its
+depth sits from that point, past a sharp band. Haze mixes a pale colour in
+by that depth, stronger farther from the camera. A pixel with no surface in
+view, ground the player has never seen or the void past the map, keeps its
+black: neither cue changes it, as no light reaches it. The blur reads the
+picture unchanged, before grain and the frame. A photo that asks while the frame
+has no weapon lights still draws this depth, so the cues have a depth to
+read. The blur grows with the photo's size. A card without the float
+targets the lights need keeps no depth: the panel does not offer the cues,
+and the processor does not draw them in the card's place.
 The four effect intensity sliders run from 0% (off) to 200% in 10% steps.
 100% preserves the standard appearance; intensity does not alter source
 lifetime, light radius or construction progress. Heat distortion increases

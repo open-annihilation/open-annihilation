@@ -12,7 +12,8 @@ add_library(oa-ui-gui-input
   src/gadget_pointer.cpp
   src/gadget_update.cpp
   src/gadget_cursor.cpp
-  src/scroll_bar.cpp)
+  src/scroll_bar.cpp
+  src/tab_order.cpp)
 add_library(oa::ui::gui_input ALIAS oa-ui-gui-input)
 target_link_libraries(oa-ui-gui-input PRIVATE oa-base-game-math oa-base-text)
 target_include_directories(oa-ui-gui-input PUBLIC include)

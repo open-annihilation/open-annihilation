@@ -52,6 +52,8 @@ struct ClaimedFinger {
     bool self_destruct{}; ///< a self-destruct gadget: nothing at landing, the click after a hold
     bool pressed{};       ///< a synthetic left press was sent and not yet released
     bool build_button{};  ///< the gadget is a unit or weapon build button
+    /// Photo mode: the photo panel took the landing, so later moves stay on the panel.
+    bool panel{};
 };
 
 /// The most fingers the dispatcher keeps claimed at once.
@@ -260,6 +262,13 @@ struct TouchDispatchAccess {
 
     // ---- gestures and controls (runtime_touch_actions.cpp) ------------------------------
 
+    /// Frames a photo with the battlefield's gestures and gives no order: a drag and a
+    /// two-finger pan move the view, a pinch zooms and a twist turns.
+    ///
+    /// @param runtime the runtime
+    /// @param batch the gestures one finger report completed
+    static void
+    photo_battlefield_gestures(Runtime& runtime, const oa::ui::touch_gestures::GestureBatch& batch);
     /// Acts on the battlefield recogniser's gestures (SPEC 7.2); pinches after pans.
     ///
     /// @param runtime the runtime

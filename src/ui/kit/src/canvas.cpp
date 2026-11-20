@@ -15,6 +15,8 @@
 #include "oa/ui/frontend_renderer/artless.hpp"
 #include "oa/ui/paint/painter.hpp"
 
+#include "kept_coverage.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -527,6 +529,15 @@ bool in_cornered(int64_t sx, int64_t sy, int64_t width8, int64_t height8, int64_
 /// At a stepped scale a pixel more than half covered is covered and the
 /// rest are not, so a corner at 1x is a step.
 ///
+/// Only the pixels by the ends or the corners are counted. A sample whose
+/// column lies between the ends' centres, radius_px to columns - radius_px
+/// in pixels for the shape and its inset one alike, is in or out by its
+/// row alone, so every pixel of a row from column radius_px to
+/// columns - radius_px - 1 has the first one's share. With corners a
+/// sample whose row lies between the corners' centres is in or out by its
+/// column alone, so rows radius_px to rows - radius_px - 1 are the first
+/// one's copies.
+///
 /// @param columns the pixels across
 /// @param rows the pixels down
 /// @param radius_px the ends' radius, in pixels
@@ -554,52 +565,80 @@ std::vector<uint8_t> capsule_coverage(
     const int64_t inner_h8 = hole ? static_cast<int64_t>(rows - 2 * hole_px) * 8 : 0;
     const int64_t origin8 = hole ? static_cast<int64_t>(hole_px) * 8 : 0;
     constexpr int64_t samples = kRoundSamples * kRoundSamples;
-    for (int32_t row = 0; row < rows; ++row) {
-        for (int32_t column = 0; column < columns; ++column) {
-            int64_t inside = 0;
-            for (int64_t down = 0; down < kRoundSamples; ++down) {
-                for (int64_t across = 0; across < kRoundSamples; ++across) {
-                    const int64_t sx = static_cast<int64_t>(column) * 8 + 2 * across + 1;
-                    const int64_t sy = static_cast<int64_t>(row) * 8 + 2 * down + 1;
-                    if (!inside_shape(sx, sy, width8, height8, rad8))
-                        continue;
-                    if (hole &&
-                        inside_shape(sx - origin8, sy - origin8, inner_w8, inner_h8, inner_rad8))
-                        continue;
-                    ++inside;
-                }
+    const auto share = [&](int32_t column, int32_t row) {
+        int64_t inside = 0;
+        for (int64_t down = 0; down < kRoundSamples; ++down) {
+            for (int64_t across = 0; across < kRoundSamples; ++across) {
+                const int64_t sx = static_cast<int64_t>(column) * 8 + 2 * across + 1;
+                const int64_t sy = static_cast<int64_t>(row) * 8 + 2 * down + 1;
+                if (!inside_shape(sx, sy, width8, height8, rad8))
+                    continue;
+                if (hole &&
+                    inside_shape(sx - origin8, sy - origin8, inner_w8, inner_h8, inner_rad8))
+                    continue;
+                ++inside;
             }
-            uint8_t byte = static_cast<uint8_t>((inside * 255 + samples / 2) / samples);
-            if (stepped)
-                byte = byte >= 128 ? uint8_t{255} : uint8_t{0};
-            coverage
-                [static_cast<std::size_t>(row) * static_cast<std::size_t>(columns) +
-                 static_cast<std::size_t>(column)] = byte;
+        }
+        const auto byte = static_cast<uint8_t>((inside * 255 + samples / 2) / samples);
+        if (stepped)
+            return byte >= 128 ? uint8_t{255} : uint8_t{0};
+        return byte;
+    };
+    // Columns middle_first to middle_last_column lie between the centres, and
+    // with corners so do rows middle_first to middle_last_row.
+    const int32_t middle_first = radius_px;
+    const int32_t middle_last_column = columns - radius_px - 1;
+    const int32_t middle_last_row = corners ? rows - radius_px - 1 : -1;
+    const auto width = static_cast<std::size_t>(columns);
+    for (int32_t row = 0; row < rows; ++row) {
+        uint8_t* line = coverage.data() + static_cast<std::size_t>(row) * width;
+        if (row > middle_first && row <= middle_last_row) {
+            const uint8_t* first = coverage.data() + static_cast<std::size_t>(middle_first) * width;
+            std::copy_n(first, width, line);
+            continue;
+        }
+        for (int32_t column = 0; column < columns; ++column) {
+            if (column == middle_first && middle_first <= middle_last_column) {
+                std::fill_n(
+                    line + middle_first,
+                    static_cast<std::size_t>(middle_last_column - middle_first + 1),
+                    share(column, row)
+                );
+                column = middle_last_column;
+                continue;
+            }
+            line[column] = share(column, row);
         }
     }
     return coverage;
 }
 
-/// The capsules whose coverage a thread keeps.
-constexpr std::size_t kKeptCapsules = 16;
-/// The most pixels of a capsule whose coverage is kept.
-constexpr std::size_t kMostKeptCapsulePixels = std::size_t{512} * 512;
+/// The most capsules whose coverage a thread keeps. The UI kit gallery, the
+/// kit's largest screen, draws about 140 different capsules at 3x and 4x
+/// and about 240 at 150%, Tab taken through all its controls.
+constexpr std::size_t kKeptCapsules = 512;
+/// The most bytes of coverage a thread keeps, all its capsules together:
+/// the gallery's take 5 MiB at 3x and 8.5 MiB at 4x on a 3840 by 2160
+/// window. No capsule is larger, since a side past kMostRoundedPixels is
+/// drawn square.
+constexpr std::size_t kKeptCapsuleBytes = std::size_t{16} << 20U;
 
-/// A capsule's coverage with what it was worked out from.
-struct KeptCapsule {
-    bool filled{};                 ///< the coverage is worked out
-    int32_t columns{};             ///< the pixels across
-    int32_t rows{};                ///< the pixels down
-    int32_t radius_px{};           ///< the ends' radius, in pixels
-    int32_t hole_px{};             ///< the outline's thickness, in pixels
-    bool stepped{};                ///< each pixel rounded to covered or not
-    bool corners{};                ///< rounded corners instead of round ends
-    std::vector<uint8_t> coverage; ///< capsule_coverage's bytes
+/// What a capsule's coverage is worked out from.
+struct CapsuleKey {
+    int32_t columns{};   ///< the pixels across
+    int32_t rows{};      ///< the pixels down
+    int32_t radius_px{}; ///< the ends' radius, in pixels
+    int32_t hole_px{};   ///< the outline's thickness, in pixels
+    bool stepped{};      ///< each pixel rounded to covered or not
+    bool corners{};      ///< rounded corners instead of round ends
+
+    /// Tells whether two capsules are the same shape.
+    bool operator==(const CapsuleKey&) const = default;
 };
 
-/// Returns capsule_coverage's bytes for a capsule, kept for the last
-/// kKeptCapsules capsules a thread drew up to kMostKeptCapsulePixels: a
-/// screen draws the same buttons and rows on every frame it draws.
+/// Returns capsule_coverage's bytes for a capsule, kept for the capsules a
+/// thread drew most recently (KeptCoverage): up to kKeptCapsules of them in
+/// up to kKeptCapsuleBytes.
 ///
 /// @param columns the pixels across
 /// @param rows the pixels down
@@ -611,31 +650,12 @@ struct KeptCapsule {
 const std::vector<uint8_t>& kept_capsule_coverage(
     int32_t columns, int32_t rows, int32_t radius_px, int32_t hole_px, bool stepped, bool corners
 ) {
-    thread_local std::array<KeptCapsule, kKeptCapsules> kept{};
-    thread_local std::size_t oldest = 0;
-    thread_local std::vector<uint8_t> unkept;
-    for (const KeptCapsule& capsule : kept)
-        if (capsule.filled && capsule.columns == columns && capsule.rows == rows &&
-            capsule.radius_px == radius_px && capsule.hole_px == hole_px &&
-            capsule.stepped == stepped && capsule.corners == corners)
-            return capsule.coverage;
-    const std::size_t pixels = static_cast<std::size_t>(std::max(columns, 0)) *
-                               static_cast<std::size_t>(std::max(rows, 0));
-    if (pixels > kMostKeptCapsulePixels) {
-        unkept = capsule_coverage(columns, rows, radius_px, hole_px, stepped, corners);
-        return unkept;
-    }
-    KeptCapsule& slot = kept[oldest];
-    oldest = (oldest + 1) % kept.size();
-    slot.filled = true;
-    slot.columns = columns;
-    slot.rows = rows;
-    slot.radius_px = radius_px;
-    slot.hole_px = hole_px;
-    slot.stepped = stepped;
-    slot.corners = corners;
-    slot.coverage = capsule_coverage(columns, rows, radius_px, hole_px, stepped, corners);
-    return slot.coverage;
+    thread_local KeptCoverage<CapsuleKey> kept{kKeptCapsules, kKeptCapsuleBytes};
+    const std::size_t bytes = static_cast<std::size_t>(std::max(columns, 0)) *
+                              static_cast<std::size_t>(std::max(rows, 0));
+    return kept.coverage({columns, rows, radius_px, hole_px, stepped, corners}, bytes, [&] {
+        return capsule_coverage(columns, rows, radius_px, hole_px, stepped, corners);
+    });
 }
 
 /// Returns a rounded rectangle's radius in the canvas's own pixels, clamped
@@ -926,35 +946,64 @@ void blend_coverage(
     }
     if (canvas.surface == nullptr)
         return;
+    renderer::Surface& surface = *canvas.surface;
+    const int64_t surface_width = surface.width;
+    const int64_t surface_height = surface.height;
+    if (surface.rgb.size() < static_cast<std::size_t>(surface_width * surface_height * 3))
+        return;
     // One source pixel a surface pixel, from the rectangle's top left: the
     // placement's clip, in points, becomes the same rows and columns of
-    // surface pixels.
-    const int32_t scale = canvas.placement.scale;
-    renderer::Placement fine;
-    fine.x = canvas.placement.x + rect.x * scale;
-    fine.y = canvas.placement.y + rect.y * scale;
-    fine.scale = 1;
+    // surface pixels, and the surface's edges bound them too.
+    const int64_t scale = canvas.placement.scale;
+    const int64_t left = canvas.placement.x + int64_t{rect.x} * scale;
+    const int64_t top = canvas.placement.y + int64_t{rect.y} * scale;
+    int64_t first_column = std::max<int64_t>(0, -left);
+    int64_t first_row = std::max<int64_t>(0, -top);
+    int64_t end_column = std::min<int64_t>(size.x, surface_width - left);
+    int64_t end_row = std::min<int64_t>(size.y, surface_height - top);
     const Rect& clip = canvas.placement.clip;
-    if (clip.width > 0 && clip.height > 0)
-        fine.clip = {
-            (clip.x - rect.x) * scale,
-            (clip.y - rect.y) * scale,
-            clip.width * scale,
-            clip.height * scale,
-        };
-    for (int32_t row = 0; row < size.y; ++row)
-        for (int32_t column = 0; column < size.x; ++column) {
-            const uint32_t covered = coverage
-                [static_cast<std::size_t>(row) * static_cast<std::size_t>(size.x) +
-                 static_cast<std::size_t>(column)];
+    if (clip.width > 0 && clip.height > 0) {
+        first_column = std::max<int64_t>(first_column, (int64_t{clip.x} - rect.x) * scale);
+        first_row = std::max<int64_t>(first_row, (int64_t{clip.y} - rect.y) * scale);
+        end_column = std::min<int64_t>(
+            end_column, (int64_t{clip.x} - rect.x) * scale + int64_t{clip.width} * scale
+        );
+        end_row = std::min<int64_t>(
+            end_row, (int64_t{clip.y} - rect.y) * scale + int64_t{clip.height} * scale
+        );
+    }
+    if (first_column >= end_column || first_row >= end_row)
+        return;
+    const std::array<uint8_t, 3> colour = rgb(ink);
+    for (int64_t row = first_row; row < end_row; ++row) {
+        const uint8_t* covered_at =
+            coverage.data() + static_cast<std::size_t>(row * size.x + first_column);
+        uint8_t* pixel =
+            surface.rgb.data() +
+            static_cast<std::size_t>(((top + row) * surface_width + left + first_column) * 3);
+        for (int64_t column = first_column; column < end_column;
+             ++column, ++covered_at, pixel += 3) {
+            const uint32_t covered = *covered_at;
             if (covered == 0)
                 continue;
-            // The share in 255ths as the painter's opacity in 256ths, to the nearest.
-            const uint32_t opacity = (covered * renderer::blend_opaque + 127U) / 255U;
-            renderer::blend_source_rect(
-                *canvas.surface, fine, {column, row, 1, 1}, rgb(ink), opacity
-            );
+            if (covered == 255U) {
+                // The whole share replaces the pixel: (colour * 256 + 128) / 256.
+                std::copy(colour.begin(), colour.end(), pixel);
+                continue;
+            }
+            // The share in 255ths as the painter's opacity in 256ths, to the
+            // nearest, blended as renderer::blend_rect blends a pixel.
+            const uint32_t share =
+                std::min((covered * renderer::blend_opaque + 127U) / 255U, renderer::blend_opaque);
+            const uint32_t keep = renderer::blend_opaque - share;
+            for (std::size_t channel = 0; channel < colour.size(); ++channel)
+                pixel[channel] = static_cast<uint8_t>(
+                    (pixel[channel] * keep + uint32_t{colour[channel]} * share +
+                     renderer::blend_opaque / 2) /
+                    renderer::blend_opaque
+                );
         }
+    }
 }
 
 void draw_mark(const Canvas& canvas, const renderer::Mark& bits, Point at, Colour ink) {
@@ -1094,54 +1143,52 @@ int32_t mix_thousandths(int32_t from, int32_t to, int32_t fraction) noexcept {
     return (from * (1000 - fraction) + to * fraction) / 1000;
 }
 
-/// Samples the smooth buffer by blending the source pixels around the sample.
+/// Where a sample lies along one side of the smooth buffer.
+struct FilterAxis {
+    int index{};    ///< the pixel at or before the sample
+    int fraction{}; ///< how far it lies towards the next pixel, in thousandths
+};
+
+/// Returns where a sample lies along one side of the smooth buffer.
 ///
-/// across and down run from 0 at the first destination pixel to 1000 at the
-/// last. The sample position is that fraction times the source size, so it
+/// The sample runs from 0 at the first destination pixel to 1000 at the
+/// last. Its position is that fraction times the side's pixels, so it
 /// starts on the first source pixel and reaches one past the last pixel at
-/// the far edge. A position between two pixels mixes them by the distance.
-/// The last sample clamps to the last pixel.
+/// the far edge. The last sample clamps to the last pixel.
 ///
-/// @param source the buffer
-/// @param across thousandths across the width
-/// @param down thousandths down the height
-/// @return the sampled pixel
-Sampled sample_filtered(const paint::Canvas& source, int32_t across, int32_t down) noexcept {
-    if (source.width <= 0 || source.height <= 0)
-        return {};
-    const auto axis = [](int64_t position, int limit, int& index, int& fraction) {
-        if (limit <= 1 || position <= 0) {
-            index = 0;
-            fraction = 0;
-            return;
-        }
-        const int64_t last = static_cast<int64_t>(limit - 1) * 1000;
-        if (position >= last) {
-            index = limit - 1;
-            fraction = 0;
-            return;
-        }
-        index = static_cast<int>(position / 1000);
-        fraction = static_cast<int>(position % 1000);
-    };
-    int column = 0;
-    int column_fraction = 0;
-    int row = 0;
-    int row_fraction = 0;
+/// @param thousandths thousandths along the side
+/// @param limit the side's pixels
+/// @return the pixel at or before the sample and the fraction past it
+FilterAxis filter_axis(int32_t thousandths, int limit) noexcept {
     // No half-pixel bias: a sample on the boundary between two source pixels
     // has to mix them. A centre adjustment lands a same-size copy inside one
     // pixel and the smooth form stays unfiltered.
-    axis(static_cast<int64_t>(across) * source.width, source.width, column, column_fraction);
-    axis(static_cast<int64_t>(down) * source.height, source.height, row, row_fraction);
-    const Sampled top_left = smooth_at(source, column, row);
-    const Sampled top_right = smooth_at(source, column + 1, row);
-    const Sampled bottom_left = smooth_at(source, column, row + 1);
-    const Sampled bottom_right = smooth_at(source, column + 1, row + 1);
+    const int64_t position = static_cast<int64_t>(thousandths) * limit;
+    if (limit <= 1 || position <= 0)
+        return {};
+    const int64_t last = static_cast<int64_t>(limit - 1) * 1000;
+    if (position >= last)
+        return {limit - 1, 0};
+    return {static_cast<int>(position / 1000), static_cast<int>(position % 1000)};
+}
+
+/// Samples the smooth buffer by blending the source pixels around the
+/// sample: a position between two pixels mixes them by the distance.
+///
+/// @param source the buffer, at least a pixel across and down
+/// @param across where the sample lies across (filter_axis)
+/// @param down where it lies down
+/// @return the sampled pixel
+Sampled sample_filtered(const paint::Canvas& source, FilterAxis across, FilterAxis down) noexcept {
+    const Sampled top_left = smooth_at(source, across.index, down.index);
+    const Sampled top_right = smooth_at(source, across.index + 1, down.index);
+    const Sampled bottom_left = smooth_at(source, across.index, down.index + 1);
+    const Sampled bottom_right = smooth_at(source, across.index + 1, down.index + 1);
     const auto channel = [&](uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
         return static_cast<uint8_t>(mix_thousandths(
-            mix_thousandths(a, b, column_fraction),
-            mix_thousandths(c, d, column_fraction),
-            row_fraction
+            mix_thousandths(a, b, across.fraction),
+            mix_thousandths(c, d, across.fraction),
+            down.fraction
         ));
     };
     return {
@@ -1187,52 +1234,27 @@ int32_t share_of(float opacity) noexcept {
     return static_cast<int32_t>(std::lround(static_cast<double>(clamped) * 256.0));
 }
 
-/// Copies one trapezoid pixel. across and down are thousandths of the source.
+/// Returns the crisp buffer's pixel a sample copies: the one it lies in, the
+/// last for a sample at the far edge.
 ///
-/// @param across thousandths across the source
-/// @param down thousandths down the source
-/// @param share the opacity in 256ths
-/// @param filtered true samples the smooth buffer filtered
-/// @param[in,out] crisp the crisp destination pixel; null for the smooth form
-/// @param[in,out] smooth the smooth destination pixel; null for the crisp form
-void copy_sample(
-    int32_t across, int32_t down, int32_t share, bool filtered, uint8_t* crisp, uint8_t* smooth
-) noexcept {
-    const OffscreenBuffer& held = offscreen_buffer();
-    if (filtered) {
-        if (!held.smooth_ready || smooth == nullptr)
-            return;
-        const Sampled sampled = sample_filtered(held.smooth, across, down);
-        if (sampled.a == 0 || share <= 0)
-            return;
-        const uint32_t coverage = static_cast<uint32_t>(
-            (static_cast<int64_t>(share) * sampled.a * 255 + 128 * 255) / (256 * 255)
-        );
-        paint::blend_pixel(smooth, paint::Rgba{sampled.r, sampled.g, sampled.b, 255}, coverage);
-        return;
-    }
-    if (!held.crisp_ready || crisp == nullptr || held.crisp.width == 0 || held.crisp.height == 0)
-        return;
-    int32_t column = static_cast<int32_t>(
-        (static_cast<int64_t>(across) * static_cast<int32_t>(held.crisp.width)) / 1000
-    );
-    int32_t row = static_cast<int32_t>(
-        (static_cast<int64_t>(down) * static_cast<int32_t>(held.crisp.height)) / 1000
-    );
-    if (column >= static_cast<int32_t>(held.crisp.width))
-        column = static_cast<int32_t>(held.crisp.width) - 1;
-    if (row >= static_cast<int32_t>(held.crisp.height))
-        row = static_cast<int32_t>(held.crisp.height) - 1;
-    if (column < 0)
-        column = 0;
-    if (row < 0)
-        row = 0;
-    const auto index =
-        (static_cast<std::size_t>(row) * held.crisp.width + static_cast<std::size_t>(column)) * 3U;
-    blend_crisp(
-        crisp, held.crisp.rgb[index], held.crisp.rgb[index + 1], held.crisp.rgb[index + 2], share
-    );
+/// @param thousandths thousandths along a side of the buffer
+/// @param limit the side's pixels, at least 1
+/// @return the pixel, from 0
+int32_t nearest_pixel(int32_t thousandths, int32_t limit) noexcept {
+    const auto pixel = static_cast<int32_t>((static_cast<int64_t>(thousandths) * limit) / 1000);
+    return std::clamp(pixel, int32_t{0}, limit - 1);
 }
+
+/// One column of a trapezoid: where it samples the buffer across, and its
+/// rows, the same for every row.
+struct WarpColumn {
+    bool shown{};          ///< its pixels lie in the clip and on the destination
+    int32_t across{};      ///< thousandths across the source
+    int32_t edge{};        ///< its rows
+    int32_t top{};         ///< its first row
+    FilterAxis filtered{}; ///< the smooth form's sample across
+    int32_t nearest{};     ///< the crisp form's source column
+};
 
 } // namespace
 
@@ -1330,63 +1352,99 @@ void warp_offscreen(
     const bool shorten_right = how.degrees >= 0.F;
     const int32_t left_edge = shorten_right ? pixel_height : short_edge;
     const int32_t right_edge = shorten_right ? short_edge : pixel_height;
+    const OffscreenBuffer& held = offscreen_buffer();
+    const auto source_columns = static_cast<int32_t>(held.crisp.width);
+    const auto source_rows = static_cast<int32_t>(held.crisp.height);
+    if (filtered ? !held.smooth_ready || held.smooth.width <= 0 || held.smooth.height <= 0
+                 : !held.crisp_ready || source_columns <= 0 || source_rows <= 0)
+        return;
+    // Only what lies in the clip and on the destination is drawn.
     const Rect& point_clip = dest.placement.clip;
     const bool point_clipped = !filtered && point_clip.width > 0 && point_clip.height > 0;
+    const std::optional<paint::Box>& pixel_clip = dest.smooth.clip;
+    if (filtered && pixel_clip && pixel_clip->empty())
+        return;
     paint::Canvas* smooth_dest = filtered ? &dest.smooth.painter->canvas() : nullptr;
+    const int32_t dest_width =
+        filtered ? smooth_dest->width : static_cast<int32_t>(dest.surface->width);
+    const int32_t dest_height =
+        filtered ? smooth_dest->height : static_cast<int32_t>(dest.surface->height);
+    const auto lies_in = [](int32_t at, int32_t first, int32_t count) {
+        return at >= first && at < first + count;
+    };
+    // Each column's sample across and its rows, worked out once.
+    std::vector<WarpColumn> columns(static_cast<std::size_t>(pixel_width));
+    for (int32_t column = 0; column < pixel_width; ++column) {
+        WarpColumn& at = columns[static_cast<std::size_t>(column)];
+        const int32_t dest_x = origin_x + column;
+        at.shown = dest_x >= 0 && dest_x < dest_width;
+        if (filtered && pixel_clip)
+            at.shown = at.shown && lies_in(dest_x, pixel_clip->x, pixel_clip->width);
+        if (point_clipped)
+            at.shown =
+                at.shown &&
+                lies_in(place.x + column / dest.placement.scale, point_clip.x, point_clip.width);
+        at.across =
+            pixel_width <= 1
+                ? 0
+                : static_cast<int32_t>((static_cast<int64_t>(column) * 1000) / (pixel_width - 1));
+        at.edge =
+            left_edge +
+            static_cast<int32_t>((static_cast<int64_t>(right_edge - left_edge) * at.across) / 1000);
+        at.top = (pixel_height - at.edge) / 2;
+        if (filtered)
+            at.filtered = filter_axis(at.across, held.smooth.width);
+        else
+            at.nearest = nearest_pixel(at.across, source_columns);
+    }
     for (int32_t row = 0; row < pixel_height; ++row) {
+        const int32_t dest_y = origin_y + row;
+        if (dest_y < 0 || dest_y >= dest_height)
+            continue;
+        if (filtered && pixel_clip && !lies_in(dest_y, pixel_clip->y, pixel_clip->height))
+            continue;
+        if (point_clipped &&
+            !lies_in(place.y + row / dest.placement.scale, point_clip.y, point_clip.height))
+            continue;
         for (int32_t column = 0; column < pixel_width; ++column) {
-            const int32_t across =
-                pixel_width <= 1 ? 0
-                                 : static_cast<int32_t>(
-                                       (static_cast<int64_t>(column) * 1000) / (pixel_width - 1)
-                                   );
-            const int32_t edge =
-                left_edge + static_cast<int32_t>(
-                                (static_cast<int64_t>(right_edge - left_edge) * across) / 1000
-                            );
-            const int32_t top = (pixel_height - edge) / 2;
-            if (row < top || row >= top + edge)
+            const WarpColumn& at = columns[static_cast<std::size_t>(column)];
+            if (!at.shown || row < at.top || row >= at.top + at.edge)
                 continue;
             const int32_t down =
-                edge <= 1
-                    ? 0
-                    : static_cast<int32_t>((static_cast<int64_t>(row - top) * 1000) / (edge - 1));
-            const int32_t dest_x = origin_x + column;
-            const int32_t dest_y = origin_y + row;
+                at.edge <= 1 ? 0
+                             : static_cast<int32_t>(
+                                   (static_cast<int64_t>(row - at.top) * 1000) / (at.edge - 1)
+                               );
+            const auto dest_index =
+                static_cast<std::size_t>(dest_y) * static_cast<std::size_t>(dest_width) +
+                static_cast<std::size_t>(origin_x + column);
             if (filtered) {
-                if (dest.smooth.clip) {
-                    const paint::Box& clip = *dest.smooth.clip;
-                    if (clip.empty() || dest_x < clip.x || dest_y < clip.y ||
-                        dest_x >= clip.x + clip.width || dest_y >= clip.y + clip.height)
-                        continue;
-                }
-                if (smooth_dest == nullptr || dest_x < 0 || dest_y < 0 ||
-                    dest_x >= smooth_dest->width || dest_y >= smooth_dest->height)
+                const Sampled sampled = sample_filtered(
+                    held.smooth, at.filtered, filter_axis(down, held.smooth.height)
+                );
+                if (sampled.a == 0)
                     continue;
-                uint8_t* pixel =
-                    smooth_dest->rgba.data() + (static_cast<std::size_t>(dest_y) *
-                                                    static_cast<std::size_t>(smooth_dest->width) +
-                                                static_cast<std::size_t>(dest_x)) *
-                                                   4U;
-                copy_sample(across, down, share, true, nullptr, pixel);
+                const auto coverage = static_cast<uint32_t>(
+                    (static_cast<int64_t>(share) * sampled.a * 255 + 128 * 255) / (256 * 255)
+                );
+                paint::blend_pixel(
+                    smooth_dest->rgba.data() + dest_index * 4U,
+                    paint::Rgba{sampled.r, sampled.g, sampled.b, 255},
+                    coverage
+                );
                 continue;
             }
-            if (point_clipped) {
-                const int32_t point_x = place.x + column / dest.placement.scale;
-                const int32_t point_y = place.y + row / dest.placement.scale;
-                if (point_x < point_clip.x || point_y < point_clip.y ||
-                    point_x >= point_clip.x + point_clip.width ||
-                    point_y >= point_clip.y + point_clip.height)
-                    continue;
-            }
-            if (dest_x < 0 || dest_y < 0 || dest_x >= static_cast<int32_t>(dest.surface->width) ||
-                dest_y >= static_cast<int32_t>(dest.surface->height))
-                continue;
-            uint8_t* pixel =
-                dest.surface->rgb.data() + (static_cast<std::size_t>(dest_y) * dest.surface->width +
-                                            static_cast<std::size_t>(dest_x)) *
-                                               3U;
-            copy_sample(across, down, share, false, pixel, nullptr);
+            const auto index = (static_cast<std::size_t>(nearest_pixel(down, source_rows)) *
+                                    static_cast<std::size_t>(source_columns) +
+                                static_cast<std::size_t>(at.nearest)) *
+                               3U;
+            blend_crisp(
+                dest.surface->rgb.data() + dest_index * 3U,
+                held.crisp.rgb[index],
+                held.crisp.rgb[index + 1],
+                held.crisp.rgb[index + 2],
+                share
+            );
         }
     }
 }

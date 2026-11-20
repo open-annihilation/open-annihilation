@@ -47,6 +47,10 @@ void refill_loop(void* userdata, OutputStream& stream, int32_t additional) {
     }
 }
 
+/// Hundredths of a decibel that divide a sound's amplitude by ten: a volume
+/// v plays at 10^(v / 2000) of full scale.
+constexpr float centibels_per_decade = 2000.0F;
+
 /// The most bytes of decoded sound files the player keeps, as 16-bit samples
 /// at the mixer's rate: about a minute and a half of one channel. A sound
 /// played or looped from the cache converts to no more than this; the
@@ -81,7 +85,7 @@ struct SoundBuffer {
     std::unique_ptr<OutputStream> stream;
     StreamFormat format{}; ///< the stream's format
     int32_t put_bytes{};   ///< bytes the start it plays put to the stream
-    float level{1.0F};     ///< the voice volume relative to the near volume
+    float level{1.0F};     ///< the voice volume as a factor of full scale
 };
 
 /// A sound file as SDL decoded it, converted once to the mixer's rate
@@ -169,6 +173,23 @@ struct SdlWavPlayer::Impl {
             for (auto& buffer : sound.buffers)
                 if (buffer.stream != nullptr && !buffer_playing(buffer))
                     release_stream(buffer);
+    }
+
+    /// Tells whether a voice holds one of a sound's buffers.
+    ///
+    /// A voice is freed only as the player collects it, so a buffer that
+    /// has just stopped playing may still be held by one.
+    ///
+    /// @param sound the sound
+    /// @return true while a voice holds one of its buffers
+    [[nodiscard]] bool voice_holds(const CachedSound& sound) const {
+        return std::any_of(voices.begin(), voices.end(), [&sound](const SoundVoice& voice) {
+            return std::any_of(
+                sound.buffers.begin(), sound.buffers.end(), [&voice](const SoundBuffer& buffer) {
+                    return voice.buffer == &buffer;
+                }
+            );
+        });
     }
 
     /// Stops the buffer of the oldest voice and frees that voice.
@@ -365,13 +386,18 @@ bool SdlWavPlayer::play_placed(
         if (!load_converted(impl.assets, resource, max_cached_sound_bytes, format, samples, error))
             return false;
         const std::size_t length = sample_bytes_of(samples);
-        // The least recently started sounds that no buffer plays make room.
+        // The least recently started sounds that no buffer plays and no
+        // voice holds make room. A buffer may stop while the new sound
+        // decodes, after the voices were collected; its sound stays until
+        // its voice is freed, so that no voice holds a buffer that is gone.
         while (impl.cached_bytes + length > max_cached_sound_bytes) {
             auto oldest = impl.sounds.end();
             for (auto it = impl.sounds.begin(); it != impl.sounds.end(); ++it) {
-                const bool busy = std::any_of(
-                    it->second.buffers.begin(), it->second.buffers.end(), buffer_playing
-                );
+                const bool busy =
+                    impl.voice_holds(it->second) ||
+                    std::any_of(
+                        it->second.buffers.begin(), it->second.buffers.end(), buffer_playing
+                    );
                 if (!busy && (oldest == impl.sounds.end() ||
                               it->second.last_started < oldest->second.last_started))
                     oldest = it;
@@ -432,8 +458,9 @@ bool SdlWavPlayer::play_placed(
     const oa::audio::StereoGain sides = spatial.mode == oa::audio::SpatialMode::normal
                                             ? oa::audio::spatial_stereo_gain(spatial)
                                             : oa::audio::StereoGain{};
-    const float level =
-        std::pow(10.0F, static_cast<float>(volume - oa::audio::volume_near) / 2000.0F);
+    // The volume attenuates from full scale, as a sound buffer's does: the
+    // near volume of -585 plays 5.85 dB below the loop and the stream.
+    const float level = std::pow(10.0F, static_cast<float>(volume) / centibels_per_decade);
     // A restarted buffer plays its new start on the stream it has; another
     // takes an idle stream of the format, or opens one.
     SoundOutput& output = sound_output();
@@ -784,7 +811,8 @@ AudioSink sdl_audio_sink(SdlAudioDevice* device) noexcept {
     sink.set_volume = [](void* context, BufferHandle handle, int32_t centibels) {
         const float master = static_cast<SdlAudioDevice*>(context)->master_gain();
         return with_voice(context, handle, [&](SdlVoice& voice) {
-            voice.gain = std::pow(10.0F, static_cast<float>(centibels) / 2000.0F);
+            voice.gain =
+                std::pow(10.0F, static_cast<float>(centibels) / game_audio::centibels_per_decade);
             return voice.stream->set_gain(voice.gain * master);
         });
     };

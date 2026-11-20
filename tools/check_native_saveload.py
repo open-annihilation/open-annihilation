@@ -67,6 +67,7 @@ import struct
 import subprocess
 import tempfile
 import zlib
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -121,7 +122,11 @@ UNBUILDABLE_UNIT_LIMIT = 7000
 # The Unit limit setting of a skirmish that plays above the default.
 SETTING_UNIT_LIMIT = 500
 # A preferences file's first line, and the Unit limit setting's key.
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 UNIT_LIMIT_KEY = "open-annihilation.unit-limit"
 REFUSED_LIMIT = "unit limit out of range"
 

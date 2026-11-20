@@ -169,6 +169,22 @@ path = "src/formats/lzma/vendor/**"
 SPDX-FileCopyrightText = "Igor Pavlov"
 SPDX-License-Identifier = "LZMA-SDK-9.22"
 
+# zstd 1.5.7, BSD-3-Clause, kept unchanged (see ATTRIBUTIONS.md).
+# These files sit under a vendor directory, which the header check leaves to
+# its authors, so the annotation is the record of their terms.
+[[annotations]]
+path = "third_party/zstd/**"
+SPDX-FileCopyrightText = "Meta Platforms, Inc. and affiliates"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+# AccessKit's C bindings 0.23.2, taken under MIT from MIT OR Apache-2.0
+# (see ATTRIBUTIONS.md). The header check leaves third_party/ to its authors.
+[[annotations]]
+path = "third_party/accesskit-c/**"
+precedence = "override"
+SPDX-FileCopyrightText = "The AccessKit Authors"
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
 # The small streams the LZMA tests decode, written by xz.
 [[annotations]]
 path = "src/formats/lzma/tests/data/**"

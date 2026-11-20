@@ -189,6 +189,45 @@ void convert_rgb24_keyed_overlay_argb(
     platform::job_pool::Pool* pool
 ) noexcept;
 
+/// Converts the bands of a canvas cleared to a key colour that differ from
+/// the canvas held from the conversion before, each as
+/// convert_rgb24_keyed_overlay_argb converts it, and copies each such band
+/// into the held canvas. A band that is the same is left as it was, in the
+/// overlay and in `opaque_bands`, so that the overlay is this canvas's as
+/// long as it was the held canvas's at the same key and gamma.
+///
+/// Every band is the same whichever thread converts it.
+///
+/// @param canvas the painted canvas, `width` * 3 bytes a row, rows one after another
+/// @param[in,out] held the canvas the overlay was converted from, laid out as
+///        `canvas`; each band that differs is copied from `canvas`
+/// @param key the colour the canvas was cleared to (overlay_key_colour)
+/// @param width pixels in a row
+/// @param height rows
+/// @param[in,out] pixels the overlay's rows, each at least `width` * 4 bytes, 4-byte aligned
+/// @param pitch bytes from one row of `pixels` to the next
+/// @param gamma the display gamma's table; null when the gamma is 1
+/// @param[in,out] opaque_bands one entry for each band of xrgb_band_rows rows, at least
+///        ceil(height / xrgb_band_rows) of them: set for each band converted, 1
+///        where it holds an opaque pixel, else 0
+/// @param[out] changed_bands one entry for each band, as many as `opaque_bands`:
+///        1 where the band differed and was converted, else 0
+/// @param pool threads to compare and convert the bands on; null does it on the
+///        calling thread
+void convert_changed_rgb24_keyed_overlay_argb(
+    const uint8_t* canvas,
+    uint8_t* held,
+    std::array<uint8_t, 3> key,
+    uint32_t width,
+    uint32_t height,
+    uint8_t* pixels,
+    std::size_t pitch,
+    const std::array<uint8_t, 256>* gamma,
+    std::span<uint8_t> opaque_bands,
+    std::span<uint8_t> changed_bands,
+    platform::job_pool::Pool* pool
+) noexcept;
+
 /// Packs one RGB24 row into RGB565 words: red's top 5 bits, green's top 6 and
 /// blue's top 5, from the top bit down, each channel through the gamma table
 /// first when there is one; the 16-bit pixels a window of that format shows

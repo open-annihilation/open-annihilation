@@ -14,6 +14,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -30,7 +31,7 @@ def fire_lines(text):
 
 def skirmish(native, game_dir, workdir, mod_dir, unit_type, trace):
     preferences = workdir / "preferences.conf"
-    preferences.write_text("open-annihilation-preferences 1\n")
+    preferences.write_text("open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n")
     command = [
         *RUNNER,
         str(native),

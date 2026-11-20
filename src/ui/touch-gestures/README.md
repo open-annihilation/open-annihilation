@@ -54,6 +54,13 @@ finger rests.
   other is still): fingers report one after the other, and one finger's
   report alone changes the spread even when both move together, so a fast
   pan never reads as a pinch.
+- Twist is off unless `twist_degrees` is above 0. It uses the same
+  both-fingers gate as the pinch: one finger's report alone is not a turn.
+  Once both have reported, a change in their angle of at least
+  `twist_degrees` gives `twist_began`, then `twist_moved` (its `turn` is
+  the degrees since the previous twist event). Lifting one finger while a
+  twist runs gives `twist_ended`. A turn below the threshold, a slide or a
+  spread with twist off, gives none.
 - A cancelled finger gives `cancelled` and drops every finger. A third
   finger is ignored until one of the two lifts; reports of fingers that are
   not tracked are ignored.
@@ -74,7 +81,9 @@ and double taps (time, distance, the third tap), the slop in both drag roles
 and at 3 pixels a point, the hold at 250, 350 and 700 ms and the drag after
 it, two-finger taps, pans with their velocity, pinches whose scales multiply
 to the spread's ratio, a pan and a pinch together, a fast pan that is no
-pinch, a second finger during a drag, a third finger, cancels and reset.
+pinch, a twist past `twist_degrees` (and none from a slide, a spread, or
+while twist is off), a second finger during a drag, a third finger, cancels
+and reset.
 
 ## Limitations
 

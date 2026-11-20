@@ -753,6 +753,11 @@ void notice(GameFilesScreen& screen) {
         {"the focus ring after Tab",
          [](GameFilesScreen& s) { return any_focused(s); },
          [](GameFilesScreen& s) {
+             // Tab from the opening focus landed on the second stop, Choose
+             // folder, and showed the ring there: that is the picture this
+             // step takes. The screen takes this Shift+Tab after the snap, so
+             // the ring is back on the first stop when the language is tapped.
+             s.press_key(SDLK_TAB, SDL_KMOD_SHIFT);
              snap(s, "focus");
              tap(s, control(view::ControlKind::language), "OA · Aa");
          }}

@@ -35,6 +35,7 @@
 #include "oa/base/sha256.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/data/match_rules.hpp"
+#include "oa/sim/match_runtime/keyframe.hpp"
 #include "oa/sim/match_runtime/rule_state.hpp"
 #include "oa/sim/match_runtime/structure_gifts.hpp"
 #include "oa/sim/effect_particles.hpp"
@@ -55,6 +56,7 @@ namespace oa::sim::match_runtime {
 struct EnhancedCounters;
 class TickHost;
 class TargetHost;
+class KeyframeAccess;
 
 // How a unit died: the damage path stores it in Unit.damage_kind and the
 // kill handler receives it as KillOutcome.kind. Kinds 1/3/6 take the
@@ -605,6 +607,25 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Forgets the noted fault, so the next one is noted.
     void clear_fault() noexcept { fault_.clear(); }
 
+    /// Returns the faulty piece instructions the unit scripts ran past since
+    /// the last clear_script_faults, each kept once per unit type and script.
+    ///
+    /// A piece instruction with a piece or axis outside its script, or with
+    /// values missing from the stack, is no fault of the match: the script
+    /// goes on as in 3.1c (script_vm::PieceFault), and the instruction is
+    /// kept for the log (ScriptFaultLog).
+    ///
+    /// @return the faults, oldest first
+    [[nodiscard]] std::span<const ScriptFaultNote> script_faults() const noexcept {
+        return bridge_ ? bridge_->script_faults().pending() : std::span<const ScriptFaultNote>{};
+    }
+
+    /// Forgets the faults script_faults returned; their scripts stay noted.
+    void clear_script_faults() noexcept {
+        if (bridge_)
+            bridge_->script_faults().clear();
+    }
+
     /// Tells whether an issue call refused its order.
     ///
     /// An order for a slot that holds no unit, or a move for a unit that
@@ -710,6 +731,38 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param index Unit slot; one outside the pool is taken as reserved slot 0, which holds no unit.
     /// @return The instance, or null for an empty slot.
     UnitInstance* instance(uint16_t index);
+
+    /// Counts what the match holds that a keyframe has to carry (docs/replays.md).
+    ///
+    /// @return The counts.
+    [[nodiscard]] keyframe::Census keyframe_census() const;
+
+    /// Writes the world and every part of the match the next tick reads, as a
+    /// keyframe's sections.
+    ///
+    /// The effects are written, as the next tick draws random numbers for them;
+    /// the sounds and the match's own interface state (the order panel's unit,
+    /// the hooks) are not. The camera and interface fields of the game state
+    /// and each unit's selection flag are written with the world's tables. A
+    /// match that holds state the keyframe cannot carry (an order, a computer
+    /// player, a radar picture kept for a player, a unit or aircraft steered on
+    /// this machine) is refused, never written wrongly. The sentence is for the
+    /// log and the check, in English, not for a player.
+    ///
+    /// @param[out] out The writer the sections go to.
+    /// @return Null when the match was written; else a sentence that says what it holds that a
+    ///         keyframe cannot carry, and nothing is to be used from `out`.
+    [[nodiscard]] const char* write_keyframe(keyframe::Writer* out) const;
+
+    /// Puts the match back to the state a keyframe holds.
+    ///
+    /// The match must be the one the keyframe was written from, bound the same way: same
+    /// map, same unit table and limits, same players. A reader that fails leaves the match
+    /// unusable; the caller ends the playback.
+    ///
+    /// @param in The reader over a keyframe's sections.
+    /// @return False, with the reader's error set, when the sections do not fit this match.
+    [[nodiscard]] bool read_keyframe(keyframe::Reader* in);
 
     /// Draws from the match's shared stream.
     ///
@@ -3372,6 +3425,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     friend class WeaponTickHost;
     friend class TargetHost;
     friend class MatchTickAccess;
+    friend class KeyframeAccess;
 
     /// Places the map's features on the canonical plots, from the loader's
     /// resolved plots in row-major order (markers first, then FeatureDefs),

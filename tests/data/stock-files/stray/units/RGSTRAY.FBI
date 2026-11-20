@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+[UNITINFO]
+{
+UnitName=RGSTRAY;
+UnitNumber=428;
+Name=Stray Walker;
+Side=ARM;
+}

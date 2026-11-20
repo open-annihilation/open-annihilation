@@ -864,12 +864,14 @@ void check_screenshot(const Scratch& scratch) {
     constexpr uint64_t kPictureMs = 10000;
     const uint64_t start = steady_ms();
     // The signature is near the start of the event. Keep reading until the
-    // event itself is past 1 MiB, which is what the old send cap dropped.
+    // event itself is past 1 MiB, which is what the old send cap dropped, and
+    // its type has arrived: on a busy machine the type can come after both.
     while (steady_ms() - start <= kPictureMs) {
         server.deliver(session);
         take_bytes(held);
         if (held.got.find("iVBORw0KGgo") != std::string::npos &&
-            held.got.size() > (std::size_t{1} << 20))
+            held.got.size() > (std::size_t{1} << 20) &&
+            held.got.find("image/png") != std::string::npos)
             break;
         sock::StreamWaitEntry wait{};
         wait.stream = held.fd;

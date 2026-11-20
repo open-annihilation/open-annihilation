@@ -26,6 +26,7 @@ import time
 
 _TOOLS = Path(__file__).resolve().parents[4] / "tools"
 sys.path.insert(0, str(_TOOLS))
+import native_offline  # noqa: E402
 import check_native_automation as automation  # noqa: E402
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))

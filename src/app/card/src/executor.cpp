@@ -140,9 +140,12 @@ bool Executor::open(SDL_Renderer* renderer, uint32_t texture_limit) {
     unflushed_update_bytes_ = 0;
     capabilities_.texture_limit = texture_limit;
     const char* name = SDL_GetRendererName(renderer);
-    page_access_ = name != nullptr && std::string_view(name) == software_renderer_name
-                       ? SDL_TEXTUREACCESS_STREAMING
-                       : SDL_TEXTUREACCESS_STATIC;
+    const bool software = name != nullptr && std::string_view(name) == software_renderer_name;
+    page_access_ = software ? SDL_TEXTUREACCESS_STREAMING : SDL_TEXTUREACCESS_STATIC;
+    // The software renderer stores a vertex as the truncation, toward zero,
+    // of its position times the render scale. A later shift by a whole
+    // number of target pixels is not that truncation shifted.
+    capabilities_.geometry_truncates = software;
 #if SDL_VERSION_ATLEAST(3, 4, 0)
     capabilities_.clamped_addressing = SDL_SetRenderTextureAddressMode(
         renderer, SDL_TEXTURE_ADDRESS_CLAMP, SDL_TEXTURE_ADDRESS_CLAMP

@@ -38,6 +38,7 @@ struct Kept {
     base::threads::Mutex lock{};
     std::deque<OpenedPackage> files{};      ///< packages waiting, oldest first
     std::deque<fs::path> registries{};      ///< .oareg files waiting, oldest first
+    std::deque<fs::path> replays{};         ///< .oademo and .tad files waiting, oldest first
     std::optional<OpenedPackage> current{}; ///< the package being installed
     std::vector<OriginNote> notes{};        ///< the origin of a posted path, until reported
     std::deque<PackageOutcome> outcomes{};  ///< catalogue outcomes, oldest first, at most 256
@@ -249,9 +250,44 @@ bool registry_files_waiting() {
     return !state.registries.empty();
 }
 
+bool opens_replay(const fs::path& file) {
+    return extension_is(file, oa::platform::file_types::replay_extension) ||
+           extension_is(file, oa::platform::file_types::tad_extension);
+}
+
+void post_replay_file(const fs::path& file) {
+    const fs::path form = compared(file);
+    {
+        Kept& state = kept();
+        const base::threads::LockGuard guard(state.lock);
+        if (std::find(state.replays.begin(), state.replays.end(), form) != state.replays.end())
+            return;
+        state.replays.push_back(form);
+    }
+    detail::log_line("a replay file waits: " + detail::utf8_of(form));
+}
+
+std::optional<fs::path> take_replay_file() {
+    Kept& state = kept();
+    const base::threads::LockGuard guard(state.lock);
+    if (state.replays.empty())
+        return std::nullopt;
+    fs::path file = std::move(state.replays.front());
+    state.replays.pop_front();
+    return file;
+}
+
+bool replay_files_waiting() {
+    Kept& state = kept();
+    const base::threads::LockGuard guard(state.lock);
+    return !state.replays.empty();
+}
+
 void post_opened_file(const fs::path& file) {
     if (extension_is(file, oa::platform::file_types::registry_extension))
         post_registry_file(file);
+    else if (opens_replay(file))
+        post_replay_file(file);
     else
         post_package_file(file);
 }

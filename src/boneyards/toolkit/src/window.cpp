@@ -197,12 +197,23 @@ bool window_plain_focus_lost(Window* self) {
     return true;
 }
 
+// Unnumbered Tab stops sort by this. A raise moves a window in its parent's
+// list and does not change the number; window_move_child_last does. 0 is
+// unused, including after the counter wraps.
+uint32_t next_window_serial() {
+    static uint32_t serial = 0;
+    ++serial;
+    if (serial == 0)
+        ++serial;
+    return serial;
+}
+
 } // namespace detail
 
 constinit const WindowOps k_window_ops = detail::plain_window_ops();
 
 void window_init(Window* self, const WindowOps* ops) {
-    std::memset(self, 0, sizeof(*self));
+    *self = Window{};
     self->ops = ops;
     self->focusable = 1;
     self->color = k_no_handle;
@@ -210,6 +221,7 @@ void window_init(Window* self, const WindowOps* ops) {
     self->font = k_no_handle;
     self->text_handle = k_no_handle;
     self->reserved_after_text_handle = 1;
+    self->created = detail::next_window_serial();
     window_set_state_count(self, k_default_state_count);
     window_set_state(self, k_state_normal);
     window_set_color(self, 0xFF, 0xFF, 0xFF, 0xFF);
@@ -630,15 +642,28 @@ Window* window_default_focus_target(Window* self, Window* from, bool backwards) 
     return nullptr;
 }
 
+void window_keep_place(Window* window) {
+    if (window != nullptr)
+        window->keep_place = 1;
+}
+
+void window_move_child_last(Window* parent, Window* child) {
+    if (parent == nullptr || child == nullptr || child->parent != parent)
+        return;
+    if (list_remove(&parent->children, child))
+        list_add_unique(&parent->children, child);
+    // Tab follows the order windows were made in, so the move counts too.
+    child->created = detail::next_window_serial();
+}
+
 void window_default_raise(Window* self) {
     Window* parent = self->parent;
     if (parent == nullptr) {
         services_desktop_raise(self);
         return;
     }
-    if (list_remove(&parent->children, self)) {
+    if (self->keep_place == 0 && list_remove(&parent->children, self))
         list_add_unique(&parent->children, self);
-    }
     parent->ops->raise(parent);
 }
 
@@ -669,13 +694,19 @@ bool window_default_key_down(Window* self, const Message* msg) {
     if (msg == nullptr) {
         return false;
     }
+    // F6 is the desktop's, and only while a dialog or a region confines it.
+    // An unconfined desktop leaves the key for whoever had it before.
+    if (msg->key == key::f6)
+        return false;
+    // Tab is this control's when nothing confines it, as it was: the parent
+    // (or this window) picks the next target. A dialog or a region takes the
+    // key before it gets here.
     if (msg->key == key::tab) {
         const bool backwards = input_key_down(key::shift);
         Window* owner = self->parent != nullptr ? self->parent : self;
         Window* target = owner->ops->focus_target(owner, self, backwards);
-        if (target != nullptr) {
+        if (target != nullptr)
             services_desktop_focus(target);
-        }
         return true;
     }
     if (self->parent != nullptr) {

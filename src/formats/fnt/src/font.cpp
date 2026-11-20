@@ -197,15 +197,11 @@ struct LocatedFont {
 };
 
 LocatedFont read_opened_font(AssetStore& assets, const std::string& path) {
-    try {
-        auto data = assets.read(path);
-        return {true, std::move(data.bytes)};
-    } catch (const std::runtime_error& error) {
-        // The game treats a failed open as "absent". Other failures stay fatal.
-        if (std::string_view(error.what()).starts_with("asset not found:"))
-            return {};
-        throw;
-    }
+    // The game treats a failed open as "absent". Other failures stay fatal.
+    auto data = assets.read_if_present(path);
+    if (!data)
+        return {};
+    return {true, std::move(data->bytes)};
 }
 
 Decoded<Font> font_from_opened_file(const LocatedFont& located) {

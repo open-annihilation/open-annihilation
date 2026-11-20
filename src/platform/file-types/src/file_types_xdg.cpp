@@ -900,6 +900,171 @@ Registration withdraw_in(TypeSet types, const Places& places) {
     return done;
 }
 
+/// The files a replay registration writes, beside the eight types' own files.
+struct ReplayPlaces {
+    fs::path package_file{};
+    fs::path replay_entry{};
+    fs::path tad_entry{};
+    fs::path icon{};
+};
+
+/// Names the replay files under a data folder.
+///
+/// @param named the eight types' places, for the folders and nothing else
+/// @return the replay files
+ReplayPlaces replay_places(const DataPlaces& named) {
+    ReplayPlaces replay{};
+    replay.package_file =
+        named.mime_folder / "packages" / (std::string(replay_desktop_id) + ".xml");
+    replay.replay_entry = named.applications_folder / (std::string(replay_desktop_id) + ".desktop");
+    replay.tad_entry = named.applications_folder / (std::string(tad_desktop_id) + ".desktop");
+    replay.icon = type_icon(named.hicolor_folder, replay_extension);
+    return replay;
+}
+
+/// The skips a replay registration shares with the eight. A returned registration is the
+/// whole answer; nullopt means the caller goes on.
+///
+/// @param executable the program, absolute when the caller has checked that
+/// @param done a registration with supported set
+/// @return the answer when this start writes nothing; nullopt when it may write
+std::optional<Registration> replay_skip(const fs::path& executable, Registration done) {
+    if (set_value(flatpak_variable) || set_value(snap_variable)) {
+        done.lines.push_back("skipped: a Flatpak or Snap package registers its own file types");
+        return done;
+    }
+    if (!executable.is_absolute()) {
+        done.error = "the program's path " + detail::utf8_of(executable) + " is not absolute";
+        return done;
+    }
+    if (const auto temporary = temporary_folder_of(executable)) {
+        done.lines.push_back(
+            "skipped: " + detail::utf8_of(executable) + " lies in the temporary folder " +
+            detail::utf8_of(*temporary)
+        );
+        return done;
+    }
+    if (desktop_exec_argument(detail::utf8_of(executable)).empty()) {
+        done.lines.push_back(
+            "skipped: the program's path holds a control character or is not "
+            "UTF-8, which a desktop entry cannot hold"
+        );
+        return done;
+    }
+    return std::nullopt;
+}
+
+/// The replay registration itself. The eight types' files are not touched.
+///
+/// @param executable the program, absolute
+/// @param icon_png the icon's PNG bytes; empty writes no icon
+/// @param places where it writes
+/// @return what was done
+Registration register_replay_in(
+    const fs::path& executable, std::span<const uint8_t> icon_png, const Places& places
+) {
+    Registration done{};
+    done.supported = true;
+    if (const std::optional<Registration> skipped = replay_skip(executable, done))
+        return *skipped;
+    std::string why;
+    const auto data = data_folder(places, why);
+    if (!data) {
+        done.error = why;
+        return done;
+    }
+    const DataPlaces named = data_places(*data);
+    const ReplayPlaces replay = replay_places(named);
+    bool icon_changed = false;
+    if (!icon_png.empty()) {
+        const Written written = write_if_different(replay.icon, icon_png, named.icon_stamp, why);
+        if (written == Written::failed) {
+            done.error = why;
+            return done;
+        }
+        if (written == Written::written) {
+            icon_changed = true;
+            done.lines.push_back("wrote " + detail::utf8_of(replay.icon));
+        }
+    }
+    const auto keep = [&](const fs::path& file, const std::string& text, const fs::path& stamp) {
+        const Written written = write_if_different(file, bytes_of(text), stamp, why);
+        if (written == Written::written)
+            done.lines.push_back("wrote " + detail::utf8_of(file));
+        return written;
+    };
+    const Written package = keep(replay.package_file, replay_mime_package(), named.mime_stamp);
+    if (package == Written::failed) {
+        done.error = why;
+        return done;
+    }
+    const Written replay_desktop =
+        keep(replay.replay_entry, replay_desktop_entry(executable), named.applications_stamp);
+    if (replay_desktop == Written::failed) {
+        done.error = why;
+        return done;
+    }
+    const Written tad_desktop =
+        keep(replay.tad_entry, tad_desktop_entry(executable), named.applications_stamp);
+    if (tad_desktop == Written::failed) {
+        done.error = why;
+        return done;
+    }
+    done.changed = icon_changed || package == Written::written ||
+                   replay_desktop == Written::written || tad_desktop == Written::written;
+    run_due_tools(named, !icon_png.empty() || icon_changed, places, done);
+    return done;
+}
+
+/// The replay withdrawal itself. The eight types' files stay.
+///
+/// @param places where it writes
+/// @return what was done
+Registration withdraw_replay_in(const Places& places) {
+    Registration done{};
+    done.supported = true;
+    if (set_value(flatpak_variable) || set_value(snap_variable)) {
+        done.lines.push_back("skipped: a Flatpak or Snap package registers its own file types");
+        return done;
+    }
+    std::string why;
+    const auto data = data_folder(places, why);
+    if (!data) {
+        done.error = why;
+        return done;
+    }
+    const DataPlaces named = data_places(*data);
+    const ReplayPlaces replay = replay_places(named);
+    const auto take = [&](const fs::path& file, const fs::path& stamp) {
+        return remove_if_present(file, stamp, why, done);
+    };
+    const Written icon = take(replay.icon, named.icon_stamp);
+    if (icon == Written::failed) {
+        done.error = why;
+        return done;
+    }
+    const Written package = take(replay.package_file, named.mime_stamp);
+    if (package == Written::failed) {
+        done.error = why;
+        return done;
+    }
+    const Written replay_desktop = take(replay.replay_entry, named.applications_stamp);
+    if (replay_desktop == Written::failed) {
+        done.error = why;
+        return done;
+    }
+    const Written tad_desktop = take(replay.tad_entry, named.applications_stamp);
+    if (tad_desktop == Written::failed) {
+        done.error = why;
+        return done;
+    }
+    const bool icons_changed = icon == Written::written;
+    done.changed = icons_changed || package == Written::written ||
+                   replay_desktop == Written::written || tad_desktop == Written::written;
+    run_due_tools(named, icons_changed, places, done);
+    return done;
+}
+
 } // namespace
 
 Registration register_xdg(
@@ -925,6 +1090,30 @@ Registration withdraw_xdg(const TypeSet types, const Places& places) {
         Registration failed{};
         failed.supported = true;
         failed.error = std::string("the file types could not be withdrawn: ") + error.what();
+        return failed;
+    }
+}
+
+Registration register_replay_xdg(
+    const fs::path& executable, const std::span<const uint8_t> icon_png, const Places& places
+) {
+    try {
+        return register_replay_in(executable, icon_png, places);
+    } catch (const std::exception& error) {
+        Registration failed{};
+        failed.supported = true;
+        failed.error = std::string("the replay type could not be registered: ") + error.what();
+        return failed;
+    }
+}
+
+Registration withdraw_replay_xdg(const Places& places) {
+    try {
+        return withdraw_replay_in(places);
+    } catch (const std::exception& error) {
+        Registration failed{};
+        failed.supported = true;
+        failed.error = std::string("the replay type could not be withdrawn: ") + error.what();
         return failed;
     }
 }

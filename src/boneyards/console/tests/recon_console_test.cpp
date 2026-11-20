@@ -107,6 +107,15 @@ void click_window(const Window* w) {
     boneyards_status_widget_event(g_widget, pointer(MessageCode::left_up, x, y, 0));
 }
 
+void press(int32_t k) {
+    Message msg{};
+    msg.code = MessageCode::key_down;
+    msg.key = k;
+    boneyards_status_widget_event(g_widget, msg);
+    msg.code = MessageCode::key_up;
+    boneyards_status_widget_event(g_widget, msg);
+}
+
 void tick(int32_t cycles) {
     for (int32_t i = 0; i < cycles; ++i)
         boneyards_status_widget_tick(g_widget);
@@ -391,6 +400,43 @@ void test_recon(Data* data) {
     // row; no notice for an installed map.
     std::vector<std::string> rows = rows_of(console);
     CHECK(rows.size() > 1 && joined(rows, 0) == k_description);
+    // The description list is a stop. Down moves through it, and one Tab
+    // round visits it once. The keyboard goes back to the Recon button.
+    {
+        screens::ByListBox* box = console->text;
+        const int32_t was = box->list.selected;
+        Window* item = box->selected_item;
+        press(key::f6);
+        CHECK(g_widget->desktop.focus == &box->list.base);
+        press(key::down);
+        CHECK(box->list.selected != was);
+        // The description, and its scroll bar when the text is long, are the
+        // stops. The list comes round once, and no other stop comes twice.
+        int32_t visits = 0;
+        bool repeated = false;
+        const Window* seen[16] = {};
+        int32_t seen_count = 0;
+        for (int32_t step = 0; step < 16; ++step) {
+            press(key::tab);
+            Window* focus = g_widget->desktop.focus;
+            if (focus == &box->list.base) {
+                ++visits;
+                break;
+            }
+            for (int32_t earlier = 0; earlier < seen_count; ++earlier) {
+                if (seen[earlier] == focus)
+                    repeated = true;
+            }
+            if (seen_count < 16)
+                seen[seen_count++] = focus;
+        }
+        CHECK(visits == 1 && !repeated);
+        ScopedServices scope(g_widget);
+        box->list.selected = was;
+        box->selected_item = item;
+        g_widget->desktop.keyboard_ring = 0;
+        desktop_set_focus(&g_widget->desktop, &recon_button(frame)->base);
+    }
     CHECK(row_font(console, 0) == g_widget->system.hat_fonts.small);
     {
         ScopedServices scope(g_widget);

@@ -536,19 +536,29 @@ void Runtime::check_first_run() {
         LayerScreen* screen = setup();
         require(screen != nullptr, "the setup is not showing");
         const kit::DisplayList display = screen->display_list();
-        const kit::Control* focused = kit::control_of(display, screen->interaction().focused);
+        // Left and Right turn the carousel. The focus stays on the first stop,
+        // so the card in the middle is the carousel's chosen card.
+        int32_t chosen = -1;
+        for (const kit::Item& item : display.items) {
+            if (const auto* carousel = std::get_if<kit::CarouselLook>(&item.look)) {
+                chosen = carousel->chosen;
+                break;
+            }
+        }
+        const kit::Control* card =
+            chosen < 0 ? nullptr : kit::control_of(display, first_run::card_id + chosen);
         require(
-            focused != nullptr && focused->name.starts_with("first-run.language.card."),
-            "the focus left the language cards"
+            card != nullptr && card->name.starts_with("first-run.language.card."),
+            "the carousel's chosen card is not a language card"
         );
-        require(focused->name != "first-run.language.card.en", "the box stayed on English");
+        require(card->name != "first-run.language.card.en", "the box stayed on English");
         const LayerPlacement placed = screen->placement(oa_layer().view());
-        const int32_t middle = focused->rect.x + focused->rect.width / 2;
+        const int32_t middle = card->rect.x + card->rect.width / 2;
         require(
             middle >= placed.points_width / 2 - 2 && middle <= placed.points_width / 2 + 2,
             "the box is not on the card in the middle"
         );
-        std::cout << "first-run check: the box is on " << focused->name << std::endl;
+        std::cout << "first-run check: the box is on " << card->name << std::endl;
     }
 
     // A window of 2880 by 1620 draws the setup larger than the layer's own

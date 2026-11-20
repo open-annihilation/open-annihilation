@@ -373,7 +373,42 @@ void draw_far_view_dots(
             }
         };
     constexpr int32_t half = far_view_dot_side / 2;
+    const auto border =
+        [&](int32_t left, int32_t top, int32_t side, const std::array<uint8_t, 3>& c) {
+            if (side <= 0)
+                return;
+            const auto stroke = [&](int32_t x, int32_t y) {
+                if (x < 0 || y < 0 || x >= width || y >= height)
+                    return;
+                std::memcpy(
+                    rgb + (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
+                           static_cast<std::size_t>(x)) *
+                              3U,
+                    c.data(),
+                    3
+                );
+            };
+            for (int32_t x = left; x < left + side; ++x) {
+                stroke(x, top);
+                stroke(x, top + side - 1);
+            }
+            for (int32_t y = top; y < top + side; ++y) {
+                stroke(left, y);
+                stroke(left + side - 1, y);
+            }
+        };
     for (const FarViewDot& dot : dots) {
+        // A seat is a compact marker, already stamped by the caller. The
+        // square would hide it. The selection's frame is one pixel outside
+        // the 7-pixel marker, centred on the marker as it was stamped.
+        if (dot.player >= 0 && dot.player < 10) {
+            constexpr int32_t frame_side = 9;
+            if (dot.framed)
+                border(
+                    dot.x - frame_side / 2, dot.y - frame_side / 2, frame_side, dot.frame_colour
+                );
+            continue;
+        }
         if (dot.framed)
             fill(dot.x - half - 1, dot.y - half - 1, far_view_dot_side + 2, dot.frame_colour);
         fill(dot.x - half, dot.y - half, far_view_dot_side, dot.colour);

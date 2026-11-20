@@ -279,6 +279,11 @@ void draw_message_log(const World& world, const MessageLogSink& sink) {
         }
         if (!visible)
             continue;
+        if (sink.hide_recorded_chat) {
+            const char* const text = entry.line.text;
+            if (text[0] == '<' && std::strstr(text, "> ") != nullptr)
+                continue;
+        }
         entry.x = kMessageLogLeft;
         if (entry.line.sender != sim::messages::sender_none &&
             entry.line.sender < OA_PLAYER_COUNT) {

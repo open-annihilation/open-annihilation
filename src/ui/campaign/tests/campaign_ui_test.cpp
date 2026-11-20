@@ -110,6 +110,26 @@ void wrap_tests() {
     expect(std::strcmp(out, "anti\r\naircraft battery") == 0, "hyphen break drops the hyphen");
     wrap_text("supercalifragilistic word", 30, measure, nullptr, out, sizeof(out));
     expect(std::strcmp(out, "supercalifragilistic word") == 0, "long word stays whole");
+    // Rows the modern fonts draw keep the hyphen they break at, in Latin and
+    // in Bengali; a space at a break is still dropped, and the game font's
+    // rows lose the hyphen as above. A Bengali letter takes three bytes, 18
+    // pixels here.
+    wrap_text("anti-aircraft battery", 61, measure, nullptr, out, sizeof(out), true);
+    expect(std::strcmp(out, "anti-\r\naircraft battery") == 0, "a kept hyphen ends its row");
+    wrap_text("Empyrrean-এ আছে", 62, measure, nullptr, out, sizeof(out), true);
+    expect(std::strcmp(out, "Empyrrean-\r\nএ আছে") == 0, "a kept hyphen ends its Bengali row");
+    wrap_text("Empyrrean-এ আছে", 62, measure, nullptr, out, sizeof(out));
+    expect(std::strcmp(out, "Empyrrean\r\nএ আছে") == 0, "the game font's row loses the hyphen");
+    wrap_text("alpha beta gamma delta", 61, measure, nullptr, out, sizeof(out), true);
+    expect(std::strcmp(out, "alpha beta\r\ngamma delta") == 0, "a space at a break is dropped");
+    // A hyphen that would carry its row to the width stays with its word.
+    wrap_text("ab abcdefg-klm xy", 61, measure, nullptr, out, sizeof(out), true);
+    expect(
+        std::strcmp(out, "ab\r\nabcdefg-\r\nklm xy") == 0,
+        "a hyphen that does not fit moves its word"
+    );
+    wrap_text("ab abcdefg-klm xy", 61, measure, nullptr, out, sizeof(out));
+    expect(std::strcmp(out, "ab abcdefg\r\nklm xy") == 0, "3.1c breaks there and loses the hyphen");
     wrap_text("alpha beta gamma", 60, measure, nullptr, out, sizeof(out));
     expect(std::strcmp(out, "alpha\r\nbeta gamma") == 0, "a line reaching the width breaks");
     // Chinese breaks between its characters, never before a full-width
@@ -196,6 +216,124 @@ void chinese_row_tests() {
         first_page(repeated("\x92", 130)).rows[0].text == repeated("\x92", 127),
         "127 code page bytes"
     );
+}
+
+/// Wraps and lays out a briefing as a screen does and gives the rows of its
+/// first page.
+///
+/// @param text the briefing
+/// @param width the row width the briefing is wrapped to, in pixels
+/// @param[out] highlights the highlighted words of the page
+/// @return the page's rows up to the last with text, each without the CR that
+///         ends it
+std::vector<std::string>
+laid_out_rows(const std::string& text, int32_t width, std::vector<std::string>& highlights) {
+    static char wrapped[kBriefingTextBytes];
+    static char reflowed[kBriefingTextBytes + kReflowSlack];
+    wrap_text(text.c_str(), width, measure, nullptr, wrapped, sizeof(wrapped));
+    reflow_span_text(wrapped, reflowed, sizeof(reflowed));
+    BriefingPager pager{};
+    briefing_pager_reset(&pager, reflowed);
+    const BriefingRegion region{0, 0, 10 * 12, 10};
+    static BriefingPage page;
+    briefing_next_page(&pager, &region, measure, nullptr, &page);
+    std::vector<std::string> rows;
+    for (uint32_t i = 0; i < page.row_count; ++i) {
+        std::string row = page.rows[i].text;
+        if (!row.empty() && row.back() == '\r')
+            row.pop_back();
+        rows.push_back(row);
+    }
+    // The rows after the briefing's last are empty.
+    while (!rows.empty() && rows.back().empty())
+        rows.pop_back();
+    highlights.clear();
+    for (uint32_t i = 0; i < page.highlight_count; ++i)
+        highlights.emplace_back(page.highlights[i].text);
+    return rows;
+}
+
+/// Tells whether every row of a page is narrower than the width it was
+/// wrapped to, as laid out on the screen, markers gone.
+///
+/// @param rows the rows
+/// @param width the width, in pixels
+/// @return true when each row fits
+bool rows_fit(const std::vector<std::string>& rows, int32_t width) {
+    return std::all_of(rows.begin(), rows.end(), [&](const std::string& row) {
+        return measure(nullptr, row.c_str()) < width;
+    });
+}
+
+// A highlighted line stands on its row whatever its line breaks are, and
+// every row of a page stays inside the width it was wrapped to. A line
+// break alone after a highlight's closing marker, as a pack's briefings can
+// have, once joined the line after it to the highlight's row, a row of both
+// lines' width.
+void highlight_row_tests() {
+    const int32_t width = 150; // 24 characters of 6 pixels fit
+    const std::string lines =
+        "Mission 1~~&Y*Hold the line*&~CORE strikes the base from the north and the south~End";
+    const std::vector<std::string> expected{
+        "Mission 1",
+        "",
+        "*Hold the line*",
+        "CORE strikes the base",
+        "from the north and the",
+        "south",
+        "End"
+    };
+    std::vector<std::string> highlights;
+    for (const char* ending : {"\n", "\r\n"}) {
+        std::string text;
+        for (const char c : lines)
+            text += c == '~' ? std::string(ending) : std::string(1, c);
+        const auto rows = laid_out_rows(text, width, highlights);
+        const std::string what = std::strlen(ending) == 1 ? "line feeds" : "CR LF line ends";
+        expect(rows == expected, ("the rows of a highlighted line with " + what).c_str());
+        if (rows != expected)
+            for (const auto& row : rows)
+                std::cerr << "  row [" << row << "]\n";
+        expect(rows_fit(rows, width), ("each row fits the width, with " + what).c_str());
+        expect(
+            highlights == std::vector<std::string>{"*Hold the line*"},
+            ("the highlight stays on its row, with " + what).c_str()
+        );
+    }
+
+    // A highlight followed by body text on its own row, and one that opens
+    // the row, break at the width as the rest of the text does.
+    const auto rows = laid_out_rows(
+        "&G*Go*& to the beacon and build a base there&R*Now*&\nThen wait", width, highlights
+    );
+    expect(rows_fit(rows, width), "a row with a highlight and body text fits the width");
+    expect(
+        highlights.size() == 2 && highlights[0] == "*Go*" && highlights[1] == "*Now*",
+        "both highlights are laid out"
+    );
+    expect(rows.back() == "Then wait", "the line after a highlight's row starts its own row");
+    if (rows.back() != "Then wait")
+        for (const auto& row : rows)
+            std::cerr << "  row [" << row << "]\n";
+
+    // A highlight left open across a blank line, in a briefing with CR LF
+    // line ends, as 3.1c's German ArmCampaign22 has one: the reflow writes a
+    // closing and an opening marker at each break, which leaves the pager's
+    // open and closed state one off, so a later opening marker takes a CR for
+    // its colour code, and the line feed after it is not a line feed alone.
+    // These rows are as 3.1c draws them (the last holds three lines and two
+    // line feeds, each line with a stray colour letter) and must not change.
+    const std::vector<std::string> open_highlight{
+        "Mission 1", "Do this", "&", "RNext line\nREnd\nR"
+    };
+    const auto open_rows =
+        laid_out_rows("Mission 1\r\n&RDo this\r\n\r\nNext line\r\nEnd\r\n", width, highlights);
+    expect(
+        open_rows == open_highlight, "an open highlight across a blank line lays out as in 3.1c"
+    );
+    if (open_rows != open_highlight)
+        for (const auto& row : open_rows)
+            std::cerr << "  row [" << row << "]\n";
 }
 
 void page_tests() {
@@ -823,6 +961,7 @@ int main(int argc, char** argv) {
         wrap_tests();
         page_tests();
         chinese_row_tests();
+        highlight_row_tests();
         single_player_tests();
         campaign_name_tests();
         new_game_tests();

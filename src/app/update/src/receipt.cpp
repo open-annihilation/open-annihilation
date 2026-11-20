@@ -358,6 +358,37 @@ bool write_receipt(const std::filesystem::path& path, const Receipt& receipt, st
     return replace_file(path, receipt_text(receipt), "the receipt", error);
 }
 
+bool same_helper_run(
+    const std::optional<Receipt>& left, const std::optional<Receipt>& right
+) noexcept {
+    if (!left.has_value() || !right.has_value())
+        return left.has_value() == right.has_value();
+    return left->action == right->action && left->release == right->release &&
+           left->started_at == right->started_at && left->outcome == right->outcome;
+}
+
+HandOffStop hand_off_stop(const HandOffFacts& facts) noexcept {
+    if (facts.held)
+        return HandOffStop::held;
+    if (facts.receipt.has_value() && facts.receipt->outcome == Outcome::running &&
+        facts.now - facts.receipt->started_at < receipt_cut_short_seconds)
+        return HandOffStop::helper_at_work;
+    if (same_helper_run(facts.receipt, facts.seen))
+        return HandOffStop::none;
+    if (facts.journal || facts.installer_pending)
+        return HandOffStop::left_unfinished;
+    return HandOffStop::receipt_changed;
+}
+
+void read_hand_off_facts(const std::filesystem::path& updates, HandOffFacts& facts) {
+    std::error_code io;
+    facts.journal = std::filesystem::is_regular_file(updates / journal_file_name, io) && !io;
+    io.clear();
+    facts.installer_pending =
+        std::filesystem::is_regular_file(updates / installer_pending_name, io) && !io;
+    facts.receipt = load_receipt(updates / receipt_file_name);
+}
+
 std::optional<Receipt> load_receipt(const std::filesystem::path& path) {
     std::error_code io;
     const uintmax_t size = std::filesystem::file_size(path, io);

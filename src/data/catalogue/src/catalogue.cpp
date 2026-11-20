@@ -1521,8 +1521,8 @@ bool read_language(const json::Json& value, Package& package, std::string& reaso
         return false;
     if (const json::Json* needs = value.find("needs")) {
         const std::string* text = needs->string();
-        if (!text || (*text != "game-fonts" && *text != "modern-fonts")) {
-            reason = "needs is not game-fonts or modern-fonts";
+        if (!text || (*text != "game-fonts" && *text != "modern-fonts" && *text != "shaping")) {
+            reason = "needs is not game-fonts, modern-fonts or shaping";
             return false;
         }
         package.needs = *text;
@@ -1727,6 +1727,13 @@ void keep_problem(Catalogue& catalogue, std::size_t index, std::string_view reas
     catalogue.problems.push_back("packages[" + std::to_string(index) + "]: " + std::string(reason));
 }
 
+/// Keeps a reason that is not about one package, until max_problems reasons are kept.
+void note_problem(Catalogue& catalogue, std::string_view reason) {
+    if (catalogue.problems.size() >= max_problems)
+        return;
+    catalogue.problems.push_back(std::string(reason));
+}
+
 /// The package key folded to lower case, for the duplicate check.
 std::string fold_key(std::string_view id) {
     std::string folded(id);
@@ -1796,6 +1803,49 @@ bool read_mirrors(const json::Json& array, std::vector<url::Url>& out, std::stri
         }
         out.push_back(*parsed);
     }
+    return true;
+}
+
+/// Reads the catalogue's pointer at the releases list.
+bool read_releases_ref(const json::Json& value, ReleasesRef& out, std::string& error) {
+    if (value.type() != json::JsonType::object) {
+        error = "releases is not an object";
+        return false;
+    }
+    const json::Json* hash = value.find("sha256");
+    const std::string* hash_text = hash ? hash->string() : nullptr;
+    if (!hash_text || !lower_hex(*hash_text)) {
+        error = "releases.sha256 is not 64 lower-case hex digits";
+        return false;
+    }
+    const auto digest = sha::parse_hex(*hash_text);
+    if (!digest) {
+        error = "releases.sha256 is not 64 lower-case hex digits";
+        return false;
+    }
+    const json::Json* file = value.find("file");
+    const std::string* file_text = file ? file->string() : nullptr;
+    if (!file_text || !valid_reference(*file_text)) {
+        error = "releases.file is not a reference";
+        return false;
+    }
+    const auto hex = sha::to_hex(*digest);
+    std::string expected(hex.data(), hex.size());
+    expected += ".json";
+    if (last_segment(*file_text) != expected) {
+        error = "releases.file is not named by its sha256";
+        return false;
+    }
+    const json::Json* size = value.find("size");
+    const auto size_number = size ? size->integer() : std::nullopt;
+    if (!size_number || *size_number < 1 ||
+        static_cast<uint64_t>(*size_number) > max_catalogue_bytes) {
+        error = "releases.size is not a whole number of bytes from 1 to 16777216";
+        return false;
+    }
+    out.file = *file_text;
+    out.sha256 = *digest;
+    out.size = static_cast<uint64_t>(*size_number);
     return true;
 }
 
@@ -1897,6 +1947,17 @@ bool read_parsed_catalogue(
         if (!text || !valid_reference(*text) || !png)
             return refuse(error, "icon is not a picture reference");
         loaded.icon = *text;
+    }
+    // A malformed releases member is the publisher's mistake, or a list this
+    // version's size cap cannot name. Older engines ignore the member. This
+    // one does too: the catalogue is read, and the member is left unset.
+    if (const json::Json* releases = root->find("releases")) {
+        ReleasesRef named;
+        std::string releases_error;
+        if (!read_releases_ref(*releases, named, releases_error))
+            note_problem(loaded, releases_error);
+        else
+            loaded.releases = std::move(named);
     }
     const json::Json* packages = root->find("packages");
     if (!packages || packages->type() != json::JsonType::array)

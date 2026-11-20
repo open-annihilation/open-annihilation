@@ -19,16 +19,15 @@
 #include "oa/data/content_bundles/record.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/zip/stream.hpp"
+#include "oa/platform/file_time.hpp"
 #include "oa/platform/files.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <ratio>
 #include <span>
 #include <string>
 #include <string_view>
@@ -66,34 +65,6 @@ struct PieceWriter {
     bool failed{};
 };
 
-/// Converts a file time to whole seconds since 1970.
-///
-/// A clock that can convert straight to the system clock does. The Visual
-/// Studio file clock cannot: `to_utc` and then `utc_clock::to_sys` load the
-/// time zone database, and a missing database aborts the process. That clock
-/// counts 100 ns ticks from 1601-01-01, which is 11644473600 seconds before
-/// 1970. For a file written after 2018 its own conversion adds the 27 leap
-/// seconds a Windows file time skips and `to_sys` subtracts the leap seconds
-/// that have elapsed, the same 27, so the whole seconds are this difference.
-///
-/// @param time the file time
-/// @return the seconds
-template <typename Clock>
-int64_t seconds_of_clock(typename Clock::time_point time) {
-    if constexpr (requires { Clock::to_sys(time); }) {
-        return static_cast<int64_t>(
-            std::chrono::floor<std::chrono::seconds>(Clock::to_sys(time)).time_since_epoch().count()
-        );
-    } else {
-        static_assert(std::ratio_equal_v<typename Clock::period, std::ratio<1, 10'000'000>>);
-        using hundred_ns = std::chrono::duration<long long, std::ratio<1, 10'000'000>>;
-        // 11644473600 seconds, in 100 ns ticks: 1601-01-01 to 1970-01-01.
-        constexpr hundred_ns file_epoch_to_unix{0x19DB1DED53E8000LL};
-        const auto since_unix = time.time_since_epoch() - file_epoch_to_unix;
-        return static_cast<int64_t>(std::chrono::floor<std::chrono::seconds>(since_unix).count());
-    }
-}
-
 /// The modification time of a file, in seconds since 1970.
 ///
 /// @param file the file
@@ -103,7 +74,7 @@ int64_t modified_seconds(const fs::path& file) {
     const fs::file_time_type time = fs::last_write_time(file, error);
     if (error)
         return 0;
-    return seconds_of_clock<fs::file_time_type::clock>(time);
+    return oa::platform::file_seconds_since_1970(time);
 }
 
 /// Takes the next piece of a file being copied.

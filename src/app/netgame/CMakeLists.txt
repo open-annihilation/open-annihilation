@@ -24,7 +24,7 @@ add_library(oa::app::netgame_options ALIAS oa-app-netgame-options)
 target_include_directories(oa-app-netgame-options PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(oa-app-netgame-options PUBLIC oa::app::headers oa-app-netgame-launch oa-netgame-frontend
   oa-app-command-line oa-ui-frontend-renderer oa-ui-frontend-state oa-sim-scenario oa-ui-screen-registry
-  oa-core-types
+  oa-core-types oa-session-demo
   PRIVATE oa-netgame oa-options oa-formats-oamod oa-formats-oamut oa-base-text oa-platform-shims oa-base-threads
   oa-platform-file-types oa-data-content-bundles oa-data-mutators)
 
@@ -34,6 +34,17 @@ add_library(oa-app-netgame-wire-rules STATIC wire_rules_binding.cpp)
 add_library(oa::app::netgame_wire_rules ALIAS oa-app-netgame-wire-rules)
 target_include_directories(oa-app-netgame-wire-rules PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(oa-app-netgame-wire-rules PUBLIC oa-data-mod-profile oa-netgame)
+
+# The recordings of games not yet finished: how a game is recorded, the files
+# a recording keeps while it is made and the lock a game holds on them, and
+# finishing the ones a crash left, which their test runs without a running
+# app.
+add_library(oa-app-netgame-recording-partials STATIC recording_partials.cpp)
+add_library(oa::app::netgame_recording_partials ALIAS oa-app-netgame-recording-partials)
+target_include_directories(oa-app-netgame-recording-partials PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(oa-app-netgame-recording-partials
+  PUBLIC oa-app-package-install oa-formats-oademo oa-session-demo
+  PRIVATE oa-app-user-folder oa-data-saves oa-platform-shims oa-options)
 
 # The traffic readouts drawn over the battlefield through the engine's match
 # overlay, which their test draws without a running app.
@@ -63,13 +74,14 @@ target_include_directories(oa-app-netgame-launch-binding PUBLIC "${CMAKE_CURRENT
 target_link_libraries(oa-app-netgame-launch-binding
   PUBLIC oa-app-netgame-close-handlers oa-app-netgame-launch oa-ui-frontend-multiplayer oa-core-types
     oa-netgame
-  PRIVATE oa-base-text)
+  PRIVATE oa-base-text oa-formats-json)
 
 # The sources that define NetworkPlay, Runtime's friend, and the hooks that reach it.
 set(oa_app_netgame_sources
   runtime_console_network.cpp
   runtime_net.cpp
   runtime_demo.cpp
+  runtime_replay_viewer.cpp
   extension.cpp
   runtime_netgame.cpp
   runtime_opened_launch.cpp
@@ -96,7 +108,7 @@ if(TARGET oa-game)
   # extension's OA_RUNTIME_EXTENSION_MEMBERS to both).
   target_link_libraries(oa-app-netgame
     PUBLIC oa-app-netgame-options oa-app-netgame-traffic-overlay oa-app-netgame-close-handlers
-      oa-app-netgame-wire-rules
+      oa-app-netgame-wire-rules oa-app-netgame-recording-partials
       oa-app-netgame-launch-binding oa-ui-frontend-multiplayer oa-netgame-match-runtime oa-session-demo
       oa-netgame-console oa-netgame-messages
     PRIVATE oa::extension-sdk oa-app-view-rules oa-base-text oa-data-languages oa-present
@@ -110,6 +122,10 @@ if(TARGET oa-game)
 endif()
 
 if(BUILD_TESTING)
+  add_executable(oa-netgame-replay-viewer-end-test tests/replay_viewer_end_test.cpp)
+  target_include_directories(oa-netgame-replay-viewer-end-test PRIVATE include)
+  target_compile_features(oa-netgame-replay-viewer-end-test PRIVATE cxx_std_20)
+  add_test(NAME netgame-replay-viewer-end COMMAND oa-netgame-replay-viewer-end-test)
   add_executable(oa-netgame-launch-switches-test tests/launch_switches_test.cpp)
   target_link_libraries(oa-netgame-launch-switches-test PRIVATE oa-app-netgame-launch oa-options)
   add_test(NAME net-launch-switches COMMAND oa-netgame-launch-switches-test)
@@ -146,6 +162,15 @@ if(BUILD_TESTING)
     oa-netgame-test-launch)
   add_test(NAME netgame-launch-binding COMMAND oa-netgame-launch-binding-test)
   set_tests_properties(netgame-close-handlers netgame-launch-binding PROPERTIES TIMEOUT 60)
+  # How a game is recorded and where: the plan from the recorder, the command
+  # line and the player's setting, the files of a recording being made, a
+  # replay and a recorder hack's file finished after a crash, and a game still
+  # being played, whose recording a start leaves alone.
+  add_executable(oa-netgame-recording-partials-test tests/recording_partials_test.cpp)
+  target_link_libraries(oa-netgame-recording-partials-test PRIVATE oa-app-netgame-recording-partials
+    oa-app-user-folder oa-session-demo oa-formats-oademo oa-formats-tad oa-test-support oa-options)
+  add_test(NAME netgame-recording-partials COMMAND oa-netgame-recording-partials-test)
+  set_tests_properties(netgame-recording-partials PROPERTIES TIMEOUT 60)
   # The network rules a profile gives; the reference profiles in the folder
   # OA_MOD_PROFILES_DIR names are read when it is set.
   add_executable(oa-netgame-wire-rules-binding-test tests/wire_rules_test.cpp)
@@ -183,6 +208,13 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
     --skip-intro --mute --headless-check --net-loopback-check 300
     --preferences-file "${oa_netgame_checks}/net-loopback.conf")
   set_tests_properties(native-net-loopback PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+    FAIL_REGULAR_EXPRESSION "its commander went too")
+  # The host's player enters photo mode, holds the picture and leaves.
+  # Both worlds still agree.
+  add_test(NAME native-net-loopback-photo COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+    --skip-intro --mute --headless-check --net-loopback-check 300 --net-loopback-photo
+    --preferences-file "${oa_netgame_checks}/net-loopback-photo.conf")
+  set_tests_properties(native-net-loopback-photo PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
     FAIL_REGULAR_EXPRESSION "its commander went too")
   # A profile with more than 256 weapon types: the host's extra unit fires,
   # and those shots cross as the wide records.
@@ -301,6 +333,46 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
     set_tests_properties(native-net-loopback-brain-starts PROPERTIES
       TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
       SKIP_RETURN_CODE 77)
+    # A game kept as a replay: --record-game writes one .oademo that plays
+    # clean, the setting on and off give the same trace and the same setup
+    # blocks, a game killed part way is finished by the next start, the
+    # recorder hack's .tad holds no address sector, and a headless game that
+    # asked for no recording writes no Recordings folder.
+    add_test(NAME native-replays-record COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_replays_record.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-replays-record PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      SKIP_RETURN_CODE 77)
+    # A skirmish kept as a replay: two built-in computer players on Ashap
+    # Plateau write the same trace with and without --record-game, the
+    # replay plays to that tick with the same units, kills and losses, and
+    # a plain headless skirmish recorded with --give-orders plays back clean.
+    # A fight checks kills, metal, energy and features; a saved game and the
+    # game loaded from it keep the same trace; ridge-tough plays strict; and
+    # losing the window's focus still pauses a recorded skirmish.
+    add_test(NAME native-replays-skirmish COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_replays_skirmish.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}"
+      --mutator "${PROJECT_SOURCE_DIR}/tests/data/mutators/packages/ridge-tough")
+    set_tests_properties(native-replays-skirmish PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      SKIP_RETURN_CODE 77)
+    # A campaign mission kept as a replay: Arm Campaign mission 0 for 2400
+    # ticks, and mission 8 for 700, write the same trace with and without
+    # --record-game. Mission 0 is also recorded to its own victory, through
+    # the end screen. Players, features and the tick-0 creates match the
+    # replay. A .tad round trip plays strict, and the away-pause check runs
+    # on mission 0 while it is recorded.
+    add_test(NAME native-replays-campaign COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_replays_campaign.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-replays-campaign PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      SKIP_RETURN_CODE 77)
     # The three computer checks above, with Classic in each computer seat.
     add_test(NAME native-net-loopback-computer-classic COMMAND ${Python3_EXECUTABLE}
       "${PROJECT_SOURCE_DIR}/tools/check_native_classic_swap.py"
@@ -341,6 +413,14 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
       --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
       --scratch-root "${oa_netgame_checks}")
     set_tests_properties(native-net-options PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # A joiner over loopback is announced. The host speaks with the
+    # screen-reader preference on, and the joiner's arrival is an announce
+    # note. Nothing on the wire changes.
+    add_test(NAME native-room-announce COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_room_announce.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-room-announce PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
     # The battle room's mutator layer, on two programs: a joiner without the
     # package holds START, and one who has it builds the same layer.
     add_test(NAME native-net-room-mutators COMMAND ${Python3_EXECUTABLE}

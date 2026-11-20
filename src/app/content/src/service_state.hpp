@@ -10,6 +10,7 @@
 #include "oa/base/sha256.hpp"
 #include "oa/base/threads.hpp"
 #include "oa/data/catalogue/check.hpp"
+#include "oa/data/catalogue/releases.hpp"
 #include "oa/data/registry/player_registries.hpp"
 
 #include <atomic>
@@ -42,6 +43,10 @@ struct RegistryRecord {
     bool refresh_failed = false;
     std::string last_error{};
     bool retired = false; ///< removed from the list; the slot stays so a refresh keeps its index
+    /// The releases list accepted for `releases_digest`. Null when none is held.
+    std::shared_ptr<const data::catalogue::ReleasesList> releases{};
+    /// The catalogue member digest `releases` was accepted against. Absent when none is held.
+    std::optional<base::sha256::Digest> releases_digest{};
 };
 
 /// One registry or mirror check kept until the player adds it or the service stops.
@@ -189,6 +194,18 @@ void write_cache(
     std::span<const uint8_t> catalogue_bytes,
     std::span<const uint8_t> signature,
     bool write_catalogue
+);
+
+/// Writes a releases list beside the cached catalogue.
+///
+/// The file is replaced only when a fetch was accepted. A failed fetch leaves
+/// the file that is already there.
+///
+/// @param state the service
+/// @param id the registry id
+/// @param bytes the list file's bytes
+void write_releases_cache(
+    const ServiceState& state, std::string_view id, std::span<const uint8_t> bytes
 );
 
 /// Fetches one registry and publishes the snapshot. Runs on the worker.

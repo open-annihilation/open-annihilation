@@ -24,13 +24,17 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs the executable directly.
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 
 RUN_TIMEOUT_SECONDS = 900
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+)
 PLAYS = "plays steady-commander 1.2 at firm"
 BUILT = "net loopback check: the computer player built"
 

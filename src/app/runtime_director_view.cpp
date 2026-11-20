@@ -135,10 +135,19 @@ void Runtime::enter_director_mode(
     state->tracked_unit = tracked_match_unit_;
     state->point_sound = match_->point_sound;
     state->named_sound = match_->named_sound;
-    for (size_t channel = 0; channel < state->gamma_table.size(); ++channel) {
-        state->gamma_table[channel] =
-            oa::present::gamma_channel(static_cast<uint8_t>(channel), kDefaultDisplayGamma);
-        state->gamma_identity = state->gamma_identity && state->gamma_table[channel] == channel;
+    if (presentation.player_gamma) {
+        state->gamma_table = gamma_table_;
+        state->gamma_identity = true;
+        for (size_t channel = 0; channel < state->gamma_table.size(); ++channel) {
+            state->gamma_identity = state->gamma_identity &&
+                                    state->gamma_table[channel] == static_cast<uint8_t>(channel);
+        }
+    } else {
+        for (size_t channel = 0; channel < state->gamma_table.size(); ++channel) {
+            state->gamma_table[channel] =
+                oa::present::gamma_channel(static_cast<uint8_t>(channel), kDefaultDisplayGamma);
+            state->gamma_identity = state->gamma_identity && state->gamma_table[channel] == channel;
+        }
     }
     director_ = std::move(state);
 

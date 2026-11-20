@@ -23,13 +23,17 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs the executable directly.
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 
 RUN_TIMEOUT_SECONDS = 900
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+)
 PLAYS = "brains: player 1 plays steady-commander 1.2 at firm"
 RIDGE = "brains: player 1: ridge-raider: Made for ridge; the built-in player plays"
 MISSING = "brains: player 1: tide-keeper: it is not installed; the built-in player plays"

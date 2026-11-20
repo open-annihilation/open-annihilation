@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -23,6 +24,7 @@
 #include "oa/boneyards_test/installs.hpp"
 #include "oa/boneyards/rover_calls.hpp"
 #include "oa/boneyards/rover_session.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/surface.hpp"
 #include "oa/rover/platform.h"
 #include "oa/platform/system.hpp"
@@ -1022,6 +1024,327 @@ void test_install_panoramas(
     galaxy_release_panoramas(graphics);
 }
 
+// Puts the mode's colours back when the checks finish, including on a failing check.
+struct ColourModeGuard {
+    ~ColourModeGuard() {
+        oa::present::colour_vision::set_active(oa::present::colour_vision::Mode::off, false);
+    }
+};
+
+std::array<uint8_t, 1024> green_palette() {
+    std::array<uint8_t, 1024> bytes{};
+    for (int index = 0; index < 256; ++index) {
+        bytes[static_cast<std::size_t>(index) * 4U + 1U] = 255;
+    }
+    return bytes;
+}
+
+void place_colour(
+    std::array<uint8_t, 1024>& bytes, int index, oa::present::colour_vision::Rgb colour
+) {
+    const auto at = static_cast<std::size_t>(index) * 4U;
+    bytes[at] = colour.red;
+    bytes[at + 1U] = colour.green;
+    bytes[at + 2U] = colour.blue;
+}
+
+void expect_shades(const std::array<uint8_t, 256>& map, int first, int last, int target) {
+    for (int index = first; index <= last; ++index)
+        CHECK(map[static_cast<std::size_t>(index)] == static_cast<uint8_t>(target));
+}
+
+void expect_run(const std::array<uint8_t, 256>& map, int first, const int* values, int count) {
+    for (int step = 0; step < count; ++step)
+        CHECK(map[static_cast<std::size_t>(first + step)] == static_cast<uint8_t>(values[step]));
+}
+
+void expect_at(
+    const std::array<uint8_t, 256>& map, const int* sources, const int* values, int count
+) {
+    for (int step = 0; step < count; ++step)
+        CHECK(map[static_cast<std::size_t>(sources[step])] == static_cast<uint8_t>(values[step]));
+}
+
+// Off keeps today's indices. Each mode's links, chat tints and aura and latency tables match the
+// colours placed at that mode's palette indices.
+void test_colour_indices() {
+    const std::array<uint8_t, 1024> plain = green_palette();
+    CHECK(
+        screens::galaxy_link_index(screens::connector_color::arm, plain) ==
+        screens::connector_color::arm
+    );
+    CHECK(
+        screens::galaxy_link_index(screens::connector_color::core, plain) ==
+        screens::connector_color::core
+    );
+    CHECK(
+        screens::galaxy_link_index(screens::connector_color::mixed, plain) ==
+        screens::connector_color::mixed
+    );
+    CHECK(screens::galaxy_link_index(0x10, plain) == 0x10);
+    const screens::GalaxyChatColours chat = screens::galaxy_chat_colours(plain);
+    CHECK(chat.system == screens::chat_tint::system && chat.newsbot == screens::chat_tint::newsbot);
+    CHECK(chat.arm == screens::chat_tint::arm && chat.core == screens::chat_tint::core);
+    CHECK(screens::muzzle_name_index(plain) == screens::chat_tint::muzzle);
+    const screens::SideIconColours icons = screens::side_icon_colours(plain);
+    CHECK(icons.arm == screens::side_icon_body::arm && icons.core == screens::side_icon_body::core);
+    const std::array<uint8_t, 256> aura = screens::galaxy_aura_map(true, plain);
+    const std::array<uint8_t, 256> latency = screens::lobby_latency_map(plain);
+    CHECK(aura[225] == 225 && aura[9] == 9 && latency[160] == 160 && latency[212] == 212);
+
+    struct Expect {
+        oa::present::colour_vision::Mode mode;
+        int arm;
+        int core;
+        int mixed;
+        int system;
+        int news;
+        int chat_arm;
+        int chat_core;
+        int good;
+        int middle;
+        int bad;
+    };
+
+    const Expect modes[] = {
+        {oa::present::colour_vision::Mode::protanopia,
+         226,
+         212,
+         82,
+         96,
+         208,
+         226,
+         212,
+         100,
+         64,
+         212},
+        {oa::present::colour_vision::Mode::deuteranopia,
+         226,
+         212,
+         82,
+         96,
+         208,
+         226,
+         212,
+         100,
+         64,
+         212},
+        {oa::present::colour_vision::Mode::tritanopia,
+         102,
+         211,
+         64,
+         98,
+         199,
+         227,
+         213,
+         226,
+         193,
+         212},
+        {oa::present::colour_vision::Mode::achromatopsia,
+         227,
+         199,
+         64,
+         80,
+         199,
+         102,
+         213,
+         80,
+         86,
+         90},
+    };
+    for (const Expect& expect : modes) {
+        ColourModeGuard guard;
+        oa::present::colour_vision::set_active(expect.mode, false);
+        const oa::present::colour_vision::SemanticColours colours =
+            oa::present::colour_vision::semantic_colours(expect.mode);
+        // Side and chat colours sit apart from each other's neighbours, so each ramp is that one
+        // index. Health colours are placed on their own palette for the same reason.
+        std::array<uint8_t, 1024> bytes = green_palette();
+        place_colour(bytes, expect.arm, colours.war_arm);
+        place_colour(bytes, expect.core, colours.war_core);
+        place_colour(bytes, expect.mixed, colours.war_mixed);
+        place_colour(bytes, expect.system, colours.chat_system);
+        place_colour(bytes, expect.news, colours.chat_newsbot);
+        place_colour(bytes, expect.chat_arm, colours.chat_arm);
+        place_colour(bytes, expect.chat_core, colours.chat_core);
+        CHECK(screens::galaxy_link_index(screens::connector_color::arm, bytes) == expect.arm);
+        CHECK(screens::galaxy_link_index(screens::connector_color::core, bytes) == expect.core);
+        CHECK(screens::galaxy_link_index(screens::connector_color::mixed, bytes) == expect.mixed);
+        CHECK(screens::galaxy_link_index(0x11, bytes) == 0x11);
+        CHECK(
+            screens::galaxy_link_index(screens::connector_color::arm, {}) ==
+            screens::connector_color::arm
+        );
+        const screens::GalaxyChatColours tinted = screens::galaxy_chat_colours(bytes);
+        CHECK(tinted.system == expect.system && tinted.newsbot == expect.news);
+        CHECK(tinted.arm == expect.chat_arm && tinted.core == expect.chat_core);
+        const screens::SideIconColours bodies = screens::side_icon_colours(bytes);
+        CHECK(bodies.arm == expect.arm && bodies.core == expect.core);
+        expect_shades(screens::galaxy_aura_map(true, bytes), 225, 228, expect.arm);
+        expect_shades(screens::galaxy_aura_map(false, bytes), 210, 213, expect.core);
+        CHECK(screens::galaxy_aura_map(true, bytes)[9] == 9);
+        CHECK(screens::galaxy_aura_map(true, bytes)[87] == 87);
+
+        std::array<uint8_t, 1024> health = green_palette();
+        place_colour(health, expect.good, colours.health_good);
+        place_colour(health, expect.middle, colours.health_mid);
+        place_colour(health, expect.bad, colours.health_bad);
+        CHECK(screens::muzzle_name_index(health) == expect.bad);
+        const std::array<uint8_t, 256> grades = screens::lobby_latency_map(health);
+        expect_shades(grades, 160, 164, expect.good);
+        expect_shades(grades, 195, 199, expect.middle);
+        expect_shades(grades, 201, 205, expect.bad);
+        CHECK(grades[212] == static_cast<uint8_t>(expect.bad));
+        CHECK(grades[9] == 9 && grades[90] == 90 && grades[87] == 87);
+    }
+}
+
+void collect_frame_pixels(const oa::formats::gaf::Frame& frame, std::vector<uint8_t>& out) {
+    out.insert(out.end(), frame.pixels.begin(), frame.pixels.end());
+    for (const oa::formats::gaf::Frame& layer : frame.layers)
+        collect_frame_pixels(layer, out);
+}
+
+std::vector<uint8_t> side_aura_pixels(const GalaxyGraphics& graphics, AuraSide side) {
+    std::vector<uint8_t> pixels;
+    const auto slot = static_cast<std::size_t>(side);
+    if (!graphics.auras[slot])
+        return pixels;
+    for (const oa::formats::gaf::Sequence& sequence : graphics.auras[slot]->sequences)
+        for (const oa::formats::gaf::Frame& frame : sequence.frames)
+            collect_frame_pixels(frame, pixels);
+    return pixels;
+}
+
+// The install palette matches the stock indices, and a mode switch restores the aura pixels.
+void test_installed_colours(GalaxyGraphics& graphics, const std::vector<uint8_t>& palette_file) {
+    CHECK(palette_file.size() >= 1024);
+    const std::span<const uint8_t> palette(palette_file.data(), 1024);
+
+    struct Stock {
+        oa::present::colour_vision::Mode mode;
+        int arm;
+        int core;
+        int mixed;
+        int system;
+        int news;
+        int chat_arm;
+        int chat_core;
+        int arm_shades[4];
+        int core_shades[4];
+        int good_shades[5];
+        int middle_shades[5];
+        int bad_shades[6];
+    };
+
+    const Stock stocks[] = {
+        {oa::present::colour_vision::Mode::protanopia,
+         226,
+         212,
+         82,
+         96,
+         208,
+         226,
+         212,
+         {225, 226, 227, 228},
+         {210, 211, 212, 213},
+         {98, 99, 100, 101, 102},
+         {64, 64, 64, 65, 65},
+         {211, 212, 212, 212, 213, 211}},
+        {oa::present::colour_vision::Mode::deuteranopia,
+         226,
+         212,
+         82,
+         96,
+         208,
+         226,
+         212,
+         {225, 226, 227, 228},
+         {210, 211, 212, 213},
+         {98, 99, 100, 101, 102},
+         {64, 64, 64, 65, 65},
+         {211, 212, 212, 212, 213, 211}},
+        {oa::present::colour_vision::Mode::tritanopia,
+         102,
+         211,
+         64,
+         98,
+         199,
+         227,
+         213,
+         {100, 102, 104, 106},
+         {210, 211, 212, 213},
+         {225, 225, 226, 227, 227},
+         {192, 192, 193, 194, 195},
+         {211, 212, 212, 212, 213, 211}},
+        {oa::present::colour_vision::Mode::achromatopsia,
+         227,
+         199,
+         64,
+         80,
+         199,
+         102,
+         213,
+         {225, 226, 227, 228},
+         {196, 198, 199, 201},
+         {80, 80, 80, 81, 83},
+         {84, 85, 86, 87, 88},
+         {88, 89, 90, 91, 91, 88}},
+    };
+    const int bad_sources[] = {201, 202, 203, 204, 205, 212};
+    for (const Stock& stock : stocks) {
+        ColourModeGuard guard;
+        oa::present::colour_vision::set_active(stock.mode, false);
+        CHECK(screens::galaxy_link_index(screens::connector_color::arm, palette) == stock.arm);
+        CHECK(screens::galaxy_link_index(screens::connector_color::core, palette) == stock.core);
+        CHECK(screens::galaxy_link_index(screens::connector_color::mixed, palette) == stock.mixed);
+        const screens::GalaxyChatColours tinted = screens::galaxy_chat_colours(palette);
+        CHECK(tinted.system == stock.system && tinted.newsbot == stock.news);
+        CHECK(tinted.arm == stock.chat_arm && tinted.core == stock.chat_core);
+        const std::array<uint8_t, 256> arm = screens::galaxy_aura_map(true, palette);
+        const std::array<uint8_t, 256> core = screens::galaxy_aura_map(false, palette);
+        expect_run(arm, 225, stock.arm_shades, 4);
+        expect_run(core, 210, stock.core_shades, 4);
+        CHECK(arm[9] == 9 && core[9] == 9);
+        const std::array<uint8_t, 256> grades = screens::lobby_latency_map(palette);
+        expect_run(grades, 160, stock.good_shades, 5);
+        expect_run(grades, 195, stock.middle_shades, 5);
+        expect_at(grades, bad_sources, stock.bad_shades, 6);
+        CHECK(grades[9] == 9 && grades[90] == 90);
+    }
+
+    const std::vector<uint8_t> arm_before = side_aura_pixels(graphics, AuraSide::arm);
+    const std::vector<uint8_t> core_before = side_aura_pixels(graphics, AuraSide::core);
+    CHECK(!arm_before.empty() && !core_before.empty());
+    oa::Palette matched{};
+    std::memcpy(matched.entries, palette.data(), 1024);
+    graphics.palette = &matched;
+    {
+        ColourModeGuard guard;
+        oa::present::colour_vision::set_active(
+            oa::present::colour_vision::Mode::achromatopsia, false
+        );
+        auto view = std::make_unique<GalaxyView>();
+        screens::galaxy_init(view.get());
+        Canvas viewer(kViewerWidth, kViewerHeight);
+        galaxy_draw(graphics, *view, viewer.surface());
+        CHECK(side_aura_pixels(graphics, AuraSide::arm) == arm_before);
+        CHECK(side_aura_pixels(graphics, AuraSide::core) != core_before);
+
+        oa::present::colour_vision::set_active(oa::present::colour_vision::Mode::tritanopia, false);
+        galaxy_draw(graphics, *view, viewer.surface());
+        CHECK(side_aura_pixels(graphics, AuraSide::arm) != arm_before);
+        CHECK(side_aura_pixels(graphics, AuraSide::core) == core_before);
+    }
+    auto view = std::make_unique<GalaxyView>();
+    screens::galaxy_init(view.get());
+    Canvas viewer(kViewerWidth, kViewerHeight);
+    galaxy_draw(graphics, *view, viewer.surface());
+    CHECK(side_aura_pixels(graphics, AuraSide::arm) == arm_before);
+    CHECK(side_aura_pixels(graphics, AuraSide::core) == core_before);
+    graphics.palette = nullptr;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1030,6 +1353,7 @@ int main(int argc, char** argv) {
         test_lines();
         test_stars();
         test_synthetic_panorama();
+        test_colour_indices();
         if (g_failures != 0) {
             std::fprintf(stderr, "%d failure(s)\n", g_failures);
             return 1;
@@ -1094,6 +1418,7 @@ int main(int argc, char** argv) {
     graphics->label_toolkit = nullptr;
     if (install == &installs[0])
         test_install_panoramas(*graphics, files, install->root, install->map);
+    test_installed_colours(*graphics, oa::test::netgame::base_palette(install->root));
 
     rover_module_unload();
     rover_use_platform(nullptr);

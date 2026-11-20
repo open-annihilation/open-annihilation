@@ -32,7 +32,7 @@
 # @param pname the derivation's name, which says which Windows it is for
 # @param description the same, in words
 # @param fullPackage install the release package, not only the executables
-{ lib, stdenv, cmake, ninja, python3, zlib, freetype, sdl3, src, textFonts, pageFonts, version
+{ lib, stdenv, cmake, ninja, python3, zlib, freetype, harfbuzz, sdl3, src, textFonts, pageFonts, accesskit, version
 , toolchain, definitions, pname, description, fullPackage ? false }:
 {
   game = stdenv.mkDerivation {
@@ -51,6 +51,7 @@
     buildInputs = [
       zlib
       freetype
+      harfbuzz
       sdl3
     ];
 
@@ -67,6 +68,9 @@
       "-DCMAKE_BUILD_TYPE=Release"
       "-DOA_TEXT_FONTS_DIR=${textFonts}"
       "-DOA_FONTS_DIR=${pageFonts}/fonts"
+      # The release's mingw DLL for this target. A Windows 95 build still
+      # compiles the bridge out, because -DOA_WINDOWS_95=ON is set with it.
+      "-DOA_ACCESSKIT_DIR=${accesskit}"
       # Nothing here runs on the build machine, so no test may be configured.
       "-DBUILD_TESTING=OFF"
     ] ++ lib.optionals fullPackage [

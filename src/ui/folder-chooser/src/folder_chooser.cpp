@@ -276,10 +276,18 @@ Outcome key(const Layout& layout, UiState& state, Key pressed) noexcept {
     }
     if (count == 0)
         return {};
-    // The first key shows the focus where it is, or on the first target.
+    // Out of the order: Tab shows the first target, Shift+Tab the last, and
+    // every other key the first. A valid index with the ring hidden moves on
+    // for Tab and Shift+Tab, and shows the ring where it is for every other
+    // key. Enter does not press until the ring is showing.
     if (!state.focus_shown || state.focus < 0 || state.focus >= count) {
-        if (state.focus < 0 || state.focus >= count)
-            state.focus = 0;
+        const bool out_of_range = state.focus < 0 || state.focus >= count;
+        if (out_of_range)
+            state.focus = pressed == Key::back_tab ? count - 1 : 0;
+        else if (pressed == Key::tab)
+            state.focus = (state.focus + 1) % count;
+        else if (pressed == Key::back_tab)
+            state.focus = (state.focus + count - 1) % count;
         state.focus_shown = true;
         const Target shown = layout.focus_order[static_cast<std::size_t>(state.focus)];
         scroll_into_view(layout, state, shown);
@@ -305,8 +313,12 @@ Outcome key(const Layout& layout, UiState& state, Key pressed) noexcept {
     case Key::right:
         next = arrow_target(layout, state, state.focus, kit::Direction::right);
         break;
-    case Key::enter:
-        return outcome_of(layout.focus_order[static_cast<std::size_t>(state.focus)]);
+    case Key::enter: {
+        const Outcome pressed_row =
+            outcome_of(layout.focus_order[static_cast<std::size_t>(state.focus)]);
+        state.focus_shown = false;
+        return pressed_row;
+    }
     case Key::escape:
     case Key::page_up:
     case Key::page_down:

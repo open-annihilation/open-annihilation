@@ -4,7 +4,7 @@
 add_library(oa-present-world-renderer src/world_renderer.cpp src/unit_renderer.cpp src/camera.cpp src/radar.cpp src/display_modes.cpp
   src/overlays.cpp src/fog.cpp src/terrain_view.cpp src/draw_order.cpp src/scene_filter.cpp src/scene_filter_reference.cpp)
 add_library(oa::present::world_renderer ALIAS oa-present-world-renderer)
-target_link_libraries(oa-present-world-renderer PRIVATE oa-base-game-math)
+target_link_libraries(oa-present-world-renderer PRIVATE oa-base-game-math oa-present-colour-vision)
 target_include_directories(oa-present-world-renderer PUBLIC include)
 target_link_libraries(oa-present-world-renderer PUBLIC oa-formats-hpi oa-formats-tnt oa-sim-model-runtime oa-options oa-formats-gaf
   oa-core-types oa-present oa-sim-visibility-state oa-platform-job-pool)

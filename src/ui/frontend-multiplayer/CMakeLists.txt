@@ -9,6 +9,7 @@ add_library(oa-ui-frontend-multiplayer
   src/room_mutators.cpp
   src/room_limits.cpp
   src/room_enhanced.cpp
+  src/room_stock_files.cpp
   src/team_rules.cpp
   src/unit_sync.cpp
   src/restrict.cpp
@@ -65,6 +66,15 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-frontend-multiplayer-room-limits-test PRIVATE
     oa-ui-frontend-multiplayer oa-netgame oa-data-languages)
   add_test(NAME ui-multiplayer-room-limits COMMAND oa-ui-frontend-multiplayer-room-limits-test)
+  # A Boneyards battle refuses START while a player's game files differ, and
+  # names them. A casual room names the units its unit sync found not alike,
+  # and the host's START waits for a second press.
+  add_executable(oa-ui-frontend-multiplayer-stock-files-test tests/stock_files_test.cpp)
+  target_link_libraries(oa-ui-frontend-multiplayer-stock-files-test PRIVATE
+    oa-ui-frontend-multiplayer oa-data-languages)
+  add_test(NAME ui-multiplayer-boneyards-battle-room
+    COMMAND oa-ui-frontend-multiplayer-stock-files-test boneyards)
+  add_test(NAME ui-multiplayer-unit-sync COMMAND oa-ui-frontend-multiplayer-stock-files-test unit-sync)
   set_tests_properties(ui-multiplayer-room-limits PROPERTIES TIMEOUT 30)
   # Every seated machine agrees on Enhanced Mode and its simulation rules before START.
   add_executable(oa-ui-frontend-multiplayer-room-enhanced-test tests/room_enhanced_test.cpp)

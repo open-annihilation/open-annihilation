@@ -36,6 +36,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -120,7 +121,7 @@ def check_depth(native, game_dir, workdir, length, label):
     preferences_folder = deep_folder(workdir / f"{label}-preferences", length)
     mod = deep_folder(workdir / f"{label}-mod", length)
     preferences = preferences_folder / "p.conf"
-    preferences.write_text("open-annihilation-preferences 1\n")
+    preferences.write_text("open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n")
     user = "u" * USER_NAME_LENGTH
     environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy",
                        USER=user, USERNAME=user)

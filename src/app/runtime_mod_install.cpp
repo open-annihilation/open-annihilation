@@ -1142,12 +1142,12 @@ void Runtime::tell_mod_installs() {
         return true;
     };
     // In a run nobody watches, a catalogue map pack, mutator, brain or key
-    // layout installs
-    // only while the player is getting one: the map browser is the top screen,
-    // or GET MAP or GET MUTATORS shows over the battle room. Otherwise it
-    // waits in the inbox, as a chosen mod does with the Library closed, so a
-    // run nobody drives leaves a package an earlier run's download queue hands
-    // over for a later run.
+    // layout installs only while the player is getting one: the map browser
+    // is the top screen, GET MAP or GET MUTATORS shows over the battle room,
+    // or the Library is the top screen because a replay's Get asked for it.
+    // Otherwise it waits in the inbox, as a chosen mod does with the Library
+    // closed, so a run nobody drives leaves a package an earlier run's
+    // download queue hands over for a later run.
     const auto getting_map_pack = [this] {
         const LayerScreen* top = oa_layer_ ? oa_layer_->top() : nullptr;
         return (top != nullptr && top->name() == oa::ui::map_browser::screen_name) ||
@@ -1167,8 +1167,12 @@ void Runtime::tell_mod_installs() {
         if (take_catalogue_expansion())
             return;
         if (nobody_watches) {
-            if (library_on_top())
+            // The Library's Get for a replay installs a map pack or a mutator
+            // with the Library on top, the same way a chosen mod starts there.
+            if (library_on_top()) {
                 std::ignore = take_chosen_mod();
+                std::ignore = take_catalogue_map();
+            }
             if (getting_map_pack())
                 std::ignore = take_catalogue_map();
             return;
@@ -1193,10 +1197,11 @@ void Runtime::tell_mod_installs() {
     // A run nobody watches leaves the packages waiting for one someone does,
     // except a catalogue language pack and a catalogue expansion, which ask
     // nothing; a catalogue map pack, mutator, brain or key layout while the player is
-    // getting a map pack, which installs with no prompt;
-    // and a mod chosen in the Library while the Library is the top screen,
-    // which asks and installs as it does for a player watching, the folders
-    // its changes drop going a step a frame there too.
+    // getting a map pack or while the Library is the top screen (a replay's
+    // Get), which installs with no prompt; and a mod chosen in the Library
+    // while the Library is the top screen, which asks and installs as it does
+    // for a player watching, the folders its changes drop going a step a frame
+    // there too.
     if (nobody_watches) {
         if (take_catalogue_language())
             return;
@@ -1208,6 +1213,8 @@ void Runtime::tell_mod_installs() {
             return;
         if (state.discarder.busy())
             std::ignore = state.discarder.step();
+        if (take_catalogue_map())
+            return;
         std::ignore = take_chosen_mod();
         return;
     }

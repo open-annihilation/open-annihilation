@@ -11,6 +11,8 @@
 
 #include "html_view.hpp"
 
+#include <cstdio>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -170,20 +172,305 @@ bool html_view_key_down(Window* self, const Message* msg) {
     return slider->ops->key_down(slider, msg);
 }
 
-/// Follows the slider when its index changes.
+// One run of a link on a single baseline. Neighbouring runs of the same
+// link, with a gap of at most this many pixels, are one stop.
+constexpr int32_t k_link_gap = 8;
+// The words a link stop is announced as. Longer text is cut.
+constexpr int32_t k_link_words = 160;
+
+struct LinkSpan {
+    const char* href{};
+    int32_t x{};
+    int32_t top{};
+    int32_t width{};
+    int32_t height{};
+    int32_t bottom{};
+    char words[k_link_words]{};
+};
+
+/// Appends `text` to `dest`, which already holds a C string, without passing
+/// `cap` bytes including the terminating NUL.
+void append_capped(char* dest, int32_t cap, const char* text) {
+    if (dest == nullptr || cap <= 1 || text == nullptr || text[0] == '\0')
+        return;
+    int32_t used = 0;
+    while (used < cap - 1 && dest[used] != '\0')
+        ++used;
+    int32_t i = 0;
+    while (used < cap - 1 && text[i] != '\0')
+        dest[used++] = text[i++];
+    dest[used] = '\0';
+}
+
+/// Joins `more` onto `dest` with one space. An empty piece adds nothing, so
+/// an image merged into a text link does not leave a stray space.
+void join_words(char* dest, int32_t cap, const char* more) {
+    if (dest == nullptr || more == nullptr || more[0] == '\0')
+        return;
+    if (dest[0] != '\0')
+        append_capped(dest, cap, " ");
+    append_capped(dest, cap, more);
+}
+
+/// The words of one flow item.
+///
+/// A text run and the pieces `head.next` joins are one word split by inline
+/// markup, so they are concatenated with no space. An image has none.
+void words_of(const html::Document& doc, html::NodeRef node, char* out, int32_t cap) {
+    if (out == nullptr || cap <= 0)
+        return;
+    out[0] = '\0';
+    int32_t guard = 0;
+    html::NodeRef cursor = node;
+    while (cursor.kind == html::NodeKind::text && guard < 32) {
+        if (cursor.index < 0 || static_cast<std::size_t>(cursor.index) >= doc.texts.size())
+            break;
+        const html::TextRun& run = doc.texts[static_cast<std::size_t>(cursor.index)];
+        append_capped(out, cap, run.text);
+        cursor = run.head.next;
+        ++guard;
+    }
+}
+
+const html::NodeHeader* link_header(const html::Document& doc, html::NodeRef node) {
+    if (node.kind == html::NodeKind::text) {
+        if (node.index < 0 || static_cast<std::size_t>(node.index) >= doc.texts.size())
+            return nullptr;
+        return &doc.texts[static_cast<std::size_t>(node.index)].head;
+    }
+    if (node.kind == html::NodeKind::image) {
+        if (node.index < 0 || static_cast<std::size_t>(node.index) >= doc.images.size())
+            return nullptr;
+        return &doc.images[static_cast<std::size_t>(node.index)].head;
+    }
+    return nullptr;
+}
+
+bool link_box(
+    const html::Document& doc,
+    html::NodeRef node,
+    int32_t* x,
+    int32_t* bottom,
+    int32_t* width,
+    int32_t* height,
+    const char** href
+) {
+    const html::NodeHeader* head = link_header(doc, node);
+    if (head == nullptr || head->href == nullptr || head->href[0] == '\0')
+        return false;
+    int32_t box_width = 0;
+    int32_t box_height = 0;
+    if (node.kind == html::NodeKind::text) {
+        const html::TextRun& run = doc.texts[static_cast<std::size_t>(node.index)];
+        box_width = run.cx;
+        box_height = run.cy;
+    } else {
+        const html::Image& image = doc.images[static_cast<std::size_t>(node.index)];
+        box_width = image.width;
+        box_height = image.height;
+    }
+    if (box_width <= 0 || box_height <= 0 || head->x < 0 || head->y < 0)
+        return false;
+    *x = head->x;
+    *bottom = head->y;
+    *width = box_width;
+    *height = box_height;
+    *href = head->href;
+    return true;
+}
+
+void append_span(
+    LinkSpan* spans,
+    int32_t* count,
+    const char* href,
+    int32_t x,
+    int32_t bottom,
+    int32_t width,
+    int32_t height,
+    const char* words
+) {
+    const int32_t top = bottom - height;
+    if (*count > 0) {
+        LinkSpan& prev = spans[*count - 1];
+        const int32_t gap = x - (prev.x + prev.width);
+        if (std::strcmp(prev.href, href) == 0 && prev.bottom == bottom && gap <= k_link_gap &&
+            gap >= -1) {
+            const int32_t right = x + width;
+            if (right > prev.x + prev.width)
+                prev.width = right - prev.x;
+            if (top < prev.top) {
+                prev.height += prev.top - top;
+                prev.top = top;
+            }
+            join_words(prev.words, k_link_words, words);
+            return;
+        }
+    }
+    if (*count >= k_html_link_stop_cap)
+        return;
+    spans[*count] = LinkSpan{href, x, top, width, height, bottom};
+    append_capped(spans[*count].words, k_link_words, words);
+    *count += 1;
+}
+
+void collect_link_spans(const html::Document& doc, LinkSpan* spans, int32_t* count) {
+    *count = 0;
+    for (const html::Flow& flow : doc.flows) {
+        for (const html::NodeRef& item : flow.items) {
+            if (item.kind != html::NodeKind::text && item.kind != html::NodeKind::image)
+                continue;
+            int32_t x = 0;
+            int32_t bottom = 0;
+            int32_t width = 0;
+            int32_t height = 0;
+            const char* href = nullptr;
+            if (!link_box(doc, item, &x, &bottom, &width, &height, &href))
+                continue;
+            char words[k_link_words];
+            words_of(doc, item, words, k_link_words);
+            append_span(spans, count, href, x, bottom, width, height, words);
+        }
+    }
+}
+
+/// A link stop is for the keyboard. The pointer reaches the page under it,
+/// so a click on a link is the page's, as before.
+bool link_stop_contains(Window* /*self*/, int32_t /*x*/, int32_t /*y*/) {
+    return false;
+}
+
+const WindowOps* link_stop_ops() {
+    static const WindowOps ops = [] {
+        WindowOps made = k_hotspot_button_ops;
+        made.contains = link_stop_contains;
+        return made;
+    }();
+    return &ops;
+}
+
+void destroy_link_stops(HtmlView* view) {
+    // A followed link rebuilds the page while that stop still has the
+    // keyboard. After a click the page keeps it, as before. After Return the
+    // console's list takes it, so the keyboard stays in the console.
+    Desktop* desktop = services().desktop;
+    if (desktop != nullptr) {
+        for (int32_t i = 0; i < view->link_stop_count; ++i) {
+            if (desktop->focus == view->link_stops[i]) {
+                Window* home = view->keyboard_home;
+                const bool keyed =
+                    desktop->pointer_last == 0 && home != nullptr && window_is_shown(home);
+                desktop_set_focus(desktop, keyed ? home : &view->base);
+                break;
+            }
+        }
+    }
+    for (int32_t i = 0; i < view->link_stop_count; ++i) {
+        if (view->link_stops[i] != nullptr)
+            window_destroy(view->link_stops[i]);
+        view->link_stops[i] = nullptr;
+        view->link_hrefs[i] = nullptr;
+    }
+    view->link_stop_count = 0;
+}
+
+void place_link_stop(HtmlView* view, int32_t index) {
+    Window* stop = view->link_stops[index];
+    if (stop == nullptr)
+        return;
+    const int32_t screen_x = view->link_doc_x[index] + view->base.x;
+    const int32_t screen_y = view->link_doc_top[index] + view->base.y + slider_index(view->slider) -
+                             slider_range(view->slider);
+    const int32_t right = screen_x + view->link_doc_width[index];
+    const int32_t bottom = screen_y + view->link_doc_height[index];
+    const int32_t view_right = view->base.x + view->base.width - k_document_inset;
+    const int32_t view_bottom = view->base.y + view->base.height;
+    const bool outside = view->link_doc_x[index] < 0 || view->link_doc_top[index] < 0 ||
+                         right < view->base.x || screen_x > view_right || bottom < view->base.y ||
+                         screen_y > view_bottom;
+    stop->x = screen_x;
+    stop->y = screen_y;
+    stop->width = view->link_doc_width[index];
+    stop->height = view->link_doc_height[index];
+    stop->visible = outside ? 0 : 1;
+}
+
+void place_link_stops(HtmlView* view) {
+    for (int32_t i = 0; i < view->link_stop_count; ++i)
+        place_link_stop(view, i);
+}
+
+void rebuild_link_stops(HtmlView* view) {
+    destroy_link_stops(view);
+    if (view->state == nullptr)
+        return;
+    LinkSpan spans[k_html_link_stop_cap];
+    int32_t count = 0;
+    collect_link_spans(view->state->doc, spans, &count);
+    for (int32_t i = 0; i < count; ++i) {
+        Window* stop = hotspot_button_create();
+        stop->ops = link_stop_ops();
+        char name[16];
+        std::snprintf(name, sizeof name, "Link%d", static_cast<int>(i + 1));
+        window_create(
+            stop,
+            name,
+            view->base.x,
+            view->base.y,
+            spans[i].width,
+            spans[i].height,
+            &view->base,
+            false
+        );
+        window_set_state(stop, button_state::unpressed);
+        if (spans[i].words[0] != '\0' && stop->ops != nullptr && stop->ops->set_caption != nullptr)
+            stop->ops->set_caption(stop, spans[i].words, 0);
+        stop->stop_when_ring = 1;
+        stop->tab_place = 0;
+        view->link_stops[i] = stop;
+        view->link_hrefs[i] = spans[i].href;
+        view->link_doc_x[i] = spans[i].x;
+        view->link_doc_top[i] = spans[i].top;
+        view->link_doc_width[i] = spans[i].width;
+        view->link_doc_height[i] = spans[i].height;
+        view->link_stop_count = i + 1;
+        place_link_stop(view, i);
+    }
+}
+
+void follow_link_stop(HtmlView* view, Window* source) {
+    for (int32_t i = 0; i < view->link_stop_count; ++i) {
+        if (view->link_stops[i] != source)
+            continue;
+        view->link = view->link_hrefs[i];
+        if (view->base.parent == nullptr || view->base.parent->ops == nullptr ||
+            view->base.parent->ops->on_notify == nullptr)
+            return;
+        Notify notify{};
+        notify.code = k_html_link_notify;
+        notify.source = &view->base;
+        view->base.parent->ops->on_notify(view->base.parent, &notify);
+        return;
+    }
+}
+
+/// Follows the slider when its index changes, and a link hotspot when it is pressed.
 ///
 /// @param self the HTML view
 /// @param notify control notice; may be null
 void html_view_on_notify(Window* self, const Notify* notify) {
     HtmlView* view = as_view(self);
-    if (notify == nullptr || notify->code != NotifyCode::activated ||
-        notify->source != &view->slider->base)
+    if (notify == nullptr || notify->code != NotifyCode::activated)
         return;
-    const int32_t index = slider_index(view->slider);
-    if (g_shown_index != index) {
-        g_shown_index = index;
-        html_view_update_region(view);
+    if (notify->source == &view->slider->base) {
+        const int32_t index = slider_index(view->slider);
+        if (g_shown_index != index) {
+            g_shown_index = index;
+            html_view_update_region(view);
+        }
+        place_link_stops(view);
+        return;
     }
+    follow_link_stop(view, notify->source);
 }
 
 /// Draws the selected slice keyed on index 9, then the slider.
@@ -205,10 +492,15 @@ bool html_view_draw(Window* self) {
 
 /// Releases the document and the window.
 ///
+/// Link stops are children, so the window teardown frees them before this
+/// runs. Freeing them again would use the dead windows.
+///
 /// @param self the HTML view
 void html_view_destroy(Window* self) {
-    html::service_fonts_clear(as_view(self)->state->text_fonts);
-    delete as_view(self)->state;
+    HtmlView* view = as_view(self);
+    view->link_stop_count = 0;
+    html::service_fonts_clear(view->state->text_fonts);
+    delete view->state;
     console_window_free(self);
 }
 
@@ -406,6 +698,7 @@ void html_view_set_text(HtmlView* view, const char* text) {
         slider->base.visible = 0;
     }
     html_view_update_region(view);
+    rebuild_link_stops(view);
 }
 
 void html_view_set_pair(HtmlView* view, const char* name, const char* path) {
@@ -414,6 +707,7 @@ void html_view_set_pair(HtmlView* view, const char* name, const char* path) {
     html::document_reload_image(view->state->doc, name, path);
     html::document_paint(view->state->doc);
     html_view_update_region(view);
+    rebuild_link_stops(view);
 }
 
 Slider* html_slider_create() {

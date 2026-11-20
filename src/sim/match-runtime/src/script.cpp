@@ -3,8 +3,8 @@
 
 #include "oa/sim/match_runtime/script.hpp"
 #include "oa/sim/unit_script.hpp"
-#include <bit>
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 
@@ -57,15 +57,38 @@ prepare_type_script(const std::shared_ptr<const formats::cob::CobProgram>& progr
     return made;
 }
 
+void ScriptFaultLog::note(
+    const formats::cob::CobProgram& program, const sim::script_vm::PieceFault& fault
+) {
+    const auto script = script_at(program, fault.pc);
+    for (std::size_t index = 0; index < kept_; ++index)
+        if (notes_[index].program == &program && notes_[index].script == script)
+            return;
+    if (kept_ < notes_.size())
+        notes_[kept_++] = {&program, script, fault};
+}
+
+int32_t script_at(const formats::cob::CobProgram& program, uint32_t word) noexcept {
+    int32_t found = -1;
+    for (std::size_t index = 0; index < program.entry_points.size(); ++index) {
+        const auto entry = program.entry_points[index];
+        if (entry <= word &&
+            (found < 0 || entry > program.entry_points[static_cast<std::size_t>(found)]))
+            found = static_cast<int32_t>(index);
+    }
+    return found;
+}
+
 ScriptInstance::ScriptInstance(
     std::shared_ptr<const formats::cob::CobProgram> program,
     const SharedScriptProgram& shared,
     sim::script_vm::Host& host,
     int32_t scale,
-    MatchFault* fault
+    MatchFault* fault,
+    ScriptFaultLog* piece_faults
 )
     : program_(held_program(std::move(program))), vm_(shared.vm_program, host, scale),
-      fault_(fault) {
+      fault_(fault), piece_faults_(piece_faults) {
     if (const auto& refused = vm_.program_error())
         note("script program refused", refused->message);
     function_index_ = shared.function_index;
@@ -74,6 +97,13 @@ ScriptInstance::ScriptInstance(
 void ScriptInstance::note(std::string_view what, std::string_view detail) noexcept {
     if (fault_)
         fault_->note(what, detail);
+}
+
+void ScriptInstance::log_piece_faults() {
+    if (piece_faults_)
+        for (const auto& fault : vm_.piece_faults())
+            piece_faults_->note(*program_, fault);
+    vm_.clear_piece_faults();
 }
 
 bool ScriptInstance::start_no_arguments(
@@ -156,6 +186,7 @@ bool ScriptInstance::run_query(int32_t index, std::array<int32_t, 4>& args) {
         return false;
     }
     const auto result = vm_.tick_context(started.context, 0);
+    pass_piece_faults();
     if (!result.ok()) {
         note("script query", result.error->message);
         return false;
@@ -248,6 +279,7 @@ bool ScriptInstance::query(ScriptFunction function, std::array<int32_t, 4>& args
 
 bool ScriptInstance::tick(uint32_t elapsed) {
     const auto result = vm_.tick(elapsed);
+    pass_piece_faults();
     if (!result.ok()) {
         note("script tick", result.error->message);
         return false;

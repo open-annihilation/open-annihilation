@@ -131,3 +131,28 @@ in a box and in the log, and names the files that were not copied. If
 the files of a finished copy are gone, delete the folder the box names
 (under Open Annihilation › Games in your Documents folder) and start the
 game again to copy it afresh.
+
+## Speech on an older Windows
+
+On Windows, when the screen-reader support beside the game cannot be
+loaded, the game speaks for itself. That is Windows XP, Vista, 7 and 8,
+the Windows 95 package, and any later Windows where that support did not
+load. Moving to a control speaks its name, what it is and its value, and
+cuts off whatever was being spoken. Announcements, such as a chat line or
+a player joining, are spoken too. A message that comes with the move,
+such as the text of a message box, is spoken first and is not cut off.
+A later change of only the value is not spoken again. Changing Screen
+reader itself is spoken, because the row is read again.
+
+With Screen reader set to On, this happens whether or not a screen reader
+is running. Set to Automatic, it happens only while Windows says a screen
+reader is running. Set to Off, nothing is spoken. The row is Settings ›
+Accessibility › Screen reader
+(`open-annihilation.access.screen-reader`, `on`, `auto` or `off`).
+[Accessibility](accessibility.md#screen-readers) is the player's account.
+The Windows 95 package leaves that support out. When that package also
+has no voice, the row says "Nothing on this system can speak."
+
+If this Windows has no speech installed, the game stays quiet. It shows
+no dialog and writes no error. macOS and Linux are unchanged: the screen
+reader speaks through the bridge, and the game does not speak on its own.

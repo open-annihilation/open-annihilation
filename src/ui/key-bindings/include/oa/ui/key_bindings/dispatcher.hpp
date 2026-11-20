@@ -375,12 +375,17 @@ class Dispatcher {
     /// Reports whether a key of the action's chords is down.
     ///
     /// A modifier never stops it. A chord that is only a modifier is skipped.
-    /// This is not decided from the key events `feed` saw.
+    /// This is not decided from the key events `feed` saw. When `skip_arrows`
+    /// is set, an arrow key of the chord does not count. A letter or any other
+    /// key bound to the same action still does.
     ///
     /// @param action the action id
     /// @param keys_held which key positions are held
+    /// @param skip_arrows leave arrow keys out of the chords that count
     /// @return true while one of that action's keys is held
-    [[nodiscard]] bool chord_key_held(std::string_view action, const HeldKeys& keys_held) const;
+    [[nodiscard]] bool chord_key_held(
+        std::string_view action, const HeldKeys& keys_held, bool skip_arrows = false
+    ) const;
 
   private:
 

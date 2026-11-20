@@ -827,6 +827,18 @@ struct ContentFileLeftOut {
     uint64_t size{};
 };
 
+/// An archive at the top of a copied bundle's folder that the bundle does
+/// not list: a .hpi, .ufo, .ccx or .gp3 file under any other name. The game
+/// does not mount it.
+struct ContentStrayArchive {
+    /// Its file name, as the folder spells it.
+    std::string name;
+    /// The folder it is in.
+    std::filesystem::path folder;
+    /// Its size in bytes.
+    uint64_t size{};
+};
+
 /// One copied bundle, after the start's check.
 struct ContentBundleCheck {
     /// The bundle id.
@@ -839,7 +851,8 @@ struct ContentBundleCheck {
     uint32_t file_count{};
     /// How many of those files differ: missing, or not a hash the table knows.
     /// A music file the source never held is not one of these, nor a file
-    /// left out for its size while it is still absent.
+    /// left out for its size while it is still absent. Each stray archive in
+    /// the bundle's folder counts here too.
     uint32_t files_differ{};
     /// Music files the source did not hold, and files left out for their
     /// size, while they are absent. Older records name none.
@@ -849,7 +862,27 @@ struct ContentBundleCheck {
     /// The files left out for their size and still absent, in the table's
     /// order. The source held each at a size the table does not give it.
     std::vector<ContentFileLeftOut> left_out;
+    /// The stray archives in the bundle's folder, in name order.
+    std::vector<ContentStrayArchive> strays;
 };
+
+/// Reports whether a file name is an archive's: .hpi, .ufo, .ccx or .gp3, in any case.
+///
+/// @param name the file name
+/// @return true for those four
+[[nodiscard]] bool archive_file_name(std::string_view name) noexcept;
+
+/// Lists the stray archives at the top of a bundle's folder.
+///
+/// Every regular file there whose name is an archive's (archive_file_name)
+/// and that the bundle does not list, compared without case, is one.
+///
+/// @param folder the bundle's folder
+/// @param bundle the bundle
+/// @return the strays, in name order; empty when the folder cannot be read
+[[nodiscard]] std::vector<ContentStrayArchive> stray_archives(
+    const std::filesystem::path& folder, const oa::data::content_bundles::Bundle& bundle
+);
 
 /// What a start knows about the managed copy.
 struct ContentCheck {
@@ -858,6 +891,72 @@ struct ContentCheck {
     /// Files read and hashed because their size or time was not the record's.
     uint32_t files_hashed{};
 };
+
+/// Reports whether a played base game or rule-changing expansion differs.
+///
+/// A bundle differs when a file of it is not a known hash or its folder
+/// holds a stray archive (ContentBundleCheck::files_differ). Music changes
+/// no rules and is not counted. A bundle the check did not see is not
+/// counted either.
+///
+/// @param check the start's check
+/// @param base_game the base game played
+/// @param expansions the expansions played
+/// @return true when one of them differs
+[[nodiscard]] bool played_content_differs(
+    const ContentCheck& check, std::string_view base_game, std::span<const std::string> expansions
+) noexcept;
+
+/// Why a game that counts for a ladder cannot be played with these files.
+///
+/// The Boneyards refuses non-stock files outright: an archive at the top of
+/// a bundle's folder that the bundle does not list (a stray), and a file of
+/// the base game or of a rule-changing expansion that is not a known hash.
+/// Music changes no rules and is not counted.
+struct StockFilesRefusal {
+    bool refused{};                 ///< a stray archive is there, or a file differs
+    bool stray{};                   ///< `file` is a stray archive, which Remove… takes away
+    std::string file{};             ///< the file named: a stray's name, or a differing file's
+    std::filesystem::path folder{}; ///< the folder it is in
+    uint64_t size{};                ///< a stray's size in bytes; 0 for a differing file
+    std::string bundle_name{};      ///< the bundle's name, in English as the table writes it
+    /// What the player reads, in the language shown: the file, its folder,
+    /// and that the Boneyards cannot be entered until it is repaired.
+    std::string sentence{};
+};
+
+/// Finds the first file that keeps this machine out of a ranked game.
+///
+/// Strays come first, in the table's order of their bundles, then the
+/// first file of a bundle that is not a known hash. A bundle's own files
+/// whose id is `repaired_id` are left out (the entry installs that package
+/// itself), but its strays still count.
+///
+/// @param check the start's check, or check_game_folder's
+/// @param user_folder the player's folder, which holds the managed copy
+/// @param repaired_id the bundle the caller repairs itself; empty for none
+/// @return the refusal; `refused` is false when every file is known
+[[nodiscard]] StockFilesRefusal stock_files_refusal(
+    const ContentCheck& check,
+    const std::filesystem::path& user_folder,
+    std::string_view repaired_id = {}
+);
+
+/// Checks a game folder that is not Open Annihilation's own copy.
+///
+/// What is known there is read from the bundle hashes. Every archive at the
+/// folder's top (.hpi, .ufo, .ccx, .gp3) whose name the bundle table lists
+/// must have that file's size and a SHA-256 the table knows; it is named in
+/// `differing` when it does not. Any other archive at the top is a stray.
+/// The result is one bundle, the base game, which holds every finding.
+/// Nothing is written. The check stops early, once it has named one file,
+/// when `first_only` is set: a stray or a size is found before any hashing.
+///
+/// @param folder the game folder
+/// @param first_only stop at the first finding
+/// @return the check
+[[nodiscard]] ContentCheck
+check_game_folder(const std::filesystem::path& folder, bool first_only = false);
 
 /// Reports whether any copied bundle differs.
 ///
@@ -927,9 +1026,19 @@ struct ContentNoticeCopy {
 /// @return the line, in the language the interface shows
 [[nodiscard]] std::string content_tracks_line(uint32_t held, uint32_t total);
 
+/// One stray archive, named with its folder and its size.
+///
+/// @param bundle the bundle whose folder holds it
+/// @param stray the archive
+/// @return "{file} in {folder}, {size} bytes, is not a file of {bundle}.
+///         The game does not read it." in the language shown
+[[nodiscard]] std::string
+content_stray_line(const ContentBundleCheck& bundle, const ContentStrayArchive& stray);
+
 /// The line under a bundle's name in the content check.
 ///
-/// A bundle with differing files uses the file counts. Music the source
+/// A bundle whose only differences are stray archives names the one, or
+/// counts them. A bundle with differing files uses the file counts. Music the source
 /// left short, with nothing damaged, uses content_tracks_line. A bundle
 /// with a file left out for its size names it, with the size the source
 /// held it at and the size it should be, or names the files when several

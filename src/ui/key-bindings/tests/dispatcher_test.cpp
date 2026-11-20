@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <deque>
 #include <initializer_list>
 #include <optional>
 #include <span>
@@ -287,7 +288,7 @@ void letters(const Resolved& resolved, const KeyboardMap& map) {
 }
 
 /// Shift+Tab gives select.previous-primary. Tab with the megamap on gives
-/// megamap.toggle, and with wheel zoom on select.next-primary.
+/// megamap.toggle, with Mouse wheel zoom on or off.
 void tabs(const Resolved& resolved, const KeyboardMap& map) {
     const uint32_t play = context_bit("play");
     const uint32_t match = context_bit("match");
@@ -324,12 +325,20 @@ void tabs(const Resolved& resolved, const KeyboardMap& map) {
     OA_CHECK(!kept.events.empty());
     OA_CHECK(kept.events.front().context == context_index("match"));
 
-    Dispatcher next = open_dispatcher(resolved, map);
-    use_contexts(next, play | match, single | selection | wheel_zoom);
+    Dispatcher zooming = open_dispatcher(resolved, map);
+    use_contexts(zooming, play | match, single | selection | wheel_zoom);
     expect_only(
-        "wheel zoom on (single player, a selection) gives select.next-primary",
-        next.feed(named_event("Tab", true, 0, 1)),
-        "select.next-primary",
+        "wheel zoom on (single player, a selection) still gives megamap.toggle",
+        zooming.feed(named_event("Tab", true, 0, 1)),
+        "megamap.toggle",
+        Phase::pressed
+    );
+    Dispatcher closing = open_dispatcher(resolved, map);
+    use_contexts(closing, play | match | megamap, single | selection | wheel_zoom);
+    expect_only(
+        "Tab over the open megamap with wheel zoom on gives megamap.toggle",
+        closing.feed(named_event("Tab", true, 0, 1)),
+        "megamap.toggle",
         Phase::pressed
     );
 }
@@ -811,6 +820,197 @@ void queue_role(const Resolved& resolved, const KeyboardMap& map) {
     OA_CHECK(!dispatcher.role_active("order.queue-modifier", 0, keys));
 }
 
+/// One wheel notch.
+///
+/// @param up true for a turn up
+/// @param modifiers the physical modifiers held
+/// @return the event
+InputEvent wheel_turn(bool up, uint8_t modifiers) {
+    InputEvent event;
+    event.kind = InputKind::wheel;
+    event.down = true;
+    event.wheel_y = up ? int8_t{1} : int8_t{-1};
+    event.modifiers = modifiers;
+    event.time_ms = 1;
+    return event;
+}
+
+/// One layout line.
+///
+/// @param action the action id
+/// @param text the chord's text
+/// @return the binding
+keys::LayoutBinding wheel_binding(std::string action, std::string_view text) {
+    keys::LayoutBinding line;
+    line.action = std::move(action);
+    keys::ChordError error;
+    const std::optional<keys::Chord> chord = keys::parse_chord(text, error);
+    OA_CHECK(chord.has_value());
+    if (chord)
+        line.chords.push_back(*chord);
+    return line;
+}
+
+/// Alt, Primary and Shift with the wheel, bound by the player, answer their
+/// own actions ahead of the plain turn's zoom, on a PC and on a Mac. A turn
+/// with a modifier no chord names still zooms, as Alt or Shift held beyond
+/// a chord does, and Ctrl that no chord names finds nothing. Alt and Shift
+/// together answer Alt's chord and the zoom, each for its own target.
+void modified_wheel(const KeyboardMap& map) {
+    keys::Layout own;
+    own.bindings.push_back(wheel_binding("game.speed-up", "Alt+WheelUp"));
+    own.bindings.push_back(wheel_binding("game.speed-down", "Primary+WheelDown"));
+    own.bindings.push_back(wheel_binding("camera.zoom-reset", "Shift+WheelDown"));
+    const uint32_t playing = context_bit("match") | context_bit("play");
+    const uint32_t zooming = condition_bit("wheel-zoom") | condition_bit("single-player");
+    for (const bool mac : {false, true}) {
+        keys::ResolveInput input;
+        input.keyboard = &map;
+        input.platform.primary_is_meta = mac;
+        input.own = &own;
+        const Resolved resolved = keys::resolve(input);
+        // Each turn's events name actions its dispatcher holds, so every
+        // dispatcher lives until the turns are checked.
+        std::deque<Dispatcher> dispatchers;
+        const auto turned = [&](bool up, uint8_t modifiers) {
+            Dispatcher& dispatcher = dispatchers.emplace_back();
+            dispatcher.set_bindings(Resolved{resolved});
+            dispatcher.set_keyboard(map);
+            dispatcher.set_platform(input.platform);
+            use_contexts(dispatcher, playing, zooming);
+            return dispatcher.feed(wheel_turn(up, modifiers));
+        };
+        const uint8_t primary = mac ? keys::meta : keys::ctrl;
+        expect_only("the wheel up zooms in", turned(true, 0), "camera.zoom-in", Phase::pressed);
+        expect_only(
+            "Alt and the wheel up speed up",
+            turned(true, keys::alt),
+            "game.speed-up",
+            Phase::pressed
+        );
+        expect_only(
+            "Alt and the wheel down zoom out",
+            turned(false, keys::alt),
+            "camera.zoom-out",
+            Phase::pressed
+        );
+        expect_only(
+            "Primary and the wheel down slow down",
+            turned(false, primary),
+            "game.speed-down",
+            Phase::pressed
+        );
+        expect_only(
+            "Shift and the wheel down reset the zoom",
+            turned(false, keys::shift),
+            "camera.zoom-reset",
+            Phase::pressed
+        );
+        // With Shift beyond the chord no chord is exact, and the zoom, which
+        // has a target of its own, answers beside it.
+        const Fed both = turned(true, static_cast<uint8_t>(keys::alt | keys::shift));
+        if (!has_phase(both, "game.speed-up", Phase::pressed) ||
+            !has_phase(both, "camera.zoom-in", Phase::pressed))
+            show(both);
+        OA_CHECK(both.events.size() == 2);
+        OA_CHECK(has_phase(both, "game.speed-up", Phase::pressed));
+        OA_CHECK(has_phase(both, "camera.zoom-in", Phase::pressed));
+        if (mac) {
+            const Fed control = turned(false, keys::ctrl);
+            if (!control.events.empty())
+                show(control);
+            OA_CHECK(control.events.empty());
+        }
+    }
+}
+
+/// The megamap's wheel beside Mouse wheel zoom. With the setting on, the
+/// wheel down on the battlefield zooms out and does not open the megamap,
+/// and over the open megamap the wheel up closes it rather than zooming in.
+/// With the setting off the wheel down opens it. A toggle the player moved
+/// to Shift and the wheel up answers with the setting on, where no zoom
+/// chord names Shift, and the plain turn still zooms in. A toggle on the
+/// plain wheel down answers beside the zoom out, which is aimed at the
+/// battlefield; the match gives that turn to the toggle the player bound.
+void megamap_wheel(const Resolved& resolved, const KeyboardMap& map) {
+    const uint32_t play = context_bit("play");
+    const uint32_t match = context_bit("match");
+    const uint32_t megamap = context_bit("megamap");
+    const uint32_t single = condition_bit("single-player");
+    const uint32_t zoom = condition_bit("wheel-zoom");
+    const uint32_t no_zoom = condition_bit("no-wheel-zoom");
+
+    Dispatcher closed = open_dispatcher(resolved, map);
+    use_contexts(closed, play | match, single | zoom);
+    expect_only(
+        "the wheel down with wheel zoom on zooms out",
+        closed.feed(wheel_turn(false, 0)),
+        "camera.zoom-out",
+        Phase::pressed
+    );
+    Dispatcher open = open_dispatcher(resolved, map);
+    use_contexts(open, play | match | megamap, single | zoom);
+    expect_only(
+        "the wheel up over the megamap with wheel zoom on closes it",
+        open.feed(wheel_turn(true, 0)),
+        "megamap.close-wheel",
+        Phase::pressed
+    );
+    Dispatcher off = open_dispatcher(resolved, map);
+    use_contexts(off, play | match, single | no_zoom);
+    expect_only(
+        "the wheel down with wheel zoom off opens the megamap",
+        off.feed(wheel_turn(false, 0)),
+        "megamap.open-wheel",
+        Phase::pressed
+    );
+    Dispatcher off_open = open_dispatcher(resolved, map);
+    use_contexts(off_open, play | match | megamap, single | no_zoom);
+    expect_only(
+        "the wheel up over the megamap with wheel zoom off closes it",
+        off_open.feed(wheel_turn(true, 0)),
+        "megamap.close-wheel",
+        Phase::pressed
+    );
+
+    // The toggle moved to one wheel chord, with the megamap's hack on.
+    const auto toggle_on = [&](std::string_view chord) {
+        keys::Layout own;
+        own.bindings.push_back(wheel_binding("megamap.toggle", chord));
+        keys::ResolveInput input;
+        input.keyboard = &map;
+        input.platform.primary_is_meta = true;
+        input.hacks_on = {"ui.megamap"};
+        input.own = &own;
+        return keys::resolve(input);
+    };
+    const Resolved shifted = toggle_on("Shift+WheelUp");
+    Dispatcher shift = open_dispatcher(shifted, map);
+    use_contexts(shift, play | match, single | zoom);
+    expect_only(
+        "a toggle on Shift and the wheel up answers with wheel zoom on",
+        shift.feed(wheel_turn(true, keys::shift)),
+        "megamap.toggle",
+        Phase::pressed
+    );
+    Dispatcher plain = open_dispatcher(shifted, map);
+    use_contexts(plain, play | match, single | zoom);
+    expect_only(
+        "the plain wheel up still zooms in",
+        plain.feed(wheel_turn(true, 0)),
+        "camera.zoom-in",
+        Phase::pressed
+    );
+    Dispatcher shared = open_dispatcher(toggle_on("WheelDown"), map);
+    use_contexts(shared, play | match, single | zoom);
+    const Fed both = shared.feed(wheel_turn(false, 0));
+    if (both.events.size() != 2)
+        show(both);
+    OA_CHECK(both.events.size() == 2);
+    OA_CHECK(has_phase(both, "megamap.toggle", Phase::pressed));
+    OA_CHECK(has_phase(both, "camera.zoom-out", Phase::pressed));
+}
+
 } // namespace
 
 int main() {
@@ -821,6 +1021,7 @@ int main() {
     const Resolved resolved = prepared(map);
     letters(resolved, map);
     tabs(resolved, map);
+    megamap_wheel(resolved, map);
     enter_key(resolved, map);
     equals_key(resolved, map);
     typing(resolved, map);
@@ -835,5 +1036,6 @@ int main() {
     release(resolved, map);
     queue_role(resolved, map);
     speed_keys_follow_the_keyboard();
+    modified_wheel(map);
     return oa::test::check_exit_status();
 }

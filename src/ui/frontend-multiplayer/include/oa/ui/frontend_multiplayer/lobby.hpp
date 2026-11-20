@@ -36,6 +36,29 @@
 namespace oa::ui::frontend_multiplayer {
 
 inline constexpr int32_t kSlotCount = OA_PLAYER_COUNT;
+
+/// Players the session can hold besides the ten seats. A player who arrives
+/// with no seat free is remembered until one opens.
+inline constexpr std::size_t kWaitingPlayerCount = 32;
+
+/// Bytes kept of a waiting player's latest setup block. A block is 186 bytes.
+inline constexpr std::size_t kWaitingSetupBytes = 192;
+
+/// A session player the battle room has not seated yet.
+struct WaitingPlayer {
+    /// Session player id.
+    uint32_t id{};
+    /// Name the session gave, as a join event carries it.
+    char name[sizeof(LobbyEvent::name)]{};
+    /// The latest setup block heard while this player waited, applied when
+    /// they are seated. None until one arrives.
+    bool has_setup{};
+    /// How many bytes of setup are in use.
+    uint16_t setup_size{};
+    /// The setup block's bytes, as the record arrived.
+    uint8_t setup[kWaitingSetupBytes]{};
+};
+
 inline constexpr uint8_t kNoSlot = 10;
 inline constexpr uint8_t kNoTeam = 5; // Player.team of a player on no team
 inline constexpr int32_t kTeamCount = 5;
@@ -167,7 +190,9 @@ struct UnitSyncRecord {
     uint8_t local_high{};
     uint8_t remote{}; // the host reported it
     uint8_t remote_high{};
-    int32_t limit{}; // build limit, -1 unlimited
+    int32_t limit{};       // build limit, -1 unlimited
+    uint8_t from_host{};   // 1 once this pass stored a verdict from the host
+    uint8_t first_given{}; // 1 once the recorder gave this key on its first pass
 };
 
 inline constexpr std::size_t kMaxSyncUnits = 1024;
@@ -195,6 +220,22 @@ struct UnitSync {
     int32_t pending_count{};
     UnitSyncPeer peers[kSlotCount]{};
     int32_t peer_count{};
+};
+
+/// What the host's finished unit sync found, and what the room has said of it.
+struct UnitSyncReport {
+    /// The host's finding: the units not alike on every machine, grouped by
+    /// the machines they differ on. No groups when every unit matches.
+    netgame::PresenceUnitSync found{};
+    /// The state of the sync the finding was made from; 0 before the first.
+    uint64_t state{};
+    /// The host pressed START once since this finding, so the next press
+    /// starts the battle anyway. A new finding clears it.
+    bool accepted{};
+    /// The finding the room's lines last named. No groups when none were written.
+    netgame::PresenceUnitSync told{};
+    /// The bytes of the host's unit-sync field a guest last read; 0 for none.
+    uint64_t heard{};
 };
 
 // A unit type as the lobby sees it (a projection of UnitDef).
@@ -536,6 +577,23 @@ struct Lobby {
     /// Set once this host has posted the newer-build line for the player in
     /// this slot. A later record from that player does not post it again.
     bool limits_older_refused[kSlotCount]{};
+    /// The player in each slot whose game files the room has named as not
+    /// Total Annihilation's (lobby_note_stock_files); 0 for none. Cleared
+    /// once that player's files match, so a later difference is named again.
+    uint32_t stock_files_told[kSlotCount]{};
+    /// The unit sync's finding and the room's lines about it.
+    UnitSyncReport unit_report{};
+    /// Players who arrived while every seat was taken, earliest first.
+    /// When a seat opens, the earliest is seated. A player who leaves
+    /// before that is dropped. None until a player arrives with no seat free.
+    std::array<WaitingPlayer, kWaitingPlayerCount> waiting_players{};
+    /// How many entries of waiting_players are in use.
+    uint8_t waiting_count{};
+    /// The name of the session this machine joined, as the game list showed
+    /// it, without its padding. Empty on a host. The unit check reads it to
+    /// tell TADR's replayer from every other host; the game name a player
+    /// hosts under (lobby_game_name) stays as it was.
+    char joined_session[kSessionGameNameBytes + 1]{};
 };
 
 // ---------------------------------------------------------------------------
@@ -678,6 +736,7 @@ struct StartedOptions {
 /// next host's record is folded even when its bytes are the same.
 /// The plain baseline's sim hash is set (PresenceRecords::plain_sim_hash),
 /// resolved the first time a lobby is reset and kept for the run.
+/// Players remembered from a full room are forgotten.
 ///
 /// @param[out] lobby Lobby to reset; it is bound to game.
 /// @param[in,out] game Game block whose player records and chat ring are cleared.
@@ -1239,6 +1298,18 @@ void lobby_set_alliance(
 /// @param reason RejectReason value, stored as the slot's reject reason.
 void lobby_reject(Lobby& lobby, uint32_t player_id, uint8_t reason) noexcept;
 
+/// Notes that the battle room closed because its creator left.
+///
+/// The next `lobby_take_creator_left` reports it once. The notice is
+/// independent of the lobby record, so a joiner can say it after the
+/// screen has already left the room.
+void lobby_note_creator_left() noexcept;
+
+/// Reports and clears the creator-left note.
+///
+/// @return true once after `lobby_note_creator_left`
+[[nodiscard]] bool lobby_take_creator_left() noexcept;
+
 /// Broadcasts a chat line "<name> text" as 0x05 from the speaker, flushes it and posts it locally.
 ///
 /// With Lobby::unicode_chat on the line goes as net_match_say sends one:
@@ -1337,18 +1408,27 @@ void lobby_add_computer(Lobby& lobby, int32_t slot) noexcept;
 /// Applies one received event: arrivals, departures, a lost session or a lobby record.
 ///
 /// A joiner the host refuses is not seated: this machine's lobby blocks go
-/// out, then 0x1b with the refusal. A departed player is rejected with
-/// reason 1; when it is the host's player before the start, the local
-/// player is rejected with reason 10 too and leaves ("The creator has left
-/// the game"). A record from one of this machine's own players is ignored;
-/// any other record, of whatever type, stamps its seated sender's
-/// Player.last_update_time, which the stall scan reads. A received
-/// 0x1b naming a seated player rejects it as lobby_reject does, passing it
-/// on once. A player's setup block (0x20) sends it this machine's presence
-/// record when it is due (presence_send_due). A presence record (0xf0) from
-/// a seated remote player whose length word is the event's size is kept as
-/// that player's (lobby_presence_record); any other is ignored. A departed
-/// player's record is forgotten.
+/// out, then 0x1b with the refusal. A player who arrives while every seat
+/// is taken is remembered, earliest first, and seated when a seat opens
+/// (someone leaves, or a rejection opens a slot). A player who leaves
+/// before that is forgotten and is not seated, as is one a received 0x1b
+/// names, and no one is seated once the game has started. While a seat is
+/// free, an arrival is seated at once, as a room that still has room does, and a
+/// player who arrived earlier takes a seat that has opened before the new
+/// arrival does. A setup block from a player who is waiting is kept, and
+/// applied when that player is seated; a block from anyone else is unchanged.
+/// A departed player is rejected with reason 1; when it is
+/// the host's player before the start, the local player is rejected with
+/// reason 10 too and leaves ("The creator has left the game"). A record
+/// from one of this machine's own players is ignored; any other record, of
+/// whatever type, stamps its seated sender's Player.last_update_time, which
+/// the stall scan reads. A received 0x1b naming a seated player rejects it
+/// as lobby_reject does, passing it on once, and a remembered player takes
+/// the seat that opened. A player's setup block (0x20) sends it this
+/// machine's presence record when it is due (presence_send_due). A presence
+/// record (0xf0) from a seated remote player whose length word is the
+/// event's size is kept as that player's (lobby_presence_record); any other
+/// is ignored. A departed player's record is forgotten.
 ///
 /// @param[in,out] lobby Lobby state.
 /// @param event Event from LobbyNet::receive.
@@ -1505,6 +1585,47 @@ struct RowBadgeState {
 /// @return True when sides do not refuse the start.
 [[nodiscard]] bool lobby_sides_allow_start(Lobby& lobby) noexcept;
 
+/// Tells whether this battle counts for a ladder: the active launch block's
+/// stock_files is set. Only a Boneyards launch sets it.
+///
+/// @param lobby Lobby state and its launch link.
+/// @return True while such a launch is active.
+[[nodiscard]] bool lobby_stock_files_room(const Lobby& lobby) noexcept;
+
+/// The first seat whose machine's presence record says its game files differ
+/// from Total Annihilation's (netgame::presence_files_differ), in a room that
+/// counts for a ladder. This machine's own player counts too; a computer
+/// player is its machine's. kNoSlot when no seat does, or the room does not
+/// count.
+///
+/// @param lobby Lobby state.
+/// @return The slot, or kNoSlot.
+[[nodiscard]] int32_t lobby_stock_files_block(Lobby& lobby) noexcept;
+
+/// START's gate for game files in a room that counts for a ladder.
+///
+/// @param lobby Lobby state.
+/// @return False while lobby_stock_files_block names a seat.
+[[nodiscard]] bool lobby_stock_files_allow_start(Lobby& lobby) noexcept;
+
+/// Writes, once for each player until their files match, the battle room's
+/// line that names a player whose game files differ, in a room that counts
+/// for a ladder. Every machine writes it. On that player's own machine the
+/// line says what to do instead.
+///
+/// @param lobby Lobby state.
+void lobby_note_stock_files(Lobby& lobby) noexcept;
+
+/// The line naming another player whose game files differ, with {player}.
+///
+/// @return The English words, looked up in the interface catalogue.
+[[nodiscard]] const char* lobby_stock_files_line() noexcept;
+
+/// The line this machine's own player reads when their game files differ.
+///
+/// @return The English words, looked up in the interface catalogue.
+[[nodiscard]] const char* lobby_stock_files_own_line() noexcept;
+
 /// Posts the host's line for each playing seat on a side the game does not have.
 ///
 /// The host only. For each such seat whose side differs from the one last
@@ -1597,10 +1718,31 @@ void unit_sync_destroy(Lobby& lobby) noexcept;
 /// @param record The 14-byte record.
 void unit_sync_send(Lobby& lobby, uint32_t player_id, const uint8_t* record) noexcept;
 
+/// The number of unit-check records handled after one more.
+///
+/// A subtype of 100 or above is not counted. A greeting keeps the count
+/// going. When `again_at` is not zero and this record is not a greeting,
+/// the count becomes `again_at`: how TADR's replayer counts a pass it
+/// starts again.
+///
+/// @param handled How many records were handled before this one.
+/// @param subtype The record's subtype.
+/// @param again_at Zero to count this record, or the count a pass that
+///        starts again uses for this record.
+/// @return The count after this record.
+[[nodiscard]] uint32_t
+unit_sync_handled_count(uint32_t handled, uint8_t subtype, uint32_t again_at) noexcept;
+
 /// Handles a received 0x1a record.
 ///
 /// A client stores the host's verdicts (subtype 3). The host records a
-/// peer's unit count (1), checksums (2) and received count (4).
+/// peer's unit count (1), checksums (2) and received count (4). TADR's
+/// replayer (a joined session named `TADR ` and the rest, whose host is
+/// not Open Annihilation) starts the check again, and the viewer then
+/// counts that pass as TADR does. Every other host, the original game's
+/// and Open Annihilation's included, is counted as the original game
+/// counts. A greeting still starts the client's own report from the first
+/// unit.
 ///
 /// @param[in,out] lobby Lobby state.
 /// @param record The record as received; one that is not a whole 14-byte 0x1a record is dropped, as
@@ -1711,16 +1853,77 @@ void unit_sync_mark_units(const UnitSync& sync, UnitDef* records, uint32_t count
 /// @return False for a client; true for a peer not waited on (defeated or computer) or once finished.
 [[nodiscard]] bool unit_sync_peer_complete(Lobby& lobby, uint32_t player_id) noexcept;
 
-/// Answers "+syncerr": the first peer's shortfall.
+/// Answers "+syncerr": the first peer's shortfall, or the units that differ.
 ///
 /// Unlike the checks above it does not skip defeated or computer peers.
+/// Once every peer has reported, a finding with units that differ
+/// (Lobby::unit_report) answers "N units differ" instead of "OK".
 ///
 /// @param lobby Lobby state.
 /// @param[out] out Buffer for a formatted shortfall.
 /// @param capacity Bytes available at out.
-/// @return The shortfall (out or a static message), "OK", or null for a client.
+/// @return The shortfall or the count (out or a static message), "OK", or
+///         null for a client.
 [[nodiscard]] const char*
 unit_sync_diagnostic(Lobby& lobby, char* out, std::size_t capacity) noexcept;
+
+/// The units the host's finished unit sync found not alike on every machine.
+///
+/// Every unit this machine can build (one that is not off by default or
+/// turned off by the host), and every unit a peer reported that this
+/// machine does not have, is compared across the machines: the host, and
+/// each peer still waited on. A peer that reports checksums is compared by
+/// them, any other by having the unit. Machines with the same copy form one
+/// group. The room's copy is the group with the most machines whose
+/// presence record says they play known files, then the most machines; the
+/// machines outside it are the ones the unit differs on. When no group
+/// leads, the unit differs on every machine of every group. Units are then
+/// grouped by those machines, in the order the host's table lists them,
+/// then the peers' own units. A unit is named by this machine's FBI
+/// UnitName, or by its key when this machine has none.
+///
+/// @param lobby Lobby state.
+/// @return The finding; no groups for a client, for a host with no unit
+///         table, before the sync has finished, or when every unit matches.
+[[nodiscard]] netgame::PresenceUnitSync unit_sync_differences(Lobby& lobby);
+
+/// The battle room's lines for a finding, in the language shown.
+///
+/// One line for each group: its units by name in the game and FBI
+/// UnitName ("Metal Extractor (ARMMEX)"), at most three named and the
+/// rest counted, then the machines they differ on, by each machine's
+/// player, and that they can't be built in this battle. A unit this
+/// machine has is named from its own table; a unit it has not is named by
+/// the UnitName the finding gives, and a unit known only by its key is
+/// counted.
+///
+/// @param lobby Lobby state.
+/// @param found The finding.
+/// @return One line for each group, each starting "*** ".
+[[nodiscard]] std::vector<std::string>
+unit_sync_lines(Lobby& lobby, const netgame::PresenceUnitSync& found);
+
+/// Follows the unit sync's finding, once a tick.
+///
+/// The host makes its finding once its sync has finished and no other hold
+/// keeps START grey (content, game files, mutators, limits, sides), and
+/// makes it again whenever the sync's state changes; a new finding clears
+/// the host's acceptance. A guest reads the host's unit-sync presence field.
+/// Each machine writes the finding's lines in the battle room, and in the
+/// log, once for each finding. A room whose units all match writes nothing.
+///
+/// @param lobby Lobby state.
+void lobby_note_unit_sync(Lobby& lobby);
+
+/// The host's press of START against the unit sync's finding.
+///
+/// With units that differ and no acceptance yet, the press accepts: the
+/// room says that the next press starts anyway, and this answers false.
+/// Every other press answers true. A guest's press answers true.
+///
+/// @param lobby Lobby state.
+/// @return True when START may start the battle.
+[[nodiscard]] bool lobby_unit_sync_take_start(Lobby& lobby);
 
 // ---------------------------------------------------------------------------
 // Setup and team rules of a mod profile (Lobby::rules)

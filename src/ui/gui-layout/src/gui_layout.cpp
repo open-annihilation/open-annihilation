@@ -5,14 +5,13 @@
 
 #include "oa/base/text.hpp"
 #include "oa/data/languages/translation.hpp"
+#include "oa/formats/tdf.hpp"
 #include "oa/ui/gui_layout/gui_gadget.hpp"
 
 #include <algorithm>
 #include <bit>
-#include <charconv>
 #include <cctype>
 #include <cstdint>
-#include <limits>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -36,15 +35,24 @@ struct Section {
     return output;
 }
 
+/// Reports whether a character separates the words of a GUI file: a space, a
+/// tab or a line end.
+///
+/// @param character the character
+/// @return true for ' ', '\t', '\r' and '\n'
+[[nodiscard]] bool is_separator(char character) noexcept {
+    return character == ' ' || character == '\t' || character == '\r' || character == '\n';
+}
+
+/// Removes the separators from both ends of a name or value.
+///
+/// @param input the text
+/// @return the text without leading or trailing spaces, tabs or line ends
 [[nodiscard]] std::string_view trim(std::string_view input) noexcept {
-    while (!input.empty() &&
-           (input.front() == ' ' || input.front() == '\t' || input.front() == '\r')) {
+    while (!input.empty() && is_separator(input.front()))
         input.remove_prefix(1);
-    }
-    while (!input.empty() &&
-           (input.back() == ' ' || input.back() == '\t' || input.back() == '\r')) {
+    while (!input.empty() && is_separator(input.back()))
         input.remove_suffix(1);
-    }
     return input;
 }
 
@@ -189,21 +197,30 @@ class TextParser {
 
             const auto key_begin = position_;
             while (position_ < input_.size() && input_[position_] != '=' &&
-                   input_[position_] != '\n' && input_[position_] != '{' &&
-                   input_[position_] != '}') {
-                ++position_;
+                   input_[position_] != '{' && input_[position_] != '}') {
+                // Text with no '=' on its line runs on into the next line's
+                // field, as 3.1c reads the file.
+                if (input_[position_] == '\n')
+                    skip_space_and_comments();
+                else
+                    ++position_;
             }
             if (position_ == input_.size() || input_[position_] != '=') {
                 error =
                     make_error(ErrorCode::malformed_syntax, "expected '=' after GUI field name");
                 return false;
             }
-            const auto key = lower_ascii(trim(input_.substr(key_begin, position_ - key_begin)));
+            const auto source_key = trim(input_.substr(key_begin, position_ - key_begin));
+            // A name broken across lines is no field the loader reads: stray
+            // text before a field, such as a digit left after a closing
+            // brace, takes that field with it, and 3.1c leaves it unread.
+            const bool stray_text = source_key.find('\n') != std::string_view::npos;
+            const auto key = lower_ascii(source_key);
             if (key.empty()) {
                 error = make_error(ErrorCode::malformed_syntax, "empty GUI field name");
                 return false;
             }
-            if (key.size() > limit::field_name_bytes) {
+            if (!stray_text && key.size() > limit::field_name_bytes) {
                 error = make_error(ErrorCode::field_limit, "GUI field name exceeds limit");
                 return false;
             }
@@ -223,8 +240,8 @@ class TextParser {
                 error = make_error(ErrorCode::field_limit, "GUI source field exceeds limit");
                 return false;
             }
-            const auto value = std::string(source_value);
-            section.fields.insert_or_assign(key, value);
+            if (!stray_text)
+                section.fields.insert_or_assign(key, std::string(source_value));
             if (position_ < input_.size() && input_[position_] == ';')
                 ++position_;
             if (position_ + 1 < input_.size() && input_[position_] == '/' &&
@@ -256,27 +273,26 @@ class TextParser {
     return found == section.fields.end() ? std::string{} : found->second;
 }
 
-[[nodiscard]] bool
-parse_integer(const Section& section, std::string_view key, int32_t& value, Error& error) {
+/// Reads a number as the game reads one.
+///
+/// @param text the field's value
+/// @return the value of its leading spaces, one sign and the digits after
+///         them, wrapped to 32 bits; 0 when no digit follows
+/// @quirk Text after the digits is ignored, so "12px" reads 12, and a value
+///        without digits, such as a letter O written for a zero, reads 0, as
+///        in 3.1c.
+[[nodiscard]] int32_t read_integer(const std::string& text) noexcept {
+    return oa::formats::tdf::parse_int(text.c_str());
+}
+
+/// Reads a number field of a section (read_integer).
+///
+/// @param section the section
+/// @param key the field's name, in any case
+/// @return the field's value; 0 when the section has no such field
+[[nodiscard]] int32_t integer_field(const Section& section, std::string_view key) {
     const auto found = section.fields.find(lower_ascii(key));
-    if (found == section.fields.end() || found->second.empty()) {
-        value = 0;
-        return true;
-    }
-    const auto text = trim(found->second);
-    int64_t wide = 0;
-    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), wide, 10);
-    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
-        wide < std::numeric_limits<int32_t>::min() || wide > std::numeric_limits<int32_t>::max()) {
-        error = {
-            ErrorCode::invalid_integer,
-            0,
-            "GUI field '" + std::string(key) + "' is not a signed 32-bit integer"
-        };
-        return false;
-    }
-    value = static_cast<int32_t>(wide);
-    return true;
+    return found == section.fields.end() ? 0 : read_integer(found->second);
 }
 
 [[nodiscard]] constexpr int8_t low_i8(int32_t value) noexcept {
@@ -326,49 +342,21 @@ parse_integer(const Section& section, std::string_view key, int32_t& value, Erro
         error = {ErrorCode::malformed_syntax, 0, "GUI gadget lacks a COMMON subsection"};
         return false;
     }
-    int32_t value = 0;
-    if (!parse_integer(*common, "id", value, error))
-        return false;
-    output.type = static_cast<GadgetType>(static_cast<uint8_t>(value));
-    if (!parse_integer(*common, "assoc", value, error))
-        return false;
-    output.association = static_cast<uint8_t>(value);
+    output.type = static_cast<GadgetType>(static_cast<uint8_t>(integer_field(*common, "id")));
+    output.association = static_cast<uint8_t>(integer_field(*common, "assoc"));
     output.name = bounded_string(field(*common, "name"), limit::name_bytes);
-    if (!parse_integer(*common, "xpos", value, error))
-        return false;
-    output.x = low_i16(value);
-    if (!parse_integer(*common, "ypos", value, error))
-        return false;
-    output.y = low_i16(value);
-    if (!parse_integer(*common, "width", value, error))
-        return false;
-    output.width = low_i16(value);
-    if (!parse_integer(*common, "height", value, error))
-        return false;
-    output.height = low_i16(value);
-    if (!parse_integer(*common, "attribs", output.attributes, error))
-        return false;
-    if (!parse_integer(*common, "colorf", value, error))
-        return false;
-    output.foreground_color = static_cast<uint16_t>(value);
-    if (!parse_integer(*common, "colorb", value, error))
-        return false;
-    output.background_color = static_cast<uint16_t>(value);
-    if (!parse_integer(*common, "texturenumber", value, error))
-        return false;
-    output.texture_number = low_i8(value);
-    if (!parse_integer(*common, "fontnumber", value, error))
-        return false;
-    output.font_number = low_i8(value);
-    if (!parse_integer(*common, "active", value, error))
-        return false;
-    output.active = low_i8(value);
-    if (!parse_integer(*common, "commonattribs", value, error))
-        return false;
-    output.common_attributes = low_i8(value);
-    if (!parse_integer(*common, "gaffile", value, error))
-        return false;
-    output.gaf_file = (static_cast<uint32_t>(value) & 1U) != 0;
+    output.x = low_i16(integer_field(*common, "xpos"));
+    output.y = low_i16(integer_field(*common, "ypos"));
+    output.width = low_i16(integer_field(*common, "width"));
+    output.height = low_i16(integer_field(*common, "height"));
+    output.attributes = integer_field(*common, "attribs");
+    output.foreground_color = static_cast<uint16_t>(integer_field(*common, "colorf"));
+    output.background_color = static_cast<uint16_t>(integer_field(*common, "colorb"));
+    output.texture_number = low_i8(integer_field(*common, "texturenumber"));
+    output.font_number = low_i8(integer_field(*common, "fontnumber"));
+    output.active = low_i8(integer_field(*common, "active"));
+    output.common_attributes = low_i8(integer_field(*common, "commonattribs"));
+    output.gaf_file = (static_cast<uint32_t>(integer_field(*common, "gaffile")) & 1U) != 0;
     output.source_help = bounded_string(field(*common, "help"), limit::help_bytes);
     // The game clears the destination before translating it, so the
     // translation still performs a lookup for the empty string.
@@ -383,13 +371,10 @@ parse_integer(const Section& section, std::string_view key, int32_t& value, Erro
     const TranslationLookup& translation_lookup,
     Error& error
 ) {
-    int32_t value = 0;
     switch (gadget.common.type) {
     case GadgetType::panel: {
         PanelFields panel;
-        if (!parse_integer(section, "totalgadgets", value, error))
-            return false;
-        panel.declared_total_gadgets = low_i16(value);
+        panel.declared_total_gadgets = low_i16(integer_field(section, "totalgadgets"));
         panel.panel = bounded_string(field(section, "panel"), limit::panel_name_bytes);
         panel.carriage_return_default =
             bounded_string(field(section, "crdefault"), limit::panel_name_bytes);
@@ -398,24 +383,16 @@ parse_integer(const Section& section, std::string_view key, int32_t& value, Erro
         panel.default_focus =
             bounded_string(field(section, "defaultfocus"), limit::panel_name_bytes);
         if (const auto* version = child_named(section, "version")) {
-            if (!parse_integer(*version, "major", value, error))
-                return false;
-            panel.version.major = low_i8(value);
-            if (!parse_integer(*version, "minor", value, error))
-                return false;
-            panel.version.minor = low_i8(value);
-            if (!parse_integer(*version, "revision", value, error))
-                return false;
-            panel.version.revision = low_i8(value);
+            panel.version.major = low_i8(integer_field(*version, "major"));
+            panel.version.minor = low_i8(integer_field(*version, "minor"));
+            panel.version.revision = low_i8(integer_field(*version, "revision"));
         }
         gadget.fields = std::move(panel);
         return true;
     }
     case GadgetType::button: {
         ButtonFields button;
-        if (!parse_integer(section, "status", value, error))
-            return false;
-        button.status = low_i16(value);
+        button.status = low_i16(integer_field(section, "status"));
         button.source_text = bounded_string(field(section, "text"), limit::text_bytes);
         if (!translate(button.source_text, translation_lookup, button.text, error))
             return false;
@@ -425,34 +402,22 @@ parse_integer(const Section& section, std::string_view key, int32_t& value, Erro
                                    (quick_key.front() >= 'a' && quick_key.front() <= 'z'))) {
             button.quick_key = std::bit_cast<int8_t>(static_cast<uint8_t>(quick_key.front()));
         } else {
-            Section quick_key_section;
-            quick_key_section.fields.emplace("quickkey", quick_key);
-            if (!parse_integer(quick_key_section, "quickkey", value, error))
-                return false;
-            button.quick_key = low_i8(value);
+            button.quick_key = low_i8(read_integer(quick_key));
         }
-        if (!parse_integer(section, "grayedout", value, error))
-            return false;
-        button.grayed_out = (static_cast<uint32_t>(value) & 1U) != 0;
-        if (!parse_integer(section, "stages", value, error))
-            return false;
-        button.stages = low_i8(value);
+        button.grayed_out = (static_cast<uint32_t>(integer_field(section, "grayedout")) & 1U) != 0;
+        button.stages = low_i8(integer_field(section, "stages"));
         gadget.fields = std::move(button);
         return true;
     }
     case GadgetType::list_box: {
         ListBoxFields list_box;
-        if (!parse_integer(section, "itemheight", value, error))
-            return false;
-        list_box.item_height = low_i16(value);
+        list_box.item_height = low_i16(integer_field(section, "itemheight"));
         gadget.fields = list_box;
         return true;
     }
     case GadgetType::text_box: {
         TextBoxFields text_box;
-        if (!parse_integer(section, "maxchars", value, error))
-            return false;
-        text_box.max_characters = low_i16(value);
+        text_box.max_characters = low_i16(integer_field(section, "maxchars"));
         if (text_box.max_characters > limit::text_box_max_characters) {
             text_box.max_characters = limit::text_box_max_characters;
         }
@@ -464,18 +429,10 @@ parse_integer(const Section& section, std::string_view key, int32_t& value, Erro
     }
     case GadgetType::scroll_bar: {
         ScrollBarFields scroll_bar;
-        if (!parse_integer(section, "range", value, error))
-            return false;
-        scroll_bar.range = low_i16(value);
-        if (!parse_integer(section, "thick", value, error))
-            return false;
-        scroll_bar.thickness = low_i16(value);
-        if (!parse_integer(section, "knobpos", value, error))
-            return false;
-        scroll_bar.knob_position = low_i16(value);
-        if (!parse_integer(section, "knobsize", value, error))
-            return false;
-        scroll_bar.knob_size = low_i16(value);
+        scroll_bar.range = low_i16(integer_field(section, "range"));
+        scroll_bar.thickness = low_i16(integer_field(section, "thick"));
+        scroll_bar.knob_position = low_i16(integer_field(section, "knobpos"));
+        scroll_bar.knob_size = low_i16(integer_field(section, "knobsize"));
         scroll_bar.source_text = bounded_string(field(section, "text"), limit::text_bytes);
         if (!translate(scroll_bar.source_text, translation_lookup, scroll_bar.text, error))
             return false;
@@ -493,9 +450,7 @@ parse_integer(const Section& section, std::string_view key, int32_t& value, Erro
     }
     case GadgetType::hot_surface: {
         HotSurfaceFields surface;
-        if (!parse_integer(section, "hotornot", value, error))
-            return false;
-        surface.hot = (static_cast<uint32_t>(value) & 1U) != 0;
+        surface.hot = (static_cast<uint32_t>(integer_field(section, "hotornot")) & 1U) != 0;
         gadget.fields = surface;
         return true;
     }
@@ -506,8 +461,7 @@ parse_integer(const Section& section, std::string_view key, int32_t& value, Erro
         return true;
     case GadgetType::null_resource: {
         NullResourceFields resource;
-        if (!parse_integer(section, "nuttin", resource.nuttin, error))
-            return false;
+        resource.nuttin = integer_field(section, "nuttin");
         gadget.fields = resource;
         return true;
     }

@@ -111,18 +111,68 @@ void only_the_needs_this_build_meets_are_drawable() {
     clear_pack_languages();
     languages::Language language{};
     language.needs = languages::TextNeeds::game_fonts;
+    OA_CHECK(languages::meets(language.needs));
     OA_CHECK(languages::drawable(language));
     language.needs = languages::TextNeeds::modern_fonts;
+    OA_CHECK(languages::meets(language.needs));
     OA_CHECK(languages::drawable(language));
     language.needs = languages::TextNeeds::more_font_faces;
+    OA_CHECK(!languages::meets(language.needs));
     OA_CHECK(!languages::drawable(language));
     language.needs = languages::TextNeeds::text_shaping;
+    OA_CHECK(languages::drawable(language) == languages::meets(language.needs));
+#if defined(OA_TEXT_SHAPING)
+    OA_CHECK(languages::meets(language.needs));
+    OA_CHECK(languages::drawable(language));
+#else
+    OA_CHECK(!languages::meets(language.needs));
     OA_CHECK(!languages::drawable(language));
+#endif
 }
 
-/// Tags and 3.1c's words are found without regard to case.
-// Simplified Chinese turns Unicode chat on whether or not its pack is
-// there; a language of the code page only when a pack of it asks.
+/// An available pack is matched, and a system locale chooses it, only when
+/// this build draws what it needs. Shaping is one of those needs on a build
+/// that shapes, and is not on a build that does not.
+void a_pack_is_offered_only_when_this_build_can_draw_it() {
+    clear_pack_languages();
+    languages::LanguageEntry bengali =
+        make_entry("bn", "Bengali", "Bengali", "Bengali", languages::TextNeeds::text_shaping);
+    bengali.locales = {"bn"};
+    languages::LanguageEntry korean =
+        make_entry("ko", "Korean", "Korean", "Korean", languages::TextNeeds::more_font_faces);
+    korean.locales = {"ko"};
+    languages::set_pack_languages({}, std::array<languages::LanguageEntry, 2>{bengali, korean});
+    const languages::Language* found_bengali = languages::find_by_tag("bn");
+    const languages::Language* found_korean = languages::find_by_tag("ko");
+    OA_CHECK(found_bengali != nullptr && found_korean != nullptr);
+    if (found_bengali == nullptr || found_korean == nullptr) {
+        clear_pack_languages();
+        return;
+    }
+    OA_CHECK(found_bengali->source == languages::Source::available);
+    OA_CHECK(found_korean->source == languages::Source::available);
+    OA_CHECK(!languages::meets(found_korean->needs));
+    OA_CHECK(!languages::drawable(*found_korean));
+    OA_CHECK(languages::match_locale("ko", true) == nullptr);
+    OA_CHECK(languages::wanted_language(std::vector<std::string>{"ko-KR"}) == nullptr);
+#if defined(OA_TEXT_SHAPING)
+    OA_CHECK(languages::meets(found_bengali->needs));
+    OA_CHECK(languages::drawable(*found_bengali));
+    OA_CHECK(languages::match_locale("bn", true) == found_bengali);
+    OA_CHECK(languages::wanted_language(std::vector<std::string>{"bn_BD.UTF-8"}) == found_bengali);
+#else
+    OA_CHECK(!languages::meets(found_bengali->needs));
+    OA_CHECK(!languages::drawable(*found_bengali));
+    OA_CHECK(languages::match_locale("bn", true) == nullptr);
+    OA_CHECK(languages::wanted_language(std::vector<std::string>{"bn_BD.UTF-8"}) == nullptr);
+#endif
+    clear_pack_languages();
+}
+
+/// Simplified Chinese turns Unicode chat on whether or not its pack is
+/// there; a language of the code page only when a pack of it asks. A
+/// language whose text needs shaping turns it on too, since that text is
+/// UTF-8.
 void languages_in_utf8_turn_unicode_chat_on() {
     clear_pack_languages();
     const auto* chinese = languages::find_by_tag("zh-Hans");
@@ -135,8 +185,12 @@ void languages_in_utf8_turn_unicode_chat_on() {
     OA_CHECK(!languages::turns_unicode_chat_on(*german, false));
     OA_CHECK(languages::turns_unicode_chat_on(*german, true));
     OA_CHECK(!languages::turns_unicode_chat_on(languages::english(), false));
+    languages::Language shaped{};
+    shaped.needs = languages::TextNeeds::text_shaping;
+    OA_CHECK(languages::turns_unicode_chat_on(shaped, false));
 }
 
+/// Tags and 3.1c's words are found without regard to case.
 void tags_and_game_words_are_found_without_regard_to_case() {
     clear_pack_languages();
     OA_CHECK(tag_of(languages::find_by_tag("de")) == "de");
@@ -945,6 +999,7 @@ int main() {
     available_languages_are_never_shown();
     entries_outlive_their_replacement();
     only_the_needs_this_build_meets_are_drawable();
+    a_pack_is_offered_only_when_this_build_can_draw_it();
     languages_in_utf8_turn_unicode_chat_on();
     tags_and_game_words_are_found_without_regard_to_case();
     fallback_chains_end_in_english();

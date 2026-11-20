@@ -26,6 +26,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.

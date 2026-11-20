@@ -3,6 +3,7 @@
 
 #include "oa/boneyards/screens/profile.hpp"
 
+#include "oa/boneyards/screens/after_battle.hpp"
 #include "oa/boneyards/screens/chat.hpp"
 #include "text.hpp"
 
@@ -759,6 +760,7 @@ bool game_setup_start(GameSetupPanel* p) {
     request.commander_death = p->commander_death.selected >= 0 && p->commander_death.selected < 3
                                   ? kDeathCodes[p->commander_death.selected]
                                   : 0;
+    arm_after_battle(request.game_mode);
     p->service->host_game(p->service->user, &request);
     p->visible = false;
     return true;

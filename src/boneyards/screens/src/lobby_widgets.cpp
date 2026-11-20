@@ -3,20 +3,39 @@
 
 #include "oa/boneyards/screens/lobby_widgets.hpp"
 
+#include "oa/boneyards/screens/galaxy.hpp"
+#include "oa/boneyards/screens/profile.hpp"
 #include "oa/boneyards/screens/widgets.hpp"
 #include "oa/boneyards/shown_text.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/raster.hpp"
 
 #include "text.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string_view>
+#include <span>
+#include <unordered_map>
+#include <vector>
 
 namespace oa::boneyards::screens {
 namespace {
 
 const HatFonts* g_button_fonts{};
+std::vector<uint8_t> g_palette_bytes;
+int32_t g_muzzle_font = k_no_handle;
+std::unordered_map<const Window*, uint8_t> g_latency_applied;
+void (*g_player_row_base_destroy)(Window*) = nullptr;
+Handle g_lock_mark = k_no_handle;
+Handle g_mute_mark = k_no_handle;
+
+void paint_latency_icon(PlayerRowIcons* row, bool reload);
 
 /// Draws a function button's face and its caption in the state's font, then the focus frame.
 ///
@@ -666,8 +685,9 @@ void player_row_select(Window* self) {
     window_set_font_handle(player->name_label, player->row.fonts->small_light);
 }
 
-/// Shows an unselected player's name: green while whispers are locked onto the player, dim while
-/// muzzled, else the small font.
+/// Shows an unselected player's name: the system colour while whispers are locked onto the player,
+/// the mode's bad-health colour while muzzled, else the small font. Off keeps today's green and
+/// dim tints.
 ///
 /// @param self the player row
 void player_row_unselect(Window* self) {
@@ -676,16 +696,77 @@ void player_row_unselect(Window* self) {
     Handle font = fonts->small;
     if (player->whisper_locked)
         font = fonts->small_green;
-    else if (player->silenced)
+    else if (player->silenced) {
         font = fonts->small_dim;
+        if (present::colour_vision::active_mode() != present::colour_vision::Mode::off &&
+            g_muzzle_font >= 0)
+            font = g_muzzle_font;
+    }
     window_set_font_handle(player->name_label, font);
 }
 
 constexpr ListRowLook k_player_row_look{player_row_select, player_row_unselect};
 
+// Moves the name right while a lock or mute mark needs the gap, and puts it back otherwise.
+// The latency icon stays where the row was built, at the name's old right edge.
+void place_name_mark(ByPlayerRow* player) {
+    Window* label = player->name_label;
+    Window* latency = player->icons.latency_icon;
+    if (label == nullptr || latency == nullptr)
+        return;
+    const int32_t home = player->row.base.x + kByRowNameX;
+    const int32_t full = latency->x - home;
+    const bool mark =
+        present::colour_vision::shape_cues_active() && (player->whisper_locked || player->silenced);
+    const int32_t room = mark && full > kNameMarkRoom ? kNameMarkRoom : 0;
+    const int32_t left = home + room;
+    const int32_t width = full > room ? full - room : full;
+    if (label->x != left)
+        label->x = left;
+    if (width > 0 && label->width != width)
+        label->width = width;
+}
+
+void stamp_name_mark(ByPlayerRow* player) {
+    if (!present::colour_vision::shape_cues_active())
+        return;
+    NameMark mark = NameMark::none;
+    if (player->whisper_locked)
+        mark = NameMark::lock;
+    else if (player->silenced)
+        mark = NameMark::mute;
+    if (mark == NameMark::none)
+        return;
+    Handle& slot = mark == NameMark::lock ? g_lock_mark : g_mute_mark;
+    if (slot < 0)
+        slot = image_create_blank(kNameMarkSide, kNameMarkSide, kWidgetKey, kWidgetKey);
+    Surface surface{};
+    if (slot < 0 || !image_surface(slot, &surface))
+        return;
+    paint_name_mark(
+        surface.pixels, surface.width, surface.height, surface.pitch, mark, kCueInk, kWidgetKey
+    );
+    image_draw(
+        player->row.base.x + kByRowNameX, player->row.base.y + 2, kNameMarkSide, kNameMarkSide, slot
+    );
+}
+
 bool player_row_draw(Window* self) {
-    const ByTextRow* row = &as_player_row(self)->row;
-    return list_row_draw(self, row->selectable, row->list->selected_item, k_player_row_look);
+    ByPlayerRow* player = as_player_row(self);
+    paint_latency_icon(&player->icons, false);
+    place_name_mark(player);
+    const ByTextRow* row = &player->row;
+    const bool drawn =
+        list_row_draw(self, row->selectable, row->list->selected_item, k_player_row_look);
+    stamp_name_mark(player);
+    return drawn;
+}
+
+void player_row_destroy(Window* self) {
+    if (self != nullptr)
+        g_latency_applied.erase(as_player_row(self)->icons.latency_icon);
+    if (g_player_row_base_destroy != nullptr)
+        g_player_row_base_destroy(self);
 }
 
 bool player_row_is_class(const char* name) {
@@ -694,9 +775,11 @@ bool player_row_is_class(const char* name) {
 
 WindowOps player_row_ops() {
     WindowOps ops = k_static_ops;
+    g_player_row_base_destroy = ops.destroy;
     ops.class_name = kByPlayerRowClass;
     ops.is_class = player_row_is_class;
     ops.draw = player_row_draw;
+    ops.destroy = player_row_destroy;
     ops.on_notify = text_row_notify;
     return ops;
 }
@@ -1446,13 +1529,561 @@ void window_set_four_state_texts(Window* window, const char* text) {
 }
 
 void player_row_set_latency(PlayerRowIcons* row, int32_t frame) {
+    if (row == nullptr)
+        return;
     row->latency_frame = frame;
-    bind_images(row->latency_icon, "Widgets.Gaf", "Latency_Icons", frame);
+    paint_latency_icon(row, true);
 }
 
 void player_row_set_user_icon(PlayerRowIcons* row, int32_t frame) {
     row->user_frame = frame;
     bind_images(row->user_icon, "Widgets.Gaf", "User_Icons", frame);
+}
+
+const char* latency_grade_phrase(int32_t grade) noexcept {
+    // The drawn square runs from 1 (red, the worst) to 3 (green, the best).
+    if (grade == 1)
+        return "Latency poor";
+    if (grade == 2)
+        return "Latency fair";
+    if (grade == 3)
+        return "Latency good";
+    return "Latency unknown";
+}
+
+bool player_icon_words(const Window* icon, PlayerIconWords* out) {
+    if (out != nullptr)
+        *out = {};
+    if (icon == nullptr || out == nullptr || icon->name == nullptr || icon->parent == nullptr)
+        return false;
+    const bool rank = std::strcmp(icon->name, "RankIcon") == 0;
+    const bool latency = std::strcmp(icon->name, "LatencyIcon") == 0;
+    if (!rank && !latency)
+        return false;
+    const Window* row_window = icon->parent;
+    if (row_window->ops == nullptr || row_window->ops->class_name == nullptr ||
+        std::strcmp(row_window->ops->class_name, kByPlayerRowClass) != 0)
+        return false;
+    const auto* player = reinterpret_cast<const ByPlayerRow*>(row_window);
+    if (rank && icon != player->icons.user_icon)
+        return false;
+    if (latency && icon != player->icons.latency_icon)
+        return false;
+    if (rank) {
+        out->kind = PlayerIconKind::rank;
+        const char* title = rank_title(player->icons.user_frame, true);
+        out->rank = title != nullptr ? title : "";
+        return true;
+    }
+    out->kind = PlayerIconKind::latency;
+    const int32_t grade = player->icons.latency_frame;
+    // The drawn square runs from 1 (red, the worst) to 3 (green, the best).
+    // Anything else has no name, and the picture is left as the row drew it.
+    out->latency_grade = grade >= 1 && grade <= 3 ? grade : 0;
+    return true;
+}
+
+namespace {
+
+constexpr std::size_t kPaletteBytes = 256U * 4U;
+constexpr double kNearGrey = 0.05;
+constexpr double kHueStep = 0.07;
+constexpr int kRowWidth = 16;
+
+struct Hue {
+    double hue = 0.0;
+    double saturation = 0.0;
+};
+
+// Hue and saturation of one palette entry, on the same scale the colour-vision ramps use.
+Hue hue_of(present::colour_vision::Rgb colour) {
+    const double red = static_cast<double>(colour.red) / 255.0;
+    const double green = static_cast<double>(colour.green) / 255.0;
+    const double blue = static_cast<double>(colour.blue) / 255.0;
+    const double upper = std::max(red, std::max(green, blue));
+    const double lower = std::min(red, std::min(green, blue));
+    Hue result;
+    result.saturation = upper == 0.0 ? 0.0 : (upper - lower) / upper;
+    const double span = upper - lower;
+    if (span == 0.0)
+        return result;
+    double sector = 0.0;
+    if (upper == red)
+        sector = (green - blue) / span;
+    else if (upper == green)
+        sector = (blue - red) / span + 2.0;
+    else
+        sector = (red - green) / span + 4.0;
+    if (sector < 0.0)
+        sector += 6.0;
+    result.hue = sector / 6.0;
+    return result;
+}
+
+bool ramp_continues(Hue left, Hue right) {
+    if (left.saturation < kNearGrey && right.saturation < kNearGrey)
+        return true;
+    double distance = std::abs(left.hue - right.hue);
+    if (distance > 0.5)
+        distance = 1.0 - distance;
+    return distance <= kHueStep;
+}
+
+bool palette_ready(std::span<const uint8_t> palette) {
+    return palette.size() >= kPaletteBytes;
+}
+
+present::colour_vision::Rgb entry_rgb(std::span<const uint8_t> palette, int index) {
+    const auto at = static_cast<std::size_t>(index) * 4U;
+    return present::colour_vision::Rgb{palette[at], palette[at + 1U], palette[at + 2U]};
+}
+
+std::array<uint8_t, 256> identity_map() {
+    std::array<uint8_t, 256> map{};
+    for (int index = 0; index < 256; ++index)
+        map[static_cast<std::size_t>(index)] = static_cast<uint8_t>(index);
+    return map;
+}
+
+struct ShadeRamp {
+    int left = 0;
+    int right = 0;
+    std::array<double, 256> lightness{};
+};
+
+ShadeRamp ramp_around(std::span<const uint8_t> palette, int anchor) {
+    ShadeRamp ramp;
+    std::array<Hue, 256> hue{};
+    for (int index = 0; index < 256; ++index) {
+        const present::colour_vision::Rgb colour = entry_rgb(palette, index);
+        hue[static_cast<std::size_t>(index)] = hue_of(colour);
+        ramp.lightness[static_cast<std::size_t>(index)] =
+            present::colour_vision::lab_from_srgb(colour).l;
+    }
+    const int row = anchor / kRowWidth * kRowWidth;
+    int left = anchor;
+    while (left > row &&
+           ramp_continues(
+               hue[static_cast<std::size_t>(left)], hue[static_cast<std::size_t>(left - 1)]
+           ))
+        --left;
+    int right = anchor;
+    while (right + 1 < row + kRowWidth &&
+           ramp_continues(
+               hue[static_cast<std::size_t>(right)], hue[static_cast<std::size_t>(right + 1)]
+           ))
+        ++right;
+    ramp.left = left;
+    ramp.right = right;
+    return ramp;
+}
+
+// The entry of the ramp nearest `want` in lightness. The lower index wins a tie.
+int nearest_lightness(const ShadeRamp& ramp, double want) {
+    int destination = ramp.left;
+    double best = std::abs(want - ramp.lightness[static_cast<std::size_t>(ramp.left)]);
+    for (int index = ramp.left + 1; index <= ramp.right; ++index) {
+        const double distance = std::abs(want - ramp.lightness[static_cast<std::size_t>(index)]);
+        if (distance < best) {
+            best = distance;
+            destination = index;
+        }
+    }
+    return destination;
+}
+
+// Sends each source shade to the destination shade nearest its lightness. The source nearest the
+// mode's colour, the lower index on a tie, is that colour exactly.
+void map_sources(
+    std::array<uint8_t, 256>& map, const ShadeRamp& ramp, int target, std::span<const int> sources
+) {
+    if (sources.empty() || target < 0 || target >= 256)
+        return;
+    const double target_lightness = ramp.lightness[static_cast<std::size_t>(target)];
+    int forced = sources[0];
+    double forced_distance =
+        std::abs(ramp.lightness[static_cast<std::size_t>(forced)] - target_lightness);
+    for (const int source : sources) {
+        if (source < 0 || source >= 256)
+            continue;
+        const double source_lightness = ramp.lightness[static_cast<std::size_t>(source)];
+        map[static_cast<std::size_t>(source)] =
+            static_cast<uint8_t>(nearest_lightness(ramp, source_lightness));
+        const double from_target = std::abs(source_lightness - target_lightness);
+        if (from_target < forced_distance || (from_target == forced_distance && source < forced)) {
+            forced = source;
+            forced_distance = from_target;
+        }
+    }
+    if (forced >= 0 && forced < 256)
+        map[static_cast<std::size_t>(forced)] = static_cast<uint8_t>(target);
+}
+
+// Moves every shade by `offset` lightness and picks the ramp entry nearest that. Nothing is forced
+// onto the ramp's anchor. The lower index wins a tie.
+void map_offset(
+    std::array<uint8_t, 256>& map,
+    const ShadeRamp& ramp,
+    std::span<const int> sources,
+    double offset
+) {
+    for (const int source : sources) {
+        if (source < 0 || source >= 256)
+            continue;
+        const double want = ramp.lightness[static_cast<std::size_t>(source)] + offset;
+        map[static_cast<std::size_t>(source)] = static_cast<uint8_t>(nearest_lightness(ramp, want));
+    }
+}
+
+// The reference shade becomes `target`. Every other shade keeps its distance in lightness from the
+// reference, on the ramp around `target`. The lower index wins a tie.
+void map_shifted(
+    std::array<uint8_t, 256>& map,
+    const ShadeRamp& ramp,
+    int target,
+    int reference,
+    std::span<const int> sources
+) {
+    if (target < 0 || target >= 256 || reference < 0 || reference >= 256)
+        return;
+    const double shift = ramp.lightness[static_cast<std::size_t>(target)] -
+                         ramp.lightness[static_cast<std::size_t>(reference)];
+    map[static_cast<std::size_t>(reference)] = static_cast<uint8_t>(target);
+    for (const int source : sources) {
+        if (source < 0 || source >= 256 || source == reference)
+            continue;
+        const double want = ramp.lightness[static_cast<std::size_t>(source)] + shift;
+        map[static_cast<std::size_t>(source)] = static_cast<uint8_t>(nearest_lightness(ramp, want));
+    }
+}
+
+void remap_image(Handle image, const std::array<uint8_t, 256>& map) {
+    Surface surface{};
+    if (image < 0 || !image_surface(image, &surface) || surface.pixels == nullptr ||
+        surface.width <= 0 || surface.height <= 0)
+        return;
+    for (int32_t row = 0; row < surface.height; ++row) {
+        uint8_t* pixels = surface.pixels + static_cast<std::ptrdiff_t>(row) * surface.pitch;
+        present::colour_vision::remap_indices(
+            std::span<uint8_t>(pixels, static_cast<std::size_t>(surface.width)), map, kWidgetKey
+        );
+    }
+}
+
+void remap_window(const Window* window, const std::array<uint8_t, 256>& map) {
+    if (window == nullptr || window->states.images == nullptr)
+        return;
+    for (int32_t state = 0; state < window->states.count; ++state)
+        remap_image(window->states.images[state], map);
+}
+
+constexpr uint8_t k_cue_stamp = 0x80;
+
+void paint_row_bars(const Window* icon, int grade) {
+    if (icon == nullptr || icon->states.images == nullptr || grade < 1 || grade > 3)
+        return;
+    for (int32_t state = 0; state < icon->states.count; ++state) {
+        Surface surface{};
+        if (!image_surface(icon->states.images[state], &surface) || surface.pixels == nullptr)
+            continue;
+        paint_latency_bars(
+            surface.pixels, surface.width, surface.height, surface.pitch, grade, kCueInk, kCueGround
+        );
+    }
+}
+
+void paint_latency_icon(PlayerRowIcons* row, bool reload) {
+    if (row == nullptr || row->latency_icon == nullptr)
+        return;
+    const auto now = static_cast<uint8_t>(present::colour_vision::active_mode());
+    const bool cues = present::colour_vision::shape_cues_active();
+    const uint8_t stamp = static_cast<uint8_t>(now | (cues ? k_cue_stamp : 0));
+    const auto found = g_latency_applied.find(row->latency_icon);
+    const uint8_t applied = found == g_latency_applied.end()
+                                ? static_cast<uint8_t>(present::colour_vision::Mode::off)
+                                : found->second;
+    if (!reload && applied == stamp)
+        return;
+    bind_images(row->latency_icon, "Widgets.Gaf", "Latency_Icons", row->latency_frame);
+    if (now != static_cast<uint8_t>(present::colour_vision::Mode::off))
+        remap_window(row->latency_icon, lobby_latency_map(boneyards_palette()));
+    if (cues)
+        paint_row_bars(row->latency_icon, row->latency_frame);
+    if (stamp == static_cast<uint8_t>(present::colour_vision::Mode::off))
+        g_latency_applied.erase(row->latency_icon);
+    else
+        g_latency_applied[row->latency_icon] = stamp;
+}
+
+// Catalogue section for a role. The section name has no closing bracket; its value is the tag
+// the player reads, and the English tag stands in when that language has no line.
+const char* role_catalogue_key(ChatRole role) noexcept {
+    switch (role) {
+    case ChatRole::system:
+        return "SYS";
+    case ChatRole::news:
+        return "NEWS";
+    case ChatRole::arm:
+        return "ARM";
+    case ChatRole::core:
+        return "CORE";
+    case ChatRole::none:
+        break;
+    }
+    return nullptr;
+}
+
+bool mark_pixel(NameMark mark, int32_t x, int32_t y) noexcept {
+    if (mark == NameMark::lock) {
+        const bool shackle = (y >= 0 && y <= 2 && (x == 2 || x == 4)) || (y == 0 && x == 3);
+        const bool body = y >= 3 && y <= 6 && x >= 1 && x <= 5;
+        return shackle || body;
+    }
+    if (mark == NameMark::mute)
+        return (x == y || x + y == 6) && x >= 0 && x <= 6 && y >= 0 && y <= 6;
+    return false;
+}
+
+} // namespace
+
+void boneyards_use_palette(const uint8_t* entries, std::size_t bytes) {
+    if (entries == nullptr || bytes < kPaletteBytes)
+        g_palette_bytes.clear();
+    else
+        g_palette_bytes.assign(entries, entries + kPaletteBytes);
+}
+
+std::span<const uint8_t> boneyards_palette() {
+    return g_palette_bytes;
+}
+
+void boneyards_muzzle_font(int32_t font) {
+    g_muzzle_font = font;
+}
+
+int32_t galaxy_link_index(int32_t stored, std::span<const uint8_t> palette) {
+    using present::colour_vision::Mode;
+    const Mode mode = present::colour_vision::active_mode();
+    if (mode == Mode::off || !palette_ready(palette))
+        return stored;
+    const present::colour_vision::SemanticColours colours =
+        present::colour_vision::semantic_colours(mode);
+    const present::colour_vision::Rgb* chosen = nullptr;
+    if (stored == connector_color::arm)
+        chosen = &colours.war_arm;
+    else if (stored == connector_color::core)
+        chosen = &colours.war_core;
+    else if (stored == connector_color::mixed)
+        chosen = &colours.war_mixed;
+    if (chosen == nullptr)
+        return stored;
+    return present::colour_vision::match_index(palette, *chosen);
+}
+
+GalaxyChatColours galaxy_chat_colours(std::span<const uint8_t> palette) {
+    GalaxyChatColours tints{chat_tint::system, chat_tint::newsbot, chat_tint::arm, chat_tint::core};
+    using present::colour_vision::Mode;
+    const Mode mode = present::colour_vision::active_mode();
+    if (mode == Mode::off || !palette_ready(palette))
+        return tints;
+    const present::colour_vision::SemanticColours colours =
+        present::colour_vision::semantic_colours(mode);
+    tints.system = present::colour_vision::match_index(palette, colours.chat_system);
+    tints.newsbot = present::colour_vision::match_index(palette, colours.chat_newsbot);
+    tints.arm = present::colour_vision::match_index(palette, colours.chat_arm);
+    tints.core = present::colour_vision::match_index(palette, colours.chat_core);
+    return tints;
+}
+
+int32_t muzzle_name_index(std::span<const uint8_t> palette) {
+    using present::colour_vision::Mode;
+    const Mode mode = present::colour_vision::active_mode();
+    if (mode == Mode::off || !palette_ready(palette))
+        return chat_tint::muzzle;
+    return present::colour_vision::match_index(
+        palette, present::colour_vision::semantic_colours(mode).health_bad
+    );
+}
+
+SideIconColours side_icon_colours(std::span<const uint8_t> palette) {
+    SideIconColours bodies{side_icon_body::arm, side_icon_body::core};
+    using present::colour_vision::Mode;
+    const Mode mode = present::colour_vision::active_mode();
+    if (mode == Mode::off || !palette_ready(palette))
+        return bodies;
+    const present::colour_vision::SemanticColours colours =
+        present::colour_vision::semantic_colours(mode);
+    bodies.arm = present::colour_vision::match_index(palette, colours.war_arm);
+    bodies.core = present::colour_vision::match_index(palette, colours.war_core);
+    return bodies;
+}
+
+std::array<uint8_t, 256> galaxy_aura_map(bool arm, std::span<const uint8_t> palette) {
+    std::array<uint8_t, 256> map = identity_map();
+    using present::colour_vision::Mode;
+    const Mode mode = present::colour_vision::active_mode();
+    if (mode == Mode::off || !palette_ready(palette))
+        return map;
+    const present::colour_vision::SemanticColours colours =
+        present::colour_vision::semantic_colours(mode);
+    const int target =
+        present::colour_vision::match_index(palette, arm ? colours.war_arm : colours.war_core);
+    const ShadeRamp ramp = ramp_around(palette, target);
+    const int arm_shades[] = {225, 226, 227, 228};
+    const int core_shades[] = {210, 211, 212, 213};
+    // An achromat sees lightness alone. Core is drawn lighter. Arm keeps its shades so a quiet
+    // Arm planet's thin ring stays clear of space.
+    if (mode == Mode::achromatopsia) {
+        if (arm)
+            map_offset(map, ramp, arm_shades, 0.0);
+        else
+            map_offset(map, ramp, core_shades, 12.0);
+    } else if (arm) {
+        map_sources(map, ramp, target, arm_shades);
+    } else {
+        map_sources(map, ramp, target, core_shades);
+    }
+    map[static_cast<std::size_t>(kWidgetKey)] = static_cast<uint8_t>(kWidgetKey);
+    return map;
+}
+
+std::array<uint8_t, 256> lobby_latency_map(std::span<const uint8_t> palette) {
+    std::array<uint8_t, 256> map = identity_map();
+    using present::colour_vision::Mode;
+    const Mode mode = present::colour_vision::active_mode();
+    if (mode == Mode::off || !palette_ready(palette))
+        return map;
+    const present::colour_vision::SemanticColours colours =
+        present::colour_vision::semantic_colours(mode);
+    const int good = present::colour_vision::match_index(palette, colours.health_good);
+    const int middle = present::colour_vision::match_index(palette, colours.health_mid);
+    const int bad = present::colour_vision::match_index(palette, colours.health_bad);
+    const int good_shades[] = {160, 161, 162, 163, 164};
+    const int middle_shades[] = {195, 196, 197, 198, 199};
+    const int bad_shades[] = {201, 202, 203, 204, 205, 212};
+    // The middle shade of each grade is the reference that lands on the mode's colour.
+    constexpr int good_reference = 162;
+    constexpr int middle_reference = 197;
+    constexpr int bad_reference = 203;
+    map_shifted(map, ramp_around(palette, good), good, good_reference, good_shades);
+    map_shifted(map, ramp_around(palette, middle), middle, middle_reference, middle_shades);
+    map_shifted(map, ramp_around(palette, bad), bad, bad_reference, bad_shades);
+    map[static_cast<std::size_t>(kWidgetKey)] = static_cast<uint8_t>(kWidgetKey);
+    return map;
+}
+
+ChatRole chat_role_for_handles(
+    int32_t font, int32_t system, int32_t news, int32_t arm, int32_t core
+) noexcept {
+    if (font < 0)
+        return ChatRole::none;
+    if (font == system)
+        return ChatRole::system;
+    if (font == news)
+        return ChatRole::news;
+    if (font == arm)
+        return ChatRole::arm;
+    if (font == core)
+        return ChatRole::core;
+    return ChatRole::none;
+}
+
+const char* chat_role_tag(ChatRole role) noexcept {
+    switch (role) {
+    case ChatRole::system:
+        return "[SYS]";
+    case ChatRole::news:
+        return "[NEWS]";
+    case ChatRole::arm:
+        return "[ARM]";
+    case ChatRole::core:
+        return "[CORE]";
+    case ChatRole::none:
+        break;
+    }
+    return nullptr;
+}
+
+void write_role_line(char* out, std::size_t capacity, const char* text, ChatRole role, bool cues) {
+    if (out == nullptr || capacity == 0)
+        return;
+    const char* body = text != nullptr ? text : "";
+    const char* tag = cues ? chat_role_tag(role) : nullptr;
+    if (tag == nullptr) {
+        std::snprintf(out, capacity, "%s", body);
+        return;
+    }
+    // The tag is the Boneyards catalogue's own line. The game's translation of the section name
+    // is a side name, not a tag, so it is not used here.
+    char translated[64];
+    const char* shown = tag;
+    const char* key = role_catalogue_key(role);
+    if (key != nullptr) {
+        const std::string_view own = oa::data::languages::interface_text(key);
+        if (!own.empty() && own != key) {
+            const std::size_t count =
+                own.size() < sizeof translated - 1 ? own.size() : sizeof translated - 1;
+            std::memcpy(translated, own.data(), count);
+            translated[count] = '\0';
+            shown = translated;
+        }
+    }
+    if (body[0] == '\0')
+        std::snprintf(out, capacity, "%s", shown);
+    else
+        std::snprintf(out, capacity, "%s %s", shown, body);
+}
+
+void paint_name_mark(
+    uint8_t* pixels,
+    int32_t width,
+    int32_t height,
+    int32_t pitch,
+    NameMark mark,
+    uint8_t ink,
+    uint8_t ground
+) noexcept {
+    if (pixels == nullptr || width <= 0 || height <= 0 || pitch <= 0 || mark == NameMark::none)
+        return;
+    for (int32_t row = 0; row < height; ++row) {
+        uint8_t* line = pixels + static_cast<std::ptrdiff_t>(row) * pitch;
+        for (int32_t column = 0; column < width; ++column)
+            line[column] = mark_pixel(mark, column, row) ? ink : ground;
+    }
+}
+
+void paint_latency_bars(
+    uint8_t* pixels,
+    int32_t width,
+    int32_t height,
+    int32_t pitch,
+    int grade,
+    uint8_t ink,
+    uint8_t ground
+) noexcept {
+    if (pixels == nullptr || width <= 0 || height <= 0 || pitch <= 0 || grade < 1 || grade > 3)
+        return;
+    for (int32_t row = 0; row < height; ++row) {
+        uint8_t* line = pixels + static_cast<std::ptrdiff_t>(row) * pitch;
+        for (int32_t column = 0; column < width; ++column)
+            line[column] = ground;
+    }
+    constexpr int32_t bar_width = 2;
+    constexpr int32_t gap = 1;
+    constexpr int32_t bar_height = 7;
+    const int32_t total = grade * bar_width + (grade - 1) * gap;
+    const int32_t origin = width > total ? (width - total) / 2 : 0;
+    const int32_t top = height > bar_height ? (height - bar_height) / 2 : 0;
+    const int32_t bottom = top + bar_height < height ? top + bar_height : height;
+    for (int bar = 0; bar < grade; ++bar) {
+        const int32_t left = origin + bar * (bar_width + gap);
+        const int32_t right = left + bar_width < width ? left + bar_width : width;
+        for (int32_t row = top; row < bottom; ++row) {
+            uint8_t* line = pixels + static_cast<std::ptrdiff_t>(row) * pitch;
+            for (int32_t column = left; column < right; ++column)
+                line[column] = ink;
+        }
+    }
 }
 
 } // namespace oa::boneyards::screens

@@ -104,7 +104,7 @@ void Runtime::reset_match_effect_sources() {
 }
 
 void Runtime::observe_match_effect_tick() noexcept try {
-    if (!match_)
+    if (!match_ || replay_skip_presentation_)
         return;
     // Weapons light in the interface palette's colours their beams are drawn in.
     ensure_ui_colors();

@@ -9,6 +9,8 @@
 #include "requests.hpp"
 #include "status.hpp"
 
+#include "oa/app/automation/view.hpp"
+
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
@@ -43,23 +45,13 @@ EventHooks endpoint_hooks(Endpoint& endpoint) {
 ///
 /// @param check the check host
 /// @param host the automation host
-/// @param shown the screen shown, by the endpoint's name for it
 /// @param dialogs also read the dialogs over the screen
+/// @param read_focus also read which control is focused
 /// @return the moment
 Observed
-observe_game(const CheckHost& check, const AutomationHost& host, std::string shown, bool dialogs) {
+observe_game(const CheckHost& check, const AutomationHost& host, bool dialogs, bool read_focus) {
     Observed now;
-    now.screen = std::move(shown);
-    const ScreenId screen = check.screen(check.context);
-    if (host.match_world != nullptr)
-        now.match = host.match_world(host.context);
-    if (screen == mp::kScreenBattleroom && mp::multiplayer_lobby().game != nullptr)
-        now.room = &mp::multiplayer_lobby();
-    if (dialogs) {
-        std::vector<AutomationControl> controls;
-        collect_controls(check, host, controls);
-        now.dialogs = dialog_names(controls);
-    }
+    fill_observed(check, host, now, dialogs, read_focus);
     return now;
 }
 
@@ -139,7 +131,10 @@ void send_frame_events(Endpoint& endpoint, FrameStage stage) {
     // on a frame the endpoint does not.
     const bool dialogs =
         screen_event_due(watch, shown) || (status_following() && status_screen_due(shown));
-    const Observed now = observe_game(check, host, shown, dialogs);
+    // The focus is read only while this client asked for it. The status
+    // stream, fed the same moment below, refuses the focus kind.
+    const bool read_focus = endpoint.subscribed(event_kind::focus);
+    const Observed now = observe_game(check, host, dialogs, read_focus);
     watch_events(watch, now, endpoint_hooks(endpoint));
     if (status_following())
         status_on_observed(now);
@@ -165,7 +160,7 @@ void report_status_frame(Runtime& runtime) {
     const CheckHost check = oa::app::check_host(runtime);
     const AutomationHost host = oa::app::automation_host(runtime);
     const std::string shown = screen_name(check.screen(check.context));
-    const Observed now = observe_game(check, host, shown, status_screen_due(shown));
+    const Observed now = observe_game(check, host, status_screen_due(shown), false);
     status_on_observed(now);
 }
 

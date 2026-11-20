@@ -45,7 +45,11 @@
 #include "screen_size.hpp"
 #include "oa/platform/file_types.hpp"
 #include "oa/platform/machine.hpp"
+#include "oa/platform/screen_reader.hpp"
+#include "oa/platform/screen_reader/announce.hpp"
+#include "oa/platform/screen_reader/speech.hpp"
 #include "oa/platform/system.hpp"
+#include "oa/platform/trash.hpp"
 #include "oa/platform/render_probe.hpp"
 #include "oa/app/window_icon.hpp"
 #include "oa/sim/ground_orders/search_worker.hpp"
@@ -93,6 +97,31 @@
 namespace oa::app {
 
 namespace settings = oa::ui::engine_settings;
+namespace bridge = oa::platform::screen_reader;
+
+static_assert(settings::key::screen_reader == bridge::preference_key);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::automatic) ==
+    static_cast<uint8_t>(bridge::Preference::automatic)
+);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::on) ==
+    static_cast<uint8_t>(bridge::Preference::on)
+);
+static_assert(
+    static_cast<uint8_t>(settings::ScreenReaderMode::off) ==
+    static_cast<uint8_t>(bridge::Preference::off)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::off) == static_cast<uint8_t>(bridge::SpeakChat::off)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::pages) ==
+    static_cast<uint8_t>(bridge::SpeakChat::pages)
+);
+static_assert(
+    static_cast<uint8_t>(settings::SpeakChat::all) == static_cast<uint8_t>(bridge::SpeakChat::all)
+);
 
 static_assert(
     settings::default_skirmish_players == init::default_skirmish_player_count,
@@ -438,6 +467,7 @@ void lay_game_content(settings::Dialog& dialog, const fs::path& user_folder) {
     const bool look = !user_folder.empty();
     const std::string waiting = checking_line(0, 0);
     dialog.game_content.clear();
+    dialog.game_content_strays.clear();
     dialog.game_content.reserve(table.size());
     for (const auto& bundle : table) {
         settings::GameContentRow row;
@@ -453,8 +483,56 @@ void lay_game_content(settings::Dialog& dialog, const fs::path& user_folder) {
     }
 }
 
+/// Names the stray archives a check found, each on its own row.
+///
+/// @param[in,out] dialog the dialog
+/// @param check the check
+void paint_strays(settings::Dialog& dialog, const ContentCheck& check) {
+    dialog.game_content_strays.clear();
+    for (const ContentBundleCheck& bundle : check.bundles)
+        for (const ContentStrayArchive& stray : bundle.strays) {
+            settings::GameContentStray row;
+            row.line = content_stray_line(bundle, stray);
+            row.name = stray.name;
+            row.path = path_to_utf8(stray.folder / path_from_utf8(stray.name));
+            dialog.game_content_strays.push_back(std::move(row));
+        }
+}
+
+/// The question Remove… asks once before a stray archive goes.
+///
+/// @param stray the archive
+/// @return the question: Move to Trash, or Delete where the system has no
+///         trash, then Cancel
+kit::Question stray_removal_question(const settings::GameContentStray& stray) {
+    namespace languages = oa::data::languages;
+    const bool trash = oa::platform::system_has_trash();
+    kit::Question asked;
+    asked.title = std::string(languages::interface_text("Game content"));
+    asked.paragraphs.push_back({stray.line, false});
+    std::string sentence(
+        languages::interface_text(
+            trash ? "Move {file} to the trash?" : "Delete {file}? This system has no trash."
+        )
+    );
+    const std::size_t mark = sentence.find("{file}");
+    if (mark != std::string::npos)
+        sentence.replace(mark, std::string_view("{file}").size(), stray.name);
+    asked.paragraphs.push_back({sentence, false});
+    asked.buttons.push_back(
+        {std::string(languages::interface_text(trash ? "Move to Trash" : "Delete")), true, "remove"}
+    );
+    asked.buttons.push_back({std::string(languages::interface_text("Cancel")), false, "cancel"});
+    asked.primary_button = 0;
+    asked.cancel_button = 1;
+    asked.marked = 1;
+    asked.word = "content-stray";
+    return asked;
+}
+
 /// Writes a finished check onto the rows. `found` is not kept.
 void paint_check_result(settings::Dialog& dialog, const ContentCheck& check) {
+    paint_strays(dialog, check);
     for (settings::GameContentRow& row : dialog.game_content) {
         const ContentBundleCheck* found = nullptr;
         for (const ContentBundleCheck& checked : check.bundles) {
@@ -839,6 +917,9 @@ void Runtime::EngineSettingsState::take_live_settings(Runtime& runtime) {
     auto& current = runtime.engine_settings_state().current;
     current.switch_alt = live_switch_alt(runtime);
     current.frame_stats = runtime.frame_stats_shown_;
+    // Other parts of the game write these two keys into the preferences
+    // (the Library's Turn on recording), so the dialog shows what they hold.
+    settings::read_replays_settings(runtime.preference_values_, current);
 }
 
 std::optional<std::string> Runtime::EngineSettingsState::flush(Runtime& runtime) {
@@ -1366,7 +1447,7 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
         middle_pan_ = {};
         middle_pan_swallow_button_ = 0;
     }
-    // ui.megamap acts only while the wheel zoom is off.
+    // ui.megamap's minimap picture follows the wheel zoom.
     if (before.wheel_zoom != chosen.wheel_zoom && match_)
         megamap_wheel_zoom_changed();
     if (before.sticky_modifiers != chosen.sticky_modifiers)
@@ -1405,6 +1486,10 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // factor instead, which the next Full frame takes (ensure_full_world_target).
     if (chosen.frame_stats != before.frame_stats)
         show_frame_stats(chosen.frame_stats);
+    // Another span of the graph starts it afresh at once.
+    frame_pacing::set_frame_history_seconds(
+        frame_stats_.history, static_cast<uint32_t>(chosen.frame_graph)
+    );
     // Off applies at once; so do Basic and Full, but in a shared game or a
     // replay, which keeps the tier it began with until it ends.
     if (chosen.hardware_acceleration != before.hardware_acceleration) {
@@ -1823,6 +1908,8 @@ std::optional<std::string> Runtime::save_engine_settings(
 
 std::optional<oa::platform::file_types::OpenerReport> show_system_openers(settings::Dialog& dialog);
 
+void show_replay_opener(settings::Dialog& dialog);
+
 std::string kept_opener_hint_for(
     oa::platform::file_types::TypeSet asked, oa::platform::file_types::TypeSet open
 );
@@ -1976,6 +2063,30 @@ window_placement::WindowSize placement_window_size(settings::WindowSize size) no
     return window_placement::WindowSize::automatic;
 }
 
+/// Tells the screen reader the preference the file now holds. A change
+/// forgets the last spoken focus. The bridge attaches on the next frame.
+///
+/// @param values the preferences
+void note_screen_reader_preference(const oa::platform::preferences::Values& values) {
+    const auto found = values.find(std::string{bridge::preference_key});
+    const std::string_view stored =
+        found == values.end() ? std::string_view{} : std::string_view{found->second};
+    bridge::set_preference(bridge::preference_of(stored));
+}
+
+/// The two keys colour vision reads, as the preferences hold them now.
+///
+/// @param values the preferences
+/// @return the mode's text and the shape cues' text, each empty when absent
+std::pair<std::string, std::string>
+colour_vision_keys(const oa::platform::preferences::Values& values) {
+    const auto text_of = [&values](std::string_view key) {
+        const auto found = values.find(std::string{key});
+        return found == values.end() ? std::string{} : found->second;
+    };
+    return {text_of(settings::key::colour_vision), text_of(settings::key::shape_cues)};
+}
+
 } // namespace
 
 void Runtime::fill_settings_key_layout(settings::Dialog& dialog) {
@@ -2123,6 +2234,11 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
     );
     if (match_)
         dialog.match_enhanced_mode = oa::data::enhanced_mode::rules_version(match_->rules()) != 0;
+    // Nothing can speak when this build leaves the bridge out and the
+    // system has no voice. The status line is that fact, and only then.
+    dialog.speech_unavailable = !oa::platform::screen_reader::compiled_in() &&
+                                !oa::platform::screen_reader::voice_available();
+    dialog.access_at_open = settings::capture_access_preferences(preference_values_);
     // Screen size offers Desktop and the display's own sizes. In a window it
     // opens at the window's own size, shown as Custom where the display
     // offers no such size; in full screen, and without a window, at the
@@ -2221,6 +2337,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
             state.file_type_kept_hint = kept_opener_hint_for(*state.file_type_asked, report->open);
         dialog.file_type_kept_hint = state.file_type_kept_hint;
     }
+    show_replay_opener(dialog);
     // Weapon types and sides: the profile's limits, and, in a match, how
     // many of each the match loaded. No profile is the base game.
     settings::ModLimitsShown mod_shown;
@@ -2290,6 +2407,52 @@ show_system_openers(settings::Dialog& dialog) {
     settings::set_file_type_switches(dialog.opened, report.open);
     settings::set_file_type_switches(dialog.chosen, report.open);
     return report;
+}
+
+/// Sets Open replay files from whether this copy opens .oademo, where a
+/// switch is the default opener. A question that fails leaves the switch as
+/// the preferences had it. .tad has no default-opener switch.
+///
+/// @param dialog the dialog just opened
+void show_replay_opener(settings::Dialog& dialog) {
+    namespace file_types = oa::platform::file_types;
+    if (!file_types::default_opener_is_a_setting() || !dialog.file_type_switches)
+        return;
+    const file_types::Handler application = file_types::running_application();
+    if (application.bundle_id.empty())
+        return;
+    const file_types::ReplayOpenerReport report = file_types::reported_replay_opener(
+        file_types::system_handler_calls(), application.bundle_id, dialog.chosen.replays_open_files
+    );
+    if (!report.error.empty()) {
+        std::cerr << "open-annihilation: file types: " << report.error << '\n';
+        return;
+    }
+    dialog.opened.replays_open_files = report.open;
+    dialog.chosen.replays_open_files = report.open;
+}
+
+/// Registers or withdraws replay files, or on macOS asks whether this copy
+/// opens .oademo. The eight types are not touched.
+///
+/// @param open this copy should open replay files
+void apply_replay_file_choice(bool open) {
+    namespace file_types = oa::platform::file_types;
+    if (file_types::default_opener_is_a_setting()) {
+        log_file_type_change(
+            file_types::apply_replay_opener(
+                file_types::system_handler_calls(), file_types::running_application(), open
+            )
+        );
+        return;
+    }
+    const auto executable = file_types::running_executable();
+    if (!executable)
+        return;
+    if (open)
+        log_file_type_change(file_types::register_replay_files(*executable, window_icon_png(), {}));
+    else
+        log_file_type_change(file_types::withdraw_replay_files());
 }
 
 /// On macOS, a check, a snapshot and any other run that is not someone
@@ -2410,14 +2573,41 @@ bool Runtime::refresh_game_content(settings::Dialog& dialog) {
     }
     if (apply) {
         const std::vector<settings::GameContentRow> saved = dialog.game_content;
+        const std::size_t strays = dialog.game_content_strays.size();
         paint_check_result(dialog, result);
-        return updates_moved || download_moved || content_rows_differ(saved, dialog.game_content);
+        // The run's own answer follows the check, so the presence record and
+        // the Boneyards entry see a stray archive the player has removed.
+        content_check_ = std::move(result);
+        return updates_moved || download_moved || strays != dialog.game_content_strays.size() ||
+               content_rows_differ(saved, dialog.game_content);
     }
     if (running) {
         paint_checking(dialog, done, total);
         return true;
     }
     return updates_moved || download_moved;
+}
+
+void Runtime::remove_stray_archive(const settings::GameContentStray& stray) {
+    const fs::path file = path_from_utf8(stray.path);
+    const oa::platform::TrashMove moved = oa::platform::move_to_trash(file);
+    if (moved.moved)
+        std::cerr << "open-annihilation: game content: moved " << stray.path
+                  << (moved.place == oa::platform::TrashPlace::trash ? " to the trash\n"
+                                                                     : " away (deleted)\n");
+    else
+        std::cerr << "open-annihilation: game content: " << stray.path
+                  << " could not be moved to the trash: " << moved.error << '\n';
+    std::cerr.flush();
+    settings::Dialog* dialog = engine_settings_dialog();
+    if (dialog == nullptr)
+        return;
+    if (!moved.moved)
+        std::ignore = settings::set_folder_notice(*dialog, moved.error);
+    if (content_copy_watch().active)
+        return;
+    paint_checking(*dialog, 0, 0);
+    request_content_check(user_folder_);
 }
 
 bool Runtime::take_engine_settings_action(settings::DialogAction action) {
@@ -2489,6 +2679,15 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
                 paint_updates(*dialog, update_snapshot(), release_version(dialog->version));
             apply_update_download(*dialog);
             oa_layer().lay_out_for_size();
+            // Colour vision and the screen reader follow the row at once.
+            // The keys are what those readers look at between frames. Only
+            // a change of the colour keys repaints the team pictures, so
+            // another row, a slider dragged in a match among them, does not.
+            const auto colours_before = colour_vision_keys(preference_values_);
+            settings::store_access_preferences(preference_values_, dialog->chosen);
+            if (colour_vision_keys(preference_values_) != colours_before)
+                apply_colour_vision();
+            note_screen_reader_preference(preference_values_);
         }
         return false;
     case settings::DialogAction::accepted: {
@@ -2521,6 +2720,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         const settings::ContentCheck chosen_check = chosen.content_check;
         const bool file_types_changed =
             !settings::moved_file_type_switches(dialog->opened, chosen).empty();
+        const bool replay_files_changed =
+            chosen.replays_open_files != dialog->opened.replays_open_files;
         const std::vector<settings::InstallIdChoice> switches_opened = dialog->install_id_opened;
         const std::vector<settings::InstallIdChoice> switches_chosen = dialog->install_id_chosen;
         // The switches are stored before the settings, so one save writes both.
@@ -2528,6 +2729,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         apply_engine_settings(chosen);
         // The registration follows the settings OK kept, at once. Cancel
         // never reaches here, and a switch moved before OK does not either.
+        if (replay_files_changed && openers_follow_ok(options_))
+            apply_replay_file_choice(chosen.replays_open_files);
         if (file_types_changed && openers_follow_ok(options_) &&
             apply_chosen_file_types(dialog->opened, chosen)) {
             const oa::platform::file_types::TypeSet asked = settings::file_type_set(chosen);
@@ -2556,7 +2759,13 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // do not offer, where it was.
         if (chosen.skirmish_players != dialog->opened.skirmish_players)
             init::set_skirmish_player_count(skirmish_settings_, chosen.skirmish_players, *this);
+        // A row changed while the dialog was open wrote the access keys for
+        // the live colours and the reader. OK writes against the file as it
+        // was when the dialog opened, then those readers follow what was kept.
+        settings::restore_access_preferences(preference_values_, dialog->access_at_open);
         const auto failure = save_engine_settings(dialog->opened, chosen, dialog->restored);
+        apply_colour_vision();
+        note_screen_reader_preference(preference_values_);
         tell_install_switches(content_downloads(), switches_opened, switches_chosen);
         if (check_changed)
             content_service().set_check_for_updates(check_mode(chosen_check));
@@ -2602,6 +2811,11 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // the choice had already been stored.
         apply_key_layout_preference(*dialog);
         apply_engine_settings(dialog->opened);
+        // Cancel puts the access keys back as the file held them, and the
+        // colours and the reader follow that.
+        settings::restore_access_preferences(preference_values_, dialog->access_at_open);
+        apply_colour_vision();
+        note_screen_reader_preference(preference_values_);
         // The battlefield's zoom and the next game's unit limit go back to
         // what they were, a loaded game's limit included.
         if (zoom_changed)
@@ -2653,6 +2867,36 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         if (content_copy_watch().active)
             setup_request_cancel();
         return false;
+    case settings::DialogAction::remove_stray_archive: {
+        // One question, then the stray goes to the system's trash and the
+        // copy is checked again. Cancel leaves it where it is.
+        const int32_t pressed = dialog->stray_pressed;
+        dialog->stray_pressed = -1;
+        if (pressed < 0 || static_cast<std::size_t>(pressed) >= dialog->game_content_strays.size())
+            return false;
+        const settings::GameContentStray stray =
+            dialog->game_content_strays[static_cast<std::size_t>(pressed)];
+        kit::Question asked = stray_removal_question(stray);
+        Runtime* runtime = this;
+        QuestionScreen::Host host;
+        host.answer = [runtime, stray](int32_t button) {
+            if (button != 0)
+                return true;
+            runtime->remove_stray_archive(stray);
+            return true;
+        };
+        host.tick = [runtime]() {
+            return runtime->engine_settings_dialog() == nullptr || runtime->match_ != nullptr ||
+                   runtime->screen_ == Screen::match;
+        };
+        OaLayer& layer = oa_layer();
+        layer.push(
+            std::make_unique<QuestionScreen>(
+                layer, Screen::main_menu, std::move(asked), std::move(host)
+            )
+        );
+        return false;
+    }
     case settings::DialogAction::open_content_folder: {
         const fs::path folder = user_folder_ / std::string(managed_games_folder);
         const FolderOpening opening = open_player_folder(folder);
@@ -2937,6 +3181,56 @@ bool Runtime::managed_content_mounted() const noexcept {
     return options_.managed_content;
 }
 
+StockFilesRefusal
+Runtime::entry_files_refusal(std::string_view repaired_id, bool check_folder) const {
+    if (managed_content_mounted())
+        return stock_files_refusal(content_check_, user_folder_, repaired_id);
+    if (!check_folder)
+        return {};
+    // A folder that is not Open Annihilation's own copy: what is known there
+    // is read from the bundle hashes, and the way back is to copy the game.
+    StockFilesRefusal refusal =
+        stock_files_refusal(check_game_folder(options_.game_dir, true), user_folder_, {});
+    if (!refusal.refused)
+        return refusal;
+    refusal.folder = options_.game_dir;
+    std::string sentence(
+        oa::data::languages::interface_text(
+            refusal.stray
+                ? "{file} in {folder} is not one of Total Annihilation's files. The Boneyards "
+                  "plays only Open Annihilation's own copy of the game: copy it from your own "
+                  "install or CD to enter."
+                : "{file} in {folder} does not match Total Annihilation's. The Boneyards plays "
+                  "only Open Annihilation's own copy of the game: copy it from your own install "
+                  "or CD to enter."
+        )
+    );
+    for (const auto& [token, value] :
+         {std::pair<std::string_view, std::string>{"{file}", refusal.file},
+          std::pair<std::string_view, std::string>{"{folder}", path_to_utf8(refusal.folder)}}) {
+        const std::size_t mark = sentence.find(token);
+        if (mark != std::string::npos)
+            sentence.replace(mark, token.size(), value);
+    }
+    refusal.stray = false;
+    refusal.sentence = std::move(sentence);
+    return refusal;
+}
+
+void Runtime::open_game_content_repair() {
+    // The question that asked is still on the layer while its answer runs,
+    // and Settings goes over the main menu once it has gone.
+    game_content_repair_due_ = true;
+}
+
+void Runtime::open_due_game_content_repair() {
+    if (!game_content_repair_due_ || screen_ != Screen::main_menu || entry_question_up())
+        return;
+    game_content_repair_due_ = false;
+    engine_settings_state().last_page = settings::Page::game_content;
+    open_engine_settings_from_menu();
+}
+
 Runtime::PresenceAnnouncement Runtime::presence_announcement() const {
     PresenceAnnouncement played;
     played.language = std::string(shown_language().english_name);
@@ -2951,23 +3245,10 @@ Runtime::PresenceAnnouncement Runtime::presence_announcement() const {
         if (expansion_id != oa::netgame::presence_uncompared_expansion)
             played.expansions.push_back(expansion_id);
     }
-    const ContentCheck& known = content_check();
-    for (const ContentBundleCheck& bundle : known.bundles) {
-        if (bundle.files_differ == 0 || bundle.id == oa::netgame::presence_uncompared_expansion)
-            continue;
-        if (bundle.id == played.base_game) {
-            played.differs_from_known = true;
-            break;
-        }
-        for (const std::string& expansion_id : played.expansions) {
-            if (expansion_id == bundle.id) {
-                played.differs_from_known = true;
-                break;
-            }
-        }
-        if (played.differs_from_known)
-            break;
-    }
+    // A file that is not a known hash, or a stray archive in a played
+    // bundle's folder, sets the flag.
+    played.differs_from_known =
+        played_content_differs(content_check(), played.base_game, played.expansions);
     return played;
 }
 

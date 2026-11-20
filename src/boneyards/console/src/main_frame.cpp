@@ -378,10 +378,20 @@ void close_active_screen(MainFrame* frame) {
     if (frame->screen_close != nullptr)
         frame->screen_close(screen);
     screen->visible = 0;
+    Desktop* desktop = services().desktop;
+    Window* back = screen->focus_return;
+    const bool hidden_focus =
+        desktop != nullptr && desktop->focus != nullptr && !window_is_shown(desktop->focus);
     if (frame->console_screen == console_screen::login)
         discard_screen(screen);
     else
         remember_screen(frame, frame->console_screen, screen);
+    if (hidden_focus) {
+        if (desktop_holds(desktop, back) && window_is_shown(back))
+            services_desktop_focus(back);
+        else
+            services_desktop_focus(nullptr);
+    }
     frame->active_screen = nullptr;
     frame->screen_open = nullptr;
     frame->screen_close = nullptr;
@@ -590,8 +600,6 @@ void main_frame_open_pending_notice(MainFrame* frame) {
     frame->notice_box = message_box_create(
         text, message_box_buttons::ok, &frame->return_requested, nullptr, nullptr
     );
-    if (Desktop* desktop = services().desktop; desktop != nullptr)
-        desktop_set_focus(desktop, &frame->notice_box->base);
     frame->pending_notice = k_pending_notice_shown;
 }
 

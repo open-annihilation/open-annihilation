@@ -1,0 +1,2343 @@
+AccessKit C bindings 0.23.2 (crate accesskit-c).
+
+Every crate cargo metadata reports for each target, from the tag's Cargo.lock
+(cargo metadata --locked --format-version 1 --filter-platform <triple>).
+The resolve includes the crates a source build compiles for that target,
+proc-macro crates among them; a proc-macro crate is not linked into the
+finished library. The Rust standard library compiled into the libraries is
+listed at the end, from rustc 1.99.1's library/Cargo.lock.
+
+The engine takes AccessKit under the MIT licence. Where a crate's licence
+expression offers MIT or Apache-2.0, written "OR" or "/", the engine takes
+one of those. unicode-ident is (MIT OR Apache-2.0) AND Unicode-DFS-2016.
+The Unicode-DFS-2016 text is licenses/AccessKit-Unicode-DFS-2016.txt.
+accesskit-c's deny.toml allows that Unicode licence for unicode-ident alone.
+No crate on a shipped target is only under a licence outside Apache-2.0,
+Apache-2.0 WITH LLVM-exception, BSD-2-Clause, BSD-3-Clause, ISC, MIT, Zlib
+and that Unicode-DFS-2016 exception.
+
+The copyright line is the crate's authors field when that field names
+someone. When it is empty, the line is the copyright notice in the crate's
+own licence file. The objc2 framework crates publish no licence file; their
+line is the MIT notice in the objc2 repository that their README links to
+(commit e282618be4c3a3b9542957e0c8540e9588472ce8). pin-project-lite and
+winnow publish an MIT text that names no copyright holder.
+
+## aarch64-apple-darwin
+
+macOS static library, arm64 slice of the universal library
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_macos 0.27.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+block2 0.5.1
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+objc-sys 0.3.5
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2 0.5.2
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+objc2-app-kit 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-data 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-image 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-encode 4.1.0
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2-foundation 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-metal 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-quartz-core 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+
+## x86_64-apple-darwin
+
+macOS static library, x86_64 slice of the universal library
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_macos 0.27.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+block2 0.5.1
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+objc-sys 0.3.5
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2 0.5.2
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+objc2-app-kit 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-data 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-image 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-encode 4.1.0
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2-foundation 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-metal 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-quartz-core 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+
+## aarch64-apple-ios
+
+iOS device static library
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_ios 0.2.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+block2 0.5.1
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+objc-sys 0.3.5
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2 0.5.2
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+objc2-cloud-kit 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-contacts 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-data 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-image 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-location 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-encode 4.1.0
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2-foundation 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-link-presentation 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-metal 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-quartz-core 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-symbols 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-ui-kit 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-uniform-type-identifiers 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-user-notifications 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+
+## aarch64-apple-ios-sim
+
+iOS simulator static library, arm64
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_ios 0.2.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+block2 0.5.1
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+objc-sys 0.3.5
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2 0.5.2
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+objc2-cloud-kit 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-contacts 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-data 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-image 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-location 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-encode 4.1.0
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2-foundation 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-link-presentation 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-metal 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-quartz-core 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-symbols 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-ui-kit 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-uniform-type-identifiers 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-user-notifications 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+
+## x86_64-apple-ios
+
+iOS simulator static library, x86_64
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_ios 0.2.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+block2 0.5.1
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+objc-sys 0.3.5
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2 0.5.2
+    MIT
+    Steven Sheldon; Mads Marquart <mads@marquart.dk>
+objc2-cloud-kit 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-contacts 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-data 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-image 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-core-location 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-encode 4.1.0
+    MIT
+    Mads Marquart <mads@marquart.dk>
+objc2-foundation 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-link-presentation 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-metal 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-quartz-core 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-symbols 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-ui-kit 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-uniform-type-identifiers 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+objc2-user-notifications 0.2.2
+    MIT
+    Copyright (c) Steven Sheldon
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+
+## x86_64-unknown-linux-gnu
+
+Linux static library, x86_64
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_atspi_common 0.21.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_unix 0.24.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+async-broadcast 0.7.1
+    MIT OR Apache-2.0
+    Stjepan Glavina <stjepang@gmail.com>; Yoshua Wuyts <yoshuawuyts@gmail.com>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+async-channel 2.3.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-executor 1.13.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+async-io 2.6.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-lock 3.4.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-process 2.5.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-recursion 1.1.1
+    MIT OR Apache-2.0
+    Robert Usher <266585+dcchut@users.noreply.github.com>
+async-signal 0.2.14
+    Apache-2.0 OR MIT
+    John Nunley <dev@notgull.net>
+async-task 4.7.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-trait 0.1.83
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+atomic-waker 1.1.2
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Contributors to futures-rs
+atspi 0.29.0
+    Apache-2.0 OR MIT
+    Alberto Tirla <albertotirla@gmail.com>; DataTriny <datatriny@gmail.com>; Luuk van der Duim <luukvanderduim@gmail.com>; Michael Connor Buchan <mikey@blindcomputing.org>; Tait Hoyem <tait@tait.tech>
+atspi-common 0.13.0
+    Apache-2.0 OR MIT
+    Copyright (c) 2022 Tait Hoyem <tait@tait.tech>
+atspi-proxies 0.13.0
+    Apache-2.0 OR MIT
+    Copyright (c) 2022 Tait Hoyem <tait@tait.tech>
+autocfg 1.1.0
+    Apache-2.0 OR MIT
+    Josh Stone <cuviper@gmail.com>
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+blocking 1.6.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+cfg-if 1.0.0
+    MIT/Apache-2.0
+    Alex Crichton <alex@alexcrichton.com>
+concurrent-queue 2.5.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Taiki Endo <te316e89@gmail.com>; John Nunley <dev@notgull.net>
+crossbeam-utils 0.8.15
+    MIT OR Apache-2.0
+    Copyright (c) 2019 The Crossbeam Project Developers
+endi 1.1.0
+    MIT
+    Zeeshan Ali Khan <zeenix@gmail.com>
+enumflags2 0.7.10
+    MIT OR Apache-2.0
+    maik klein <maikklein@googlemail.com>; Maja Kądziołka <maya@compilercrim.es>
+enumflags2_derive 0.7.10
+    MIT OR Apache-2.0
+    maik klein <maikklein@googlemail.com>; Maja Kądziołka <maya@compilercrim.es>
+equivalent 1.0.1
+    Apache-2.0 OR MIT
+    Copyright (c) 2016--2023
+errno 0.3.14
+    MIT OR Apache-2.0
+    Chris Wong <lambda.fairy@gmail.com>; Dan Gohman <dev@sunfishcode.online>
+event-listener 5.3.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+event-listener-strategy 0.5.2
+    Apache-2.0 OR MIT
+    John Nunley <dev@notgull.net>
+fastrand 2.1.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+futures-core 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-io 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-lite 2.6.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Contributors to futures-rs
+futures-macro 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-task 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-util 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+hex 0.4.3
+    MIT OR Apache-2.0
+    KokaKiwi <kokakiwi@kokakiwi.net>
+indexmap 2.14.2
+    Apache-2.0 OR MIT
+    Copyright (c) 2016--2017
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+linux-raw-sys 0.12.1
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    Dan Gohman <dev@sunfishcode.online>
+memchr 2.8.3
+    Unlicense OR MIT
+    Andrew Gallant <jamslam@gmail.com>; bluss
+once_cell 1.19.0
+    MIT OR Apache-2.0
+    Aleksey Kladov <aleksey.kladov@gmail.com>
+ordered-stream 0.2.0
+    MIT OR Apache-2.0
+    Daniel De Graaf <code@danieldg.net>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+parking 2.2.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; The Rust Project Developers
+phf 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_generator 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_macros 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_shared 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+pin-project-lite 0.2.13
+    Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+pin-utils 0.1.0
+    MIT OR Apache-2.0
+    Josef Brandl <mail@josefbrandl.de>
+piper 0.2.4
+    MIT OR Apache-2.0
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+polling 3.11.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+proc-macro-crate 3.5.0
+    MIT OR Apache-2.0
+    Bastian Köcher <git@kchr.de>
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+rustix 1.1.5
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    Dan Gohman <dev@sunfishcode.online>; Jakub Konka <kubkon@jakubkonka.com>
+serde 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_derive 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_repr 0.1.19
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+signal-hook-registry 1.4.1
+    Apache-2.0/MIT
+    Michal 'vorner' Vaner <vorner@vorner.cz>; Masaki Hara <ackie.h.gmai@gmail.com>
+siphasher 1.0.2
+    MIT/Apache-2.0
+    Frank Denis <github@pureftpd.org>
+slab 0.4.8
+    MIT
+    Carl Lerche <me@carllerche.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+syn 3.0.6
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+toml_datetime 1.1.1+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+toml_edit 0.25.15+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+toml_parser 1.1.3+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+tracing 0.1.40
+    MIT
+    Eliza Weisman <eliza@buoyant.io>; Tokio Contributors <team@tokio.rs>
+tracing-attributes 0.1.27
+    MIT
+    Tokio Contributors <team@tokio.rs>; Eliza Weisman <eliza@buoyant.io>; David Barsky <dbarsky@amazon.com>
+tracing-core 0.1.32
+    MIT
+    Tokio Contributors <team@tokio.rs>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+winnow 1.0.4
+    MIT
+    The crate's MIT text names no copyright holder
+zbus 5.19.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus-lockstep 0.5.2
+    MIT
+    Luuk van der Duim <luukvanderduim@gmail.com>; Tait Hoyem<tait@tait.tech>
+zbus-lockstep-macros 0.5.2
+    MIT
+    Luuk van der Duim <luukvanderduim@gmail.com>
+zbus_macros 5.19.0
+    MIT
+    Marc-André Lureau <marcandre.lureau@redhat.com>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus_names 4.3.4
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus_xml 5.2.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zcheapstr 1.1.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant 5.15.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant_derive 5.15.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant_utils 4.2.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>; turbocooler <turbocooler@cocaine.ninja>
+
+## i686-unknown-linux-gnu
+
+Linux static library, x86
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_atspi_common 0.21.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_unix 0.24.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+async-broadcast 0.7.1
+    MIT OR Apache-2.0
+    Stjepan Glavina <stjepang@gmail.com>; Yoshua Wuyts <yoshuawuyts@gmail.com>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+async-channel 2.3.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-executor 1.13.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+async-io 2.6.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-lock 3.4.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-process 2.5.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-recursion 1.1.1
+    MIT OR Apache-2.0
+    Robert Usher <266585+dcchut@users.noreply.github.com>
+async-signal 0.2.14
+    Apache-2.0 OR MIT
+    John Nunley <dev@notgull.net>
+async-task 4.7.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-trait 0.1.83
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+atomic-waker 1.1.2
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Contributors to futures-rs
+atspi 0.29.0
+    Apache-2.0 OR MIT
+    Alberto Tirla <albertotirla@gmail.com>; DataTriny <datatriny@gmail.com>; Luuk van der Duim <luukvanderduim@gmail.com>; Michael Connor Buchan <mikey@blindcomputing.org>; Tait Hoyem <tait@tait.tech>
+atspi-common 0.13.0
+    Apache-2.0 OR MIT
+    Copyright (c) 2022 Tait Hoyem <tait@tait.tech>
+atspi-proxies 0.13.0
+    Apache-2.0 OR MIT
+    Copyright (c) 2022 Tait Hoyem <tait@tait.tech>
+autocfg 1.1.0
+    Apache-2.0 OR MIT
+    Josh Stone <cuviper@gmail.com>
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+blocking 1.6.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+cfg-if 1.0.0
+    MIT/Apache-2.0
+    Alex Crichton <alex@alexcrichton.com>
+concurrent-queue 2.5.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Taiki Endo <te316e89@gmail.com>; John Nunley <dev@notgull.net>
+crossbeam-utils 0.8.15
+    MIT OR Apache-2.0
+    Copyright (c) 2019 The Crossbeam Project Developers
+endi 1.1.0
+    MIT
+    Zeeshan Ali Khan <zeenix@gmail.com>
+enumflags2 0.7.10
+    MIT OR Apache-2.0
+    maik klein <maikklein@googlemail.com>; Maja Kądziołka <maya@compilercrim.es>
+enumflags2_derive 0.7.10
+    MIT OR Apache-2.0
+    maik klein <maikklein@googlemail.com>; Maja Kądziołka <maya@compilercrim.es>
+equivalent 1.0.1
+    Apache-2.0 OR MIT
+    Copyright (c) 2016--2023
+errno 0.3.14
+    MIT OR Apache-2.0
+    Chris Wong <lambda.fairy@gmail.com>; Dan Gohman <dev@sunfishcode.online>
+event-listener 5.3.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+event-listener-strategy 0.5.2
+    Apache-2.0 OR MIT
+    John Nunley <dev@notgull.net>
+fastrand 2.1.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+futures-core 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-io 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-lite 2.6.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Contributors to futures-rs
+futures-macro 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-task 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-util 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+hex 0.4.3
+    MIT OR Apache-2.0
+    KokaKiwi <kokakiwi@kokakiwi.net>
+indexmap 2.14.2
+    Apache-2.0 OR MIT
+    Copyright (c) 2016--2017
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+linux-raw-sys 0.12.1
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    Dan Gohman <dev@sunfishcode.online>
+memchr 2.8.3
+    Unlicense OR MIT
+    Andrew Gallant <jamslam@gmail.com>; bluss
+once_cell 1.19.0
+    MIT OR Apache-2.0
+    Aleksey Kladov <aleksey.kladov@gmail.com>
+ordered-stream 0.2.0
+    MIT OR Apache-2.0
+    Daniel De Graaf <code@danieldg.net>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+parking 2.2.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; The Rust Project Developers
+phf 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_generator 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_macros 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_shared 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+pin-project-lite 0.2.13
+    Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+pin-utils 0.1.0
+    MIT OR Apache-2.0
+    Josef Brandl <mail@josefbrandl.de>
+piper 0.2.4
+    MIT OR Apache-2.0
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+polling 3.11.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+proc-macro-crate 3.5.0
+    MIT OR Apache-2.0
+    Bastian Köcher <git@kchr.de>
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+rustix 1.1.5
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    Dan Gohman <dev@sunfishcode.online>; Jakub Konka <kubkon@jakubkonka.com>
+serde 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_derive 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_repr 0.1.19
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+signal-hook-registry 1.4.1
+    Apache-2.0/MIT
+    Michal 'vorner' Vaner <vorner@vorner.cz>; Masaki Hara <ackie.h.gmai@gmail.com>
+siphasher 1.0.2
+    MIT/Apache-2.0
+    Frank Denis <github@pureftpd.org>
+slab 0.4.8
+    MIT
+    Carl Lerche <me@carllerche.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+syn 3.0.6
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+toml_datetime 1.1.1+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+toml_edit 0.25.15+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+toml_parser 1.1.3+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+tracing 0.1.40
+    MIT
+    Eliza Weisman <eliza@buoyant.io>; Tokio Contributors <team@tokio.rs>
+tracing-attributes 0.1.27
+    MIT
+    Tokio Contributors <team@tokio.rs>; Eliza Weisman <eliza@buoyant.io>; David Barsky <dbarsky@amazon.com>
+tracing-core 0.1.32
+    MIT
+    Tokio Contributors <team@tokio.rs>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+winnow 1.0.4
+    MIT
+    The crate's MIT text names no copyright holder
+zbus 5.19.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus-lockstep 0.5.2
+    MIT
+    Luuk van der Duim <luukvanderduim@gmail.com>; Tait Hoyem<tait@tait.tech>
+zbus-lockstep-macros 0.5.2
+    MIT
+    Luuk van der Duim <luukvanderduim@gmail.com>
+zbus_macros 5.19.0
+    MIT
+    Marc-André Lureau <marcandre.lureau@redhat.com>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus_names 4.3.4
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus_xml 5.2.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zcheapstr 1.1.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant 5.15.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant_derive 5.15.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant_utils 4.2.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>; turbocooler <turbocooler@cocaine.ninja>
+
+## aarch64-unknown-linux-gnu
+
+Linux static library built from the pinned source; the release has no copy
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_atspi_common 0.21.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_unix 0.24.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+async-broadcast 0.7.1
+    MIT OR Apache-2.0
+    Stjepan Glavina <stjepang@gmail.com>; Yoshua Wuyts <yoshuawuyts@gmail.com>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+async-channel 2.3.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-executor 1.13.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+async-io 2.6.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-lock 3.4.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-process 2.5.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-recursion 1.1.1
+    MIT OR Apache-2.0
+    Robert Usher <266585+dcchut@users.noreply.github.com>
+async-signal 0.2.14
+    Apache-2.0 OR MIT
+    John Nunley <dev@notgull.net>
+async-task 4.7.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-trait 0.1.83
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+atomic-waker 1.1.2
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Contributors to futures-rs
+atspi 0.29.0
+    Apache-2.0 OR MIT
+    Alberto Tirla <albertotirla@gmail.com>; DataTriny <datatriny@gmail.com>; Luuk van der Duim <luukvanderduim@gmail.com>; Michael Connor Buchan <mikey@blindcomputing.org>; Tait Hoyem <tait@tait.tech>
+atspi-common 0.13.0
+    Apache-2.0 OR MIT
+    Copyright (c) 2022 Tait Hoyem <tait@tait.tech>
+atspi-proxies 0.13.0
+    Apache-2.0 OR MIT
+    Copyright (c) 2022 Tait Hoyem <tait@tait.tech>
+autocfg 1.1.0
+    Apache-2.0 OR MIT
+    Josh Stone <cuviper@gmail.com>
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+blocking 1.6.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+cfg-if 1.0.0
+    MIT/Apache-2.0
+    Alex Crichton <alex@alexcrichton.com>
+concurrent-queue 2.5.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Taiki Endo <te316e89@gmail.com>; John Nunley <dev@notgull.net>
+crossbeam-utils 0.8.15
+    MIT OR Apache-2.0
+    Copyright (c) 2019 The Crossbeam Project Developers
+endi 1.1.0
+    MIT
+    Zeeshan Ali Khan <zeenix@gmail.com>
+enumflags2 0.7.10
+    MIT OR Apache-2.0
+    maik klein <maikklein@googlemail.com>; Maja Kądziołka <maya@compilercrim.es>
+enumflags2_derive 0.7.10
+    MIT OR Apache-2.0
+    maik klein <maikklein@googlemail.com>; Maja Kądziołka <maya@compilercrim.es>
+equivalent 1.0.1
+    Apache-2.0 OR MIT
+    Copyright (c) 2016--2023
+errno 0.3.14
+    MIT OR Apache-2.0
+    Chris Wong <lambda.fairy@gmail.com>; Dan Gohman <dev@sunfishcode.online>
+event-listener 5.3.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+event-listener-strategy 0.5.2
+    Apache-2.0 OR MIT
+    John Nunley <dev@notgull.net>
+fastrand 2.1.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+futures-core 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-io 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-lite 2.6.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Contributors to futures-rs
+futures-macro 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-task 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-util 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+hex 0.4.3
+    MIT OR Apache-2.0
+    KokaKiwi <kokakiwi@kokakiwi.net>
+indexmap 2.14.2
+    Apache-2.0 OR MIT
+    Copyright (c) 2016--2017
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+linux-raw-sys 0.12.1
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    Dan Gohman <dev@sunfishcode.online>
+memchr 2.8.3
+    Unlicense OR MIT
+    Andrew Gallant <jamslam@gmail.com>; bluss
+once_cell 1.19.0
+    MIT OR Apache-2.0
+    Aleksey Kladov <aleksey.kladov@gmail.com>
+ordered-stream 0.2.0
+    MIT OR Apache-2.0
+    Daniel De Graaf <code@danieldg.net>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+parking 2.2.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; The Rust Project Developers
+phf 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_generator 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_macros 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_shared 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+pin-project-lite 0.2.13
+    Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+pin-utils 0.1.0
+    MIT OR Apache-2.0
+    Josef Brandl <mail@josefbrandl.de>
+piper 0.2.4
+    MIT OR Apache-2.0
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+polling 3.11.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+proc-macro-crate 3.5.0
+    MIT OR Apache-2.0
+    Bastian Köcher <git@kchr.de>
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+rustix 1.1.5
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    Dan Gohman <dev@sunfishcode.online>; Jakub Konka <kubkon@jakubkonka.com>
+serde 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_derive 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_repr 0.1.19
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+signal-hook-registry 1.4.1
+    Apache-2.0/MIT
+    Michal 'vorner' Vaner <vorner@vorner.cz>; Masaki Hara <ackie.h.gmai@gmail.com>
+siphasher 1.0.2
+    MIT/Apache-2.0
+    Frank Denis <github@pureftpd.org>
+slab 0.4.8
+    MIT
+    Carl Lerche <me@carllerche.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+syn 3.0.6
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+toml_datetime 1.1.1+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+toml_edit 0.25.15+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+toml_parser 1.1.3+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+tracing 0.1.40
+    MIT
+    Eliza Weisman <eliza@buoyant.io>; Tokio Contributors <team@tokio.rs>
+tracing-attributes 0.1.27
+    MIT
+    Tokio Contributors <team@tokio.rs>; Eliza Weisman <eliza@buoyant.io>; David Barsky <dbarsky@amazon.com>
+tracing-core 0.1.32
+    MIT
+    Tokio Contributors <team@tokio.rs>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+winnow 1.0.4
+    MIT
+    The crate's MIT text names no copyright holder
+zbus 5.19.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus-lockstep 0.5.2
+    MIT
+    Luuk van der Duim <luukvanderduim@gmail.com>; Tait Hoyem<tait@tait.tech>
+zbus-lockstep-macros 0.5.2
+    MIT
+    Luuk van der Duim <luukvanderduim@gmail.com>
+zbus_macros 5.19.0
+    MIT
+    Marc-André Lureau <marcandre.lureau@redhat.com>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus_names 4.3.4
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus_xml 5.2.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zcheapstr 1.1.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant 5.15.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant_derive 5.15.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant_utils 4.2.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>; turbocooler <turbocooler@cocaine.ninja>
+
+## armv7-unknown-linux-gnueabihf
+
+Linux static library built from the pinned source; the release has no copy
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_atspi_common 0.21.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_unix 0.24.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+async-broadcast 0.7.1
+    MIT OR Apache-2.0
+    Stjepan Glavina <stjepang@gmail.com>; Yoshua Wuyts <yoshuawuyts@gmail.com>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+async-channel 2.3.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-executor 1.13.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+async-io 2.6.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-lock 3.4.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-process 2.5.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-recursion 1.1.1
+    MIT OR Apache-2.0
+    Robert Usher <266585+dcchut@users.noreply.github.com>
+async-signal 0.2.14
+    Apache-2.0 OR MIT
+    John Nunley <dev@notgull.net>
+async-task 4.7.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+async-trait 0.1.83
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+atomic-waker 1.1.2
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Contributors to futures-rs
+atspi 0.29.0
+    Apache-2.0 OR MIT
+    Alberto Tirla <albertotirla@gmail.com>; DataTriny <datatriny@gmail.com>; Luuk van der Duim <luukvanderduim@gmail.com>; Michael Connor Buchan <mikey@blindcomputing.org>; Tait Hoyem <tait@tait.tech>
+atspi-common 0.13.0
+    Apache-2.0 OR MIT
+    Copyright (c) 2022 Tait Hoyem <tait@tait.tech>
+atspi-proxies 0.13.0
+    Apache-2.0 OR MIT
+    Copyright (c) 2022 Tait Hoyem <tait@tait.tech>
+autocfg 1.1.0
+    Apache-2.0 OR MIT
+    Josh Stone <cuviper@gmail.com>
+bitflags 2.6.0
+    MIT OR Apache-2.0
+    The Rust Project Developers
+blocking 1.6.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+cfg-if 1.0.0
+    MIT/Apache-2.0
+    Alex Crichton <alex@alexcrichton.com>
+concurrent-queue 2.5.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Taiki Endo <te316e89@gmail.com>; John Nunley <dev@notgull.net>
+crossbeam-utils 0.8.15
+    MIT OR Apache-2.0
+    Copyright (c) 2019 The Crossbeam Project Developers
+endi 1.1.0
+    MIT
+    Zeeshan Ali Khan <zeenix@gmail.com>
+enumflags2 0.7.10
+    MIT OR Apache-2.0
+    maik klein <maikklein@googlemail.com>; Maja Kądziołka <maya@compilercrim.es>
+enumflags2_derive 0.7.10
+    MIT OR Apache-2.0
+    maik klein <maikklein@googlemail.com>; Maja Kądziołka <maya@compilercrim.es>
+equivalent 1.0.1
+    Apache-2.0 OR MIT
+    Copyright (c) 2016--2023
+errno 0.3.14
+    MIT OR Apache-2.0
+    Chris Wong <lambda.fairy@gmail.com>; Dan Gohman <dev@sunfishcode.online>
+event-listener 5.3.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+event-listener-strategy 0.5.2
+    Apache-2.0 OR MIT
+    John Nunley <dev@notgull.net>
+fastrand 2.1.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+futures-core 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-io 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-lite 2.6.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; Contributors to futures-rs
+futures-macro 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-task 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+futures-util 0.3.31
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+hex 0.4.3
+    MIT OR Apache-2.0
+    KokaKiwi <kokakiwi@kokakiwi.net>
+indexmap 2.14.2
+    Apache-2.0 OR MIT
+    Copyright (c) 2016--2017
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+linux-raw-sys 0.12.1
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    Dan Gohman <dev@sunfishcode.online>
+memchr 2.8.3
+    Unlicense OR MIT
+    Andrew Gallant <jamslam@gmail.com>; bluss
+once_cell 1.19.0
+    MIT OR Apache-2.0
+    Aleksey Kladov <aleksey.kladov@gmail.com>
+ordered-stream 0.2.0
+    MIT OR Apache-2.0
+    Daniel De Graaf <code@danieldg.net>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+parking 2.2.1
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; The Rust Project Developers
+phf 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_generator 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_macros 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+phf_shared 0.14.0
+    MIT
+    Steven Fackler <sfackler@gmail.com>
+pin-project-lite 0.2.13
+    Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+pin-utils 0.1.0
+    MIT OR Apache-2.0
+    Josef Brandl <mail@josefbrandl.de>
+piper 0.2.4
+    MIT OR Apache-2.0
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+polling 3.11.0
+    Apache-2.0 OR MIT
+    Stjepan Glavina <stjepang@gmail.com>; John Nunley <dev@notgull.net>
+proc-macro-crate 3.5.0
+    MIT OR Apache-2.0
+    Bastian Köcher <git@kchr.de>
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+rustix 1.1.5
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    Dan Gohman <dev@sunfishcode.online>; Jakub Konka <kubkon@jakubkonka.com>
+serde 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_derive 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+serde_repr 0.1.19
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+signal-hook-registry 1.4.1
+    Apache-2.0/MIT
+    Michal 'vorner' Vaner <vorner@vorner.cz>; Masaki Hara <ackie.h.gmai@gmail.com>
+siphasher 1.0.2
+    MIT/Apache-2.0
+    Frank Denis <github@pureftpd.org>
+slab 0.4.8
+    MIT
+    Carl Lerche <me@carllerche.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+syn 3.0.6
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+toml_datetime 1.1.1+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+toml_edit 0.25.15+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+toml_parser 1.1.3+spec-1.1.0
+    MIT OR Apache-2.0
+    Copyright (c) Individual contributors
+tracing 0.1.40
+    MIT
+    Eliza Weisman <eliza@buoyant.io>; Tokio Contributors <team@tokio.rs>
+tracing-attributes 0.1.27
+    MIT
+    Tokio Contributors <team@tokio.rs>; Eliza Weisman <eliza@buoyant.io>; David Barsky <dbarsky@amazon.com>
+tracing-core 0.1.32
+    MIT
+    Tokio Contributors <team@tokio.rs>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+winnow 1.0.4
+    MIT
+    The crate's MIT text names no copyright holder
+zbus 5.19.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus-lockstep 0.5.2
+    MIT
+    Luuk van der Duim <luukvanderduim@gmail.com>; Tait Hoyem<tait@tait.tech>
+zbus-lockstep-macros 0.5.2
+    MIT
+    Luuk van der Duim <luukvanderduim@gmail.com>
+zbus_macros 5.19.0
+    MIT
+    Marc-André Lureau <marcandre.lureau@redhat.com>; Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus_names 4.3.4
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zbus_xml 5.2.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zcheapstr 1.1.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant 5.15.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant_derive 5.15.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>
+zvariant_utils 4.2.0
+    MIT
+    Zeeshan Ali Khan <zeeshanak@gnome.org>; turbocooler <turbocooler@cocaine.ninja>
+
+## x86_64-pc-windows-gnu
+
+Windows DLL beside the x64 game (mingw, not linked at load)
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_windows 0.35.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+windows 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-collections 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-core 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-future 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-implement 0.60.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-interface 0.59.3
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-link 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-numerics 0.3.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-result 0.4.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-strings 0.5.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-threading 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+
+## i686-pc-windows-gnu
+
+Windows DLL beside the x86 game (mingw, not linked at load)
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_windows 0.35.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+windows 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-collections 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-core 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-future 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-implement 0.60.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-interface 0.59.3
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-link 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-numerics 0.3.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-result 0.4.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-strings 0.5.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-threading 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+
+## x86_64-pc-windows-msvc
+
+release library; the Visual Studio lane compiles the header only and does not link it
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_windows 0.35.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+windows 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-collections 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-core 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-future 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-implement 0.60.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-interface 0.59.3
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-link 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-numerics 0.3.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-result 0.4.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-strings 0.5.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-threading 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+
+## i686-pc-windows-msvc
+
+release library; the Visual Studio lane compiles the header only and does not link it
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_windows 0.35.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+windows 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-collections 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-core 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-future 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-implement 0.60.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-interface 0.59.3
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-link 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-numerics 0.3.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-result 0.4.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-strings 0.5.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-threading 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+
+## aarch64-pc-windows-msvc
+
+release library; the same resolve as x86_64-pc-windows-msvc. The Visual Studio lane compiles the header only and does not link it
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_windows 0.35.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+windows 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-collections 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-core 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-future 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-implement 0.60.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-interface 0.59.3
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-link 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-numerics 0.3.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-result 0.4.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-strings 0.5.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-threading 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+
+## aarch64-pc-windows-gnullvm
+
+Windows library built from the pinned source; the release has no copy
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_windows 0.35.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+static_assertions 1.1.0
+    MIT OR Apache-2.0
+    Nikolai Vazquez
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+windows 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-collections 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-core 0.62.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-future 0.3.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-implement 0.60.2
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-interface 0.59.3
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-link 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-numerics 0.3.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-result 0.4.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-strings 0.5.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+windows-threading 0.2.1
+    MIT OR Apache-2.0
+    Copyright (c) Microsoft Corporation.
+
+## aarch64-linux-android
+
+in the release archive; this engine has no Android build
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_android 0.9.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+bytes 1.11.1
+    MIT
+    Carl Lerche <me@carllerche.com>; Sean McArthur <sean@seanmonstar.com>
+cesu8 1.1.0
+    Apache-2.0/MIT
+    Eric Kidd <git@randomhacks.net>
+cfg-if 1.0.0
+    MIT/Apache-2.0
+    Alex Crichton <alex@alexcrichton.com>
+combine 4.6.7
+    MIT
+    Markus Westerlind <marwes91@gmail.com>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+jni 0.21.1
+    MIT/Apache-2.0
+    Josh Chase <josh@prevoty.com>
+jni-sys 0.3.0
+    MIT/Apache-2.0
+    Steven Fackler <sfackler@gmail.com>
+log 0.4.29
+    MIT OR Apache-2.0
+    The Rust Project Developers
+memchr 2.8.3
+    Unlicense OR MIT
+    Andrew Gallant <jamslam@gmail.com>; bluss
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+same-file 1.0.6
+    Unlicense/MIT
+    Andrew Gallant <jamslam@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+thiserror 1.0.69
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+thiserror-impl 1.0.69
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+walkdir 2.5.0
+    Unlicense/MIT
+    Andrew Gallant <jamslam@gmail.com>
+
+## x86_64-linux-android
+
+in the release archive; this engine has no Android build
+
+accesskit 0.25.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit-c 0.23.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_android 0.9.1
+    MIT OR Apache-2.0
+    The AccessKit contributors
+accesskit_consumer 0.39.2
+    MIT OR Apache-2.0
+    The AccessKit contributors
+bytes 1.11.1
+    MIT
+    Carl Lerche <me@carllerche.com>; Sean McArthur <sean@seanmonstar.com>
+cesu8 1.1.0
+    Apache-2.0/MIT
+    Eric Kidd <git@randomhacks.net>
+cfg-if 1.0.0
+    MIT/Apache-2.0
+    Alex Crichton <alex@alexcrichton.com>
+combine 4.6.7
+    MIT
+    Markus Westerlind <marwes91@gmail.com>
+foldhash 0.2.0
+    Zlib
+    Orson Peters <orsonpeters@gmail.com>
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+jni 0.21.1
+    MIT/Apache-2.0
+    Josh Chase <josh@prevoty.com>
+jni-sys 0.3.0
+    MIT/Apache-2.0
+    Steven Fackler <sfackler@gmail.com>
+log 0.4.29
+    MIT OR Apache-2.0
+    The Rust Project Developers
+memchr 2.8.3
+    Unlicense OR MIT
+    Andrew Gallant <jamslam@gmail.com>; bluss
+proc-macro2 1.0.106
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>; Alex Crichton <alex@alexcrichton.com>
+quote 1.0.37
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+same-file 1.0.6
+    Unlicense/MIT
+    Andrew Gallant <jamslam@gmail.com>
+serde_core 1.0.229
+    MIT OR Apache-2.0
+    Erick Tryzelaar <erick.tryzelaar@gmail.com>; David Tolnay <dtolnay@gmail.com>
+syn 2.0.87
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+thiserror 1.0.69
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+thiserror-impl 1.0.69
+    MIT OR Apache-2.0
+    David Tolnay <dtolnay@gmail.com>
+unicode-ident 1.0.8
+    (MIT OR Apache-2.0) AND Unicode-DFS-2016
+    David Tolnay <dtolnay@gmail.com>
+uuid 1.19.0
+    Apache-2.0 OR MIT
+    Ashley Mannix<ashleymannix@live.com.au>; Dylan DPC<dylan.dpc@gmail.com>; Hunar Roop Kahlon<hunar.roop@gmail.com>
+walkdir 2.5.0
+    Unlicense/MIT
+    Andrew Gallant <jamslam@gmail.com>
+## Rust standard library, rustc 1.99.1
+
+The libraries are built by rustc 1.99.1 (58cf8f9c3 2026-10-13), as each
+library's .comment records. That toolchain's standard library is compiled
+into every AccessKit library: std, core, alloc, the panic runtime,
+compiler_builtins (including compiler-rt's C objects) and the crates those
+link. Versions and licences below are from that toolchain's library/Cargo.lock.
+A crate that lives in the toolchain tree is Copyright (c) The Rust Project
+Contributors. The other copyright lines are from each crate's own licence file.
+
+compiler_builtins also carries compiler-rt. Work derived from compiler-rt
+before 2019-01-19 is MIT, Copyright (c) 2009-2016 by the contributors listed
+in compiler-rt's CREDITS.TXT. Work after that date is Apache-2.0 WITH
+LLVM-exception. The exception text is licenses/AccessKit-LLVM-exception.txt.
+The Apache-2.0 text is licenses/AccessKit-Apache-2.0.txt.
+
+Where a crate offers MIT or Apache-2.0, the engine takes one of those.
+adler2 also offers 0BSD; the engine takes MIT or Apache-2.0. memchr offers
+the Unlicense or MIT; the engine takes MIT. miniz_oxide offers MIT or Zlib
+or Apache-2.0; the engine takes MIT or Apache-2.0.
+
+Every package in the lock is listed. A crate marked as not in the libraries
+this engine ships is there for tests, a build script, the compiler, or
+another operating system. fortanix-sgx-abi is MPL-2.0 and is one of those:
+it is not compiled into a library this engine ships, and the engine does
+not take that licence. r-efi offers LGPL-2.1-or-later as well as MIT or
+Apache-2.0; it is UEFI only and is not compiled in. The engine would take
+MIT or Apache-2.0.
+
+### Compiled into the libraries this engine ships
+
+std 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+core 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+alloc 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+panic_unwind 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+panic_abort 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    The release libraries use the unwind panic runtime.
+unwind 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+std_detect 0.1.5
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+compiler_builtins 0.1.160
+    MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)
+    Alex Crichton <alex@alexcrichton.com>; Amanieu d'Antras <amanieu@gmail.com>; Jorge Aparicio <japaricious@gmail.com>; Trevor Gross <tg@trevorgross.com>
+    compiler-rt's objects: Apache-2.0 WITH LLVM-exception, and MIT for work derived before 2019-01-19, Copyright (c) 2009-2016 by the contributors listed in compiler-rt's CREDITS.TXT
+cfg-if 1.0.4
+    MIT OR Apache-2.0
+    Copyright (c) 2014 Alex Crichton
+hashbrown 0.17.1
+    MIT OR Apache-2.0
+    Copyright (c) 2016 Amanieu d'Antras
+foldhash 0.2.0
+    Zlib
+    Copyright (c) 2024 Orson Peters
+libc 0.2.189
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Developers
+    Linked into std on the Apple, Linux and Windows targets this engine ships.
+rustc-demangle 0.1.28
+    MIT OR Apache-2.0
+    Copyright (c) 2014 Alex Crichton
+addr2line 0.27.1
+    Apache-2.0 OR MIT
+    Copyright (c) 2016-2018 The gimli Developers
+gimli 0.34.0
+    MIT OR Apache-2.0
+    Copyright (c) 2015 The Rust Project Developers
+object 0.39.1
+    Apache-2.0 OR MIT
+    Copyright (c) 2015 The Gimli Developers
+miniz_oxide 0.9.1
+    MIT OR Zlib OR Apache-2.0
+    Copyright 2013-2014 RAD Game Tools and Valve Software; Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC; Copyright (c) 2017 Frommi; Copyright (c) 2017-2024 oyvindln; Copyright (c) 2020 Frommi
+adler2 2.0.1
+    0BSD OR MIT OR Apache-2.0
+    Copyright (C) Jonas Schievink <jonasschievink@gmail.com>
+    The engine takes MIT or Apache-2.0.
+memchr 2.8.3
+    Unlicense OR MIT
+    Copyright (c) 2015 Andrew Gallant
+    The engine takes MIT.
+rustc-std-workspace-alloc 1.99.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    Workspace facade. The code is alloc.
+rustc-std-workspace-core 1.99.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    Workspace facade. The code is core.
+rustc-std-workspace-std 1.99.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    Workspace facade. The code is std.
+windows-link 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    The toolchain's crate, compiled into the Windows libraries. The published windows-link 0.2.1 listed above is a different crate.
+
+### In the lock, not compiled into the libraries this engine ships
+
+alloctests 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    Alloc's tests.
+coretests 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    Core's tests.
+test 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    The test harness.
+cc 1.2.0
+    MIT OR Apache-2.0
+    Copyright (c) 2014 Alex Crichton
+    Build script of compiler_builtins.
+shlex 1.3.0
+    MIT OR Apache-2.0
+    Copyright (c) 2015 Nicholas Allegra (comex).
+    Build script of cc.
+proc_macro 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    The compiler's proc-macro crate. A proc-macro is not linked into the libraries.
+profiler_builtins 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    The profiler feature. The release libraries do not include it.
+sysroot 0.0.0
+    MIT OR Apache-2.0
+    Copyright (c) The Rust Project Contributors
+    Virtual package. It has no code.
+getopts 0.2.24
+    MIT OR Apache-2.0
+    Copyright (c) 2014 The Rust Project Developers
+    In the lock. std, core and alloc do not name it.
+rustc-literal-escaper 0.0.8
+    Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+    In the lock. std, core and alloc do not name it.
+dlmalloc 0.2.14
+    MIT OR Apache-2.0
+    Copyright (c) 2014 Alex Crichton
+    Linked on wasm, xous, vexos and Fortanix SGX. Not on the targets this engine ships.
+rand 0.9.5
+    MIT OR Apache-2.0
+    Copyright 2018 Developers of the Rand project; Copyright (c) 2014 The Rust Project Developers
+    A dev-dependency of std. Not linked.
+rand_core 0.9.5
+    MIT OR Apache-2.0
+    Copyright 2018 Developers of the Rand project; Copyright (c) 2014 The Rust Project Developers
+    A dev-dependency of std. Not linked.
+rand_xorshift 0.4.0
+    MIT OR Apache-2.0
+    Copyright 2018 Developers of the Rand project; Copyright (c) 2014 The Rust Project Developers
+    A dev-dependency of std. Not linked.
+unwinding 0.2.10
+    MIT OR Apache-2.0
+    The crate's MIT text names no copyright holder
+    The unwinder on targets that do not use the system unwinder. The Apple, Windows and Linux gnu libraries this engine ships use the system one.
+fortanix-sgx-abi 0.6.1
+    MPL-2.0
+    The crate names its author as Fortanix, Inc. and its MPL-2.0 text has no copyright line
+    Fortanix SGX only. Not compiled into the libraries this engine ships. The engine does not take MPL-2.0.
+hermit-abi 0.5.2
+    MIT OR Apache-2.0
+    The crate's MIT text names no copyright holder
+    Hermit only.
+moto-rt 0.16.4
+    MIT OR Apache-2.0
+    Copyright (c) 2023 The Motor OS Project Developers
+    Motor OS only.
+vex-sdk 0.27.1
+    MIT
+    The crate's MIT text names no copyright holder
+    VEX only.
+wasip1 1.0.0
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+    WASI only. The engine would take MIT or Apache-2.0.
+wasip2 1.0.4+wasi-0.2.12
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+    WASI only. The engine would take MIT or Apache-2.0.
+wasip3 0.7.0+wasi-0.3.0
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+    WASI only. The engine would take MIT or Apache-2.0.
+wit-bindgen 0.57.1
+    Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+    The crate's MIT text names no copyright holder
+    WASI bindgen. Not linked. The engine would take MIT or Apache-2.0.
+r-efi 5.3.0
+    MIT OR Apache-2.0 OR LGPL-2.1-or-later
+    The crate's MIT text names no copyright holder
+    UEFI only. Not compiled in. The engine would take MIT or Apache-2.0.
+r-efi-alloc 2.1.0
+    MIT OR Apache-2.0 OR LGPL-2.1-or-later
+    The crate's MIT text names no copyright holder
+    UEFI only. Not compiled in. The engine would take MIT or Apache-2.0.
+windows-sys 0.61.100
+    The toolchain tree replaces the published crate with an empty stand-in (library/windows-sys) so dlmalloc does not pull it. That stand-in names no licence and no authors.
+    Not the published windows-sys crate, and not linked.

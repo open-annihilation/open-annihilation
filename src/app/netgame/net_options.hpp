@@ -13,6 +13,7 @@
 #include "oa/app/netgame/launch_file.hpp"
 #include "oa/app/netgame/launch_switches.hpp"
 #include "oa/app/netgame/opened_launch.hpp"
+#include "oa/session/demo/clock.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/ui/screen_registry.hpp"
 
@@ -43,6 +44,8 @@ struct NetOptions {
     // Headless in-process host/join over loopback: networked ticks to run.
     std::optional<std::size_t> net_loopback_ticks;
     bool net_loopback_watcher = false; // the loopback joiner only watches
+    // The loopback host's player enters photo mode, holds the picture and leaves.
+    bool net_loopback_photo = false;
     // The loopback host seats a computer player, which plays the joiner, or
     // the host while the joiner watches.
     bool net_loopback_computer = false;
@@ -79,14 +82,30 @@ struct NetOptions {
     // Replay even when the recording's unit table differs from the installed
     // one (diagnostic: definition indices then name the wrong units).
     bool demo_ignore_unit_table = false;
+    // --replay-keyframe-check TICK: while replaying --play-demo, takes a keyframe at TICK, plays
+    // 3,000 ticks, restores the keyframe and plays the same 3,000 again, and says whether the two
+    // runs ended on the same digest; the replay then goes on to --match-ticks.
+    std::optional<uint32_t> replay_keyframe_check;
+    // --replay-speed: the speed a replay is watched at. It does not make the run headless.
+    // Unset watches at 1×. Skip is not a value of this option.
+    std::optional<oa::session::demo::PlaybackSpeed> replay_speed;
+    // --replay-seek FROM:TO, repeatable: jump from tick FROM to tick TO when playback reaches
+    // FROM. It does not make the run headless.
+    std::vector<oa::session::demo::ReplayJump> replay_seeks;
     // Hand the engine's recording hook (Extension::open_recording) bytes that
     // are no recording and a recording's truncated header, then the
     // --play-demo recording, which it replays through the replay hooks.
     bool check_recording_hook = false;
-    // Record the next network game to this file, whatever the rules; empty
-    // records only under the recorder's rules, to the mod's folder in the
-    // player's own folder's Recordings (recording_file, user_folder.hpp).
+    // Record the next network game to this file, whatever the rules, in the
+    // recorder hack's layout; empty records under the recorder's rules, or the
+    // player's setting, to the mod's folder in the player's own folder's
+    // Recordings (recording_file, user_folder.hpp).
     fs::path net_record;
+    // --record-game FILE: record the next network game to this file whatever
+    // the setting says, even in a headless run or a check: a .oademo, or the
+    // recorder hack's layout when the name ends in .tad. Empty: the game is
+    // recorded only as net_record, the recorder's rules or the setting say.
+    fs::path record_game;
     // Present the replay version bytes (identity.replay-network-version), as a
     // game that joins a replayer's session to watch a recording does.
     bool replay_viewer = false;

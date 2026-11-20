@@ -11,6 +11,7 @@
 // game plays (SWITCH OFF's, PLAY NOW's refusal and ROLL BACK's), their words
 // and buttons; an update that names no revision, which never says "Revision
 // 0"; and a lookup that translates.
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/library/library.hpp"
@@ -31,6 +32,7 @@ namespace {
 
 namespace lib = oa::ui::library;
 namespace kit = oa::ui::kit;
+namespace languages = oa::data::languages;
 using lib::Kind;
 using Rules = lib::UpdateNote::Rules;
 
@@ -547,6 +549,61 @@ std::string_view other_words(void* /*context*/, std::string_view english) {
     return english;
 }
 
+/// Shows the interface in one language until the end of the scope, then puts
+/// the language that was showing back.
+struct ShownLanguage {
+    const languages::Language* earlier = nullptr;
+    languages::Language shown{};
+
+    /// @param tag the language's tag
+    explicit ShownLanguage(std::string_view tag) : earlier(&languages::interface_language()) {
+        shown.tag = tag;
+        languages::set_interface_language(nullptr, shown);
+    }
+
+    ~ShownLanguage() { languages::set_interface_language(nullptr, *earlier); }
+
+    ShownLanguage(const ShownLanguage&) = delete;
+    ShownLanguage& operator=(const ShownLanguage&) = delete;
+};
+
+/// {From} and {To} capitalise iletişim and ıssız the Turkish way while the
+/// interface is Turkish or Azerbaijani, and as ASCII does otherwise.
+void from_and_to_follow_the_interface_language() {
+    struct Expectation {
+        std::string_view tag{};
+        std::string_view from_capital{}; ///< iletişim
+        std::string_view to_capital{};   ///< ıssız
+    };
+
+    for (const Expectation& each : {
+             Expectation{"en", "Iletişim", "ıssız"},
+             Expectation{"de", "Iletişim", "ıssız"},
+             Expectation{"tr", "İletişim", "Issız"},
+             Expectation{"az", "İletişim", "Issız"},
+             Expectation{"tr-TR", "İletişim", "Issız"},
+         }) {
+        const ShownLanguage shown(each.tag);
+        const lib::Library library =
+            library_of({{extra, Kind::mod, "ridge", "Ridge", "iletişim", "ıssız", Rules::changes}});
+        const lib::Entry* ridge = at(library, extra, Kind::mod, "ridge");
+        if (ridge == nullptr)
+            continue;
+        const std::optional<lib::UpdateQuestion> asked =
+            lib::update_question(*ridge, *ridge->update, false);
+        OA_CHECK(asked.has_value());
+        if (!asked)
+            continue;
+        OA_CHECK_TEXT(asked->heading, "Ridge iletişim → ıssız");
+        const std::string body = std::string(each.to_capital) +
+                                 " changes the game's rules. Saved games from iletişim won't load "
+                                 "under ıssız. " +
+                                 std::string(each.from_capital) +
+                                 " is kept, and Roll back brings it back.";
+        OA_CHECK_TEXT(asked->body, body);
+    }
+}
+
 void every_word_is_looked_up() {
     lib::TextHooks hooks;
     hooks.shown = other_words;
@@ -582,5 +639,6 @@ int main() {
     an_update_without_a_revision_never_says_revision_0();
     the_questions_about_the_mod_played_keep_the_mods_pages_words();
     every_word_is_looked_up();
+    from_and_to_follow_the_interface_language();
     return oa::test::check_exit_status();
 }

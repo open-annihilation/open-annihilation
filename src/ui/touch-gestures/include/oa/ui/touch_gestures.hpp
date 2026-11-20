@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The touch controls' gesture recogniser: finger reports in, taps, holds,
-// drags, pans, pinches and two-finger taps out. Pure: no SDL and no clock of
-// its own (docs/touch-controls.md).
+// drags, pans, pinches, twists and two-finger taps out. Pure: no SDL and no
+// clock of its own (docs/touch-controls.md).
 #pragma once
 
 #include <array>
@@ -51,6 +51,9 @@ struct Thresholds {
     uint32_t hold_ms{350};           ///< still this long: a hold (250..700 from the settings)
     uint32_t two_finger_tap_ms{250}; ///< both fingers up within this of the second landing
     float pinch_points{8.0f};        ///< spread change that starts a pinch
+    /// Turn, in degrees, that starts a twist. 0 leaves twist off, so a turn
+    /// of two fingers is only a pan and a pinch.
+    float twist_degrees{0.0f};
     OneFingerDrag one_finger_drag{OneFingerDrag::box}; ///< a drag begun without a hold
 };
 
@@ -73,7 +76,12 @@ enum class GestureKind : uint8_t {
                     ///< pinch_moved with the change since the second landing follows
     pinch_moved,    ///< scale = spread now / spread at the previous pinch event; x,y = centroid
     pinch_ended,    ///< one of the two fingers lifted while a pinch ran
-    two_finger_tap, ///< two fingers landed and lifted quickly without travelling or pinching
+    twist_began,    ///< the fingers' angle changed by twist_degrees; x,y = centroid; a
+                    ///< twist_moved with the turn since the second landing follows
+    twist_moved,    ///< turn = degrees since the previous twist event, positive one way
+    twist_ended,    ///< one of the two fingers lifted while a twist ran
+    two_finger_tap, ///< two fingers landed and lifted quickly without travelling, pinching or
+                    ///< twisting
     cancelled,      ///< the sequence was dropped: cancel, a second finger during a drag, reset
 };
 
@@ -93,6 +101,7 @@ struct Gesture {
     float dx{};         ///< drag_moved, pan_moved: canvas pixels since the previous event
     float dy{};         ///< drag_moved, pan_moved: canvas pixels since the previous event
     float scale{1.0f};  ///< pinch_moved: spread now over spread at the previous pinch event
+    float turn{};       ///< twist_moved: degrees since the previous twist event
     float velocity_x{}; ///< pan_ended: canvas pixels per second
     float velocity_y{}; ///< pan_ended: canvas pixels per second
     uint8_t taps{};     ///< tap: 1, or 2 for a double tap
@@ -101,8 +110,8 @@ struct Gesture {
     uint64_t time_ns{};           ///< when it happened, on the samples' clock
 };
 
-/// The most gestures one input can produce (pan and pinch move together).
-inline constexpr std::size_t max_gestures_per_step = 4;
+/// The most gestures one input can produce (a pan, a pinch and a twist beginning together).
+inline constexpr std::size_t max_gestures_per_step = 6;
 
 /// Gestures produced by one input, in order.
 struct GestureBatch {
@@ -199,9 +208,9 @@ class Recogniser {
     /// @param now_ns the time of the move
     /// @param[in,out] batch receives the gestures
     void move_single(uint64_t now_ns, GestureBatch& batch) noexcept;
-    /// Reads a move of either of two fingers: the pan at every report, the pinch once both
-    /// fingers have reported (or one has twice), so a pan whose fingers report one after the
-    /// other never reads as a pinch.
+    /// Reads a move of either of two fingers: the pan at every report, the pinch and the twist
+    /// once both fingers have reported (or one has twice), so a pan whose fingers report one
+    /// after the other never reads as a pinch or a twist.
     ///
     /// @param slot the slot of the finger that moved
     /// @param now_ns the time of the move
@@ -236,6 +245,10 @@ class Recogniser {
     ///
     /// @return canvas pixels; 0 with fewer than two fingers
     [[nodiscard]] float spread() const noexcept;
+    /// Returns the angle of the line from the first tracked finger to the second.
+    ///
+    /// @return radians, from the positive x axis; 0 with fewer than two fingers
+    [[nodiscard]] float pair_angle() const noexcept;
     /// Stops tracking a finger.
     ///
     /// @param slot its slot in fingers_
@@ -266,7 +279,10 @@ class Recogniser {
     float pinch_spread_{};                      ///< the spread at the previous pinch event
     bool panning_{};                            ///< pan_began was given for this pair
     bool pinching_{};                           ///< pinch_began was given for this pair
+    bool twisting_{};                           ///< twist_began was given for this pair
     bool pair_tap_allowed_{};                   ///< the pair may still give two_finger_tap
+    float pair_start_angle_{};                  ///< the pair's angle at the second landing
+    float twist_angle_{};                       ///< the angle at the previous twist event
     std::array<bool, max_fingers> pinch_pending_{}; ///< by slot: moved since the pinch was read
     uint64_t pair_down_ns_{};                       ///< when the second finger landed
     float pair_lift_x_{};                           ///< the centroid when the first of two lifted

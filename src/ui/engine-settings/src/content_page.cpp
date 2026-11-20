@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Game Content's rows: the sentence, each bundle, and the three buttons.
+// Game Content's rows: the sentence, each bundle, each stray archive with
+// Remove…, and the three buttons.
 
 #include "content_page.hpp"
 
@@ -57,7 +58,7 @@ geometry::Rows place(
 ) {
     static_cast<void>(locks);
     std::vector<kit::RowView> views;
-    views.reserve(dialog.game_content.size() + 4);
+    views.reserve(dialog.game_content.size() + dialog.game_content_strays.size() + 4);
 
     // The sentence breaks between words where the hint's font measures it,
     // as every row's hint does, so that a language whose letters are wider
@@ -108,6 +109,21 @@ geometry::Rows place(
         views.push_back(std::move(view));
     }
 
+    // Each archive a bundle's folder holds that the bundle does not list,
+    // named with its folder and size, and its Remove….
+    for (std::size_t index = 0; index < dialog.game_content_strays.size(); ++index) {
+        kit::RowView view = button_row("stray-" + std::to_string(index), "remove-stray", "Remove…");
+        // The sentence breaks where the intro's does, beside the button.
+        const int32_t beside = std::max(room - kButtonWidth, int32_t{1});
+        std::vector<std::string> said =
+            kit::wrap(dialog.game_content_strays[index].line, beside, width);
+        if (said.size() > geometry::most_row_lines)
+            said.resize(geometry::most_row_lines);
+        for (std::string& line : said)
+            view.hints.push_back(std::move(line));
+        views.push_back(std::move(view));
+    }
+
     views.push_back(button_row("content-check", "check-again", "Check again"));
     views.push_back(button_row("content-copy", "copy-again", "Copy again from…"));
     views.push_back(button_row("content-open", "open-folder", "Open folder"));
@@ -143,8 +159,9 @@ geometry::Rows place(
     return rows;
 }
 
-DialogAction take(const Dialog& dialog, const geometry::Row& row) noexcept {
+DialogAction take(Dialog& dialog, const geometry::Row& row) noexcept {
     const int32_t bundles = static_cast<int32_t>(dialog.game_content.size());
+    const int32_t strays = static_cast<int32_t>(dialog.game_content_strays.size());
     if (row.content >= 1 && row.content <= bundles) {
         const GameContentRow& bundle =
             dialog.game_content[static_cast<std::size_t>(row.content - 1)];
@@ -152,11 +169,16 @@ DialogAction take(const Dialog& dialog, const geometry::Row& row) noexcept {
             return DialogAction::cancel_content_copy;
         return DialogAction::none;
     }
-    if (row.content == bundles + 1)
+    if (row.content > bundles && row.content <= bundles + strays) {
+        dialog.stray_pressed = row.content - bundles - 1;
+        return DialogAction::remove_stray_archive;
+    }
+    const int32_t buttons = bundles + strays;
+    if (row.content == buttons + 1)
         return DialogAction::check_content;
-    if (row.content == bundles + 2)
+    if (row.content == buttons + 2)
         return DialogAction::copy_content_again;
-    if (row.content == bundles + 3)
+    if (row.content == buttons + 3)
         return DialogAction::open_content_folder;
     return DialogAction::none;
 }

@@ -208,9 +208,11 @@ void Runtime::check_megamap_clicks() {
         map_x(mover) + way_x * kApart / 2, map_z(mover) + way_z * kApart / 2
     };
 
-    // The megamap acts only with the Mouse wheel zoom setting off.
+    // The megamap opens and takes its clicks whatever the Mouse wheel zoom
+    // setting is. The check plays it with the setting on, as it is by
+    // default, where the wheel rolled away over it still closes it.
     auto& wheel_zoom = engine_settings_state().current.wheel_zoom;
-    const bool kept_wheel_zoom = std::exchange(wheel_zoom, false);
+    const bool kept_wheel_zoom = std::exchange(wheel_zoom, true);
     megamap_wheel_zoom_changed();
     set_megamap_open(false);
     // The match runs until the enemy is in sight and on the radar, as the

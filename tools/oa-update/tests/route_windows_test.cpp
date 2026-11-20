@@ -23,6 +23,8 @@
 
 #if defined(_WIN32)
 #include <share.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace {
@@ -593,6 +595,12 @@ void postponed_rename_undoes_as_nothing() {
 
 void a_closed_window_can_let_go_of_font_files() {
     helper::ProgressWindow window;
+    // The copy outside the install draws with the install's fonts.
+    const fs::path beside = window.font_directory();
+    OA_CHECK(beside.empty() || beside.filename() == "fonts");
+    const fs::path installed = fs::path("Open Annihilation") / "fonts";
+    window.use_font_directory(installed);
+    OA_CHECK(window.font_directory() == installed);
     window.release_installed_files();
     window.show("Open Annihilation", "Installing", 0, false);
     window.allow_installed_files();
@@ -654,12 +662,25 @@ void the_running_helper_steps_aside_before_the_swap() {
     OA_CHECK(helper::helper_image_blocks_swap(install / "oa-update", install));
     OA_CHECK(!helper::helper_image_blocks_swap(install / "open-annihilation.exe", install));
     OA_CHECK(!helper::helper_image_blocks_swap(updates / "oa-update.exe", install));
-    OA_CHECK(helper::folder_swap_must_step_aside(running, install, 0));
-    OA_CHECK(!helper::folder_swap_must_step_aside(running, install, 4242));
+    // The folder swap renames the helper's file and the setup writes it, so
+    // both Windows routes continue from a copy outside the install; the
+    // silent setup would otherwise skip the running helper and keep the old one.
+    const update::Route folder_route = update::Route::windows_folder;
+    const update::Route installer_route = update::Route::windows_installer;
+    OA_CHECK(helper::helper_must_step_aside(folder_route, running, install, 0));
+    OA_CHECK(helper::helper_must_step_aside(installer_route, running, install, 0));
+    OA_CHECK(!helper::helper_must_step_aside(folder_route, running, install, 4242));
+    OA_CHECK(!helper::helper_must_step_aside(installer_route, running, install, 4242));
+    for (const update::Route other : {
+             update::Route::check_folder, update::Route::macos_bundle, update::Route::linux_versions
+         }) {
+        OA_CHECK(!helper::helper_must_step_aside(other, running, install, 0));
+    }
     const fs::path aside = helper::helper_aside_path(updates);
     OA_CHECK(aside.filename() == "oa-update-running.exe");
     OA_CHECK(!helper::helper_image_blocks_swap(aside, install));
-    OA_CHECK(!helper::folder_swap_must_step_aside(aside, install, 0));
+    OA_CHECK(!helper::helper_must_step_aside(folder_route, aside, install, 0));
+    OA_CHECK(!helper::helper_must_step_aside(installer_route, aside, install, 0));
 
     const fs::path plan_file = scratch.path / "plan.json";
     const helper::FeedKey feed_key{"ridge", "ed25519:abc"};
@@ -707,6 +728,287 @@ void the_running_helper_steps_aside_before_the_swap() {
     OA_CHECK(helper::copy_helper_aside(running, aside, &error));
     OA_CHECK(read_file(aside) == "newer");
     OA_CHECK(read_file(updates / "SDL3.dll") == "sdl-newer");
+}
+
+/// A process list in which one other copy of the game runs from the install
+/// until `closed` is set.
+struct OtherCopy {
+    std::string program;
+    bool closed{false};
+    int64_t now{0};
+    int lines{0};
+};
+
+int64_t other_copy_now(void* context) {
+    return static_cast<OtherCopy*>(context)->now;
+}
+
+void other_copy_sleep(void* context, int64_t milliseconds) {
+    static_cast<OtherCopy*>(context)->now += milliseconds;
+}
+
+std::vector<helper::RunningProgram> other_copy_running(void* context) {
+    const auto* copy = static_cast<const OtherCopy*>(context);
+    if (copy->closed)
+        return {};
+    return {{4242, copy->program}};
+}
+
+void other_copy_line(void* context) {
+    static_cast<OtherCopy*>(context)->lines += 1;
+}
+
+void nothing_moves_while_another_copy_runs() {
+    Scratch scratch("other-copy");
+    const fs::path install = scratch.path / "Open Annihilation";
+    const fs::path updates = scratch.path / "updates";
+    // A setup that did not finish left its kept files and its marker.
+    write_file(updates / "previous" / "open-annihilation.exe", "old-game");
+    write_file(updates / "installer-pending", helper::utf8_of(install));
+    write_file(install / "open-annihilation.exe", "half-new");
+
+    update::Plan plan = folder_plan(scratch, install);
+    plan.route = update::Route::windows_installer;
+    plan.wait_for = 0;
+    OtherCopy copy;
+    copy.program = helper::utf8_of(install / "open-annihilation.exe");
+    helper::CopiesHooks copies;
+    copies.context = &copy;
+    copies.now_ms = other_copy_now;
+    copies.sleep_ms = other_copy_sleep;
+    copies.running = other_copy_running;
+    copies.waiting = other_copy_line;
+    helper::OpeningHooks hooks;
+    hooks.copies = &copies;
+
+    // The other copy stays open: the run stops with nothing moved, and the
+    // window asked for the other windows to close.
+    const helper::OpeningResult refused =
+        helper::open_run(plan, false, 7, hooks, helper::JournalHooks{});
+    OA_CHECK(refused.opening == helper::Opening::copies_running);
+    OA_CHECK(refused.detail == helper::other_windows_open_text);
+    OA_CHECK(copy.lines > 0);
+    OA_CHECK(copy.now >= helper::wait_limit_ms);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "half-new");
+    OA_CHECK(fs::exists(updates / "installer-pending"));
+
+    // The copy with raised rights does not wait: the run that started it has.
+    // A plan whose install holds no marker shows it carries on at once.
+    update::Plan elevated = plan;
+    elevated.updates = helper::utf8_of(scratch.path / "elsewhere");
+    fs::create_directories(scratch.path / "elsewhere");
+    copy.now = 0;
+    copy.lines = 0;
+    const helper::OpeningResult raised =
+        helper::open_run(elevated, true, 7, hooks, helper::JournalHooks{});
+    OA_CHECK(raised.opening == helper::Opening::carry_on);
+    OA_CHECK(copy.lines == 0);
+
+    // Once the other copy has closed, the kept files go back first.
+    copy.closed = true;
+    copy.now = 0;
+    copy.lines = 0;
+    const helper::OpeningResult opened =
+        helper::open_run(plan, false, 7, hooks, helper::JournalHooks{});
+    OA_CHECK(opened.opening == helper::Opening::carry_on);
+    OA_CHECK(copy.lines == 0);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+    OA_CHECK(!fs::exists(updates / "installer-pending"));
+}
+
+/// A Windows version, a write check and a copy with raised rights that
+/// stands in for the one `runas` would start: it puts the files back as that
+/// copy does, or ends as the test asks.
+struct RaisedPutBack {
+    uint32_t version{0x00000006u}; ///< Windows Vista
+    bool writable{false};          ///< the player cannot write the install folder
+    bool cancel{false};            ///< the player declines the prompt
+    int code{0};                   ///< the copy's exit status
+    int raised{0};                 ///< how many copies were started
+    fs::path updates;              ///< the folder the last copy was given
+};
+
+uint32_t raised_version(void* context) {
+    return static_cast<RaisedPutBack*>(context)->version;
+}
+
+bool raised_writable(void* context, const fs::path&) {
+    return static_cast<RaisedPutBack*>(context)->writable;
+}
+
+helper::ElevatedRelaunch raised_copy(void* context, const fs::path& updates) {
+    auto* const asked = static_cast<RaisedPutBack*>(context);
+    asked->raised += 1;
+    asked->updates = updates;
+    helper::ElevatedRelaunch result;
+    if (asked->cancel) {
+        result.cancelled = true;
+        return result;
+    }
+    result.ran = true;
+    result.code = asked->code;
+    if (asked->code == helper::exit_swapped) {
+        std::string error;
+        OA_CHECK(helper::put_back_marked(updates, &error));
+    }
+    return result;
+}
+
+helper::PutBackHooks raised_hooks(RaisedPutBack& asked) {
+    helper::PutBackHooks hooks;
+    hooks.context = &asked;
+    hooks.windows_version = raised_version;
+    hooks.writable = raised_writable;
+    hooks.raise = raised_copy;
+    return hooks;
+}
+
+void putting_kept_files_back_asks_for_rights_where_needed() {
+    Scratch scratch("put-back");
+    const fs::path install = scratch.path / "Open Annihilation";
+    const fs::path updates = scratch.path / "updates";
+    const fs::path marker = updates / "installer-pending";
+    const auto half_installed = [&]() {
+        write_file(updates / "previous" / "open-annihilation.exe", "old-game");
+        write_file(install / "open-annihilation.exe", "half-new");
+    };
+    half_installed();
+    RaisedPutBack asked;
+    const helper::PutBackHooks hooks = raised_hooks(asked);
+    std::string error;
+
+    // A folder the player cannot write, on Vista or later: the copy with
+    // raised rights puts the files back, never this process.
+    OA_CHECK(helper::put_back_needs_elevation(install, &hooks));
+    OA_CHECK(helper::put_back_kept(updates, install, &hooks, &error) == helper::PutBack::done);
+    OA_CHECK(asked.raised == 1);
+    OA_CHECK(asked.updates == updates);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+    OA_CHECK(!fs::exists(marker));
+
+    // The player declines: nothing goes back, and the marker stays for the
+    // next run.
+    half_installed();
+    asked.cancel = true;
+    OA_CHECK(helper::put_back_kept(updates, install, &hooks, &error) == helper::PutBack::cancelled);
+    OA_CHECK(error == helper::permission_not_given);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "half-new");
+    OA_CHECK(read_file(marker) == helper::utf8_of(install));
+
+    // A copy that ends with a failure leaves the marker too.
+    asked.cancel = false;
+    asked.code = helper::exit_undone;
+    OA_CHECK(helper::put_back_kept(updates, install, &hooks, &error) == helper::PutBack::failed);
+    OA_CHECK(fs::exists(marker));
+
+    // A folder the player can write, or Windows 9x, needs no prompt.
+    asked.raised = 0;
+    asked.code = helper::exit_swapped;
+    asked.writable = true;
+    OA_CHECK(!helper::put_back_needs_elevation(install, &hooks));
+    OA_CHECK(helper::put_back_kept(updates, install, &hooks, &error) == helper::PutBack::done);
+    OA_CHECK(asked.raised == 0);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+    half_installed();
+    asked.writable = false;
+    asked.version = 0xC0000004u;
+    OA_CHECK(!helper::put_back_needs_elevation(install, &hooks));
+    OA_CHECK(helper::put_back_kept(updates, install, &hooks, &error) == helper::PutBack::done);
+    OA_CHECK(asked.raised == 0);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+
+    // A missing install asks nobody.
+    asked.version = 0x00000006u;
+    OA_CHECK(
+        helper::put_back_kept(updates, scratch.path / "missing", &hooks, &error) ==
+        helper::PutBack::failed
+    );
+    OA_CHECK(asked.raised == 0);
+
+    // A marker the take_pending of a later run finds goes back the same way.
+    half_installed();
+    write_file(marker, helper::utf8_of(install));
+    const helper::UpdatesGateResult taken = helper::take_pending(updates, &hooks);
+    OA_CHECK(taken.gate == helper::UpdatesGate::ready);
+    OA_CHECK(asked.raised == 1);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+    OA_CHECK(!fs::exists(marker));
+    half_installed();
+    write_file(marker, helper::utf8_of(install));
+    asked.cancel = true;
+    const helper::UpdatesGateResult declined = helper::take_pending(updates, &hooks);
+    OA_CHECK(declined.gate == helper::UpdatesGate::restore_failed);
+    OA_CHECK(declined.detail == helper::permission_not_given);
+    OA_CHECK(fs::exists(marker));
+
+#if !defined(_WIN32)
+    // The real write check: a folder this account cannot write. An account
+    // that writes anywhere has nothing to check.
+    if (::geteuid() != 0) {
+        const fs::path locked = scratch.path / "locked";
+        fs::create_directories(locked);
+        fs::permissions(locked, fs::perms::owner_read | fs::perms::owner_exec);
+        helper::PutBackHooks real_check;
+        real_check.context = &asked;
+        real_check.windows_version = raised_version;
+        OA_CHECK(helper::put_back_needs_elevation(locked, &real_check));
+        fs::permissions(locked, fs::perms::owner_all);
+        OA_CHECK(!helper::put_back_needs_elevation(locked, &real_check));
+    }
+#endif
+}
+
+void a_marker_is_put_back_once_and_no_run_starts_another() {
+    Scratch scratch("no-loop");
+    const fs::path install = scratch.path / "Open Annihilation";
+    const fs::path updates = scratch.path / "updates";
+    const fs::path marker = updates / "installer-pending";
+    // The setup could not replace the game while another copy ran; its kept
+    // files and marker are left, and the player cannot write the install.
+    write_file(updates / "previous" / "open-annihilation.exe", "old-game");
+    write_file(marker, helper::utf8_of(install));
+    write_file(install / "open-annihilation.exe", "half-new");
+    update::Plan plan = folder_plan(scratch, install);
+    plan.route = update::Route::windows_installer;
+    plan.wait_for = 0;
+    OtherCopy copy;
+    copy.program = helper::utf8_of(install / "open-annihilation.exe");
+    helper::CopiesHooks copies;
+    copies.context = &copy;
+    copies.now_ms = other_copy_now;
+    copies.sleep_ms = other_copy_sleep;
+    copies.running = other_copy_running;
+    copies.waiting = other_copy_line;
+    RaisedPutBack asked;
+    const helper::PutBackHooks put_back = raised_hooks(asked);
+    helper::OpeningHooks hooks;
+    hooks.copies = &copies;
+    hooks.put_back = &put_back;
+
+    // While the other copy runs, every helper a quit starts stops before the
+    // marker: no prompt, nothing put back, and the run starts nothing.
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        copy.now = 0;
+        const helper::OpeningResult refused =
+            helper::open_run(plan, false, 7, hooks, helper::JournalHooks{});
+        OA_CHECK(refused.opening == helper::Opening::copies_running);
+    }
+    OA_CHECK(asked.raised == 0);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "half-new");
+
+    // Once it has closed, one run puts the files back with raised rights,
+    // and the runs after it find nothing left to put back.
+    copy.closed = true;
+    const helper::OpeningResult first =
+        helper::open_run(plan, false, 7, hooks, helper::JournalHooks{});
+    OA_CHECK(first.opening == helper::Opening::carry_on);
+    OA_CHECK(asked.raised == 1);
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+    OA_CHECK(!fs::exists(marker));
+    const helper::OpeningResult second =
+        helper::open_run(plan, false, 7, hooks, helper::JournalHooks{});
+    OA_CHECK(second.opening == helper::Opening::carry_on);
+    OA_CHECK(asked.raised == 1);
 }
 
 void an_open_file_keeps_its_folder() {
@@ -757,5 +1059,8 @@ void test_windows_routes() {
     a_folder_swap_keeps_the_game_and_replaces_the_helper();
     the_running_helper_steps_aside_before_the_swap();
     a_closed_window_can_let_go_of_font_files();
+    nothing_moves_while_another_copy_runs();
+    putting_kept_files_back_asks_for_rights_where_needed();
+    a_marker_is_put_back_once_and_no_run_starts_another();
     an_open_file_keeps_its_folder();
 }

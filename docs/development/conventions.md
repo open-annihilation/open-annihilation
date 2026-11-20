@@ -423,6 +423,13 @@ With the table go these rules:
   `world_alloc_tables` do.
 - Platform presentation and audio stay separate from game state: the
   presentation layers read simulation state and never write it.
+- Where exceptions are allowed, an outcome every run meets is still not
+  one: a file the game looks for and may lack is read with
+  `AssetStore::read_if_present`, not by catching `read`'s "asset not
+  found". On 32-bit Windows the unwinder has no index of the program's
+  unwind tables and reads `.eh_frame` from its start, so the first
+  exception a run throws brings over 4 MB of it into memory, which the
+  Windows XP floor (`xp-period-memory-floor`, 128 MB) cannot spare.
 
 - **Why:** the simulation must be deterministic and bounded in time and
   memory, and a tick that throws half-way leaves the world half updated. The

@@ -26,6 +26,18 @@ inline constexpr int64_t receipt_format = 1;
 /// The receipt's name in the data folder's updates directory.
 inline constexpr std::string_view receipt_file_name = "receipt.json";
 
+/// The journal a helper keeps in the updates directory while it moves files.
+/// It stays when the helper is cut short, or when its undo did not finish.
+inline constexpr std::string_view journal_file_name = "journal.json";
+
+/// The marker a Windows setup's run keeps in the updates directory until the
+/// files it kept are back in the install.
+inline constexpr std::string_view installer_pending_name = "installer-pending";
+
+/// A receipt left running this long was cut short, in seconds. A younger one
+/// may belong to a helper that is still at work.
+inline constexpr int64_t receipt_cut_short_seconds = 600;
+
 /// The most steps one receipt holds. A run that takes more keeps the first ones.
 inline constexpr std::size_t most_receipt_steps = 64;
 
@@ -142,6 +154,60 @@ struct Receipt {
 /// @return the outcome
 [[nodiscard]] Outcome
 failure_outcome(Action action, bool files_changed, bool undo_finished) noexcept;
+
+/// Why a quit does not hand a ready release to the helper.
+enum class HandOffStop : uint8_t {
+    none,            ///< the release is handed over
+    held,            ///< the release did not install before and waits for Try again
+    helper_at_work,  ///< a helper's receipt is running and young enough to be at work
+    left_unfinished, ///< a helper this copy did not see left its journal or a setup's kept files
+    receipt_changed, ///< a helper has run since this copy read the receipt
+};
+
+/// What a quit knows when it would hand a release to the helper.
+struct HandOffFacts {
+    bool held{};                    ///< the release is held until the player tries again
+    bool journal{};                 ///< a journal is in the updates directory
+    bool installer_pending{};       ///< a setup's kept files are not back in the install
+    std::optional<Receipt> receipt; ///< the receipt in the updates directory now
+    /// The receipt as this run last read it: at its start, and again where
+    /// it showed the receipt. Empty when there was none.
+    std::optional<Receipt> seen;
+    int64_t now{}; ///< seconds since 1970
+};
+
+/// Tells whether two receipts are the same helper run at the same point:
+/// the same action, release, start and outcome. Two empty ones are the same.
+///
+/// @param left a receipt, or none
+/// @param right a receipt, or none
+/// @return true when they are the same run at the same point
+[[nodiscard]] bool
+same_helper_run(const std::optional<Receipt>& left, const std::optional<Receipt>& right) noexcept;
+
+/// Decides whether a quit hands the ready release to the helper.
+///
+/// A held release is not handed over. Nor is any release while the receipt
+/// is running and younger than receipt_cut_short_seconds: a helper is at
+/// work. Nor while the receipt is not the one this run last read, which is
+/// how another copy of the game that handed a release over shows itself: a
+/// copy that started before that helper ran, or did not see how it ended,
+/// would otherwise hand the same release over again, over files a failed
+/// run may have left half-moved. A journal or a setup's marker counts only
+/// with such a receipt. One that came with the receipt this run read is
+/// left for the next helper, which puts it back before it moves anything;
+/// refusing on it alone would never end, since only a helper removes it.
+///
+/// @param facts what the quit knows
+/// @return none, or why the release is not handed over
+[[nodiscard]] HandOffStop hand_off_stop(const HandOffFacts& facts) noexcept;
+
+/// Reads the journal, the setup's marker and the receipt from the updates
+/// directory into `facts`. The other members are left as they are.
+///
+/// @param updates the data folder's updates directory
+/// @param[in,out] facts the facts
+void read_hand_off_facts(const std::filesystem::path& updates, HandOffFacts& facts);
 
 /// Reads a receipt.
 ///

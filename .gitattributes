@@ -1,6 +1,11 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
+# Shell scripts end their lines with line feeds alone in every checkout,
+# whatever its own line-ending settings: bash on Linux and in WSL takes a
+# carriage return as part of the line and stops on the first command.
+*.sh text eol=lf
+
 # The licence texts are checked byte for byte against the ones their
 # projects publish (tools/bootstrap_text_fonts.py), so every checkout keeps
 # them exactly as committed, line endings included, whatever its own

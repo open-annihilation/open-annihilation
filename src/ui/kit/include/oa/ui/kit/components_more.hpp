@@ -92,9 +92,16 @@ struct Notice {
     std::string failure{};
     ControlId hovered{no_control}; ///< the button under the pointer
     ControlId pressed{no_control}; ///< the button a held press is on
-    /// The button the keys mark and Space presses, ringed in the accent: OK
-    /// at first.
+    /// The button the keys mark and Space presses: OK at first.
     ControlId marked{notice_ok};
+    /// The marked button wears the focus ring. A notice a screen opens sets
+    /// this false until a key shows the ring. A notice drawn on its own,
+    /// such as a pinned picture, keeps the ring. A pointer move does not
+    /// clear it: the marked button keeps the keys (pointer_hid_ring).
+    bool focus_shown{true};
+    /// The pointer has hidden the ring. The marked button still takes the
+    /// keys. Only the drawing reads this.
+    bool pointer_hid_ring{};
     /// The columns a finger's held press was moved by to reach the button it
     /// took (notice_finger_down): its moves and its release are moved as far.
     int32_t finger_shift_x{};
@@ -222,8 +229,16 @@ struct Question {
     bool progress_paused{};
     ControlId hovered{no_control}; ///< the button under the pointer
     ControlId pressed{no_control}; ///< the button a held press is on
-    /// The button the keys mark, which Enter and Space answer, ringed in the accent.
+    /// The button the keys mark, which Enter and Space answer while the ring shows.
     ControlId marked{};
+    /// The marked button wears the focus ring. A question a screen opens sets
+    /// this false until a key shows the ring. A question drawn on its own
+    /// keeps it. A pointer move does not clear it: the marked button keeps
+    /// the keys (pointer_hid_ring).
+    bool focus_shown{true};
+    /// The pointer has hidden the ring. The marked button still takes the
+    /// keys. Only the drawing reads this.
+    bool pointer_hid_ring{};
     /// The columns a finger's held press was moved by to reach the button it
     /// took (question_finger_down); its moves and its release are moved as far.
     int32_t finger_shift_x{};
@@ -464,8 +479,10 @@ notice_list(const Notice& notice, const Fonts* fonts, const LookUp& look_up = {}
 /// @return the display list, in points from the question's top left corner
 [[nodiscard]] DisplayList question_list(const Question& question, const Fonts* fonts);
 
-/// Moves the pointer over a notice: the button under it lights. While a
-/// press is held, the point is moved by the finger's shift first.
+/// Moves the pointer over a notice: the button under it lights, and the
+/// ring hides. The marked button keeps the keys. While a press is held,
+/// the point is moved by the finger's shift first. An opening focus, whose
+/// ring is already hidden, is left for its key table.
 ///
 /// @param[in,out] notice the notice
 /// @param at the pointer, in points from the notice's top left corner
@@ -515,8 +532,25 @@ notice_finger_down(Notice& notice, Point finger, int32_t height, int32_t reach);
 /// @return what the key asks of the host
 [[nodiscard]] NoticeAction notice_key(Notice& notice, Key key);
 
-/// Moves the pointer over a question: the button under it lights. While a
-/// press is held, the point is moved by the finger's shift first.
+/// Takes a key on a notice under the screen focus model.
+///
+/// While the ring is hidden, Tab and Shift+Tab move the mark and show the
+/// ring, Up shows it on the last button and Down, Left, Right and Space on
+/// the first. Enter and Escape do what notice_key does. While the ring
+/// shows, the keys do what notice_key does, and Enter presses the marked
+/// button and hides the ring. A pointer move hides the ring without
+/// clearing that: the next key still acts on the marked button, and the
+/// ring shows again there.
+///
+/// @param[in,out] notice the notice
+/// @param key the key
+/// @return what the key asks of the host
+[[nodiscard]] NoticeAction notice_model_key(Notice& notice, Key key);
+
+/// Moves the pointer over a question: the button under it lights, and the
+/// ring hides. The marked button keeps the keys. While a press is held,
+/// the point is moved by the finger's shift first. An opening focus, whose
+/// ring is already hidden, is left for its key table.
 ///
 /// @param[in,out] question the question
 /// @param at the pointer, in points from the question's top left corner
@@ -572,6 +606,21 @@ question_pointer_up(Question& question, Point at, int32_t height, const Fonts* f
 /// @param key the key
 /// @return the answer, a redraw, or nothing for a key it does not take
 [[nodiscard]] QuestionAnswer question_key(Question& question, Key key);
+
+/// Takes a key on a question under the screen focus model.
+///
+/// While the ring is hidden, Tab and Shift+Tab move the mark and show the
+/// ring, Up shows it on the last button and Down, Left, Right and Space on
+/// the first. Enter, Escape, Yes and No do what question_key does. While
+/// the ring shows, the keys do what question_key does, and Enter answers
+/// the marked button and hides the ring. A pointer move hides the ring
+/// without clearing that: the next key still acts on the marked button,
+/// and the ring shows again there.
+///
+/// @param[in,out] question the question
+/// @param key the key
+/// @return the answer, a redraw, or nothing for a key it does not take
+[[nodiscard]] QuestionAnswer question_model_key(Question& question, Key key);
 
 /// Draws a notice at the canvas's origin: the window's face, its header with
 /// the header mark and the title in the regular font, the text in the text

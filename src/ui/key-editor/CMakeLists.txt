@@ -25,12 +25,13 @@ add_library(oa::ui::key_editor ALIAS oa-ui-key-editor)
 target_include_directories(oa-ui-key-editor PUBLIC include)
 target_compile_features(oa-ui-key-editor PUBLIC cxx_std_20)
 target_link_libraries(oa-ui-key-editor PUBLIC oa-ui-kit oa-ui-key-bindings oa-formats-oakeys
-  oa-data-input-actions)
+  oa-data-input-actions PRIVATE oa-data-languages)
 
 if(BUILD_TESTING)
   # Categories, filters, the draft, latch and hold, number keys, layouts and clashes.
   add_executable(oa-ui-key-editor-model-test tests/model_test.cpp)
-  target_link_libraries(oa-ui-key-editor-model-test PRIVATE oa-ui-key-editor oa-test-support)
+  target_link_libraries(oa-ui-key-editor-model-test PRIVATE oa-ui-key-editor oa-data-languages
+    oa-test-support)
   add_test(NAME ui-key-editor-model COMMAND oa-ui-key-editor-model-test)
   set_tests_properties(ui-key-editor-model PROPERTIES TIMEOUT 60)
 

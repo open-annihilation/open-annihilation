@@ -583,6 +583,10 @@ void finish_registry(
     }
     stored.result.refusal = registry::Refusal::none;
     stored.result.catalogue = fetched.catalogue;
+    for (const std::string& problem : fetched.catalogue->problems) {
+        if (problem.rfind("releases", 0) == 0)
+            log_line(state, "catalogue of " + descriptor.id + ": left out " + problem);
+    }
     set_counts(stored.result, *fetched.catalogue);
     stored.result.served_from = fetched.served_from;
     stored.catalogue_bytes = fetched.bytes;
@@ -767,6 +771,10 @@ void complete_mirror_check(
     }
     stored.result.refusal = registry::Refusal::none;
     stored.result.catalogue = fetched.catalogue;
+    for (const std::string& problem : fetched.catalogue->problems) {
+        if (problem.rfind("releases", 0) == 0)
+            log_line(state, "catalogue of " + id + ": left out " + problem);
+    }
     set_counts(stored.result, *fetched.catalogue);
     stored.result.served_from = fetched.served_from;
     stored.catalogue_bytes = fetched.bytes;

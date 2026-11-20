@@ -587,6 +587,19 @@ void step_scroll_forward(GadgetPanel& panel, int32_t index) {
     notify_scroll(panel, bar);
 }
 
+void place_scroll_knob(GadgetPanel& panel, int32_t index, int16_t knob) {
+    auto& bar = record_at(panel, index);
+    const auto old = i16(bar, field::scroll_knob);
+    set_i16(bar, field::scroll_knob, knob);
+    clamp_knob(bar);
+    if (i16(bar, field::scroll_knob) != old) {
+        panel.dirty = 1;
+        draw(panel, GadgetDraw::scroll_bar, index);
+        sync_group_members(panel, index);
+    }
+    notify_scroll(panel, bar);
+}
+
 void list_select_previous(GadgetPanel& panel, int32_t index) {
     auto& list = record_at(panel, index);
     apply_gadget_font(panel, index);

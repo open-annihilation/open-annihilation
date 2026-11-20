@@ -4,6 +4,10 @@
 // Match chrome, side HUD, resource readout, fog and minimap.
 #include "oa/app/runtime.hpp"
 #include "director_state.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
+#include "oa/present/gaf_sprites.hpp"
+#include "oa/present/surface.h"
+#include "oa/ui/hud/shape_cues.hpp"
 #include "gui_actions.hpp"
 #include "oa_layer.hpp"
 #include "oa/data/input_actions/actions.hpp"
@@ -72,6 +76,25 @@ constexpr int32_t kOverlayProgressBusy = -1;
 constexpr int32_t kBusyStripeSpacing = 12;
 constexpr int32_t kBusyStripeWidth = 5;
 constexpr uint32_t kBusyStripeOpacity = 102;
+/// How many turns of a unit's page a turn may take to reach a page that can
+/// be shown: one for each value of the 3-bit page field and one for the
+/// order page, so a turn comes round to where it started.
+constexpr int kBuildPageTurns = 9;
+
+/// Names a unit type for a log line: its unit name, and its name in the
+/// game's words after it.
+///
+/// @param definition the type
+/// @return "ARMCK (Construction Kbot)", or the unit name alone without a name
+std::string unit_type_label(const oa::UnitDef& definition) {
+    std::string label(
+        definition.unit_name, strnlen(definition.unit_name, sizeof definition.unit_name)
+    );
+    const std::string name(definition.name, strnlen(definition.name, sizeof definition.name));
+    if (!name.empty())
+        label += " (" + name + ")";
+    return label;
+}
 
 /// Divides, rounding towards negative infinity.
 ///
@@ -216,7 +239,7 @@ void Runtime::show_match_build_page(int page) {
     open_match_build_page(static_cast<int>(hud::build_page(flags)));
 }
 
-void Runtime::open_match_build_page(int page) {
+bool Runtime::open_match_build_page(int page) {
     namespace hud = oa::ui::hud;
     auto* unit = match_ && selected_match_unit_ != 0
                      ? oa::world_unit_at(&match_->state(), selected_match_unit_)
@@ -225,11 +248,11 @@ void Runtime::open_match_build_page(int page) {
     const auto* def = unit != nullptr ? hud::unit_def(table, *unit) : nullptr;
     if (def == nullptr) {
         status_ = "Select a builder to open the build menu";
-        return;
+        return true;
     }
     if (unit->build_remaining != 0.0F) {
         show_match_orders_page();
-        return;
+        return true;
     }
     page = std::max(1, page);
     char name[64];
@@ -251,11 +274,47 @@ void Runtime::open_match_build_page(int page) {
         // The HUD layer takes the page at once; the frame draws the match,
         // the page with it, once.
         compose_match_hud();
-    } else {
-        match_build_page_ = previous_page;
-        match_build_page_unit_ = previous_page_unit;
-        show_unsupported("Build GUI " + std::string(name) + " is not available.");
+        return true;
     }
+    match_build_page_ = previous_page;
+    match_build_page_unit_ = previous_page_unit;
+    // The page's own file, or the side's download page standing in for it
+    // when it has none (load_build_page), could not be read: the mod's data
+    // fault, logged once, never an alert; the match plays on.
+    const auto page_file = oa::data::defs::gui_path(name);
+    std::string line = "match HUD: " + unit_type_label(*def) + " build page " +
+                       std::to_string(page) + " is not shown: ";
+    if (assets_.file_size(page_file) != 0)
+        line += page_file + " could not be read";
+    else
+        line += page_file + " is missing or empty, and " +
+                oa::data::defs::gui_path(prefix + "DL.GUI") +
+                ", the side's download page that stands in for it, could not be read";
+    report_data_fault(line);
+    status_ = "Build page " + std::to_string(page) + " is not shown";
+    return false;
+}
+
+void Runtime::turn_match_build_page(oa::Unit& unit, bool forward, bool cycle) {
+    namespace hud = oa::ui::hud;
+    const auto& world = match_->state();
+    const auto page_count = world.unit_defs[unit.type_index].gui_page_count;
+    // A page that cannot be shown is passed over for the next in the turn's
+    // direction, so the pages beyond it stay in reach.
+    for (int turn = 0; turn < kBuildPageTurns; ++turn) {
+        unit.flags = forward ? hud::build_menu_forward(unit.flags, page_count, cycle)
+                             : hud::build_menu_back(unit.flags, page_count, cycle);
+        const auto page = match_panel_page();
+        if (page == 0) {
+            show_match_orders_page();
+            return;
+        }
+        if (open_match_build_page(page))
+            return;
+    }
+    // None of the unit's pages can be shown: its order page is.
+    unit.flags &= ~hud::kUnitFlagBuildMenu;
+    show_match_orders_page();
 }
 
 void Runtime::show_match_page_by_key(int page) {
@@ -321,17 +380,9 @@ void Runtime::press_match_panel_page(oa::ui::hud::BuildPanelClick press, bool cy
     default:
         return;
     }
-    const bool forward = press == hud::BuildPanelClick::page_forward;
     // The unit's page turns among its type's pages, and with `cycle` the
     // order page takes its turn between the last page and the first.
-    const auto page_count = world.unit_defs[unit->type_index].gui_page_count;
-    unit->flags = forward ? hud::build_menu_forward(unit->flags, page_count, cycle)
-                          : hud::build_menu_back(unit->flags, page_count, cycle);
-    const auto page = match_panel_page();
-    if (page == 0)
-        show_match_orders_page();
-    else
-        open_match_build_page(page);
+    turn_match_build_page(*unit, press == hud::BuildPanelClick::page_forward, cycle);
 }
 
 void Runtime::load_match_chrome() {
@@ -994,9 +1045,53 @@ void Runtime::fill_source_rect(int x, int y, int width, int height, uint8_t pale
     );
 }
 
+void Runtime::stamp_shape_marker(
+    int x, int y, int player, uint8_t palette_index, int scale, bool plate
+) {
+    if (!oa::present::colour_vision::shape_cues_active() || player < 0 || player >= OA_PLAYER_COUNT)
+        return;
+    auto& dest = paint_target();
+    if (dest.rgb.empty() || dest.width == 0 || dest.height == 0)
+        return;
+    const auto ink = palette_rgb(palette_index);
+    oa::ui::hud::stamp_player_marker(
+        dest.rgb.data(),
+        static_cast<int32_t>(dest.width),
+        static_cast<int32_t>(dest.height),
+        x,
+        y,
+        player,
+        ink[0],
+        ink[1],
+        ink[2],
+        scale,
+        plate
+    );
+}
+
+void Runtime::notch_health_bar(const oa::ui::hud::HealthBar& bar) {
+    if (!oa::present::colour_vision::shape_cues_active())
+        return;
+    const oa::ui::hud::BarNotches marks = oa::ui::hud::health_bar_notches(bar);
+    const auto paint = [this, color = bar.trough_color](const oa::ui::hud::BarNotch& mark) {
+        if (mark.width > 0 && mark.height > 0)
+            fill_hud_rect(mark.x, mark.y, mark.width, mark.height, color);
+    };
+    paint(marks.one_third);
+    paint(marks.two_thirds);
+}
+
 void Runtime::draw_player_mark(const oa::Player& player, const HudRect& at) {
     if (at.width <= 0 || at.height <= 0)
         return;
+    if (oa::present::colour_vision::shape_cues_active() && player.index < OA_PLAYER_COUNT &&
+        match_) {
+        const uint8_t colour = oa::ui::hud::player_dot_color(match_->state(), player.index);
+        stamp_shape_marker(
+            at.x + at.width / 2, at.y + at.height / 2, static_cast<int>(player.index), colour
+        );
+        return;
+    }
     const auto logo = player_logo_frame(player);
     if (!logo || logo->width == 0 || logo->height == 0)
         return;
@@ -1039,7 +1134,20 @@ void Runtime::draw_resource_readout() {
     if (viewer >= OA_PLAYER_COUNT)
         return;
     auto& game = match_->state().game;
-    auto& player = game.players[viewer];
+    // The readout stores its refresh tick on the player. A replay's player
+    // record is the simulation's, so that tick is kept on a copy.
+    const bool replay = (current_extension_state() & extension_state::replay) != 0;
+    Player shown = game.players[viewer];
+    Player& player = replay ? shown : game.players[viewer];
+    // A recorded player settles no economy here: the replay's rates come from
+    // the recording's economy records, as its stats panel shows them.
+    if (replay && replay_shown_[viewer].income) {
+        const ReplayShownSlot& rates = replay_shown_[viewer];
+        shown.metal_produced = rates.metal;
+        shown.energy_produced = rates.energy;
+        shown.metal_requested = rates.metal_used;
+        shown.energy_requested = rates.energy_used;
+    }
     auto& readout = game.resource_readout;
     // The readout eases as often a second at any frame rate (take_readout_eases).
     for (uint32_t ease = take_readout_eases(); ease != 0; --ease)
@@ -1473,6 +1581,181 @@ void Runtime::blit_match_minimap() {
             mini.rgb[di + 2] = match_palette_[pal + 2];
         }
     }
+    if (oa::present::colour_vision::shape_cues_active()) {
+        namespace wr = oa::present::world_renderer;
+        // The saved picture keeps every logo. This copy drops each listed
+        // unit's logo, stamps a compact marker, then puts back the radar's
+        // own marks: the selection rings, the cursor logo and the mark colour.
+        const std::vector<uint8_t> base = mini.rgb;
+        const bool blink = (game.radar_blink_flags & wr::radar_flag_blink) != 0;
+        const auto& world = match_->state();
+        const oa::Surface* mapped = radar.surfaces.mapped;
+        const uint8_t mark_index = game.ui_colors[wr::ui_color_radar_marks];
+        const uint8_t sensor_index = game.ui_colors[wr::ui_color_sensor_range];
+        const uint8_t jammer_index = game.ui_colors[wr::ui_color_jammer_range];
+        const uint8_t interceptor_index = game.ui_colors[wr::ui_color_interceptor_range];
+        const auto paint_from = [this, &mini](int x, int y, uint8_t index) {
+            if (x < 0 || y < 0 || x >= static_cast<int>(mini.width) ||
+                y >= static_cast<int>(mini.height))
+                return;
+            const auto pal = static_cast<std::size_t>(index) * 4U;
+            const auto di =
+                (static_cast<std::size_t>(y) * mini.width + static_cast<std::size_t>(x)) * 3U;
+            mini.rgb[di] = match_palette_[pal];
+            mini.rgb[di + 1] = match_palette_[pal + 1];
+            mini.rgb[di + 2] = match_palette_[pal + 2];
+        };
+        const auto well_index = [&](int x, int y) -> uint8_t {
+            return well->pixels[(off_y + y) * well->pitch + off_x + x];
+        };
+        const auto decode = [&](const oa::Sprite* sprite, std::vector<uint8_t>& indices) {
+            indices.clear();
+            if (sprite == nullptr || sprite->width == 0 || sprite->height == 0 ||
+                sprite->data == nullptr)
+                return false;
+            const auto count = static_cast<std::size_t>(sprite->width) * sprite->height;
+            if (sprite->encoding == OA_SPRITE_RAW) {
+                const auto* bytes = static_cast<const uint8_t*>(sprite->data);
+                indices.assign(bytes, bytes + count);
+                return true;
+            }
+            if (sprite->encoding != OA_SPRITE_ROW_RLE)
+                return false;
+            const auto* start = static_cast<const uint8_t*>(sprite->data);
+            const auto* file = radar.fx.bytes.data();
+            const auto* end = file + radar.fx.bytes.size();
+            if (start < file || start >= end)
+                return false;
+            return oa::present::colour_vision::decode_row_rle(
+                std::span<const uint8_t>(start, static_cast<std::size_t>(end - start)),
+                sprite->width,
+                sprite->height,
+                sprite->key,
+                indices
+            );
+        };
+
+        // A pixel erased with a logo stays erased. Restoring a mark copies
+        // back every pixel of that palette index, and a logo can share one
+        // (colour 2's body is the interceptor's index), so a mark returns
+        // only where this mask is clear.
+        std::vector<uint8_t> erased(
+            static_cast<std::size_t>(pic_w) * static_cast<std::size_t>(pic_h), 0
+        );
+        const uint32_t listed =
+            std::min(radar.hot_unit_count, static_cast<uint32_t>(radar.hot_units.size()));
+        for (uint32_t index = 0; index < listed; ++index) {
+            const oa::RadarHotUnit& hot = radar.hot_units[index];
+            const oa::Unit* unit = oa::world_unit_at(&world, hot.unit_id);
+            if (unit == nullptr || unit->type_index == 0 || unit->owner_index >= OA_PLAYER_COUNT)
+                continue;
+            if (unit->damage_countdown != 0 && !blink)
+                continue;
+            const int anchor_x = hot.x - off_x;
+            const int anchor_y = hot.y - off_y;
+            const uint8_t colour = oa::ui::hud::player_dot_color(world, unit->owner_index);
+            const auto ink = palette_rgb(colour);
+            const Player* owner = oa::world_player(&world, unit->owner_index);
+            const PlayerSetupInfo* info =
+                owner != nullptr ? oa::world_player_info(&world, owner) : nullptr;
+            const int frame = info != nullptr ? static_cast<int>(info->color) : -1;
+            std::vector<uint8_t> indices;
+            const oa::Sprite* logo = oa::present::gaf_frame(radar.sprites.unit_logos, frame);
+            if (decode(logo, indices) && mapped != nullptr) {
+                const int left = anchor_x - logo->origin_x;
+                const int top = anchor_y - logo->origin_y;
+                for (int row = 0; row < static_cast<int>(logo->height); ++row) {
+                    for (int column = 0; column < static_cast<int>(logo->width); ++column) {
+                        const uint8_t pixel =
+                            indices[static_cast<std::size_t>(row * logo->width + column)];
+                        if (pixel == logo->key)
+                            continue;
+                        const int x = left + column;
+                        const int y = top + row;
+                        if (x < 0 || y < 0 || x >= pic_w || y >= pic_h)
+                            continue;
+                        if (well_index(x, y) != pixel)
+                            continue;
+                        const auto cell =
+                            static_cast<std::size_t>(y) * static_cast<std::size_t>(pic_w) +
+                            static_cast<std::size_t>(x);
+                        erased[cell] = 1;
+                        const int mapped_y = y < mapped->height ? y : 0;
+                        const int mapped_x = x < mapped->width ? x : 0;
+                        if (y < mapped->height && x < mapped->width)
+                            paint_from(x, y, mapped->pixels[mapped_y * mapped->pitch + mapped_x]);
+                    }
+                }
+            }
+            oa::ui::hud::stamp_compact_marker(
+                mini.rgb.data(),
+                pic_w,
+                pic_h,
+                anchor_x,
+                anchor_y,
+                static_cast<int>(unit->owner_index),
+                ink[0],
+                ink[1],
+                ink[2]
+            );
+        }
+        const auto restore = [&](uint8_t index) {
+            for (int y = 0; y < pic_h; ++y) {
+                for (int x = 0; x < pic_w; ++x) {
+                    if (well_index(x, y) != index)
+                        continue;
+                    const auto cell =
+                        static_cast<std::size_t>(y) * static_cast<std::size_t>(pic_w) +
+                        static_cast<std::size_t>(x);
+                    if (erased[cell] != 0)
+                        continue;
+                    const auto di = cell * 3U;
+                    mini.rgb[di] = base[di];
+                    mini.rgb[di + 1] = base[di + 1];
+                    mini.rgb[di + 2] = base[di + 2];
+                }
+            }
+        };
+        restore(sensor_index);
+        restore(jammer_index);
+        restore(interceptor_index);
+        if (const oa::Unit* cursor = oa::world_unit_at(&world, game.cursor_unit_id);
+            cursor != nullptr) {
+            for (uint32_t index = 0; index < listed; ++index) {
+                const oa::RadarHotUnit& hot = radar.hot_units[index];
+                if (hot.unit_id != cursor->id)
+                    continue;
+                std::vector<uint8_t> indices;
+                const oa::Sprite* sprite = oa::present::gaf_frame(radar.sprites.cursor_logo, 0);
+                if (!decode(sprite, indices))
+                    break;
+                const int left = hot.x - off_x - sprite->origin_x;
+                const int top = hot.y - off_y - sprite->origin_y;
+                for (int row = 0; row < static_cast<int>(sprite->height); ++row) {
+                    for (int column = 0; column < static_cast<int>(sprite->width); ++column) {
+                        if (indices[static_cast<std::size_t>(row * sprite->width + column)] ==
+                            sprite->key)
+                            continue;
+                        const int x = left + column;
+                        const int y = top + row;
+                        if (x < 0 || y < 0 || x >= pic_w || y >= pic_h)
+                            continue;
+                        const auto cell =
+                            static_cast<std::size_t>(y) * static_cast<std::size_t>(pic_w) +
+                            static_cast<std::size_t>(x);
+                        if (erased[cell] != 0)
+                            continue;
+                        const auto di = cell * 3U;
+                        mini.rgb[di] = base[di];
+                        mini.rgb[di + 1] = base[di + 1];
+                        mini.rgb[di + 2] = base[di + 2];
+                    }
+                }
+                break;
+            }
+        }
+        restore(mark_index);
+    }
     const auto origin = hud_canvas(off_x, off_y);
     const auto extent = hud_canvas(off_x + pic_w, off_y + pic_h);
     const int dest_w = std::max(1, extent.x - origin.x);
@@ -1498,7 +1781,10 @@ void Runtime::prepare_minimap_display() {
     namespace wr = oa::present::world_renderer;
     namespace hud = oa::ui::hud;
     auto& radar = radar_state_;
+    // Shape cues keep the radar's compact markers drawn above, including
+    // its blinking, cursor and range marks, rather than replacing them with dots.
     if (!match_ || radar.surfaces.mapped == nullptr || match_hud_cpu_.rgb.empty() ||
+        oa::present::colour_vision::shape_cues_active() ||
         oa::ui::display_layout::placed_mode(match_layout_) ||
         (director_ != nullptr && !director_->presentation.show_interface))
         return;
@@ -1849,6 +2135,7 @@ void Runtime::draw_key_badges() {
 
 void Runtime::draw_key_latch_chips() {
     key_latch_chips_drawn_.clear();
+    key_latch_chip_places_.clear();
     // While the keys overlay is open the chips sit in its On line.
     if (oa_layer().find(oa::ui::key_editor::name_keys_overlay) != nullptr)
         return;
@@ -1946,12 +2233,66 @@ void Runtime::draw_key_latch_chips() {
     }
     for (const Placed& item : row) {
         key_latch_chips_drawn_.push_back(item.text);
+        key_latch_chip_places_.push_back(
+            {area.x + origin * scale,
+             area.y + row_top * scale,
+             item.width * scale,
+             chip_height * scale}
+        );
         kit::ChipLook look;
         look.text = item.text;
         look.state = item.filled ? kit::ChipState::playing : kit::ChipState::installed;
         kit::draw_chip(canvas, {origin, row_top, item.width, chip_height}, look);
         origin += item.width + gap;
     }
+}
+
+bool Runtime::pointer_over_key_latch_chip() const {
+    return key_latch_chip_at(pointer_x_, pointer_y_);
+}
+
+bool Runtime::key_latch_chip_at(float x, float y) const {
+    return std::any_of(
+        key_latch_chip_places_.begin(),
+        key_latch_chip_places_.end(),
+        [x, y](const oa::ui::display_layout::Rect& chip) {
+            return x >= static_cast<float>(chip.x) && y >= static_cast<float>(chip.y) &&
+                   x < static_cast<float>(chip.x + chip.width) &&
+                   y < static_cast<float>(chip.y + chip.height);
+        }
+    );
+}
+
+bool Runtime::key_latch_chip_pointer(const SDL_Event& event, float x, float y) {
+    const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+    if (!pressed && event.type != SDL_EVENT_MOUSE_BUTTON_UP)
+        return false;
+    const uint8_t button = event.button.button;
+    const auto bit = static_cast<uint16_t>(button < 16U ? 1U << button : 0U);
+    if (screen_ != Screen::match || match_ == nullptr) {
+        key_latch_chip_buttons_ = 0;
+        return false;
+    }
+    if (!pressed) {
+        // The release of a press a chip took is the chip's wherever it comes
+        // up: a drag from a chip draws no box, and a left order, given on the
+        // release, is not given.
+        if (bit == 0 || (key_latch_chip_buttons_ & bit) == 0)
+            return false;
+        key_latch_chip_buttons_ = static_cast<uint16_t>(key_latch_chip_buttons_ & ~bit);
+        return true;
+    }
+    key_latch_chip_buttons_ = static_cast<uint16_t>(key_latch_chip_buttons_ & ~bit);
+    // A HUD button or a placed region over the chip takes the press, and a
+    // running middle-click pan ends on it, as anywhere.
+    if (bit == 0 || hovered_ || placed_hud_covers(x, y) ||
+        middle_pan_.phase != middle_pan::Phase::idle || !key_latch_chip_at(x, y))
+        return false;
+    // The chip only shows a latch, as the keys overlay's On line does, so
+    // its click does nothing more: the latch's own key lets it go, and a
+    // click that only missed the ground beside the chip keeps the latch.
+    key_latch_chip_buttons_ = static_cast<uint16_t>(key_latch_chip_buttons_ | bit);
+    return true;
 }
 
 namespace {

@@ -7,6 +7,7 @@
 #include "oa/app/runtime.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/formats/fnt.hpp"
+#include "oa/ui/gui_input/scroll_bar.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cmath>
@@ -335,6 +336,63 @@ std::optional<std::size_t> Runtime::step_frontend_list_row(std::string_view name
     if (list == nullptr || list->list.selection < 0)
         return std::nullopt;
     return static_cast<std::size_t>(list->list.selection);
+}
+
+void Runtime::nudge_focused_scroll(int32_t which) {
+    const int32_t focus = frontend_focus();
+    if (focus <= 0)
+        return;
+    const auto index = static_cast<std::size_t>(focus);
+    if (index >= resources_.layout.gadgets.size())
+        return;
+    auto* fields =
+        std::get_if<oa::ui::gui_layout::ScrollBarFields>(&resources_.layout.gadgets[index].fields);
+    if (fields == nullptr)
+        return;
+    auto* scrolls = frontend_scrolls();
+    renderer::LayoutScrolls::Bar* entry =
+        scrolls != nullptr ? renderer::find_layout_bar(*scrolls, index) : nullptr;
+    const int16_t range = entry != nullptr ? entry->bar.range : fields->range;
+    const int16_t knob = entry != nullptr ? entry->bar.knob : fields->knob_position;
+    const int16_t span = oa::ui::gui_input::scroll_page_span(range);
+    int32_t next = knob;
+    switch (which) {
+    case 0:
+        next = static_cast<int32_t>(knob) - 1;
+        break;
+    case 1:
+        next = static_cast<int32_t>(knob) + 1;
+        break;
+    case 2:
+        next = static_cast<int32_t>(knob) - static_cast<int32_t>(span);
+        break;
+    case 3:
+        next = static_cast<int32_t>(knob) + static_cast<int32_t>(span);
+        break;
+    case 4:
+        next = 0;
+        break;
+    case 5:
+        next = range > 0 ? static_cast<int32_t>(range) - 1 : 0;
+        break;
+    default:
+        return;
+    }
+    if (range < 1)
+        next = 0;
+    else if (next < 0)
+        next = 0;
+    else if (next > static_cast<int32_t>(range) - 1)
+        next = static_cast<int32_t>(range) - 1;
+    const auto placed = static_cast<int16_t>(next);
+    if (entry != nullptr) {
+        entry->bar.knob = placed;
+        renderer::sync_layout_group(*scrolls, resources_.layout, index);
+    } else {
+        fields->knob_position = placed;
+    }
+    scroll_bar_changed(false, focus);
+    rebuild_surface();
 }
 
 std::optional<std::size_t> Runtime::frontend_list_first(std::string_view name) {

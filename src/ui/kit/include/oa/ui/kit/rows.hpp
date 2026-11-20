@@ -837,6 +837,9 @@ struct RowView {
     RowKind kind{};      ///< what the row is
     std::string id{};    ///< the row's word
     std::string label{}; ///< the label, as shown; a link's is empty
+    /// A switch caption broken into lines that fit beside the switch, top to
+    /// bottom. Empty draws `label` on one line.
+    std::vector<std::string> label_lines{};
     /// The hint's lines, as shown, top to bottom.
     std::vector<std::string> hints{};
     /// For each hint line, true when it is a notice, drawn in the lock colour.
@@ -1032,7 +1035,9 @@ struct PlacedRows {
 /// Places a column of rows as the settings dialog places a section's rows.
 ///
 /// From first_top, each row's rule at its top and its label line row_padding
-/// under it, regular_line high. A switch (switch_width), a strip (its levels'
+/// under it, regular_line high. A switch caption that names several lines is
+/// that many regular lines high, and the switch stays at the top of that
+/// block. A switch (switch_width), a strip (its levels'
 /// widths and its border), a button (button_row_width) or a row of buttons
 /// (folder_button_widths and folder_button_gap) stands at the label line's
 /// right, the label ending label_gap short of it. A locked row's lock,
@@ -1156,15 +1161,17 @@ struct RowsState {
 /// focus ring round the focused control (a buttons row's marked button). Then
 /// the rule under the last row. Every item takes the state's clip.
 ///
-/// A row with a control area and no lock adds one control, named
+/// A row with a control area adds one control, named
 /// <name_prefix>.<id> (a value_and_button row's <name_prefix>.<id>.<button
 /// id> when the button has a word; with no prefix, the id alone), of the
 /// row's kind (a value_and_button row's a button), taking steps unless it is
 /// a button or a link, enabled as its view says, in the state's group and
-/// clip. Its parts' words
+/// clip. A locked row is that same control, disabled and not a Tab stop,
+/// its lock's text the description; what is drawn is unchanged, and the
+/// drawn control stays none. Its parts' words
 /// (Control::parts) are a strip's levels' or a drop-down's items' ids, or a
-/// row of buttons' buttons' words. The enabled controls take Tab in the
-/// rows' order.
+/// row of buttons' buttons' words. The enabled, unlocked controls take Tab
+/// in the rows' order.
 ///
 /// @param[in,out] list the display list
 /// @param placed the rows
@@ -1302,8 +1309,8 @@ RowResult activate(const RowSpec<Model>& spec, Model& model, std::size_t marked_
     return {};
 }
 
-/// Acts on a press on a row's control: a switch's left half sets Off and its
-/// right half On; a strip chooses the level under the point when it is
+/// Acts on a press on a row's control: a press anywhere on a switch flips
+/// it, as Space does; a strip chooses the level under the point when it is
 /// offered; a slider moves to the stop nearest the point; a drop-down opens
 /// its menu; a button, the button under the point and a link ask for their
 /// action. A text field, a text row, and a locked or disabled row take nothing.
@@ -1321,7 +1328,7 @@ RowResult press(const RowSpec<Model>& spec, Model& model, const PlacedRow& place
     switch (spec.kind) {
     case RowKind::toggle: {
         const bool before = row_on(spec, model);
-        set_row_on(spec, model, point.x >= area.x + area.width / 2);
+        set_row_on(spec, model, !before);
         return changed_if(row_on(spec, model) != before);
     }
     case RowKind::levels: {

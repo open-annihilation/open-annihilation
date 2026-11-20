@@ -309,6 +309,27 @@ bool trigger_matches(const Chord& chord, const InputEvent& event) {
     return false;
 }
 
+/// Whether Shift turns this key into the chord's character.
+///
+/// A key event carries the unshifted code, so Shift and `/` arrive as `/`.
+/// The shortcut card's chord is `?`, the glyph that key types. A letter is
+/// left off this path: Shift and A still matches A by the unshifted code.
+///
+/// @param chord the chord
+/// @param event the event
+/// @param map the keyboard
+/// @return true when the shifted glyph is the chord's character
+bool shifted_symbol_matches(const Chord& chord, const InputEvent& event, const KeyboardMap& map) {
+    if (chord.kind != TriggerKind::character || event.kind != InputKind::key)
+        return false;
+    if ((event.modifiers & shift) == 0)
+        return false;
+    const char32_t symbol = map.shifted(event.scancode);
+    if (symbol == 0 || symbol == static_cast<char32_t>(event.key_code))
+        return false;
+    return chord.character == symbol;
+}
+
 /// How the modifiers of a chord that already matched its trigger compare.
 ///
 /// @param modifiers the chord's modifier bits
@@ -508,8 +529,7 @@ std::string chord_text(const Chord& chord) {
 Match match(
     const Chord& chord, const InputEvent& event, const KeyboardMap& map, Platform platform
 ) {
-    (void)map;
-    if (!trigger_matches(chord, event))
+    if (!trigger_matches(chord, event) && !shifted_symbol_matches(chord, event, map))
         return Match::none;
     return modifier_match(chord.modifiers, event.modifiers, platform);
 }

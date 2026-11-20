@@ -101,6 +101,7 @@ void check_field_syntax() {
         {"<U:id=1f>]", true, 9, 'U', "id", "1f"},
         {"<S:a b=raw <[:= kept>", true, 21, 'S', "a b", "raw <[:= kept"},
         {"<S:k=v>junk", true, 7, 'S', "k", "v"},
+        {"<S:name=>", true, 9, 'S', "name", ""},
         {"<s:x=1>", false, 0, 0, nullptr, nullptr},
         {"<X:x=1>", false, 0, 0, nullptr, nullptr},
         {"<Ix=1>", false, 0, 0, nullptr, nullptr},
@@ -111,6 +112,7 @@ void check_field_syntax() {
         {"<I:a:b=1>", false, 0, 0, nullptr, nullptr},
         {"<I:a%b=1>", false, 0, 0, nullptr, nullptr},
         {"<I:k=>", false, 0, 0, nullptr, nullptr},
+        {"<U:n=>", false, 0, 0, nullptr, nullptr},
         {"<I:k=1", false, 0, 0, nullptr, nullptr},
         {"<I:k=1%>", false, 0, 0, nullptr, nullptr},
     };
@@ -330,6 +332,24 @@ void check_entries() {
     check(
         rover_record_field_uint(rover_record_entry_find(entry, "id"), 9) == 9,
         "a U read of an I field"
+    );
+    rover_file_record_destroy(record);
+
+    record = record_of(
+        "{[Profile<S:ALLEGIANCE=CORE><S:command=profile_info><S:name=><I:last=1><S:LOGIN_NAME="
+        "pilot>]}"
+    );
+    entry = rover_record_first_entry(record);
+    check(
+        rover_record_entry_find(entry, "name") &&
+            strcmp(rover_record_entry_text(entry, "name", "missing"), "") == 0,
+        "an empty name is present and empty"
+    );
+    check(
+        strcmp(rover_record_entry_text(entry, "ALLEGIANCE", ""), "CORE") == 0 &&
+            strcmp(rover_record_entry_text(entry, "LOGIN_NAME", ""), "pilot") == 0 &&
+            rover_record_entry_int(entry, "last", 0) == 1,
+        "the fields around an empty name stay intact"
     );
     rover_file_record_destroy(record);
 

@@ -5,6 +5,8 @@
 // reports (boneyards_data.hpp).
 #include "boneyards_data.hpp"
 
+#include "oa/data/languages/interface_text.hpp"
+
 #include <span>
 #include <string>
 #include <string_view>
@@ -90,6 +92,25 @@ bool foreign_mod(const DataFacts& facts) {
 } // namespace
 
 DataVerdict boneyards_data_verdict(const DataFacts& facts) {
+    if (!facts.stock_file.empty()) {
+        // Kept until the next verdict, which the console reads at once.
+        static std::string named;
+        named = std::string(
+            oa::data::languages::interface_text(
+                "{file} in {folder} is not Total Annihilation's own. The Boneyards launches and "
+                "reports games only on Total Annihilation's own files. Leave the Boneyards and "
+                "repair it in Settings › Game Content."
+            )
+        );
+        for (const auto& [token, value] :
+             {std::pair<std::string_view, std::string_view>{"{file}", facts.stock_file},
+              std::pair<std::string_view, std::string_view>{"{folder}", facts.stock_folder}}) {
+            const std::size_t mark = named.find(token);
+            if (mark != std::string::npos)
+                named.replace(mark, token.size(), value);
+        }
+        return DataVerdict{false, named.c_str()};
+    }
     if (facts.unreadable)
         return refused_verdict();
     // A mutator, a profile other than the Boneyards' own, or a mod folder

@@ -23,9 +23,12 @@
 // exact halvings; the processor's anti-aliasing never runs. The processor
 // paints the interface and, onto an overlay canvas cleared to a key colour
 // outside the palette, everything the painters after the fog paint; the
-// overlay is laid over the card's picture 1:1. The planner, the HUD, the
-// painters and the readers that keep a picture run as in the Basic tier.
-// It is reached only when the tier decided for the frame is Full.
+// overlay is laid over the card's picture 1:1; on a frame whose painters
+// covered the whole battlefield, as the open megamap does, the card draws
+// none of the battlefield and the overlay alone is laid there. The planner,
+// the HUD, the painters and the readers that keep a picture run as in the
+// Basic tier. It is reached only when the tier decided for the frame is
+// Full.
 #include "oa/app/runtime.hpp"
 
 #include "full_fog.hpp"
@@ -430,8 +433,11 @@ run_full_function_test(card::Executor& executor, SDL_Renderer* renderer, bool so
 }
 
 /// Converts the overlay canvas by its key colour into ARGB8888 words, and
-/// uploads the bands that hold paint now or held it at the last upload, so
-/// that the texture holds this frame's overlay whatever came before.
+/// uploads the bands that changed since the last upload and hold paint now
+/// or held it then, so that the texture holds this frame's overlay whatever
+/// came before. Only the bands that differ from the canvas uploaded last
+/// are converted, while the key and the gamma stay as they were; a texture
+/// not yet uploaded takes every band.
 ///
 /// @param canvas the painted canvas, RGB24 at the battlefield's size
 /// @param key the colour the canvas was cleared to
@@ -440,8 +446,10 @@ run_full_function_test(card::Executor& executor, SDL_Renderer* renderer, bool so
 /// @param gamma the display gamma's table; null for none
 /// @param pool the drawing threads
 /// @param[in,out] overlay the words, the battlefield's size
+/// @param[in,out] source the canvas the words were converted from, with its
+///        key and gamma, and the bands this upload converted
 /// @param[in,out] opaque_bands the bands that hold an opaque pixel now
-/// @param[in,out] uploaded_bands the bands uploaded last
+/// @param[in,out] uploaded_bands the bands whose rows of the texture hold paint
 /// @param[in,out] uploaded the texture holds an uploaded overlay
 /// @param[in,out] texture the overlay's texture, made for the size
 void upload_keyed_overlay(
@@ -452,19 +460,52 @@ void upload_keyed_overlay(
     const std::array<uint8_t, 256>* gamma,
     oa::platform::job_pool::Pool* pool,
     std::vector<uint8_t>& overlay,
+    FullOverlaySource& source,
     std::vector<uint8_t>& opaque_bands,
     std::vector<uint8_t>& uploaded_bands,
     bool& uploaded,
     TiledTexture& texture
 ) {
     const std::size_t pitch = std::size_t{bf_w} * card::texel_bytes;
-    convert_rgb24_keyed_overlay_argb(
-        canvas, key, bf_w, bf_h, overlay.data(), pitch, gamma, opaque_bands, pool
-    );
+    const std::size_t canvas_bytes = std::size_t{bf_w} * bf_h * 3U;
+    auto& changed_bands = source.changed_bands;
+    changed_bands.resize(opaque_bands.size());
+    const bool whole = !uploaded;
+    const bool same_terms = !whole && source.canvas.size() == canvas_bytes && source.key == key &&
+                            source.gamma_on == (gamma != nullptr) &&
+                            (gamma == nullptr || source.gamma == *gamma);
+    if (same_terms) {
+        convert_changed_rgb24_keyed_overlay_argb(
+            canvas,
+            source.canvas.data(),
+            key,
+            bf_w,
+            bf_h,
+            overlay.data(),
+            pitch,
+            gamma,
+            opaque_bands,
+            changed_bands,
+            pool
+        );
+    } else {
+        convert_rgb24_keyed_overlay_argb(
+            canvas, key, bf_w, bf_h, overlay.data(), pitch, gamma, opaque_bands, pool
+        );
+        source.canvas.assign(canvas, canvas + canvas_bytes);
+        source.key = key;
+        source.gamma_on = gamma != nullptr;
+        if (gamma != nullptr)
+            source.gamma = *gamma;
+        std::fill(changed_bands.begin(), changed_bands.end(), uint8_t{1});
+    }
     const auto bands = static_cast<uint32_t>(opaque_bands.size());
     const auto stale = [&](uint32_t band) {
-        return !uploaded || opaque_bands[band] != 0 || uploaded_bands[band] != 0;
+        return whole ||
+               (changed_bands[band] != 0 && (opaque_bands[band] != 0 || uploaded_bands[band] != 0));
     };
+    // An upload that throws part way leaves the texture to be uploaded whole.
+    uploaded = false;
     for (uint32_t band = 0; band < bands;) {
         if (!stale(band)) {
             ++band;
@@ -482,6 +523,8 @@ void upload_keyed_overlay(
         );
         band = end;
     }
+    // A band not uploaded is unchanged, or was and is clear: the texture
+    // holds paint in the bands the canvas does.
     uploaded_bands = opaque_bands;
     uploaded = true;
 }
@@ -974,6 +1017,12 @@ void Runtime::FullPresentation::destroy_world_target() noexcept {
     world_target_bytes = 0;
 }
 
+void Runtime::drop_full_team_frames() {
+    if (full_ == nullptr)
+        return;
+    full_->models.drop_frames();
+}
+
 void Runtime::free_full_match_state() noexcept {
     if (!full_)
         return;
@@ -999,6 +1048,7 @@ void Runtime::free_full_match_state() noexcept {
     full.projectile_shadow_source = nullptr;
     full.fog = {};
     full.canvas_drawn = false;
+    full.world_covered = false;
 }
 
 bool Runtime::full_presentation() const noexcept {
@@ -1063,12 +1113,14 @@ void Runtime::free_full_match_textures() noexcept {
     full.overlay = {};
     full.opaque_bands = {};
     full.uploaded_bands = {};
+    full.overlay_source = {};
     full.overlay_uploaded = false;
     // The stages' pages and targets go with the match too.
     full.destroy_sprite_card_pages();
     full.models.close(full.executor);
     full.world_quads.clear();
     full.drawn = false;
+    full.drawn_covered = false;
 }
 
 void Runtime::free_full_presentation() noexcept {
@@ -1629,8 +1681,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             match_hud_tex_, match_hud_cpu_, accelerated_.hud_revision, &spare_match_hud_
         );
         // What the painters painted on the canvas, by its key, uploaded in
-        // the bands that hold it now or held it at the last upload, so the
-        // texture holds this frame's overlay whatever came before.
+        // the bands that changed and hold it now or held it at the last
+        // upload, so the texture holds this frame's overlay whatever came
+        // before.
         const auto overlay_start = std::chrono::steady_clock::now();
         upload_keyed_overlay(
             match_world_cpu_.rgb.data(),
@@ -1640,6 +1693,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             gamma,
             draw_pool_.get(),
             full.overlay,
+            full.overlay_source,
             full.opaque_bands,
             full.uploaded_bands,
             full.overlay_uploaded,
@@ -1654,6 +1708,38 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // (finish_match_layers).
         if (hud_layer && !oa::ui::display_layout::placed_mode(match_layout_))
             draw_accelerated_hud_strips();
+
+        // A battlefield the painters covered whole, as the open megamap
+        // covers it, hides all the card would draw there: the card draws
+        // none of it, and the overlay alone is laid on the battlefield, at
+        // its corner, since what covers it stays still while the view
+        // moves between pixels. The frame counts towards no stage of
+        // Full's first frames, since the card drew none of Full's frame.
+        if (full.world_covered) {
+            const SDL_FRect world{
+                static_cast<float>(match_layout_.left),
+                static_cast<float>(match_layout_.top),
+                static_cast<float>(bf_w),
+                static_cast<float>(bf_h)
+            };
+            draw_one_to_one(
+                sdl_.renderer, full.overlay_texture, nullptr, &world, one_to_one_scale_mode()
+            );
+            full.drawn = true;
+            full.drawn_covered = true;
+            full.drawn_zoom = zoom;
+            full.drawn_quads = 0;
+            full.drawn_fog_quads = 0;
+            full.drawn_world_quads = 0;
+            full.drawn_batches = 0;
+            full.drawn_through_target = false;
+            full.build_ns = 0;
+            full.stage_ns = 0;
+            full.execute_ns = 0;
+            ++full.frames;
+            finish_match_layers(frame_format, dialogs, upload_start, present_start);
+            return true;
+        }
 
         // The card's frame: the terrain from the pages, by the level rule at
         // the zoom, and everything over it.
@@ -1871,7 +1957,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             data::enhanced_mode::uses_enhanced_unit_rendering(
                 match_->rules().setup.enhanced_mode.version
             ) &&
-            director_ == nullptr
+            director_ == nullptr && !photo_mode()
         );
         full.models.begin_frame();
         full.sprites = {};
@@ -1899,6 +1985,33 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             scene.camera_x = static_cast<int32_t>(full.frame_camera_x);
             scene.camera_y = static_cast<int32_t>(full.frame_camera_y);
             scene.target = target;
+            // The card multiplies every vertex by the target's factor.
+            // The window, and a target made at factor one, leave it at one.
+            if (target != card::TargetHandle{} && target == full.world_target)
+                scene.target_factor = full.world_target_factor;
+            else if (target != card::TargetHandle{} && target == full.moved_target)
+                scene.target_factor = full.moved_target_factor;
+            else
+                scene.target_factor = 1;
+            scene.truncate_geometry = full.executor.capabilities().geometry_truncates;
+            // A tile's model vertices, its water and its strip and hole
+            // cuts are made where the one-piece photo makes them, then
+            // the draw origin is subtracted. Where the renderer truncates
+            // a vertex times the factor toward zero, the submitted pixel
+            // is then moved so that truncation falls a whole number of
+            // the target's pixels from the whole photo. Zero leaves the
+            // frame and a whole photo on the path they already take.
+            // The moved target, below zoom 1, is measured with this same
+            // shift: its vertices are the whole photo's.
+            const int32_t tile_column = photo_tile_map_offset_ ? (*photo_tile_map_offset_)[0] : 0;
+            const int32_t tile_row = photo_tile_map_offset_ ? (*photo_tile_map_offset_)[1] : 0;
+            if (photo_tile_anchor_x_ != 0 || photo_tile_row_ != 0 || tile_column != 0 ||
+                tile_row != 0) {
+                scene.strip_anchor_x = static_cast<float>(photo_tile_anchor_x_);
+                scene.strip_anchor_y = static_cast<float>(photo_tile_row_);
+                scene.tile_map_x = tile_column;
+                scene.tile_map_y = tile_row;
+            }
             sprite_inputs.view = scene;
             renderer_water_classic::Inputs water;
             water.map = &*selected_tnt_;
@@ -2510,7 +2623,8 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     image.scale_x,
                     image.scale_y,
                     false,
-                    static_cast<float>(image.row_offset)
+                    static_cast<float>(image.row_offset) +
+                        static_cast<float>(photo_tile_row_) * image.scale_y
                 );
             };
             // Light only adds to the world, which the card adds it to as it
@@ -2551,6 +2665,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 render_run_->paths_drawn | path_bit(renderer_state::AcceleratedPath::full)
             );
         full.drawn = true;
+        full.drawn_covered = false;
         full.drawn_zoom = zoom;
         full.drawn_quads = quads;
         full.drawn_fog_quads = fog_quads;
@@ -2638,6 +2753,19 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 sdl_.renderer, full.overlay_texture, nullptr, &world, one_to_one_scale_mode()
             );
         }
+        // A look reads the battlefield back, including what was painted over
+        // it, and draws the filtered picture in its place. The Open
+        // Annihilation layer and the panel are drawn after this, and a
+        // capture reads the card before this runs. No look skips the pass.
+        if (photo_look_active() && !accelerated_.reading_back)
+            present_photo_look_full(
+                battlefield.x,
+                battlefield.y,
+                static_cast<int>(bf_w),
+                static_cast<int>(bf_h),
+                moved,
+                full.final_target
+            );
         finish_match_layers(frame_format, dialogs, upload_start, present_start);
         return true;
     } catch (const FullFrameRefusedError& error) {

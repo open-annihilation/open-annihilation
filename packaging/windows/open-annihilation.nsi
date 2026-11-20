@@ -166,6 +166,8 @@ BrandingText "${OA_NAME} ${OA_VERSION}"
 !define MUI_FINISHPAGE_TEXT "Open Annihilation is installed.$\r$\n$\r$\nYour saved games stay in the Open Annihilation folder in Documents."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\open-annihilation.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Start Open Annihilation"
+# A helper the section moves aside while it runs is deleted at the next
+# restart Windows makes for its own reasons; the finish page never asks for one.
 !define MUI_FINISHPAGE_NOREBOOTSUPPORT
 
 !insertmacro MUI_PAGE_WELCOME
@@ -244,12 +246,33 @@ Section "Open Annihilation" SecProgram
   File "${OA_PACKAGE_DIR}/oa-intro.exe"
   File "${OA_PACKAGE_DIR}/oa-tool.exe"
   !if /FileExists "${OA_PACKAGE_DIR}/oa-update.exe"
+    # The update helper that runs this setup may be running from this folder.
+    # No Windows lets a running program's file be written, and a silent setup
+    # skips a file it cannot write, so the helper that was there would stay.
+    # Vista and later let that file be renamed: it moves aside to
+    # oa-update-old.exe, the new helper takes its name, and the old file goes
+    # at once, or at the next restart while it still runs. Where the rename
+    # fails, as in a first install, the setup goes on as before; a new helper
+    # that could not be written gives the old one its name back.
+    Delete "$INSTDIR\oa-update-old.exe"
+    Rename "$INSTDIR\oa-update.exe" "$INSTDIR\oa-update-old.exe"
+    ClearErrors
     File "${OA_PACKAGE_DIR}/oa-update.exe"
+    ${IfNot} ${FileExists} "$INSTDIR\oa-update.exe"
+      Rename "$INSTDIR\oa-update-old.exe" "$INSTDIR\oa-update.exe"
+    ${EndIf}
+    Delete /REBOOTOK "$INSTDIR\oa-update-old.exe"
+    ClearErrors
   !endif
   File "${OA_PACKAGE_DIR}/LICENSE"
   File "${OA_PACKAGE_DIR}/ATTRIBUTIONS.md"
   !if /FileExists "${OA_PACKAGE_DIR}/coreprime.ccx"
     File "${OA_PACKAGE_DIR}/coreprime.ccx"
+  !endif
+  # The screen reader's library, which the game loads from its own folder.
+  # Every package but Windows 95's carries it; its notices are in licenses/.
+  !if /FileExists "${OA_PACKAGE_DIR}/accesskit.dll"
+    File "${OA_PACKAGE_DIR}/accesskit.dll"
   !endif
 
   SetOutPath "$INSTDIR\licenses"
@@ -332,10 +355,12 @@ FunctionEnd
 # This install's program, as the uninstaller names it and in its short form.
 Var ThisProgram
 Var ThisProgramShort
-# The file type un.OA_WithdrawUserType withdraws.
+# The file type un.OA_WithdrawUserType withdraws, and an extension it only
+# offers (its OpenWithProgids value), empty when it offers none.
 Var UserExtension
 Var UserProgramId
 Var UserMimeType
+Var UserOfferedExtension
 
 # Takes a path from the stack and leaves 1 there when it is this install's
 # program, else 0. Letter case never matters, and an absolute path is also
@@ -458,6 +483,11 @@ Function un.OA_WithdrawUserType
       DeleteRegKey /ifempty HKCU "$5\DefaultIcon"
       DeleteRegKey /ifempty HKCU "$5"
       DeleteRegValue HKCU "$6\OpenWithProgids" "$UserProgramId"
+      # An offered extension, such as .tad beside .oademo, loses the same
+      # program identifier only when that identifier's key went.
+      ${If} $UserOfferedExtension != ""
+        DeleteRegValue HKCU "${OA_USER_CLASSES_KEY}\$UserOfferedExtension\OpenWithProgids" "$UserProgramId"
+      ${EndIf}
       ClearErrors
       ReadRegStr $0 HKCU "$6" ""
       ${IfNot} ${Errors}
@@ -475,19 +505,22 @@ Function un.OA_WithdrawUserType
   ClearErrors
 FunctionEnd
 
-!macro OA_WithdrawUserType _EXTENSION _PROGRAM_ID _MIME_TYPE
+!macro OA_WithdrawUserType _EXTENSION _PROGRAM_ID _MIME_TYPE _OFFERED_EXTENSION
   StrCpy $UserExtension "${_EXTENSION}"
   StrCpy $UserProgramId "${_PROGRAM_ID}"
   StrCpy $UserMimeType "${_MIME_TYPE}"
+  StrCpy $UserOfferedExtension "${_OFFERED_EXTENSION}"
   Call un.OA_WithdrawUserType
 !macroend
 !define OA_WithdrawUserType "!insertmacro OA_WithdrawUserType"
 
 Section "Uninstall"
-  # The game's own registration of the seven file types, for the account that
+  # The game's own registration of the file types, for the account that
   # uninstalls, while it names this install's program: first, while the
   # program is still there to be named in its short form too. The extensions
-  # and program identifiers are those of src/platform/file-types.
+  # and program identifiers are those of src/platform/file-types. .tad is
+  # offered, never owned: its OpenWithProgids value goes with .oademo's, and
+  # only when that program identifier's key went.
   StrCpy $ThisProgram "$INSTDIR\open-annihilation.exe"
   ClearErrors
   GetFullPathName /SHORT $ThisProgramShort $ThisProgram
@@ -496,14 +529,15 @@ Section "Uninstall"
     StrCpy $ThisProgramShort $ThisProgram
   ${EndIf}
   ClearErrors
-  ${OA_WithdrawUserType} ".oamod" "OpenAnnihilation.Mod" "application/x-oamod"
-  ${OA_WithdrawUserType} ".oalang" "OpenAnnihilation.Language" "application/x-oalang"
-  ${OA_WithdrawUserType} ".oamap" "OpenAnnihilation.MapPack" "application/x-oamap"
-  ${OA_WithdrawUserType} ".oamut" "OpenAnnihilation.Mutator" "application/x-oamut"
-  ${OA_WithdrawUserType} ".oabrain" "OpenAnnihilation.Brain" "application/x-oabrain"
-  ${OA_WithdrawUserType} ".oakeys" "OpenAnnihilation.KeyLayout" "application/x-oakeys"
-  ${OA_WithdrawUserType} ".oareg" "OpenAnnihilation.Registry" "application/x-oareg"
-  ${OA_WithdrawUserType} ".oalaunch" "${OA_LAUNCH_PROGRAM_ID}" "${OA_LAUNCH_MIME_TYPE}"
+  ${OA_WithdrawUserType} ".oamod" "OpenAnnihilation.Mod" "application/x-oamod" ""
+  ${OA_WithdrawUserType} ".oalang" "OpenAnnihilation.Language" "application/x-oalang" ""
+  ${OA_WithdrawUserType} ".oamap" "OpenAnnihilation.MapPack" "application/x-oamap" ""
+  ${OA_WithdrawUserType} ".oamut" "OpenAnnihilation.Mutator" "application/x-oamut" ""
+  ${OA_WithdrawUserType} ".oabrain" "OpenAnnihilation.Brain" "application/x-oabrain" ""
+  ${OA_WithdrawUserType} ".oakeys" "OpenAnnihilation.KeyLayout" "application/x-oakeys" ""
+  ${OA_WithdrawUserType} ".oareg" "OpenAnnihilation.Registry" "application/x-oareg" ""
+  ${OA_WithdrawUserType} ".oalaunch" "${OA_LAUNCH_PROGRAM_ID}" "${OA_LAUNCH_MIME_TYPE}" ""
+  ${OA_WithdrawUserType} ".oademo" "OpenAnnihilation.Replay" "application/x-oademo" ".tad"
 
   # Removes the install folder's own files, the Start Menu folder and the
   # desktop shortcut this installer added. Never Documents, and never a game
@@ -525,11 +559,13 @@ Section "Uninstall"
   Delete "$INSTDIR\oa-intro.exe"
   Delete "$INSTDIR\oa-tool.exe"
   Delete "$INSTDIR\oa-update.exe"
+  Delete "$INSTDIR\oa-update-old.exe"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\ATTRIBUTIONS.md"
   Delete "$INSTDIR\brains\classic.oabrain"
   RMDir "$INSTDIR\brains"
   Delete "$INSTDIR\coreprime.ccx"
+  Delete "$INSTDIR\accesskit.dll"
   Delete "$INSTDIR\languages\*.tdf"
   RMDir "$INSTDIR\languages"
   RMDir /r "$INSTDIR\licenses"

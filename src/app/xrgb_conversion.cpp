@@ -311,6 +311,49 @@ void convert_rgb24_keyed_overlay_argb(
     );
 }
 
+void convert_changed_rgb24_keyed_overlay_argb(
+    const uint8_t* canvas,
+    uint8_t* held,
+    std::array<uint8_t, 3> key,
+    uint32_t width,
+    uint32_t height,
+    uint8_t* pixels,
+    std::size_t pitch,
+    const std::array<uint8_t, 256>* gamma,
+    std::span<uint8_t> opaque_bands,
+    std::span<uint8_t> changed_bands,
+    platform::job_pool::Pool* pool
+) noexcept {
+    const uint32_t bands = platform::job_pool::bands_of_rows(height, xrgb_band_rows);
+    if (opaque_bands.size() < bands || changed_bands.size() < bands)
+        return;
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * 3U;
+    platform::job_pool::run_bands(pool, bands, [&](uint32_t band) {
+        const uint32_t first_row = band * xrgb_band_rows;
+        const uint32_t rows = std::min(height, first_row + xrgb_band_rows) - first_row;
+        const std::size_t at = static_cast<std::size_t>(first_row) * row_bytes;
+        const std::size_t bytes = static_cast<std::size_t>(rows) * row_bytes;
+        if (std::memcmp(canvas + at, held + at, bytes) == 0) {
+            changed_bands[band] = 0;
+            return;
+        }
+        // The band alone, as the whole canvas's conversion converts it.
+        convert_rgb24_keyed_overlay_argb(
+            canvas + at,
+            key,
+            width,
+            rows,
+            pixels + static_cast<std::size_t>(first_row) * pitch,
+            pitch,
+            gamma,
+            opaque_bands.subspan(band, 1),
+            nullptr
+        );
+        std::memcpy(held + at, canvas + at, bytes);
+        changed_bands[band] = 1;
+    });
+}
+
 void pack_rgb24_rgb565_row(
     uint16_t* out, const uint8_t* rgb, int width, const std::array<uint8_t, 256>* gamma
 ) noexcept {

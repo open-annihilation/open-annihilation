@@ -255,15 +255,27 @@ far_view_dot_covers(int32_t dot_x, int32_t dot_y, int32_t x, int32_t y) noexcept
 
 /// A unit's dot in the far view: a square of its owner's colour centred on
 /// where the unit shows, framed one pixel wide when it is selected.
+/// A seat in `player` leaves the square out, so the caller can draw that
+/// player's marker in its place before this draw. A framed seat still draws
+/// the frame, nine pixels a side, one pixel outside the 7-pixel marker, at
+/// the centre the caller gives. A unit outside the picture is not passed as
+/// a framed seat.
 struct FarViewDot {
     int32_t x{}; ///< the unit's screen column
     int32_t y{}; ///< its screen row
     std::array<uint8_t, 3> colour{};
     bool framed{};
     std::array<uint8_t, 3> frame_colour{};
+    /// The owner's seat, 0 to 9. Below 0 keeps the square.
+    int player{-1};
 };
 
 /// Draws the far view's dots, in order, clipped to the picture.
+///
+/// A dot whose player is a seat leaves the square out. Its frame, when the
+/// dot is selected, is nine pixels, one pixel outside the marker the caller
+/// stamped, centred on the dot as given. Any other dot is the square,
+/// framed when it is selected.
 ///
 /// @param[in,out] rgb the picture, 3 bytes a pixel, rows `width` apart
 /// @param width the picture's width

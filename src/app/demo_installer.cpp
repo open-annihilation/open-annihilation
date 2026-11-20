@@ -9,6 +9,7 @@
 #include "oa/data/content_bundles/record.hpp"
 #include "oa/formats/pe.hpp"
 #include "oa/platform/file_clone.hpp"
+#include "oa/platform/file_time.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -324,26 +325,6 @@ void unpack(std::span<const uint8_t> bytes, const DemoRelease& release, DemoSetu
     setup.unpacked = true;
 }
 
-/// Converts a file-clock time to whole seconds since 1970.
-template <typename Clock>
-[[nodiscard]] int64_t seconds_of_clock(typename Clock::time_point time) {
-    const auto count = [](auto system_time) {
-        return std::chrono::floor<std::chrono::seconds>(system_time).time_since_epoch().count();
-    };
-    if constexpr (requires { Clock::to_sys(time); })
-        return static_cast<int64_t>(count(Clock::to_sys(time)));
-    else {
-        const auto utc = Clock::to_utc(time);
-        using Utc = typename decltype(utc)::clock;
-        return static_cast<int64_t>(count(Utc::to_sys(utc)));
-    }
-}
-
-/// Whole seconds since 1970 of a file's modification time, as a copy's record stores it.
-[[nodiscard]] int64_t seconds_since_1970(fs::file_time_type time) {
-    return seconds_of_clock<fs::file_time_type::clock>(time);
-}
-
 /// Writes the base game's record beside an archive that just passed its check.
 ///
 /// A release whose folder name is not a base game has no record. A record
@@ -362,7 +343,7 @@ void write_bundle_record(const DemoSetup& setup, const DemoRelease& release) {
     file.digest = release.archive_sha256;
     std::error_code error;
     const auto stamp = fs::last_write_time(setup.archive, error);
-    file.modified = error ? 0 : seconds_since_1970(stamp);
+    file.modified = error ? 0 : oa::platform::file_seconds_since_1970(stamp);
     record.files.push_back(std::move(file));
     const std::optional<std::string> text =
         oa::data::content_bundles::format_content_record(record);
@@ -590,7 +571,7 @@ bool DemoInstallerSource::list(std::vector<ContentSourceFile>& files, std::strin
     listed.size = release_->archive_size;
     std::error_code failure;
     const auto stamp = fs::last_write_time(installer_, failure);
-    listed.modified = failure ? 0 : seconds_since_1970(stamp);
+    listed.modified = failure ? 0 : oa::platform::file_seconds_since_1970(stamp);
     files.push_back(std::move(listed));
     return true;
 }

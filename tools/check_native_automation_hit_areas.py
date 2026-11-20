@@ -41,6 +41,7 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+import native_offline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_native_automation as automation  # noqa: E402
@@ -69,6 +70,9 @@ FRAME_BUTTONS = frozenset({
 # Rows whose button has no word of its own, so that it is named by its row
 # alone as a drop-down is: each only takes the press.
 BUTTON_ROWS = frozenset({"oa.settings.first-run"})
+# The section list: one Tab stop over the section entries, which take the
+# presses, each clicked in its turn.
+SECTION_LIST = "oa.settings.sections"
 # Rows whose change takes effect at once on the window, how it presents the
 # menus, the renderer or the fonts every screen is drawn in: their halves and
 # levels take the press and are never chosen.
@@ -213,9 +217,11 @@ def is_part(control, names):
 
 
 def show_focus(client, own_prefix):
-    """Shows the focus with Tab unless a control of the screen already has it."""
-    if any(control.get("focused") for control in listed(client)
-           if control.get("name", "").startswith(own_prefix)):
+    """Shows the focus with Tab unless the ring is drawn on a control of the
+    screen. A screen opens with a control focused and no ring, and a press
+    moves the focus only once a key has shown the ring."""
+    screen = client.request("screen")
+    if screen.get("focus_shown") and (screen.get("focused") or "").startswith(own_prefix):
         return
     send(client, key_events("Tab"), "Tab")
 
@@ -377,7 +383,8 @@ def takes_press(control, names):
     name = control.get("name", "")
     return control.get("dialog") == "oa.settings" and control.get("visible") and \
         control.get("enabled") and has_room(control) and not is_part(control, names) and \
-        not name.startswith("oa.settings.nav.") and name != "oa.settings.scroll-bar"
+        not name.startswith("oa.settings.nav.") and \
+        name not in (SECTION_LIST, "oa.settings.scroll-bar")
 
 
 def walk_section(client, walk, frame_done):

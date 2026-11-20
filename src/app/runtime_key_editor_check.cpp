@@ -29,12 +29,14 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace oa::app {
@@ -118,6 +120,36 @@ fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
     file += '-' + std::string(step) + ".ppm";
     return file;
 }
+
+/// Puts one preference at a value and puts the old value back, including when
+/// it was absent, however the scope ends.
+struct PreferenceGuard {
+    std::map<std::string, std::string>& values; ///< the runtime's preferences
+    std::string key;                            ///< the preference
+    bool had{false};                            ///< it was already set
+    std::string previous{};                     ///< the value it had
+
+    PreferenceGuard(
+        std::map<std::string, std::string>& values_in, std::string key_in, std::string set_to
+    )
+        : values(values_in), key(std::move(key_in)) {
+        const auto found = values.find(key);
+        had = found != values.end();
+        if (had)
+            previous = found->second;
+        values[key] = std::move(set_to);
+    }
+
+    ~PreferenceGuard() {
+        if (had)
+            values[key] = previous;
+        else
+            values.erase(key);
+    }
+
+    PreferenceGuard(const PreferenceGuard&) = delete;
+    PreferenceGuard& operator=(const PreferenceGuard&) = delete;
+};
 
 /// A window part the pointer sweeps, in window pixels.
 struct SweepBox {
@@ -374,6 +406,50 @@ void Runtime::check_key_editor() {
         }
         require(all > 0, std::string("All counts nothing ") + std::string(where));
     };
+
+    // The ring is drawn from the layout. With the preference at 1 the first
+    // frame of the list view rings the list tab. The rest of the check runs
+    // with the preference as it was.
+    {
+        const PreferenceGuard show_focus{
+            preference_values_, "open-annihilation.access.always-show-focus", "1"
+        };
+        resize(kWindows[1]);
+        prepare_menu();
+        open_over_settings();
+        LayerScreen* editor_screen = oa_layer().find(editor::screen_name);
+        require(editor_screen != nullptr, "the editor is not open with the ring asked for");
+        const kit::DisplayList drawn = editor_screen->display_list();
+        const kit::Interaction held = editor_screen->interaction();
+        kit::Rect view_rect{};
+        kit::ControlId view_id = kit::no_control;
+        bool found_view = false;
+        for (const kit::Control& control : drawn.controls) {
+            if (control.name != editor::name_view_list)
+                continue;
+            view_rect = control.rect;
+            view_id = control.id;
+            found_view = true;
+            break;
+        }
+        require(found_view, "the list tab is not shown with the ring asked for");
+        require(
+            held.focus_shown && held.focused == view_id,
+            "the list tab did not take the focus when the ring is always shown"
+        );
+        bool ring = false;
+        for (const kit::Item& item : drawn.items) {
+            if (item.role != kit::Role::focus_ring)
+                continue;
+            if (item.rect.x == view_rect.x && item.rect.y == view_rect.y &&
+                item.rect.width == view_rect.width && item.rect.height == view_rect.height)
+                ring = true;
+        }
+        require(ring, "the list tab drew no ring in the first frame");
+        std::cout << "key editor check: the list tab draws its ring in the first frame\n";
+        close_editor();
+        close_settings();
+    }
 
     // The pointer moves over each part of the editor, in each look and at the
     // large windows, each move and the frame after it timed: what a player

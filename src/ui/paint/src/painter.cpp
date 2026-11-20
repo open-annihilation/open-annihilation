@@ -285,9 +285,16 @@ void Painter::fill_rect(Box box, Rgba colour) noexcept {
     const Box part = intersect(box, clip_);
     if (part.empty() || colour.a == 0)
         return;
+    // An opaque colour replaces each pixel, as blend_pixel paints it.
+    const std::array<uint8_t, 4> opaque{colour.r, colour.g, colour.b, 255U};
     for (int row = part.y; row < part.y + part.height; ++row) {
         auto* pixel =
             canvas_->rgba.data() + (static_cast<std::size_t>(row) * canvas_->width + part.x) * 4U;
+        if (colour.a == 255U) {
+            for (int column = 0; column < part.width; ++column, pixel += 4)
+                std::copy(opaque.begin(), opaque.end(), pixel);
+            continue;
+        }
         for (int column = 0; column < part.width; ++column, pixel += 4)
             blend_pixel(pixel, colour, 255U);
     }
@@ -532,6 +539,7 @@ void Painter::draw_coverage(
     const Box part = intersect(Box{x, y, width, height}, clip_);
     if (part.empty() || colour.a == 0)
         return;
+    const std::array<uint8_t, 4> opaque{colour.r, colour.g, colour.b, 255U};
     Box touched{};
     for (int row = part.y; row < part.y + part.height; ++row) {
         const uint8_t* from =
@@ -543,7 +551,11 @@ void Painter::draw_coverage(
         for (int column = part.x; column < part.x + part.width; ++column, ++from, pixel += 4) {
             if (*from == 0)
                 continue;
-            blend_pixel(pixel, colour, *from);
+            // A whole pixel of an opaque colour replaces it, as blend_pixel paints it.
+            if (*from == 255U && colour.a == 255U)
+                std::copy(opaque.begin(), opaque.end(), pixel);
+            else
+                blend_pixel(pixel, colour, *from);
             if (first < 0)
                 first = column;
             last = column;

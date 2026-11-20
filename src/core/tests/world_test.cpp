@@ -3,9 +3,13 @@
 
 // Compiled as C++20: World helpers in namespace oa, including const overloads.
 #include "oa/core/world.h"
+#include "oa/core/world_image.hpp"
 
+#include <array>
 #include <cstdio>
+#include <cstring>
 #include <memory>
+#include <string_view>
 #include <type_traits>
 
 static_assert(std::is_standard_layout_v<oa::World>);
@@ -134,6 +138,100 @@ int main() {
         plain.extra_sides = nullptr;
         check(oa::world_side(sides, 5) == nullptr, "const side 5 after unbind");
         check(oa::world_side(sides, 3) == &plain.game.sides[3], "const side under five");
+    }
+    // The world's tables as bytes: a table the World holds is listed with its size, and one it does
+    // not hold has no bytes, whatever its count says.
+    {
+        auto image_world = std::make_unique<oa::World>();
+        image_world->game.map_width = 4;
+        image_world->game.map_height = 3;
+        oa::Unit image_units[6]{};
+        oa::MapPlot image_plots[12]{};
+        image_world->units = image_units;
+        image_world->unit_slot_count = 6;
+        image_world->plots = image_plots;
+        image_world->unit_def_count = 5; // counted, but no table
+        const auto tables = oa::world_image_tables(image_world.get());
+        const auto find = [&](std::string_view name) {
+            for (const auto& table : tables)
+                if (name == table.name)
+                    return table;
+            return oa::WorldImageTable{};
+        };
+        check(
+            find("game").data == &image_world->game && find("game").bytes == sizeof(oa::Game),
+            "game image"
+        );
+        check(
+            find("units").data == image_units && find("units").bytes == sizeof image_units,
+            "unit image"
+        );
+        check(
+            find("plots").data == image_plots && find("plots").bytes == sizeof image_plots,
+            "plot image"
+        );
+        check(
+            find("unit_types").data == nullptr && find("unit_types").bytes == 0,
+            "table the world lacks"
+        );
+        check(find("sight_grid").bytes == 0, "no sight grid, no bytes");
+        check(find("economy").bytes == sizeof image_world->player_economy, "economy image");
+        check(find("player_setup").bytes == sizeof image_world->player_info, "setup image");
+        check(
+            find("projectiles").bytes == 0 && find("placed_features").bytes == 0,
+            "pools the world lacks"
+        );
+        std::size_t named = 0;
+        for (const auto& table : tables)
+            named += table.name != nullptr && table.name[0] != '\0' ? 1u : 0u;
+        check(named == oa::world_image_table_count, "every table has a name");
+    }
+    // Copying the projectile image preserves the whole native pool and leaves the next record alone.
+    {
+        constexpr uint32_t short_projectile_capacity = 3;
+        constexpr uint32_t extended_projectile_capacity = 32767;
+        constexpr uint32_t high_tick = 17;
+        constexpr uint32_t last_tick = 23;
+        constexpr uint32_t guard_tick = 29;
+        const std::array<uint32_t, 3> capacities{
+            0, short_projectile_capacity, extended_projectile_capacity
+        };
+        for (const auto capacity : capacities) {
+            auto image_world = std::make_unique<oa::World>();
+            const auto records = capacity != 0 ? capacity : OA_PROJECTILE_CAPACITY;
+            auto projectiles = std::make_unique<oa::Projectile[]>(records + 1);
+            image_world->projectiles = projectiles.get();
+            image_world->projectile_capacity = capacity;
+            const auto high_slot = records > OA_PROJECTILE_CAPACITY ? OA_PROJECTILE_CAPACITY : 0;
+            projectiles[high_slot].created_tick = high_tick;
+            projectiles[records - 1].created_tick = last_tick;
+            projectiles[records].created_tick = guard_tick;
+            const auto projectile_image = [&] {
+                for (const auto& table : oa::world_image_tables(image_world.get()))
+                    if (std::string_view(table.name) == "projectiles")
+                        return table;
+                return oa::WorldImageTable{};
+            };
+            const auto table = projectile_image();
+            const auto bytes = static_cast<std::size_t>(records) * sizeof(oa::Projectile);
+            check(table.data == projectiles.get(), "projectile image pool");
+            check(table.bytes == bytes, "projectile image uses native capacity");
+            if (table.data == projectiles.get() && table.bytes == bytes) {
+                auto image = std::make_unique<uint8_t[]>(bytes);
+                std::memcpy(image.get(), table.data, table.bytes);
+                check(projectiles[records].created_tick == guard_tick, "copy leaves pool guard");
+                std::memset(projectiles.get(), 0, bytes);
+                const auto destination = projectile_image();
+                std::memcpy(destination.data, image.get(), destination.bytes);
+                check(projectiles[high_slot].created_tick == high_tick, "high projectile restored");
+                check(
+                    projectiles[records - 1].created_tick == last_tick, "last projectile restored"
+                );
+                check(projectiles[records].created_tick == guard_tick, "restore leaves pool guard");
+            }
+            image_world->projectiles = nullptr;
+            check(projectile_image().bytes == 0, "no projectile pool has no image bytes");
+        }
     }
     return failures == 0 ? 0 : 1;
 }

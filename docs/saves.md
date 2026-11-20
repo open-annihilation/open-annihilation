@@ -22,7 +22,11 @@ the same sentence. A film keeps the note and does not ask on its own: nothing
 loads a film as a game.
 
 Saved games stay in `Saves/<mod>/`, and recordings and films stay in their
-own folders for that mod.
+own folders for that mod. A network game's recording is a `.oademo` replay or
+the game recorder's `.tad`, and the note is written beside either one, also
+for a recording a crash cut short that the next start finished
+([Replays](replays.md#recording-a-game)). No recording holds a player's
+network address.
 
 A save or a recording made with mutators keeps those mutators, and so does
 a campaign save. Loading it needs the same ones. When one is missing, the

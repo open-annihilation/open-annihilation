@@ -147,9 +147,73 @@ bool rect_holds(const hud::Rect& rect, float x, float y) noexcept {
 
 } // namespace
 
+void TouchDispatchAccess::photo_battlefield_gestures(
+    Runtime& runtime, const gestures::GestureBatch& batch
+) {
+    if (runtime.photo_camera_locked())
+        return;
+    std::optional<gestures::Gesture> pinch;
+    float pinch_scale = 1.0F;
+    for (std::size_t index = 0; index < batch.count && index < batch.items.size(); ++index) {
+        const auto& gesture = batch.items[index];
+        switch (gesture.kind) {
+        case gestures::GestureKind::drag_began:
+            // While Area is the picture a one-finger drag marks it. A click
+            // that does not move keeps the mark that was already there.
+            if (runtime.photo_poster_takes_drag()) {
+                // The drag is recognised after the finger has already moved,
+                // so the press is the finger's start, not this point.
+                runtime.photo_poster_drag_begin(gesture.start_x, gesture.start_y);
+            } else
+                runtime.pan_match_camera_by(-gesture.dx, -gesture.dy);
+            break;
+        case gestures::GestureKind::drag_moved:
+            if (runtime.photo_poster_takes_drag())
+                runtime.photo_poster_drag_move(gesture.x, gesture.y);
+            else
+                runtime.pan_match_camera_by(-gesture.dx, -gesture.dy);
+            break;
+        case gestures::GestureKind::drag_ended:
+        case gestures::GestureKind::cancelled:
+            runtime.photo_poster_drag_end();
+            break;
+        case gestures::GestureKind::pan_began:
+        case gestures::GestureKind::pan_moved:
+            // Two fingers still pan, including while a mark is being grown.
+            runtime.pan_match_camera_by(-gesture.dx, -gesture.dy);
+            break;
+        case gestures::GestureKind::pinch_moved:
+            pinch_scale *= gesture.scale;
+            pinch = gesture;
+            break;
+        case gestures::GestureKind::twist_moved:
+            std::ignore = runtime.photo_turn(gesture.turn);
+            break;
+        case gestures::GestureKind::press:
+        case gestures::GestureKind::rest_moved:
+        case gestures::GestureKind::tap:
+        case gestures::GestureKind::hold_started:
+        case gestures::GestureKind::hold_released:
+        case gestures::GestureKind::pan_ended:
+        case gestures::GestureKind::pinch_began:
+        case gestures::GestureKind::pinch_ended:
+        case gestures::GestureKind::twist_began:
+        case gestures::GestureKind::twist_ended:
+        case gestures::GestureKind::two_finger_tap:
+            break;
+        }
+    }
+    if (pinch && pinch_scale > 0.0F)
+        runtime.zoom_match_about(pinch_scale, pinch->x, pinch->y);
+}
+
 void TouchDispatchAccess::battlefield_gestures(
     Runtime& runtime, const gestures::GestureBatch& batch
 ) {
+    if (runtime.photo_mode()) {
+        photo_battlefield_gestures(runtime, batch);
+        return;
+    }
     auto& dispatch = runtime.touch_state().dispatch;
     // A pan and a pinch of the same move: the pan first, then the zoom
     // about the fingers' new centre, so the ground under them stays there.
@@ -218,6 +282,10 @@ void TouchDispatchAccess::battlefield_gestures(
             break;
         case gestures::GestureKind::pinch_ended:
             break;
+        case gestures::GestureKind::twist_began:
+        case gestures::GestureKind::twist_moved:
+        case gestures::GestureKind::twist_ended:
+            break;
         case gestures::GestureKind::two_finger_tap:
             if (!close_overlay(runtime))
                 runtime.cancel_or_clear_match_command();
@@ -279,6 +347,9 @@ void TouchDispatchAccess::battlefield_tap(Runtime& runtime, float x, float y, ui
     auto& state = runtime.touch_state();
     if (runtime.screen_ != Screen::match || !runtime.match_)
         return;
+    // A tap on the battlefield shows the playback bar. The tap still selects.
+    if ((runtime.current_extension_state() & extension_state::replay) != 0)
+        runtime.show_replay_bar();
     // On the open megamap a tap is the mouse's click there, at the finger,
     // which the megamap takes as it takes the mouse's (megamap_pointer), and
     // nothing reaches the battlefield under it. A building armed is placed
@@ -1281,6 +1352,10 @@ void TouchDispatchAccess::control_tap(
             case hud::PhoneMenuItem::chat:
                 close_sheet(runtime, false);
                 runtime.open_chat_line();
+                return;
+            case hud::PhoneMenuItem::photo_mode:
+                close_sheet(runtime, false);
+                std::ignore = runtime.enter_photo_mode();
                 return;
             }
             return;

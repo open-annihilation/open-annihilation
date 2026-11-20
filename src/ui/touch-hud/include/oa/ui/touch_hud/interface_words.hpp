@@ -115,6 +115,7 @@ inline constexpr std::string_view interface_words[] = {
     "PATROL: the selection patrols to the held point.",
     "PAUSE",
     "PAUSE: pauses or resumes the game.",
+    "PHOTO MODE",
     "PLACE",
     "PREV",
     "PREV: shows the build page before this one.",

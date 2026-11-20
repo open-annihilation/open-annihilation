@@ -111,10 +111,13 @@ game is the current source's.
 
 The game is started with `--fark`, an endpoint file in the server's scratch
 folder, and `--skip-intro` unless `skip_intro` is false. Its preferences
-file is a new one in the scratch folder, holding no setting, so that the
-player's own settings stay untouched; `preferences_file` may name an
-existing file instead, in the scratch folder or in a folder the server's
-`--preferences-dir` names. The installation is `game_dir`, else
+file is a new one in the scratch folder, holding only the two lines that
+turn the update check and the catalogue check off, so that the player's own
+settings stay untouched and the game neither looks for an update nor fetches
+a catalogue; its data folder is a new one in the scratch folder too.
+`preferences_file` may name an existing file instead, in the scratch folder
+or in a folder the server's `--preferences-dir` names, and the game then
+runs on what that file says. The installation is `game_dir`, else
 `OA_GAME_DIR`, either a folder that holds `totala1.hpi`; without either the
 game uses the folder chosen before.
 
@@ -143,10 +146,10 @@ there.
   hexadecimal digits and a process id, owned by the player and writable by
   no one else; a refusal quotes none of the file.
 - **It writes** its scratch folder, `oa-mcp-*` in the system's temporary
-  folder, which `game_status` names: the endpoint file, the game's log and
-  the new preferences file of each game it starts. The folder is removed
-  when the server ends. A game the server started is stopped then too; one
-  it attached to is left running.
+  folder, which `game_status` names: the endpoint file, the game's log, the
+  new preferences file and the data folder of each game it starts. The
+  folder is removed when the server ends. A game the server started is
+  stopped then too; one it attached to is left running.
 - **It connects** only to the endpoint on the loopback address, 127.0.0.1,
   `::1` or `localhost` (reached as 127.0.0.1), as the game serves no other.
 

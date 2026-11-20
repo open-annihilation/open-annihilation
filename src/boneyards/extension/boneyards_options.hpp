@@ -96,6 +96,9 @@ struct BoneyardsOptions {
     // game under --boneyards-replay (register_boneyards_launch_check); the
     // run needs --frames, which bounds it.
     std::optional<LaunchCheckRole> boneyards_launch;
+    // With the launch check: the host picks For Fun, so the return offers a
+    // share. Without it the host picks Galactic War.
+    bool launch_for_fun = false;
     // The Phase 3 screens clicked through as this account in the running
     // game under --boneyards-replay (register_boneyards_features_check); the
     // run needs --frames, which bounds it.

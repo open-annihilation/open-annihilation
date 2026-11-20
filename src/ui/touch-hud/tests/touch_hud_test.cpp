@@ -708,10 +708,55 @@ void phone_menus_open_beside_their_buttons() {
     OA_CHECK(no_overlaps(frame));
     state.sheet = hud::Sheet::phone_menu;
     frame = hud::lay_out(viewport, state);
-    OA_CHECK(same(frame.sheet, {537, 60, 176, 204}));
-    OA_CHECK(count_of(frame, Control::menu_item) == 4);
+    OA_CHECK(same(frame.sheet, {537, 60, 176, 252}));
+    OA_CHECK(count_of(frame, Control::menu_item) == 5);
     OA_CHECK(count_of(frame, Control::order_slot) == 5);
     OA_CHECK(no_overlaps(frame));
+}
+
+/// The phone MENU at Large and Larger stays in the safe area, in two columns
+/// when one does not fit. CHAT is one of the items.
+void phone_menu_fits_when_controls_are_large() {
+    const hud::Viewport bases[] = {
+        phone_viewport(852, 393, {59, 0, 59, 21}),
+        phone_viewport(667, 375, {0, 0, 0, 0}),
+    };
+    const float scales[] = {1.25f, 1.5f};
+    for (const hud::Viewport& base : bases) {
+        for (const float scale : scales) {
+            const hud::Viewport viewport =
+                phone_viewport(base.width, base.height, base.safe, scale);
+            hud::HudState state = match_state();
+            state.rail_count = 6;
+            state.sheet = hud::Sheet::phone_menu;
+            const hud::Frame frame = hud::lay_out(viewport, state);
+            OA_CHECK(count_of(frame, Control::menu_item) == 5);
+            OA_CHECK(all_inside_safe(frame, viewport));
+            OA_CHECK(no_overlaps(frame));
+            const Rect chat =
+                find(frame, Control::menu_item, static_cast<int>(hud::PhoneMenuItem::chat));
+            OA_CHECK(chat.width > 0);
+            OA_CHECK(inside(chat, safe_rect(viewport)));
+            const Rect photo =
+                find(frame, Control::menu_item, static_cast<int>(hud::PhoneMenuItem::photo_mode));
+            OA_CHECK(photo.width > 0);
+            OA_CHECK(inside(photo, safe_rect(viewport)));
+            // The sheet stays to the right of the minimap. A tap on an item's
+            // left end chooses that item, including where the minimap used to cover it.
+            OA_CHECK(!overlap(frame.sheet, frame.minimap));
+            for (int item = 0; item < 5; ++item) {
+                const Rect row = find(frame, Control::menu_item, item);
+                const auto chosen = hud::hit(frame, {row.x + 1, row.y + row.height / 2}, 0);
+                OA_CHECK(
+                    chosen.has_value() && chosen->control == Control::menu_item &&
+                    chosen->index == static_cast<uint8_t>(item)
+                );
+            }
+            // One column is 176 points wide. Two columns are wider than that.
+            const int one_column = static_cast<int>(std::lround(176.0f * scale));
+            OA_CHECK(frame.sheet.width > one_column);
+        }
+    }
 }
 
 /// Returns a phone state that shows most of what a frame can hold.
@@ -1206,9 +1251,10 @@ void every_control_has_its_texts() {
     for (uint8_t item = 0; item < 2; ++item)
         OA_CHECK(!hud::menu_item_label(hud::Sheet::speed, item).empty());
     OA_CHECK(hud::menu_item_label(hud::Sheet::speed, 2).empty());
-    for (uint8_t item = 0; item < 4; ++item)
+    for (uint8_t item = 0; item < 5; ++item)
         OA_CHECK(!hud::menu_item_label(hud::Sheet::phone_menu, item).empty());
-    OA_CHECK(hud::menu_item_label(hud::Sheet::phone_menu, 4).empty());
+    OA_CHECK(hud::menu_item_label(hud::Sheet::phone_menu, 5).empty());
+    OA_CHECK(hud::menu_item_label(hud::Sheet::phone_menu, 4) == "PHOTO MODE");
     OA_CHECK(hud::menu_item_label(hud::Sheet::more, 0).empty());
     OA_CHECK(hud::menu_item_label(hud::Sheet::drawer, 0).empty());
     OA_CHECK(hud::menu_item_label(hud::Sheet::select_menu, 0) == "ALL");
@@ -2116,6 +2162,7 @@ int main() {
     phone_drawer_lays_out_its_cells();
     phone_more_sheet_lays_out_its_cells();
     phone_menus_open_beside_their_buttons();
+    phone_menu_fits_when_controls_are_large();
     phone_scales_with_pixels_per_point();
     looks_never_move_rectangles();
     left_handed_mirrors_the_controls();

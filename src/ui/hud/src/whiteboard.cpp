@@ -254,7 +254,7 @@ uint32_t whiteboard_apply_batch(
 std::string whiteboard_echo_line(const World& world, uint8_t color, const std::string& text) {
     for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
         const Player& player = world.game.players[slot];
-        if (player.in_use == 0 || player_dot_color(world, slot) != color)
+        if (player.in_use == 0 || stock_dot_color(world, slot) != color)
             continue;
         const std::string name(player.name, ::strnlen(player.name, sizeof player.name));
         return text.empty() ? "*" + name + " added a new marker" : "*" + name + ": " + text;

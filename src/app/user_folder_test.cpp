@@ -185,6 +185,39 @@ void recordings_go_in_the_folder_of_the_mod_played() {
     );
 }
 
+void recordings_being_made_are_streamed_beside_the_recordings() {
+    const fs::path user = fs::current_path().root_path() / "player" / "Open Annihilation";
+    const fs::path partial = user / "Recordings" / ".replays" / "partial";
+    // Each mod's games in a folder of their own there, as in Recordings; a mod's id is
+    // kebab-case, so no mod's folder is ever named .replays.
+    OA_CHECK(oa::app::recordings_partial_root(user) == partial);
+    OA_CHECK(oa::app::recordings_partial_folder(user, {}) == partial / "default");
+    OA_CHECK(oa::app::recordings_partial_folder(user, "my-mod") == partial / "my-mod");
+    OA_CHECK(oa::app::recordings_partial_folder(user, "default") == partial / "default (mod)");
+    OA_CHECK(
+        oa::app::replays_folder_name == ".replays" && oa::app::partial_folder_name == "partial"
+    );
+}
+
+void the_setting_keeps_every_game_unless_it_says_off() {
+    oa::platform::preferences::Values values;
+    OA_CHECK(oa::app::replays_record_preference == "open-annihilation.replays.record");
+    OA_CHECK(oa::app::replays_keep_preference == "open-annihilation.replays.keep");
+    OA_CHECK(
+        oa::app::replays_retention_asked_preference == "open-annihilation.replays.retention-asked"
+    );
+    // On by default, on for any text but the word off.
+    OA_CHECK(oa::app::replays_record_setting(values));
+    values[std::string(oa::app::replays_record_preference)] = "on";
+    OA_CHECK(oa::app::replays_record_setting(values));
+    values[std::string(oa::app::replays_record_preference)] = "0";
+    OA_CHECK(oa::app::replays_record_setting(values));
+    values[std::string(oa::app::replays_record_preference)] = "";
+    OA_CHECK(oa::app::replays_record_setting(values));
+    values[std::string(oa::app::replays_record_preference)] = "off";
+    OA_CHECK(!oa::app::replays_record_setting(values));
+}
+
 void the_recordings_move_once_and_overwrite_nothing(const fs::path& scratch) {
     const fs::path root = scratch / "recordings" / "preferences";
     const fs::path user = scratch / "recordings" / "Open Annihilation";
@@ -600,6 +633,8 @@ int main() {
     the_folder_is_chosen_in_order();
     each_mod_has_its_own_folders(scratch);
     recordings_go_in_the_folder_of_the_mod_played();
+    recordings_being_made_are_streamed_beside_the_recordings();
+    the_setting_keeps_every_game_unless_it_says_off();
     free_names_keep_both_files();
     the_saved_games_move_once_and_overwrite_nothing(scratch);
     the_saved_games_loose_in_saves_move_into_default(scratch);

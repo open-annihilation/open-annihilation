@@ -28,7 +28,7 @@ using CtxNewFn = SslCtx* (*)(const void*);
 using CtxFreeFn = void (*)(SslCtx*);
 using CtxVerifyFn = void (*)(SslCtx*, int, int (*)(int, void*));
 using CtxPathsFn = int (*)(SslCtx*);
-using CtxMinFn = int (*)(SslCtx*, int);
+using CtxCtrlFn = long (*)(SslCtx*, int, long, void*);
 using SslNewFn = Ssl* (*)(SslCtx*);
 using SslFreeFn = void (*)(Ssl*);
 using SetFdFn = int (*)(Ssl*, int);
@@ -53,7 +53,7 @@ struct Openssl {
     CtxFreeFn ctx_free = nullptr;
     CtxVerifyFn ctx_verify = nullptr;
     CtxPathsFn ctx_paths = nullptr;
-    CtxMinFn ctx_min = nullptr;
+    CtxCtrlFn ctx_ctrl = nullptr;
     SslNewFn ssl_new = nullptr;
     SslFreeFn ssl_free = nullptr;
     SetFdFn set_fd = nullptr;
@@ -117,7 +117,9 @@ bool bind_pair(const char* ssl_name, const char* crypto_name) {
     g_ssl.ctx_free = load_symbol<CtxFreeFn>(g_ssl.ssl, "SSL_CTX_free");
     g_ssl.ctx_verify = load_symbol<CtxVerifyFn>(g_ssl.ssl, "SSL_CTX_set_verify");
     g_ssl.ctx_paths = load_symbol<CtxPathsFn>(g_ssl.ssl, "SSL_CTX_set_default_verify_paths");
-    g_ssl.ctx_min = load_symbol<CtxMinFn>(g_ssl.ssl, "SSL_CTX_set_min_proto_version");
+    // SSL_CTX_set_min_proto_version is a macro over SSL_CTX_ctrl in OpenSSL
+    // 1.1 and 3, not a symbol either library exports.
+    g_ssl.ctx_ctrl = load_symbol<CtxCtrlFn>(g_ssl.ssl, "SSL_CTX_ctrl");
     g_ssl.ssl_new = load_symbol<SslNewFn>(g_ssl.ssl, "SSL_new");
     g_ssl.ssl_free = load_symbol<SslFreeFn>(g_ssl.ssl, "SSL_free");
     g_ssl.set_fd = load_symbol<SetFdFn>(g_ssl.ssl, "SSL_set_fd");
@@ -132,7 +134,7 @@ bool bind_pair(const char* ssl_name, const char* crypto_name) {
     g_ssl.get_param = load_symbol<GetParamFn>(g_ssl.ssl, "SSL_get0_param");
     g_ssl.set_ip = load_symbol<SetIpFn>(g_ssl.crypto, "X509_VERIFY_PARAM_set1_ip_asc");
     if (g_ssl.method == nullptr || g_ssl.ctx_new == nullptr || g_ssl.ctx_free == nullptr ||
-        g_ssl.ctx_verify == nullptr || g_ssl.ctx_paths == nullptr || g_ssl.ctx_min == nullptr ||
+        g_ssl.ctx_verify == nullptr || g_ssl.ctx_paths == nullptr || g_ssl.ctx_ctrl == nullptr ||
         g_ssl.ssl_new == nullptr || g_ssl.ssl_free == nullptr || g_ssl.set_fd == nullptr ||
         g_ssl.set_host == nullptr || g_ssl.ctrl == nullptr || g_ssl.connect_state == nullptr ||
         g_ssl.handshake == nullptr || g_ssl.get_error == nullptr ||
@@ -151,11 +153,13 @@ bool bind_pair(const char* ssl_name, const char* crypto_name) {
     }
     constexpr int verify_peer = 1;
     constexpr int tls_1_2 = 0x0303;
+    // SSL_CTX_set_min_proto_version: SSL_CTRL_SET_MIN_PROTO_VERSION.
+    constexpr int set_min_proto_version = 123;
     g_ssl.ctx_verify(ctx, verify_peer, nullptr);
     // The system's store. A failure here still leaves verification on, so a
     // certificate with no trusted root is rejected.
     (void)g_ssl.ctx_paths(ctx);
-    if (g_ssl.ctx_min(ctx, tls_1_2) != 1) {
+    if (g_ssl.ctx_ctrl(ctx, set_min_proto_version, tls_1_2, nullptr) != 1) {
         g_ssl.ctx_free(ctx);
         drop_libraries();
         return false;

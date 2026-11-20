@@ -36,6 +36,10 @@ struct DirectorPresentation {
     /// processor. Its pixels differ from one driver to the next, so its
     /// frames are never pinned.
     bool full{};
+    /// The frame uses the player's Gamma table. Off, the default, keeps the
+    /// table director mode has always used, so a director's frames stay as
+    /// they were. A photo sets it, and only a photo.
+    bool player_gamma{false};
 };
 
 /// A sound the match plays in director mode.

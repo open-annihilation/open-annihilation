@@ -44,6 +44,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -240,7 +241,7 @@ def skirmish(native, game_dir, workdir, name, local_side, mod_dir=None, language
     enemy_side = 0 if local_side == 1 else 1
     chosen = f"\"open-annihilation.language\" \"{language}\"\n" if language else ""
     (workdir / f"{name}.conf").write_text(
-        "open-annihilation-preferences 1\n"
+        "open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
         f"\"Total Annihilation\\\\Skirmish|Player0Side\" \"{local_side}\"\n"
         f"\"Total Annihilation\\\\Skirmish|Player1Side\" \"{enemy_side}\"\n" + chosen)
     snapshot = workdir / f"{name}.ppm"

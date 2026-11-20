@@ -42,7 +42,16 @@ using MeasureText = int32_t (*)(void* context, const char* text);
 /// Copies `text` into `out`, breaking before the word that first makes a line
 /// reach `width`; breaks are found only at a following space, hyphen or
 /// newline and are written as CR LF, the CR replacing the separator (so a
-/// hyphen at a break is lost). A word longer than the line is left unbroken.
+/// hyphen at a break is lost, as in 3.1c). A word longer than the line is
+/// left unbroken.
+///
+/// With `keep_hyphen`, as for rows the modern fonts draw, a hyphen a row
+/// breaks at stays at the end of its row, before the CR LF, and a row that
+/// would reach `width` once that hyphen joined it breaks before its word
+/// instead, as it would for a longer word. A space at a break is still
+/// dropped. A text with Chinese, Japanese or Korean characters never breaks
+/// at a hyphen, so `keep_hyphen` leaves it alone.
+///
 /// A text with Chinese, Japanese or Korean characters breaks where the line
 /// breaker lets it (oa::base::text::first_row), before a row reaches
 /// `width`: at its spaces, between Chinese or Japanese characters, which are
@@ -58,6 +67,7 @@ using MeasureText = int32_t (*)(void* context, const char* text);
 /// @param context Context passed to `measure`.
 /// @param[out] out Destination buffer; cleared first.
 /// @param capacity Size of `out` in bytes; the output stops short of it.
+/// @param keep_hyphen Whether a hyphen at a break stays at the end of its row.
 /// @return Output length in bytes; 0 for no capacity.
 std::size_t wrap_text(
     const char* text,
@@ -65,7 +75,8 @@ std::size_t wrap_text(
     MeasureText measure,
     void* context,
     char* out,
-    std::size_t capacity
+    std::size_t capacity,
+    bool keep_hyphen = false
 );
 
 /// Closes and reopens a colour span around every line break inside it so each row carries balanced markers.
@@ -101,6 +112,10 @@ struct BriefingRegion {
     /// letters; 0 for rows the game's font draws, which the region holds as
     /// many of as its height has whole lines.
     int32_t row_reach{};
+    /// Whether a hyphen a row breaks at stays at the end of its row, as it
+    /// does in rows the modern fonts draw; the game's font loses it, as in
+    /// 3.1c (wrap_text).
+    bool keep_hyphen{};
 };
 
 struct BriefingRow {
@@ -146,9 +161,13 @@ void briefing_pager_reset(BriefingPager* pager, const char* text);
 /// one per line; every colour span adds a blinking highlight positioned
 /// after the row text before it. A page holds as many rows as the region's
 /// height has whole lines; with a row_reach, only those whose line ends
-/// inside the region, and at least one. The MOREBAR label becomes MORE...
-/// while a further page exists, BACK TO START on the last of several pages,
-/// or nothing.
+/// inside the region, and at least one. A line feed ends its row wherever it
+/// stands, right after a highlight's closing marker included, so a briefing
+/// with line feeds alone, not CR LF, lays the highlighted line out as a row
+/// of its own. A line feed after a CR that a marker took as its colour code
+/// (a highlight left open across a blank line) is laid out as 3.1c lays it
+/// out. The MOREBAR label becomes MORE... while a further page exists, BACK
+/// TO START on the last of several pages, or nothing.
 ///
 /// @param[in,out] pager Paging state; its page advances.
 /// @param region TextRegion position, height and line height in pixels.

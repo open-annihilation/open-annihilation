@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -77,6 +78,18 @@ class ProgressWindow {
     /// Lets a later show open the installed font files again.
     void allow_installed_files();
 
+    /// Opens the font files from `directory` in place of the folder beside
+    /// this program, from the next time the window opens them: a helper
+    /// running from a copy outside the install draws with the install's.
+    ///
+    /// @param directory the font folder
+    void use_font_directory(std::filesystem::path directory);
+
+    /// The folder the window opens its font files from.
+    ///
+    /// @return the folder `use_font_directory` named, else the one beside this program
+    [[nodiscard]] std::filesystem::path font_directory() const;
+
   private:
 
     struct Shown;
@@ -84,6 +97,7 @@ class ProgressWindow {
     bool unavailable_{};
     bool display_open_{};
     bool hold_files_{false};
+    std::filesystem::path font_directory_{}; ///< empty for the folder beside this program
     Log* log_{};
     int64_t started_ms_{};
 };

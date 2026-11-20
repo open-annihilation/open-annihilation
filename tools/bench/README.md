@@ -27,12 +27,15 @@ installation):
 tools/bench/run.sh build/open-annihilation.app tools/bench/turning.bench runs/turning-1
 ```
 
-The game opens its window, plays the main menu for a second, starts the
-skirmish, plays the stage into it, warms up to tick 600 and measures. It
-prints a line each second and closes when it is done. `runs/turning-1`
-then holds `bench.txt`, the bench's lines, the game's `log.txt` and, on
-macOS, `shot.png`, the window halfway through. Keep the machine otherwise
-idle while it runs, and leave the window uncovered.
+The game opens its window and brings it to the front, plays the main menu
+for a second, starts the skirmish, plays the stage into it, warms up to
+tick 600 and measures. It prints a line each second and closes when it is
+done. `runs/turning-1` then holds `bench.txt`, the bench's lines, the
+game's `log.txt` and, on macOS, `shot.png`, the window halfway through.
+Keep the machine otherwise idle while it runs, and leave the window
+uncovered and in front: a covered window's frames wait for the window
+system (on macOS about a second each), and a span with frames drawn
+without the focus prints an `AWAY` line.
 
 To compare builds, give each a name; the views run in turn, the builds back
 to back, two rounds unless `--runs` says otherwise:

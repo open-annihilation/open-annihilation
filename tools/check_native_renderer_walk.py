@@ -32,6 +32,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -54,6 +55,24 @@ FRAMES = "1"
 RUN_TIMEOUT = 900
 
 
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding="utf-8") if target.is_file() else "open-annihilation-preferences 1\n"
+    if "open-annihilation.update-check" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.update-check" "never"\n'
+    if "open-annihilation.content-updates" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding="utf-8")
+
+
 def start(args, workdir, name, render_driver):
     """Start the game once; return its exit status and its output's lines."""
     environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy")
@@ -61,6 +80,7 @@ def start(args, workdir, name, render_driver):
     environment.pop("SDL_FRAMEBUFFER_ACCELERATION", None)
     if render_driver is not None:
         environment["SDL_RENDER_DRIVER"] = render_driver
+    _offline_preferences(workdir / f"{name}.conf")
     result = subprocess.run(
         [*RUNNER, str(args.native.resolve()), "--game-dir", str(args.game_dir.resolve()),
          "--skip-intro", "--mute", "--frames", FRAMES,

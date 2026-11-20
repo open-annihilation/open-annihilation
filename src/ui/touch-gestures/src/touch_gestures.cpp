@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The gesture recogniser (touch_gestures.hpp): one finger gives presses,
-// taps, double taps, holds and drags; two give pans, pinches and two-finger
-// taps. Time comes only from the reports and advance().
+// taps, double taps, holds and drags; two give pans, pinches, twists and
+// two-finger taps. Time comes only from the reports and advance().
 #include "oa/ui/touch_gestures.hpp"
 
 #include <algorithm>
@@ -21,6 +21,21 @@ constexpr double ns_per_second = 1'000'000'000.0;
 constexpr uint64_t pan_velocity_window_ms = 100;
 /// The smallest spread a pinch scale divides by, in canvas pixels.
 constexpr float min_spread_px = 1.0f;
+/// Pi, for wrapping a turn into half a circle either way.
+constexpr float kPi = 3.14159265f;
+/// A full turn, in radians.
+constexpr float kTwoPi = 6.28318531f;
+
+/// Wraps a radian delta into the range -pi..pi.
+///
+/// @param radians the delta
+/// @return the wrapped delta
+float wrap_radians(float radians) noexcept {
+    float wrapped = std::fmod(radians + kPi, kTwoPi);
+    if (wrapped < 0.0f)
+        wrapped += kTwoPi;
+    return wrapped - kPi;
+}
 
 /// Returns the distance between two points.
 ///
@@ -198,6 +213,31 @@ void Recogniser::move_pair(int slot, uint64_t now_ns, GestureBatch& batch) noexc
         batch.push(moved);
         pinch_spread_ = now_spread;
     }
+    // Twist is off unless a caller asks for it. The same both-fingers gate as
+    // the pinch: one finger's report alone is not a turn.
+    if (!(active_.twist_degrees > 0.0f))
+        return;
+    const float now_angle = pair_angle();
+    if (!twisting_) {
+        const float degrees = wrap_radians(now_angle - pair_start_angle_) * (180.0f / kPi);
+        if (std::fabs(degrees) >= active_.twist_degrees) {
+            twisting_ = true;
+            pair_tap_allowed_ = false;
+            batch.push(gesture_at(GestureKind::twist_began, centre_x, centre_y, now_ns));
+            Gesture moved = gesture_at(GestureKind::twist_moved, centre_x, centre_y, now_ns);
+            moved.turn = degrees;
+            batch.push(moved);
+            twist_angle_ = now_angle;
+        }
+    } else {
+        const float degrees = wrap_radians(now_angle - twist_angle_) * (180.0f / kPi);
+        if (degrees != 0.0f) {
+            Gesture moved = gesture_at(GestureKind::twist_moved, centre_x, centre_y, now_ns);
+            moved.turn = degrees;
+            batch.push(moved);
+            twist_angle_ = now_angle;
+        }
+    }
 }
 
 void Recogniser::lift_tap(uint64_t now_ns, GestureBatch& batch) noexcept {
@@ -231,6 +271,9 @@ void Recogniser::start_pair(uint64_t now_ns, bool tap_allowed) noexcept {
     pinch_spread_ = pair_start_spread_;
     panning_ = false;
     pinching_ = false;
+    twisting_ = false;
+    pair_start_angle_ = pair_angle();
+    twist_angle_ = pair_start_angle_;
     pair_tap_allowed_ = tap_allowed;
     pinch_pending_ = {};
     pair_down_ns_ = now_ns;
@@ -291,6 +334,12 @@ float Recogniser::spread() const noexcept {
     if (finger_count_ < 2)
         return 0.0f;
     return distance(fingers_[0].x, fingers_[0].y, fingers_[1].x, fingers_[1].y);
+}
+
+float Recogniser::pair_angle() const noexcept {
+    if (finger_count_ < 2)
+        return 0.0f;
+    return std::atan2(fingers_[1].y - fingers_[0].y, fingers_[1].x - fingers_[0].x);
 }
 
 void Recogniser::drop_finger(int slot) noexcept {
@@ -406,9 +455,13 @@ GestureBatch Recogniser::finger(FingerPhase phase, const FingerSample& sample) n
                     gesture_at(GestureKind::pinch_ended, pair_lift_x_, pair_lift_y_, now_ns)
                 );
             }
+            if (twisting_)
+                batch.push(
+                    gesture_at(GestureKind::twist_ended, pair_lift_x_, pair_lift_y_, now_ns)
+                );
             const uint64_t window_ns = uint64_t{active_.two_finger_tap_ms} * ns_per_ms;
-            pair_tap_allowed_ =
-                pair_tap_allowed_ && !panning_ && !pinching_ && now_ns - pair_down_ns_ <= window_ns;
+            pair_tap_allowed_ = pair_tap_allowed_ && !panning_ && !pinching_ && !twisting_ &&
+                                now_ns - pair_down_ns_ <= window_ns;
             drop_finger(slot);
             mode_ = Mode::two_lifting;
             return batch;

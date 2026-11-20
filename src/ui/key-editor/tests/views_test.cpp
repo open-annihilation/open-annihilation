@@ -388,7 +388,8 @@ void clicks() {
         board.state.selected = "order.repair";
         board.show();
         const std::string before = oakeys::write_bindings_text(board.model.result().manifest);
-        board.click(key_name("F9"));
+        // F9 opens photo mode, so the free named key is F10.
+        board.click(key_name("F10"));
         OA_CHECK(board.state.prompt == editor::Prompt::none);
         board.show();
         board.click(editor::name_card_use);
@@ -397,7 +398,7 @@ void clicks() {
         OA_CHECK(board.state.prompt == editor::Prompt::capture);
         OA_CHECK(chord != nullptr);
         OA_CHECK(chord->kind == keys::TriggerKind::named);
-        OA_CHECK(chord->named == static_cast<uint8_t>(keys::NamedKey::f9));
+        OA_CHECK(chord->named == static_cast<uint8_t>(keys::NamedKey::f10));
         OA_CHECK(chord->modifiers == 0);
         OA_CHECK(board.state.capture.means == acts::By::place);
         OA_CHECK(board.state.capture.state == editor::CaptureState::complete);
@@ -416,6 +417,36 @@ void mouse_schemes() {
     OA_CHECK(playing_role(right, "Left", "Select"));
     OA_CHECK(playing_role(right, "Right", "Command"));
     OA_CHECK(playing_role(left, "Left", "Command"));
+    OA_CHECK(playing_role(right, "Middle", "Pan"));
+    bool photo_pan = false;
+    bool playing_left_pan = false;
+    for (const editor::RoleLine& row : right) {
+        if (row.place_id == "playing" && row.button == "Left" && row.role == "Pan")
+            playing_left_pan = true;
+        if (row.place_id == "photo" && row.place == "In photo mode" && row.button == "Left" &&
+            row.role == "Pan" && row.action == "photo.pan")
+            photo_pan = true;
+    }
+    OA_CHECK(photo_pan);
+    OA_CHECK(!playing_left_pan);
+    const kit::MouseLook right_caps = editor::mouse_look(model, keys::PointerScheme::right_click);
+    const std::string& left_sub =
+        right_caps.buttons[static_cast<std::size_t>(kit::MouseButton::left)].sub;
+    // "Pan camera" stays on Alt+Left. photo.pan's own role, "Pan", does not.
+    const auto listed_role = [](std::string_view text, std::string_view name) {
+        while (!text.empty()) {
+            const std::size_t cut = text.find(" · ");
+            const std::string_view part =
+                cut == std::string_view::npos ? text : text.substr(0, cut);
+            if (part == name)
+                return true;
+            if (cut == std::string_view::npos)
+                break;
+            text.remove_prefix(cut + 3);
+        }
+        return false;
+    };
+    OA_CHECK(!listed_role(left_sub, "Pan"));
     const kit::MouseLook right_look = editor::mouse_look(model, keys::PointerScheme::right_click);
     const kit::MouseLook left_look = editor::mouse_look(model, keys::PointerScheme::left_click);
     OA_CHECK(

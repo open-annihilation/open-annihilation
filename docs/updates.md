@@ -347,7 +347,15 @@ details.
 The release is then held: it is not offered, downloaded or installed by
 itself, and a scheduled install is taken back, until you press Try again
 here, on Settings › Updates or in the update centre
-(`open-annihilation.update-held`). A newer release is offered as usual. A
+(`open-annihilation.update-held`).
+
+With more than one copy of the game open, each copy hands a release to
+the helper only while nothing has changed since it started or since it
+showed you a receipt. A copy you close after another copy's quit started
+the helper, while that helper is at work or after it has finished, closes
+without starting anything: a release that helper could not install is
+held in that copy's settings too, and one it installed is no longer
+scheduled. The next start shows how that helper's run went, once. A newer release is offered as usual. A
 receipt the helper left running for ten minutes was cut short and reads as
 recovery that could not finish.
 
@@ -402,7 +410,13 @@ the [preferences](../src/platform/preferences/README.md).
 
 When a verified package is scheduled for the quit and you quit, or you
 choose to install it now, the game writes a plan and starts `oa-update`,
-then quits. The helper waits until the game has left. It
+then quits. The helper waits until the game has left, and until every other
+program started from the same folder has closed: another copy of the game,
+which a script may have started beside it, or one of its tools. While one is
+open the window says "Close the other Open Annihilation windows." If one is
+still open after a minute, nothing is changed, the version you had is not
+started again, since it is still open, and the next start shows that the
+update was not installed, with **Try again**. The helper then
 checks the saved feed's signature against the keys this build pins, that
 the feed names the channel the game fetched it for, and the downloaded
 package's name, size and SHA-256 against that feed. A
@@ -419,9 +433,16 @@ itself." A swap that finishes quickly shows no window.
 The version you had is kept, and a copy of the preferences file sits in
 `updates/previous`. `updates/state.json` records what is installed and what
 was kept. On Windows, an installed copy keeps the program files in
-`updates/previous` and then runs the new setup. If you decline the
+`updates/previous` and then runs the new setup, from a copy of the helper
+in the updates folder so that the setup replaces the helper too. The setup
+also moves aside a helper still running from the game's folder, so a copy
+whose helper is older than this is given the new helper by its next update. If you decline the
 permission prompt, nothing changes and the game says "The update was
-cancelled." A zip copy keeps the program files in `previous` beside the
+cancelled." If the setup fails, the helper puts those files back; where
+your account cannot change the game's folder, as in Program Files, Windows
+asks for permission for that too. If you decline it, the files stay
+half-moved, the game says recovery did not finish, and the next update
+asks again before it does anything else. A zip copy keeps the program files in `previous` beside the
 game. On Windows 95, 98 and Me the window says "Restart Windows to finish
 installing {version}." and the game waits for that restart. On the other
 systems the game starts again. If a step fails after the helper has

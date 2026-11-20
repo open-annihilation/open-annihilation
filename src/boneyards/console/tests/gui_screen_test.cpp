@@ -307,7 +307,7 @@ void check_sample(Desktop* desktop) {
     press_key(gui_screen_root(screen), key::enter);
     CHECK(fires == 1);
     press_key(gui_screen_root(screen), key::escape);
-    CHECK(fires == 1);
+    CHECK(fires == 2);
     CHECK(std::strcmp(gui_screen_fired_name(screen), "Spot") == 0);
     CHECK(std::strcmp(gui_screen_fired_action(screen), "goto:sample_hot") == 0);
 

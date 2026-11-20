@@ -110,7 +110,9 @@ card that shows, its text the map's game name, its word `card_word` of
 that name, with `-2`, `-3`… added in grid order to a word already taken;
 `maps-cancel`; `maps-select`, its text "Select", "Download and select" or
 "Downloading…"; and `maps-close`. A part is listed as `oa.` and the
-control's name, a dot, and the part's word (`oa.maps-players.4`).
+control's name, a dot, and the part's word (`oa.maps-players.4`). The
+source pills' group is listed as `maps-filters` and the cards' as
+`maps-cards`, each a list with the pills or the cards as its set.
 
 ## State
 
@@ -132,13 +134,16 @@ picture refers to its pixels, valid until the host decodes again.
   part is a kit component or a generic part of the kit's display list,
   every colour a kit token.
 - Two controls never share a name, and `kit::name_problem` finds nothing.
-- The arrows move the focus by where the controls lie (`kit::focus_toward`),
-  in the grid and between the bands. Left and Right on a players or size
-  strip step its choice and stop at the ends. Tab follows the source pills,
-  the players strip, the sizes strip, the search, the grid (entered at the
-  selected card, else the first), Cancel, the primary button and the close
-  mark. Enter and Space on a strip leave its choice and do not accept the
-  dialog. The close mark closes the browser as Cancel does.
+- The arrows move the focus by where the controls lie (`kit::focus_toward`)
+  between the stops. The source pills are one stop and the cards are one
+  grid: the arrows move inside each, and Up from the first row of cards
+  stays there. Left and Right on a players or size strip step its choice
+  and stop at the ends. Home and End scroll the grid. Tab follows the
+  source pills, the players strip, the sizes strip, the search, the grid
+  (entered at the selected card, else the first), Cancel, the primary
+  button and the close mark. Enter and Space on a strip leave its choice
+  and do not accept the dialog. The close mark closes the browser as
+  Cancel does.
 - Every card that shows is a control, scrolled out of view or not, clipped
   to the grid's view, so the arrows reach every card and a card a press
   cannot reach is never pressed.
@@ -164,8 +169,10 @@ columns; nothing outside the window, scrolled to the top and the end,
 downloading and failed; the footer's buttons; every automation name, sound
 and unique, and two maps whose names give one word told apart by `-2`; the
 pictures asked for only for the cards in view and the next row, counted on
-fake hooks; the focus moving right, left and down by geometry, and up out of
-the grid; Tab in the declared order, into the grid at the selected card;
+fake hooks; the focus moving right, left and down inside the card grid, and
+up from the first row staying there; Tab through the eight stops, into the
+grid at the selected card; Right along the source pills stopping at
+Downloads, and the strips stepping;
 what presses, taps, the keys, typing and the wheel and a drag do; the
 scroll bar's thumb dragged down and above the well, a press at the well's
 foot reaching the end as End does, and a finger dragging the thumb.

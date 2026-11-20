@@ -2,11 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   The macOS bundle's properties, configured when the build is configured
-  (cmake/OaGameBundle.cmake). The bundle declares the eight file types as its own
-  (UTExportedTypeDeclarations) and opens each as its owner (CFBundleDocumentTypes), so
-  that opening one in the Finder starts the game: a mod package (.oamod), a language pack
-  (.oalang), a map pack (.oamap), a mutator package (.oamut), a brain package (.oabrain), a
-  key layout package (.oakeys), a registry file (.oareg) and a launch file (.oalaunch).
+  (cmake/OaGameBundle.cmake). The bundle declares the eight file types and a replay
+  (.oademo) as its own (UTExportedTypeDeclarations) and opens each as its owner
+  (CFBundleDocumentTypes), so that opening one in the Finder starts the game: a mod package
+  (.oamod), a language pack (.oalang), a map pack (.oamap), a mutator package (.oamut), a
+  brain package (.oabrain), a key layout package (.oakeys), a registry file (.oareg), a
+  launch file (.oalaunch) and a replay (.oademo). A TA Demo recording (.tad) is imported
+  and offered (LSHandlerRank Alternate), never owned.
   Each of the first seven conforms to public.data, not public.zip-archive or public.archive,
   although a package is a zip: as a zip, a browser that opens safe files after downloading
   them, and archive tools, would unpack it instead of handing it to the game. A registry file
@@ -47,6 +49,30 @@
 	<string>Open Annihilation keeps your saved games, screenshots, films, recordings and mods in the Open Annihilation folder in Documents.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>net.coreprime.open-annihilation.tad</string>
+			<key>UTTypeDescription</key>
+			<string>TA Demo recording</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>tad</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-ta-demo</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
@@ -217,6 +243,27 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>net.coreprime.open-annihilation.oademo</string>
+			<key>UTTypeDescription</key>
+			<string>Open Annihilation replay</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>oademo</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-oademo</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
@@ -342,6 +389,38 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>net.coreprime.open-annihilation.oalaunch</string>
+			</array>
+			<key>CFBundleTypeIconSystemGenerated</key>
+			<integer>1</integer>
+			<key>CFBundleTypeIconFile</key>
+			<string>${MACOSX_BUNDLE_ICON_FILE}</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Open Annihilation replay</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>net.coreprime.open-annihilation.oademo</string>
+			</array>
+			<key>CFBundleTypeIconSystemGenerated</key>
+			<integer>1</integer>
+			<key>CFBundleTypeIconFile</key>
+			<string>${MACOSX_BUNDLE_ICON_FILE}</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>TA Demo recording</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>net.coreprime.open-annihilation.tad</string>
 			</array>
 			<key>CFBundleTypeIconSystemGenerated</key>
 			<integer>1</integer>

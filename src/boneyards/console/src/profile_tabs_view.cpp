@@ -209,6 +209,11 @@ screens::ByRadioGroup* radio_group(
     );
     group->play_sound = play_group_sound;
     group->sound_user = owner;
+    // The group window is the parent, so this id does not meet Arm and Core.
+    for (int32_t i = 0; i < group->count; ++i) {
+        if (group->members[i] != nullptr)
+            group->members[i]->base.radio_group = 1;
+    }
     return group;
 }
 
@@ -390,6 +395,8 @@ void build_allegiance(ProfileTabWindows* w, ProfileView* view, const screens::Ha
     window_set_state_image(w->core_insignia, 0, view->core_insignia);
     screens::lobby_radio_add_member(w->core, arm);
     screens::lobby_radio_add_member(w->arm, core);
+    arm->radio_group = 1;
+    core->radio_group = 1;
     w->allegiance_page = html_view_create(
         view->owner, self, l::allegiance_x, l::page_y, l::page_width, l::page_height
     );
@@ -762,6 +769,10 @@ void profile_tabs_follow(
     for (int32_t tab = 0; tab < static_cast<int32_t>(screens::kProfileTabCount); ++tab) {
         if (model->tab_created[tab] && !windows->built[tab]) {
             build_tab(windows, console, *model, tab);
+            // A new tab is appended after APPLY and RESET. They belong after
+            // the tab's fields. The list keeps its place when it is raised.
+            window_move_child_last(&console->base, console->apply);
+            window_move_child_last(&console->base, console->reset);
             windows->shown_revision[tab] = model->tab_revision[tab] - 1;
         }
         if (!windows->built[tab])

@@ -4,12 +4,14 @@
 // The Boneyards entry's decisions before the package, over a preferences
 // map that stands in for the player's file and a carried request that
 // stands in for the one the restart reads: the online features asked about,
-// Turn on storing both checks and Cancel changing nothing; a newer Open
-// Annihilation asked with Update and Cancel only, Update carrying the entry
-// into the next run or, offered only on its page, opening it; a failed check
-// asking Try again; a quiet run asked nothing, changing no setting; and the
-// registries each kind of run reaches, with the package it then takes.
-// Nothing is fetched.
+// Turn on storing both checks and Cancel changing nothing; a needed install
+// ID asked with those checks or on its own, Turn on clearing only that
+// registry's off key; a newer Open Annihilation asked with Update and
+// Cancel only, Update carrying the entry into the next run or, offered
+// only on its page, opening it; a failed check asking Try again; a quiet
+// run asked nothing, changing no setting; and the registries each kind of
+// run reaches, with the package it then takes. Nothing is fetched.
+#include "oa/app/content/settings.hpp"
 #include "oa/app/expansion_entry.hpp"
 #include "oa/test/check.hpp"
 
@@ -34,6 +36,11 @@ ExpansionEntryAsk boneyards_ask() {
     ask.services_question =
         "The Boneyards needs Open Annihilation's online features: update checks and the content "
         "catalogue. Turn them on and continue?";
+    ask.services_and_id_question =
+        "The Boneyards needs Open Annihilation's online features: update checks, the content "
+        "catalogue and {registry}'s install ID. Turn them on and continue?";
+    ask.install_id_question =
+        "The Boneyards needs {registry}'s install ID turned on. Turn it on and continue?";
     ask.turn_on_label = "Turn on";
     ask.retry_question = "Open Annihilation could not check for updates.";
     ask.retry_label = "Try again";
@@ -94,6 +101,94 @@ void test_online_features_off() {
     turn_on_online_checks(mixed);
     OA_CHECK(mixed[std::string(kUpdateCheckKey)] == "when-asked");
     OA_CHECK(mixed[std::string(kCatalogueCheckKey)] == "automatically");
+}
+
+/// One combination of the two checks and the picked registry's install ID.
+///
+/// @param updates_off the update check is Never
+/// @param catalogue_off the catalogue check is Never
+/// @param needed the picked registry requires an install ID
+/// @param id_off that registry's install ID is off
+/// @param quiet a quiet run, which logs the question and changes nothing
+void expect_services(bool updates_off, bool catalogue_off, bool needed, bool id_off, bool quiet) {
+    OnlineChecks checks;
+    checks.updates = !updates_off;
+    checks.catalogue = !catalogue_off;
+    const InstallIdFeature feature{needed, id_off};
+    const EntryWay way = quiet ? EntryWay::quiet : EntryWay::player;
+    const NamedServices named = named_services(checks, feature, way);
+    const bool checks_off = updates_off || catalogue_off;
+    const bool id_in = needed && id_off;
+    const ServicesDecision want = !checks_off && !id_in ? ServicesDecision::proceed
+                                  : quiet               ? ServicesDecision::note
+                                                        : ServicesDecision::ask;
+    std::fprintf(
+        stderr,
+        "services updates_off=%d catalogue_off=%d needed=%d id_off=%d quiet=%d\n",
+        updates_off ? 1 : 0,
+        catalogue_off ? 1 : 0,
+        needed ? 1 : 0,
+        id_off ? 1 : 0,
+        quiet ? 1 : 0
+    );
+    OA_CHECK(named.decision == want);
+    OA_CHECK(decide_services(checks, way, feature) == want);
+    if (want == ServicesDecision::proceed) {
+        OA_CHECK(!named.names_updates && !named.names_catalogue && !named.names_install_id);
+        return;
+    }
+    // Either check being off names both. The install ID is named only when
+    // the picked registry requires one and that key is off.
+    OA_CHECK(named.names_updates == checks_off);
+    OA_CHECK(named.names_catalogue == checks_off);
+    OA_CHECK(named.names_install_id == id_in);
+    const ExpansionEntryAsk ask = boneyards_ask();
+    const std::string sentence = services_sentence(ask, named.wording, "Core Prime");
+    if (checks_off && id_in) {
+        OA_CHECK(named.wording == ServicesWording::checks_and_id);
+        OA_CHECK(sentence.find("update checks") != std::string::npos);
+        OA_CHECK(sentence.find("content catalogue") != std::string::npos);
+        OA_CHECK(sentence.find("Core Prime's install ID") != std::string::npos);
+    } else if (id_in) {
+        OA_CHECK(named.wording == ServicesWording::install_id);
+        OA_CHECK(sentence.find("content catalogue") == std::string::npos);
+        OA_CHECK(sentence.find("Core Prime's install ID") != std::string::npos);
+    } else {
+        OA_CHECK(named.wording == ServicesWording::checks);
+        OA_CHECK(sentence == ask.services_question);
+    }
+}
+
+void test_install_id_question() {
+    for (const bool updates_off : {false, true}) {
+        for (const bool catalogue_off : {false, true}) {
+            for (const bool needed : {false, true}) {
+                for (const bool id_off : {false, true}) {
+                    expect_services(updates_off, catalogue_off, needed, id_off, false);
+                    expect_services(updates_off, catalogue_off, needed, id_off, true);
+                }
+            }
+        }
+    }
+
+    // Turn on clears only the registry the entry picked. Another registry's
+    // off key stays. No ID is made here: the download makes one.
+    const std::string picked = content::install_id_key("e01-local");
+    const std::string other = content::install_id_key("coreprime");
+    Preferences values{{picked, "off"}, {other, "off"}};
+    const Preferences before = values;
+    content::turn_install_id_on(values, "e01-local");
+    OA_CHECK(values.find(picked) == values.end());
+    OA_CHECK(values[other] == "off");
+
+    // Cancel changes nothing, including an install ID that is off.
+    Preferences cancelled = before;
+    OnlineChecks kept;
+    kept.updates = false;
+    kept.catalogue = false;
+    OA_CHECK(apply_services_answer(ServicesAnswer::cancel, kept) == ServicesEffect::stay);
+    OA_CHECK(!kept.updates && !kept.catalogue);
+    OA_CHECK(cancelled == before);
 }
 
 void test_newer_release() {
@@ -231,6 +326,7 @@ void test_registry_reach() {
 
 int main() {
     test_online_features_off();
+    test_install_id_question();
     test_newer_release();
     test_feed_failure();
     test_quiet_runs();

@@ -305,10 +305,11 @@ enum class SpeedItem : uint8_t {
 };
 /// Phone menu items.
 enum class PhoneMenuItem : uint8_t {
-    game_menu, ///< the in-game menu, as F2
-    slower,    ///< the game speed one step down
-    faster,    ///< the game speed one step up
-    chat,      ///< the chat line
+    game_menu,  ///< the in-game menu, as F2
+    slower,     ///< the game speed one step down
+    faster,     ///< the game speed one step up
+    chat,       ///< the chat line
+    photo_mode, ///< photo mode
 };
 /// MORE sheet touch items, in its last row (the order-page gadgets above are placed regions).
 enum class MoreItem : uint8_t {

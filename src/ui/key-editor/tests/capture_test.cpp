@@ -225,6 +225,56 @@ void button_and_wheel() {
     expect(wheel.state != editor::CaptureState::waiting, "a wheel turn left the capture waiting");
 }
 
+/// The text of the chord one wheel turn finishes.
+///
+/// @param model the editor
+/// @param up true for a turn up
+/// @param modifiers the physical modifiers held with it
+/// @return the chord's text, or "none"
+std::string turned(const editor::Editor& model, bool up, uint8_t modifiers) {
+    editor::Capture capture = begin("game.speed-up");
+    keys::InputEvent turn;
+    turn.kind = keys::InputKind::wheel;
+    turn.wheel_y = up ? int8_t{1} : int8_t{-1};
+    turn.modifiers = modifiers;
+    editor::capture_wheel(capture, model, turn);
+    if (!capture.chord)
+        return "none";
+    return keys::chord_text(*capture.chord);
+}
+
+/// A wheel turn keeps the modifier keys held with it, stored as a key's are:
+/// Ctrl is Primary where Primary is Ctrl, and on a Mac Option is Alt, Ctrl
+/// stays Ctrl and Cmd is Primary.
+void wheel_with_modifiers() {
+    const editor::Editor model(editor_fixture());
+    const auto both = static_cast<uint8_t>(keys::alt | keys::shift);
+    expect(turned(model, true, 0) == "WheelUp", "a plain turn kept a modifier");
+    expect(turned(model, true, keys::alt) == "Alt+WheelUp", "Alt with the wheel was dropped");
+    expect(turned(model, false, keys::alt) == "Alt+WheelDown", "Alt with the wheel was dropped");
+    expect(turned(model, true, keys::shift) == "Shift+WheelUp", "Shift was dropped");
+    expect(turned(model, false, keys::ctrl) == "Primary+WheelDown", "Ctrl is not Primary here");
+    expect(turned(model, true, both) == "Alt+Shift+WheelUp", "Alt and Shift were not both kept");
+
+    editor::EditorInputs inputs = editor_fixture();
+    inputs.platform.primary_is_meta = true;
+    const editor::Editor mac(std::move(inputs));
+    expect(turned(mac, true, keys::alt) == "Alt+WheelUp", "Option with the wheel is not Alt");
+    expect(turned(mac, true, keys::ctrl) == "Ctrl+WheelUp", "Ctrl on a Mac is not Ctrl");
+    expect(turned(mac, true, keys::meta) == "Primary+WheelUp", "Cmd on a Mac is not Primary");
+    editor::Capture option = begin("game.speed-up");
+    keys::InputEvent turn;
+    turn.kind = keys::InputKind::wheel;
+    turn.wheel_y = 1;
+    turn.modifiers = keys::alt;
+    editor::capture_wheel(option, mac, turn);
+    expect(option.state == editor::CaptureState::complete, "Option and the wheel are not free");
+    if (option.chord) {
+        const std::string shown = keys::display_text(*option.chord, mac.keyboard(), mac.platform());
+        expect(shown.find("Option") != std::string::npos, "a Mac names Alt " + shown);
+    }
+}
+
 /// Letter or place follows the registry, and the prompt can switch either, and the gesture.
 void means_and_gestures() {
     editor::Editor model(editor_fixture());
@@ -1219,13 +1269,38 @@ void well_not_the_buttons() {
     editor::editor_command(turning, spinning, unused, editor::EditorCommand::add_key);
     const kit::DisplayList wheel_list = editor::editor_layout(turning, spinning, frame, fonts());
     if (const std::optional<kit::Point> at = centre_named(wheel_list, editor::name_capture_well)) {
-        editor::editor_wheel(turning, spinning, wheel_list, *at, 1.F);
+        editor::editor_wheel(turning, spinning, wheel_list, *at, 1.F, 0);
         expect(spinning.capture.chord.has_value(), "a wheel turn in the well stored no chord");
         if (spinning.capture.chord)
             expect(
                 spinning.capture.chord->kind == keys::TriggerKind::wheel,
                 "the well did not bind the wheel"
             );
+    }
+
+    // A turn with Alt held binds Alt and the wheel, and Use writes it.
+    editor::Editor alt_turn(editor_fixture());
+    editor::ScreenState alt_state;
+    alt_state.selected = "game.speed-up";
+    editor::editor_command(alt_turn, alt_state, unused, editor::EditorCommand::add_key);
+    const kit::DisplayList alt_list = editor::editor_layout(alt_turn, alt_state, frame, fonts());
+    const std::optional<kit::Point> alt_well = centre_named(alt_list, editor::name_capture_well);
+    expect(alt_well.has_value(), "the capture has no well");
+    if (alt_well) {
+        editor::editor_wheel(alt_turn, alt_state, alt_list, *alt_well, -1.F, keys::alt);
+        expect(alt_state.capture.chord.has_value(), "Alt and a turn in the well stored no chord");
+        if (alt_state.capture.chord)
+            expect(
+                keys::chord_text(*alt_state.capture.chord) == "Alt+WheelDown",
+                "the well dropped Alt: " + keys::chord_text(*alt_state.capture.chord)
+            );
+        const kit::DisplayList chosen = editor::editor_layout(alt_turn, alt_state, frame, fonts());
+        if (const std::optional<kit::Point> use = centre_named(chosen, editor::name_capture_ok))
+            click_at(alt_turn, alt_state, chosen, *use);
+        expect(
+            shows_chord(alt_turn, "game.speed-up", "Alt+Wheel down"),
+            "Use did not write Alt and the wheel: " + chord_line(alt_turn, "game.speed-up")
+        );
     }
 }
 
@@ -1234,6 +1309,7 @@ void well_not_the_buttons() {
 int main() {
     held_modifier_then_key();
     button_and_wheel();
+    wheel_with_modifiers();
     means_and_gestures();
     lone_shift();
     escape_timer();

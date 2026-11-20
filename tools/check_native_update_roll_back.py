@@ -10,12 +10,15 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+import native_offline
 
 
 def preferences(path):
     """Writes the preferences one start opens with."""
     lines = [
         "open-annihilation-preferences 1",
+        '"open-annihilation.update-check" "never"',
+        '"open-annihilation.content-updates" "never"',
         '"open-annihilation.language" "en"',
         '"open-annihilation.first-run" "done"',
     ]

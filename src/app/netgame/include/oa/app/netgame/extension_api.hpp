@@ -19,6 +19,7 @@
 #include "oa/netgame/overlay_route.hpp"
 #include "oa/ui/frontend_multiplayer/launch_block.hpp"
 
+#include <cstddef>
 #include <cstdint>
 
 /// The version of network play's API an extension is built against. An
@@ -28,7 +29,7 @@
 /// Raise it by one in the change that alters the contract: a function or
 /// hook added, removed or renamed, or its parameters, its effect or when
 /// network play calls it. A change to wording alone keeps it.
-#define OA_NET_EXTENSION_API_VERSION 3
+#define OA_NET_EXTENSION_API_VERSION 4
 
 namespace oa::data::campaign {
 struct CampaignFile;
@@ -123,6 +124,31 @@ inline constexpr int32_t game_launched = 10; // the host pressed Start
 inline constexpr int32_t interval = 99;
 } // namespace report_event
 
+/// The most members of the object an extension names for a recorded game's kind.
+inline constexpr std::size_t recorded_game_member_limit = 8;
+
+/// One member of the object an extension names for a recorded game's kind: a name and a text.
+struct RecordedGameMember {
+    /// The member's name: letters, digits and underscores, ended by a null.
+    char name[24]{};
+    /// The member's text, UTF-8, ended by a null.
+    char text[128]{};
+};
+
+/// What an extension says of the game a replay is being made of.
+///
+/// A replay's description names the kind of game (`game.kind`), and a game
+/// of a kind an extension names carries an object, under `game`, named for
+/// that kind. This is that kind and the members of that object.
+struct RecordedGame {
+    /// The kind of game, UTF-8, ended by a null: lower-case letters, digits and hyphens.
+    char kind[24]{};
+    /// The members of the kind's object, in order; the first `member_count` are set.
+    RecordedGameMember members[recorded_game_member_limit]{};
+    /// How many of `members` are set.
+    uint32_t member_count{};
+};
+
 /// What an extension adds to network play; with every hook null it adds nothing.
 struct Hooks {
     /// Passed back to every hook; owned by the extension, which keeps it
@@ -188,6 +214,16 @@ struct Hooks {
     /// @param context Hooks::context
     /// @param text the host-not-found text to show
     void (*join_failed)(void* context, const char* text){};
+    /// Asks what the extension says of the game whose recording is starting:
+    /// whether it is one the extension launched, and if so its kind and the
+    /// members of the object that kind names in the replay's description.
+    /// Called once, on the thread that runs main(), as the match starts. Null,
+    /// or a false return, leaves a plain multiplayer game.
+    ///
+    /// @param context Hooks::context
+    /// @param[out] game the kind and members, set only when the hook returns true
+    /// @return true when the extension launched the game and filled `game`
+    bool (*recorded_game)(void* context, RecordedGame* game){};
 };
 
 /// Sets the hooks; called from the extension's init. A second call replaces the first.

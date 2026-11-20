@@ -9,6 +9,7 @@
 // NoticeScreen::placement are empty in a match, so a question, a notice or
 // the name field there is a screen of this file, centred in the match dialog.
 
+#include "device_state.hpp"
 #include "oa_layer.hpp"
 
 #include "oa/app/game_directory.hpp"
@@ -45,7 +46,6 @@
 #include <vector>
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
-#include "oa/ui/kit/input.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -381,6 +381,7 @@ auto question_look(const kit::Question& question) noexcept {
         question.hovered,
         question.pressed,
         question.marked,
+        question.focus_shown,
         question.finger_shift_x,
         question.finger_shift_y
     );
@@ -392,7 +393,12 @@ auto question_look(const kit::Question& question) noexcept {
 /// @return the hover, the press, the mark and a finger's shift
 auto notice_look(const kit::Notice& notice) noexcept {
     return std::make_tuple(
-        notice.hovered, notice.pressed, notice.marked, notice.finger_shift_x, notice.finger_shift_y
+        notice.hovered,
+        notice.pressed,
+        notice.marked,
+        notice.focus_shown,
+        notice.finger_shift_x,
+        notice.finger_shift_y
     );
 }
 
@@ -426,7 +432,12 @@ class MatchPrompt final : public LayerScreen {
         OaLayer& layer, kit::Question asked, Answer answer, std::function<bool()> close_when
     )
         : layer_(layer), question_(std::move(asked)), answer_(std::move(answer)),
-          close_when_(std::move(close_when)) {}
+          close_when_(std::move(close_when)) {
+        // The caller’s marked button stays the default. Return answers it
+        // while the ring is hidden. The ring waits for a key, unless the
+        // preference asks for it.
+        question_.focus_shown = layer_.always_show_focus();
+    }
 
     /// Returns "key-editor-prompt".
     ///
@@ -529,7 +540,7 @@ class MatchPrompt final : public LayerScreen {
     /// @return what the question did
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
         const auto before = question_look(question_);
-        const LayerAnswer answer = take_answer(kit::question_key(question_, pressed));
+        const LayerAnswer answer = take_answer(kit::question_model_key(question_, pressed));
         return note_look(answer, question_look(question_) != before, revision_);
     }
 
@@ -559,7 +570,8 @@ class MatchPrompt final : public LayerScreen {
         shown.hovered = question_.hovered;
         shown.pressed = question_.pressed;
         shown.focused = question_.marked;
-        shown.focus_shown = question_.marked != kit::no_control;
+        shown.focus_shown = question_.focus_shown;
+        shown.pointer_hid_ring = question_.pointer_hid_ring;
         shown.finger_shift = {question_.finger_shift_x, question_.finger_shift_y};
         return shown;
     }
@@ -618,7 +630,11 @@ class MatchNotice final : public LayerScreen {
     /// @param told the notice
     /// @param close_when tells, once a frame, whether the notice must close
     MatchNotice(OaLayer& layer, kit::Notice told, std::function<bool()> close_when)
-        : layer_(layer), notice_(std::move(told)), close_when_(std::move(close_when)) {}
+        : layer_(layer), notice_(std::move(told)), close_when_(std::move(close_when)) {
+        if (!notice_.open_caption.empty())
+            notice_.marked = kit::notice_open;
+        notice_.focus_shown = layer_.always_show_focus();
+    }
 
     /// Returns "key-editor-notice".
     ///
@@ -718,7 +734,7 @@ class MatchNotice final : public LayerScreen {
     /// @return what the notice did
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
         const auto before = notice_look(notice_);
-        const LayerAnswer answer = take_action(kit::notice_key(notice_, pressed));
+        const LayerAnswer answer = take_action(kit::notice_model_key(notice_, pressed));
         return note_look(answer, notice_look(notice_) != before, revision_);
     }
 
@@ -749,7 +765,8 @@ class MatchNotice final : public LayerScreen {
         shown.hovered = notice_.hovered;
         shown.pressed = notice_.pressed;
         shown.focused = notice_.marked;
-        shown.focus_shown = notice_.marked != kit::no_control;
+        shown.focus_shown = notice_.focus_shown;
+        shown.pointer_hid_ring = notice_.pointer_hid_ring;
         shown.finger_shift = {notice_.finger_shift_x, notice_.finger_shift_y};
         return shown;
     }
@@ -1050,13 +1067,16 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         return take(editor::editor_stick(editor_, state_, list_, notches));
     }
 
-    /// Takes a turn of the wheel.
+    /// Takes a turn of the wheel. A turn in the capture's well binds it with
+    /// the modifier keys held, as the match reads them with a turn.
     ///
     /// @param at the pointer
     /// @param notches how far the wheel turned
     /// @return what the editor did
     LayerAnswer wheel(kit::Point at, float notches) override {
-        return take(editor::editor_wheel(editor_, state_, list_, at, notches));
+        const uint8_t held =
+            capture_modifiers(static_cast<uint16_t>(device_state::modifiers_held()));
+        return take(editor::editor_wheel(editor_, state_, list_, at, notches, held));
     }
 
     /// Takes text typed into the search.
@@ -1228,6 +1248,14 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             return;
         }
         list_ = editor::editor_layout(editor_, state_, frame_, *fonts);
+        // The ring is drawn from the state this layout reads. Place the
+        // opening focus first, then lay out again when that moved it.
+        const kit::ControlId was_focused = state_.interaction.focused;
+        const bool was_shown = state_.interaction.focus_shown;
+        kit::focus_opened(state_.interaction, list_, runtime_.oa_layer().always_show_focus());
+        if (state_.interaction.focused != was_focused ||
+            state_.interaction.focus_shown != was_shown)
+            list_ = editor::editor_layout(editor_, state_, frame_, *fonts);
     }
 
     /// Does what one input asked, and lays the editor out when it changed.

@@ -49,6 +49,7 @@ constexpr AreaSpec kAreas[] = {
     {"game", words::area_game, kit::KeyTint::game, words::letter_game},
     {"chat", words::area_chat, kit::KeyTint::chat, words::letter_chat},
     {"watching", words::area_watching, kit::KeyTint::none, {}},
+    {"photo", words::area_photo, kit::KeyTint::none, {}},
     {"window", words::area_window, kit::KeyTint::window, words::letter_window},
     {"menus", words::area_menus, kit::KeyTint::none, words::letter_menus},
     {"developer", words::area_developer, kit::KeyTint::developer, words::letter_developer},
@@ -530,6 +531,8 @@ void add_column(
 
 std::string overlay_title(const OverlayInputs& inputs) {
     const uint32_t active = inputs.contexts.active;
+    if ((active & context_bit("photo")) != 0)
+        return show(inputs.text, words::keys_in_photo_mode);
     if ((active & context_bit("placing")) != 0)
         return show(inputs.text, words::keys_while_placing);
     if ((active & context_bit("watch")) != 0 && (active & context_bit("play")) == 0)
@@ -805,6 +808,7 @@ OverlayLayout overlay_layout(
     kit::add_button(
         list, close_rect, close_look, id_overlay_close, std::string(name_keys_overlay_close)
     );
+    list.controls.back().label = show(inputs.text, words::close_word);
     kit::add_button(
         list, edit_rect, edit_look, id_overlay_edit, std::string(name_keys_overlay_edit)
     );
@@ -886,6 +890,7 @@ OverlayLayout overlay_layout(
     list_control.rect = viewport;
     list_control.name = std::string(name_keys_overlay_list);
     list_control.kind = kit::ControlKind::list;
+    list_control.label = show(inputs.text, words::keys);
     // The keys reach the list, to scroll it, while it is taller than its view.
     list_control.focusable = scroll_max > 0;
     list_control.text = std::move(listed);

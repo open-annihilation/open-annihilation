@@ -5,6 +5,7 @@
 // and the filters' counts, selection, what the details and the footer say
 // about the entries, and what the Active tab says of the player's setup.
 #include "oa/ui/library/library.hpp"
+#include "oa/ui/library/replays.hpp"
 
 #include "oa/data/content_bundles.hpp"
 #include "oa/data/input_actions/actions.hpp"
@@ -621,6 +622,7 @@ void settle_selection(Library& library) {
 void recompute(Library& library) {
     update_visible(library);
     settle_selection(library);
+    update_replays(library);
 }
 
 /// Writes a queue item's name and version.

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // ui.resource-panel over a small World: the rows a watcher and a player
-// list, the amount, bar and income formats, the drawn row, the hits, the F4
+// list, a replay's seats, the amount, bar and income formats, the drawn row,
+// its square in the player's dot colour, the hits, the F4
 // cycle with the kills board, a watcher's view switches, and the clock,
 // wind and tidal line and where it goes: the top bar's two sections, beside
 // each other in the top bar, or the battlefield.
@@ -12,6 +13,7 @@
 #include "fixtures.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -128,8 +130,10 @@ void drawing() {
     CHECK(energy != nullptr && energy->x == 400 && energy->y == 70);
     CHECK(drawn.find("+1.5") != nullptr && drawn.find("+1.5")->x == 400 + 0x95);
     CHECK(drawn.find("+42") != nullptr && drawn.find("+42")->y == 70);
-    // The colour square, then each bar's edges, trough and fill.
-    CHECK(drawn.fills[0].x == 400 + 0x24 && drawn.fills[0].y == 51 && drawn.fills[0].color == 7);
+    // The colour square in the player's dot colour, not the colour's number,
+    // then each bar's edges, trough and fill.
+    CHECK(drawn.fills[0].x == 400 + 0x24 && drawn.fills[0].y == 51);
+    CHECK(drawn.fills[0].color == kPlayerDotColors[7] && listed.colours[0] == kPlayerDotColors[7]);
     bool metal_fill = false, energy_fill = false;
     for (const auto& fill : drawn.fills) {
         metal_fill |= fill.color == kResourcePanelMetalBarColor && fill.width == 25 && fill.y == 60;
@@ -149,6 +153,67 @@ void drawing() {
     drawn = {};
     draw_resource_panel(*w.world, panel, listed, drawn.sink());
     CHECK(first != drawn.fills[0].color && (first ^ drawn.fills[0].color) == 0x20);
+}
+
+void replay_seats() {
+    hud_test::TestWorld w;
+    // A replay seats its recorded players from slot 0 and its watcher after
+    // them. The panel lists the seats it is given, in their order, the
+    // first slot included, and never the watcher's.
+    auto& hoster = w.add_player(0, 3);
+    hoster.metal = 1000.0F;
+    hoster.metal_storage = 1000.0F;
+    hoster.energy = 500.0F;
+    hoster.energy_storage = 1000.0F;
+    hoster.metal_produced = 0.0F;
+    hoster.energy_produced = 0.0F;
+    w.add_player(1, 3);
+    auto& joiner = w.add_player(2, 3);
+    joiner.metal_storage = 1000.0F;
+    joiner.energy_storage = 1000.0F;
+    w.add_player(3, 2);
+    w.world->player_info[3].options = OA_SETUP_OPTION_WATCHER;
+    std::array<ResourcePanelSeat, 3> seats{};
+    seats[0].slot = 2;
+    seats[0].colour = kPlayerDotColors[1];
+    seats[0].economy = true;
+    seats[1].slot = 0;
+    seats[1].colour = kPlayerDotColors[0];
+    seats[1].economy = true;
+    seats[1].income = true;
+    seats[1].metal_income = 1.0F;
+    seats[1].energy_income = 75.0F;
+    seats[2].slot = 1;
+    seats[2].colour = kPlayerDotColors[2];
+    const auto listed = resource_panel_seat_rows(*w.world, seats);
+    CHECK(listed.count == 3 && !listed.own_view_row && resource_panel_height(listed) == 90);
+    CHECK(listed.slots[0] == 2 && listed.slots[1] == 0 && listed.slots[2] == 1);
+    CHECK(listed.colours[0] == kPlayerDotColors[1] && listed.colours[2] == kPlayerDotColors[2]);
+    // Stored amounts are the slot's; the income is the recording's.
+    CHECK(listed.figures[1].has_value() && listed.figures[1]->metal == 1000.0F);
+    CHECK(listed.figures[1]->metal_income == 1.0F && listed.figures[1]->energy_income == 75.0F);
+    // A computer whose economy the recording never gave shows no figures.
+    CHECK(!listed.figures[2].has_value());
+    ResourcePanel panel{};
+    panel.x = 0;
+    panel.y = 0;
+    Drawn drawn;
+    draw_resource_panel(*w.world, panel, listed, drawn.sink());
+    CHECK(drawn.find("Player 2") != nullptr && drawn.find("Player 2")->y == 0);
+    CHECK(drawn.find("Player 0") != nullptr && drawn.find("Player 0")->y == 30);
+    CHECK(drawn.find("Player 1") != nullptr && drawn.find("Player 1")->y == 60);
+    CHECK(drawn.find("Player 3") == nullptr && drawn.find(kResourcePanelOwnViewRow) == nullptr);
+    CHECK(drawn.find("+1.0") != nullptr && drawn.find("+1.0")->y == 40);
+    CHECK(drawn.find("+75") != nullptr && drawn.find("+75")->y == 50);
+    // The silent computer's row draws its square and name, and nothing past them.
+    int below_computer = 0;
+    for (const auto& text : drawn.texts)
+        below_computer += text.y > 60 ? 1 : 0;
+    CHECK(below_computer == 0);
+    // A seat that has gone keeps its row, without figures.
+    seats[0].gone = true;
+    const auto gone = resource_panel_seat_rows(*w.world, seats);
+    CHECK(gone.count == 3 && gone.slots[0] == 2 && !gone.figures[0].has_value());
 }
 
 void hits_and_switches() {
@@ -328,6 +393,7 @@ int main() {
     rows();
     formats();
     drawing();
+    replay_seats();
     hits_and_switches();
     f4_cycle();
     clock_line();

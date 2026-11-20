@@ -55,8 +55,8 @@ pointer.select-type-on-screen:far:right-click	interface=right-click;select=comba
 pointer.select-type-on-screen:on-map:right-click	interface=right-click;select=combat;far=combat;double-click=map	button left unit clicks=2	selected=3
 pointer.pan:right-click	interface=right-click	button middle battlefield	none
 pointer.mouse-look:right-click	interface=right-click	button right battlefield ctrl	none
-camera.zoom-in:right-click	interface=right-click	wheel up battlefield	none
-camera.zoom-out:right-click	interface=right-click	wheel down battlefield	none
+camera.zoom-in:right-click	interface=right-click	wheel up battlefield	zoom=in
+camera.zoom-out:right-click	interface=right-click	wheel down battlefield	zoom=out
 camera.edge-scroll:left:right-click	interface=right-click	button left edge-left	camera=left
 camera.edge-scroll:right:right-click	interface=right-click	button left edge-right	camera=right
 camera.edge-scroll:top:right-click	interface=right-click	button left edge-top	camera=up
@@ -76,8 +76,8 @@ pointer.select-type-on-screen:far:left-click	interface=left-click;select=combat;
 pointer.select-type-on-screen:on-map:left-click	interface=left-click;select=combat;far=combat;double-click=map	button left unit clicks=2	selected=3
 pointer.pan:left-click	interface=left-click	button middle battlefield	none
 pointer.mouse-look:left-click	interface=left-click	button right battlefield ctrl	camera=centred
-camera.zoom-in:left-click	interface=left-click	wheel up battlefield	none
-camera.zoom-out:left-click	interface=left-click	wheel down battlefield	none
+camera.zoom-in:left-click	interface=left-click	wheel up battlefield	zoom=in
+camera.zoom-out:left-click	interface=left-click	wheel down battlefield	zoom=out
 camera.edge-scroll:left:left-click	interface=left-click	button left edge-left	camera=left
 camera.edge-scroll:right:left-click	interface=left-click	button left edge-right	camera=right
 camera.edge-scroll:top:left-click	interface=left-click	button left edge-top	camera=up
@@ -94,14 +94,14 @@ select.idle-builders:shift	select=combat	key B ctrl shift	primary=commander;sele
 select.idle-factories:shift	select=combat	key F ctrl shift	build-page=1;primary=factory
 select.category-w	select=none	key W ctrl	primary=combat;selected=2
 select.category-w:shift	select=aircraft	key W ctrl shift	selected=3
-select.next-primary	select=all	key Tab	panel=tabmenu;paused=on
-select.next-primary:none	select=none	key Tab	panel=tabmenu;paused=on
-select.previous-primary	select=all	key Tab shift	panel=tabmenu;paused=on
-select.previous-primary:none	select=none	key Tab shift	panel=tabmenu;paused=on
-game.team-menu	shared;select=all	key Tab	panel=tabmenu;paused=on
-game.team-menu:shift	shared;select=all	key Tab shift	panel=tabmenu;paused=on
-game.team-menu:none	shared;select=none	key Tab	panel=tabmenu;paused=on
-game.team-menu:shift-none	shared;select=none	key Tab shift	panel=tabmenu;paused=on
+select.next-primary	select=all	key Tab	megamap=open
+select.next-primary:none	select=none	key Tab	megamap=open
+select.previous-primary	select=all	key Tab shift	megamap=open
+select.previous-primary:none	select=none	key Tab shift	megamap=open
+game.team-menu	shared;select=all	key Tab	megamap=open
+game.team-menu:shift	shared;select=all	key Tab shift	megamap=open
+game.team-menu:none	shared;select=none	key Tab	megamap=open
+game.team-menu:shift-none	shared;select=none	key Tab shift	megamap=open
 group.assign-1	select=combat	key 1 ctrl	group-1=1
 group.assign-1:switch-alt	select=combat;switch-alt=on	key 1 ctrl	group-1=1
 build.page-1	select=commander	key 1	build-page=0
@@ -193,6 +193,12 @@ megamap.toggle	wheel-zoom=off;select=all	key Tab	megamap=open
 megamap.toggle:shift	wheel-zoom=off;select=all	key Tab shift	megamap=open
 megamap.open-wheel	wheel-zoom=off	wheel down battlefield	megamap=open
 megamap.close-wheel	wheel-zoom=off	wheel up megamap	camera=centred;megamap=closed
+megamap.toggle:wheel-zoom	select=all	key Tab	megamap=open
+megamap.toggle:close	megamap=open;select=all	key Tab	megamap=closed
+megamap.toggle:close-wheel-off	wheel-zoom=off;megamap=open;select=all	key Tab	megamap=closed
+megamap.open-wheel:wheel-zoom		wheel down battlefield	zoom=out
+megamap.close-wheel:wheel-zoom		wheel up megamap	camera=centred;megamap=closed
+megamap.close-wheel:down		wheel down megamap	none
 whiteboard.line		drag left battlefield held=Backslash	whiteboard=lines
 whiteboard.dot		button middle battlefield held=Backslash	whiteboard=dots
 whiteboard.text		button left battlefield clicks=2 held=Backslash	whiteboard=editing
@@ -217,7 +223,7 @@ game.chat-macro		key F11	messages=4
 game.screenshot:print		key PrintScreen	screenshot=written
 game.repeat-command:insert		key Insert	none
 debug.keys:remap	developer	key F10	debug-keys=on
-game.team-menu:single	select=all	key Tab	panel=tabmenu;paused=on
+game.team-menu:single	select=all	key Tab	megamap=open
 pointer.select-type-on-screen:shortcuts	interface=right-click;select=combat	button left unit clicks=2	selected=2
 pointer.select-type-on-screen:shortcuts:left	interface=left-click;select=combat	button left unit clicks=2	selected=2
 group.assign-2	select=combat	key 2 ctrl	group-2=1

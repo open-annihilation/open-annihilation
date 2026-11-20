@@ -7,6 +7,7 @@
 #include "oa/app/update/plan.hpp"
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/verify.hpp"
+#include "oa/update_helper/wait.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -84,6 +85,66 @@ line_after_failed_roll_back(const std::filesystem::path& updates) {
     return roll_back_failed_kept;
 }
 
+/// The sentence the window shows when an update stopped before anything
+/// changed for a reason the player can try again.
+inline constexpr std::string_view update_not_installed =
+    "The update was not installed. Nothing was changed.";
+
+/// What the start of a run found, before any file of the install moved.
+enum class Opening : uint8_t {
+    carry_on,        ///< nothing else runs from the install, and what a killed run left is settled
+    game_running,    ///< the game that wrote the plan did not close
+    copies_running,  ///< another program of the install did not close
+    restart_windows, ///< Windows 9x finishes an earlier swap when it next starts
+    restore_failed,  ///< the files kept before a setup that did not finish could not be put back
+    undo_failed,     ///< a journal a killed run left could not be undone
+};
+
+/// What open_run found.
+struct OpeningResult {
+    Opening opening{Opening::carry_on}; ///< what the run does next
+    std::string version;                ///< the version a restart finishes; empty otherwise
+    std::string detail;                 ///< why the run stops, in English; empty when it carries on
+};
+
+class ProgressWindow;
+struct PutBackHooks;
+
+/// The waits a test injects, and the window. Null members are the real waits
+/// and no window.
+struct OpeningHooks {
+    const WaitHooks* game{};     ///< the clock and the check for the game's own process
+    const CopiesHooks* copies{}; ///< the clock, the process list and the line for other copies
+    /// The Windows version, the write check and the copy with raised rights
+    /// that puts a setup's kept files back.
+    const PutBackHooks* put_back{};
+    /// The window, which lets go of the installed font files while what a
+    /// killed run left is put back.
+    ProgressWindow* window{};
+};
+
+/// Waits for the game that wrote the plan, then for every other program of
+/// the install, and only then settles what a killed run left: the restart
+/// Windows 9x still owes, the files kept before a setup that did not finish,
+/// and a journal. Nothing of the install moves until both waits have ended.
+///
+/// A copy started with `--elevated-swap` does not wait for other programs:
+/// the run that started it has waited, and may itself run from the install.
+///
+/// @param plan the plan
+/// @param elevated_swap true for the copy that only swaps and starts nothing
+/// @param own_pid this helper's process, which is not another copy
+/// @param hooks test waits and the window; default members for the real waits
+/// @param journal the hooks a journal a killed run left is undone with
+/// @return what the run does next
+[[nodiscard]] OpeningResult open_run(
+    const oa::app::update::Plan& plan,
+    bool elevated_swap,
+    int64_t own_pid,
+    const OpeningHooks& hooks,
+    const JournalHooks& journal
+);
+
 /// How the helper starts a version of the game.
 enum class StartWay : uint8_t {
     program,     ///< the plan's program, started directly
@@ -140,6 +201,19 @@ enum class StartWay : uint8_t {
     bool stage_only,
     int64_t helper_parent
 );
+
+/// Puts back the files kept before a Windows setup that did not finish, for
+/// the run that started this copy with raised rights (`--put-back`).
+///
+/// The copy puts the kept files back into the install the marker names and
+/// removes the marker (put_back_marked). It writes no receipt and starts
+/// nothing. The run that started it holds the lock, so a lock held by
+/// another run does not stop it.
+///
+/// @param updates the data folder's updates directory
+/// @return exit_swapped when nothing is left to put back, exit_undone when
+///         the files are not all back, exit_usage when the folder cannot be used
+[[nodiscard]] int put_back_updates(const std::filesystem::path& updates);
 
 /// Undoes a journal left under `updates`.
 ///

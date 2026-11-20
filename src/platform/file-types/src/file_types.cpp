@@ -152,6 +152,42 @@ entry_for(const fs::path& executable, TypeSet types, Opening opening, std::strin
     return entry;
 }
 
+/// Returns a desktop entry that opens one MIME type with `executable`, the file a bare
+/// argument. `initial_preference` is written when it is set, so a .tad entry sits below
+/// other handlers.
+///
+/// @param executable the program, absolute
+/// @param comment what the entry says it does
+/// @param mime_type the one MIME type the entry lists
+/// @param initial_preference the preference, when the entry states one
+/// @return the entry's text, UTF-8; empty when the path cannot be written in an entry
+std::string offered_entry(
+    const fs::path& executable,
+    std::string_view comment,
+    std::string_view mime_type,
+    const std::optional<int> initial_preference
+) {
+    const std::string path = detail::utf8_of(program_for_desktop(executable));
+    const std::string argument = desktop_exec_argument(path);
+    if (argument.empty())
+        return {};
+    std::string entry;
+    entry += "[Desktop Entry]\n";
+    entry += "Type=Application\n";
+    entry += "Name=Open Annihilation\n";
+    entry += "Comment=" + std::string(comment) + "\n";
+    entry += "Exec=" + argument + " %f\n";
+    entry += "TryExec=" + desktop_string(path) + "\n";
+    entry += "Icon=" + std::string(desktop_id) + "\n";
+    entry += "Terminal=false\n";
+    entry += "Categories=Game;StrategyGame;\n";
+    entry += "MimeType=" + std::string(mime_type) + ";\n";
+    if (initial_preference)
+        entry += "InitialPreference=" + std::to_string(*initial_preference) + "\n";
+    entry += "NoDisplay=true\n";
+    return entry;
+}
+
 } // namespace
 
 std::string desktop_entry(const fs::path& executable, TypeSet types) {
@@ -194,9 +230,42 @@ std::string mime_package(TypeSet types) {
     return package;
 }
 
+std::string replay_desktop_entry(const fs::path& executable) {
+    return offered_entry(executable, "Opens a replay in Open Annihilation", replay_mime_type, {});
+}
+
+std::string tad_desktop_entry(const fs::path& executable) {
+    return offered_entry(
+        executable,
+        "Opens a TA Demo recording in Open Annihilation",
+        tad_mime_type,
+        tad_initial_preference
+    );
+}
+
+std::string replay_mime_package() {
+    std::string package;
+    package += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    package += "<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n";
+    package += "  <mime-type type=\"" + std::string(replay_mime_type) + "\">\n";
+    package += "    <comment>" + std::string(replay_type_name) + "</comment>\n";
+    package += "    <sub-class-of type=\"application/zip\"/>\n";
+    package += "    <glob pattern=\"*." + std::string(replay_extension) + "\"/>\n";
+    package += "  </mime-type>\n";
+    package += "  <mime-type type=\"" + std::string(tad_mime_type) + "\">\n";
+    package += "    <comment>" + std::string(tad_type_name) + "</comment>\n";
+    package += "    <glob pattern=\"*." + std::string(tad_extension) + "\"/>\n";
+    package += "  </mime-type>\n";
+    package += "</mime-info>\n";
+    return package;
+}
+
 std::string open_command(const fs::path& executable, const Opening opening) {
+    const std::string quoted = "\"" + detail::utf8_of(executable) + "\"";
+    if (opening == Opening::watch)
+        return quoted + " \"%1\"";
     const std::string_view option = opening == Opening::launch ? launch_option : open_option;
-    return "\"" + detail::utf8_of(executable) + "\" " + std::string(option) + " \"%1\"";
+    return quoted + " " + std::string(option) + " \"%1\"";
 }
 
 std::string default_icon(const fs::path& executable) {
@@ -294,6 +363,33 @@ Registration withdraw_file_types(const TypeSet types, const Places& places) {
     return withdraw_xdg(types, places);
 #else
     static_cast<void>(types);
+    static_cast<void>(places);
+    return Registration{};
+#endif
+}
+
+Registration register_replay_files(
+    const fs::path& executable, const std::span<const uint8_t> icon_png, const Places& places
+) {
+#ifdef _WIN32
+    static_cast<void>(icon_png);
+    return register_replay_windows(executable, places);
+#elif defined(__linux__) && !defined(__ANDROID__)
+    return register_replay_xdg(executable, icon_png, places);
+#else
+    static_cast<void>(executable);
+    static_cast<void>(icon_png);
+    static_cast<void>(places);
+    return Registration{};
+#endif
+}
+
+Registration withdraw_replay_files(const Places& places) {
+#ifdef _WIN32
+    return withdraw_replay_windows(places);
+#elif defined(__linux__) && !defined(__ANDROID__)
+    return withdraw_replay_xdg(places);
+#else
     static_cast<void>(places);
     return Registration{};
 #endif
@@ -477,6 +573,72 @@ Registration apply_opener_changes(
         }
         kept(handed, "hand back " + extension + " to " + handler_name(handed));
     }
+    return done;
+}
+
+ReplayOpenerReport reported_replay_opener(
+    const HandlerCalls& calls, const std::string_view bundle_id, const bool fallback
+) {
+    ReplayOpenerReport report;
+    report.open = fallback;
+    if (calls.default_handler == nullptr || bundle_id.empty())
+        return report;
+    std::string failure;
+    const Handler opener = calls.default_handler(calls.context, replay_content_type_id, failure);
+    if (!failure.empty()) {
+        report.error = std::string(replay_extension) + ": " + failure;
+        return report;
+    }
+    // Nothing opens .oademo: the question has no answer, so the preference stays.
+    // Another program, or this copy, is an answer.
+    if (handler_name(opener).empty())
+        return report;
+    report.open = same_bundle(opener.bundle_id, bundle_id);
+    return report;
+}
+
+Registration
+apply_replay_opener(const HandlerCalls& calls, const Handler& application, const bool open) {
+    Registration done;
+    if (calls.set_handler == nullptr || calls.default_handler == nullptr) {
+        done.lines.emplace_back("skipped: this system does not choose a default opener");
+        return done;
+    }
+    done.supported = true;
+    if (application.bundle_id.empty() && application.application_url.empty()) {
+        done.lines.emplace_back("skipped: this copy is not an application");
+        done.error = "this copy is not an application";
+        return done;
+    }
+    const std::string extension(replay_extension);
+    const auto kept = [&](const Handler& asked, std::string success) {
+        std::string failure;
+        if (!calls.set_handler(calls.context, replay_content_type_id, asked, failure)) {
+            add_failure(done.error, extension + ": " + failure);
+            return;
+        }
+        const Handler now = calls.default_handler(calls.context, replay_content_type_id, failure);
+        if (!failure.empty() || !same_bundle(now.bundle_id, asked.bundle_id)) {
+            add_failure(done.error, extension + ": the change did not take");
+            return;
+        }
+        done.changed = true;
+        done.lines.emplace_back(std::move(success));
+    };
+    if (open) {
+        kept(application, "open " + extension);
+        return done;
+    }
+    std::string parent_failure;
+    const Handler handed =
+        calls.default_handler(calls.context, replay_hands_back_to, parent_failure);
+    if (!parent_failure.empty() || handler_name(handed).empty()) {
+        if (parent_failure.empty())
+            parent_failure = "nothing opens " + std::string(replay_hands_back_to);
+        add_failure(done.error, extension + ": " + parent_failure);
+        return done;
+    }
+    kept(handed, "hand back " + extension + " to " + handler_name(handed));
     return done;
 }
 

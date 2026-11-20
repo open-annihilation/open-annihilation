@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -54,7 +55,7 @@ MENU_CHECK_LINE = "opened-launch check: the main menu shows; the file is opened 
 NOT_OPENED_LINE = "multiplayer: launch file not opened: "
 # The preferences every game of the check starts with: no catalogue is
 # fetched, so nothing leaves 127.0.0.1.
-PREFERENCES = 'open-annihilation-preferences 1\n"open-annihilation.content-updates" "never"\n'
+PREFERENCES = 'open-annihilation-preferences 1\n"open-annihilation.update-check" "never"\n"open-annihilation.content-updates" "never"\n'
 
 YAML = """oalaunch: 1
 game:

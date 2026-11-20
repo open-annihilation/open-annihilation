@@ -119,8 +119,9 @@ void fill_option_hooks(Extension& table, EndpointOptions& options);
 
 /// Names the engine option a run with the endpoint cannot be used with:
 /// one that runs no main loop or owns it (--headless-check, the checks,
-/// --benchmark, --match-ticks, --render-script, --generate-script and
-/// --showcase), since the endpoint is served from the main loop.
+/// --benchmark, --match-ticks, --render-script, --generate-script,
+/// --replay-index and --showcase), since the endpoint is served from the main
+/// loop.
 ///
 /// @param options the run's options
 /// @return the option's name, or "a --check-* option" for a check; empty

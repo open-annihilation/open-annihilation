@@ -19,7 +19,12 @@
 #include "engine_settings_state.hpp"
 #include "render_state.hpp"
 
+#include "controls.hpp"
+#include "input.hpp"
+#include "oa/app/automation/screen.hpp"
 #include "oa/app/automation_host.hpp"
+#include "oa/app/check_host.hpp"
+#include "oa/app/family_ring.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/mcp_badge.hpp"
 #include "oa/app/render_policy.hpp"
@@ -59,10 +64,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -330,10 +337,11 @@ void stamp_onto_picture(
     }
 }
 
-/// Copies a screen drawn as large as its place into a layer of straight
-/// colours and opacity, pixel for pixel: each pixel of an opaque drawing
-/// replaces the layer's, fully opaque, and each of one that is not opaque
-/// is laid over the layer's by its opacity (src over, LayerDrawing).
+/// Copies a screen drawn as large as its place into a part of a layer of
+/// straight colours and opacity, pixel for pixel: each pixel of an opaque
+/// drawing replaces the layer's, fully opaque, and each of one that is not
+/// opaque is laid over the layer's by its opacity (src over, LayerDrawing).
+/// Each pixel of the part takes what copying the whole drawing gives it.
 ///
 /// @param[in,out] rgba the layer, 4 bytes a pixel: red, green, blue and opacity
 /// @param width the layer's width
@@ -341,13 +349,15 @@ void stamp_onto_picture(
 /// @param drawing the screen's drawing
 /// @param left the layer column its first column lands on
 /// @param top the layer row its first row lands on
+/// @param within the part of the layer it is copied into, in layer pixels
 void copy_onto_layer(
     std::vector<uint8_t>& rgba,
     int32_t width,
     int32_t height,
     const LayerDrawing& drawing,
     int32_t left,
-    int32_t top
+    int32_t top,
+    const layout::Rect& within
 ) {
     const renderer::Surface& drawn = drawing.picture;
     const auto drawn_width = static_cast<int32_t>(drawn.width);
@@ -355,10 +365,10 @@ void copy_onto_layer(
     const bool laid = !drawing.opacity.empty();
     if (laid && drawing.opacity.size() < static_cast<std::size_t>(drawn.width) * drawn.height)
         return;
-    const int32_t first_row = std::max(top, 0);
-    const int32_t bottom = std::min(top + drawn_height, height);
-    const int32_t first_column = std::max(left, 0);
-    const int32_t right = std::min(left + drawn_width, width);
+    const int32_t first_row = std::max({top, within.y, 0});
+    const int32_t bottom = std::min({top + drawn_height, within.y + within.height, height});
+    const int32_t first_column = std::max({left, within.x, 0});
+    const int32_t right = std::min({left + drawn_width, within.x + within.width, width});
     for (int32_t row = first_row; row < bottom; ++row) {
         const std::size_t source = static_cast<std::size_t>(row - top) * drawn.width +
                                    static_cast<std::size_t>(first_column - left);
@@ -421,6 +431,140 @@ void darken(renderer::Surface& picture, uint32_t passes, uint32_t opacity) {
             kit::rgb(kit::colour::backdrop),
             opacity
         );
+}
+
+/// Fits a picture into a part of a layer of straight colours and opacity
+/// by the nearest pixel: each layer pixel of the rectangle takes the
+/// source's pixel at the same share of its width and height, opaque, or
+/// laid over the layer's by that pixel's opacity. Each pixel of the part
+/// takes what fitting the whole picture gives it (OaLayer::stamp).
+///
+/// @param[in,out] rgba the layer, 4 bytes a pixel: red, green, blue and opacity
+/// @param width the layer's width
+/// @param height the layer's height
+/// @param source the picture
+/// @param rect where the picture lands, in layer pixels
+/// @param opacity each source pixel's opacity; empty for an opaque picture
+/// @param within the part of the layer it is fitted into, in layer pixels
+void stamp_within(
+    std::vector<uint8_t>& rgba,
+    int32_t width,
+    int32_t height,
+    const renderer::Surface& source,
+    const layout::Rect& rect,
+    std::span<const uint8_t> opacity,
+    const layout::Rect& within
+) {
+    if (source.width == 0 || source.height == 0 || rect.width <= 0 || rect.height <= 0)
+        return;
+    const std::size_t source_pixels = static_cast<std::size_t>(source.width) * source.height;
+    const bool laid = !opacity.empty();
+    if (laid && opacity.size() < source_pixels)
+        return;
+    const int32_t first_row = std::max({rect.y, within.y, 0});
+    const int32_t bottom = std::min({rect.y + rect.height, within.y + within.height, height});
+    const int32_t left = std::max({rect.x, within.x, 0});
+    const int32_t right = std::min({rect.x + rect.width, within.x + within.width, width});
+    for (int32_t row = first_row; row < bottom; ++row) {
+        const auto source_row = static_cast<std::size_t>(
+            static_cast<int64_t>(row - rect.y) * source.height / rect.height
+        );
+        for (int32_t column = left; column < right; ++column) {
+            const auto source_column = static_cast<std::size_t>(
+                static_cast<int64_t>(column - rect.x) * source.width / rect.width
+            );
+            const std::size_t at = source_row * source.width + source_column;
+            const auto* from = source.rgb.data() + at * 3U;
+            auto* to =
+                rgba.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
+                               static_cast<std::size_t>(column)) *
+                                  4U;
+            if (laid) {
+                lay_over_layer(to, from, opacity[at]);
+                continue;
+            }
+            to[0] = from[0];
+            to[1] = from[1];
+            to[2] = from[2];
+            to[3] = 255U;
+        }
+    }
+}
+
+/// Fills a part of a layer of straight colours and opacity with one pixel.
+///
+/// @param[in,out] rgba the layer, 4 bytes a pixel: red, green, blue and opacity
+/// @param width the layer's width
+/// @param part the part, in layer pixels, within the layer
+/// @param pixel the pixel: red, green, blue and opacity
+void fill_layer_part(
+    std::vector<uint8_t>& rgba,
+    int32_t width,
+    const layout::Rect& part,
+    const std::array<uint8_t, 4>& pixel
+) {
+    for (int32_t row = part.y; row < part.y + part.height; ++row) {
+        uint8_t* to =
+            rgba.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
+                           static_cast<std::size_t>(part.x)) *
+                              4U;
+        for (int32_t column = 0; column < part.width; ++column) {
+            std::memcpy(to, pixel.data(), pixel.size());
+            to += 4;
+        }
+    }
+}
+
+/// Returns the part of a drawing that differs from the one it replaces: the
+/// smallest rectangle holding every pixel whose colour or opacity differs.
+/// Two drawings of different sizes, or one with an opacity for each pixel
+/// and one without, differ everywhere.
+///
+/// @param was the drawing replaced
+/// @param now the drawing that replaces it
+/// @return the rectangle, in the drawings' pixels; empty when they are the same
+layout::Rect changed_part(const LayerDrawing& was, const LayerDrawing& now) {
+    const auto width = static_cast<int32_t>(now.picture.width);
+    const auto height = static_cast<int32_t>(now.picture.height);
+    if (was.picture.width != now.picture.width || was.picture.height != now.picture.height ||
+        was.picture.rgb.size() != now.picture.rgb.size() ||
+        was.opacity.size() != now.opacity.size())
+        return {0, 0, width, height};
+    const bool opacities = !now.opacity.empty();
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * 3U;
+    int32_t left = width;
+    int32_t right = 0;
+    int32_t first_row = height;
+    int32_t bottom = 0;
+    for (int32_t row = 0; row < height; ++row) {
+        const std::size_t first_pixel = static_cast<std::size_t>(row) * width;
+        const uint8_t* was_rgb = was.picture.rgb.data() + first_pixel * 3U;
+        const uint8_t* now_rgb = now.picture.rgb.data() + first_pixel * 3U;
+        const uint8_t* was_opacity = opacities ? was.opacity.data() + first_pixel : nullptr;
+        const uint8_t* now_opacity = opacities ? now.opacity.data() + first_pixel : nullptr;
+        if (std::memcmp(was_rgb, now_rgb, row_bytes) == 0 &&
+            (!opacities ||
+             std::memcmp(was_opacity, now_opacity, static_cast<std::size_t>(width)) == 0))
+            continue;
+        const auto differs = [&](int32_t column) {
+            const auto at = static_cast<std::size_t>(column);
+            return std::memcmp(was_rgb + at * 3U, now_rgb + at * 3U, 3U) != 0 ||
+                   (opacities && was_opacity[at] != now_opacity[at]);
+        };
+        int32_t row_left = 0;
+        while (!differs(row_left))
+            ++row_left;
+        int32_t row_right = width;
+        while (!differs(row_right - 1))
+            --row_right;
+        left = std::min(left, row_left);
+        right = std::max(right, row_right);
+        first_row = std::min(first_row, row);
+        bottom = row + 1;
+    }
+    if (right <= left || bottom <= first_row)
+        return {};
+    return {left, first_row, right - left, bottom - first_row};
 }
 
 /// How the window shows the canvas, for the rectangles automation lists the
@@ -957,6 +1101,15 @@ struct Runtime::SettingsScreen final : LayerScreen {
     /// @return true
     [[nodiscard]] bool backdrop() const override { return true; }
 
+    /// Tells whether every change to what the dialog draws moves its
+    /// revision: in a match, where tick moves it for every change the dialog
+    /// takes from outside its input (the downloads, the Library, the
+    /// practice pad), so the match's layer keeps its drawing while the
+    /// revision holds; on the main menu it is drawn again each frame.
+    ///
+    /// @return true in a match
+    [[nodiscard]] bool revision_covers_drawing() const override { return in_match_; }
+
     /// Lays the dialog out at the view's size class on the main menu, and in
     /// a match at the class OaLayer::match_dialog gives (Dialog::size_class),
     /// and gives it that class's fonts, which its drawing and its input share.
@@ -1116,7 +1269,8 @@ struct Runtime::SettingsScreen final : LayerScreen {
         shown.hovered = dialog->hovered;
         shown.pressed = dialog->pressed;
         shown.focused = dialog->focused;
-        shown.focus_shown = dialog->focused != settings::no_control;
+        shown.focus_shown = dialog->focus_shown;
+        shown.pointer_hid_ring = dialog->pointer_hid_ring;
         shown.finger_shift = {dialog->finger_shift_x, dialog->finger_shift_y};
         return shown;
     }
@@ -1300,6 +1454,11 @@ LayerAnswer WorkScreen::tick() {
 
 NoticeScreen::NoticeScreen(OaLayer& layer, Screen shown_over, kit::Notice told, Host answers)
     : layer_(layer), over_(shown_over), notice_(std::move(told)), host_(std::move(answers)) {
+    // The first button is focused. The ring waits for a key, unless the
+    // preference asks for it.
+    if (!notice_.open_caption.empty())
+        notice_.marked = kit::notice_open;
+    notice_.focus_shown = layer_.always_show_focus();
 }
 
 int32_t NoticeScreen::shown_height() const {
@@ -1359,7 +1518,7 @@ NoticeScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32
 
 LayerAnswer NoticeScreen::key(kit::Key pressed, uint32_t /*sdl_key*/) {
     const auto before = pointed_look(notice_);
-    const LayerAnswer answer = take(kit::notice_key(notice_, pressed));
+    const LayerAnswer answer = take(kit::notice_model_key(notice_, pressed));
     return with_moved_look(answer, pointed_look(notice_) != before, revision_);
 }
 
@@ -1372,7 +1531,8 @@ kit::Interaction NoticeScreen::interaction() const {
     shown.hovered = notice_.hovered;
     shown.pressed = notice_.pressed;
     shown.focused = notice_.marked;
-    shown.focus_shown = notice_.marked != kit::no_control;
+    shown.focus_shown = notice_.focus_shown;
+    shown.pointer_hid_ring = notice_.pointer_hid_ring;
     shown.finger_shift = {notice_.finger_shift_x, notice_.finger_shift_y};
     return shown;
 }
@@ -1407,6 +1567,12 @@ LayerAnswer NoticeScreen::take(kit::NoticeAction action) {
 
 QuestionScreen::QuestionScreen(OaLayer& layer, Screen shown_over, kit::Question asked, Host answers)
     : layer_(layer), over_(shown_over), question_(std::move(asked)), host_(std::move(answers)) {
+    // The caller’s marked button stays the default. Return answers it while
+    // the ring is hidden. The ring waits for a key, unless the preference
+    // asks for it. The screen keeps that choice when a host replaces the
+    // question (changed).
+    focus_shown_ = layer_.always_show_focus();
+    question_.focus_shown = focus_shown_;
 }
 
 int32_t QuestionScreen::shown_height() const {
@@ -1414,9 +1580,9 @@ int32_t QuestionScreen::shown_height() const {
 }
 
 LayerPlacement QuestionScreen::placement(const LayerView& view) const {
-    if (view.match || layer_.screen_fonts() == nullptr)
+    if (layer_.screen_fonts() == nullptr)
         return {};
-    if (!any_menu_ && view.game_screen != over_)
+    if (view.match ? !over_match_ : (!any_menu_ && view.game_screen != over_))
         return {};
     // As wide as its words and as tall as its text, at the view's class.
     kit::Question sized = question_;
@@ -1464,13 +1630,20 @@ QuestionScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int
     default:
         break;
     }
+    // Capture the ring before an answer replaces the question.
+    focus_shown_ = question_.focus_shown;
+    pointer_hid_ring_ = question_.pointer_hid_ring;
     const LayerAnswer answer = take(outcome, 0);
     return with_moved_look(answer, pointed_look(question_) != before, revision_);
 }
 
 LayerAnswer QuestionScreen::key(kit::Key pressed, uint32_t sdl_key) {
     const auto before = pointed_look(question_);
-    const LayerAnswer answer = take(kit::question_key(question_, pressed), sdl_key);
+    const kit::QuestionAnswer outcome = kit::question_model_key(question_, pressed);
+    // Capture the ring before an answer replaces the question.
+    focus_shown_ = question_.focus_shown;
+    pointer_hid_ring_ = question_.pointer_hid_ring;
+    const LayerAnswer answer = take(outcome, sdl_key);
     return with_moved_look(answer, pointed_look(question_) != before, revision_);
 }
 
@@ -1483,7 +1656,8 @@ kit::Interaction QuestionScreen::interaction() const {
     shown.hovered = question_.hovered;
     shown.pressed = question_.pressed;
     shown.focused = question_.marked;
-    shown.focus_shown = question_.marked != kit::no_control;
+    shown.focus_shown = question_.focus_shown;
+    shown.pointer_hid_ring = question_.pointer_hid_ring;
     shown.finger_shift = {question_.finger_shift_x, question_.finger_shift_y};
     return shown;
 }
@@ -2558,6 +2732,27 @@ bool OaLayer::modal_shown(bool match) const {
     return seen.match == match && top_modal(seen) != nullptr;
 }
 
+bool OaLayer::covers_pointer(float x, float y) const {
+    if (!screens_.empty()) {
+        const LayerView seen = view();
+        if (top_modal(seen) != nullptr)
+            return true;
+        const WindowPosition at = window_position(seen, x, y);
+        const auto column = static_cast<float>(at.x);
+        const auto row = static_cast<float>(at.y);
+        for (const auto& screen : screens_) {
+            const LayerPlacement placed = shown_placement(*screen, seen);
+            if (!empty_rect(placed.shown) && rect_contains(placed.shown, column, row) &&
+                screen->covers_point(layer_point(placed, column, row)))
+                return true;
+        }
+    }
+    return runtime_.screen_ == Screen::match && match_button_shown(runtime_) &&
+           rect_contains(
+               match_button_rect(runtime_.match_layout_, match_fits_safe_area(runtime_)), x, y
+           );
+}
+
 LayerScreen* OaLayer::top_modal(const LayerView& seen) const {
     for (auto it = screens_.rbegin(); it != screens_.rend(); ++it)
         if ((*it)->modal() && !empty_rect((*it)->placement(seen).shown))
@@ -2943,8 +3138,9 @@ class RegisteredKitScreen final : public LayerScreen {
     ///
     /// @param name the screen's name, copied
     /// @param desc the descriptor; its function pointers and model are copied
-    RegisteredKitScreen(std::string name, KitScreenDesc desc)
-        : name_(std::move(name)), desc_(desc) {}
+    /// @param show_focus true when the ring is drawn on the first item at open
+    RegisteredKitScreen(std::string name, KitScreenDesc desc, bool show_focus)
+        : name_(std::move(name)), desc_(desc), show_focus_(show_focus) {}
 
     /// Returns the screen's name.
     ///
@@ -2988,6 +3184,9 @@ class RegisteredKitScreen final : public LayerScreen {
         frame_ = seen.frame;
         has_frame_ = true;
         list_ = desc_.lay_out(desc_.model, frame_);
+        // The first layout names the first control. A later one leaves a
+        // focus the player has already moved.
+        kit::focus_opened(interaction_, list_, show_focus_);
         ++revision_;
     }
 
@@ -3133,8 +3332,10 @@ class RegisteredKitScreen final : public LayerScreen {
         if (result == 2)
             return LayerAnswer::close;
         if (result == 1) {
-            if (desc_.lay_out != nullptr && has_frame_)
+            if (desc_.lay_out != nullptr && has_frame_) {
                 list_ = desc_.lay_out(desc_.model, frame_);
+                kit::focus_opened(interaction_, list_, show_focus_);
+            }
             ++revision_;
             return LayerAnswer::redraw;
         }
@@ -3158,7 +3359,7 @@ class RegisteredKitScreen final : public LayerScreen {
         }
         shown.items = std::move(items);
         kit::mark_states(shown, interaction_);
-        if (interaction_.focus_shown)
+        if (kit::focus_ring_visible(interaction_))
             if (const kit::Control* control = kit::control_of(shown, interaction_.focused))
                 kit::add_focus_ring(shown, control->rect, true);
         return shown;
@@ -3166,6 +3367,7 @@ class RegisteredKitScreen final : public LayerScreen {
 
     std::string name_;               ///< the screen's name
     KitScreenDesc desc_{};           ///< the descriptor, copied at the open
+    bool show_focus_{};              ///< the ring is drawn on the first item at open
     kit::DisplayList list_{};        ///< what it draws, from lay_out
     kit::Interaction interaction_{}; ///< the pointer and the focus
     kit::Frame frame_{};             ///< the frame it was laid out for
@@ -3199,6 +3401,24 @@ GalleryScreen& OaLayer::open_gallery() {
     return opened;
 }
 
+bool OaLayer::always_show_focus() const {
+    const auto found =
+        runtime_.preference_values_.find("open-annihilation.access.always-show-focus");
+    if (found == runtime_.preference_values_.end())
+        return false;
+    // A whole number above 0. A blank, a sign, a space or any other
+    // character leaves the ring hidden. A number too long to store still
+    // counts when one of its digits is not zero.
+    bool above_zero = false;
+    for (const char digit : found->second) {
+        if (digit < '0' || digit > '9')
+            return false;
+        if (digit != '0')
+            above_zero = true;
+    }
+    return above_zero;
+}
+
 bool OaLayer::open_registered_screen(std::string_view name) {
     const ScreenRegistry& registry = runtime_.screens_;
     const KitScreenDesc* found = nullptr;
@@ -3211,7 +3431,7 @@ bool OaLayer::open_registered_screen(std::string_view name) {
     }
     if (found == nullptr || found->lay_out == nullptr)
         return false;
-    push(std::make_unique<RegisteredKitScreen>(std::string(name), *found));
+    push(std::make_unique<RegisteredKitScreen>(std::string(name), *found, always_show_focus()));
     return true;
 }
 
@@ -3533,6 +3753,49 @@ LayerDrawing OaLayer::draw_screen(
     return drawing;
 }
 
+OaLayer::DrawingInputs OaLayer::common_drawing_inputs() const {
+    DrawingInputs common{};
+    common.fonts = screen_fonts();
+    const artless::RgbaPicture icon = runtime_.engine_settings_icon();
+    common.icon = icon.pixels.data();
+    common.icon_bytes = icon.pixels.size();
+    common.icon_width = icon.width;
+    common.icon_height = icon.height;
+    common.language = &oa::data::languages::interface_language();
+    common.languages = oa::data::languages::registry_generation();
+    common.interface_words = oa::data::languages::interface_generation();
+    const oa::present::TextSettings text = oa::present::game_text_settings();
+    common.modern_text = text.style.modern_fonts;
+    common.outline = text.style.outline;
+    common.shadow = text.style.shadow;
+    common.background = text.style.background;
+    common.text_size = text.style.size;
+    common.utf8 = text.utf8;
+    return common;
+}
+
+OaLayer::DrawingInputs OaLayer::screen_drawing_inputs(
+    const DrawingInputs& common,
+    const LayerScreen& screen,
+    const LayerPlacement& placed,
+    int32_t scale_percent,
+    uint32_t darkenings
+) const {
+    DrawingInputs inputs = common;
+    // Where it shows draws nothing different: a window moved keeps its drawing.
+    inputs.shown = {0, 0, placed.shown.width, placed.shown.height};
+    inputs.points_width = placed.points_width;
+    inputs.points_height = placed.points_height;
+    inputs.placed_percent = placed.scale_percent;
+    inputs.scale_percent = scale_percent;
+    inputs.darkenings = darkenings;
+    inputs.corner_radius = placed.corner_radius;
+    inputs.opaque = screen.opaque();
+    inputs.fonts = fonts_for(screen);
+    inputs.modern_fonts = scale_percent % 100 == 0 ? nullptr : smooth_fonts();
+    return inputs;
+}
+
 uint32_t OaLayer::front_darkenings() const {
     const LayerView seen = view();
     if (seen.match)
@@ -3699,6 +3962,457 @@ void draw_badge_text(
 }
 
 } // namespace
+
+namespace {
+
+constexpr std::string_view k_family_prefix = "oa.";
+
+/// Tells whether an OA screen of this dialog draws the kit's own focus ring.
+///
+/// A dialog that is not one of those screens does not. An unknown screen is
+/// treated as drawing its own, so a second ring is not added on top of it.
+///
+/// @param layer the layer
+/// @param dialog the control's dialog
+/// @return true when that screen draws kit::draw_focus_ring
+bool kit_ring_dialog(const OaLayer& layer, std::string_view dialog) {
+    if (dialog.size() <= k_family_prefix.size() || !dialog.starts_with(k_family_prefix))
+        return false;
+    const LayerScreen* screen = layer.find(dialog.substr(k_family_prefix.size()));
+    if (screen == nullptr)
+        return true;
+    return screen->draws_kit_focus_ring();
+}
+
+/// Tells whether the control takes the family's ring.
+///
+/// A gadget of the original screens does. So does a button of an OA screen
+/// that does not draw the kit's ring and that sits in those screens' order.
+/// A screen that draws the kit's ring does not. The Library and Settings
+/// icons have no dialog: they take the ring only once the cross-family order
+/// has landed on them.
+///
+/// @param layer the layer
+/// @param control the control
+/// @return true when the family's ring may be drawn around it
+bool takes_family_ring(const OaLayer& layer, const AutomationControl& control) {
+    if (!control.name.starts_with(k_family_prefix))
+        return true;
+    if (!control.dialog.starts_with(k_family_prefix))
+        return control.holds_focus;
+    return !kit_ring_dialog(layer, control.dialog);
+}
+
+/// The control the family's ring is drawn around.
+///
+/// A shown control wins. A control the strip covers is still the focus when
+/// nothing shown is. An extension window takes the ring only when that
+/// window itself holds the focus: a reported first stop stays in the tree
+/// and is not ringed. A shown control of a screen that draws the kit's ring
+/// owns the focus, and nothing under it is ringed.
+///
+/// @param layer the layer
+/// @param controls the screen's controls
+/// @return the control, or null when the ring is not drawn
+AutomationControl*
+family_ring_target(const OaLayer& layer, std::vector<AutomationControl>& controls) {
+    AutomationControl* covered = nullptr;
+    for (AutomationControl& control : controls) {
+        if (!control.focused)
+            continue;
+        if (!takes_family_ring(layer, control)) {
+            if (!control.hidden && control.name.starts_with(k_family_prefix))
+                return nullptr;
+            continue;
+        }
+        if (!control.window.empty() && !control.package_window && !control.holds_focus)
+            continue;
+        if (control.hidden) {
+            if (covered == nullptr)
+                covered = &control;
+            continue;
+        }
+        return &control;
+    }
+    return covered;
+}
+
+/// Where the canvas lies in the window, for a control that is not already
+/// placed in window pixels.
+///
+/// @param placement the window
+/// @return the map; an identity map when the renderer presents no picture
+FamilyWindowMap window_map(const automation::WindowPlacement& placement) {
+    FamilyWindowMap map;
+    map.density = placement.density > 0.0F ? placement.density : 1.0F;
+    map.identity = true;
+    if (placement.renderer == nullptr)
+        return map;
+    int frame_width = 0;
+    int frame_height = 0;
+    SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
+    if (!SDL_GetRenderLogicalPresentation(placement.renderer, &frame_width, &frame_height, &mode) ||
+        mode == SDL_LOGICAL_PRESENTATION_DISABLED || frame_width <= 0 || frame_height <= 0)
+        return map;
+    float left = 0.0F;
+    float top = 0.0F;
+    float right = 0.0F;
+    float bottom = 0.0F;
+    if (!automation::canvas_to_window(placement, 0.0F, 0.0F, left, top) ||
+        !automation::canvas_to_window(
+            placement,
+            static_cast<float>(frame_width),
+            static_cast<float>(frame_height),
+            right,
+            bottom
+        ))
+        return map;
+    map.identity = false;
+    map.origin_x = left;
+    map.origin_y = top;
+    map.scale_x = (right - left) / static_cast<float>(frame_width);
+    map.scale_y = (bottom - top) / static_cast<float>(frame_height);
+    return map;
+}
+
+/// The control's box, in window pixels or on the canvas.
+///
+/// @param control the control
+/// @return its box
+FamilyControlBox control_box(const AutomationControl& control) {
+    FamilyControlBox box;
+    box.window_pixels = control.window_pixels;
+    if (control.window_pixels) {
+        box.x = control.window_x;
+        box.y = control.window_y;
+        box.width = control.window_width;
+        box.height = control.window_height;
+        return box;
+    }
+    box.x = control.x;
+    box.y = control.y;
+    box.width = control.width;
+    box.height = control.height;
+    return box;
+}
+
+/// Draws the ring by reading the ground and blending each pixel as the kit does.
+///
+/// @param renderer the renderer, already drawing in window pixels
+/// @param pixels the ring
+/// @param crisp true at a whole scale
+/// @return false when the ground cannot be read
+bool paint_family_ring(
+    SDL_Renderer* renderer, const std::vector<FamilyRingPixel>& pixels, bool crisp
+) {
+    int32_t least_x = pixels.front().x;
+    int32_t least_y = pixels.front().y;
+    int32_t most_x = pixels.front().x;
+    int32_t most_y = pixels.front().y;
+    for (const FamilyRingPixel& pixel : pixels) {
+        least_x = std::min(least_x, pixel.x);
+        least_y = std::min(least_y, pixel.y);
+        most_x = std::max(most_x, pixel.x);
+        most_y = std::max(most_y, pixel.y);
+    }
+    int output_w = 0;
+    int output_h = 0;
+    if (!SDL_GetRenderOutputSize(renderer, &output_w, &output_h) || output_w <= 0 || output_h <= 0)
+        return false;
+    const int left = std::max(least_x, 0);
+    const int top = std::max(least_y, 0);
+    const int right = std::min(most_x + 1, output_w);
+    const int bottom = std::min(most_y + 1, output_h);
+    if (left >= right || top >= bottom)
+        return false;
+    const SDL_Rect rect{left, top, right - left, bottom - top};
+    SDL_Surface* ground = SDL_RenderReadPixels(renderer, &rect);
+    if (ground == nullptr)
+        return false;
+    for (const FamilyRingPixel& pixel : pixels) {
+        const int column = pixel.x - left;
+        const int row = pixel.y - top;
+        if (column < 0 || row < 0 || column >= rect.w || row >= rect.h)
+            continue;
+        uint8_t red = 0;
+        uint8_t green = 0;
+        uint8_t blue = 0;
+        uint8_t alpha = 255;
+        if (!SDL_ReadSurfacePixel(ground, column, row, &red, &green, &blue, &alpha))
+            continue;
+        blend_family_coverage(red, green, blue, pixel.coverage, crisp);
+        std::ignore = SDL_WriteSurfacePixel(ground, column, row, red, green, blue, 255);
+    }
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, ground);
+    SDL_DestroySurface(ground);
+    if (texture == nullptr)
+        return false;
+    const SDL_FRect destination{
+        static_cast<float>(rect.x),
+        static_cast<float>(rect.y),
+        static_cast<float>(rect.w),
+        static_cast<float>(rect.h)
+    };
+    std::ignore = SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+    std::ignore = SDL_RenderTexture(renderer, texture, nullptr, &destination);
+    SDL_DestroyTexture(texture);
+    return true;
+}
+
+/// Draws the ring with the renderer's blend, one share at a time.
+///
+/// Used when the ground cannot be read. A full share is opaque. Any other
+/// share is that many 255ths of the ring's colour.
+///
+/// @param renderer the renderer, already drawing in window pixels
+/// @param pixels the ring
+/// @param crisp true at a whole scale
+void blend_family_blocks(
+    SDL_Renderer* renderer, const std::vector<FamilyRingPixel>& pixels, bool crisp
+) {
+    std::ignore = SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    std::vector<uint16_t> drawn;
+    std::vector<SDL_FRect> blocks;
+    for (const FamilyRingPixel& pixel : pixels) {
+        if (std::find(drawn.begin(), drawn.end(), pixel.coverage) != drawn.end())
+            continue;
+        drawn.push_back(pixel.coverage);
+        blocks.clear();
+        for (const FamilyRingPixel& same : pixels) {
+            if (same.coverage != pixel.coverage)
+                continue;
+            blocks.push_back(
+                SDL_FRect{static_cast<float>(same.x), static_cast<float>(same.y), 1.0F, 1.0F}
+            );
+        }
+        uint8_t alpha = 255;
+        if (crisp) {
+            const uint32_t share = std::min<uint32_t>(pixel.coverage, 256U);
+            alpha = share >= 256U ? static_cast<uint8_t>(255)
+                                  : static_cast<uint8_t>((share * 255U + 128U) / 256U);
+        } else
+            alpha = static_cast<uint8_t>(std::min<uint32_t>(pixel.coverage, 255U));
+        std::ignore = SDL_SetRenderDrawColor(
+            renderer, kit::colour::focus.r, kit::colour::focus.g, kit::colour::focus.b, alpha
+        );
+        std::ignore = SDL_RenderFillRects(renderer, blocks.data(), static_cast<int>(blocks.size()));
+    }
+}
+
+} // namespace
+
+void Runtime::apply_menu_keyboard_focus(std::vector<AutomationControl>& controls) {
+    if (oa_layer_ == nullptr)
+        return;
+    if (menu_keyboard_ == MenuKeyboardKind::reported || menu_keyboard_ == MenuKeyboardKind::gadget)
+        return;
+    if (menu_keyboard_screen_ != screen_)
+        return;
+    if (screen_ != Screen::main_menu && screen_ != Screen::map_selection)
+        return;
+    if (oa_layer_->modal_shown(false))
+        return;
+    const std::string library = std::string(kAutomationPrefix) + "button";
+    const std::string pill = std::string(kAutomationPrefix) + "update-pill.open";
+    const std::string more_maps = std::string(kAutomationPrefix) + "more-maps";
+    AutomationControl* hit = nullptr;
+    for (AutomationControl& control : controls) {
+        bool match = false;
+        switch (menu_keyboard_) {
+        case MenuKeyboardKind::extension:
+            match =
+                control.window == menu_keyboard_window_ && control.name == menu_keyboard_control_;
+            break;
+        case MenuKeyboardKind::library:
+            match = control.window.empty() && control.name == library;
+            break;
+        case MenuKeyboardKind::settings:
+            match = control.name == kSettingsButtonName;
+            break;
+        case MenuKeyboardKind::pill:
+            match = control.name == pill;
+            break;
+        case MenuKeyboardKind::more_maps:
+            match = control.name == more_maps;
+            break;
+        case MenuKeyboardKind::reported:
+        case MenuKeyboardKind::gadget:
+            break;
+        }
+        if (match)
+            hit = &control;
+    }
+    if (hit == nullptr)
+        return;
+    for (AutomationControl& control : controls) {
+        if (&control == hit || control.modal)
+            continue;
+        // More maps… is drawn over the map list. That list is another dialog,
+        // and it stays marked focused unless this stop clears it too. The
+        // ring is still drawn only on More maps….
+        if (menu_keyboard_ != MenuKeyboardKind::more_maps && !hit->dialog.empty() &&
+            !control.dialog.empty() && control.dialog != hit->dialog)
+            continue;
+        control.focused = false;
+        control.holds_focus = false;
+        control.focus_shown = false;
+    }
+    hit->focused = true;
+    hit->holds_focus = true;
+}
+
+void Runtime::stamp_family_focus_shown(std::vector<AutomationControl>& controls) {
+    if (oa_layer_ == nullptr)
+        return;
+    apply_menu_keyboard_focus(controls);
+    // A button that joins the original screens' order writes its own flag.
+    // The family's rule replaces it, so a hidden ring is not reported shown.
+    for (AutomationControl& control : controls) {
+        if (!takes_family_ring(*oa_layer_, control) || !control.name.starts_with(k_family_prefix))
+            continue;
+        control.focus_shown = false;
+    }
+    if (!oa_layer_->family_ring_shown())
+        return;
+    if (AutomationControl* target = family_ring_target(*oa_layer_, controls))
+        target->focus_shown = true;
+}
+
+namespace {
+
+/// The pixel that holds a pointer coordinate, counted as a screen counts it.
+///
+/// The Boneyards toolkit, whose arrows follow its own record of the ring,
+/// truncates the coordinate. Rounding here instead would let a move of less
+/// than a pixel at a scaled window hide the ring while the toolkit keeps its
+/// ring keys, or keep the ring while the toolkit drops them.
+///
+/// @param coordinate a column or row in the coordinates the screen is given
+/// @return the pixel's column or row
+int32_t family_pixel(float coordinate) noexcept {
+    return static_cast<int32_t>(coordinate);
+}
+
+} // namespace
+
+void OaLayer::present_family_ring() noexcept {
+    // Hidden, and nothing this frame asked for it, and Always show focus is
+    // off: a screen that opens later is seen when the ring is next shown.
+    if (!family_ring_shown_ && !family_tabbed_ && !always_show_focus())
+        return;
+    SDL_Renderer* renderer = runtime_.sdl_.renderer;
+    if (renderer == nullptr) {
+        // No frame will draw it. Drop the ask so a later open is not kept shown.
+        family_tabbed_ = false;
+        return;
+    }
+    try {
+        std::vector<AutomationControl> controls;
+        const AutomationHost host = automation_host(runtime_);
+        automation::collect_controls(check_host(runtime_), host, controls);
+        FamilyPlace place;
+        place.screen = automation::screen_name(static_cast<ScreenId>(runtime_.screen_));
+        place.dialogs = automation::dialog_names(controls);
+        // A page of the in-game panel is no dialog of the tree: a quick key
+        // that turns the page (O for Options) must hide the ring as well.
+        if (runtime_.screen_ == Screen::match && runtime_.match_hud_)
+            place.panel = runtime_.match_hud_panel_;
+        for (const AutomationControl& control : controls) {
+            if (control.window.empty() || control.package_window)
+                continue;
+            if (std::find(place.windows.begin(), place.windows.end(), control.window) ==
+                place.windows.end())
+                place.windows.push_back(control.window);
+        }
+        // A newly shown screen, dialog, panel page or extension window hides
+        // the ring. Always show focus shows it on that new place. A key that
+        // just asked for the ring shows it there too.
+        bool show = family_ring_shown_;
+        if (always_show_focus()) {
+            if (!family_place_known_ || place != family_place_)
+                show = true;
+        } else if (family_place_known_ && place != family_place_ && !family_tabbed_)
+            show = false;
+        family_ring_shown_ = show;
+        family_tabbed_ = false;
+        if (show) {
+            family_place_ = place;
+            family_place_known_ = true;
+        }
+        if (!show)
+            return;
+        const AutomationControl* focused = family_ring_target(*this, controls);
+        if (focused == nullptr)
+            return;
+        int32_t left = 0;
+        int32_t top = 0;
+        int32_t width = 0;
+        int32_t height = 0;
+        const automation::WindowPlacement placed =
+            automation::window_placement(check_host(runtime_));
+        if (!control_window_rect(
+                control_box(*focused), window_map(placed), left, top, width, height
+            ))
+            return;
+        const int32_t percent = screen_scale_percent();
+        const std::vector<FamilyRingPixel> pixels =
+            family_ring_pixels(left, top, width, height, percent);
+        if (pixels.empty())
+            return;
+        const bool crisp = percent > 0 && percent % 100 == 0;
+        const RenderState kept(renderer);
+        kept.use_window_pixels();
+        if (!paint_family_ring(renderer, pixels, crisp))
+            blend_family_blocks(renderer, pixels, crisp);
+    } catch (const std::exception&) {
+        // A ring that cannot be placed is left undrawn. The frame stays as it was.
+    }
+}
+
+void OaLayer::note_family_opened() noexcept {
+    // A Tab in this same key already asked for the ring. The in-game menu's
+    // Tab is also the console's options key, which opens that menu again and
+    // notes the open after the Tab. The ask stands. Any other open hides the
+    // ring unless Always show focus is on.
+    if (!family_tabbed_)
+        family_ring_shown_ = always_show_focus();
+    family_pointer_known_ = true;
+    family_pointer_x_ = family_pixel(runtime_.pointer_x_);
+    family_pointer_y_ = family_pixel(runtime_.pointer_y_);
+}
+
+void OaLayer::note_family_tab() noexcept {
+    family_ring_shown_ = true;
+    family_tabbed_ = true;
+}
+
+void OaLayer::note_family_return() noexcept {
+    family_ring_shown_ = false;
+}
+
+void OaLayer::note_menu_keyboard_stop(std::string_view screen) {
+    menu_keyboard_stop_.assign(screen.begin(), screen.end());
+}
+
+bool OaLayer::menu_keyboard_stop_is(std::string_view screen) const noexcept {
+    return menu_keyboard_stop_ == screen;
+}
+
+void OaLayer::note_family_pointer(float x, float y) noexcept {
+    const int32_t column = family_pixel(x);
+    const int32_t row = family_pixel(y);
+    if (!family_pointer_known_) {
+        family_pointer_known_ = true;
+        family_pointer_x_ = column;
+        family_pointer_y_ = row;
+        return;
+    }
+    if (column == family_pointer_x_ && row == family_pointer_y_)
+        return;
+    family_pointer_x_ = column;
+    family_pointer_y_ = row;
+    family_ring_shown_ = false;
+}
 
 void OaLayer::present_mcp_badge() noexcept {
     const std::string_view label =
@@ -3995,23 +4709,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
     const std::vector<uint32_t> above = backdrops_above(seen);
     uint32_t darkenings = 0;
     // What every screen is drawn in, besides its place and scale.
-    DrawingInputs common{};
-    common.fonts = screen_fonts();
-    const artless::RgbaPicture icon = runtime_.engine_settings_icon();
-    common.icon = icon.pixels.data();
-    common.icon_bytes = icon.pixels.size();
-    common.icon_width = icon.width;
-    common.icon_height = icon.height;
-    common.language = &oa::data::languages::interface_language();
-    common.languages = oa::data::languages::registry_generation();
-    common.interface_words = oa::data::languages::interface_generation();
-    const oa::present::TextSettings text = oa::present::game_text_settings();
-    common.modern_text = text.style.modern_fonts;
-    common.outline = text.style.outline;
-    common.shadow = text.style.shadow;
-    common.background = text.style.background;
-    common.text_size = text.style.size;
-    common.utf8 = text.utf8;
+    const DrawingInputs common = common_drawing_inputs();
     std::vector<KeptDrawing> kept_drawings;
     for (std::size_t index = 0; index < screens_.size(); ++index) {
         const auto& screen = *screens_[index];
@@ -4027,18 +4725,8 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         // Drawn at its own scale, as large as its place: the view's, or the
         // setup's.
         const int32_t scale_percent = front_scale_of(placed, seen);
-        DrawingInputs inputs = common;
-        // Where it shows draws nothing different: a window moved keeps its drawing.
-        inputs.shown = {0, 0, placed.shown.width, placed.shown.height};
-        inputs.points_width = placed.points_width;
-        inputs.points_height = placed.points_height;
-        inputs.placed_percent = placed.scale_percent;
-        inputs.scale_percent = scale_percent;
-        inputs.darkenings = above[index];
-        inputs.corner_radius = placed.corner_radius;
-        inputs.opaque = screen.opaque();
-        inputs.fonts = fonts_for(screen);
-        inputs.modern_fonts = scale_percent % 100 == 0 ? nullptr : smooth_fonts();
+        const DrawingInputs inputs =
+            screen_drawing_inputs(common, screen, placed, scale_percent, above[index]);
         // A screen whose revision covers what it draws keeps its drawing
         // while the revision and everything else it is drawn from hold;
         // every other screen is drawn again.
@@ -4204,7 +4892,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         texture_.update(rgba.data(), bounds.width * 4, 4);
         front_uploaded_ = std::move(look);
         front_bounds_ = bounds;
-        uploaded_.reset();
+        uploaded_ = false;
         uploaded_gamma_ = runtime_.gamma_table_;
     }
     const SDL_FRect at{
@@ -4361,40 +5049,7 @@ void OaLayer::stamp(
     const layout::Rect& rect,
     std::span<const uint8_t> opacity
 ) {
-    if (source.width == 0 || source.height == 0 || rect.width <= 0 || rect.height <= 0)
-        return;
-    const std::size_t source_pixels = static_cast<std::size_t>(source.width) * source.height;
-    const bool laid = !opacity.empty();
-    if (laid && opacity.size() < source_pixels)
-        return;
-    const int32_t first_row = std::max(rect.y, 0);
-    const int32_t bottom = std::min(rect.y + rect.height, height);
-    const int32_t left = std::max(rect.x, 0);
-    const int32_t right = std::min(rect.x + rect.width, width);
-    for (int32_t row = first_row; row < bottom; ++row) {
-        const auto source_row = static_cast<std::size_t>(
-            static_cast<int64_t>(row - rect.y) * source.height / rect.height
-        );
-        for (int32_t column = left; column < right; ++column) {
-            const auto source_column = static_cast<std::size_t>(
-                static_cast<int64_t>(column - rect.x) * source.width / rect.width
-            );
-            const std::size_t at = source_row * source.width + source_column;
-            const auto* from = source.rgb.data() + at * 3U;
-            auto* to =
-                rgba.data() + (static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
-                               static_cast<std::size_t>(column)) *
-                                  4U;
-            if (laid) {
-                lay_over_layer(to, from, opacity[at]);
-                continue;
-            }
-            to[0] = from[0];
-            to[1] = from[1];
-            to[2] = from[2];
-            to[3] = 255U;
-        }
-    }
+    stamp_within(rgba, width, height, source, rect, opacity, {0, 0, width, height});
 }
 
 bool OaLayer::refresh_match() {
@@ -4420,8 +5075,15 @@ bool OaLayer::refresh_match() {
                                            : settings::ButtonLook::idle
     );
     look.revision = revision_;
-    if (fonts == nullptr || look.width <= 0 || look.height <= 0 || !seen.match)
+    // A layer that shows nothing lets its screens' drawings go, and is
+    // composed whole when it shows again.
+    const auto shows_nothing = [this] {
+        match_pieces_.clear();
+        drawn_.reset();
         return false;
+    };
+    if (fonts == nullptr || look.width <= 0 || look.height <= 0 || !seen.match)
+        return shows_nothing();
 
     // Each screen that shows, where, and how many modal screens with a
     // backdrop show above it.
@@ -4454,56 +5116,180 @@ bool OaLayer::refresh_match() {
     // that are not modal and show over the match as it runs, such as the
     // keys overlay; with neither, it shows nothing.
     if (!look.button_shown && shown_screens.empty())
-        return false;
+        return shows_nothing();
     if (drawn_ == look)
         return true;
-    const auto pixels =
-        static_cast<std::size_t>(look.width) * static_cast<std::size_t>(look.height);
-    rgba_.assign(pixels * 4U, 0);
-    // The OA Settings button under Resume, in the in-game menu's own art.
-    const LayerDrawing button = match_button_face(
-        runtime_.match_hud_ ? &*runtime_.match_hud_ : nullptr,
-        static_cast<settings::ButtonLook>(look.button_look),
-        look.darkened
-    );
-    bounds_ = look.button_shown ? button_at : layout::Rect{};
-    if (look.darkened) {
-        // The whole screen darkens, the button with it; the screens go over.
-        for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
-            auto* to = rgba_.data() + pixel * 4U;
-            to[0] = settings::backdrop_color[0];
-            to[1] = settings::backdrop_color[1];
-            to[2] = settings::backdrop_color[2];
-            to[3] = static_cast<uint8_t>(kBackdropAlpha);
-        }
-        bounds_ = {0, 0, look.width, look.height};
-    }
-    // The button's face, at its source size, fitted to its place.
-    if (look.button_shown)
-        stamp(rgba_, look.width, look.height, button.picture, button_at, button.opacity);
+    const layout::Rect whole{0, 0, look.width, look.height};
+    // redraw asks for every screen anew, as a change to a model the screen's
+    // revision does not see may change what any of them draws.
+    const bool draw_anew = std::exchange(match_redraw_, false);
+    // The whole layer is composed the first time, as redraw asks, and at a
+    // new size or with the backdrop come or gone, which change every pixel.
+    bool composed_whole = draw_anew || !drawn_ || drawn_->width != look.width ||
+                          drawn_->height != look.height || drawn_->darkened != look.darkened;
+
+    // Each screen's drawing, at its placement's scale, as large as its place,
+    // never drawn at 1x and enlarged: Settings at its own (match_dialog). A
+    // screen under a modal screen with a backdrop darkens as the button
+    // does. A screen whose revision covers what it draws keeps the drawing
+    // it had while that revision and everything else it is drawn from hold.
+    const DrawingInputs common = common_drawing_inputs();
+    std::vector<MatchPiece> pieces;
+    pieces.reserve(shown_screens.size());
     for (const auto& shown : shown_screens) {
-        // At its placement's scale, as large as its place, never drawn at 1x
-        // and enlarged: Settings at its own (match_dialog). A screen under a
-        // modal screen with a backdrop darkens as the button does; one that
-        // is not opaque is laid over what is already there by its opacity.
+        const LayerScreen& screen = *shown.screen;
         const int32_t drawn_percent =
             shown.placed.scale_percent > 0 ? shown.placed.scale_percent : 100;
-        LayerDrawing drawn = draw_screen(*shown.screen, shown.placed, drawn_percent);
-        darken(drawn.picture, shown.darkenings, settings::ingame_backdrop_opacity);
-        const auto& place = shown.placed.shown;
+        MatchPiece piece{};
+        piece.screen = screen.identity();
+        piece.shown = shown.placed.shown;
+        piece.kept = screen.revision_covers_drawing();
+        piece.revision = piece.kept ? screen.revision() : 0;
+        piece.inputs =
+            screen_drawing_inputs(common, screen, shown.placed, drawn_percent, shown.darkenings);
+        const auto held =
+            std::find_if(match_pieces_.begin(), match_pieces_.end(), [&piece](const auto& was) {
+                return was.screen == piece.screen;
+            });
+        if (!draw_anew && piece.kept && held != match_pieces_.end() && held->kept &&
+            held->revision == piece.revision && held->inputs == piece.inputs) {
+            piece.drawn = held->drawn;
+            piece.drawing = held->drawing;
+        } else {
+            LayerDrawing drawn = draw_screen(screen, shown.placed, drawn_percent);
+            darken(drawn.picture, shown.darkenings, settings::ingame_backdrop_opacity);
+            piece.drawn = std::make_shared<const LayerDrawing>(std::move(drawn));
+            piece.drawing = ++match_drawing_count_;
+        }
+        pieces.push_back(std::move(piece));
+    }
+    // The OA Settings button under Resume, in the in-game menu's own art, at
+    // its source size: small enough to draw each time and compare.
+    LayerDrawing button_face;
+    if (look.button_shown)
+        button_face = match_button_face(
+            runtime_.match_hud_ ? &*runtime_.match_hud_ : nullptr,
+            static_cast<settings::ButtonLook>(look.button_look),
+            look.darkened
+        );
+    const layout::Rect button_shown_at = look.button_shown ? button_at : layout::Rect{};
+
+    // What changed since rgba_ was composed: the button, and each screen that
+    // came, went, moved or draws something else. The screens both hold must
+    // keep their order, or every pixel two of them share may change.
+    layout::Rect changed{};
+    if (!composed_whole) {
+        if (!same_rect(button_shown_at, match_button_at_) ||
+            !same_drawing(button_face, match_button_face_))
+            changed = union_rect(match_button_at_, button_shown_at);
+        const auto find_piece = [](const std::vector<MatchPiece>& among, uint64_t screen) {
+            return std::find_if(among.begin(), among.end(), [screen](const auto& piece) {
+                return piece.screen == screen;
+            });
+        };
+        std::vector<uint64_t> kept_order;
+        for (const MatchPiece& was : match_pieces_)
+            if (find_piece(pieces, was.screen) != pieces.end())
+                kept_order.push_back(was.screen);
+            else
+                changed = union_rect(changed, was.shown);
+        std::size_t next_kept = 0;
+        for (const MatchPiece& now : pieces) {
+            const auto was = find_piece(match_pieces_, now.screen);
+            if (was == match_pieces_.end()) {
+                changed = union_rect(changed, now.shown);
+                continue;
+            }
+            if (next_kept >= kept_order.size() || kept_order[next_kept] != now.screen)
+                composed_whole = true;
+            ++next_kept;
+            if (!same_rect(was->shown, now.shown)) {
+                changed = union_rect(changed, union_rect(was->shown, now.shown));
+                continue;
+            }
+            if (was->drawing == now.drawing)
+                continue;
+            // A drawing as large as its place changes only where its pixels
+            // do; one fitted to its place, wherever it shows.
+            const bool copied = static_cast<int32_t>(now.drawn->picture.width) == now.shown.width &&
+                                static_cast<int32_t>(now.drawn->picture.height) == now.shown.height;
+            const layout::Rect part = copied
+                                          ? changed_part(*was->drawn, *now.drawn)
+                                          : layout::Rect{0, 0, now.shown.width, now.shown.height};
+            if (!empty_rect(part))
+                changed = union_rect(
+                    changed, {now.shown.x + part.x, now.shown.y + part.y, part.width, part.height}
+                );
+        }
+    }
+    const auto pixels =
+        static_cast<std::size_t>(look.width) * static_cast<std::size_t>(look.height);
+    if (rgba_.size() != pixels * 4U) {
+        rgba_.assign(pixels * 4U, 0);
+        composed_whole = true;
+    }
+    match_pieces_ = std::move(pieces);
+    match_button_face_ = std::move(button_face);
+    match_button_at_ = button_shown_at;
+    drawn_ = look;
+    const layout::Rect part = composed_whole ? whole : intersection(changed, whole);
+    if (!empty_rect(part)) {
+        compose_match_part(part);
+        unuploaded_ = union_rect(unuploaded_, part);
+    }
+    // The part that is not clear: the whole layer under the backdrop, else
+    // the button and the screens.
+    bounds_ = look.darkened ? whole : button_shown_at;
+    for (const MatchPiece& piece : match_pieces_)
+        bounds_ = union_rect(bounds_, piece.shown);
+    return true;
+}
+
+void OaLayer::compose_match_part(const layout::Rect& part) {
+    if (!drawn_)
+        return;
+    const int32_t width = drawn_->width;
+    const int32_t height = drawn_->height;
+    const layout::Rect within = intersection(part, {0, 0, width, height});
+    if (empty_rect(within))
+        return;
+    // Under a modal screen with a backdrop the whole layer darkens, the
+    // button with it, and the screens go over; otherwise it is clear but for
+    // what it shows.
+    std::array<uint8_t, 4> ground{};
+    if (drawn_->darkened)
+        ground = {
+            settings::backdrop_color[0],
+            settings::backdrop_color[1],
+            settings::backdrop_color[2],
+            static_cast<uint8_t>(kBackdropAlpha)
+        };
+    fill_layer_part(rgba_, width, within, ground);
+    // The button's face, at its source size, fitted to its place.
+    if (!empty_rect(match_button_at_))
+        stamp_within(
+            rgba_,
+            width,
+            height,
+            match_button_face_.picture,
+            match_button_at_,
+            match_button_face_.opacity,
+            within
+        );
+    for (const MatchPiece& piece : match_pieces_) {
+        // Copied pixel for pixel, one that is not opaque laid over what is
+        // already there by its opacity.
+        const LayerDrawing& drawn = *piece.drawn;
+        const auto& place = piece.shown;
         if (static_cast<int32_t>(drawn.picture.width) == place.width &&
             static_cast<int32_t>(drawn.picture.height) == place.height) {
-            copy_onto_layer(rgba_, look.width, look.height, drawn, place.x, place.y);
+            copy_onto_layer(rgba_, width, height, drawn, place.x, place.y, within);
         } else {
             // A screen with no scale of its own for a place of another size,
             // as the phone's fitted Settings: drawn at 1x, fitted to it.
-            stamp(rgba_, look.width, look.height, drawn.picture, place, drawn.opacity);
+            stamp_within(rgba_, width, height, drawn.picture, place, drawn.opacity, within);
         }
-        bounds_ = union_rect(bounds_, place);
     }
-    drawn_ = look;
-    uploaded_.reset();
-    return true;
 }
 
 void OaLayer::compose_match(renderer::Surface& frame) {
@@ -4537,6 +5323,36 @@ void OaLayer::compose_match(renderer::Surface& frame) {
         }
 }
 
+void OaLayer::upload_match_part(const layout::Rect& part) {
+    const int32_t width = drawn_->width;
+    const render_policy::TexelRect texels{
+        static_cast<uint32_t>(part.x),
+        static_cast<uint32_t>(part.y),
+        static_cast<uint32_t>(part.width),
+        static_cast<uint32_t>(part.height)
+    };
+    const uint8_t* first =
+        rgba_.data() + (static_cast<std::size_t>(part.y) * static_cast<std::size_t>(width) +
+                        static_cast<std::size_t>(part.x)) *
+                           4U;
+    if (runtime_.gamma_identity_) {
+        texture_.update_rect(first, width * 4, 4, texels);
+        return;
+    }
+    // At the display gamma, as the picture under it is uploaded: the part's
+    // rows alone.
+    const std::size_t row_bytes = static_cast<std::size_t>(part.width) * 4U;
+    std::vector<uint8_t> corrected(row_bytes * static_cast<std::size_t>(part.height));
+    for (int32_t row = 0; row < part.height; ++row)
+        std::memcpy(
+            corrected.data() + static_cast<std::size_t>(row) * row_bytes,
+            first + static_cast<std::size_t>(row) * static_cast<std::size_t>(width) * 4U,
+            row_bytes
+        );
+    runtime_.apply_gamma_rgb(corrected.data(), corrected.size() / 4U, 4);
+    texture_.update_rect(corrected.data(), static_cast<int>(row_bytes), 4, texels);
+}
+
 void OaLayer::present_match() {
     SDL_Renderer* sdl_renderer = runtime_.sdl_.renderer;
     if (sdl_renderer == nullptr || !refresh_match())
@@ -4551,24 +5367,23 @@ void OaLayer::present_match() {
             runtime_.render_texture_limit(),
             SDL_BLENDMODE_BLEND
         ))
-        uploaded_.reset();
+        uploaded_ = false;
     // A texture that held the front end's screens holds nothing of the match's.
     if (front_uploaded_) {
         front_uploaded_.reset();
-        uploaded_.reset();
+        uploaded_ = false;
     }
-    if (uploaded_ != drawn_ || uploaded_gamma_ != runtime_.gamma_table_) {
-        const uint8_t* pixels = rgba_.data();
-        std::vector<uint8_t> corrected;
-        if (!runtime_.gamma_identity_) {
-            corrected = rgba_;
-            runtime_.apply_gamma_rgb(corrected.data(), corrected.size() / 4U, 4);
-            pixels = corrected.data();
-        }
-        texture_.update(pixels, width * 4, 4);
-        uploaded_ = drawn_;
-        uploaded_gamma_ = runtime_.gamma_table_;
-    }
+    // A new texture or a new gamma takes the whole layer; otherwise only the
+    // part composed again since the last upload goes up.
+    const layout::Rect whole{0, 0, width, height};
+    const layout::Rect part = !uploaded_ || uploaded_gamma_ != runtime_.gamma_table_
+                                  ? whole
+                                  : intersection(unuploaded_, whole);
+    if (!empty_rect(part))
+        upload_match_part(part);
+    uploaded_ = true;
+    unuploaded_ = {};
+    uploaded_gamma_ = runtime_.gamma_table_;
     const SDL_FRect bounds{
         static_cast<float>(bounds_.x),
         static_cast<float>(bounds_.y),
@@ -4589,7 +5404,7 @@ void OaLayer::destroy_textures() noexcept {
     if (badges)
         badge_texture_.reset();
     badges_uploaded_ = false;
-    uploaded_.reset();
+    uploaded_ = false;
     front_uploaded_.reset();
 }
 
@@ -4625,6 +5440,49 @@ AutomationControlKind automation_kind(const kit::AutomationEntry& entry) noexcep
                                                 : AutomationControlKind::label;
     }
     return AutomationControlKind::area;
+}
+
+/// Returns the automation role for a kit role the kit chose.
+///
+/// @param role the kit's role
+/// @return the same role on an automation control
+AutomationControlRole automation_role(kit::AccessRole role) noexcept {
+    switch (role) {
+    case kit::AccessRole::unset:
+    case kit::AccessRole::none:
+        return AutomationControlRole::none;
+    case kit::AccessRole::button:
+        return AutomationControlRole::button;
+    case kit::AccessRole::check_box:
+        return AutomationControlRole::check_box;
+    case kit::AccessRole::switch_control:
+        return AutomationControlRole::switch_control;
+    case kit::AccessRole::radio_group:
+        return AutomationControlRole::radio_group;
+    case kit::AccessRole::radio:
+        return AutomationControlRole::radio;
+    case kit::AccessRole::tab_list:
+        return AutomationControlRole::tab_list;
+    case kit::AccessRole::tab:
+        return AutomationControlRole::tab;
+    case kit::AccessRole::list:
+        return AutomationControlRole::list;
+    case kit::AccessRole::list_item:
+        return AutomationControlRole::list_item;
+    case kit::AccessRole::text_field:
+        return AutomationControlRole::text_field;
+    case kit::AccessRole::search:
+        return AutomationControlRole::search;
+    case kit::AccessRole::slider:
+        return AutomationControlRole::slider;
+    case kit::AccessRole::link:
+        return AutomationControlRole::link;
+    case kit::AccessRole::label:
+        return AutomationControlRole::label;
+    case kit::AccessRole::group:
+        return AutomationControlRole::group;
+    }
+    return AutomationControlRole::none;
 }
 
 OaLayer::MenuButtonWindows OaLayer::menu_button_windows() const {
@@ -4670,6 +5528,7 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
         button.text = std::move(text);
         button.visible = true;
         button.enabled = modal == nullptr;
+        button.hidden = modal != nullptr;
         place_control(
             button,
             place,
@@ -4729,6 +5588,56 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
                                                                   : std::string(kAutomationPrefix) +
                                                                         std::string(screen.name());
         const kit::DisplayList list = screen.display_list();
+        const bool covering = screen.modal();
+        std::string header_title;
+        for (const kit::Item& item : list.items) {
+            if (item.role != kit::Role::header)
+                continue;
+            const auto* header = std::get_if<kit::HeaderLook>(&item.look);
+            if (header == nullptr)
+                continue;
+            // The title the player reads is the header's words and the word
+            // after them: OPEN ANNIHILATION SETTINGS, not OPEN ANNIHILATION.
+            std::string words = header->title;
+            if (!header->second.empty()) {
+                if (!words.empty())
+                    words += ' ';
+                words += header->second;
+            }
+            if (!words.empty()) {
+                header_title = std::move(words);
+                break;
+            }
+        }
+        // A composite is one stop. Its name takes that stop's index, and its
+        // parts take 1, 2, 3 in the order the composite lists them. A part's
+        // dotted name is not in this map, so it is ordered by where it sits.
+        std::map<std::string, int32_t> tab_of;
+        int32_t next_tab = 1;
+        for (const kit::ControlId id : list.tab_order) {
+            const kit::Composite* composite = nullptr;
+            for (const kit::Composite& candidate : list.composites) {
+                if (candidate.id == id)
+                    composite = &candidate;
+            }
+            if (composite != nullptr) {
+                if (!composite->name.empty())
+                    tab_of.emplace(composite->name, next_tab);
+                int32_t part_at = 1;
+                for (const kit::ControlId part : composite->parts) {
+                    const kit::Control* part_control = kit::control_of(list, part);
+                    if (part_control != nullptr && !part_control->name.empty())
+                        tab_of.emplace(part_control->name, part_at);
+                    ++part_at;
+                }
+                ++next_tab;
+                continue;
+            }
+            const kit::Control* ordered = kit::control_of(list, id);
+            if (ordered != nullptr && !ordered->name.empty())
+                tab_of.emplace(ordered->name, next_tab);
+            ++next_tab;
+        }
         for (const kit::AutomationEntry& entry :
              kit::automation_parts(list, screen.interaction())) {
             AutomationControl control;
@@ -4738,8 +5647,35 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
             control.visible = entry.shown;
             control.enabled = entry.enabled;
             control.focused = entry.focused;
+            control.focus_shown = entry.focused && kit::focus_ring_visible(screen.interaction());
             control.checked = entry.checked;
             control.text = entry.text;
+            if (entry.role != kit::AccessRole::unset) {
+                control.role = automation_role(entry.role);
+                control.role_set = true;
+            }
+            control.label = entry.label;
+            control.description = entry.description;
+            control.value_text = entry.value_text;
+            control.has_value = entry.has_value;
+            control.value = entry.value;
+            control.has_range = entry.has_range;
+            control.range_least = entry.least;
+            control.range_most = entry.most;
+            control.step = entry.step;
+            control.place = entry.place;
+            control.set_size = entry.set_size;
+            control.title = header_title;
+            if (const auto found = tab_of.find(entry.name); found != tab_of.end())
+                control.tab_index = found->second;
+            control.chosen = entry.chosen;
+            control.pressed = entry.pressed;
+            control.expanded = entry.expanded;
+            if (entry.live == 1)
+                control.live = AutomationLive::polite;
+            else if (entry.live == 2)
+                control.live = AutomationLive::assertive;
+            control.modal = covering;
             // A front-end screen is drawn in the window's own pixels at its
             // place; a match's on its canvas, the in-match Settings at its
             // own scale.
@@ -4755,7 +5691,7 @@ void OaLayer::automation_controls(std::vector<AutomationControl>& controls) cons
             );
             controls.push_back(std::move(control));
         }
-        if (screen.modal())
+        if (covering)
             break;
     }
 }

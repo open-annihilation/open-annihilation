@@ -27,6 +27,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -64,6 +65,24 @@ YELLOW_COLOUR = 64
 # PCX files end in a marker byte and a 256-entry RGB palette.
 PCX_PALETTE_BYTES = 769
 PCX_PALETTE_MARKER = 0x0C
+
+
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding="utf-8") if target.is_file() else "open-annihilation-preferences 1\n"
+    if "open-annihilation.update-check" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.update-check" "never"\n'
+    if "open-annihilation.content-updates" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding="utf-8")
 
 
 def read_ppm(path):
@@ -129,6 +148,7 @@ def main():
                                      dir=args.scratch_root.resolve()) as temporary:
         workdir = Path(temporary)
         snapshot = workdir / "play.ppm"
+        _offline_preferences(workdir / "preferences.conf")
         result = subprocess.run(
             [*RUNNER, str(args.native.resolve()), "--game-dir", str(args.game_dir.resolve()),
              "--skip-intro", "--mute", "--headless-check",

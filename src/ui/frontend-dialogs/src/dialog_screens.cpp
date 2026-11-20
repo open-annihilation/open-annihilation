@@ -339,6 +339,15 @@ uint8_t dialog_button_stage(std::size_t index) noexcept {
     return dialog->stages[index];
 }
 
+int32_t dialog_keyboard_focus() noexcept {
+    const Dialog* dialog = dialog_top();
+    if (dialog == nullptr || !dialog->focus_initialized || dialog->focus <= 0)
+        return -1;
+    if (static_cast<std::size_t>(dialog->focus) >= dialog->resources.layout.gadgets.size())
+        return -1;
+    return dialog->focus;
+}
+
 bool dialog_click(app::ScreenContext* ctx, const char* name) {
     auto* dialog = dialog_top();
     if (dialog == nullptr || name == nullptr)

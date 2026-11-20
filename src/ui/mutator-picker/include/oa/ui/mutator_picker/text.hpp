@@ -129,6 +129,8 @@ inline constexpr std::string_view tags_menu = "Tags";
 inline constexpr std::string_view tag_with_count = "Tag: {tag} ({count})";
 /// The search field's placeholder.
 inline constexpr std::string_view search_mutators = "Search mutators";
+/// The list of mutators. The rows name each mutator; the list itself draws no caption.
+inline constexpr std::string_view list_label = "Mutators";
 /// The heading over the On rows.
 inline constexpr std::string_view heading_on = "ON · APPLIED TOP TO BOTTOM";
 /// The heading over the Off rows. Not a switch's Off half.
@@ -166,6 +168,8 @@ inline constexpr std::string_view waiting_failed = "{name}: {problem}";
 inline constexpr std::string_view works_with_mods = "it works with {names}";
 /// The read-only footer's button, and the header's close mark.
 inline constexpr std::string_view close_button = "Close";
+/// The grip a player drags to change a row's order.
+inline constexpr std::string_view drag_to_reorder = "Drag to reorder";
 /// The list when the host gave no mutators.
 inline constexpr std::string_view empty_none =
     "No mutators here yet. The Library on the main menu gets them.";

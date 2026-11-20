@@ -319,20 +319,23 @@ Outcome press_up(Model& model, Interaction& interaction, const Layout& layout, C
 }
 
 Outcome key(Model& model, Interaction& interaction, const Layout& layout, Key key) {
+    // The first stop takes the keys from the first key, with the ring hidden,
+    // unless the screen already opened (and may have asked for the ring).
+    kit::focus_opened(interaction, layout.list, false);
+    if (key != Key::escape)
+        kit::show_ring_for_key(interaction);
     switch (key) {
     case Key::tab:
     case Key::back_tab: {
         const std::vector<kit::ControlId>& order = layout.list.tab_order;
         if (order.empty())
             return {};
-        // A focus that is not shown yet shows where it is; otherwise Tab moves on in the
-        // declared order, from its first or last control when the focus is in none.
-        const bool in_order =
-            std::find(order.begin(), order.end(), interaction.focused) != order.end();
-        if (interaction.focus_shown || !in_order)
-            interaction.focused =
-                kit::next_in_tab_order(layout.list, interaction.focused, key == Key::tab);
+        // Tab always moves. A control that is not in the order lands on the
+        // first stop going forward and the last going back.
+        interaction.focused =
+            kit::next_in_tab_order(layout.list, interaction.focused, key == Key::tab);
         interaction.focus_shown = true;
+        interaction.pointer_hid_ring = false;
         scroll_into_view(model, layout, screen_control(interaction.focused));
         return redraw();
     }
@@ -354,7 +357,12 @@ Outcome key(Model& model, Interaction& interaction, const Layout& layout, Key ke
             return {};
         interaction.pressed = kit::no_control;
         const Outcome outcome = act(model, target);
-        return outcome.command == Command::none ? Outcome{} : outcome;
+        if (outcome.command == Command::none)
+            return {};
+        // Return on the control the ring shows presses it and hides the ring.
+        if (key == Key::enter && focus_live)
+            interaction.focus_shown = false;
+        return outcome;
     }
     case Key::escape:
         interaction.pressed = kit::no_control;

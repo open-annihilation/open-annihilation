@@ -89,10 +89,10 @@ struct PanelLayout {
     int rule_width{}; ///< columns of the rule, as wide as the table and graph
     /// Each value column's right edge, where its values end.
     std::array<int, frame_pacing::kFrameStatsValueColumns> value_right{};
-    /// Where each row's note starts; label_x for the rows that run on (the
-    /// renderer's, the turned view's device's and the display's), whose
-    /// notes are placed after their labels where they are drawn
-    /// (fit_run_on_row).
+    /// Where each row's note starts: the title's kColumnGap after the
+    /// title; label_x for the rows that run on (the renderer's, the turned
+    /// view's device's and the display's), whose notes are placed after
+    /// their labels where they are drawn (fit_run_on_row).
     std::array<int, frame_pacing::kFrameStatsRowsMost> note_x{};
     Box graph{}; ///< the bars' area, inside the graph's sunken edge
 };
@@ -110,7 +110,8 @@ struct TextWidthHooks {
 /// each other a row_height apart, with a rule under the column names
 /// (FrameStatsRowKind::heading) and kRuleGap under the rule. The labels take
 /// the left column, as wide as the widest label; the title's label runs on
-/// across the columns. The three value columns follow, kColumnGap apart,
+/// across the columns, and its note (the graph's span) kColumnGap after it.
+/// The three value columns follow, kColumnGap apart,
 /// each as wide as its widest text, every value ending at its column's
 /// right edge. A row's note starts kColumnGap after the last value column
 /// the row fills, or after the labels in a row that fills none. The rows
@@ -118,7 +119,8 @@ struct TextWidthHooks {
 /// labels and notes run on from the labels' left edge and are cut to the
 /// panel's width where they are drawn (fit_run_on_row). Under the table, kGraphGap below
 /// its last row, the graph holds a column kBarWidth across for each column
-/// of the frame history (frame_pacing::kFrameGraphColumns) and is
+/// of the frame history (frame_pacing::kFrameGraphColumns), whatever span
+/// of frames the history covers, and is
 /// kGraphHeight high, inside a sunken edge of kGraphEdge. The panel is as
 /// wide as the wider of the table and the graph: when the graph is wider,
 /// the value columns and the notes move right together, so that the widest

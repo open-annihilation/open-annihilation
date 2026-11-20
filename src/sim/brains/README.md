@@ -865,7 +865,11 @@ sets the flag from that line's `any` or its keyword, and the flag is not
 kept after the call. The result is `{weights = {…}, limits = {…}}`, the
 line tables that apply. The built-in player keeps the flag from one pass
 to the next and applies a downloadable type's own lines twice. This pass
-does neither.
+does neither. The built-in player and Classic skip a weight or limit line
+whose third word gives no number while a later word gives one, and whose
+second word is no unit's name, such as `Limit ARM DECOM 4`
+(`computer_profile_line_skipped`); `select` keeps such a line as written,
+and a brain reading it decides for itself.
 
 In a match, `game.build_list(type)` is a new sequence of `units` records.
 `type` is a unit record, a unit name or a type index, resolved by

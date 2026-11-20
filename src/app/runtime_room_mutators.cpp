@@ -1049,10 +1049,19 @@ void Runtime::note_unit_sync() {
         return;
     char detail[96];
     const char* diagnostic = mp::unit_sync_diagnostic(lobby, detail, sizeof detail);
-    if (diagnostic == nullptr || std::string_view(diagnostic) != "OK")
+    if (diagnostic == nullptr)
+        return;
+    // Every peer has reported. Units that differ are counted here; the
+    // battle room names them.
+    const netgame::PresenceUnitSync found = mp::unit_sync_differences(lobby);
+    if (found.total == 0 && std::string_view(diagnostic) != "OK")
         return;
     state.sync_logged = true;
-    std::cerr << "multiplayer: unit sync OK\n";
+    if (found.total == 0)
+        std::cerr << "multiplayer: unit sync OK\n";
+    else
+        std::cerr << "multiplayer: unit sync: " << found.total
+                  << (found.total == 1 ? " unit differs\n" : " units differ\n");
     std::cerr.flush();
 }
 

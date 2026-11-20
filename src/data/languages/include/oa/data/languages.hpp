@@ -145,11 +145,19 @@ struct FallbackChain {
 /// @return English's entry
 [[nodiscard]] const Language& english() noexcept;
 
+/// Tells whether this build draws text with these needs, and so may offer
+/// a language or a pack that asks for them.
+///
+/// @param needs what drawing the text needs
+/// @return true for TextNeeds::game_fonts and TextNeeds::modern_fonts, and
+///     for TextNeeds::text_shaping on a build that shapes; the other needs
+///     are not built yet
+[[nodiscard]] bool meets(TextNeeds needs) noexcept;
+
 /// Tells whether this build draws a language's text, and so offers it.
 ///
 /// @param language the language
-/// @return true for TextNeeds::game_fonts and TextNeeds::modern_fonts; the
-///     other needs are not built yet
+/// @return true when meets() is true for the language's needs
 [[nodiscard]] bool drawable(const Language& language) noexcept;
 
 /// Tells whether a language can be the one the game shows: its source is
@@ -161,9 +169,10 @@ struct FallbackChain {
 [[nodiscard]] bool playable(const Language& language) noexcept;
 
 /// Tells whether a language turns Unicode multiplayer chat on while it is
-/// shown: its text is held in UTF-8 (TextNeeds::modern_fonts), so that a
-/// line typed in it reaches each machine in the form that machine reads,
-/// or one of its packs asks for it (unicode: true).
+/// shown: its text is held in UTF-8 (TextNeeds::modern_fonts, or
+/// TextNeeds::text_shaping), so that a line typed in it reaches each
+/// machine in the form that machine reads, or one of its packs asks for
+/// it (unicode: true).
 ///
 /// @param language the language shown
 /// @param pack_asks a pack of the language asks for Unicode chat
@@ -234,20 +243,22 @@ void set_pack_languages(
 /// Finds the language a locale chooses: the entry with the longest of its
 /// locales that is the locale's whole tag or its leading subtags. Only a
 /// playable language is chosen, unless `with_available` is set, when an
-/// available language is chosen too. A locale of a language the game does
-/// not offer yet, as Traditional Chinese's "zh-TW" and "zh-Hant-HK", chooses
-/// none when its match is longer than any entry's, so it never falls to a
-/// shorter one such as "zh".
+/// available language this build can draw is chosen too. A locale of a
+/// language the game does not offer yet, as Traditional Chinese's "zh-TW"
+/// and "zh-Hant-HK", chooses none when its match is longer than any
+/// entry's, so it never falls to a shorter one such as "zh".
 ///
 /// @param locale a locale, in any form normalised_locale reads
-/// @param with_available true to match an available language too
+/// @param with_available true to match an available language this build
+///     can draw
 /// @return the language; null when none is chosen
 [[nodiscard]] const Language* match_locale(std::string_view locale, bool with_available = false);
 
 /// Finds the language the preferred locales ask for among the playable
-/// languages and the available ones: the first locale, in the order given,
-/// that matches one. Unlike preferred_language, an available language
-/// counts, and no locale matching leaves null rather than English.
+/// languages and the available ones this build can draw: the first locale,
+/// in the order given, that matches one. Unlike preferred_language, an
+/// available language counts, and no locale matching leaves null rather
+/// than English.
 ///
 /// @param locales the preferred locales, most preferred first
 /// @return the language; null when none matches

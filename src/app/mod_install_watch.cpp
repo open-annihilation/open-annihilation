@@ -60,9 +60,9 @@ bool take_launch(const fs::path& file) {
     return true;
 }
 
-/// Copies a dropped file the game opens into the inbox, and reads a launch
-/// file into network play's waiting launches; any other file is logged and
-/// left.
+/// Copies a dropped file the game opens into the inbox, a replay among them,
+/// and reads a launch file into network play's waiting launches; any other
+/// file is logged and left.
 ///
 /// @param event the event
 void take_drop(const SDL_Event& event) {
@@ -70,7 +70,7 @@ void take_drop(const SDL_Event& event) {
         return;
     try {
         const fs::path file = path_from_utf8(event.drop.data);
-        if (package_install::opens_file(file)) {
+        if (package_install::opens_file(file) || package_install::opens_replay(file)) {
             package_install::post_opened_file(file);
             return;
         }

@@ -290,8 +290,27 @@ const Language& english() noexcept {
     return kLanguages[0];
 }
 
+bool meets(TextNeeds needs) noexcept {
+    switch (needs) {
+    case TextNeeds::game_fonts:
+    case TextNeeds::modern_fonts:
+        return true;
+    case TextNeeds::text_shaping:
+        // Shaping is part of a build that linked HarfBuzz. One that has not
+        // keeps a shaping language in the registry and does not offer it.
+#if defined(OA_TEXT_SHAPING)
+        return true;
+#else
+        return false;
+#endif
+    case TextNeeds::more_font_faces:
+        return false;
+    }
+    return false;
+}
+
 bool drawable(const Language& language) noexcept {
-    return language.needs == TextNeeds::game_fonts || language.needs == TextNeeds::modern_fonts;
+    return meets(language.needs);
 }
 
 bool playable(const Language& language) noexcept {
@@ -299,7 +318,8 @@ bool playable(const Language& language) noexcept {
 }
 
 bool turns_unicode_chat_on(const Language& language, bool pack_asks) noexcept {
-    return pack_asks || language.needs == TextNeeds::modern_fonts;
+    return pack_asks || language.needs == TextNeeds::modern_fonts ||
+           language.needs == TextNeeds::text_shaping;
 }
 
 const Language* find_by_tag(std::string_view tag) noexcept {
@@ -437,9 +457,10 @@ const Language* match_locale(std::string_view locale, bool with_available) {
             best_length = pattern.size();
     for (const Language* language : registry().live) {
         // A playable language counts. An available language counts only when
-        // the caller asks, and then even when this build cannot draw it.
+        // the caller asks, and only when this build can draw it.
         const bool counts =
-            playable(*language) || (with_available && language->source == Source::available);
+            playable(*language) ||
+            (with_available && language->source == Source::available && meets(language->needs));
         if (!counts)
             continue;
         for (const std::string_view pattern : language->locales)

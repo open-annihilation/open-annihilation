@@ -92,6 +92,8 @@ struct Prepared {
     std::string interface_name;
     bool switch_alt = false;
     bool wheel_zoom_off = false;
+    /// The megamap opened before the input, as a row on the megamap opens it.
+    bool megamap = false;
     std::string armed;
     bool chat = false;
     bool menu = false;
@@ -123,6 +125,7 @@ struct Shot {
     std::string armed = "none";
     int32_t camera_x = 0;
     int32_t camera_z = 0;
+    float zoom_target = 0; ///< the zoom the view eases to
     bool paused = false;
     int speed = 0;
     std::string panel;
@@ -559,6 +562,8 @@ Prepared parse_setup(std::string_view text) {
             prepared.switch_alt = true;
         else if (key == "wheel-zoom" && value == "off")
             prepared.wheel_zoom_off = true;
+        else if (key == "megamap" && value == "open")
+            prepared.megamap = true;
         else if (key == "armed")
             prepared.armed = std::string(value);
         else if (key == "chat" && value == "open")
@@ -665,6 +670,8 @@ std::string effect_of(const Shot& before, const Shot& after) {
             camera_word(after.camera_x - before.camera_x, after.camera_z - before.camera_z);
         !moved.empty())
         put("camera", moved);
+    if (before.zoom_target != after.zoom_target)
+        put("zoom", after.zoom_target > before.zoom_target ? "in" : "out");
     if (before.paused != after.paused)
         put("paused", after.paused ? "on" : "off");
     if (before.speed != after.speed)
@@ -1584,8 +1591,9 @@ void Runtime::check_key_table() {
             }
             if (row.id.rfind("build.move-queued-site", 0) == 0)
                 queue_build_at_site();
-            if (row.gesture.place == "megamap") {
-                set_wheel_zoom(false);
+            // The megamap opens whatever the Mouse wheel zoom setting is; a
+            // row that needs the setting off says so.
+            if (row.gesture.place == "megamap" || prepared.megamap) {
                 self.set_megamap_open(true);
                 if (!self.megamap_open_)
                     self.megamap_open_ = true;
@@ -1650,6 +1658,7 @@ void Runtime::check_key_table() {
                 self.pending_build_type_ != 0 ? "build" : command_word(self.match_command_);
             shot.camera_x = self.match_camera_x_;
             shot.camera_z = self.match_camera_z_;
+            shot.zoom_target = self.match_zoom_target_;
             const auto& game = self.match_->state().game;
             shot.paused =
                 self.match_paused_ || (game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0;

@@ -703,6 +703,39 @@ void construction_orders() {
     f.match->stop_orders(id);
 }
 
+// HelpBuild's helper looks at its frame again after 300 ticks without its
+// build stance, which a script with all its threads busy never raises: for an
+// unfinished frame StartBuilding runs again (this builder's script has none,
+// so the stance is set at once) and the help goes on; a finished frame ends
+// the order. A wake for another script value keeps the look pending.
+void help_build_recovers_a_missing_stance() {
+    Fixture f;
+    auto& builder = f.spawn(0, builder_type, 100, 100);
+    const auto id = builder.unit_index;
+    auto& frame = f.spawn(0, factory_type, 60, 140, false);
+    auto& help = f.match->issue_help_build(id, frame.unit_index, false);
+    CHECK(step(*f.match, builder, help) == 1);
+    CHECK(step(*f.match, builder, help) == 1 && help.phase == 2);
+    const auto clear_stance = [&] {
+        builder.record.build_flags =
+            static_cast<uint8_t>(builder.record.build_flags & ~OA_UNIT_BUILD_IN_BUILD_STANCE);
+    };
+    clear_stance();
+    CHECK(step(*f.match, builder, help) == 2 && help.wait_events == 0xf);
+    const auto look = help.wake_tick;
+    CHECK(look == f.tick() + 300);
+    CHECK(step(*f.match, builder, help, 4) == 2 && help.wait_events == 0xf);
+    CHECK(help.wake_tick == look);
+    CHECK(step(*f.match, builder, help, 1) == 1 && help.phase == 3);
+    CHECK(builder.record.build_flags & OA_UNIT_BUILD_IN_BUILD_STANCE);
+
+    help.phase = 2;
+    clear_stance();
+    frame.record.build_remaining = 0.0F;
+    CHECK(step(*f.match, builder, help, 1) == 5);
+    f.match->stop_orders(id);
+}
+
 // A queued MobileBuild can be moved onto another site until its frame exists.
 // The one the builder is already walking to starts that walk again; a later
 // order only changes its site. A move order, and an index past the queue, are
@@ -1823,6 +1856,7 @@ int main() {
         attack_orders();
         guard_and_teleport();
         construction_orders();
+        help_build_recovers_a_missing_stance();
         queued_build_can_be_moved();
         factory_orders();
         abandoned_frame_decays_away();

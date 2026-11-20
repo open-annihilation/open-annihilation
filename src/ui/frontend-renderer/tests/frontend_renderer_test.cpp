@@ -15,6 +15,7 @@
 #include <utility>
 #include <tuple>
 #include <memory>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -205,6 +206,128 @@ void test_default_art_in_panel_archive() {
     CHECK(red_at(normal, 2, 4) == 99);
     CHECK(shown(renderer::ButtonCondition::hovered).rgb == normal.rgb);
     CHECK(red_at(shown(renderer::ButtonCondition::pressed), 2, 3) == 41);
+}
+
+// 3.1c's frame lookup finds nothing past a sequence's last frame, and a
+// button whose frame is not there is drawn without a picture, its caption
+// alone: a unit page's one-frame picture, pressed, shows the panel under it.
+// The screen is drawn without throwing, and the draw hands each such picture
+// back once; a frame given past the end, a frame that cannot be decoded and
+// a picture set at run time whose sequence or frame is missing are drawn the
+// same way.
+void test_missing_frames_draw_nothing() {
+    namespace renderer = oa::ui::frontend_renderer;
+    renderer::ScreenResources resources;
+    resources.background.width = 12;
+    resources.background.height = 6;
+    resources.background.rgb.assign(12U * 6U * 3U, 99);
+    for (std::size_t index = 0; index < 256; ++index)
+        resources.gui_palette[index * 4] = static_cast<uint8_t>(index);
+    resources.layout.gadgets.push_back(button("PORTRAIT", 1, 1, 3, 2));
+    // The page's own GAF: another sequence, then the picture's single frame.
+    oa::formats::gaf::Sequence other;
+    other.name = "OTHER";
+    oa::formats::gaf::Sequence portrait;
+    portrait.name = "PORTRAIT";
+    oa::formats::gaf::Frame frame;
+    frame.width = 3;
+    frame.height = 2;
+    frame.pixels.assign(6, 40);
+    frame.coverage.assign(6, 1);
+    other.frames.push_back(frame);
+    portrait.frames.push_back(frame);
+    resources.sprites.sequences.push_back(other);
+    resources.sprites.sequences.push_back(portrait);
+    std::vector<renderer::DrawFault> faults;
+    const auto shown = [&](renderer::ButtonCondition condition, std::optional<std::size_t> at) {
+        const renderer::ButtonPresentation state{
+            "PORTRAIT", condition, at, std::nullopt, std::nullopt
+        };
+        faults.clear();
+        return renderer::render_screen(resources, {&state, 1}, {}, &faults);
+    };
+    const auto normal = shown(renderer::ButtonCondition::normal, std::nullopt);
+    CHECK(red_at(normal, 1, 1) == 40);
+    CHECK(red_at(normal, 3, 2) == 40);
+    CHECK(faults.empty());
+
+    const auto pressed = shown(renderer::ButtonCondition::pressed, std::nullopt);
+    CHECK(pressed.rgb == resources.background.rgb);
+    CHECK(faults.size() == 1);
+    if (faults.size() == 1) {
+        const auto& fault = faults.front();
+        CHECK(fault.kind == renderer::DrawFaultKind::missing_frame);
+        CHECK(fault.gadget == "PORTRAIT");
+        CHECK(fault.archive == renderer::SpriteArchive::screen);
+        CHECK(fault.sequence_index == 1);
+        CHECK(fault.sequence == "PORTRAIT");
+        CHECK(fault.frame == 1);
+        CHECK(fault.frames == 1);
+        CHECK(
+            renderer::describe_draw_fault(fault, "anims/UNIT1.GAF") ==
+            "PORTRAIT asks for frame index 1 of GAF sequence PORTRAIT in anims/UNIT1.GAF, which "
+            "has 1 frame; drawn without it"
+        );
+    }
+    // A caller that asks for no faults is drawn the same, and nothing throws.
+    const renderer::ButtonPresentation held{
+        "PORTRAIT", renderer::ButtonCondition::pressed, std::nullopt, std::nullopt, std::nullopt
+    };
+    CHECK(renderer::render_screen(resources, {&held, 1}).rgb == pressed.rgb);
+
+    // A frame given past the end, however far, draws nothing.
+    CHECK(shown(renderer::ButtonCondition::normal, 5).rgb == resources.background.rgb);
+    CHECK(faults.size() == 1 && faults.front().frame == 5 && faults.front().frames == 1);
+    CHECK(
+        shown(renderer::ButtonCondition::normal, static_cast<std::size_t>(-1)).rgb ==
+        resources.background.rgb
+    );
+    CHECK(faults.size() == 1);
+
+    // A frame that cannot be decoded draws nothing either.
+    resources.sprites.sequences.back().frames.front().pixels = {40};
+    CHECK(shown(renderer::ButtonCondition::normal, std::nullopt).rgb == resources.background.rgb);
+    CHECK(faults.size() == 1);
+    if (faults.size() == 1) {
+        CHECK(faults.front().kind == renderer::DrawFaultKind::undecodable_frame);
+        CHECK(faults.front().frame == 0 && !faults.front().error.empty());
+    }
+    resources.sprites.sequences.back().frames.front() = frame;
+
+    // A picture set at run time over a hot surface: a sequence the art lacks
+    // and a frame past the end each draw nothing.
+    oa::ui::gui_layout::Gadget surface;
+    surface.common.type = oa::ui::gui_layout::GadgetType::hot_surface;
+    surface.common.name = "Color0";
+    surface.common.x = 6;
+    surface.common.y = 1;
+    surface.common.width = 3;
+    surface.common.height = 2;
+    surface.common.active = 1;
+    resources.layout.gadgets = {surface};
+    const auto image = [&](std::string sequence, std::size_t at) {
+        const renderer::ButtonPresentation state{
+            "Color0",
+            renderer::ButtonCondition::normal,
+            at,
+            std::nullopt,
+            renderer::SpriteOverride{renderer::SpriteArchive::screen, std::move(sequence)}
+        };
+        faults.clear();
+        return renderer::render_screen(resources, {&state, 1}, {}, &faults);
+    };
+    CHECK(red_at(image("PORTRAIT", 0), 6, 1) == 40);
+    CHECK(faults.empty());
+    CHECK(image("MISSING", 0).rgb == resources.background.rgb);
+    CHECK(
+        faults.size() == 1 && faults.front().kind == renderer::DrawFaultKind::missing_sequence &&
+        faults.front().sequence == "MISSING" && faults.front().frames == 0
+    );
+    CHECK(image("PORTRAIT", 2).rgb == resources.background.rgb);
+    CHECK(
+        faults.size() == 1 && faults.front().kind == renderer::DrawFaultKind::missing_frame &&
+        faults.front().frame == 2 && faults.front().frames == 1
+    );
 }
 
 // NEWGAME's Arm and Core are hold buttons (text_list) with no sequence of
@@ -1323,6 +1446,7 @@ int main() {
     test_grayed_art_frame();
     test_art_keeps_frame_size();
     test_default_art_in_panel_archive();
+    test_missing_frames_draw_nothing();
     test_hold_button_takes_default_art();
     test_grayed_art_cost();
     test_quick_key_and_focus();

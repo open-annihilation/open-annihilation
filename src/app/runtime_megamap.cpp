@@ -7,15 +7,18 @@
 // units the minimap shows and the selection's sensor rings; its clicks act
 // as the battlefield's do in the chosen interface type, at the map point
 // they stand for. The enhanced minimap redraws the radar's picture at its
-// own size. The Mouse wheel zoom setting, while on, leaves the hack off for
-// this player.
+// own size. The toggle answers whatever the Mouse wheel zoom setting is;
+// while that setting is on, the wheel zooms the battlefield in place of
+// opening the megamap, and the minimap keeps the game's own picture.
 
 #include "engine_settings_state.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/world_renderer.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/sim/selection/shortcuts.hpp"
 #include "oa/ui/hud/megamap.hpp"
+#include "oa/ui/hud/shape_cues.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 
 #include <SDL3/SDL.h>
@@ -30,6 +33,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -157,9 +161,13 @@ void terrain_row(
 } // namespace
 
 bool Runtime::megamap_on() const {
+    return match_ && ui_rules().megamap.enabled;
+}
+
+bool Runtime::megamap_takes_wheel() const {
     // Settings not yet read hold their defaults, the wheel zoom on.
     const bool wheel_zoom = !engine_settings_ || engine_settings_->current.wheel_zoom;
-    return match_ && ui_rules().megamap.enabled && !wheel_zoom;
+    return megamap_on() && !wheel_zoom;
 }
 
 bool Runtime::megamap_shown() const {
@@ -441,6 +449,24 @@ void Runtime::set_megamap_open(bool open) {
 bool Runtime::take_megamap_toggle(const SDL_KeyboardEvent& key) {
     if (!megamap_on() || key.repeat || !action_key_matches("megamap.toggle", key))
         return false;
+    // In a replay a chord that is also a view binding is the view's, and a
+    // megamap moved off them still opens. The dispatcher gives a chord one
+    // action, and under the hack that is the megamap's, so the view action
+    // has no event of its own: it is run here.
+    if ((current_extension_state() & extension_state::replay) != 0) {
+        static constexpr std::array<std::string_view, 4> view_actions{
+            "watch.next-player-view",
+            "watch.previous-player-view",
+            "watch.whole-view",
+            "watch.camera-mode",
+        };
+        for (const std::string_view view_action : view_actions) {
+            if (action_key_matches(view_action, key)) {
+                static_cast<void>(replay_viewer_command(view_action));
+                return true;
+            }
+        }
+    }
     set_megamap_open(!megamap_open_);
     return true;
 }
@@ -448,7 +474,11 @@ bool Runtime::take_megamap_toggle(const SDL_KeyboardEvent& key) {
 bool Runtime::megamap_wheel(float amount, float x, float y) {
     if (!megamap_on() || amount == 0.0F)
         return false;
+    // Toward the player it opens the megamap only while the wheel is the
+    // megamap's: with Mouse wheel zoom on, that turn zooms the battlefield.
     if (amount < 0.0F) {
+        if (!megamap_takes_wheel())
+            return false;
         set_megamap_open(true);
         return true;
     }
@@ -477,9 +507,9 @@ bool Runtime::megamap_wheel(float amount, float x, float y) {
     return true;
 }
 
-void Runtime::draw_megamap() {
+bool Runtime::draw_megamap() {
     if (!megamap_open_ || !megamap_on() || !selected_tnt_)
-        return;
+        return false;
     prepare_megamap();
     auto& state = megamap_;
     auto& world = match_->state();
@@ -488,7 +518,7 @@ void Runtime::draw_megamap() {
     // until the overlays' area changes, as a resized window changes it.
     const auto layout = current_megamap_layout();
     if (layout.width <= 0)
-        return;
+        return false;
     if (!megamap_terrain_fits(layout))
         build_megamap_terrain(layout);
     // The bars, across the battlefield around the picture, then the terrain
@@ -577,10 +607,33 @@ void Runtime::draw_megamap() {
                                int32_t cy,
                                uint8_t dot,
                                bool selected,
-                               bool hovered) {
+                               bool hovered,
+                               int seat) {
+        const bool marked =
+            oa::present::colour_vision::shape_cues_active() && seat >= 0 && seat < OA_PLAYER_COUNT;
+        const auto marker_beside = [&](int32_t icon_right) {
+            if (!marked)
+                return;
+            auto& dest = paint_target();
+            if (dest.rgb.empty())
+                return;
+            const auto ink = palette_rgb(dot);
+            oa::ui::hud::stamp_compact_marker(
+                dest.rgb.data(),
+                static_cast<int32_t>(dest.width),
+                static_cast<int32_t>(dest.height),
+                icon_right + 1 + oa::ui::hud::kCompactMarkerCentre,
+                cy,
+                seat,
+                ink[0],
+                ink[1],
+                ink[2]
+            );
+        };
         if (icon.pixels.empty()) {
-            // A missing picture draws a square of the owner's colour.
+            // A missing picture keeps its square. The marker sits beside it.
             fill_hud_rect(cx - 2, cy - 2, 5, 5, dot);
+            marker_beside(cx + 2);
             return;
         }
         const int32_t left = cx - icon.width / 2, top = cy - icon.height / 2;
@@ -596,6 +649,7 @@ void Runtime::draw_megamap() {
                 if (shown)
                     fill_hud_rect(left + x, top + y, 1, 1, *shown);
             }
+        marker_beside(left + icon.width - 1);
     };
     for (uint32_t slot = 0; slot < world.unit_slot_count; ++slot) {
         const oa::Unit& unit = world.units[slot];
@@ -630,8 +684,16 @@ void Runtime::draw_megamap() {
         if (hovered)
             state.hovered = unit.id;
         const bool selected = (unit.flags & OA_UNIT_FLAG_SELECTED) != 0;
+        const int seat =
+            unit.owner_index < OA_PLAYER_COUNT ? static_cast<int>(unit.owner_index) : -1;
         draw_icon(
-            icon, at[0], at[1], hud::player_dot_color(world, unit.owner_index), selected, hovered
+            icon,
+            at[0],
+            at[1],
+            hud::player_dot_color(world, unit.owner_index),
+            selected,
+            hovered,
+            seat
         );
         if (hovered && state.config.options.circle_hover)
             draw_megamap_ring(
@@ -667,6 +729,10 @@ void Runtime::draw_megamap() {
         fill_hud_rect(left, top, 1, bottom - top + 1, marks);
         fill_hud_rect(right, top, 1, bottom - top + 1, marks);
     }
+    // The bars and the map's rows, each cut to the layer, leave none of it
+    // uncovered where the layer is the battlefield's size.
+    return target.width == static_cast<uint32_t>(std::max(0, battlefield_w)) &&
+           target.height == static_cast<uint32_t>(std::max(0, battlefield_h));
 }
 
 void Runtime::draw_megamap_ring(int32_t x, int32_t y, int32_t radius, uint8_t color) {
@@ -961,13 +1027,8 @@ void Runtime::megamap_right_press(
 }
 
 void Runtime::megamap_wheel_zoom_changed() {
-    // Closed without its sound: the setting closes it, not the player's key.
-    if (!megamap_on()) {
-        megamap_open_ = false;
-        megamap_.pressed = false;
-    }
-    // Turned on, the hack makes its picture now rather than as it first opens.
-    prepare_megamap_picture();
+    // The megamap the player opened stays open: its toggle answers whatever
+    // the setting is. Only the minimap's picture follows the setting.
     const auto& rules = ui_rules().megamap;
     if (!rules.enabled || !rules.enhanced_minimap || radar_state_.surfaces.picture == nullptr)
         return;
@@ -985,13 +1046,13 @@ void Runtime::enhance_radar_picture() {
         game.map_pixel_height <= 0)
         return;
     // The game's own picture, kept as the radar drew it, comes back while the
-    // hack is off for this player.
+    // wheel zooms the battlefield in place of opening the megamap.
     auto& kept = radar_state_.game_picture;
     const auto size =
         static_cast<std::size_t>(picture->pitch) * static_cast<std::size_t>(picture->height);
     if (kept.empty())
         kept.assign(picture->pixels, picture->pixels + size);
-    if (!megamap_on()) {
+    if (!megamap_takes_wheel()) {
         if (kept.size() == size)
             std::copy(kept.begin(), kept.end(), picture->pixels);
         return;

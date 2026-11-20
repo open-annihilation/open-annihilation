@@ -1,0 +1,38 @@
+The LLVM exception that covers compiler-rt's objects inside compiler_builtins
+0.1.160, compiled into every AccessKit library by rustc 1.99.1
+(58cf8f9c3 2026-10-13). The Apache-2.0 text it excepts is
+licenses/AccessKit-Apache-2.0.txt. The wording below is that exception and
+the compiler-rt note from this compiler_builtins release.
+
+---- LLVM Exceptions to the Apache 2.0 License ----
+
+As an exception, if, as a result of your compiling your source code, portions
+of this Software are embedded into an Object form of such source code, you
+may redistribute such embedded portions in such Object form without complying
+with the conditions of Sections 4(a), 4(b) and 4(d) of the License.
+
+In addition, if you combine or link compiled forms of this Software with
+software that is licensed under the GPLv2 ("Combined Software") and if a
+court of competent jurisdiction determines that the patent provision (Section
+3), the indemnity provision (Section 9) or other Section of the License
+conflicts with the conditions of the GPLv2, you may retroactively and
+prospectively choose to deem waived or otherwise exclude such Section(s) of
+the License, but only in their entirety and only with respect to the Combined
+Software.
+------------------------------------------------------------------------------
+
+Portions of this software are derived from third-party works licensed under
+terms compatible with the above Apache-2.0 WITH LLVM-exception AND MIT
+license:
+
+* compiler-builtins is derived from LLVM's compiler-rt (https://llvm.org/).
+  Work derived from compiler-rt prior to 2019-01-19 is usable under the MIT
+  license, with the following copyright:
+
+      Copyright (c) 2009-2016 by the contributors listed in CREDITS.TXT
+
+  The relevant CREDITS.TXT is located at
+  https://github.com/llvm/llvm-project/blob/main/compiler-rt/CREDITS.TXT.
+
+* Work derived from compiler-rt after 2019-01-19 is usable under the
+  Apache-2.0 license with the LLVM exception.

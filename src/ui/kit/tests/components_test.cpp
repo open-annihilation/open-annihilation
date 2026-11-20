@@ -2,18 +2,21 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The kit's controls, pinned to literal colours, the OA button's attention
-// dot, and paint against a direct draw. The geometry literals were computed
-// with the settings dialog's functions at ecf703fb, the commit this ticket
-// started from.
+// dot, and paint against a direct draw; rounded rectangles against their
+// corner's coverage, and a coverage map blended pixel by pixel. The geometry
+// literals were computed with the settings dialog's functions at ecf703fb,
+// the commit this ticket started from.
 
 #include "oa/formats/fnt.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
+#include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/paint/painter.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -1430,6 +1433,169 @@ void menu_icon_button_is_the_icon() {
     );
 }
 
+/// Returns a rounded rectangle's coverage, width by height pixels, from its
+/// corner: corner_coverage at the top left, mirrored at the other three
+/// corners, and whole pixels between them, every one for the filled shape
+/// and the ring's thickness round the inside for a ring.
+///
+/// @param width the pixels across
+/// @param height the pixels down
+/// @param radius the corners' radius, in pixels; at most half of each side
+/// @param hole the ring's thickness, in pixels; 0 for the filled shape
+/// @param stepped each pixel covered or not
+/// @return width times height bytes, rows top to bottom
+std::vector<uint8_t>
+mirrored_corners(int32_t width, int32_t height, int32_t radius, int32_t hole, bool stepped) {
+    const std::vector<uint8_t> corner = kit::corner_coverage(radius, hole, stepped);
+    std::vector<uint8_t> map(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+    for (int32_t row = 0; row < height; ++row)
+        for (int32_t column = 0; column < width; ++column) {
+            const int32_t across = std::min(column, width - 1 - column);
+            const int32_t down = std::min(row, height - 1 - row);
+            uint8_t share = 255;
+            if (across < radius && down < radius)
+                share = corner[static_cast<std::size_t>(down * radius + across)];
+            else if (hole > 0 && across >= hole && down >= hole)
+                share = 0;
+            map[static_cast<std::size_t>(row) * static_cast<std::size_t>(width) +
+                static_cast<std::size_t>(column)] = share;
+        }
+    return map;
+}
+
+/// A rounded rectangle, filled and as a ring, at 1x and 3x, small and wider
+/// or taller than 512 pixels, covers each corner as corner_coverage gives
+/// it, mirrored at the other three, and the rest whole. A pill whose pixels
+/// are an even number high is the rounded rectangle of half its height,
+/// filled and outlined. Each draws the same pixels again once more shapes
+/// than a thread keeps have been drawn since, and when drawn twice in a row.
+void rounded_shapes_take_their_corners() {
+    constexpr kit::Colour white{255, 255, 255};
+
+    struct Shape {
+        int32_t scale;
+        kit::Rect rect;
+        int32_t radius;
+        int32_t thickness;
+    };
+
+    const std::array<Shape, 5> shapes{{
+        {1, {1, 2, 40, 30}, 6, 2},
+        {1, {3, 1, 600, 20}, 10, 3},
+        {3, {2, 3, 232, 304}, 8, 2},
+        {3, {1, 1, 40, 17}, 5, 1},
+        {2, {2, 2, 300, 12}, 4, 1},
+    }};
+    const auto draw = [&white](const Shape& shape, bool ring) {
+        renderer::Surface surface = black(
+            (shape.rect.x + shape.rect.width + 2) * shape.scale,
+            (shape.rect.y + shape.rect.height + 2) * shape.scale
+        );
+        const kit::Canvas canvas = canvas_on(surface, shape.scale);
+        if (ring)
+            kit::ring_corner_rect(canvas, shape.rect, shape.radius, shape.thickness, white);
+        else
+            kit::fill_corner_rect(canvas, shape.rect, shape.radius, white);
+        return surface;
+    };
+    std::vector<renderer::Surface> first;
+    for (const Shape& shape : shapes)
+        for (const bool ring : {false, true}) {
+            const renderer::Surface drawn = draw(shape, ring);
+            renderer::Surface expected =
+                black(static_cast<int32_t>(drawn.width), static_cast<int32_t>(drawn.height));
+            const int32_t width = shape.rect.width * shape.scale;
+            const int32_t height = shape.rect.height * shape.scale;
+            const int32_t radius =
+                std::min(shape.radius * shape.scale, std::min(width, height) / 2);
+            kit::blend_coverage(
+                canvas_on(expected, shape.scale),
+                shape.rect,
+                mirrored_corners(
+                    width,
+                    height,
+                    radius,
+                    ring ? shape.thickness * shape.scale : 0,
+                    shape.scale == 1
+                ),
+                white
+            );
+            same(drawn, expected);
+            same(draw(shape, ring), drawn);
+            first.push_back(drawn);
+        }
+    // More shapes than a thread keeps, each its own size.
+    renderer::Surface scratch = black(80, 80);
+    for (int32_t shape = 0; shape < 300; ++shape)
+        kit::fill_corner_rect(
+            canvas_on(scratch), {0, 0, 20 + shape % 50, 20 + shape / 50}, 4, white
+        );
+    std::size_t at = 0;
+    for (const Shape& shape : shapes)
+        for (const bool ring : {false, true})
+            same(draw(shape, ring), first[at++]);
+
+    for (const int32_t scale : {1, 3}) {
+        const kit::Rect pill{2, 2, 220, 20};
+        renderer::Surface round = black(230 * scale, 30 * scale);
+        renderer::Surface cornered = black(230 * scale, 30 * scale);
+        kit::fill_round_rect(canvas_on(round, scale), pill, 10, white);
+        kit::fill_corner_rect(canvas_on(cornered, scale), pill, 10, white);
+        same(round, cornered);
+        round = black(230 * scale, 30 * scale);
+        cornered = black(230 * scale, 30 * scale);
+        kit::outline_round_rect(canvas_on(round, scale), pill, 10, white);
+        kit::outline_corner_rect(canvas_on(cornered, scale), pill, 10, white);
+        same(round, cornered);
+    }
+}
+
+/// On the crisp form a coverage map blends each of its pixels as a
+/// one-pixel rectangle through renderer::blend_source_rect does, at the
+/// share's opacity in 256ths: within the placement's clip, and the parts
+/// that lie off the surface left as they are.
+void coverage_blends_each_pixel_within_the_clip() {
+    constexpr kit::Colour ink{230, 120, 40};
+    const auto ground = [] {
+        renderer::Surface surface = black(50, 50);
+        for (std::size_t at = 0; at < surface.rgb.size(); ++at)
+            surface.rgb[at] = static_cast<uint8_t>(at * 7 % 251);
+        return surface;
+    };
+    const kit::Rect rect{-2, 1, 31, 27};
+    std::vector<uint8_t> map(static_cast<std::size_t>(rect.width * 2 * rect.height * 2));
+    for (std::size_t at = 0; at < map.size(); ++at)
+        map[at] = static_cast<uint8_t>((at * 53 + 7) % 256);
+    for (const kit::Rect clip : {kit::Rect{}, kit::Rect{1, -1, 20, 12}, kit::Rect{-4, 3, 9, 40}}) {
+        renderer::Surface drawn = ground();
+        kit::Canvas canvas = canvas_on(drawn, 2);
+        canvas.placement.x = -5;
+        canvas.placement.y = 4;
+        canvas.placement.clip = clip;
+        kit::blend_coverage(canvas, rect, map, ink);
+
+        renderer::Surface expected = ground();
+        renderer::Placement fine{-5 + rect.x * 2, 4 + rect.y * 2, 1, {}};
+        if (clip.width > 0 && clip.height > 0)
+            fine.clip = {
+                (clip.x - rect.x) * 2, (clip.y - rect.y) * 2, clip.width * 2, clip.height * 2
+            };
+        for (int32_t row = 0; row < rect.height * 2; ++row)
+            for (int32_t column = 0; column < rect.width * 2; ++column) {
+                const uint32_t share = map[static_cast<std::size_t>(row * rect.width * 2 + column)];
+                if (share != 0)
+                    renderer::blend_source_rect(
+                        expected,
+                        fine,
+                        {column, row, 1, 1},
+                        kit::rgb(ink),
+                        (share * renderer::blend_opaque + 127U) / 255U
+                    );
+            }
+        same(drawn, expected);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1454,5 +1620,7 @@ int main() {
     later_items_cover_earlier_ones();
     geometry_matches_the_start_commit();
     menu_icon_button_is_the_icon();
+    rounded_shapes_take_their_corners();
+    coverage_blends_each_pixel_within_the_clip();
     return oa::test::check_exit_status();
 }

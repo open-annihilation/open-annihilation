@@ -144,7 +144,7 @@ bool read_tags(const oamod::Node& node, std::vector<std::string>& tags) {
     return true;
 }
 
-/// Reads a manifest's text: entry, { needs: game-fonts | modern-fonts }.
+/// Reads a manifest's text: entry, { needs: game-fonts | modern-fonts | shaping }.
 ///
 /// @param node the field's node
 /// @param[out] needs what drawing the language needs
@@ -164,8 +164,10 @@ bool read_text_needs(const oamod::Node& node, TextNeeds& needs, std::string& err
             needs = TextNeeds::game_fonts;
         else if (entry.kind == oamod::NodeKind::string && entry.text == "modern-fonts")
             needs = TextNeeds::modern_fonts;
+        else if (entry.kind == oamod::NodeKind::string && entry.text == "shaping")
+            needs = TextNeeds::text_shaping;
         else {
-            error = "text needs must be game-fonts or modern-fonts";
+            error = "text needs must be game-fonts, modern-fonts or shaping";
             return false;
         }
     }

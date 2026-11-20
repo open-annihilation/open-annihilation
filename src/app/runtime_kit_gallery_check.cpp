@@ -5,7 +5,9 @@
 // over the main menu on 640x480, 800x600, 1280x720 and 1920x1080 windows,
 // in the classic look and then the modern one. It is Compact at 1x on the
 // first, Regular at 1x on the second and Large at 1x on the others, where
-// Auto steps down from 2x at 1920x1080. At each it covers the window, shows exactly the gallery drawn
+// Auto steps down from 2x at 1920x1080. Compact's section list is taller
+// than its room, so the wheel brings Developer into view before the click.
+// At each it covers the window, shows exactly the gallery drawn
 // offscreen at that class and scale in that look over the darkened main
 // menu, takes the focus to every control it declares once in Tab's order,
 // and Escape brings Settings › Developer back.
@@ -86,6 +88,10 @@ void require(bool condition, std::string_view what) {
 
 /// The looks the gallery is checked in, in order.
 constexpr std::array<settings::Look, 2> kLooks{settings::Look::classic, settings::Look::modern};
+
+/// How far the wheel may turn to bring Developer's entry into the section
+/// list's room. Compact's fullest list is a few notches past that room.
+constexpr int32_t kSectionListNotches = 8;
 
 /// Returns a look's name in the check's lines.
 ///
@@ -246,12 +252,51 @@ void Runtime::check_kit_gallery() {
             );
 
             // Developer's entry, then SHOW, where the window shows them.
+            // Replays sits after Game Content, so Compact's room holds eleven
+            // of the twelve sections. Developer, last, is cut until the list
+            // scrolls. The wheel over the list brings it in; a list that
+            // already shows it does not move.
             {
-                const auto parts = settings::dialog_layout(*engine_settings_dialog());
-                click_part(
-                    part_of(parts, settings::page_control(settings::Page::developer), "Developer"),
-                    "Developer entry"
-                );
+                const int32_t developer_control = settings::page_control(settings::Page::developer);
+                auto parts = settings::dialog_layout(*engine_settings_dialog());
+                if (part_of(parts, developer_control, "Developer") == nullptr) {
+                    kit::Point over_list{};
+                    {
+                        const settings::LayoutPart* anchor = part_of(
+                            parts, settings::page_control(settings::Page::controls), "Controls"
+                        );
+                        require(anchor != nullptr, "the section list shows no Controls entry");
+                        over_list = {
+                            anchor->rect.x + anchor->rect.width / 2,
+                            anchor->rect.y + anchor->rect.height / 2
+                        };
+                    }
+                    const SDL_Event motion = window_pointer_event(
+                        sdl_.window,
+                        sdl_.renderer,
+                        SDL_EVENT_MOUSE_MOTION,
+                        layer_window_pixel(oa_layer().placement_of("settings"), over_list),
+                        0
+                    );
+                    // Toward the player, one notch at a time.
+                    for (int32_t notch = 0;
+                         notch < kSectionListNotches &&
+                         part_of(parts, developer_control, "Developer") == nullptr;
+                         ++notch) {
+                        SDL_Event wheel{};
+                        wheel.type = SDL_EVENT_MOUSE_WHEEL;
+                        wheel.wheel.windowID = motion.motion.windowID;
+                        wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+                        wheel.wheel.y = -1.0F;
+                        wheel.wheel.mouse_x = motion.motion.x;
+                        wheel.wheel.mouse_y = motion.motion.y;
+                        bool turning = true;
+                        dispatch_event(wheel, turning);
+                        require(turning, "the wheel over the section list ended the run");
+                        parts = settings::dialog_layout(*engine_settings_dialog());
+                    }
+                }
+                click_part(part_of(parts, developer_control, "Developer"), "Developer entry");
             }
             require(
                 engine_settings_dialog() != nullptr &&

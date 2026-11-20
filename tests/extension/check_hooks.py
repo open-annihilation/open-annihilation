@@ -80,6 +80,8 @@ HOOKS = [
     "give_resources", "message_hooks", "player_gone", "console_host", "check_console", "draw_loading",
     "draw_match_hud", "draw_match_overlay", "pause_changed", "load_progress", "team_panel_host",
     "close_requested", "return_label", "speed_changed", "app_mode_set", "open_recording", "release_runtime",
+    "replay_frame", "replay_hold", "replay_play", "replay_pause", "replay_set_speed", "replay_step_speed",
+    "replay_seek", "replay_state",
 ]
 # The hooks one extension at most may fill, which network play fills and
 # neither test extension does.
@@ -98,6 +100,17 @@ PREFERENCES = 'open-annihilation-preferences 1\n"kit-fixture.show-chip" "0"\n'
 # Hooks no run here reaches, and why.
 UNREACHED = {
     "disconnect_text": "the end-of-game screen asks for it only after a shared match",
+    # A windowed --play-demo reaches replay_frame. replay_hold runs on a frame
+    # whose match clock does not step during that playback, and the speed keys
+    # reach replay_step_speed. These runs do not watch a recording.
+    "replay_frame": "these runs do not watch a recording; a windowed --play-demo reaches it",
+    "replay_hold": "these runs do not watch a recording; a frame that does not step during one reaches it",
+    "replay_step_speed": "these runs do not watch a recording; the speed keys during one reach it",
+    "replay_play": "no engine code calls them until the playback bar",
+    "replay_pause": "no engine code calls them until the playback bar",
+    "replay_set_speed": "no engine code calls them until the playback bar",
+    "replay_seek": "no engine code calls them until the playback bar",
+    "replay_state": "no engine code calls them until the playback bar",
 }
 
 
@@ -137,8 +150,10 @@ RUNS = {
             ["text usage_checks", "text usage_runs", "text usage_switches", "follower.text",
              "follower.order take_option"],
             output=["usage: open-annihilation", FOLLOWER_NOTE]),
+        # -r prints its line and ends through write_startup_line, which exits 0,
+        # as --help and --version do.
         Run("register-switch", ["-r"], ["switch_handler", "text register_switch"],
-            status=1, output="-r registers the game as a DirectPlay application"),
+            status=0, output="-r registers the game as a DirectPlay application"),
         Run("unknown-option", ["--not-an-option"], [], at_least={"take_option": 2}, status=1,
             output="unknown option: --not-an-option"),
         Run("missing-game-dir", ["--game-dir", "{scratch}/no-such-game"],

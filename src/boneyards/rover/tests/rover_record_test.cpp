@@ -193,7 +193,8 @@ void check_receiving() {
         {"x{[Rover<S:a=1>]}", RoverRecordStatus::Malformed, "not starting at a brace"},
         {"{}", RoverRecordStatus::Malformed, "no entry"},
         {"{[Rover<S:a=1><S:a=2>]}", RoverRecordStatus::Malformed, "a key twice"},
-        {"{[Rover<S:a=>]}", RoverRecordStatus::Malformed, "an empty value"},
+        {"{[Rover<I:n=>]}", RoverRecordStatus::Malformed, "an empty number"},
+        {"{[Rover<U:n=>]}", RoverRecordStatus::Malformed, "an empty hexadecimal number"},
         {"{[Rover<s:a=1>]}", RoverRecordStatus::Malformed, "a lower-case type"},
         {"{[Rover<S:=1>]}", RoverRecordStatus::Malformed, "an empty key"},
         {"{[Rover<S:a=1%>]}", RoverRecordStatus::Malformed, "a trailing escape marker"},
@@ -206,6 +207,30 @@ void check_receiving() {
     for (const Refused& case_ : refused) {
         RoverRecord* none = receive_all(case_.text, &status);
         check(none == nullptr && status == case_.status, case_.what);
+    }
+
+    RoverRecord* blank = receive_all("{[Rover<S:name=><S:kept=yes>]}", &status);
+    check(blank && status == RoverRecordStatus::Ok, "an empty string value parses");
+    if (blank) {
+        RoverEntry* blank_entry = rover_record_end_entry(*blank, false);
+        const char* name = nullptr;
+        const char* kept = nullptr;
+        check(
+            blank_entry && rover_entry_get_string(*blank_entry, "name", &name, "missing") && name &&
+                strcmp(name, "") == 0,
+            "an empty string is present and empty"
+        );
+        check(
+            rover_entry_get_string(*blank_entry, "kept", &kept, nullptr) &&
+                strcmp(kept, "yes") == 0,
+            "the field after an empty string is intact"
+        );
+        check_text(
+            *blank,
+            "{[Rover<S:name=><S:kept=yes>]}",
+            "an unchanged empty string is written as it arrived"
+        );
+        rover_record_destroy(&blank);
     }
 
     RoverRecord* odd = receive_all("{[Rover<S:v=a%9b>]}", &status);

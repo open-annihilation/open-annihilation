@@ -18,6 +18,10 @@ run this player. Match rules select any changes to the built-in player.
 - `computer_profile_lines` walks a profile with that same tokenizer and
   reports each line that has a word. It does not apply the line. The words
   are valid only while the visit runs. See the grammar below.
+- `computer_profile_line_lacks_number` tells apart a `weight` or `limit`
+  line that names something and gives no number.
+  `computer_profile_line_skipped` tells which of those the player skips.
+  The game logs each such line once a run, as skipped or as applying as 0.
 - `computer_player_tick_orders` runs one computer player's orders.
 - `computer_player_refresh_strike_targets` updates only the selected members
   of a cohort strike. It neither recruits nor changes the native task deadline.
@@ -44,7 +48,15 @@ pass to the next.
   `any` counts for nothing. Lines before the first `plan` apply.
 - A weight's factor is `static_cast<float>(std::strtod)` of the third word,
   or 0 when that word is missing. A limit's count is
-  `static_cast<int32_t>(std::strtol)` base 10. `-1` is unlimited.
+  `static_cast<int32_t>(std::strtol)` base 10. `-1` is unlimited. A third
+  word they read nothing from counts as 0 too, as in 3.1c.
+- A weight or limit line whose third word gives no number, whose later word
+  gives one, read the same way, and whose second word is no type's unit name
+  is skipped. It writes a name with a space in it: `Limit ARM DECOM 4` in
+  Core Contingency's `ai/Krogoth.txt` is ARMDECOM. 3.1c limits the whole
+  category ARM to 0 there, and an Arm computer player builds only the types
+  the profile names on their own. A line whose second word is a unit's name,
+  such as `Weight ARMCA MP 0`, keeps 3.1c's reading.
 - A builder's list comes from the configured runs: a count, then that many
   ids, from type 0. A type gets a list only when it is not type 0 and it is
   a builder. An id that is 0 or not below the type count is skipped. The

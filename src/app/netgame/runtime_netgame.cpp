@@ -40,10 +40,23 @@ constexpr std::size_t kLoadPlayerBarColor = 4;
 // A name with a package suffix is one map. It is selected when that map is
 // installed, and never by matching another map's title: the title search
 // would start a different map from the one the lobby named.
+//
+// A mission map has no Network schema, so select_map refuses its file. When
+// the name is that map's own name, or the file's stem, the campaign loader
+// takes it. A map select_map already accepts is unchanged. A mission's own
+// name holds a colon, which is not a file name, so it is never handed to
+// select_map or the campaign loader as a stem.
 bool NetworkPlay::select_map_named(std::string_view name) {
+    mission_map_taken_ = false;
     if (name.empty())
         return false;
-    if (runtime_.select_map(name) != 0)
+    const auto file_name = [](std::string_view candidate) {
+        return candidate.find(':') == std::string_view::npos &&
+               candidate.find('/') == std::string_view::npos &&
+               candidate.find('\\') == std::string_view::npos &&
+               candidate.find('\0') == std::string_view::npos;
+    };
+    if (file_name(name) && runtime_.select_map(name) != 0)
         return true;
     if (oa::data::map_pack::split_pack_map_name(name))
         return false;
@@ -55,6 +68,14 @@ bool NetworkPlay::select_map_named(std::string_view name) {
                    }
                );
     };
+    // A stem select_map refuses is a mission map. The load only selects that
+    // map; the flag records that, and playback keeps the mission's unit table.
+    const auto campaign_stem = [this](std::string_view stem) {
+        if (stem.empty() || !runtime_.load_campaign_map(stem))
+            return false;
+        mission_map_taken_ = true;
+        return true;
+    };
     const CheckHost host = check_host(runtime_);
     for (const auto& path : host.assets(host.context)->list_effective("maps", ".ota")) {
         const auto bytes = runtime_.read(path);
@@ -65,9 +86,17 @@ bool NetworkPlay::select_map_named(std::string_view name) {
         );
         if (!parsed.ok() || !same(parsed.metadata->mission_name, name))
             continue;
-        return runtime_.select_map(path_to_utf8(path_from_utf8(path).stem())) != 0;
+        const std::string stem = path_to_utf8(path_from_utf8(path).stem());
+        if (runtime_.select_map(stem) != 0)
+            return true;
+        if (campaign_stem(stem))
+            return true;
     }
-    return false;
+    // The name may be the file's own stem, which the title search does not match.
+    // A mission title is not a file name, so it is not read as a stem.
+    if (!file_name(name))
+        return false;
+    return campaign_stem(name);
 }
 
 void NetworkPlay::draw_loading_players(oa::Surface& target, const oa::present::GafSprites* font) {

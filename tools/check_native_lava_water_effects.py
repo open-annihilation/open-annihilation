@@ -35,6 +35,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -163,7 +164,7 @@ def render(native, game_dir, workdir, label, map_name, stage, camera, percent):
     (folder / "shore.oascript").write_text(
         SCRIPT.format(x=camera[0], z=camera[1], turn=TURN_TICK, end=END_TICK))
     preferences = folder / "shore.conf"
-    preferences.write_text("open-annihilation-preferences 1\n"
+    preferences.write_text("open-annihilation-preferences 1\n\"open-annihilation.update-check\" \"never\"\n\"open-annihilation.content-updates\" \"never\"\n"
                            f"\"Total Annihilation|SkirmishMap\" \"{map_name}\"\n")
     effects = []
     for effect in WATER_EFFECTS:

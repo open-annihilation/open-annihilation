@@ -44,6 +44,7 @@ import tempfile
 import threading
 import time
 import zlib
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -52,8 +53,23 @@ RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 TIMEOUT = 120
 # What the preferences file holds before the run.
 STORED_ADDRESS = "192.0.2.7"
-PREFERENCES = ('open-annihilation-preferences 1\n'
+PREFERENCES = ('open-annihilation-preferences 1\n"open-annihilation.update-check" "never"\n"open-annihilation.content-updates" "never"\n'
                f'"multiplayer|tcpaddr" "{STORED_ADDRESS}"\n')
+
+
+def entry_preferences(text):
+    """The preferences of a launch that enters the Boneyards with -y.
+
+    -y stops the entry when both online checks are never. The update check stays
+    never, and the catalogue is read only when the Library opens, which a check that
+    enters through -y does not do. That is the setting the keyboard walks use.
+    """
+    return text.replace(
+        '"open-annihilation.content-updates" "never"',
+        '"open-annihilation.content-updates" "library"',
+    )
+
+
 MAGIC = b"AUTO/1 "
 # The longest JSON part a connection's first frame may have, in bytes.
 HELLO_JSON_BYTES = 4096
@@ -197,14 +213,21 @@ class Game:
         self.lines = []
         self._queue = queue.Queue()
         self.preferences = workdir / "automation.conf"
-        self.preferences.write_text(PREFERENCES, encoding="utf-8")
+        enters = "-y" in arguments
+        self.preferences.write_text(
+            entry_preferences(PREFERENCES) if enters else PREFERENCES, encoding="utf-8")
+        data_dir = workdir / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
         self.file = workdir / "endpoint" / "automation.json"
         environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy",
                            SDL_RENDER_DRIVER="software")
+        command = [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
+                   "--preferences-file", str(self.preferences),
+                   "--fark", "--fark-file", str(self.file), *arguments]
+        if "--data-dir" not in arguments:
+            command[command.index("--fark"):command.index("--fark")] = ["--data-dir", str(data_dir)]
         self.process = subprocess.Popen(
-            [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
-             "--preferences-file", str(self.preferences), "--fark", "--fark-file", str(self.file),
-             *arguments],
+            command,
             cwd=workdir, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, errors="replace")
         threading.Thread(target=self._read, daemon=True).start()

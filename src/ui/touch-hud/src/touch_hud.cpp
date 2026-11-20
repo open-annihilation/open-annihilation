@@ -154,11 +154,12 @@ constexpr std::array<std::string_view, select_item_count> select_labels{
 constexpr std::array<std::string_view, 2> speed_labels{"SLOWER", "FASTER"};
 
 /// The phone menu's labels, by PhoneMenuItem.
-constexpr std::array<std::string_view, 4> phone_menu_labels{
+constexpr std::array<std::string_view, 5> phone_menu_labels{
     "GAME MENU",
     "SLOWER",
     "FASTER",
     "CHAT",
+    "PHOTO MODE",
 };
 
 /// The group chips' labels, by group number 1..9 (0 unused).

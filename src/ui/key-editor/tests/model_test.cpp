@@ -10,6 +10,7 @@
 // oa-ui-key-editor-model-test
 
 #include "oa/data/input_actions/actions.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/key_editor/model.hpp"
 #include "screen_fixture.hpp"
@@ -26,6 +27,7 @@ namespace editor = oa::ui::key_editor;
 namespace keys = oa::ui::key_bindings;
 namespace kit = oa::ui::kit;
 namespace acts = oa::data::input_actions;
+namespace languages = oa::data::languages;
 using key_editor_fixture::binding_of;
 using key_editor_fixture::editor_fixture;
 using key_editor_fixture::parsed_chord;
@@ -164,10 +166,10 @@ void categories_and_letters() {
     const std::vector<editor::CategoryEntry> categories = model.categories();
     const std::vector<std::string> ids = category_ids(categories);
     const std::vector<std::string> expected = {
-        "common",         "orders",    "mouse",         "selection",  "groups",
-        "camera",         "building",  "game",          "chat",       "watching",
-        "window",         "menus",     "heading.hacks", "ui.megamap", "heading.mod",
-        "mod.categories", "mod.menus", "oa-screens",    "all",
+        "common",      "orders",         "mouse",     "selection",     "groups",
+        "camera",      "building",       "game",      "chat",          "watching",
+        "window",      "menus",          "photo",     "heading.hacks", "ui.megamap",
+        "heading.mod", "mod.categories", "mod.menus", "oa-screens",    "all",
     };
     expect(ids == expected, "categories: " + joined_ids(ids));
     expect(
@@ -178,6 +180,11 @@ void categories_and_letters() {
         category_named(categories, "unknown") == nullptr, "unknown is listed on a fresh fixture"
     );
 
+    const editor::CategoryEntry* photo = category_named(categories, "photo");
+    expect(
+        photo != nullptr && photo->title == "Photo mode" && photo->letter.empty(),
+        "photo is not Photo mode with no letter"
+    );
     const editor::CategoryEntry* menus = category_named(categories, "menus");
     const editor::CategoryEntry* watching = category_named(categories, "watching");
     const editor::CategoryEntry* screens = category_named(categories, "oa-screens");
@@ -998,6 +1005,93 @@ void menu_button_names() {
     expect(menus_entries == 1, "Menus was split in the nav");
 }
 
+/// Shows the interface in one language until the end of the scope, then puts
+/// the language that was showing back.
+struct ShownLanguage {
+    const languages::Language* earlier = nullptr;
+    languages::Language shown{};
+
+    /// @param tag the language's tag
+    explicit ShownLanguage(std::string_view tag) : earlier(&languages::interface_language()) {
+        shown.tag = tag;
+        languages::set_interface_language(nullptr, shown);
+    }
+
+    ~ShownLanguage() { languages::set_interface_language(nullptr, *earlier); }
+
+    ShownLanguage(const ShownLanguage&) = delete;
+    ShownLanguage& operator=(const ShownLanguage&) = delete;
+};
+
+/// A menu button's caption and screen title, in Turkish letters while the
+/// interface is Turkish or Azerbaijani, and in today's ASCII letters otherwise.
+void button_names_follow_the_interface_language() {
+    struct Expectation {
+        std::string_view tag{};
+        std::string_view contact{}; ///< iletişim
+        std::string_view place{};   ///< ıssız
+        std::string_view file{};    ///< FILE, so a capital I is made small
+        std::string_view options{}; ///< GAME OPTIONS
+        std::string_view shouted{}; ///< İLETİŞİM
+        std::string_view soft{};    ///< çğöşü
+    };
+
+    for (const Expectation& each : {
+             Expectation{"en", "Iletişim", "ıssız", "File", "Game Options", "İletİŞİm", "çğöşü"},
+             Expectation{"fr", "Iletişim", "ıssız", "File", "Game Options", "İletİŞİm", "çğöşü"},
+             Expectation{"tr", "İletişim", "Issız", "Fıle", "Game Optıons", "İletişim", "Çğöşü"},
+             Expectation{"az", "İletişim", "Issız", "Fıle", "Game Optıons", "İletişim", "Çğöşü"},
+             Expectation{"tr-TR", "İletişim", "Issız", "Fıle", "Game Optıons", "İletişim", "Çğöşü"},
+         }) {
+        const ShownLanguage shown(each.tag);
+        editor::EditorInputs inputs = editor_fixture();
+        auto add = [&](std::string action, std::string caption, std::string menu) {
+            keys::GuiKey key;
+            key.action = std::move(action);
+            key.caption = std::move(caption);
+            key.menu = std::move(menu);
+            key.letter = U'I';
+            inputs.mod.keys.push_back(std::move(key));
+        };
+        add("gui.tr.contact", "iletişim", "ıssız");
+        add("gui.tr.file", "FILE", "GAME OPTIONS");
+        add("gui.tr.shouted", "İLETİŞİM", "SELF-DESTRUCT");
+        add("gui.tr.soft", "çğöşü", "LoadList");
+        add("gui.tr.stages", "Off|On", "OK");
+
+        const editor::Editor model(std::move(inputs));
+        const std::vector<editor::Row> menus = model.rows("mod.menus", editor::Filter::all, "");
+        const editor::Row* contact = row_named(menus, "gui.tr.contact");
+        const editor::Row* file = row_named(menus, "gui.tr.file");
+        const editor::Row* shouted = row_named(menus, "gui.tr.shouted");
+        const editor::Row* soft = row_named(menus, "gui.tr.soft");
+        const editor::Row* stages = row_named(menus, "gui.tr.stages");
+        const std::string tag(each.tag);
+        expect(
+            contact != nullptr && contact->name == each.contact && contact->menu == each.place,
+            tag + " named iletişim " + (contact != nullptr ? contact->name : "?") + " and ıssız " +
+                (contact != nullptr ? contact->menu : "?")
+        );
+        expect(
+            file != nullptr && file->name == each.file && file->menu == each.options,
+            tag + " named FILE " + (file != nullptr ? file->name : "?") + " on " +
+                (file != nullptr ? file->menu : "?")
+        );
+        expect(
+            shouted != nullptr && shouted->name == each.shouted && shouted->menu == "Self-destruct",
+            tag + " named İLETİŞİM " + (shouted != nullptr ? shouted->name : "?")
+        );
+        expect(
+            soft != nullptr && soft->name == each.soft && soft->menu == "LoadList",
+            tag + " named çğöşü " + (soft != nullptr ? soft->name : "?")
+        );
+        expect(
+            stages != nullptr && stages->name == "Off · On" && stages->menu == "Ok",
+            tag + " changed an ASCII button"
+        );
+    }
+}
+
 } // namespace
 
 /// Common commands lists the commands players change first, each with its
@@ -1089,5 +1183,6 @@ int main() {
     tag_group();
     developer_category();
     menu_button_names();
+    button_names_follow_the_interface_language();
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }

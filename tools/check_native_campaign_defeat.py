@@ -19,6 +19,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -38,8 +39,27 @@ RESULT = re.compile(
 )
 
 
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding="utf-8") if target.is_file() else "open-annihilation-preferences 1\n"
+    if "open-annihilation.update-check" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.update-check" "never"\n'
+    if "open-annihilation.content-updates" not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding="utf-8")
+
+
 def run_mission(native, game_dir, workdir):
     units = workdir / "ac09.units"
+    _offline_preferences(workdir / "preferences.conf")
     result = subprocess.run(
         [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute", "--headless-check",
          "--preferences-file", str(workdir / "preferences.conf"),

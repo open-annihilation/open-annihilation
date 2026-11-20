@@ -58,20 +58,28 @@ Names and panel references retain at most 15 bytes, text/help 127 bytes, links
 `maxchars` is clamped only above 128; negative values are preserved. Quick keys
 keep an alphabetic first byte or parse a signed decimal value into the low byte.
 The loader accepts the missing semicolons, line comments, and the omitted final
-top-level brace in shipped `SCORE.GUI` while bounding input to 4 MiB, nesting to
-eight levels, total sections to 600, fields to 128 per section, source values to
-4,096 bytes, and records to the 200 a 3.1c panel holds.
+top-level brace in shipped `SCORE.GUI`. Stray text with no `=` on its line,
+such as a digit some mods' build pages leave after a closing brace, runs on
+into the next line's field as in 3.1c: a name broken across lines is no field
+the loader reads, so that field is left unread and the rest of the file loads.
+Stray text with no field after it in its section is rejected. Input is bounded
+to 4 MiB, nesting to eight levels, total sections to 600, fields to 128 per
+section, source values to 4,096 bytes, and records to the 200 a 3.1c panel
+holds.
 
-The parser requires every number to be a complete signed 32-bit decimal
-token, the first record to be a panel and every record to contain `COMMON`;
-quick keys recognise ASCII letters only, and translated strings longer than
-127 bytes are rejected. A file that breaks one of these rules is rejected with
-an error. 3.1c is more lenient, so some files it loads are rejected here: it
-reads a number's leading digits and ignores what follows them, accepts a
-leading plus, loads a file whose first record is not a panel, reports nothing
-for a record without `COMMON`, and takes the accented letters of the system
-code page as quick keys. It also accepts translated strings longer than 127
-bytes.
+A number is read as 3.1c reads one: leading spaces, one sign (`+` or `-`)
+and the digits after it. Text after the digits is ignored, a value with no
+digits, such as a letter O some mods write for a zero, reads 0, and a value
+past 32 bits wraps before the field keeps its low bits.
+
+The parser requires the first record to be a panel and every record to contain
+`COMMON`; quick keys recognise ASCII letters only, and translated strings
+longer than 127 bytes are rejected. A file that breaks one of these rules is
+rejected with an error. 3.1c is more lenient, so some files it loads are
+rejected here: it loads a file whose first record is not a panel, reports
+nothing for a record without `COMMON`, and takes the accented letters of the
+system code page as quick keys. It also accepts translated strings longer than
+127 bytes.
 
 An installed 3.1c game holds 188 GUI files. 187 are the text layout form
 handled here; the shipped `ENDGAME.GUI` is compiled data and

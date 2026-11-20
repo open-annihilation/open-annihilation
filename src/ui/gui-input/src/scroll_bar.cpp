@@ -210,6 +210,13 @@ void scroll_step(ScrollBar& bar, bool forward) noexcept {
     }
 }
 
+int16_t scroll_page_span(int16_t range) noexcept {
+    if (range < 2)
+        return 1;
+    const int32_t span = (static_cast<int32_t>(range) - 1) / 10;
+    return static_cast<int16_t>(span < 1 ? 1 : span);
+}
+
 void scroll_let_go(ScrollHold& hold) noexcept {
     const auto repeat_tick = hold.repeat_tick;
     hold = ScrollHold{};

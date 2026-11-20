@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <string>
 #include <tuple>
@@ -320,7 +321,7 @@ struct PrescaleRun {
 /// @param factor target texels per picture texel, above 1
 /// @param source_first the first picture texel the runs may show
 /// @param source_end the picture texel past the last they may show
-/// @param[out] runs the runs, in order
+/// @param[out] runs the runs, in order, from the first
 /// @return the runs written, at most 3
 uint32_t prescale_runs(
     uint32_t start,
@@ -328,7 +329,7 @@ uint32_t prescale_runs(
     uint32_t factor,
     uint32_t source_first,
     uint32_t source_end,
-    std::array<PrescaleRun, 3>& runs
+    std::array<PrescaleRun, 4>& runs
 ) {
     uint32_t count = 0;
     // One texel's block cut to the target texels from `first` up to `last`.
@@ -360,7 +361,11 @@ uint32_t prescale_runs(
 /// Draws the top-left corner of a picture NEAREST into a prescale target at
 /// a whole-number factor: into each of the target's tiles, gutters
 /// included, from each piece of the picture that holds texels the tile
-/// shows. The render target is left on the target's last tile.
+/// shows. The column and row of the target past the enlarged corner, where
+/// the target holds them, take the corner's last column and row, the
+/// corner's last texel where they meet: LINEAR reads them at the corner's
+/// edge, and they give back what a target of the enlarged corner's own
+/// size gives there. The render target is left on the target's last tile.
 ///
 /// Throws AccelerationError, after setting the render target back to
 /// `final_target`, when a call fails.
@@ -384,29 +389,53 @@ void fill_prescale(
     const auto& grid = prescale.grid();
     const uint32_t filled_w = width * factor;
     const uint32_t filled_h = height * factor;
-    std::array<PrescaleRun, 3> across{};
-    std::array<PrescaleRun, 3> down{};
+    const uint32_t written_w = std::min(filled_w + 1, grid.width);
+    const uint32_t written_h = std::min(filled_h + 1, grid.height);
+    // The runs of the target texels from `start` up to `end` along one
+    // axis: the enlarged corner's, from the picture's texels a piece holds,
+    // then the texel past the corner from the corner's last texel, where
+    // the piece holds that.
+    const auto runs_of = [factor](
+                             uint32_t start,
+                             uint32_t end,
+                             uint32_t filled,
+                             uint32_t corner,
+                             uint32_t source_first,
+                             uint32_t source_end,
+                             std::array<PrescaleRun, 4>& runs
+                         ) {
+        uint32_t count =
+            prescale_runs(start, std::min(end, filled), factor, source_first, source_end, runs);
+        const uint32_t last = corner - 1;
+        if (end > filled && last >= source_first && last < source_end)
+            runs[count++] = {last, 1, filled, 1};
+        return count;
+    };
+    std::array<PrescaleRun, 4> across{};
+    std::array<PrescaleRun, 4> down{};
     for (uint32_t row = 0; row < grid.rows; ++row)
         for (uint32_t column = 0; column < grid.columns; ++column) {
             const auto tile = policy::tile_at(grid, column, row);
-            const auto filled = shared(tile.texture, {0, 0, filled_w, filled_h});
+            const auto filled = shared(tile.texture, {0, 0, written_w, written_h});
             if (filled.width == 0)
                 continue;
             if (!SDL_SetRenderTarget(renderer, prescale.tile_texture(column, row)))
                 fail(renderer, final_target, "SDL_SetRenderTarget of a prescale tile");
             for (const auto& piece : pieces) {
-                const uint32_t runs_across = prescale_runs(
+                const uint32_t runs_across = runs_of(
                     filled.x,
                     filled.x + filled.width,
-                    factor,
+                    filled_w,
+                    width,
                     piece.content.x,
                     piece.content.x + piece.content.width,
                     across
                 );
-                const uint32_t runs_down = prescale_runs(
+                const uint32_t runs_down = runs_of(
                     filled.y,
                     filled.y + filled.height,
-                    factor,
+                    filled_h,
+                    height,
                     piece.content.y,
                     piece.content.y + piece.content.height,
                     down
@@ -505,6 +534,16 @@ struct LinearSample {
 
 } // namespace
 
+bool clear_streaming_texture(SDL_Texture* texture) noexcept {
+    void* pixels = nullptr;
+    int pitch = 0;
+    if (texture == nullptr || !SDL_LockTexture(texture, nullptr, &pixels, &pitch))
+        return false;
+    std::memset(pixels, 0, static_cast<std::size_t>(pitch) * static_cast<std::size_t>(texture->h));
+    SDL_UnlockTexture(texture);
+    return true;
+}
+
 bool TiledTexture::ensure(
     SDL_Renderer* renderer,
     SDL_PixelFormat format,
@@ -588,6 +627,8 @@ void TiledTexture::make(
                 failed("SDL texture blend");
             if (!SDL_SetTextureScaleMode(piece.texture, SDL_SCALEMODE_NEAREST))
                 failed("SDL texture scale");
+            if (!clear_streaming_texture(piece.texture))
+                failed("SDL_LockTexture");
         }
 }
 
@@ -619,6 +660,26 @@ void TiledTexture::update(
     }
 }
 
+void TiledTexture::update_rect(
+    const uint8_t* pixels, int pitch, int bytes_per_pixel, const policy::TexelRect& rect
+) {
+    for (const auto& piece : tiles_) {
+        const auto part = shared(piece.tile.texture, rect);
+        if (part.width == 0)
+            continue;
+        const SDL_Rect updated{
+            static_cast<int>(part.x - piece.tile.texture.x),
+            static_cast<int>(part.y - piece.tile.texture.y),
+            static_cast<int>(part.width),
+            static_cast<int>(part.height)
+        };
+        const uint8_t* first = pixels + static_cast<std::ptrdiff_t>(part.y - rect.y) * pitch +
+                               static_cast<std::ptrdiff_t>(part.x - rect.x) * bytes_per_pixel;
+        if (!SDL_UpdateTexture(piece.texture, &updated, first, pitch))
+            fail("SDL_UpdateTexture");
+    }
+}
+
 void TiledTexture::upload_rgb24(
     const uint8_t* rgb,
     std::size_t rgb_pitch,
@@ -627,11 +688,17 @@ void TiledTexture::upload_rgb24(
     const std::array<uint8_t, 256>* gamma,
     platform::job_pool::Pool* pool
 ) {
-    const policy::TexelRect corner{
-        0, 0, std::min(width, grid_.width), std::min(height, grid_.height)
+    const uint32_t corner_width = std::min(width, grid_.width);
+    const uint32_t corner_height = std::min(height, grid_.height);
+    if (corner_width == 0 || corner_height == 0)
+        return;
+    const policy::TexelRect corner{0, 0, corner_width, corner_height};
+    // The corner and the column and row past it, where the texture holds them.
+    const policy::TexelRect written{
+        0, 0, std::min(corner_width + 1, grid_.width), std::min(corner_height + 1, grid_.height)
     };
     for (const auto& piece : tiles_) {
-        const auto part = shared(piece.tile.texture, corner);
+        const auto part = shared(piece.tile.texture, written);
         if (part.width == 0)
             continue;
         const SDL_Rect locked{
@@ -644,17 +711,38 @@ void TiledTexture::upload_rgb24(
         int pitch = 0;
         if (!SDL_LockTexture(piece.texture, &locked, &pixels, &pitch))
             fail("SDL_LockTexture");
-        convert_rgb24_xrgb_rect(
-            rgb + static_cast<std::size_t>(part.y) * rgb_pitch +
-                static_cast<std::size_t>(part.x) * 3U,
-            rgb_pitch,
-            part.width,
-            part.height,
-            static_cast<uint8_t*>(pixels),
-            static_cast<std::size_t>(pitch),
-            gamma,
-            pool
-        );
+        // Converts the texels of a rectangle of the texture from the
+        // picture's texels from (from_x, from_y) on.
+        const auto convert = [&](const policy::TexelRect& texels,
+                                 uint32_t from_x,
+                                 uint32_t from_y) {
+            if (texels.width == 0)
+                return;
+            convert_rgb24_xrgb_rect(
+                rgb + static_cast<std::size_t>(from_y) * rgb_pitch +
+                    static_cast<std::size_t>(from_x) * 3U,
+                rgb_pitch,
+                texels.width,
+                texels.height,
+                static_cast<uint8_t*>(pixels) +
+                    static_cast<std::size_t>(texels.y - part.y) * static_cast<std::size_t>(pitch) +
+                    static_cast<std::size_t>(texels.x - part.x) * 4U,
+                static_cast<std::size_t>(pitch),
+                gamma,
+                pool
+            );
+        };
+        const auto inside = shared(part, corner);
+        convert(inside, inside.x, inside.y);
+        // The column past the corner from its last column, the row past it
+        // from its last row, and the texel where they meet from its last.
+        const uint32_t last_column = corner_width - 1;
+        const uint32_t last_row = corner_height - 1;
+        const auto column = shared(part, {corner_width, 0, 1, corner_height});
+        convert(column, last_column, column.y);
+        const auto row = shared(part, {0, corner_height, corner_width, 1});
+        convert(row, row.x, last_row);
+        convert(shared(part, {corner_width, corner_height, 1, 1}), last_column, last_row);
         SDL_UnlockTexture(piece.texture);
     }
 }

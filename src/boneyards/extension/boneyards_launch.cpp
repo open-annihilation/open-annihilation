@@ -8,11 +8,13 @@
 
 #include "oa/boneyards/overlay_launch.hpp"
 #include "oa/boneyards/rover_calls.hpp"
+#include "oa/data/replays/replays.hpp"
 #include "oa/netgame/frontend/multiplayer_states.hpp"
 
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace oa::app {
 
@@ -60,6 +62,32 @@ bool battle_ids(uint32_t* area_id, const char** game_id) noexcept {
     return oa::boneyards::console::boneyards_status_widget_battle_ids(
         boneyards_console_status_widget(), area_id, game_id
     );
+}
+
+/// Reads the planet's name and the sector's name of the launched battle.
+///
+/// @param[out] planet the planet's name
+/// @param[out] sector the sector's name
+/// @return false without the Boneyards
+bool battle_place(const char** planet, const char** sector) noexcept {
+    if (g_launch.battle_place != nullptr)
+        return g_launch.battle_place(planet, sector);
+    return oa::boneyards::console::boneyards_status_widget_battle_place(
+        boneyards_console_status_widget(), planet, sector
+    );
+}
+
+/// Adds a member to a recorded game's object unless its text is empty.
+///
+/// @param[in,out] game the recorded game
+/// @param name the member's name
+/// @param text the member's text; null or empty adds nothing
+void add_recorded_member(api::RecordedGame& game, const char* name, const char* text) noexcept {
+    if (text == nullptr || text[0] == '\0' || game.member_count >= api::recorded_game_member_limit)
+        return;
+    api::RecordedGameMember& member = game.members[game.member_count++];
+    copy_bounded(member.name, sizeof member.name, sizeof member.name - 1, name);
+    copy_bounded(member.text, sizeof member.text, sizeof member.text - 1, text);
 }
 
 /// Leaves the game and ends the program with the disconnect reason, as YES in "Exit to the system?" does.
@@ -254,6 +282,8 @@ void online_launch_fill_boneyards(
     // The picker stays locked and the room starts with no mutators, whether
     // or not the server locked the room's other options.
     block.bar_mutators = 1;
+    // Every Boneyards battle counts for its ladder: non-stock files refuse START.
+    block.stock_files = 1;
     block.max_units = launch.maxunits;
     block.energy = launch.energy;
     block.metal = launch.metal;
@@ -305,8 +335,9 @@ void on_boneyards_launch(
     nl::LaunchBlock& block = api::launch_block();
     if (launch != nullptr)
         online_launch_fill_boneyards(block, *launch, player_name);
-    // A launch with no reply still plays with no mutators.
+    // A launch with no reply still plays with no mutators, and counts.
     block.bar_mutators = 1;
+    block.stock_files = 1;
     api::apply_launch();
     if (g_launch.exit_prompt != nullptr)
         exit_prompt_launch_applied(*g_launch.exit_prompt);
@@ -364,6 +395,31 @@ bool boneyards_report_simulation_allowed() noexcept {
 bool boneyards_launched_game() noexcept {
     return oa::boneyards::console::boneyards_status_widget_launched_game(
         boneyards_console_status_widget()
+    );
+}
+
+bool boneyards_recorded_game(void*, api::RecordedGame* game) noexcept {
+    if (game == nullptr || !api::launch_active())
+        return false;
+    uint32_t area_id = 0;
+    const char* game_id = nullptr;
+    if (!battle_ids(&area_id, &game_id) || game_id == nullptr || game_id[0] == '\0')
+        return false;
+    *game = api::RecordedGame{};
+    copy_bounded(game->kind, sizeof game->kind, sizeof game->kind - 1, kBoneyardsReplayKind.data());
+    add_recorded_member(*game, "game_id", game_id);
+    const char* planet = nullptr;
+    const char* sector = nullptr;
+    if (battle_place(&planet, &sector)) {
+        add_recorded_member(*game, "planet", planet);
+        add_recorded_member(*game, "sector", sector);
+    }
+    return true;
+}
+
+void register_boneyards_replay_kind() {
+    oa::data::replays::register_kind(
+        {std::string(kBoneyardsReplayKind), std::string(kBoneyardsReplayTitle)}
     );
 }
 

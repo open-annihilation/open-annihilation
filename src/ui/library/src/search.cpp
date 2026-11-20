@@ -9,6 +9,8 @@
 #include "oa/ui/library/text.hpp"
 #include "visible.hpp"
 
+#include "oa/ui/library/replays.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -290,6 +292,7 @@ bool before_with_search(const Library& library, const Candidate& left, const Can
 bool tab_holds(Tab tab, Kind kind) {
     switch (tab) {
     case Tab::active:
+    case Tab::replays:
         return false;
     case Tab::mods:
         return kind == Kind::mod;
@@ -601,6 +604,9 @@ void update_visible(Library& library) {
 std::size_t tab_count(const Library& library, Tab tab) {
     if (tab == Tab::registries)
         return library.inputs.registries.size();
+    // The replays the section opens on: this month's.
+    if (tab == Tab::replays)
+        return replay_filter_count(library, ReplayFilter::this_month);
     if (tab == Tab::active)
         return 0;
     // Updates counts the updates that can be installed, as the OA button's

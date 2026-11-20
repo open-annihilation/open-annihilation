@@ -11,6 +11,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
+#include <vector>
 
 namespace oa::ui::hud {
 
@@ -71,5 +73,64 @@ inline constexpr const char* kStopOrderTag = "STOP";
 /// @param events Receives the group STOP and the sound.
 /// @return Whether `name` was a command button; false leaves everything unchanged.
 bool order_panel_command(Game& game, const char* name, int16_t status, const HudEvents& events);
+
+/// One button of the order panel, as the match lays it out.
+///
+/// `name` names the button for the caller; the stops do not depend on it.
+struct PanelButton {
+    const char* name = nullptr;
+    int16_t x = 0;
+    int16_t y = 0;
+    int16_t width = 0;
+    int16_t height = 0;
+    uint8_t attributes = 0; ///< common attributes; unit and weapon buttons are build cells
+    bool active = false;
+    bool grayed = false;
+};
+
+/// A key that moves the ring over the panel's buttons, or presses one.
+enum class PanelFocusMove : uint8_t {
+    tab_next,
+    tab_previous,
+    left,
+    right,
+    up,
+    down,
+    press,
+};
+
+/// Where that key left the focus.
+struct PanelFocusStep {
+    int32_t index = -1; ///< the stop, or the focus unchanged
+    bool press = false; ///< Return pressed the focused stop
+    bool moved = false; ///< the focus changed stops
+};
+
+/// The order buttons and the build page, in the order Tab reads them.
+///
+/// A stop is every active, ungreyed button with an area: the order commands,
+/// the fire, move, on and off and cloak states, the page buttons, Orders,
+/// Build, and the unit and weapon buttons. The minimap is not among them. The
+/// order is the menus' tab order.
+///
+/// @param buttons One entry per gadget of the panel, root included.
+/// @return Gadget indices. Empty when the panel shows none of those buttons.
+[[nodiscard]] std::vector<int32_t> panel_button_stops(std::span<const PanelButton> buttons);
+
+/// Moves the focus among those stops.
+///
+/// Tab and Shift+Tab follow panel_button_stops. The first stop is already
+/// the focus; the next Tab lands on the one after it. Arrows move by the
+/// menus' focus_nearest, and only while `ring_shown`. Return presses the
+/// focused stop only while the ring shows, and leaves the focus on it.
+///
+/// @param buttons One entry per gadget of the panel.
+/// @param focus The stop the ring is on, or -1 when none is.
+/// @param move The key.
+/// @param ring_shown Whether the ring is showing. Arrows and Return do nothing while it is not.
+/// @return The focus after the key.
+[[nodiscard]] PanelFocusStep step_panel_button_focus(
+    std::span<const PanelButton> buttons, int32_t focus, PanelFocusMove move, bool ring_shown
+);
 
 } // namespace oa::ui::hud

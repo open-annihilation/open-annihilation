@@ -105,8 +105,8 @@ if(OA_BUILD_PLATFORM)
 endif()
 if(BUILD_TESTING)
   # The integer resampler, the mixer's conversion, gains, feeds and
-  # clamping, and the buffered output's ring of buffers on a device the
-  # test plays by hand.
+  # clamping, the timer of the device's requests, and the buffered output's
+  # ring of buffers on a device the test plays by hand.
   add_executable(oa-audio-output-test tests/sound_output_test.cpp)
   target_link_libraries(oa-audio-output-test PRIVATE oa-audio-output oa-options oa-base-threads)
   add_test(NAME audio-output COMMAND oa-audio-output-test)
@@ -157,12 +157,18 @@ if(BUILD_TESTING)
     set_tests_properties(audio-sdl-sink PROPERTIES TIMEOUT 60)
     # The WAV player's one stream: its delay, one playing, stopping at once
     # and replacement, on the dummy device, which plays in real time; and a
-    # placed start's two sides, on a mixer the test runs by hand.
+    # placed start's two sides, the effects' level against the loop's and each
+    # layout of WAV, on a mixer the test runs by hand.
     add_executable(oa-audio-sdl-player-test tests/sdl_player_test.cpp)
-    target_link_libraries(oa-audio-sdl-player-test PRIVATE oa-audio-sdl oa-test-support)
+    target_link_libraries(oa-audio-sdl-player-test PRIVATE oa-audio-sdl oa-test-support
+      oa-test-game-data oa-formats-hpi)
     add_test(NAME audio-sdl-player COMMAND oa-audio-sdl-player-test)
-    set_tests_properties(audio-sdl-player PROPERTIES TIMEOUT 60
+    # Every RIFF sound of the installed game decodes, as the WAV player
+    # reads it, to the samples and format the game's loader finds.
+    add_test(NAME audio-sdl-player-data COMMAND oa-audio-sdl-player-test --data)
+    set_tests_properties(audio-sdl-player audio-sdl-player-data PROPERTIES TIMEOUT 60
       ENVIRONMENT "SDL_AUDIO_DRIVER=dummy")
+    oa_game_data_tests(audio-sdl-player-data)
     add_executable(oa-audio-sdl-music-test tests/sdl_music_test.cpp)
     target_link_libraries(oa-audio-sdl-music-test PRIVATE oa-audio-sdl oa-test-game-data oa-test-support)
     add_test(NAME audio-sdl-music COMMAND oa-audio-sdl-music-test)

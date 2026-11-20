@@ -57,6 +57,13 @@ dispatcher times a double press and a hold from that time.
   its chords. A `select.tag-` id is a family's id in a layout file, and it is
   kept unknown, with its chords, when the loaded words do not make that
   action. A chord that loses records why, and which action kept it.
+- `bindings_for_screen` gives a copy of what `resolve` returned the contexts
+  of the GUI files on screen: the side panel's `gui.` actions answer in play
+  and on panels, a unit info file's on the unit info panel, and a menu file's
+  letters in the menus only while that file is on screen. Then pointer keys
+  set their chords aside (`pointer_keys_bindings`). The resolution is left as
+  it was, so a new page or new menus start again from it and get what
+  resolving anew gives.
 - `tag_action_id` maps one Category word to the action that selects it.
   `CTRL_B`, `CTRL_C`, `CTRL_F` and `CTRL_V` are the named selection actions.
   Any other `CTRL_<letter>` whose Ctrl chord is free in play is
@@ -238,8 +245,9 @@ PC lay it out, German QWERTZ and US Dvorak. On the PC's AZERTY `-` and
 layout, a mod letter, a player's own change, a hack's default and its
 replacement, the left-click scheme, the swap, fixed Escape, and the pairs
 that share a key without clashing: modifiers, the left button, a stricter
-condition, chat's Enter, a hack's Tab, and a pointer aimed at a different
-place. Two buttons of one GUI file that share a letter clash. The same
+condition, chat's Enter, a hack's Tab, a pointer aimed at a different
+place, and the megamap's toggle, which holds no condition, moved to the
+wheel beside the battlefield's zoom. Two buttons of one GUI file that share a letter clash. The same
 letter on two files does not, until one file is the order panel and the
 other is the build menu on screen. `oa-default` has no clash where Primary is
 Ctrl or where it is the command key. Primary+5 on the keys overlay and
@@ -249,10 +257,25 @@ and none on a Mac, and Primary+5 against Meta+5 is one on a Mac only;
 resolution keeps every chord on each, and the chat line's Primary chord over
 a match's Ctrl chord is a shadow where they are one key.
 
+`ui-key-bindings-pages` (`tests/pages_test.cpp`) checks the contexts the GUI
+files on screen give: the side panel's actions take play and panels, a unit
+info file's the unit info panel, a menu file keeps the menus only while it is
+on screen, and the resolution itself is unchanged. Over eight thousand GUI
+keys of four hundred files, with a chosen layout, own changes, hacks and the
+number-key swap, five pages started from one kept resolution, one with
+pointer keys on, each give what resolving anew gives. It prints how long a
+page change takes each way, and checks no time.
+
 `ui-key-bindings-dispatcher` (`tests/dispatcher_test.cpp`) resolves
 `oa-default` and walks synthetic timelines: Attack on A, including with
 Shift or Alt; Ctrl+M matches nothing; Tab across the megamap, the next
-primary and the previous primary; Enter in chat and in play; `=` for speed
+primary and the previous primary, the megamap's toggle taking Tab with
+Mouse wheel zoom on or off; the megamap's wheel beside the zoom: the wheel
+down zooms out with the setting on and opens the megamap with it off, the
+wheel up over the open megamap closes it either way, and a toggle moved to
+Shift and the wheel up answers there while the plain turn zooms, and one
+moved to the wheel down answers beside the zoom out, which is aimed at the
+battlefield; Enter in chat and in play; `=` for speed
 and, with the debug keys, refill; text entry keeping only Escape; Cmd+/
 reaching the keys overlay in global; a repeating pan and a press that does
 not repeat; the status strip's press and release around a Shift; a
@@ -262,7 +285,12 @@ whether or not a Shift event was fed. On each map of `tests/keyboards.hpp`
 and the US one, the key that types `=` or `+` speeds up, with Shift held
 too, the key that types `-` slows down, and the key a US keyboard has there
 does nothing where it types something else. The PC's AZERTY 6 key stays
-page 6, and its keypad `-` slows down.
+page 6, and its keypad `-` slows down. With the player's Alt, Primary and
+Shift chords on the wheel, on a PC and on a Mac, each turn with those keys
+held answers its own action ahead of the plain wheel's zoom, a turn with a
+modifier no chord names still zooms, and on a Mac Ctrl with the wheel finds
+nothing. Alt and Shift together answer Alt's chord and the zoom, each for
+its own target.
 
 `ui-key-bindings-latches` (`tests/latches_test.cpp`) walks the same kind of
 timeline for the hold helpers: a tap latches and a second tap lets go; a

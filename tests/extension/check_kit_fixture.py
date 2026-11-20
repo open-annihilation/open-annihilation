@@ -11,10 +11,10 @@ OA_GAME_DIR names. In a 640x480, a 1280x720 and a 1920x1080 window, each
 started on the dummy drivers with --fark, it drives the game through the
 automation endpoint:
 
-1. The OA button opens the Library and its SETTINGS... Settings, whose nav
-   lists the fixture's page (oa.settings.nav.kit-fixture.options) below
-   Developer's entry. Shown, the page's controls lie inside the window and
-   no two overlap, but a switch and its halves.
+1. The main menu's Settings button opens Settings, whose nav lists the
+   fixture's page (oa.settings.nav.kit-fixture.options) below Developer's
+   entry. Shown, the page's controls lie inside the window and no two
+   overlap, but a switch and its halves.
 2. Tab from the page's nav entry focuses the page's controls in the order
    the page declares them: the show-chip toggle, then the mode choice.
 3. A click on the toggle's Off half and on OK stores kit-fixture.show-chip
@@ -28,14 +28,16 @@ automation endpoint:
    click on it prints "kit fixture: answered yes".
 6. Headless, with --match-ticks 30, --snapshot and kit-fixture.show-chip 1 in
    its preferences file, the match's frame shows the chip the fixture prints:
-   "kit fixture: chip at <x>,<y> <width>x<height> outline <rrggbb>" gives
-   the chip's rectangle in the overlay's pixels, whose origin is the
-   battlefield's corner. The frame shows the battlefield's layer at a whole
-   magnification (1 at 640x480, 2 on the larger windows): placed at the
-   battlefield's corner and magnified so, every pixel of that rectangle's
-   edge holds the outline colour, and no other place in the frame could be
-   it. With 0 stored (at 640x480 only) the fixture draws no chip and prints
-   no such line.
+   "kit fixture: chip at <x>,<y> <width>x<height> colour <rrggbb>" gives the
+   chip's rectangle in the overlay's pixels, whose origin is the
+   battlefield's corner, and the colour the installed chip is drawn in. The
+   frame shows the battlefield's layer at a whole magnification (1 at
+   640x480, 2 on the larger windows). Placed at the battlefield's corner and
+   magnified so, the chip is that colour at the leftmost and rightmost pixels
+   of its middle row and at the top and bottom pixels of its middle column,
+   and the pixel just outside each of those four is not. Exactly one such
+   place is in the frame. With 0 stored (at 640x480 only) the fixture draws
+   no chip and prints no such line.
 
 When OA_GAME_DIR is unset, empty or names no directory it exits with
 --skip-code (OA_GAME_DATA_SKIP_CODE), which ctest reports as skipped, or
@@ -62,6 +64,9 @@ RESOLUTIONS = ("640x480", "1280x720", "1920x1080")
 PAGE_NAV = "oa.settings.nav.kit-fixture.options"
 PAGE_PREFIX = "oa.settings.kit-fixture.options."
 DEVELOPER_NAV = "oa.settings.nav.developer"
+# A section-list entry that is on screen at every window size, so the wheel
+# over it moves the list. The section's own bar scrolls the open section.
+CONTROLS_NAV = "oa.settings.nav.controls"
 SHOW_CHIP_OFF = PAGE_PREFIX + "show-chip.off"
 # The page's rows as Tab focuses them, in the order the page declares them.
 PAGE_TAB_ORDER = (PAGE_PREFIX + "show-chip", PAGE_PREFIX + "mode")
@@ -79,7 +84,7 @@ TAB_KEYCODE = 0x09
 APPLIED_LINE = "kit fixture: applied kit-fixture.show-chip=0"
 CLOSED_LINE = "kit fixture: screen closed"
 ANSWERED_LINE = "kit fixture: answered yes"
-CHIP_RE = re.compile(r"kit fixture: chip at (-?\d+),(-?\d+) (\d+)x(\d+) outline ([0-9a-f]{6})")
+CHIP_RE = re.compile(r"kit fixture: chip at (-?\d+),(-?\d+) (\d+)x(\d+) colour ([0-9a-f]{6})")
 # The headless match's ticks, and its wall-time limit on a loaded machine.
 MATCH_TICKS = "30"
 HEADLESS_TIMEOUT = 900
@@ -213,6 +218,60 @@ class Session:
         return False
 
 
+def shown_nav(control):
+    """Tells whether a section-list entry is on screen, with a rectangle a click can hit."""
+    rect = control.get("rect") or (0, 0, 0, 0)
+    return bool(control.get("visible")) and rect[2] > 0 and rect[3] > 0
+
+
+def entry_rect(control):
+    """The entry's rectangle, or none when the list has no such control."""
+    if control is None:
+        return None
+    return tuple(control.get("rect") or ())
+
+
+def scroll_section_list(client, name):
+    """Wheels the section list until the entry named is on screen.
+
+    At 640x480 the list is full and the fixture's entry sits below the rows
+    a player can see. The wheel's point is taken once, at the centre of
+    Controls while that entry is on screen, and every notch uses that same
+    point: the list takes a wheel anywhere over its area. An entry already
+    on screen is left where it is. A notch that leaves the entry's rectangle
+    where it was stops the check.
+    """
+    named = {control.get("name"): control for control in settings.listed(client)}
+    entry = named.get(name)
+    if entry is not None and shown_nav(entry):
+        return
+    anchor = named.get(CONTROLS_NAV)
+    if anchor is None or not shown_nav(anchor):
+        raise automation.AutomationFailure(
+            "the section list shows no Controls entry to wheel over: "
+            f"{named.get(CONTROLS_NAV)}")
+    x, y, width, height = anchor["rect"]
+    point = {"kind": "wheel", "dx": 0, "dy": -1, "x": x + width // 2, "y": y + height // 2}
+    previous = entry_rect(entry)
+    for _ in range(40):
+        answer = client.request(
+            "input", expect_screen="main_menu", events=[point])
+        if not answer.get("ok"):
+            raise automation.AutomationFailure(
+                f"the wheel over the section list was answered {answer}")
+        time.sleep(0.1)
+        named = {control.get("name"): control for control in settings.listed(client)}
+        entry = named.get(name)
+        if entry is not None and shown_nav(entry):
+            return
+        rect = entry_rect(entry)
+        if rect == previous:
+            raise automation.AutomationFailure(
+                f"a notch over the section list left {name}'s rectangle where it was, at {rect}")
+        previous = rect
+    raise automation.AutomationFailure(f"{name} never came into view")
+
+
 def check_page(native, game_dir, workdir, resolution):
     """Steps 1 to 3: the Settings page, its tab order and OK's write."""
     with Session(native, game_dir, workdir, resolution) as session:
@@ -226,6 +285,7 @@ def check_page(native, game_dir, workdir, resolution):
             raise automation.AutomationFailure(
                 f"the page's entry at {named[PAGE_NAV]['window_rect']} is not below Developer's "
                 f"at {named[DEVELOPER_NAV]['window_rect']}")
+        scroll_section_list(client, PAGE_NAV)
         settings.click(client, PAGE_NAV)
         settings.wait_control(client, PAGE_NAV, lambda control: control.get("checked"))
         page = [control for control in settings.listed(client)
@@ -238,7 +298,7 @@ def check_page(native, game_dir, workdir, resolution):
         settings.wait_gone(client, "oa.settings.ok")
         wait_line(session.game, APPLIED_LINE)
         settings.wait_preference(client, SHOW_CHIP_KEY, "0")
-        settings.close_library(client)
+        settings.back_on_main_menu(client)
         session.finish()
 
 
@@ -298,27 +358,47 @@ def read_ppm(path):
     return width, height, pixels
 
 
-def edge_holds(pixels, width, left, top, rect_width, rect_height, colour):
-    """Tells whether every pixel on a rectangle's edge holds a colour."""
-    def at(x, y):
-        offset = (y * width + x) * 3
+def chip_places(pixels, frame_width, frame_height, rect_width, rect_height, colour):
+    """Places a drawn chip's box can sit.
+
+    An installed chip is a rounded capsule in one colour, so a square edge
+    does not trace it. The box matches when the leftmost and rightmost pixels
+    of its middle row, and the top and bottom pixels of its middle column,
+    are that colour, and the pixel just outside each of those four is not.
+    """
+    if rect_width < 1 or rect_height < 1:
+        return []
+    if frame_width <= rect_width + 1 or frame_height <= rect_height + 1:
+        return []
+
+    def pixel(x, y):
+        offset = (y * frame_width + x) * 3
         return pixels[offset:offset + 3]
-    right, bottom = left + rect_width - 1, top + rect_height - 1
-    return all(at(x, top) == colour and at(x, bottom) == colour for x in range(left, right + 1)) and \
-        all(at(left, y) == colour and at(right, y) == colour for y in range(top, bottom + 1))
 
-
-def chip_places(pixels, width, height, rect_width, rect_height, colour):
-    """Returns every frame pixel at which a rectangle of a size has its whole edge in a colour."""
-    run = colour * rect_width
     places = []
-    for top in range(height - rect_height + 1):
-        row = pixels[top * width * 3:(top + 1) * width * 3]
-        start = row.find(run)
-        while start >= 0:
-            if start % 3 == 0 and edge_holds(pixels, width, start // 3, top, rect_width, rect_height, colour):
-                places.append((start // 3, top))
-            start = row.find(run, start + 1)
+    mid_dx = rect_width // 2
+    mid_dy = rect_height // 2
+    right_dx = rect_width - 1
+    bottom_dy = rect_height - 1
+    for top in range(1, frame_height - rect_height):
+        for left in range(1, frame_width - rect_width):
+            mid_y = top + mid_dy
+            if pixel(left, mid_y) != colour or pixel(left + right_dx, mid_y) != colour:
+                continue
+            if pixel(left + mid_dx, top) != colour:
+                continue
+            if pixel(left + mid_dx, top + bottom_dy) != colour:
+                continue
+            outside_row = (
+                pixel(left - 1, mid_y) == colour or pixel(left + rect_width, mid_y) == colour
+            )
+            outside_column = (
+                pixel(left + mid_dx, top - 1) == colour
+                or pixel(left + mid_dx, top + rect_height) == colour
+            )
+            if outside_row or outside_column:
+                continue
+            places.append((left, top))
     return places
 
 
@@ -363,12 +443,15 @@ def check_chip(native, game_dir, workdir, resolution, check_off):
                 found.append((magnification, corner))
     if len(found) != 1:
         raise automation.AutomationFailure(
-            f"the frame holds {len(found)} places edged in #{printed[0][4]} that the printed "
+            f"the frame holds {len(found)} places in #{printed[0][4]} that the printed "
             f"chip at {x},{y} {rect_width}x{rect_height} could be, not one: {found}")
     magnification, corner = found[0]
-    print(f"extension-kit: {resolution}: the chip at {x},{y} {rect_width}x{rect_height} is edged in "
-          f"#{printed[0][4]} in the {width}x{height} frame, from the battlefield's corner at "
-          f"{corner[0]},{corner[1]} at {magnification}x")
+    print(
+        f"extension-kit: {resolution}: the chip at {x},{y} "
+        f"{rect_width}x{rect_height} is drawn in #{printed[0][4]} "
+        f"in the {width}x{height} frame, from the battlefield's corner at "
+        f"{corner[0]},{corner[1]} at {magnification}x"
+    )
     if check_off:
         output, _ = run_headless(native, game_dir, workdir, resolution, "0")
         if CHIP_RE.search(output):

@@ -28,9 +28,9 @@ inline constexpr uint32_t picture_side = 72;
 /// Returns a section's icon: a few lines on a 24-unit square, two units
 /// wide with round ends, as the design's icons are. Touch is a hand,
 /// Controller a gamepad, Updates a turning arrow, Game Content a disc,
-/// System a box, Engine Limits three sliders and Developer two angle
-/// brackets; a mod's options and a registered page take the icons nearest
-/// their meaning.
+/// Replays a strip of film, System a box, Engine Limits three sliders and
+/// Developer two angle brackets; a mod's options and a registered page take
+/// the icons nearest their meaning.
 ///
 /// @param page the section
 /// @param tone the colour

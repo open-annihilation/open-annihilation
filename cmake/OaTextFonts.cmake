@@ -18,8 +18,9 @@
 # is the module's face_files, then its interface_face_files
 # (oa/platform/text_font.hpp), and the bootstrap's FONT_FILES; the three name
 # the same files, in Face order. Every one is required: the base faces draw
-# game text, and the interface faces, Barlow and Barlow Condensed, draw OA's
-# own screens in the modern look.
+# game text (the endonym faces among them: the CJK cut and the Bengali cut),
+# and the interface faces, Barlow and Barlow Condensed, draw OA's own screens
+# in the modern look.
 #
 # OA_TEXT_FONT_TESTS_DIR holds the test fixture's face. The build never copies
 # it beside the game. A missing fixture face is reported and does not stop
@@ -27,7 +28,7 @@
 include_guard(GLOBAL)
 
 set(OA_TEXT_FONT_FILES DejaVuSans-Bold.ttf DejaVuSans.ttf
-  NotoSansCJKsc-Bold-Endonyms.otf NotoEmoji.ttf
+  NotoSansCJKsc-Bold-Endonyms.otf NotoEmoji.ttf NotoSansBengali-Bold-Endonyms.ttf
   Barlow-Regular.ttf Barlow-Medium.ttf Barlow-SemiBold.ttf Barlow-Bold.ttf
   BarlowCondensed-SemiBold.ttf BarlowCondensed-Bold.ttf)
 get_filename_component(oa_text_fonts_default "${CMAKE_CURRENT_LIST_DIR}/../local/deps/text-fonts" ABSOLUTE)
@@ -45,7 +46,7 @@ endforeach()
 get_filename_component(oa_text_font_tests_default "${OA_TEXT_FONTS_DIR}/../text-fonts-tests" ABSOLUTE)
 set(OA_TEXT_FONT_TESTS_DIR "${oa_text_font_tests_default}" CACHE PATH
   "Folder holding the test fixture's font, which the build never copies beside the game")
-set(OA_TEXT_FONT_TEST_FILES NotoSansCJKsc-Bold-Fixture.otf)
+set(OA_TEXT_FONT_TEST_FILES NotoSansCJKsc-Bold-Fixture.otf NotoSansBengali-Bold.ttf)
 foreach(font IN LISTS OA_TEXT_FONT_TEST_FILES)
   if(NOT EXISTS "${OA_TEXT_FONT_TESTS_DIR}/${font}")
     message(STATUS "The test font ${font} is not in ${OA_TEXT_FONT_TESTS_DIR}. "
@@ -75,6 +76,66 @@ else()
   set(OA_FREETYPE_VERSION "unknown")
 endif()
 message(STATUS "Text fonts: FreeType ${OA_FREETYPE_VERSION}, fonts from ${OA_TEXT_FONTS_DIR}")
+
+# HarfBuzz shapes Bengali and Devanagari. It is the one an including project
+# has already found (harfbuzz::harfbuzz), else the one harfbuzz_DIR names,
+# else the one CMAKE_PREFIX_PATH or a cross-build's prefixes hold, else the
+# bootstrap's local/deps/harfbuzz-install-<release>, as FreeType's install
+# is found. A release build and the iOS and MinGW toolchains name their
+# own prefix. A named prefix that is not there is not replaced by another
+# install. A configuration that does not find HarfBuzz still succeeds:
+# complex text shaping is off, and a language that needs shaping is not
+# offered. OA_REQUIRE_TEXT_SHAPING makes that a configure error, for a lane
+# that must ship shaping. FreeType stays built without HarfBuzz, so faces
+# that are not shaped keep today's advances. OA_TEXT_SHAPING says this
+# build has HarfBuzz.
+option(OA_REQUIRE_TEXT_SHAPING
+  "Fail configuration when the pinned HarfBuzz is not found" OFF)
+if(NOT TARGET harfbuzz::harfbuzz)
+  # The installed package links Threads::Threads, so that target has to exist
+  # before the package is read.
+  find_package(Threads REQUIRED)
+  # harfbuzz_DIR-NOTFOUND is a failed search, not a prefix a caller named.
+  set(oa_harfbuzz_named FALSE)
+  if(DEFINED harfbuzz_DIR AND NOT "${harfbuzz_DIR}" MATCHES "-NOTFOUND$")
+    set(oa_harfbuzz_named TRUE)
+  endif()
+  if(oa_harfbuzz_named)
+    if(EXISTS "${harfbuzz_DIR}/harfbuzzConfig.cmake")
+      find_package(harfbuzz CONFIG QUIET)
+    endif()
+  else()
+    get_filename_component(oa_harfbuzz_deps "${CMAKE_CURRENT_LIST_DIR}/../local/deps" ABSOLUTE)
+    file(GLOB oa_harfbuzz_prefixes LIST_DIRECTORIES true
+      "${oa_harfbuzz_deps}/harfbuzz-install-*")
+    list(APPEND CMAKE_PREFIX_PATH ${oa_harfbuzz_prefixes})
+    find_package(harfbuzz CONFIG QUIET)
+  endif()
+endif()
+if(TARGET harfbuzz::harfbuzz)
+  # HarfBuzz 15.1.0 records its headers as /harfbuzz when it is configured
+  # without CMAKE_INSTALL_INCLUDEDIR. They are installed in include/harfbuzz.
+  if(DEFINED harfbuzz_DIR)
+    get_target_property(oa_harfbuzz_includes harfbuzz::harfbuzz INTERFACE_INCLUDE_DIRECTORIES)
+    if(oa_harfbuzz_includes STREQUAL "/harfbuzz")
+      get_filename_component(oa_harfbuzz_prefix "${harfbuzz_DIR}/../../.." ABSOLUTE)
+      set_target_properties(harfbuzz::harfbuzz PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${oa_harfbuzz_prefix}/include/harfbuzz")
+    endif()
+  endif()
+  add_compile_definitions(OA_TEXT_SHAPING=1)
+  if(DEFINED harfbuzz_VERSION)
+    message(STATUS "Text shaping: HarfBuzz ${harfbuzz_VERSION}")
+  else()
+    message(STATUS "Text shaping: HarfBuzz")
+  endif()
+elseif(OA_REQUIRE_TEXT_SHAPING)
+  message(FATAL_ERROR "HarfBuzz was not found. Run python3 tools/bootstrap_text_fonts.py, "
+    "which builds the pinned HarfBuzz into local/deps/harfbuzz-install-<release>, where this "
+    "configuration looks for it.")
+else()
+  message(STATUS "HarfBuzz not found: complex text shaping is off in this build")
+endif()
 
 # Stages the text fonts into <directory>/fonts once for that directory, and
 # makes <target> depend on the staging. Programs that share a directory must

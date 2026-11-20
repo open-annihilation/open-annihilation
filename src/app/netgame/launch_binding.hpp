@@ -16,6 +16,8 @@
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 
 #include <cstdint>
+#include <optional>
+#include <string>
 
 namespace oa::app {
 
@@ -113,6 +115,26 @@ void leave_launched_game(void* context, bool with_reason) noexcept;
 ///
 /// @return the hooks; every entry null until an extension sets them
 [[nodiscard]] const oa::app::netgame::extension_api::Hooks& extension_hooks() noexcept;
+
+/// What an extension says of the game being recorded, as a replay's description carries it.
+struct RecordedGameFacts {
+    /// The kind of game: `game.kind`.
+    std::string kind{};
+    /// The object under `game` named for that kind, as compact JSON.
+    std::string object_json{};
+};
+
+/// Asks the extension built on network play what it says of the game being recorded
+/// (oa::app::netgame::extension_api::Hooks::recorded_game).
+///
+/// The members it names become the members of one JSON object, in its order,
+/// each a string. A kind that is empty or is not lower-case letters, digits
+/// and hyphens, and a member whose name is not letters, digits and
+/// underscores, are refused: the answer is then none.
+///
+/// @return the kind and the object; none when no extension answers, or it
+///         says the game is not its own, or what it says is refused
+[[nodiscard]] std::optional<RecordedGameFacts> recorded_game_facts();
 
 /// Tells whether the launch marks the running game as a tournament game (TeamPanelHost::tournament_game).
 ///

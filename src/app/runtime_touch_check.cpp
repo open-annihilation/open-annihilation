@@ -3339,9 +3339,7 @@ struct TouchCheckAccess {
             run.notes.push_back("18d: ui.megamap is off, so its placement was not checked");
             return;
         }
-        // The megamap acts only with the Mouse wheel zoom setting off.
-        auto& wheel_zoom = runtime.engine_settings_state().current.wheel_zoom;
-        const bool saved_wheel_zoom = std::exchange(wheel_zoom, false);
+        // The megamap opens whatever the Mouse wheel zoom setting is.
         runtime.set_megamap_open(true);
         renderer::Surface megamap;
         compose(runtime, megamap);
@@ -3361,7 +3359,6 @@ struct TouchCheckAccess {
             left_button(SDL_EVENT_MOUSE_BUTTON_UP, middle), middle.x, middle.y
         );
         runtime.set_megamap_open(false);
-        wheel_zoom = saved_wheel_zoom;
         require(
             map_inside,
             Lane::fullbleed,

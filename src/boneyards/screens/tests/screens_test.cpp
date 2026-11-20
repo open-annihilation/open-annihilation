@@ -384,13 +384,15 @@ void test_login() {
     LoginDialog d;
     boxes.clear();
     login_init(&d, &service, nullptr, box);
+    CHECK(d.member_value == 1 && d.password_field_value == 1);
+    CHECK(d.guest_value == (kGuestsOffered ? 2 : 0));
     login_update_button(&d);
     CHECK(d.login_value == 0);
     std::snprintf(d.name, sizeof d.name, "%s", "Kane");
     login_update_button(&d);
     CHECK(d.login_value == 0); // member without a password
     login_on_control(&d, LoginControl::guest_radio);
-    CHECK(d.password_field_value == 0);
+    CHECK(d.password_field_value == 0 && d.guest_value == 1 && d.member_value == 2);
     login_update_button(&d);
     CHECK(d.login_value == 2);
     // An enabled LOGIN keeps its value (the update only enables a disabled one).
@@ -423,6 +425,9 @@ void test_login() {
     CHECK(!d.closed);
     CHECK(d.state == LoginState::idle && d.login_value == 2);
     CHECK_STR(d.status, "");
+    login_on_control(&d, LoginControl::member_radio);
+    CHECK(d.member_value == 1 && d.password_field_value == 1);
+    CHECK(d.guest_value == (kGuestsOffered ? 2 : 0));
 }
 
 // The model enters whichever screen its console opens; a login ends on the

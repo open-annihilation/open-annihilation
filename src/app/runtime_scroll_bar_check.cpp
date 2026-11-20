@@ -4,6 +4,7 @@
 // The native check of the engine screens' scroll bars, driven through the SDL
 // presenter as a player drives them, and the pointer helpers other checks use
 // on scroll bars.
+#include "oa/app/game_directory.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/formats/gaf.hpp"
 #include "oa/sim/speed.hpp"
@@ -13,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -340,6 +342,93 @@ void Runtime::check_scroll_bars() {
         knob_of("FXVOL") == 37 && preferences_.fx_volume == static_cast<uint32_t>(volume_of()),
         "the back arrow did not step the knob back and set the volume"
     );
+    // A layout that moves Page Up to F6 and End to F7 steps FXVOL by those
+    // keys. Page Up and End themselves no longer do.
+    {
+        fs::path folder = user_folder();
+        if (folder.empty())
+            folder = "A04-page-keys";
+        else
+            folder /= "A04-page-keys";
+        std::error_code make_error;
+        fs::create_directories(folder, make_error);
+        require(!make_error, "the Page Up layout folder could not be made");
+        {
+            std::ofstream out(folder / "oakeys.yaml", std::ios::binary);
+            require(static_cast<bool>(out), "the Page Up layout could not be written");
+            out << "oakeys: 1\n"
+                << "id: a04-page-keys\n"
+                << "name: \"Page keys\"\n"
+                << "version: \"1.0\"\n"
+                << "author: {name: \"Open Annihilation\"}\n"
+                << "description: \"Page up is F6 and End is F7.\"\n"
+                << "tags: [window]\n"
+                << "base: oa-default\n"
+                << "bindings:\n"
+                << "  ui.screen-page-up: [\"F6\"]\n"
+                << "  ui.screen-end: [\"F7\"]\n";
+            require(static_cast<bool>(out), "the Page Up layout could not be written");
+        }
+
+        struct RestoreKeys {
+            Runtime& runtime;
+            std::string saved;
+
+            ~RestoreKeys() {
+                try {
+                    runtime.options_.keys = saved;
+                    runtime.key_bindings_refusal_.clear();
+                    runtime.load_key_bindings();
+                    runtime.ensure_key_bindings(false);
+                } catch (...) {
+                    // CANCEL and the later bars report a layout this one could not put back.
+                }
+            }
+        } restore{*this, options_.keys};
+
+        key_bindings_refusal_.clear();
+        options_.keys = path_to_utf8(folder);
+        load_key_bindings();
+        ensure_key_bindings(false);
+        require(
+            key_bindings_refusal_.empty(),
+            "the Page Up layout was refused: " + key_bindings_refusal_
+        );
+        int32_t fxvol = -1;
+        for (std::size_t index = 1; index < resources_.layout.gadgets.size(); ++index) {
+            if (resources_.layout.gadgets[index].common.name == "FXVOL") {
+                fxvol = static_cast<int32_t>(index);
+                break;
+            }
+        }
+        require(fxvol > 0, "FXVOL is not on the sound panel");
+        set_frontend_focus(fxvol);
+        bool keys_running = true;
+        const auto press_key = [&](SDL_Keycode key, SDL_Scancode scancode) {
+            SDL_Event event{};
+            event.type = SDL_EVENT_KEY_DOWN;
+            event.key.key = key;
+            event.key.scancode = scancode;
+            event.key.down = true;
+            dispatch_event(event, keys_running);
+        };
+        const int16_t page = input::scroll_page_span(check_scroll_bar("FXVOL").bar.range);
+        require(page == 8, "FXVOL's page is not 8 positions");
+        press_key(SDLK_F6, SDL_SCANCODE_F6);
+        require(
+            knob_of("FXVOL") == 37 - page, "F6 did not page FXVOL back after Page Up moved to F6"
+        );
+        press_key(SDLK_PAGEUP, SDL_SCANCODE_PAGEUP);
+        require(knob_of("FXVOL") == 37 - page, "Page Up still stepped FXVOL after it moved to F6");
+        press_key(SDLK_END, SDL_SCANCODE_END);
+        require(knob_of("FXVOL") == 37 - page, "End still stepped FXVOL after it moved to F7");
+        press_key(SDLK_F7, SDL_SCANCODE_F7);
+        require(
+            knob_of("FXVOL") == check_scroll_bar("FXVOL").bar.range - 1,
+            "F7 did not take FXVOL to its end after End moved to F7"
+        );
+        require(frontend_focus() == fxvol, "the rebound page keys moved the focus off FXVOL");
+    }
     exercise_click("CANCEL");
     require(
         screen_ == Screen::single_player && preferences_.fx_volume == entry_volume,

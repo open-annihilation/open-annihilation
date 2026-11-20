@@ -60,6 +60,20 @@ nine on the left trackpad; the game, standing orders, ring, SELECT ▾ and menu
 layers have their own tables. Left-handed swaps left and right for the
 trackpads, sticks, stick clicks and touches, triggers, bumpers and grips.
 
+While photo mode is open the photo layer wins, before the menus and before
+every match layer. The sticks still frame the shot (the app reads them); the
+buttons are:
+
+| Button | Action |
+| --- | --- |
+| A | Take the photo |
+| B | Leave photo mode |
+| X | Freeze, or hold the picture on a shared match |
+| Y | Hide or show the panel |
+| D-pad | Move the focus |
+
+No button clicks and no orders. The grips mean nothing in this layer.
+
 ## Invariants
 
 - Pure: no SDL, no app header, no clock, no allocation; every type holds its
@@ -68,7 +82,7 @@ trackpads, sticks, stick clicks and touches, triggers, bumpers and grips.
   counts as no time passing.
 - The grips keep their meaning in every layer of the match, so QUEUE and ADD
   held still apply while a ring, SELECT ▾ or a held layer is up; they mean
-  nothing in the menus or in the fallback map.
+  nothing in the menus, in the photo layer or in the fallback map.
 - `chord_for` names only buttons the pad has, physically (a left-handed map
   names the mirrored button), preferring the main button of a role (R2 for a
   click).
@@ -90,7 +104,8 @@ progress); menu repeat at 0, 400, 520 and 640 ms; double clicks; wedge aim for
 checked against the touch radial's hit test; the stick cursor's curve, ramp,
 friction and magnetism (a lone target eased onto in 80 ms, a rival within 8
 points, a block, Magnetism off); flicks; every row of every layer's table in
-the trackpads, sticks and fallback maps and in the left-handed mirror; the
+the trackpads, sticks and fallback maps and in the left-handed mirror,
+including the photo layer and that it wins while photo mode is open; the
 chords of every badge; the effective scheme; the glyph sets and every glyph;
 the feels at each strength.
 

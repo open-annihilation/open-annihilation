@@ -30,6 +30,7 @@ void print_help() {
                  "oa-update --plan FILE --elevated-swap\n"
                  "oa-update --plan FILE --helper-parent PID\n"
                  "oa-update --recover --updates DIR\n"
+                 "oa-update --put-back --updates DIR\n"
                  "oa-update --version\n"
                  "oa-update --help\n";
 #if OA_SELF_CHECKS_BUILT
@@ -48,6 +49,7 @@ int main(int argc, char** argv) {
     try {
         bool help = false;
         bool recover = false;
+        bool put_back = false;
         bool elevated = false;
         bool stage_only = false;
         bool parent_set = false;
@@ -75,6 +77,8 @@ int main(int argc, char** argv) {
                     return oa::update_helper::exit_usage;
             } else if (argument == "--recover") {
                 recover = true;
+            } else if (argument == "--put-back") {
+                put_back = true;
             } else if (argument == "--elevated-swap") {
                 elevated = true;
             } else if (argument == "--helper-parent") {
@@ -131,6 +135,16 @@ int main(int argc, char** argv) {
         if (elevated && (recover || plan.empty())) {
             std::cerr << "oa-update: --elevated-swap needs --plan\n";
             return oa::update_helper::exit_usage;
+        }
+        // The copy a Windows run starts with raised rights to put a setup's
+        // kept files back. It takes nothing else.
+        if (put_back) {
+            if (updates.empty() || recover || elevated || !plan.empty() || !keys.empty() ||
+                parent_set || stage_only) {
+                std::cerr << "oa-update: --put-back needs --updates alone\n";
+                return oa::update_helper::exit_usage;
+            }
+            return oa::update_helper::put_back_updates(oa::update_helper::path_from(updates));
         }
         if (recover && !plan.empty()) {
             std::cerr << "oa-update: pass --plan, or --recover with --updates\n";

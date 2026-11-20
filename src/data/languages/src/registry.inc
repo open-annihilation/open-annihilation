@@ -36,7 +36,11 @@
 // - Korean ("ko"): TextNeeds::more_font_faces, for a face that holds its
 //   Hangul syllables.
 // - Hindi ("hi"): TextNeeds::text_shaping, for Devanagari's shaping and a
-//   face that holds it.
+//   face that holds it. It is not an entry here: a pack whose text needs
+//   shaping is offered only on a build that shapes.
+// - Bengali ("bn"): TextNeeds::text_shaping, for Bengali's shaping and a
+//   face that holds it. The same as Hindi: a pack, offered only on a build
+//   that shapes.
 //
 // An entry whose needs this build cannot meet is kept but not offered
 // (drawable).

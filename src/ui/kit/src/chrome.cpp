@@ -9,6 +9,7 @@
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/text.hpp"
+#include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -342,7 +343,23 @@ void draw_row_frame(const Canvas& canvas, const RowFrame& row) {
     if (!drawable(canvas))
         return;
     rule_rect(canvas, {row.left, row.top, row.width, 1}, colour::rule);
-    draw_line(canvas, FontRole::regular, row.label_text, row.label, Align::left, colour::text, 0);
+    if (row.label_lines.size() > 1) {
+        // Each line of a wrapped switch caption sits in its own band, the
+        // switch staying at the top of the label's box.
+        const int32_t line_height = compact_metrics.regular_line;
+        for (std::size_t line = 0; line < row.label_lines.size(); ++line) {
+            Rect band = row.label;
+            band.y = row.label.y + static_cast<int32_t>(line) * line_height;
+            band.height = line_height;
+            draw_line(
+                canvas, FontRole::regular, row.label_lines[line], band, Align::left, colour::text, 0
+            );
+        }
+    } else {
+        draw_line(
+            canvas, FontRole::regular, row.label_text, row.label, Align::left, colour::text, 0
+        );
+    }
     const std::size_t lines = std::min(row.hints.size(), row.hint_texts.size());
     for (std::size_t line = 0; line < lines; ++line) {
         const bool notice = line < row.hint_notices.size() && row.hint_notices[line];

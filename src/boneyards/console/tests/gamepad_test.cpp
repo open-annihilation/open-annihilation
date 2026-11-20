@@ -186,12 +186,71 @@ bool already_walked(const Walk& walk, const Window* window) {
     return false;
 }
 
-// Tries each direction of the pad. A move onto a control already walked is
-// undone, so a column does not hide the controls beside it.
+// A grouped radio's line. The walk must not step along it: that changes the
+// choice, and the next walk then sees other controls. The arrows across the
+// line leave it, so those are the ones the walk tries.
+enum class GroupAxis { none, row, stack };
+
+bool radio_member(const Window* child, const Window* from) {
+    return child != nullptr && child->radio_group == from->radio_group &&
+           is_stop_class(child, class_name::radio_button) && window_is_shown(child) &&
+           child->states.current != button_state::disabled;
+}
+
+GroupAxis group_axis(const Window* from) {
+    if (from == nullptr || from->radio_group == 0 || from->parent == nullptr)
+        return GroupAxis::none;
+    if (!radio_member(from, from))
+        return GroupAxis::none;
+    int32_t count = 0;
+    bool same_top = true;
+    bool same_left = true;
+    for (int32_t i = 0; i < from->parent->children.count; ++i) {
+        const Window* child = from->parent->children.items[i];
+        if (!radio_member(child, from))
+            continue;
+        if (child->y != from->y)
+            same_top = false;
+        if (child->x != from->x)
+            same_left = false;
+        ++count;
+    }
+    if (count < 2)
+        return GroupAxis::none;
+    if (same_top && !same_left)
+        return GroupAxis::row;
+    if (same_left && !same_top)
+        return GroupAxis::stack;
+    return GroupAxis::none;
+}
+
+// Up and Down on a list either choose a row or scroll it. Both leave the
+// next walk on different controls. Left and Right only move the keyboard.
+bool list_vertical(const Window* window) {
+    return is_stop_class(window, class_name::list_box);
+}
+
+bool changes_choice(const Window* focus, PadPress press) {
+    if (list_vertical(focus))
+        return press == PadPress::up || press == PadPress::down;
+    const GroupAxis axis = group_axis(focus);
+    if (axis == GroupAxis::row)
+        return press == PadPress::left || press == PadPress::right;
+    if (axis == GroupAxis::stack)
+        return press == PadPress::up || press == PadPress::down;
+    return false;
+}
+
+// Tries each direction of the pad that does not change a choice. A move onto
+// a control already walked is undone, so a column does not hide the controls
+// beside it. A press that would change a choice is skipped, or the next walk
+// would see a different console.
 Window* step_pad(StatusWidget* widget, const Walk& walk) {
     Window* before = widget->desktop.focus;
     const PadPress presses[] = {PadPress::down, PadPress::right, PadPress::up, PadPress::left};
     for (PadPress press : presses) {
+        if (changes_choice(before, press))
+            continue;
         boneyards_status_widget_pad(widget, press);
         Window* now = widget->desktop.focus;
         if (now == nullptr || now == before)
@@ -203,6 +262,8 @@ Window* step_pad(StatusWidget* widget, const Walk& walk) {
     return before;
 }
 
+// The pad's own presses. Down from nothing, then each direction that does
+// not change a choice. A second walk must see the same controls.
 void walk_focus(StatusWidget* widget, Walk* walk) {
     desktop_set_focus(&widget->desktop, nullptr);
     boneyards_status_widget_pad(widget, PadPress::down);
@@ -249,7 +310,12 @@ void present(StatusWidget* widget) {
     }
 }
 
-void check_screen(StatusWidget* widget, const char* name, KeyboardLog* keyboard) {
+// `named_stop` is false when the console has no named control the pad can
+// land on. The update list has no name, and its buttons stay hidden, so the
+// walk is the frame around that console.
+void check_screen(
+    StatusWidget* widget, const char* name, KeyboardLog* keyboard, bool named_stop = true
+) {
     MainFrame* frame = widget->system.main_frame;
     Window* screen = frame->active_screen;
     char label[96];
@@ -267,8 +333,13 @@ void check_screen(StatusWidget* widget, const char* name, KeyboardLog* keyboard)
     bool on_screen = false;
     for (int32_t i = 0; i < walk.count; ++i)
         on_screen = on_screen || under(screen, walk.order[i]);
-    std::snprintf(label, sizeof label, "%s is in the focus order", name);
-    check(on_screen, label);
+    if (named_stop) {
+        std::snprintf(label, sizeof label, "%s is in the focus order", name);
+        check(on_screen, label);
+    } else {
+        std::snprintf(label, sizeof label, "%s has no named stop in the focus order", name);
+        check(!on_screen, label);
+    }
     Window* fields[32]{};
     int32_t field_count = 0;
     collect_fields(screen, fields, &field_count);
@@ -399,6 +470,21 @@ int main(int argc, char** argv) {
         ScopedServices field_scope(widget);
         single_edit_set_text(reinterpret_cast<SingleEdit*>(name), "Pilot");
     }
+    // Registered User is the default, so LOGIN waits for a password too.
+    Window* password = nullptr;
+    for (int32_t i = 0; login_screen != nullptr && i < login_screen->children.count; ++i) {
+        Window* child = login_screen->children.items[i];
+        if (child->x == login_screen->x + 0x6f && child->y == login_screen->y + 0x44)
+            password = child;
+    }
+    check(
+        password != nullptr && is_stop_class(password, class_name::single_edit),
+        "the password field is shown"
+    );
+    if (password != nullptr && is_stop_class(password, class_name::single_edit)) {
+        ScopedServices password_scope(widget);
+        single_edit_set_text(reinterpret_cast<SingleEdit*>(password), "secret");
+    }
     boneyards_status_widget_tick(widget);
     Window* login_button = login_screen != nullptr ? find_caption(login_screen, "LOGIN") : nullptr;
     if (login_button != nullptr) {
@@ -453,8 +539,24 @@ int main(int argc, char** argv) {
         present(widget);
         Window* back = window_find_named(&widget->system.main_frame->base, "Back", nullptr);
         check(back != nullptr && window_is_shown(back), "REGISTER opens the registration console");
-        if (back != nullptr)
-            check_screen(widget, "registration", &keyboard);
+        // The page is modal. Without a browser, Open is hidden, and the route
+        // hotspots stay hidden until the in-game form is offered, so Back is
+        // the only named stop. The pad stays on that page.
+        if (back != nullptr && back->parent != nullptr) {
+            Window* page = back->parent;
+            dismiss_box(widget);
+            Walk walk{};
+            walk_focus(widget, &walk);
+            check(walk.count >= 1, "registration focus order has its stop");
+            check(same_walk(widget, walk), "registration focus order is stable");
+            bool inside = walk.count > 0;
+            bool saw_back = false;
+            for (int32_t i = 0; i < walk.count; ++i) {
+                inside = inside && under(page, walk.order[i]);
+                saw_back = saw_back || walk.order[i] == back;
+            }
+            check(inside && saw_back, "registration keeps the pad on its page");
+        }
         dismiss_box(widget);
     }
 
@@ -486,7 +588,7 @@ int main(int argc, char** argv) {
         widget->system.matchmaking_enabled = 1;
         main_frame_show_screen(widget->system.main_frame, screens[i]);
         present(widget);
-        check_screen(widget, names[i], &keyboard);
+        check_screen(widget, names[i], &keyboard, screens[i] != console_screen::update);
     }
 
     widget->system.matchmaking_enabled = 1;

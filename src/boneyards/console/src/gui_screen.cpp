@@ -516,8 +516,17 @@ bool screen_key_down(Window* self, const Message* msg) {
         return true;
     }
     if (msg->key == key::escape) {
-        note_named(screen, screen->escape_name);
-        return true;
+        // The layout's Escape control is pressed, the same way Enter presses
+        // the default. A console with no such control closes as the frame's
+        // release button does.
+        if (screen->escape_name[0] != '\0' &&
+            gui_screen_find(screen, screen->escape_name) != nullptr) {
+            run_named(screen, screen->escape_name);
+            return true;
+        }
+        if (self->parent != nullptr && self->parent->ops != nullptr)
+            return self->parent->ops->key_down(self->parent, msg);
+        return false;
     }
     return window_default_key_down(self, msg);
 }
@@ -1178,6 +1187,16 @@ void gui_screen_set_user(
     screen->user = user;
     screen->on_fired = on_fired;
     screen->on_destroy = on_destroy;
+}
+
+void gui_screen_set_escape(GuiScreen* screen, const char* name) {
+    if (screen == nullptr || name == nullptr || name[0] == '\0') {
+        return;
+    }
+    if (screen->escape_name[0] != '\0' || gui_screen_find(screen, name) == nullptr) {
+        return;
+    }
+    copy_text(screen->escape_name, sizeof screen->escape_name, name);
 }
 
 void gui_screen_destroy(GuiScreen* screen) {

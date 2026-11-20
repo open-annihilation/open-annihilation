@@ -111,6 +111,10 @@ inline constexpr std::string_view pending_load_key = "open-annihilation.pending-
 /// Preference that names the recording the next start plays.
 inline constexpr std::string_view pending_demo_key = "open-annihilation.pending-demo";
 
+/// Preference that names the map pack that recording plays, when it is a
+/// release kept in Replay releases. Empty, or absent, means Maps only.
+inline constexpr std::string_view replay_map_pack_key = "open-annihilation.replay-map-pack";
+
 /// Builds the note for a choice and the mod name the player saw.
 ///
 /// Music is left out. Expansions are kept in the built-in order. An id that

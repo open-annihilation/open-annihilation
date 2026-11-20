@@ -824,19 +824,21 @@ void Runtime::check_mutator_button() {
         touch_state().hud.pad.badges = badges_were;
         frames(1);
 
-        set_frontend_focus(difficulty);
+        const int32_t select_map = gadget_index("SelectMap");
+        require(select_map > 0, "SelectMap is not on the screen" + on);
+        set_frontend_focus(select_map);
         frames(1);
         press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
         frames(1);
-        require(button_focused(), "Tab from Difficulty did not focus oa.mutators" + on);
+        require(button_focused(), "Tab from SelectMap did not focus oa.mutators" + on);
         require(frontend_focus() < 0, "the GUI kept a focus ring on the button" + on);
-        std::cout << "mutator button check: Tab from Difficulty focuses oa.mutators" << on << "\n";
+        std::cout << "mutator button check: Tab from SelectMap focuses oa.mutators" << on << "\n";
         press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
         frames(1);
         const std::string after = focused_name();
         require(
-            tdf_names_equal(after, "SelectMap") || tdf_names_equal(after, "PrevMenu"),
-            "Tab from the button did not focus SelectMap or PrevMenu (" + after + ")" + on
+            tdf_names_equal(after, "Start"),
+            "Tab from the button did not focus Start (" + after + ")" + on
         );
         std::cout << "mutator button check: Tab from the button focuses " << after << on << "\n";
         press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_SHIFT);
@@ -1086,41 +1088,15 @@ void Runtime::check_mutator_button() {
         require_lamp(campaign_frame, renderer::RoomLamp::red, "red with none chosen", on);
         capture_four(mutators_memory::Setup::campaign, "newgame", size, window, on);
 
-        const int64_t button_key =
-            static_cast<int64_t>(campaign_button_window.y) * 5000 + campaign_button_window.x;
-        int32_t predecessor = -1;
-        int64_t best_key = 0;
-        std::string predecessor_name;
-        for (std::size_t index = 1; index < resources_.layout.gadgets.size(); ++index) {
-            const gui::Gadget& gadget = resources_.layout.gadgets[index];
-            const gui::CommonFields& common = gadget.common;
-            if (common.width <= 0 || common.height <= 0 || !gui::keyboard_focusable(gadget))
-                continue;
-            const kit::Rect frame{
-                static_cast<int32_t>(campaign_origin.x) + common.x,
-                static_cast<int32_t>(campaign_origin.y) + common.y,
-                static_cast<int32_t>(common.width),
-                static_cast<int32_t>(common.height)
-            };
-            const kit::Rect gadget_window =
-                kit::to_canvas(frame_to_points(campaign_seen, frame), campaign_percent);
-            const int64_t key = static_cast<int64_t>(gadget_window.y) * 5000 + gadget_window.x;
-            if (key <= button_key && (predecessor < 0 || key > best_key)) {
-                best_key = key;
-                predecessor = static_cast<int32_t>(index);
-                predecessor_name = common.name;
-            }
-        }
-        require(predecessor > 0, "NEWGAME has no record just before oa.mutators" + on);
-        set_frontend_focus(predecessor);
+        const int32_t campaign_difficulty = gadget_index("Difficulty");
+        require(campaign_difficulty > 0, "NEWGAME has no Difficulty" + on);
+        set_frontend_focus(campaign_difficulty);
         frames(1);
         press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
         frames(1);
-        require(
-            button_focused(), "Tab from " + predecessor_name + " did not focus oa.mutators" + on
-        );
-        std::cout << "mutator button check: Tab from " << predecessor_name
-                  << " focuses oa.mutators on NEWGAME" << on << "\n";
+        require(button_focused(), "Tab from Difficulty did not focus oa.mutators on NEWGAME" + on);
+        std::cout << "mutator button check: Tab from Difficulty focuses oa.mutators on NEWGAME"
+                  << on << "\n";
 
         press_key(SDLK_RETURN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE);
         frames(1);

@@ -10,6 +10,59 @@
 namespace oa::tool {
 namespace {
 
+const Command replay_commands[] = {
+    {
+        "export",
+        "FILE --format oademo|tad --out PATH [--no-oa-sectors] [--force]",
+        "Export a replay as a .oademo or a .tad.",
+        "Reads a .oademo or a .tad and writes one file. --format is oademo or tad, and --out "
+        "names the file. A .oademo is written at zstd level 19. A .tad is version 5 with every "
+        "packet plain and no network address; a long name is cut to 63 bytes and a long status "
+        "to 512, and each such cut is a warning. --no-oa-sectors leaves out Open Annihilation's "
+        "own sectors and applies only to a .tad. --force replaces a file that already exists.",
+        1,
+        any_count,
+        run_replay_export,
+        {},
+    },
+    {
+        "info",
+        "FILE [--json]",
+        "Print what a recording or a replay holds.",
+        "Prints the description of a .oademo, or the header of a .tad. --json prints one JSON "
+        "object. A .tad's address sector is left out.",
+        1,
+        any_count,
+        run_replay_info,
+        {},
+    },
+    {
+        "pack",
+        "FILE.tad [--out FILE] [--level N | --deflate] [--force]",
+        "Wrap a recording as a replay.",
+        "Reads a .tad and writes a .oademo. The recording is stored as plain packets, and an "
+        "address sector is left out. --level is a zstd level from 1 to 22; the default is 3. "
+        "--deflate stores the recording with deflate instead. The two are not given together. "
+        "--out names the file; without it the name ends in .oademo. --force replaces a file "
+        "that already exists.",
+        1,
+        any_count,
+        run_replay_pack,
+        {},
+    },
+    {
+        "unpack",
+        "FILE.oademo [--out FILE] [--force]",
+        "Write a replay's recording back as a .tad.",
+        "Reads a .oademo and writes the recording it stores. --out names the file; without it "
+        "the name ends in .tad. --force replaces a file that already exists.",
+        1,
+        any_count,
+        run_replay_unpack,
+        {},
+    },
+};
+
 const Command catalogue_commands[] = {
     {
         "keygen",
@@ -655,6 +708,18 @@ const Command command_table[] = {
         1,
         run_interface_words,
         {},
+    },
+    {
+        "replay",
+        "COMMAND",
+        "Read a replay, or wrap and unwrap a recording.",
+        "Prints what a .oademo or a .tad holds, wraps a .tad as a .oademo, and writes a "
+        "replay's recording back as a .tad. Pack stores every packet plain and leaves an "
+        "address sector out.",
+        0,
+        0,
+        nullptr,
+        replay_commands,
     },
 };
 

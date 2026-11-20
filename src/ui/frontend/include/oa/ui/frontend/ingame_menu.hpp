@@ -64,6 +64,8 @@ struct IngameContext {
     bool restart_requested = false; // Game.restart_requested
     // The game data holds LOADGAME.GUI, the dialog SAVEGAME and LOADGAME open.
     bool saved_games_offered = true;
+    // The match replays a recording, which cannot be saved: SAVEGAME is greyed.
+    bool replay = false;
     // Which of 3.1c's names each difficulty carries (ai.difficulty-names).
     data::match_rules::AiDifficultyNames difficulty_names{};
 };
@@ -94,7 +96,7 @@ enum class IngameAction : uint8_t {
 /// Sets up the ARMOPT in-game options panel.
 ///
 /// SAVEGAME and LOADGAME are greyed in multiplayer and when the game data has
-/// no dialog for them, MISSION reads "Settings" in skirmish and multiplayer,
+/// no dialog for them, and SAVEGAME is greyed in a replay; MISSION reads "Settings" in skirmish and multiplayer,
 /// the game is held outside multiplayer and CD music resumes.
 ///
 /// @param[in,out] panel The loaded ARMOPT panel.

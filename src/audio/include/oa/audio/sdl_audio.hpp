@@ -63,8 +63,9 @@ class SdlWavPlayer {
     /// mixer's rate, and kept, with up to 8 MiB of others in that form.
     ///
     /// @param resource Archive path of the WAV file.
-    /// @param volume Voice volume in hundredths of a decibel, heard relative to
-    ///        audio::volume_near, the volume the game gives every unplaced effect.
+    /// @param volume Voice volume in hundredths of a decibel below full scale, as a
+    ///        sound buffer's: audio::volume_near (-585), the volume the game gives
+    ///        every unplaced effect, plays 5.85 dB below the loop and the stream.
     /// @param spatial Placement; a disabled mode plays at full level on both sides.
     /// @param[out] error Reason for a failure; cleared on success.
     /// @return True when the sound started.

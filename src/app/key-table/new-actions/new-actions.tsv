@@ -11,16 +11,28 @@ build.cell-9	select=commander	key 9	none
 build.cell-10	select=commander	key 0	none
 build.cell-11	select=commander	key Minus	none
 build.cell-12	select=commander	key Equals	none
-camera.zoom-in-key		key LeftBracket	camera=moved
-camera.zoom-in-key:repeat		key LeftBracket repeat	camera=moved
+camera.zoom-in-key		key LeftBracket	camera=moved;zoom=in
+camera.zoom-in-key:repeat		key LeftBracket repeat	camera=moved;zoom=in
 camera.zoom-in-key:wheel-off	wheel-zoom=off	key LeftBracket	none
-camera.zoom-out-key		key RightBracket	camera=moved
-camera.zoom-out-key:repeat		key RightBracket repeat	camera=moved
+camera.zoom-out-key		key RightBracket	camera=moved;zoom=out
+camera.zoom-out-key:repeat		key RightBracket repeat	camera=moved;zoom=out
 camera.zoom-reset		key Backslash	none
+camera.zoom-in:unbound		wheel up battlefield	none
+camera.zoom-out:alt-wheel		wheel down battlefield alt	zoom=out
+camera.zoom-out:wheel		wheel down battlefield	none
+camera.zoom-out:shift-wheel		wheel down battlefield shift	none
+game.speed-up:alt-wheel		wheel up battlefield alt	messages=1;speed=+1
+game.speed-up:alt-shift-wheel		wheel up battlefield alt shift	messages=1;speed=+1
+game.speed-down:primary-wheel		wheel down battlefield primary	messages=1;speed=-1
+game.speed-down:primary-wheel-megamap	wheel-zoom=off	wheel down battlefield primary	messages=1;speed=-1
+megamap.open-wheel:alt	wheel-zoom=off	wheel down battlefield alt	megamap=open
 chat.open-allies		key F9	chat=open
 ui.release-pointer		key Insert	none
 ui.keys-overlay	select=commander;armed=build	key Slash primary	none
 megamap.jump		button left megamap clicks=2	camera=centred;megamap=closed
+megamap.jump:wheel-off	wheel-zoom=off	button left megamap clicks=2	camera=centred;megamap=closed
+megamap.toggle:ctrl-wheel		wheel up battlefield ctrl	megamap=open
+megamap.toggle:ctrl-wheel-close		wheel up megamap ctrl	megamap=closed
 order.cancel	select=combat;armed=attack	key PrintScreen	armed=none
 order.cancel:idle		key PrintScreen	none
 select.clear	select=combat	key End	primary=none;selected=0

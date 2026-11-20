@@ -39,6 +39,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through (tools/build_windows.sh --run-tests
@@ -53,7 +54,11 @@ SEED = 7
 WORKERS = 4
 
 # A preferences file's first line, and the enhanced anti-aliasing setting.
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 ANTI_ALIASING_KEY = "open-annihilation.anti-aliasing"
 
 # The trace stream: a header, then for each tick one tick record and one

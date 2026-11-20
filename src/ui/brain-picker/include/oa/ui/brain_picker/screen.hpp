@@ -176,7 +176,8 @@ struct ScreenState {
 /// details_page_layout returns. Every control is named (the names above).
 /// Tab's order is the list, the level strip, the option controls, the
 /// every-seat switch, CANCEL, USE THIS and the close mark. At Compact it is
-/// the list, DETAILS, CANCEL, USE THIS and the close mark. The labels take
+/// the list, DETAILS, CANCEL, USE THIS and the close mark. The list is one
+/// stop. The screen has no filter controls. The labels take
 /// no focus, and neither does a scroll bar.
 ///
 /// @param picker the picker

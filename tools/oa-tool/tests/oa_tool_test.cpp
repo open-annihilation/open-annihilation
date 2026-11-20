@@ -216,7 +216,7 @@ void test_commands(const Scratch& scratch) {
 
 void test_help() {
     const auto table = oa::tool::commands();
-    OA_CHECK(table.size() == 15);
+    OA_CHECK(table.size() == 16);
     OA_CHECK(table[0].name == "list");
     OA_CHECK(table[1].name == "extract");
     OA_CHECK(table[2].name == "asset-extract");
@@ -232,6 +232,7 @@ void test_help() {
     OA_CHECK(table[12].name == "registry");
     OA_CHECK(table[13].name == "expansions");
     OA_CHECK(table[14].name == "interface-words");
+    OA_CHECK(table[15].name == "replay");
     // mutator diff is the fourth subcommand. tools-oa-tool checks this list.
     OA_CHECK(table[7].subcommands.size() == 4);
     OA_CHECK(table[7].subcommands[0].name == "pack");

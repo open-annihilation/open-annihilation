@@ -506,6 +506,10 @@ void Runtime::bind_match_speech() {
 }
 
 void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
+    // A replay that switched content stays on `wait` until the match is
+    // starting. This is before anything here can throw.
+    if (bootstrap.replay)
+        begin_replay_content_playback();
     pause_content_for_match();
     // A check still waiting is not a result: the load can outlast its idle
     // limit, so the cancel is set before any of that work.
@@ -946,6 +950,9 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // The header table is marked stale once the full load is done; the
     // frontend reads its unit headers again when it next runs.
     frontend_game().unit_defs_stale = 1;
+    // The GUI quick keys and Category words the key bindings resolve with are
+    // read with the units, not at the match's first frame.
+    gather_key_mod_data();
     set_load_progress(2, 100);
     set_load_progress(4, 20);
     // The target-category masks, once every type has joined its categories.

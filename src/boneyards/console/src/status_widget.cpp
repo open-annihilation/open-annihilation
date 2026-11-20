@@ -7,16 +7,22 @@
 
 #include "oa/boneyards/font_atlases.hpp"
 #include "oa/boneyards/rover_session.hpp"
+#include "oa/boneyards/screens/after_battle.hpp"
+#include "oa/boneyards/screens/chat.hpp"
+#include "oa/boneyards/screens/galaxy.hpp"
 #include "oa/boneyards/utf8.hpp"
 
 #include "oa/platform/system.hpp"
+#include "oa/present/colour_vision/colour_vision.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -35,6 +41,78 @@ namespace {
 
 constexpr int32_t k_screen_width = 640;
 constexpr int32_t k_screen_height = 480;
+// Colour-vision mode the open hat fonts were tinted for. Not a mode until the fonts exist.
+uint8_t g_role_font_mode = 0xFF;
+Handle g_muzzle_font = k_no_handle;
+
+std::span<const uint8_t> palette_bytes(const StatusWidget* widget) {
+    if (widget == nullptr || widget->config.palette == nullptr)
+        return {};
+    return std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(widget->config.palette->entries), sizeof(oa::Palette)
+    );
+}
+
+void publish_role_fonts(StatusWidget* widget) {
+    if (widget == nullptr || widget->navigation == nullptr)
+        return;
+    screens::ChatSession& session = widget->navigation->session;
+    const screens::HatFonts& fonts = widget->system.hat_fonts;
+    session.system_font = fonts.small_green;
+    session.rank_0x15_font = fonts.small_orange;
+    session.arm_font = fonts.small_blue;
+    session.core_font = fonts.small_red;
+}
+
+void release_muzzle_font() {
+    if (g_muzzle_font >= 0)
+        font_release(g_muzzle_font);
+    g_muzzle_font = k_no_handle;
+    screens::boneyards_muzzle_font(k_no_handle);
+}
+
+// Tints the four chat roles, and a muzzled name while a mode is on. Off uses today's indices and
+// the dim font for a muzzled name.
+void tint_role_fonts(StatusWidget* widget) {
+    if (widget == nullptr || widget->toolkit == nullptr)
+        return;
+    auto& fonts = widget->system.hat_fonts;
+    if (fonts.small < 0)
+        return;
+    const screens::GalaxyChatColours colours = screens::galaxy_chat_colours(palette_bytes(widget));
+    const Handle previous[] = {
+        fonts.small_green, fonts.small_orange, fonts.small_blue, fonts.small_red
+    };
+    fonts.small_green =
+        toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(colours.system));
+    fonts.small_orange =
+        toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(colours.newsbot));
+    fonts.small_blue =
+        toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(colours.arm));
+    fonts.small_red =
+        toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(colours.core));
+    for (const Handle old : previous) {
+        if (old >= 0)
+            font_release(old);
+    }
+    release_muzzle_font();
+    if (present::colour_vision::active_mode() != present::colour_vision::Mode::off) {
+        const int32_t ink = screens::muzzle_name_index(palette_bytes(widget));
+        g_muzzle_font = toolkit_font_tint(widget->toolkit, fonts.small, static_cast<uint8_t>(ink));
+        screens::boneyards_muzzle_font(g_muzzle_font);
+    }
+    g_role_font_mode = static_cast<uint8_t>(present::colour_vision::active_mode());
+    publish_role_fonts(widget);
+}
+
+void refresh_role_fonts(StatusWidget* widget) {
+    if (widget == nullptr || !widget->system.fonts_loaded)
+        return;
+    if (g_role_font_mode == static_cast<uint8_t>(present::colour_vision::active_mode()))
+        return;
+    tint_role_fonts(widget);
+}
+
 const char* const k_cursor_file = "cursors.gaf";
 const char* const k_cursor_sequence = "cursornormal";
 // Key values of typed characters.
@@ -140,8 +218,13 @@ FontAtlas* open_analogue_atlas() {
 // toolkit whose drawing is redirected into the frame being drawn; images, the
 // cursor's frames among them, stay with the console store.
 void attach_toolkit(StatusWidget* widget) {
-    if (widget->config.palette == nullptr)
+    if (widget->config.palette == nullptr) {
+        screens::boneyards_use_palette(nullptr, 0);
         return;
+    }
+    screens::boneyards_use_palette(
+        reinterpret_cast<const uint8_t*>(widget->config.palette->entries), sizeof(oa::Palette)
+    );
     ToolkitConfig config{};
     config.width = k_screen_width;
     config.height = k_screen_height;
@@ -181,6 +264,10 @@ void ensure_window_resources(StatusWidget* widget) {
         widget->galaxy_graphics = std::make_unique<GalaxyGraphics>();
         if (!galaxy_load_graphics(*widget->galaxy_graphics, widget->config.files))
             widget->galaxy_graphics.reset();
+        else
+            widget->galaxy_graphics->palette = widget->config.palette;
+    } else {
+        widget->galaxy_graphics->palette = widget->config.palette;
     }
 }
 
@@ -566,6 +653,7 @@ void console_enter_post_join(StatusWidget* widget) {
 void on_launch(void* user, const LaunchReport* launch) {
     StatusWidget* widget = event_widget(user);
     if (launch->result != 0) {
+        screens::forget_after_battle();
         const auto index = static_cast<std::size_t>(launch->result) - 1U;
         const char* text = launch->result > 0 && index < std::size(launch_message::refused)
                                ? launch_message::refused[index]
@@ -578,6 +666,7 @@ void on_launch(void* user, const LaunchReport* launch) {
     if (host.launch_permitted != nullptr) {
         const char* refusal = nullptr;
         if (!host.launch_permitted(host.user, &refusal)) {
+            screens::forget_after_battle();
             if (widget->config.service.leave_battles != nullptr)
                 widget->config.service.leave_battles(widget->config.service.user, launch->area_id);
             if (widget->system.gui_ready != 0 && refusal != nullptr && refusal[0] != '\0')
@@ -585,9 +674,32 @@ void on_launch(void* user, const LaunchReport* launch) {
             return;
         }
     }
+    screens::begin_after_battle();
     ConsoleSystem& system = widget->system;
     copy_game_id(system.launched_game_id, launch->game_id);
     system.launched_area_id = launch->area_id;
+    // The galactic map as it stands names the planet and its sector; they are
+    // kept with the game id so that the Main Frame selecting another planet
+    // later does not change them.
+    system.launched_planet[0] = '\0';
+    system.launched_sector[0] = '\0';
+    if (widget->navigation != nullptr) {
+        const screens::GalaxyView& galaxy = widget->navigation->galaxy;
+        std::snprintf(
+            system.launched_sector, sizeof system.launched_sector, "%s", galaxy.sector_name
+        );
+        for (std::size_t index = 0; index < galaxy.planet_count; ++index) {
+            if (static_cast<uint32_t>(galaxy.planets[index].id) != launch->area_id)
+                continue;
+            std::snprintf(
+                system.launched_planet,
+                sizeof system.launched_planet,
+                "%s",
+                galaxy.planets[index].name
+            );
+            break;
+        }
+    }
     if (host.battle_launched != nullptr)
         host.battle_launched(host.user, launch, system.user_name);
     stop_main_frame_light(widget);
@@ -806,6 +918,33 @@ void drop_main_frame(StatusWidget* widget) {
     console_close_main_frame(&widget->system);
     if (open)
         release_window_graphics(widget);
+}
+
+// F6 order: the frame, the console that is open, then the war map. A hidden
+// console is not a region. Opening a console leaves the keyboard on the
+// button that opened it.
+constexpr uint8_t k_region_frame = 1;
+constexpr uint8_t k_region_console = 2;
+constexpr uint8_t k_region_map = 3;
+
+void stamp_keyboard_regions(StatusWidget* widget) {
+    MainFrame* frame = widget->system.main_frame;
+    if (frame == nullptr) {
+        widget->keyboard_console = -1;
+        return;
+    }
+    frame->base.region = k_region_frame;
+    for (int32_t i = 0; i < console_screen::none; ++i) {
+        Window* kept = frame->kept_screens[i];
+        if (kept != nullptr)
+            kept->region = 0;
+    }
+    if (frame->active_screen != nullptr && window_is_shown(frame->active_screen))
+        frame->active_screen->region = k_region_console;
+    if (frame->map_panel != nullptr)
+        frame->map_panel->base.region = k_region_map;
+
+    widget->keyboard_console = frame->console_screen;
 }
 
 void destroy_windows(StatusWidget* widget) {
@@ -1041,10 +1180,7 @@ void console_open_main_frame(StatusWidget* widget) {
             f.small = font_load("BYHatFontSmall87.gaf");
             f.small_dim = toolkit_font_tint(widget->toolkit, f.small, 0x5a);
             f.small_light = toolkit_font_tint(widget->toolkit, f.small, 0x54);
-            f.small_green = toolkit_font_tint(widget->toolkit, f.small, 0xe9);
-            f.small_orange = toolkit_font_tint(widget->toolkit, f.small, 0xc7);
-            f.small_blue = toolkit_font_tint(widget->toolkit, f.small, 0xe2);
-            f.small_red = toolkit_font_tint(widget->toolkit, f.small, 0xd4);
+            tint_role_fonts(widget);
             f.medium = font_load("BYHatFontMedium90.gaf");
             f.button_pressed = toolkit_font_tint(widget->toolkit, f.medium, 0x5d);
             f.button_normal = toolkit_font_tint(widget->toolkit, f.medium, 0x57);
@@ -1058,6 +1194,7 @@ void console_open_main_frame(StatusWidget* widget) {
             system.profile_image = profile_image_create();
         screens::function_button_fonts(&system.hat_fonts);
         system.main_frame = main_frame_create(widget);
+        stamp_keyboard_regions(widget);
     }
     if (system.chat_console_pending != 0)
         main_frame_reopen_chat(system.main_frame);
@@ -1167,6 +1304,8 @@ void console_release_gui(StatusWidget* widget) {
         };
         for (Handle font : handles)
             font_release(font);
+        release_muzzle_font();
+        g_role_font_mode = 0xFF;
         widget->system.hat_fonts = {};
         widget->system.fonts_loaded = false;
         screens::function_button_fonts(nullptr);
@@ -1193,6 +1332,7 @@ void boneyards_status_widget_destroy(StatusWidget* widget) {
     }
     font_atlas_close(widget->analogues);
     widget->analogues = nullptr;
+    screens::boneyards_use_palette(nullptr, 0);
     if (widget->navigation != nullptr) {
         screens::boneyards_screens_release(widget->navigation);
         delete widget->navigation;
@@ -1205,6 +1345,19 @@ void boneyards_status_widget_leave_main_menu(StatusWidget* widget) {
         return;
     console_release_gui(widget);
     widget->system.session_started = 0;
+}
+
+void boneyards_status_widget_exit_to_menu(StatusWidget* widget) {
+    if (widget == nullptr)
+        return;
+    ScopedServices scope(widget);
+    console_reset_to_main_menu(widget);
+}
+
+void boneyards_status_widget_note_ring(StatusWidget* widget, int shown) {
+    if (widget == nullptr)
+        return;
+    desktop_note_service_ring(&widget->desktop, shown);
 }
 
 void boneyards_status_widget_return_to_main_menu(StatusWidget* widget) {
@@ -1256,6 +1409,7 @@ bool boneyards_status_widget_event(StatusWidget* widget, const Message& message)
     if (widget->toolkit != nullptr && !character &&
         (pressed || message.code == MessageCode::key_up))
         toolkit_set_key(widget->toolkit, message.key, pressed);
+    stamp_keyboard_regions(widget);
     const bool consumed = desktop_route(&widget->desktop, &message);
     if (widget->toolkit != nullptr) {
         if (want_shift && message.key != key::shift)
@@ -1436,8 +1590,10 @@ void boneyards_status_widget_tick(StatusWidget* widget) {
     service.pump(service.user);
     if (elapsed) {
         // The windows' cycle stands still while a launched battle is under way.
-        if (widget->system.chat_console_pending == 0)
+        if (widget->system.chat_console_pending == 0) {
+            stamp_keyboard_regions(widget);
             desktop_pulse(&widget->desktop);
+        }
         if (widget->toolkit != nullptr)
             toolkit_step_cursor(widget->toolkit);
     }
@@ -1486,6 +1642,13 @@ struct DesktopShift {
 void boneyards_status_widget_draw(StatusWidget* widget, Surface* target, int32_t origin_y) {
     if (widget == nullptr || !desktop_has_windows(&widget->desktop))
         return;
+    if (widget->config.palette != nullptr)
+        screens::boneyards_use_palette(
+            reinterpret_cast<const uint8_t*>(widget->config.palette->entries), sizeof(oa::Palette)
+        );
+    if (widget->galaxy_graphics != nullptr)
+        widget->galaxy_graphics->palette = widget->config.palette;
+    refresh_role_fonts(widget);
     message_box_keep_in_front(&widget->desktop);
     ScopedServices scope(widget);
     const DesktopShift shift(&widget->desktop, origin_y);
@@ -1562,6 +1725,16 @@ bool boneyards_status_widget_battle_ids(
         return false;
     *area_id = widget->system.launched_area_id;
     *game_id = widget->system.launched_game_id;
+    return true;
+}
+
+bool boneyards_status_widget_battle_place(
+    const StatusWidget* widget, const char** planet, const char** sector
+) {
+    if (widget == nullptr)
+        return false;
+    *planet = widget->system.launched_planet;
+    *sector = widget->system.launched_sector;
     return true;
 }
 

@@ -128,6 +128,8 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
             throw std::runtime_error("--check-boneyards-launch expects host or join");
         result.boneyards_launch = role == "host" ? LaunchCheckRole::host : LaunchCheckRole::join;
         effects |= option_effect::skip_intro | option_effect::unattended;
+    } else if (argument == "--boneyards-launch-for-fun") {
+        result.launch_for_fun = true;
     } else if (argument == "--check-boneyards-features") {
         const std::string role(value());
         if (role != "beta" && role != "player")
@@ -385,6 +387,7 @@ const char* text(void* /*context*/, ExtensionText which) {
            "[--boneyards-planets N] [--boneyards-pick AREA] [--boneyards-open CONSOLE] "
            "[--boneyards-chat AREA] [--boneyards-say TEXT] "
            "[--boneyards-create NAME]] [--check-boneyards-launch host|join] "
+           "[--boneyards-launch-for-fun] "
            "[--check-boneyards-features beta|player] "
            "[--check-boneyards-unit-limit N] "
            "[--check-boneyards-overlay basic|full] "

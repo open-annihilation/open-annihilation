@@ -508,7 +508,8 @@ bool rover_record_parse_field(
         return false;
     const char* close =
         static_cast<const char*>(memchr(value, '>', static_cast<size_t>(remaining)));
-    if (!close || close == value)
+    // An empty string is kept. An empty number has no digits to read.
+    if (!close || (close == value && type != 'S'))
         return false;
     int32_t value_length = static_cast<int32_t>(close - value);
     field->type = type;

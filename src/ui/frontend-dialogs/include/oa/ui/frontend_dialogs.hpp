@@ -168,6 +168,15 @@ void reset_dialogs();
 /// @return The stage from 0; 0 when no dialog is open or the record is not one of its.
 [[nodiscard]] uint8_t dialog_button_stage(std::size_t index) noexcept;
 
+/// Returns the record of the top dialog that holds the keyboard focus.
+///
+/// It is the record the dialog's loader gave it, once the dialog has been
+/// drawn. Before that draw, and when the loader focused none, this returns
+/// -1. The dialog's own focus is not written.
+///
+/// @return the record, or -1 for none
+[[nodiscard]] int32_t dialog_keyboard_focus() noexcept;
+
 /// Activates a named button of the top dialog as a click would.
 ///
 /// @param ctx Screen context passed to the dialog's handler.

@@ -208,6 +208,15 @@ const Runtime::PadState* Runtime::pad_state_if_made() const {
 }
 
 bool Runtime::take_pad_event(SDL_Event& event, bool& running) {
+    // A mouse, trackpad or pen of its own takes the pointer back from the
+    // gamepads. The pad pointer's own events and a finger's do not.
+    if (pad_ &&
+        (event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)) {
+        const SDL_MouseID which =
+            event.type == SDL_EVENT_MOUSE_MOTION ? event.motion.which : event.button.which;
+        if (which != pad_mouse_id && which != SDL_TOUCH_MOUSEID)
+            pad_->ahead_of_mouse = false;
+    }
     // The joystick events SDL sends beside the gamepad events arrive only
     // because the gamepad subsystem runs; no screen ever saw them.
     if (event.type >= SDL_EVENT_JOYSTICK_AXIS_MOTION &&
@@ -469,8 +478,10 @@ pc::MapContext PadAccess::map_context(const Runtime& runtime) {
 }
 
 bool PadAccess::in_match(Runtime& runtime) {
+    // A question photo mode asks takes the pad as a menu does.
     return runtime.screen_ == Screen::match && runtime.match_ && !runtime.match_paused_ &&
-           !runtime.match_finished_ && runtime.engine_settings_dialog() == nullptr;
+           !runtime.match_finished_ && runtime.engine_settings_dialog() == nullptr &&
+           !runtime.photo_asks();
 }
 
 pc::Held PadAccess::held(Runtime& runtime) {
@@ -501,6 +512,10 @@ pc::Held PadAccess::held(Runtime& runtime) {
         result.build_ring = touch->hud.build_ring.has_value();
         result.select_sheet = touch->hud.sheet == hud::Sheet::select_menu;
     }
+    // Photo mode wins even when the match is paused, so a pad cannot fall
+    // through to the menus' clicks. The question it asks over itself is
+    // answered as a menu's.
+    result.photo = runtime.photo_mode() && !runtime.photo_asks();
     return result;
 }
 
@@ -598,6 +613,7 @@ void PadAccess::read_traits(OpenPad& pad) {
 void PadAccess::note_input(Runtime& runtime, SDL_JoystickID id) {
     auto& state = runtime.pad_state();
     state.used = true;
+    state.ahead_of_mouse = true;
     if (id != 0 && open_pad_of(state.pads, id) != nullptr) {
         state.active = id;
         return;

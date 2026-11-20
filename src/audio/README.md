@@ -37,7 +37,9 @@ the one that has played furthest, which then holds two voices until it
 stops. Each sound file is read and decoded on its first start, converted
 once to the mixer's rate (`convert_for_mixer`), and kept, with up to 8 MiB
 of others in that form, the least recently started that no voice
-plays giving way first; a buffer plays on a stream it holds while it plays,
+plays giving way first (a sound whose voice has played out stays until the
+next start frees the voice, so no voice holds a buffer the cache has
+dropped); a buffer plays on a stream it holds while it plays,
 and up to eight idle streams are kept for the next starts. A placed start
 weighs the stream's sides with `spatial_stereo_gain`'s levels
 (`set_side_gains`) rather than converting its samples. The loop and the
@@ -98,7 +100,13 @@ itself plays with a position.
 `SdlWavPlayer::play_placed` hears a placement through `spatial_stereo_gain`,
 which attenuates and pans as a 3D sound buffer does: level min/d beyond the
 minimum distance (held from the maximum) and a pan by the source's bearing.
-Its other sounds play at the level that stands for -585.
+Its other sounds play at -585. A voice volume attenuates from full scale, as
+a sound buffer's volume does in the game: -585 plays an effect at
+10^(-585/2000) of its samples, 5.85 dB below the looping sound and the
+stream, which play at full scale, as the offline mix below plays it. At the
+default effects volume such an effect peaks at about a fifth of full scale,
+so the mix reaches its 16-bit limit only when five or more full-scale effects
+peak together.
 
 Registered names are kept to 32 characters, and a full 32-character name is
 compared on all 32 characters; every comparison stays within the name.
@@ -191,7 +199,16 @@ Two outputs exist (`oa/audio/sound_output_backends.hpp`):
   takes that format. The device stream opens with the first `start` or
   stream and closes with the last `stop` once no stream is open; `start`
   and `stop` are SDL's audio subsystem, counted as `SDL_InitSubSystem`
-  counts.
+  counts. SDL's thread asks for the mix as the device plays out what it
+  holds, every device period (about 10 ms on Windows); a `FeedTimer` times
+  each request, and `take_log` gives the game's log a line naming the
+  device as it opens (driver, name, rate, channels, sample format and
+  period) and, at most once a minute (`late_feed_report_ms`), a line for
+  requests that came after the device's sound would have run out: by more
+  than `late_feed_margin_ns` past the last request's sound and one period.
+  The line gives how many came late, the worst time without sound, the
+  longest mix and how much of it waited for the streams' lock, which tells
+  a device starved by the system from one the game held up.
 - The wave-out mixer (`wave_out_output.cpp`), on Windows: a
   `BufferedOutput` that mixes the streams with `SoftwareMixer` into four
   buffers of 1024 frames (16-bit stereo, 44100 Hz, about 93 ms) on the
@@ -212,8 +229,9 @@ low 16 bits, float ones times 32768, rounded and held to 16 bits), plays one
 channel on both sides (more than two play their first two), converts other
 rates with `PcmResampler` as the samples arrive, multiplies each side by the
 stream's gain times that side's gain (16 fraction bits), sums the streams
-with 8 fraction bits kept, and rounds the sum to 16 bits, held to
--32768..32767. A stream at 44100 Hz and a gain of one plays its 16-bit
+in 64 bits with 8 fraction bits kept, and rounds the sum to 16 bits, held to
+-32768..32767: a sum past full scale is clipped there, whatever the number
+of streams and their gains, and never wraps. A stream at 44100 Hz and a gain of one plays its 16-bit
 samples unchanged. `PcmResampler` (`oa/audio/resampler.hpp`) is a
 Kaiser-windowed sinc of 6 zero crossings each side (window 0.1102 * (80 -
 8.7), zeros on the lower rate's frames) with 14-bit taps whose phases each
@@ -231,11 +249,21 @@ tested on a device the test plays by hand.
 
 Tests: `audio-output` (the integer resampler's limits, lengths, splits,
 accuracy and alignment; the formats, gains, side gains, pausing, clearing,
-feeds and rate conversion of the mixer, and `convert_for_mixer`; the
-buffered output's ring, its start count and a refused buffer),
-`audio-sdl-player` (the WAV player's stream, voices and a placed start's
-two sides) and on Windows `audio-output-wave-out`, which plays a tone on
-the system's device, or is skipped where there is none.
+feeds and rate conversion of the mixer, a sum of streams past 32 bits held
+to 16, a fed stream at 44100, 22050, 11025 and 22254 Hz played in requests
+of any size with no frame dropped or changed, and after a feed that falls
+behind playing on from where it was, `convert_for_mixer`, and the feed
+timer's late requests and its log line; the buffered output's ring, its
+start count and a refused buffer), `audio-sdl-player` (the WAV player's
+stream, voices, a placed start's two sides, the near effects' level against
+the loop's, the sign, level and sides of each layout of WAV, 8-bit and
+16-bit, one and two channels, a sound kept in the cache while a voice holds
+it, and the device's log line), `audio-sdl-player-data` (every RIFF sound of
+the installed game decodes as the player reads it to the samples and format
+the game's loader finds; the game's two headerless and DIGI sounds, the
+novelty voice's, are listed, since SDL's reader does not take them) and on
+Windows `audio-output-wave-out`, which plays a tone on the system's device,
+or is skipped where there is none.
 
 ## Offline mix
 

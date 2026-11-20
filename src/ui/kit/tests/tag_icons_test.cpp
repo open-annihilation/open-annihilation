@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Tag icons, package badges, drag handles and question items. The row, pill,
+// Tag icons, tool icons, package badges, drag handles and question items. The row, pill,
 // nav entry and questions with no items are pinned to the pixels the kit
 // drew before those parts existed.
 
@@ -32,6 +32,7 @@ namespace paint = oa::ui::paint;
 namespace renderer = oa::ui::frontend_renderer;
 
 constexpr kit::Colour kBlack{0, 0, 0};
+constexpr kit::Colour kWhite{255, 255, 255};
 
 kit::Fonts block_fonts() {
     renderer::TextFont font;
@@ -164,16 +165,41 @@ void ids_map_exactly() {
         OA_CHECK(kit::tag_icon_of(kit::tag_id(icon)) == icon);
 }
 
-void icon_on_crisp(kit::TagIcon icon, int32_t side, int32_t scale) {
+/// Draws a tag icon.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle
+/// @param icon which icon
+/// @param ink the colour
+void draw_icon(
+    const kit::Canvas& canvas, const kit::Rect& rect, kit::TagIcon icon, kit::Colour ink
+) {
+    kit::draw_tag_icon(canvas, rect, icon, ink);
+}
+
+/// Draws a tool icon.
+///
+/// @param canvas where it is drawn
+/// @param rect the rectangle
+/// @param icon which icon
+/// @param ink the colour
+void draw_icon(
+    const kit::Canvas& canvas, const kit::Rect& rect, kit::ToolIcon icon, kit::Colour ink
+) {
+    kit::draw_tool_icon(canvas, rect, icon, ink);
+}
+
+template <class Icon>
+void icon_on_crisp(Icon icon, int32_t side, int32_t scale) {
     const int32_t margin = 3;
     const int32_t width = (side + margin * 2) * scale;
     const int32_t height = width;
     const kit::Rect icon_rect{margin, margin, side, side};
     const kit::Rect pixels{margin * scale, margin * scale, side * scale, side * scale};
     renderer::Surface first = black(width, height);
-    kit::draw_tag_icon(canvas_on(first, scale), icon_rect, icon, kit::colour::text);
+    draw_icon(canvas_on(first, scale), icon_rect, icon, kit::colour::text);
     renderer::Surface second = black(width, height);
-    kit::draw_tag_icon(canvas_on(second, scale), icon_rect, icon, kit::colour::text);
+    draw_icon(canvas_on(second, scale), icon_rect, icon, kit::colour::text);
     OA_CHECK(first.rgb == second.rgb);
     bool covered = false;
     for (int32_t y = 0; y < height; ++y) {
@@ -187,11 +213,12 @@ void icon_on_crisp(kit::TagIcon icon, int32_t side, int32_t scale) {
     OA_CHECK(covered);
 }
 
-void two_times_is_not_one_times_doubled(kit::TagIcon icon, int32_t side) {
+template <class Icon>
+void two_times_is_not_one_times_doubled(Icon icon, int32_t side) {
     renderer::Surface one = black(side, side);
-    kit::draw_tag_icon(canvas_on(one), {0, 0, side, side}, icon, kit::colour::text);
+    draw_icon(canvas_on(one), {0, 0, side, side}, icon, kit::colour::text);
     renderer::Surface two = black(side * 2, side * 2);
-    kit::draw_tag_icon(canvas_on(two, 2), {0, 0, side, side}, icon, kit::colour::text);
+    draw_icon(canvas_on(two, 2), {0, 0, side, side}, icon, kit::colour::text);
     bool doubled = true;
     for (int32_t y = 0; y < side && doubled; ++y) {
         for (int32_t x = 0; x < side && doubled; ++x) {
@@ -205,7 +232,8 @@ void two_times_is_not_one_times_doubled(kit::TagIcon icon, int32_t side) {
     OA_CHECK(!doubled);
 }
 
-void icon_on_smooth(kit::TagIcon icon, int32_t side) {
+template <class Icon>
+void icon_on_smooth(Icon icon, int32_t side) {
     constexpr int32_t percent = 150;
     const kit::Rect icon_rect{2, 3, side, side};
     const kit::Rect whole{0, 0, side + 6, side + 8};
@@ -213,8 +241,8 @@ void icon_on_smooth(kit::TagIcon icon, int32_t side) {
     const kit::Rect box = kit::to_canvas(icon_rect, percent);
     Smooth first(pixels.width + 2, pixels.height + 2, percent);
     Smooth second(pixels.width + 2, pixels.height + 2, percent);
-    kit::draw_tag_icon(first.canvas, icon_rect, icon, kit::colour::text);
-    kit::draw_tag_icon(second.canvas, icon_rect, icon, kit::colour::text);
+    draw_icon(first.canvas, icon_rect, icon, kit::colour::text);
+    draw_icon(second.canvas, icon_rect, icon, kit::colour::text);
     bool covered = false;
     for (int y = 0; y < first.pixels.height; ++y) {
         for (int x = 0; x < first.pixels.width; ++x) {
@@ -253,6 +281,90 @@ void icons_are_drawn_at_their_own_pixels() {
                 canvas_on(right), {0, 0, 20, 20}, kit::all_tag_icons[second], kit::colour::text
             );
             OA_CHECK(left.rgb != right.rgb);
+        }
+    }
+}
+
+/// Counts a surface's pixels that are not black.
+///
+/// @param surface the surface
+/// @return how many pixels hold ink
+int32_t inked(const renderer::Surface& surface) {
+    int32_t count = 0;
+    for (uint32_t y = 0; y < surface.height; ++y)
+        for (uint32_t x = 0; x < surface.width; ++x)
+            if (pixel(surface, static_cast<int32_t>(x), static_cast<int32_t>(y)) != kBlack)
+                ++count;
+    return count;
+}
+
+void tool_icons_are_drawn_at_their_own_pixels() {
+    constexpr std::array<int32_t, 5> kSides{12, 16, 18, 20, 40};
+    constexpr std::array<int32_t, 3> kScales{1, 2, 3};
+    for (const kit::ToolIcon icon : kit::all_tool_icons) {
+        for (const int32_t side : kSides) {
+            for (const int32_t scale : kScales)
+                icon_on_crisp(icon, side, scale);
+            two_times_is_not_one_times_doubled(icon, side);
+            icon_on_smooth(icon, side);
+        }
+    }
+    // Each icon is its own drawing at the replay bar's two sizes.
+    for (const int32_t side : {18, 20}) {
+        for (std::size_t first = 0; first < kit::all_tool_icons.size(); ++first) {
+            renderer::Surface left = black(side, side);
+            kit::draw_tool_icon(
+                canvas_on(left), {0, 0, side, side}, kit::all_tool_icons[first], kit::colour::text
+            );
+            for (std::size_t second = first + 1; second < kit::all_tool_icons.size(); ++second) {
+                renderer::Surface right = black(side, side);
+                kit::draw_tool_icon(
+                    canvas_on(right),
+                    {0, 0, side, side},
+                    kit::all_tool_icons[second],
+                    kit::colour::text
+                );
+                OA_CHECK(left.rgb != right.rgb);
+            }
+        }
+    }
+    // The turning arrows mirror each other round the same "10": the ring's
+    // far half, clear of the numerals, is the other's near half reversed.
+    constexpr int32_t kSide = 20;
+    renderer::Surface back = black(kSide, kSide);
+    kit::draw_tool_icon(canvas_on(back), {0, 0, kSide, kSide}, kit::ToolIcon::back_ten, kWhite);
+    renderer::Surface forward = black(kSide, kSide);
+    kit::draw_tool_icon(
+        canvas_on(forward), {0, 0, kSide, kSide}, kit::ToolIcon::forward_ten, kWhite
+    );
+    for (int32_t y = 0; y < kSide; ++y) {
+        for (int32_t x = 0; x < 5; ++x)
+            OA_CHECK(pixel(back, x, y) == pixel(forward, kSide - 1 - x, y));
+    }
+    // Play and pause are filled: their middles are covered whole.
+    for (const kit::ToolIcon icon : {kit::ToolIcon::play, kit::ToolIcon::pause}) {
+        renderer::Surface drawn = black(kSide, kSide);
+        kit::draw_tool_icon(canvas_on(drawn), {0, 0, kSide, kSide}, icon, kWhite);
+        const int32_t column = icon == kit::ToolIcon::play ? 9 : 7;
+        OA_CHECK(pixel(drawn, column, 10) == kWhite);
+    }
+    // A hidden chat's bubble is struck through, and has no lines.
+    renderer::Surface shown = black(kSide, kSide);
+    kit::draw_tool_icon(canvas_on(shown), {0, 0, kSide, kSide}, kit::ToolIcon::chat, kWhite);
+    renderer::Surface hidden = black(kSide, kSide);
+    kit::draw_tool_icon(
+        canvas_on(hidden), {0, 0, kSide, kSide}, kit::ToolIcon::chat_hidden, kWhite
+    );
+    OA_CHECK(pixel(shown, 1, 1) == kBlack);
+    OA_CHECK(pixel(hidden, 2, 2) != kBlack);
+    OA_CHECK(inked(shown) > 0 && inked(hidden) > 0);
+    // A rectangle wider than it is high draws the icon in its middle square.
+    renderer::Surface wide = black(40, 20);
+    kit::draw_tool_icon(canvas_on(wide), {0, 0, 40, 20}, kit::ToolIcon::leave, kWhite);
+    for (int32_t y = 0; y < 20; ++y) {
+        for (int32_t x = 0; x < 10; ++x) {
+            OA_CHECK(pixel(wide, x, y) == kBlack);
+            OA_CHECK(pixel(wide, 39 - x, y) == kBlack);
         }
     }
 }
@@ -447,6 +559,7 @@ void questions_grow_by_their_items() {
 int main() {
     ids_map_exactly();
     icons_are_drawn_at_their_own_pixels();
+    tool_icons_are_drawn_at_their_own_pixels();
     badges_follow_the_order();
     unchanged_parts_keep_their_pixels();
     by_colour_changes_only_the_byline();

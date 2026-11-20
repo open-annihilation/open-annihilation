@@ -139,8 +139,8 @@ uint32_t whiteboard_apply_batch(
 );
 
 /// Formats a received marker's chat line: "*<player>: <text>", or
-/// "*<player> added a new marker" for a dot, the player found by the dot
-/// colour; no line when no player has the colour.
+/// "*<player> added a new marker" for a dot, the player found by the game's
+/// own dot index; no line when no player has the colour.
 ///
 /// @param world players
 /// @param color the marker's colour

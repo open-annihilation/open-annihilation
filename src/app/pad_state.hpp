@@ -96,6 +96,8 @@ struct Runtime::PadState {
     bool virtual_pads_only{};                  ///< the pad check opens only its virtual pads
     bool grip_keys_seen{};                     ///< F13–F16 arrived while a pad was open
     bool force{};                              ///< R5 (or its key) is held
+    /// A gamepad sent input after the mouse, a trackpad or a pen last did.
+    bool ahead_of_mouse{};
     /// The check's clock, nanoseconds; times come from it while set.
     std::optional<uint64_t> check_clock_ns{};
     uint64_t tick_ns{}; ///< when tick_pad last ran, nanoseconds (0 before)

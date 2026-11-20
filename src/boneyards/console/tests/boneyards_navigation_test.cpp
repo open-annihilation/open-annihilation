@@ -982,6 +982,15 @@ std::string window_text(StatusWidget* widget, Window* w) {
     return text != nullptr ? text : "";
 }
 
+// A stop's window name, or its caption when the window is not named.
+std::string stop_label(StatusWidget* widget, Window* w) {
+    if (w == nullptr)
+        return {};
+    if (w->name != nullptr && w->name[0] != '\0')
+        return w->name;
+    return window_text(widget, w);
+}
+
 // The Chat console as chat_console_build builds it (hidden) when CHAT starts the
 // slide, in the green layer's rectangle: the separators in its keyed image,
 // the ChatList, "Enter Chat >>" in the dim small font with its bottom-left
@@ -1134,6 +1143,73 @@ void check_chat_console_opened(StatusWidget* widget, MainFrame* frame) {
         widget->desktop.focus == &view->input->base && view->input->base.focused == 1,
         "chat_console_open gives the input line the focus"
     );
+
+    // A click on the title used to move the keyboard onto Chat rooms.
+    Window* frequencies = find_label(widget, &view->base, "CHAT FREQUENCIES");
+    check(frequencies != nullptr, "CHAT FREQUENCIES title");
+    if (frequencies != nullptr)
+        click_window(widget, frequencies);
+    check(
+        widget->desktop.focus == &view->input->base,
+        "a click on CHAT FREQUENCIES leaves the keyboard on the entry"
+    );
+    Window* players_title = find_label(widget, &view->base, "PLAYERS");
+    if (players_title != nullptr)
+        click_window(widget, players_title);
+    check(
+        widget->desktop.focus == &view->input->base,
+        "a click on PLAYERS leaves the keyboard on the entry"
+    );
+
+    // One round: rooms, CREATE, players, Minimize, the log, the entry.
+    const char* order[] = {
+        "Chat rooms", "CREATE", "Chat players", "Minimize_Button", "ChatList", "Chat entry"
+    };
+    std::string seen;
+    bool round_ok = true;
+    for (const char* expected : order) {
+        press(widget, key::tab);
+        const std::string label = stop_label(widget, widget->desktop.focus);
+        if (!seen.empty())
+            seen += ", ";
+        seen += label;
+        if (label != expected)
+            round_ok = false;
+    }
+    if (!round_ok)
+        std::fprintf(stderr, "chat tab order was: %s\n", seen.c_str());
+    check(
+        round_ok && widget->desktop.keyboard_ring == 1,
+        "Tab walks Chat once: rooms, CREATE, players, Minimize, the log, the entry"
+    );
+    press(widget, key::tab);
+    check(
+        stop_label(widget, widget->desktop.focus) == "Chat rooms",
+        "the next round starts at Chat rooms"
+    );
+
+    // Disabled CREATE is not a stop.
+    screens::ChatSession* session = widget->navigation->chat.session;
+    const uint32_t pending = session->pending_room_id;
+    session->pending_room_id = 77;
+    boneyards_status_widget_tick(widget);
+    {
+        ScopedServices scope(widget);
+        desktop_set_focus(&widget->desktop, &view->room_list->list.base);
+    }
+    press(widget, key::tab);
+    check(
+        view->create_button->states.current == button_state::disabled &&
+            stop_label(widget, widget->desktop.focus) == "Chat players",
+        "Tab skips CREATE while it is disabled"
+    );
+    session->pending_room_id = pending;
+    boneyards_status_widget_tick(widget);
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 0;
+        desktop_set_focus(&widget->desktop, &view->input->base);
+    }
 }
 
 // chat_print_line: a line sounds GREEN_BUTTON unless it is quiet, then by_list_wrap_text
@@ -1533,6 +1609,35 @@ void check_chat_lists(StatusWidget* widget, ChatView* view, const Data& data) {
     check(
         g_server.room_calls.size() == calls && chat.room_info_visible,
         "a double click on a password frequency only shows its information"
+    );
+    // With the ring showing, Up chooses the frequency above, and Return opens
+    // its information as the click does.
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 1;
+        desktop_set_focus(&widget->desktop, &view->room_list->list.base);
+    }
+    press(widget, key::up);
+    check(
+        view->room_list->list.selected == 1 && chat.selected_room == 2 &&
+            chat.room_info_room_id == 22,
+        "Up chooses War_Room and leaves den's information"
+    );
+    press(widget, key::enter);
+    check(
+        chat.room_info_visible && chat.selected_room == 1 && chat.room_info_room_id != 22 &&
+            g_server.room_calls.size() == calls,
+        "Return opens War_Room's information and joins nothing"
+    );
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 0;
+    }
+    // den again, as the click above left it.
+    click_window(widget, den->name_label);
+    check(
+        chat.selected_room == 2 && chat.room_info_visible && chat.room_info_room_id == 22,
+        "a click on den shows its information again"
     );
 
     g_sounds.clear();
@@ -2027,6 +2132,26 @@ void check_chat_player_pane(
             player_row(view, 0)->user_id == 9 && player_row(view, 1)->user_id == 12,
         "chat_player_row fills Dan then Sentinel, and the selection starts on the first row"
     );
+    // With the keyboard's place showing, Down chooses the next player and
+    // does not open the pane. The click below still starts on Dan.
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 1;
+        desktop_set_focus(&widget->desktop, &view->player_list->list.base);
+    }
+    press(widget, key::down);
+    check(
+        g_server.profile_requests.empty() && !window_is_shown(w) &&
+            view->player_list->list.selected == 1,
+        "Down on the player list chooses the next row and does not open the pane"
+    );
+    {
+        ScopedServices scope(widget);
+        view->player_list->list.selected = 0;
+        view->player_list->selected_item = &player_row(view, 0)->row.base;
+        widget->desktop.keyboard_ring = 0;
+        desktop_set_focus(&widget->desktop, &view->input->base);
+    }
     click_window(widget, player_row(view, 0)->name_label);
     check(
         g_server.profile_requests.size() == 1 && g_server.profile_requests[0].user_id == 9 &&
@@ -2128,6 +2253,79 @@ void check_chat_player_pane(
         pixel(p.x + 0x69, p.y + 0x15) == 0x5d && pixel(p.x + 0xc0, p.y + 0x15) != 0x5d,
         "the rule opens under the Ladder tab"
     );
+
+    // The open tab is one stop. Right and Left change it, Tab reaches
+    // Whisper Lock, and Shift+Tab returns to the tab.
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 1;
+        desktop_set_focus(&widget->desktop, pane->tabs[1]);
+    }
+    press(widget, key::right);
+    check(
+        chat.pane.tab == 2 && widget->desktop.focus == pane->tabs[2],
+        "Right moves from Ladder to Awards"
+    );
+    press(widget, key::left);
+    check(
+        chat.pane.tab == 1 && widget->desktop.focus == pane->tabs[1], "Left moves back to Ladder"
+    );
+    press(widget, key::tab);
+    check(
+        widget->desktop.focus == &pane->whisper_lock->base, "Tab leaves the tabs for Whisper Lock"
+    );
+    boneyards_status_widget_event_modifiers(widget, true, false, false, false);
+    press(widget, key::tab);
+    check(widget->desktop.focus == pane->tabs[1], "Shift+Tab returns to the open tab");
+    boneyards_status_widget_event_modifiers(widget, false, false, false, false);
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 0;
+    }
+    // A page longer than the view shows its scroll bar, which follows PAGE in
+    // the round whichever window the focus last raised.
+    Slider* page_bar = pane->html->slider;
+    const uint8_t page_bar_shown = page_bar->base.visible;
+    const int32_t page_bar_state = page_bar->base.states.current;
+    {
+        ScopedServices scope(widget);
+        page_bar->base.visible = 1;
+        slider_enable(&page_bar->base);
+        widget->desktop.keyboard_ring = 1;
+        desktop_set_focus(&widget->desktop, pane->page);
+    }
+    press(widget, key::tab);
+    check(
+        widget->desktop.focus == &pane->html->slider->base,
+        "Tab from PAGE reaches the page's scroll bar"
+    );
+    press(widget, key::tab);
+    press(widget, key::tab);
+    for (int32_t step = 0; step < 16 && widget->desktop.focus != pane->page; ++step)
+        press(widget, key::tab);
+    press(widget, key::tab);
+    check(
+        widget->desktop.focus == &pane->html->slider->base,
+        "the next round reaches the page's scroll bar again"
+    );
+    {
+        ScopedServices scope(widget);
+        widget->desktop.keyboard_ring = 0;
+        desktop_set_focus(&widget->desktop, pane->tabs[1]);
+        page_bar->base.visible = page_bar_shown;
+        window_set_state(&page_bar->base, page_bar_state);
+    }
+    // Without the ring, Right moves the keyboard to the next tab and leaves
+    // Ladder open, as it did, and a click on a tab still takes the keyboard.
+    press(widget, key::right);
+    check(
+        chat.pane.tab == 1 && widget->desktop.focus == pane->tabs[2],
+        "without the ring, Right moves the keyboard to Awards and leaves Ladder open"
+    );
+    {
+        ScopedServices scope(widget);
+        desktop_set_focus(&widget->desktop, pane->tabs[1]);
+    }
 
     click_window(widget, pane->page);
     check(
@@ -2450,6 +2648,43 @@ void check_profile_console(StatusWidget* widget, MainFrame* frame, const Data& d
             view->reset->states.current == button_state::unpressed,
         "profile_pulse: a dirty tab turns APPLY and RESET on"
     );
+    // Arrows choose a category once Tab or F6 has shown the keyboard ring.
+    // With no ring, the clicked category stays. Tab then reaches the account
+    // field, APPLY and RESET, and returns to the list. Escape is the frame's,
+    // and the caller still needs this console open.
+    const int32_t account = nav->profile.current_tab;
+    const int32_t row_index = list_box_index_of(list, view->list->selected_item);
+    if (row_index >= 0)
+        list->selected = row_index;
+    desktop_set_focus(&widget->desktop, &list->base);
+    widget->desktop.keyboard_ring = 0;
+    press(widget, key::down);
+    check(nav->profile.current_tab == account, "with no ring an arrow leaves the clicked category");
+    if (row_index >= 0)
+        list->selected = row_index;
+    widget->desktop.keyboard_ring = 1;
+    press(widget, key::down);
+    check(
+        nav->profile.current_tab != account, "an arrow on the ProfileList chooses the next category"
+    );
+    press(widget, key::up);
+    check(nav->profile.current_tab == account, "an arrow returns to the account category");
+    boneyards_status_widget_tick(widget);
+    // Leaving the account tab rebuilds it and clears the typed confirm, so
+    // the dirty APPLY and RESET have to be turned on again afterwards.
+    tabs = profile_console_tabs(&view->base);
+    single_edit_set_text(tabs->confirm, "x");
+    boneyards_status_widget_tick(widget);
+    tabs = profile_console_tabs(&view->base);
+    desktop_set_focus(&widget->desktop, &list->base);
+    press(widget, key::tab);
+    check(widget->desktop.focus == tabs->change, "Tab reaches CHANGE ahead of APPLY");
+    press(widget, key::tab);
+    check(widget->desktop.focus == view->apply, "Tab reaches APPLY after the account fields");
+    press(widget, key::tab);
+    check(widget->desktop.focus == view->reset, "Tab reaches RESET after APPLY");
+    press(widget, key::tab);
+    check(widget->desktop.focus == &list->base, "Tab returns to the categories");
     single_edit_set_text(tabs->confirm, "");
     boneyards_status_widget_tick(widget);
     check(

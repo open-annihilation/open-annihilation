@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // PNG reader: the chunk grammar, the IDAT stream, row filters, Adam7
-// placement and the strip-16 / unpack row transforms.
+// placement and the strip-16 / unpack row transforms. read_texts walks the
+// chunks on its own for tEXt and uncompressed iTXt; it does not use the
+// checks or messages below.
 //
 // The file is read as a stream: a chunk's length and type, then its data in
 // the pieces each handler asks for, then its CRC. The chunk rules, the order
@@ -12,6 +14,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string_view>
 #include <vector>
 
 #include <zlib.h>
@@ -1068,6 +1071,79 @@ bool detail::unfilter_row(
     return false;
 }
 
+namespace {
+
+// How far an iTXt chunk was read. compressed is a chunk this reader skips.
+enum class InternationalChunk : uint8_t {
+    malformed,
+    compressed,
+    kept,
+};
+
+/// Finds the next NUL in a chunk body.
+///
+/// @param data the chunk body
+/// @param length the body length
+/// @param from the first byte to look at
+/// @return the index of the NUL, or length when the body has none
+std::size_t separator_at(const uint8_t* data, uint32_t length, std::size_t from) {
+    std::size_t at = from;
+    while (at < length && data[at] != 0)
+        ++at;
+    return at;
+}
+
+/// Splits a tEXt body into its keyword and its text.
+///
+/// @param data the chunk body
+/// @param length the body length
+/// @param[out] chunk the chunk; keyword and text point into data
+/// @return false when the body has no keyword separator
+bool take_latin1(const uint8_t* data, uint32_t length, TextChunk* chunk) {
+    const std::size_t keyword_end = separator_at(data, length, 0);
+    if (keyword_end >= length)
+        return false;
+    chunk->kind = TextKind::latin1;
+    chunk->keyword = std::string_view(reinterpret_cast<const char*>(data), keyword_end);
+    const std::size_t text_at = keyword_end + 1;
+    chunk->text = std::string_view(reinterpret_cast<const char*>(data + text_at), length - text_at);
+    return true;
+}
+
+/// Splits an iTXt body, or reports that it is compressed or malformed.
+///
+/// @param data the chunk body
+/// @param length the body length
+/// @param[out] chunk the chunk when the result is kept; keyword and text
+///        point into data
+/// @return malformed when the body is cut short of its method byte or of a
+///         separator, compressed when the compression flag is not 0, kept
+///         otherwise. The method byte is ignored when the flag is 0.
+InternationalChunk take_international(const uint8_t* data, uint32_t length, TextChunk* chunk) {
+    const std::size_t keyword_end = separator_at(data, length, 0);
+    if (keyword_end >= length || keyword_end + 1 >= length)
+        return InternationalChunk::malformed;
+    if (data[keyword_end + 1] != 0)
+        return InternationalChunk::compressed;
+    // The method byte has to be present. Decoders ignore its value when the
+    // flag is 0; encoders set it to 0.
+    if (keyword_end + 2 >= length)
+        return InternationalChunk::malformed;
+    const std::size_t language_end = separator_at(data, length, keyword_end + 3);
+    if (language_end >= length)
+        return InternationalChunk::malformed;
+    const std::size_t translated_end = separator_at(data, length, language_end + 1);
+    if (translated_end >= length)
+        return InternationalChunk::malformed;
+    const std::size_t text_at = translated_end + 1;
+    chunk->kind = TextKind::utf8;
+    chunk->keyword = std::string_view(reinterpret_cast<const char*>(data), keyword_end);
+    chunk->text = std::string_view(reinterpret_cast<const char*>(data + text_at), length - text_at);
+    return InternationalChunk::kept;
+}
+
+} // namespace
+
 uint32_t channel_count(ColorType color_type) {
     switch (color_type) {
     case ColorType::rgb:
@@ -1180,6 +1256,49 @@ Progress read_image(
     if (!decode_rows(r, transforms, rows, out_row_bytes) || !finish_image_data(r))
         return Progress::none;
     return read_trailing_chunks(r) ? Progress::end : Progress::rows;
+}
+
+bool read_texts(std::span<const uint8_t> file, std::vector<TextChunk>* texts) {
+    if (texts == nullptr || !has_signature(file))
+        return false;
+    std::vector<TextChunk> found;
+    std::size_t at = k_signature_bytes;
+    for (;;) {
+        if (file.size() - at < k_chunk_overhead)
+            return false;
+        const uint8_t* chunk = file.data() + at;
+        const uint32_t length = read_be32(chunk);
+        if (static_cast<std::size_t>(length) > file.size() - at - k_chunk_overhead)
+            return false;
+        const uint8_t* type = chunk + k_chunk_length_bytes;
+        const uint8_t* data = type + k_chunk_type_bytes;
+        const uint8_t* crc_bytes = data + length;
+        if (chunk_crc(type, k_chunk_type_bytes + static_cast<std::size_t>(length)) !=
+            read_be32(crc_bytes))
+            return false;
+        at += k_chunk_overhead + length;
+        if (std::memcmp(type, "IEND", k_chunk_type_bytes) == 0) {
+            *texts = std::move(found);
+            return true;
+        }
+        if (std::memcmp(type, "tEXt", k_chunk_type_bytes) == 0) {
+            TextChunk item;
+            if (!take_latin1(data, length, &item))
+                return false;
+            found.push_back(item);
+            continue;
+        }
+        if (std::memcmp(type, "zTXt", k_chunk_type_bytes) == 0)
+            continue;
+        if (std::memcmp(type, "iTXt", k_chunk_type_bytes) == 0) {
+            TextChunk item;
+            const InternationalChunk taken = take_international(data, length, &item);
+            if (taken == InternationalChunk::malformed)
+                return false;
+            if (taken == InternationalChunk::kept)
+                found.push_back(item);
+        }
+    }
 }
 
 } // namespace oa::formats::png

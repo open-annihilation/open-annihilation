@@ -1741,7 +1741,7 @@ void declare_tabs(Building& building, bool page) {
 /// @param window the window
 void add_focus_ring(Building& building, const Window& window) {
     const kit::Interaction& interaction = building.state->interaction;
-    if (!interaction.focus_shown || interaction.focused == kit::no_control)
+    if (!kit::focus_ring_visible(interaction) || interaction.focused == kit::no_control)
         return;
     const kit::Rect whole{0, 0, window.width, window.height};
     for (const std::vector<kit::Control>* group :
@@ -1789,7 +1789,7 @@ void add_open_menu(Building& building, int32_t footer_line) {
     look.total = tally;
     look.chosen = menu_open.chosen;
     look.marked = marked;
-    look.focus_shown = building.state->interaction.focus_shown;
+    look.focus_shown = kit::focus_ring_visible(building.state->interaction);
     for (int32_t index = 0; index < tally; ++index) {
         const MenuEntry& entry = menu_open.items[static_cast<std::size_t>(index)];
         const bool visible = index >= first && index < first + shown_count;

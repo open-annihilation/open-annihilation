@@ -903,6 +903,14 @@ struct Runtime::MapBrowserScreen final : LayerScreen {
         hooks.ask = ask_picture;
         hooks.failed = picture_failed;
         list_ = mb::browser_layout(model_, state_, frame_, *fonts, hooks);
+        // The ring is drawn from the state this layout reads. Place the
+        // opening focus first, then lay out again when that moved it.
+        const kit::ControlId was_focused = state_.interaction.focused;
+        const bool was_shown = state_.interaction.focus_shown;
+        kit::focus_opened(state_.interaction, list_, runtime_.oa_layer().always_show_focus());
+        if (state_.interaction.focused != was_focused ||
+            state_.interaction.focus_shown != was_shown)
+            list_ = mb::browser_layout(model_, state_, frame_, *fonts, hooks);
     }
 
     /// Counts the cards whose pictures show, to tell a frame that decoded one.
@@ -1259,6 +1267,11 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
     /// @return false
     [[nodiscard]] bool modal() const override { return false; }
 
+    /// Tells that the family's ring is drawn around the button, not the kit's.
+    ///
+    /// @return false
+    [[nodiscard]] bool draws_kit_focus_ring() const override { return false; }
+
     /// Tells that the button darkens nothing.
     ///
     /// @return false
@@ -1312,7 +1325,8 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
-    /// Lets every key go on to the picker.
+    /// Return and Space go on to the order, which opens the browser from the
+    /// bound Accept and Press. Every other key goes on to the picker.
     ///
     /// @return pass
     LayerAnswer key(kit::Key /*pressed*/, uint32_t /*sdl_key*/) override {
@@ -1373,7 +1387,13 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
             more_maps_control,
             std::string(more_maps_control_name)
         );
-        list.tab_order.clear();
+        for (kit::Control& control : list.controls) {
+            if (control.id != more_maps_control)
+                continue;
+            control.focusable = true;
+            break;
+        }
+        list.tab_order.push_back(more_maps_control);
         return list;
     }
 
@@ -1417,6 +1437,9 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
             return mb::Browser::Opener::battle_room;
         return std::nullopt;
     }
+
+    /// Opens the browser, as a press on the button does.
+    void open_from_order() { open_browser(); }
 
   private:
 
@@ -1608,6 +1631,14 @@ void Runtime::keep_more_maps_screen() {
         layer.screen_fonts() == nullptr)
         return;
     layer.push(std::make_unique<MoreMapsScreen>(*this));
+}
+
+void Runtime::open_more_maps_from_order() {
+    if (oa_layer_ == nullptr)
+        return;
+    auto* button = dynamic_cast<MoreMapsScreen*>(oa_layer_->find(more_maps_screen_name));
+    if (button != nullptr)
+        button->open_from_order();
 }
 
 } // namespace oa::app

@@ -198,6 +198,11 @@ printf '%s\n' "$target" >"$deps_record"
 python3 "$repo_dir/tools/bootstrap_windows_deps.py" "${bootstrap_args[@]}"
 python3 "$repo_dir/tools/bootstrap_text_fonts.py" --fonts-only
 python3 "$repo_dir/tools/bootstrap_page_fonts.py" --deps "$repo_dir/local/deps"
+# The screen-reader DLL. A Windows 95 build compiles the bridge out and
+# ships no DLL, so it does not fetch AccessKit.
+if [[ "$windows_95" != ON ]]; then
+    python3 "$repo_dir/tools/bootstrap_accesskit.py"
+fi
 page_font_args=()
 if [[ "$windows_95" != ON ]]; then
     page_font_args=("-DOA_FONTS_DIR=$repo_dir/local/deps/fonts")

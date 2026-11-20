@@ -17,6 +17,7 @@
 #include "oa/formats/hpi.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <fstream>
@@ -193,30 +194,23 @@ std::vector<std::string> MapPacks::problems() const {
     return problems_;
 }
 
+void MapPacks::set_replay_folder(fs::path folder) {
+    if (folder == replay_folder_)
+        return;
+    replay_folder_ = std::move(folder);
+    ready_ = false;
+}
+
 void MapPacks::refresh() {
     maps_.clear();
     problems_.clear();
     ready_ = true;
-    std::error_code error;
-    if (!fs::is_directory(maps_folder_, error)) {
-        cache_.clear();
-        return;
-    }
     std::vector<std::string> seen;
-    for (fs::directory_iterator
-             entry{maps_folder_, fs::directory_options::skip_permission_denied, error},
-         end;
-         !error && entry != end;
-         entry.increment(error)) {
-        const fs::path path = entry->path();
-        const std::string name = path_to_utf8(path.filename());
-        if (name.empty() || name.front() == '.')
-            continue;
-        std::error_code status_error;
-        const fs::file_status status = fs::symlink_status(path, status_error);
-        if (status_error || !fs::is_directory(status))
-            continue;
-        seen.push_back(name);
+    // One pack folder. `cache_name` is the Maps folder's name, or a name that
+    // cannot collide with one, for the pack kept for a replay.
+    const auto append = [&](const fs::path& path, const std::string& cache_name) {
+        const std::string label = path_to_utf8(path.filename());
+        seen.push_back(cache_name);
         try {
             const auto origin = package_install::read_origin(path);
             std::string key;
@@ -227,26 +221,26 @@ void MapPacks::refresh() {
             } else {
                 const auto manifest_path = entry_without_case(path, pack::manifest_file);
                 if (!manifest_path || !read_bytes(*manifest_path, yaml)) {
-                    problems_.push_back(name + ": its oamap.yaml cannot be read");
-                    continue;
+                    problems_.push_back(label + ": its oamap.yaml cannot be read");
+                    return;
                 }
                 yaml_read = true;
                 key = hex_of(oa::base::sha256::digest_of(yaml));
             }
             const auto cached = std::find_if(cache_.begin(), cache_.end(), [&](const auto& item) {
-                return item.first == name;
+                return item.first == cache_name;
             });
             if (cached != cache_.end() && cached->second.key == key) {
                 maps_.insert(maps_.end(), cached->second.maps.begin(), cached->second.maps.end());
-                continue;
+                return;
             }
             if (!yaml_read) {
                 const auto manifest_path = entry_without_case(path, pack::manifest_file);
                 if (!manifest_path || !read_bytes(*manifest_path, yaml)) {
-                    problems_.push_back(name + ": its oamap.yaml cannot be read");
+                    problems_.push_back(label + ": its oamap.yaml cannot be read");
                     if (cached != cache_.end())
                         cache_.erase(cached);
-                    continue;
+                    return;
                 }
             }
             if (watch_ != nullptr)
@@ -254,7 +248,7 @@ void MapPacks::refresh() {
             pack::Manifest manifest;
             std::vector<pack::Problem> parse_problems;
             if (!pack::read_manifest(yaml, pack::ManifestUse::package, manifest, parse_problems)) {
-                std::string reason = name + ":";
+                std::string reason = label + ":";
                 if (parse_problems.empty())
                     reason += " its oamap.yaml cannot be read";
                 for (const pack::Problem& one : parse_problems)
@@ -262,7 +256,7 @@ void MapPacks::refresh() {
                 problems_.push_back(std::move(reason));
                 if (cached != cache_.end())
                     cache_.erase(cached);
-                continue;
+                return;
             }
             std::string registry;
             int64_t release = 0;
@@ -278,9 +272,47 @@ void MapPacks::refresh() {
             if (cached != cache_.end())
                 cached->second = std::move(kept);
             else
-                cache_.emplace_back(name, std::move(kept));
+                cache_.emplace_back(cache_name, std::move(kept));
         } catch (const std::exception&) {
-            problems_.push_back(name + ": its oamap.yaml cannot be read");
+            problems_.push_back(label + ": its oamap.yaml cannot be read");
+        }
+    };
+    std::error_code error;
+    if (fs::is_directory(maps_folder_, error)) {
+        for (fs::directory_iterator
+                 entry{maps_folder_, fs::directory_options::skip_permission_denied, error},
+             end;
+             !error && entry != end;
+             entry.increment(error)) {
+            const fs::path path = entry->path();
+            const std::string name = path_to_utf8(path.filename());
+            if (name.empty() || name.front() == '.')
+                continue;
+            std::error_code status_error;
+            const fs::file_status status = fs::symlink_status(path, status_error);
+            if (status_error || !fs::is_directory(status))
+                continue;
+            append(path, name);
+        }
+    }
+    if (!replay_folder_.empty()) {
+        std::error_code replay_error;
+        const fs::file_status status = fs::symlink_status(replay_folder_, replay_error);
+        if (!replay_error && fs::is_directory(status)) {
+            const std::size_t before = maps_.size();
+            append(replay_folder_, "replay:" + path_to_utf8(replay_folder_));
+            if (maps_.size() > before) {
+                const std::vector<PackMap> kept(
+                    maps_.begin() + static_cast<std::ptrdiff_t>(before), maps_.end()
+                );
+                maps_.resize(before);
+                std::erase_if(maps_, [&](const PackMap& map) {
+                    return std::any_of(kept.begin(), kept.end(), [&](const PackMap& extra) {
+                        return extra.name == map.name;
+                    });
+                });
+                maps_.insert(maps_.end(), kept.begin(), kept.end());
+            }
         }
     }
     std::erase_if(cache_, [&](const auto& item) {

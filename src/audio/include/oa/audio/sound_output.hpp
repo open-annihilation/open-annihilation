@@ -10,6 +10,7 @@
 // SDL, and a mixer of the engine's own over the Windows wave-out device,
 // for systems SDL does not run on.
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -180,7 +181,89 @@ class SoundOutput {
     ///
     /// @return the reason, "" when none is known
     [[nodiscard]] virtual std::string last_error() const = 0;
+
+    /// Returns lines for the log about the device: which one the output
+    /// opened and in what format, once each time it opens one, and, at most
+    /// once every late_feed_report_ms, how often the device asked for sound
+    /// late (describe_late_feeds). Called on the thread that opens streams.
+    ///
+    /// @return the lines, each ending in a line feed; "" when there is
+    ///         nothing new to say
+    [[nodiscard]] virtual std::string take_log() { return {}; }
 };
+
+/// How long the device may ask for sound after the sound it held ran out,
+/// as far as the times of its requests tell, before the request counts as
+/// late: allowance for the jitter of its thread, in nanoseconds.
+inline constexpr uint64_t late_feed_margin_ns = 5'000'000;
+/// Least time between two reports of late feeds in the log, in milliseconds.
+inline constexpr uint32_t late_feed_report_ms = 60'000;
+
+/// What the device's requests for sound showed since the last report.
+struct FeedReport {
+    uint32_t feeds{};      ///< requests the device made
+    uint32_t late_feeds{}; ///< of those, requests made after its sound would have run out
+    /// The longest the device went without sound before a late request, at
+    /// least, in microseconds.
+    uint32_t longest_silence_us{};
+    uint32_t longest_mix_us{};  ///< the longest a request took to mix
+    uint32_t longest_wait_us{}; ///< the longest a mix waited for the streams' lock
+};
+
+/// Times the device's requests for sound and the mixes that answer them.
+///
+/// The device asks for sound as it plays out what it holds: at most what the
+/// last request gave it and one period of its own. A request made later
+/// than that, by more than late_feed_margin_ns, finds the device has gone
+/// without sound for at least the difference, heard as a click or a
+/// crackle. note_feed runs on the device's thread and take on another.
+class FeedTimer {
+  public:
+
+    /// Forgets the last request, as a device opens.
+    void restart() noexcept;
+
+    /// Notes one request and its mix.
+    ///
+    /// @param asked_ns when the device asked, on a steady clock in nanoseconds
+    /// @param locked_ns when the mix had taken the streams' lock
+    /// @param done_ns when the mix was handed to the device
+    /// @param lasts_ns how long the sound handed to the device plays
+    /// @param period_ns how long the sound the device takes at a time plays
+    void note_feed(
+        uint64_t asked_ns,
+        uint64_t locked_ns,
+        uint64_t done_ns,
+        uint64_t lasts_ns,
+        uint64_t period_ns
+    ) noexcept;
+
+    /// Returns what the requests showed since the last call, and starts afresh.
+    ///
+    /// @return the report
+    [[nodiscard]] FeedReport take() noexcept;
+
+  private:
+
+    // Only the device's thread reads and writes these.
+    uint64_t last_asked_ns_{}; ///< when the last request came
+    uint64_t last_lasts_ns_{}; ///< how long the sound it was given plays
+    bool fed_{};               ///< a request came since the device opened
+    // Read and reset by take().
+    std::atomic<uint32_t> feeds_{};
+    std::atomic<uint32_t> late_feeds_{};
+    std::atomic<uint32_t> longest_silence_us_{};
+    std::atomic<uint32_t> longest_mix_us_{};
+    std::atomic<uint32_t> longest_wait_us_{};
+};
+
+/// Words a report of late requests for the log.
+///
+/// @param report what the requests showed
+/// @param seconds how long the report covers
+/// @return one line ending in a line feed, starting "sound output: "; ""
+///         when no request was late
+[[nodiscard]] std::string describe_late_feeds(const FeedReport& report, uint32_t seconds);
 
 /// Returns the sound output of the process.
 ///

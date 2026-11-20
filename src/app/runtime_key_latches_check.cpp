@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // A latched Shift queues two moves, a latched Space shows the status strip,
-// and sticky Ctrl and Alt select and lock, on a skirmish.
+// and sticky Ctrl and Alt select and lock, on a skirmish; the pointer over a
+// latch's chip shows the arrow, and a click there is the chip's.
 #include "oa/app/runtime.hpp"
 #include "touch_state.hpp"
+#include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
 #include "oa/sim/simulation_state.hpp"
 #include "oa/ui/hud/status_panel.hpp"
@@ -26,6 +28,9 @@ namespace oa::app {
 namespace {
 
 namespace fs = std::filesystem;
+
+/// Canvas pixels under a latch's chip the pointer is moved to, off the chip.
+constexpr int32_t kUnderChip = 12;
 
 /// The path `--snapshot` writes for one window size.
 ///
@@ -185,16 +190,111 @@ void Runtime::check_key_latches() {
             fail("QUEUE · latched was not drawn:" + listed(texts));
     }
 
-    step("two queued moves");
-    // A short step in world pixels still sits under the commander's sprite, and
-    // a press there selects instead of moving. These are canvas pixels from
-    // the unit, the same reach a pointer check uses for open ground, and the
-    // two points stay further apart than the queued-order cancel.
+    step("the arrow over QUEUE's chip");
+    // The pointer over the chip shows the arrow, as over the OA layer's
+    // screens, and the commander's order cursor on the ground under it;
+    // once the chip goes, the ground where it lay shows the order cursor
+    // again. The frame's cursor pass runs as the main loop runs it, on the
+    // left-click interface, whose order cursor on open ground is Move: the
+    // right-click interface's is the arrow.
+    if (!cursors_loaded_)
+        fail("the game's cursors are not loaded");
+    if (key_latch_chip_places_.size() != 1)
+        fail(std::to_string(key_latch_chip_places_.size()) + " places were kept for one chip");
+    const oa::ui::display_layout::Rect chip = key_latch_chip_places_.front();
+    const float chip_x = static_cast<float>(chip.x + chip.width / 2);
+    const float chip_y = static_cast<float>(chip.y + chip.height / 2);
+    const auto arrow = static_cast<uint8_t>(oa::sim::gameplay_input::OrderCursor::normal);
+    const auto cursor_at = [&](float x, float y) {
+        auto& game = match_->state().game;
+        game.interface_type = oa::sim::gameplay_input::interface_left_click;
+        send_pointer(SDL_EVENT_MOUSE_MOTION, 0, x, y);
+        tick_and_draw_cursor();
+        game.interface_type = oa::sim::gameplay_input::interface_right_click;
+        return cursor_index_;
+    };
+    if (const uint8_t shown = cursor_at(chip_x, chip_y); shown != arrow)
+        fail("the pointer over QUEUE's chip shows cursor " + std::to_string(int{shown}));
+    const float under_chip_y = static_cast<float>(chip.y + chip.height + kUnderChip);
+    if (cursor_at(chip_x, under_chip_y) == arrow)
+        fail("the ground under QUEUE's chip shows the arrow");
+
     const auto queue_of = [&] {
         std::vector<oa::sim::match_runtime::Match::QueuedCommandView> queued;
         match_->visit_primary_queue(commander, [&](const auto& entry) { queued.push_back(entry); });
         return queued;
     };
+
+    step("a click on QUEUE's chip is the chip's");
+    // The chip takes a press of any button on it, and that press's release,
+    // as an OA screen does, and the click does nothing more. On either
+    // interface neither button gives the commander an order or changes the
+    // selection, a drag from the chip starts no box, a middle press starts
+    // no pan, and the order wheel a held right button opens does not wait on
+    // the chip. Just under the chip the ground takes the click as before.
+    {
+        namespace gameplay = oa::sim::gameplay_input;
+        const std::size_t orders = queue_of().size();
+        const auto unchanged = [&](const std::string& what) {
+            if (queue_of().size() != orders)
+                fail(what + " gave the commander an order");
+            if (selected_match_unit_ != commander ||
+                (slots[commander].unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
+                fail(what + " changed the selection");
+            if (!touch_state().hud.latches.latched(hud::Latch::queue))
+                fail(what + " let QUEUE go");
+            if (key_latch_chip_buttons_ != 0)
+                fail(what + " left a button held by the chip");
+        };
+        auto& game = match_->state().game;
+        for (const int32_t face :
+             {gameplay::interface_right_click, gameplay::interface_left_click}) {
+            game.interface_type = face;
+            const std::string named = face == gameplay::interface_left_click
+                                          ? "on the left-click interface"
+                                          : "on the right-click interface";
+            click_at(SDL_BUTTON_LEFT, chip_x, chip_y);
+            unchanged("a left click on QUEUE's chip " + named);
+            click_at(SDL_BUTTON_RIGHT, chip_x, chip_y);
+            unchanged("a right click on QUEUE's chip " + named);
+            send_pointer(SDL_EVENT_MOUSE_MOTION, 0, chip_x, chip_y);
+            send_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT, chip_x, chip_y);
+            send_pointer(SDL_EVENT_MOUSE_MOTION, 0, chip_x, under_chip_y + 48.0F);
+            if (match_drag_)
+                fail("a drag from QUEUE's chip started a box " + named);
+            send_pointer(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT, chip_x, under_chip_y + 48.0F);
+            unchanged("a drag from QUEUE's chip " + named);
+        }
+        game.interface_type = gameplay::interface_right_click;
+
+        auto chosen = engine_settings();
+        const auto kept = chosen;
+        chosen.middle_click_pan = true;
+        chosen.order_wheel = oa::ui::engine_settings::OrderWheel::hold_right;
+        apply_engine_settings(chosen);
+        send_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_MIDDLE, chip_x, chip_y);
+        if (middle_pan_.phase != middle_pan::Phase::idle)
+            fail("a middle press on QUEUE's chip started a pan");
+        send_pointer(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_MIDDLE, chip_x, chip_y);
+        unchanged("a middle click on QUEUE's chip");
+        if (order_wheel_press_eligible(chip_x, chip_y))
+            fail("the order wheel waits on a press on QUEUE's chip");
+        if (!order_wheel_press_eligible(chip_x, under_chip_y))
+            fail("the order wheel does not wait on a press under QUEUE's chip");
+        click_at(SDL_BUTTON_RIGHT, chip_x, chip_y);
+        unchanged("a right click on QUEUE's chip with the order wheel on");
+        apply_engine_settings(kept);
+
+        click_at(match_command_button(), chip_x, under_chip_y);
+        if (queue_of().size() != orders + 1)
+            fail("a right click under QUEUE's chip gave the commander no order");
+    }
+
+    step("two queued moves");
+    // A short step in world pixels still sits under the commander's sprite, and
+    // a press there selects instead of moving. These are canvas pixels from
+    // the unit, the same reach a pointer check uses for open ground, and the
+    // two points stay further apart than the queued-order cancel.
     const auto find_ground = [&](float down) {
         const float reaches[] = {160.0F, -160.0F, 240.0F, -240.0F, 320.0F, -320.0F};
         for (const float reach : reaches) {
@@ -240,6 +340,10 @@ void Runtime::check_key_latches() {
         if (has_chip(texts, "QUEUE · latched"))
             fail("QUEUE · latched was still drawn");
     }
+    if (!key_latch_chip_places_.empty())
+        fail("a chip's place was kept with no chip drawn");
+    if (cursor_at(chip_x, chip_y) == arrow)
+        fail("the ground where QUEUE's chip lay shows the arrow");
 
     const auto settle_strip = [&](int32_t goal) {
         int32_t& offset = match_->state().game.status_panel_offset;
@@ -365,7 +469,7 @@ void Runtime::check_key_latches() {
         fail("focus loss left QUEUE latched");
     if (sticky_modifier_bits() != 0)
         fail("focus loss left a sticky modifier");
-    if (!key_latch_chips_drawn_.empty())
+    if (!key_latch_chips_drawn_.empty() || !key_latch_chip_places_.empty())
         fail("focus loss left a chip recorded");
     {
         const std::vector<std::string> texts = drawn();

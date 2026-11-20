@@ -29,8 +29,8 @@ after the caller's root-origin subtraction. Those rules are represented by
 internal control codes `0xF4..0xF7` map to the left/up/right/down virtual
 keys `0x25..0x28`; space and modifier mappings are also retained.
 `key_is_down` counts a key-state word as down when any bit other than the low
-toggle bit is set. These map key states only; moving focus is
-`focus_nearest`'s job.
+toggle bit is set. These map key states only. The arrows still move by
+place, which is `focus_nearest`'s job. Tab follows `tab_order`.
 
 ## Scroll bars and the lists they scroll
 
@@ -62,9 +62,39 @@ their gadgets in a model of their own (the frontend renderer's
   its first row (`scroll_bar_follow_list`); a screen's pick
   (`scroll_list_select`), the Up and Down keys (`scroll_list_step`), a press
   (`scroll_list_press`) and the wheel (`scroll_list_scroll`) move it.
+- `scroll_page_span` is how many positions Page Up and Page Down move a
+  bar: one position when the bar has fewer than two, otherwise a tenth of
+  the travel from its start to its end, and at least one.
+
+## Tab order
+
+`oa/ui/gui_input/tab_order.hpp` is the one Tab order and the one key rule
+for the built-in screens and for a `GadgetPanel`. The screens keep their
+own focus; they call the same functions a panel's `dispatch_key` calls.
+
+- `tab_order` returns the gadgets that can take the keyboard and have
+  area, as indices. A screen it knows is ordered as that screen is read:
+  single player's columns, a new campaign, load game, skirmish, map
+  selection, the options pages, a briefing and the campaign's end. Every
+  other screen is read in columns. Left edges within 16 share a column,
+  columns run left to right, and each column runs top to bottom. A
+  horizontal run the columns would split, whose centres sit within 8 of
+  the run's first centre and whose next control starts within 40 of the
+  one before it, is read left to right as one row. When a file
+  already lists its stops in that order, the result is the file's order.
+  The main menu does not ask for this order. Its Tab still walks by place.
+- `focus_key_action` says what the focused gadget does with a key. Tab
+  always moves along the order. A horizontal scroll bar steps with Left
+  and Right, pages with Page Up and Page Down by `scroll_page_span`, and
+  jumps to its ends with Home and End. A list steps with Up and Down. A
+  colour cycles with Left and Right while the focus ring is showing. A
+  text box's caret keys, and every other key, stay with the caller, which
+  keeps what that key does today.
 
 `scroll_bar_test.cpp` (`gui-scroll-bar`) pins the binding, the pointer and
-the lists.
+the lists. `gui_input_test.cpp` pins the orders over the installed GUI
+files, and `gadget_panel_test.cpp` pins Tab against a place move and a
+slider stepped from the keyboard.
 
 Build independently with:
 

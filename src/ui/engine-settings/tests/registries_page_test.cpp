@@ -380,16 +380,34 @@ void the_window_takes_keys_and_typing() {
     OA_CHECK(settings::add_registry_key(refused, kit::Key::backspace) == AddRegistryAction::redraw);
     OA_CHECK(refused.phase == AddRegistry::Phase::editing);
 
-    // Ready: Enter presses CANCEL, never ADD; Tab reaches ADD.
+    // Ready: the window opens on CANCEL with the ring hidden. Enter still
+    // presses CANCEL. Space shows the ring and does not press. Tab reaches
+    // ADD and shows the ring; Enter there presses ADD and hides the ring.
     AddRegistry ready = window_of(AddRegistry::Mode::by_url, AddRegistry::Phase::ready);
+    OA_CHECK(!ready.interaction.focus_shown);
     OA_CHECK(settings::add_registry_text(ready, "x") == AddRegistryAction::none);
     OA_CHECK(settings::add_registry_key(ready, kit::Key::enter) == AddRegistryAction::cancel);
     ready = window_of(AddRegistry::Mode::by_url, AddRegistry::Phase::ready);
+    OA_CHECK(settings::add_registry_key(ready, kit::Key::space) == AddRegistryAction::redraw);
+    OA_CHECK(
+        ready.interaction.focus_shown &&
+        ready.interaction.focused == settings::add_registry_cancel_control
+    );
     OA_CHECK(settings::add_registry_key(ready, kit::Key::space) == AddRegistryAction::cancel);
     ready = window_of(AddRegistry::Mode::by_url, AddRegistry::Phase::ready);
     OA_CHECK(settings::add_registry_key(ready, kit::Key::tab) == AddRegistryAction::redraw);
-    OA_CHECK(ready.interaction.focused == settings::add_registry_add_control);
+    OA_CHECK(
+        ready.interaction.focus_shown &&
+        ready.interaction.focused == settings::add_registry_add_control
+    );
     OA_CHECK(settings::add_registry_key(ready, kit::Key::enter) == AddRegistryAction::add);
+    OA_CHECK(!ready.interaction.focus_shown);
+    ready = window_of(AddRegistry::Mode::by_url, AddRegistry::Phase::ready);
+    OA_CHECK(settings::add_registry_key(ready, kit::Key::back_tab) == AddRegistryAction::redraw);
+    OA_CHECK(
+        ready.interaction.focus_shown &&
+        ready.interaction.focused == settings::add_registry_add_control
+    );
 
     // Checking: Enter presses CANCEL; nothing else is offered.
     AddRegistry checking = window_of(AddRegistry::Mode::by_url, AddRegistry::Phase::checking);

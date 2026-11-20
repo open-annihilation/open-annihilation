@@ -121,9 +121,6 @@ constexpr std::string_view kNeverChecks = "OA never checks";
 constexpr std::string_view kReadyBadge = "ready";
 /// The ready prompt's heading over its three answers.
 [[maybe_unused]] constexpr std::string_view kWhenShouldItGoIn = "When should it go in?";
-/// A receipt left running this long was cut short, in seconds. A younger one
-/// may belong to a helper that is still at work.
-constexpr int64_t kReceiptCutShortSeconds = 600;
 /// The Updated notice's name on the layer.
 constexpr std::string_view kUpdatedNotice = "updated-notice";
 
@@ -558,8 +555,10 @@ kit::Question centre_question(const update::Centre& centre, std::vector<update::
 
 /// The update pill on the main menu: the update centre's state in short,
 /// at the main menu's top right, with one small button. A press on the pill
-/// opens the update centre's question. It takes no key, and what it does not
-/// take goes on to the main menu.
+/// opens the update centre's question. Return and Space go on to the main
+/// menu: the order opens the centre from the bound Accept and Press, through
+/// the same call a press uses. What the pill does not take goes on. Tab is
+/// one of those: the menu moves the order.
 class UpdatePillScreen final : public LayerScreen {
   public:
 
@@ -633,10 +632,30 @@ class UpdatePillScreen final : public LayerScreen {
     /// @return false
     [[nodiscard]] bool opaque() const override { return false; }
 
-    /// Draws the pill.
+    /// Tells that the family's ring is drawn around the pill, not the kit's.
+    ///
+    /// The pill is drawn in its own canvas. A ring drawn there is clipped to
+    /// that canvas, so the family's ring, which is drawn in the window, is
+    /// the one a player sees.
+    ///
+    /// @return false
+    [[nodiscard]] bool draws_kit_focus_ring() const override { return false; }
+
+    /// Draws the pill, and the focus ring while the pill holds the focus.
     ///
     /// @param canvas where it draws
-    void draw(const kit::Canvas& canvas) const override { kit::draw_update_pill(canvas, pill_); }
+    void draw(const kit::Canvas& canvas) const override {
+        kit::draw_update_pill(canvas, pill_);
+        if (!kit::focus_ring_visible(interaction_))
+            return;
+        const kit::DisplayList list = display_list();
+        const kit::Control* body = kit::control_of(list, interaction_.focused);
+        if (body == nullptr)
+            return;
+        kit::DisplayList ring;
+        kit::add_focus_ring(ring, body->rect, true);
+        kit::paint(canvas, ring);
+    }
 
     /// Takes the pointer over the pill: it lights, a press on it holds, and a
     /// release over what the press held opens the update centre's question
@@ -655,6 +674,12 @@ class UpdatePillScreen final : public LayerScreen {
         kit::PillPointer what = kit::PillPointer::move;
         switch (kind) {
         case ScreenInputKind::pointer_move:
+            // A move hides the ring and leaves the focus, as the kit does, so
+            // the next key still acts on the pill.
+            if (interaction_.focus_shown && !interaction_.pointer_hid_ring) {
+                interaction_.pointer_hid_ring = true;
+                ++revision_;
+            }
             break;
         case ScreenInputKind::pointer_down:
             if (button != SDL_BUTTON_LEFT || !inside)
@@ -681,11 +706,20 @@ class UpdatePillScreen final : public LayerScreen {
         return acted == kit::UpdatePillAction::none ? LayerAnswer::none : LayerAnswer::redraw;
     }
 
-    /// Lets every key go on.
+    /// Return and Space go on. The order opens the centre from the bound
+    /// Accept and Press, so a layout that moves those keys still opens it
+    /// and a key that is no longer bound does not. A pointer move hides the
+    /// ring and leaves the stop.
     ///
     /// @return pass
     LayerAnswer key(kit::Key /*pressed*/, uint32_t /*sdl_key*/) override {
         return LayerAnswer::pass;
+    }
+
+    /// Opens the update centre, as a press on the pill does.
+    void open_from_order() {
+        if (host_.opened)
+            host_.opened();
     }
 
     /// Lets the wheel go on.
@@ -693,18 +727,30 @@ class UpdatePillScreen final : public LayerScreen {
     /// @return pass
     LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::pass; }
 
-    /// Returns the pill's display list.
+    /// Returns the pill's display list. The body is one stop, so a later
+    /// order can land on it. The small button stays out of that order.
     ///
     /// @return the list
     [[nodiscard]] kit::DisplayList display_list() const override {
-        return kit::update_pill_list(pill_, layer_.screen_fonts());
+        kit::DisplayList list = kit::update_pill_list(pill_, layer_.screen_fonts());
+        for (kit::Control& control : list.controls) {
+            if (control.id != kit::update_pill_body)
+                continue;
+            control.focusable = true;
+            break;
+        }
+        list.tab_order.push_back(kit::update_pill_body);
+        return list;
     }
 
-    /// Returns what the pointer lights and holds.
+    /// Returns what the pointer lights and holds, and the focus.
+    ///
+    /// The focus starts unset, so Return does what it does today until
+    /// something shows the ring on the pill.
     ///
     /// @return the interaction
     [[nodiscard]] kit::Interaction interaction() const override {
-        kit::Interaction shown{};
+        kit::Interaction shown = interaction_;
         shown.hovered = pill_.hovered;
         shown.pressed = pill_.pressed;
         return shown;
@@ -744,10 +790,11 @@ class UpdatePillScreen final : public LayerScreen {
 
   private:
 
-    OaLayer& layer_;       ///< the layer it shows on
-    kit::UpdatePill pill_; ///< how it looks
-    Host host_;            ///< what it does
-    uint64_t revision_{1}; ///< moves on with each change of look
+    OaLayer& layer_;                 ///< the layer it shows on
+    kit::UpdatePill pill_;           ///< how it looks
+    Host host_;                      ///< what it does
+    kit::Interaction interaction_{}; ///< the focus; unset until it is shown on the pill
+    uint64_t revision_{1};           ///< moves on with each change of look
 };
 
 /// The ready prompt, up or waiting.
@@ -1038,6 +1085,65 @@ bool Runtime::hand_off_requested() const {
 #endif
 }
 
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+bool Runtime::hand_off_stopped(const fs::path& updates) {
+    update::HandOffFacts facts;
+    facts.held = update::release_held(preference_values_, update_->download_release);
+    facts.seen = update_->receipt_seen;
+    facts.now = wall_seconds();
+    update::read_hand_off_facts(updates, facts);
+    const update::HandOffStop stop = update::hand_off_stop(facts);
+    if (stop == update::HandOffStop::none)
+        return false;
+    switch (stop) {
+    case update::HandOffStop::held:
+        std::cerr << "open-annihilation: update: not handed over: the release waits for Try "
+                     "again\n";
+        break;
+    case update::HandOffStop::helper_at_work:
+        std::cerr << "open-annihilation: update: not handed over: a helper is still at work\n";
+        break;
+    case update::HandOffStop::left_unfinished:
+        std::cerr << "open-annihilation: update: not handed over: a helper another copy started "
+                     "left files to put back\n";
+        break;
+    case update::HandOffStop::receipt_changed:
+        std::cerr << "open-annihilation: update: not handed over: a helper another copy started "
+                     "has run since this copy read its receipt\n";
+        break;
+    case update::HandOffStop::none:
+        break;
+    }
+    // The schedule is taken back as the receipt screen takes it back: a
+    // held release waits for Try again, a release the other copy's helper
+    // could not install is held from now on, and one it installed is spent.
+    // A helper still at work keeps it, and its receipt tells at the next start.
+    bool changed = false;
+    if (stop == update::HandOffStop::held) {
+        changed = true;
+    } else if (
+        stop != update::HandOffStop::helper_at_work && facts.receipt.has_value() &&
+        facts.receipt->action == update::Action::install &&
+        facts.receipt->release == update_->download_release &&
+        facts.receipt->outcome != update::Outcome::running
+    ) {
+        if (update::holds_release(facts.receipt->outcome))
+            update::write_held(preference_values_, facts.receipt->release);
+        changed = true;
+    }
+    if (changed && update::read_scheduled(preference_values_).has_value()) {
+        update::clear_scheduled(preference_values_);
+        preferences_dirty_ = true;
+        try {
+            flush_preferences();
+        } catch (const std::exception& thrown) {
+            std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+        }
+    }
+    return true;
+}
+#endif
+
 void Runtime::hand_off_update() {
 #if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
     return;
@@ -1053,6 +1159,8 @@ void Runtime::hand_off_update() {
         std::cerr << "open-annihilation: update: " << failure << '\n';
         return;
     }
+    if (hand_off_stopped(*folder))
+        return;
     const feed::Way way = update_->held.offer.way == feed::Way::page_only ? feed::Way::page_only
                                                                           : feed::Way::in_place;
     const update::Where where = route_for(options_, way);
@@ -1646,14 +1754,18 @@ void Runtime::offer_updated_notice() {
             updates ? update::load_receipt(receipt_path) : std::nullopt;
         // A receipt still running may belong to a helper at work; one left
         // running long enough was cut short.
-        const bool finished = receipt.has_value() &&
-                              (receipt->outcome != update::Outcome::running ||
-                               wall_seconds() - receipt->started_at >= kReceiptCutShortSeconds);
+        const bool finished =
+            receipt.has_value() &&
+            (receipt->outcome != update::Outcome::running ||
+             wall_seconds() - receipt->started_at >= update::receipt_cut_short_seconds);
         if (finished && !receipt->shown) {
             receipt->shown = true;
             std::string why;
             if (!update::write_receipt(receipt_path, *receipt, &why))
                 std::cerr << "open-annihilation: update: " << why << '\n';
+            // This run has shown it, and holds a failed release below, so a
+            // quit may hand a release over again (update::hand_off_stop).
+            update_->receipt_seen = *receipt;
             if (update::failed_outcome(receipt->outcome)) {
                 if (update::holds_release(receipt->outcome) && receipt->release > 0) {
                     update::write_held(preference_values_, receipt->release);
@@ -2639,6 +2751,14 @@ void Runtime::tick_update_install() {
     offer_updated_notice();
     consider_background_download();
     consider_update_and_quit();
+}
+
+void Runtime::open_update_pill_from_order() {
+    if (oa_layer_ == nullptr)
+        return;
+    auto* pill = dynamic_cast<UpdatePillScreen*>(oa_layer_->find(kit::update_pill_word));
+    if (pill != nullptr)
+        pill->open_from_order();
 }
 
 } // namespace oa::app

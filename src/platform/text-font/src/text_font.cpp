@@ -34,6 +34,11 @@
 #include FT_MODULE_H
 #include FT_MULTIPLE_MASTERS_H
 
+#if defined(OA_TEXT_SHAPING)
+#include <hb-ft.h>
+#include <hb.h>
+#endif
+
 #include <algorithm>
 #include <cstdio>
 #if defined(_WIN32)
@@ -129,15 +134,17 @@ bool script_letter(char32_t character) noexcept {
 }
 
 /// The fonts each weight looks a character up in, in order.
-constexpr std::array<Face, 4> bold_chain{
+constexpr std::array<Face, 5> bold_chain{
     Face::dejavu_sans_bold,
     Face::dejavu_sans,
     Face::endonyms,
+    Face::endonyms_bengali,
     Face::noto_emoji,
 };
-constexpr std::array<Face, 3> regular_chain{
+constexpr std::array<Face, 4> regular_chain{
     Face::dejavu_sans,
     Face::endonyms,
+    Face::endonyms_bengali,
     Face::noto_emoji,
 };
 
@@ -145,6 +152,123 @@ constexpr std::array<Face, 3> regular_chain{
 int32_t whole_pixels(FT_Pos length) noexcept {
     return static_cast<int32_t>((length + 32) >> 6);
 }
+
+#if defined(OA_TEXT_SHAPING)
+/// Rounds a signed 26.6 length to whole pixels, half away from zero.
+///
+/// Shaped marks sit above or before the pen, so their offsets are negative.
+/// The positive rounding above is the one the unshaped advances use.
+int32_t whole_pixels_signed(int32_t length) noexcept {
+    const int64_t wide = length;
+    if (wide >= 0)
+        return static_cast<int32_t>((wide + 32) >> 6);
+    return static_cast<int32_t>(-(((-wide) + 32) >> 6));
+}
+
+/// A shaped glyph's advance in whole pixels, with letter spacing when it moves the pen.
+int32_t spaced_advance(int32_t x_advance, int32_t letter_spacing) noexcept {
+    const int32_t pixels = whole_pixels_signed(x_advance);
+    if (pixels > 0)
+        return pixels + letter_spacing;
+    return pixels;
+}
+
+/// How many bytes a code point takes in the UTF-8 decode_utf8 accepted.
+std::size_t utf8_bytes(char32_t character) noexcept {
+    if (character < 0x80)
+        return 1;
+    if (character < 0x800)
+        return 2;
+    if (character < 0x10000)
+        return 3;
+    return 4;
+}
+
+/// A joiner that stays inside a shaped run when it sits between that run's letters.
+bool is_shaping_joiner(char32_t character) noexcept {
+    return character == 0x200C || character == 0x200D;
+}
+
+/// The script a character is shaped in. Joiners and every other character are none.
+enum class ShapingScript : uint8_t { none, bengali, devanagari };
+
+ShapingScript shaping_script(char32_t character) noexcept {
+    if (character >= 0x0980 && character <= 0x09FF)
+        return ShapingScript::bengali;
+    if ((character >= 0x0900 && character <= 0x097F) ||
+        (character >= 0x1CD0 && character <= 0x1CFF) ||
+        (character >= 0xA8E0 && character <= 0xA8FF))
+        return ShapingScript::devanagari;
+    return ShapingScript::none;
+}
+
+/// Tells whether a line holds a letter that is shaped.
+bool text_needs_shaping(const std::vector<char32_t>& characters) noexcept {
+    for (const char32_t character : characters)
+        if (shaping_script(character) != ShapingScript::none)
+            return true;
+    return false;
+}
+
+hb_script_t harfbuzz_script(ShapingScript script) noexcept {
+    return script == ShapingScript::bengali ? HB_SCRIPT_BENGALI : HB_SCRIPT_DEVANAGARI;
+}
+
+/// One stretch of a line: a shaping script, or none for characters drawn one by one.
+struct TextRun {
+    std::size_t begin{};
+    std::size_t end{};
+    ShapingScript script{ShapingScript::none};
+};
+
+/// Splits a line into runs. A joiner between letters of one shaping script
+/// stays in that run. A joiner anywhere else is drawn, which is to say
+/// skipped, with the characters around it.
+std::vector<TextRun> shaping_runs(const std::vector<char32_t>& characters) {
+    std::vector<TextRun> runs;
+    std::size_t at = 0;
+    while (at < characters.size()) {
+        const ShapingScript script = shaping_script(characters[at]);
+        if (script == ShapingScript::none) {
+            std::size_t end = at + 1;
+            while (end < characters.size() &&
+                   shaping_script(characters[end]) == ShapingScript::none)
+                ++end;
+            runs.push_back(TextRun{at, end, ShapingScript::none});
+            at = end;
+            continue;
+        }
+        std::size_t end = at + 1;
+        while (end < characters.size()) {
+            const ShapingScript next = shaping_script(characters[end]);
+            if (next == script) {
+                ++end;
+                continue;
+            }
+            if (!is_shaping_joiner(characters[end]))
+                break;
+            std::size_t after = end;
+            while (after < characters.size() && is_shaping_joiner(characters[after]))
+                ++after;
+            if (after < characters.size() && shaping_script(characters[after]) == script)
+                end = after;
+            else
+                break;
+        }
+        runs.push_back(TextRun{at, end, script});
+        at = end;
+    }
+    return runs;
+}
+
+/// The byte each character starts at, and one past the last.
+std::vector<std::size_t> byte_starts(const std::vector<char32_t>& characters) {
+    std::vector<std::size_t> starts(characters.size() + 1);
+    for (std::size_t at = 0; at < characters.size(); ++at)
+        starts[at + 1] = starts[at] + utf8_bytes(characters[at]);
+    return starts;
+}
+#endif
 
 /// Reads a font file for FreeType: seeks when count is 0, else reads up to
 /// count bytes at offset.
@@ -370,6 +494,25 @@ struct Laid {
 
 } // namespace
 
+#if defined(OA_TEXT_SHAPING)
+/// One shaped glyph placed for drawing: whole-pixel pen, offsets and advance.
+struct VisualGlyph {
+    Face face{};
+    uint32_t glyph{};
+    int32_t pen{};
+    int32_t x_offset{};
+    int32_t y_offset{};
+    int32_t advance{};
+};
+
+/// A shaped line: logical placements for measuring, and glyphs in draw order.
+struct ShapedLayout {
+    std::vector<Placement> placements{};
+    std::vector<VisualGlyph> glyphs{};
+    int32_t pen{};
+};
+#endif
+
 /// The library, the open fonts and the glyphs drawn from them.
 struct FontStack::Fonts {
     /// Base faces, then up to most_pack_faces pack faces, then the interface
@@ -446,14 +589,14 @@ struct FontStack::Fonts {
 
     /// Gives the pixel size a face is drawn at in a style.
     ///
-    /// DejaVu, the interface faces and letters pack faces take the style's
-    /// size. The endonym face and ideographs pack faces take the related
-    /// size and no less than the style's least size. Noto Emoji takes the
-    /// related size.
+    /// DejaVu, the Bengali endonym face, the interface faces and letters pack
+    /// faces take the style's size. The endonym face and ideographs pack
+    /// faces take the related size and no less than the style's least size.
+    /// Noto Emoji takes the related size.
     int32_t face_pixel_size(Face which, const Style& style) const noexcept {
         const auto index = static_cast<std::size_t>(which);
         const bool letters = which == Face::dejavu_sans_bold || which == Face::dejavu_sans ||
-                             is_interface_face(which) ||
+                             which == Face::endonyms_bengali || is_interface_face(which) ||
                              (index >= face_count && index < face_count + pack_count &&
                               pack_roles[index - face_count] == FaceRole::letters);
         if (letters)
@@ -486,6 +629,7 @@ struct FontStack::Fonts {
             if (pack_roles[index] == FaceRole::ideographs)
                 push_open(pack_face(index));
         push_open(Face::endonyms);
+        push_open(Face::endonyms_bengali);
         push_open(Face::noto_emoji);
         return found;
     }
@@ -615,7 +759,228 @@ struct FontStack::Fonts {
                 return {which, FT_UInt{0}};
         return {Face::dejavu_sans_bold, FT_UInt{0}};
     }
+
+#if defined(OA_TEXT_SHAPING)
+    /// Shapes one run with HarfBuzz. Clusters are byte offsets in the whole
+    /// line: byte_base is the run's first byte. The face's transform and
+    /// remembered size are cleared afterwards, so a later unshaped draw sets
+    /// the size again.
+    std::optional<std::vector<ShapedGlyph>> shape_run(
+        std::string_view bytes,
+        Face which,
+        const Style& style,
+        uint32_t byte_base,
+        hb_script_t script
+    );
+
+    /// Lays out a line that contains a shaping script.
+    std::optional<ShapedLayout>
+    shape_line(std::string_view text, const std::vector<char32_t>& characters, const Style& style);
+
+    /// The shaped runs of a line, in draw order. An empty list when there is none.
+    std::optional<std::vector<ShapedGlyph>> shape_glyphs(
+        std::string_view text, const std::vector<char32_t>& characters, const Style& style
+    );
+#endif
 };
+
+#if defined(OA_TEXT_SHAPING)
+std::optional<std::vector<ShapedGlyph>> FontStack::Fonts::shape_run(
+    std::string_view bytes, Face which, const Style& style, uint32_t byte_base, hb_script_t script
+) {
+    const auto slot = static_cast<std::size_t>(which);
+    if (slot >= slot_count || faces[slot] == nullptr || bytes.size() > max_text_bytes)
+        return std::nullopt;
+    if (!set_size(which, face_pixel_size(which, style)))
+        return std::nullopt;
+    FT_Face face = faces[slot];
+    const bool mono = style.rendering == Rendering::mono;
+    const FT_Int32 load = FT_LOAD_NO_BITMAP | (mono ? FT_LOAD_TARGET_MONO : FT_LOAD_TARGET_NORMAL);
+    hb_font_t* shaped_font = hb_ft_font_create(face, nullptr);
+    if (shaped_font == nullptr)
+        return std::nullopt;
+    hb_ft_font_set_load_flags(shaped_font, static_cast<int>(load));
+    hb_buffer_t* buffer = hb_buffer_create();
+    std::optional<std::vector<ShapedGlyph>> shaped;
+    if (buffer != nullptr) {
+        hb_buffer_add_utf8(
+            buffer, bytes.data(), static_cast<int>(bytes.size()), 0, static_cast<int>(bytes.size())
+        );
+        hb_buffer_set_direction(buffer, HB_DIRECTION_LTR);
+        hb_buffer_set_script(buffer, script);
+        if (hb_buffer_allocation_successful(buffer)) {
+            hb_shape(shaped_font, buffer, nullptr, 0);
+            unsigned int glyph_count = 0;
+            hb_glyph_info_t* infos = hb_buffer_get_glyph_infos(buffer, &glyph_count);
+            hb_glyph_position_t* positions = hb_buffer_get_glyph_positions(buffer, &glyph_count);
+            if (glyph_count == 0 || (infos != nullptr && positions != nullptr)) {
+                std::vector<ShapedGlyph> run_glyphs;
+                run_glyphs.reserve(glyph_count);
+                for (unsigned int glyph_at = 0; glyph_at < glyph_count; ++glyph_at) {
+                    ShapedGlyph one;
+                    one.glyph = infos[glyph_at].codepoint;
+                    one.cluster = byte_base + static_cast<uint32_t>(infos[glyph_at].cluster);
+                    one.x_advance = positions[glyph_at].x_advance;
+                    one.y_advance = positions[glyph_at].y_advance;
+                    one.x_offset = positions[glyph_at].x_offset;
+                    one.y_offset = positions[glyph_at].y_offset;
+                    one.face = which;
+                    run_glyphs.push_back(one);
+                }
+                shaped = std::move(run_glyphs);
+            }
+        }
+        hb_buffer_destroy(buffer);
+    }
+    hb_font_destroy(shaped_font);
+    // HarfBuzz leaves a transform on the face. Clear it, and forget the size,
+    // so the next unshaped draw sets the size and draws without that transform.
+    FT_Set_Transform(face, nullptr, nullptr);
+    sizes[slot] = 0;
+    return shaped;
+}
+
+std::optional<ShapedLayout> FontStack::Fonts::shape_line(
+    std::string_view text, const std::vector<char32_t>& characters, const Style& style
+) {
+    const std::vector<TextRun> runs = shaping_runs(characters);
+    const std::vector<std::size_t> starts = byte_starts(characters);
+    const Family family = line_family(characters, style);
+    // More glyphs than characters is rare; the store keeps this line's glyphs
+    // until the line has been drawn.
+    make_room(characters.size() * 2);
+    ShapedLayout laid;
+    int32_t pen = 0;
+    for (const TextRun& run : runs) {
+        if (run.script == ShapingScript::none) {
+            for (std::size_t at = run.begin; at < run.end; ++at) {
+                const char32_t character = characters[at];
+                if (is_invisible(character))
+                    continue;
+                const auto [which, index] = lookup(character, style.weight, family);
+                const Glyph* drawn = glyph(which, index, face_pixel_size(which, style), style);
+                if (drawn == nullptr)
+                    return std::nullopt;
+                const int32_t advance =
+                    drawn->advance + (drawn->advance > 0 ? style.letter_spacing : 0);
+                laid.placements.push_back(Placement{character, which, pen, advance});
+                VisualGlyph visual;
+                visual.face = which;
+                visual.glyph = static_cast<uint32_t>(index);
+                visual.pen = pen;
+                visual.advance = advance;
+                laid.glyphs.push_back(visual);
+                pen += advance;
+            }
+            continue;
+        }
+        char32_t base = characters[run.begin];
+        for (std::size_t at = run.begin; at < run.end; ++at) {
+            if (shaping_script(characters[at]) != ShapingScript::none) {
+                base = characters[at];
+                break;
+            }
+        }
+        const Face which = lookup(base, style.weight, family).first;
+        const std::size_t byte_begin = starts[run.begin];
+        const std::string_view bytes = text.substr(byte_begin, starts[run.end] - byte_begin);
+        const auto shaped = shape_run(
+            bytes, which, style, static_cast<uint32_t>(byte_begin), harfbuzz_script(run.script)
+        );
+        if (!shaped)
+            return std::nullopt;
+
+        struct Cluster {
+            uint32_t start{};
+            int32_t width{};
+            bool assigned{};
+        };
+
+        std::vector<Cluster> clusters;
+        const int32_t run_pen = pen;
+        int32_t draw_pen = run_pen;
+        for (const ShapedGlyph& one : *shaped) {
+            const int32_t advance = spaced_advance(one.x_advance, style.letter_spacing);
+            if (clusters.empty() || clusters.back().start != one.cluster)
+                clusters.push_back(Cluster{one.cluster, advance, false});
+            else
+                clusters.back().width += advance;
+            VisualGlyph visual;
+            visual.face = one.face;
+            visual.glyph = one.glyph;
+            visual.pen = draw_pen;
+            visual.x_offset = whole_pixels_signed(one.x_offset);
+            visual.y_offset = whole_pixels_signed(one.y_offset);
+            visual.advance = advance;
+            laid.glyphs.push_back(visual);
+            const Glyph* drawn = glyph(
+                one.face, static_cast<FT_UInt>(one.glyph), face_pixel_size(one.face, style), style
+            );
+            if (drawn == nullptr)
+                return std::nullopt;
+            draw_pen += advance;
+        }
+        int32_t place_pen = run_pen;
+        std::size_t cluster_at = 0;
+        for (std::size_t at = run.begin; at < run.end; ++at) {
+            const char32_t character = characters[at];
+            if (is_invisible(character))
+                continue;
+            const auto byte = static_cast<uint32_t>(starts[at]);
+            while (cluster_at + 1 < clusters.size() && clusters[cluster_at + 1].start <= byte)
+                ++cluster_at;
+            int32_t advance = 0;
+            if (cluster_at < clusters.size() && clusters[cluster_at].start <= byte &&
+                !clusters[cluster_at].assigned) {
+                advance = clusters[cluster_at].width;
+                clusters[cluster_at].assigned = true;
+            }
+            laid.placements.push_back(Placement{character, which, place_pen, advance});
+            place_pen += advance;
+        }
+        // A cluster of joiners alone still moves the pen. The width stays on
+        // the last character the run placed, which is where measuring reads it.
+        if (place_pen != draw_pen && !laid.placements.empty())
+            laid.placements.back().advance += draw_pen - place_pen;
+        pen = draw_pen;
+    }
+    laid.pen = pen;
+    return laid;
+}
+
+std::optional<std::vector<ShapedGlyph>> FontStack::Fonts::shape_glyphs(
+    std::string_view text, const std::vector<char32_t>& characters, const Style& style
+) {
+    const std::vector<TextRun> runs = shaping_runs(characters);
+    const std::vector<std::size_t> starts = byte_starts(characters);
+    const Family family = line_family(characters, style);
+    std::vector<ShapedGlyph> line_glyphs;
+    for (const TextRun& run : runs) {
+        if (run.script == ShapingScript::none)
+            continue;
+        char32_t base = characters[run.begin];
+        for (std::size_t at = run.begin; at < run.end; ++at) {
+            if (shaping_script(characters[at]) != ShapingScript::none) {
+                base = characters[at];
+                break;
+            }
+        }
+        const Face which = lookup(base, style.weight, family).first;
+        const std::size_t byte_begin = starts[run.begin];
+        const auto shaped = shape_run(
+            text.substr(byte_begin, starts[run.end] - byte_begin),
+            which,
+            style,
+            static_cast<uint32_t>(byte_begin),
+            harfbuzz_script(run.script)
+        );
+        if (!shaped)
+            return std::nullopt;
+        line_glyphs.insert(line_glyphs.end(), shaped->begin(), shaped->end());
+    }
+    return line_glyphs;
+}
+#endif
 
 std::string freetype_version() {
     return std::to_string(FREETYPE_MAJOR) + "." + std::to_string(FREETYPE_MINOR) + "." +
@@ -861,10 +1226,15 @@ std::optional<LineMetrics> FontStack::metrics(const Style& style) {
     if (!in_range(style))
         return std::nullopt;
     LineMetrics line;
-    // Pack faces never change the line's rows. A closed base face is left out.
+    // Pack faces never change the line's rows, and nor does the Bengali
+    // endonym face: its descent is deeper than the others', and a line with
+    // no Bengali in it would grow by rows it never had. A closed base face is
+    // left out.
     for (std::size_t index = 0; index < face_count; ++index) {
         const auto which = static_cast<Face>(index);
         if (fonts_->faces[index] == nullptr)
+            continue;
+        if (which == Face::endonyms_bengali)
             continue;
         if (which == Face::dejavu_sans_bold && !bold_first(style.weight))
             continue;
@@ -908,6 +1278,16 @@ std::optional<FaceMetrics> FontStack::face_metrics(Face face, const Style& style
 }
 
 std::optional<std::vector<Placement>> FontStack::layout(std::string_view text, const Style& style) {
+#if defined(OA_TEXT_SHAPING)
+    if (const auto characters = decode_utf8(text); characters && text_needs_shaping(*characters) &&
+                                                   in_range(style) &&
+                                                   text.size() <= max_text_bytes) {
+        const auto laid = fonts_->shape_line(text, *characters, style);
+        if (!laid)
+            return std::nullopt;
+        return laid->placements;
+    }
+#endif
     if (!in_range(style) || text.size() > max_text_bytes)
         return std::nullopt;
     const auto characters = decode_utf8(text);
@@ -933,7 +1313,93 @@ std::optional<std::vector<Placement>> FontStack::layout(std::string_view text, c
     return placements;
 }
 
+std::optional<std::vector<ShapedGlyph>>
+FontStack::shape(std::string_view text, const Style& style) {
+#if defined(OA_TEXT_SHAPING)
+    if (!in_range(style) || text.size() > max_text_bytes)
+        return std::nullopt;
+    const auto characters = decode_utf8(text);
+    if (!characters)
+        return std::nullopt;
+    return fonts_->shape_glyphs(text, *characters, style);
+#else
+    (void)text;
+    (void)style;
+    return std::nullopt;
+#endif
+}
+
 std::optional<Coverage> FontStack::draw(std::string_view text, const Style& style) {
+#if defined(OA_TEXT_SHAPING)
+    if (const auto characters = decode_utf8(text); characters && text_needs_shaping(*characters) &&
+                                                   in_range(style) &&
+                                                   text.size() <= max_text_bytes) {
+        const auto laid = fonts_->shape_line(text, *characters, style);
+        const auto line = metrics(style);
+        if (!laid || !line)
+            return std::nullopt;
+
+        struct Painted {
+            VisualGlyph visual{};
+            const Glyph* glyph{};
+        };
+
+        std::vector<Painted> painted;
+        painted.reserve(laid->glyphs.size());
+        int32_t left = 0;
+        int32_t right = laid->pen;
+        int32_t above = line->ascent;
+        int32_t below = line->descent;
+        for (const VisualGlyph& visual : laid->glyphs) {
+            const Glyph* drawn = fonts_->glyph(
+                visual.face,
+                static_cast<FT_UInt>(visual.glyph),
+                fonts_->face_pixel_size(visual.face, style),
+                style
+            );
+            if (drawn == nullptr)
+                return std::nullopt;
+            painted.push_back(Painted{visual, drawn});
+            if (drawn->width > 0 && drawn->rows > 0) {
+                const int32_t x0 = visual.pen + visual.x_offset + drawn->left;
+                const int32_t top = drawn->top + visual.y_offset;
+                left = std::min(left, x0);
+                right = std::max(right, x0 + drawn->width);
+                above = std::max(above, top);
+                below = std::max(below, drawn->rows - top);
+            }
+        }
+        Coverage coverage;
+        coverage.origin = -left;
+        coverage.width = std::min(std::max(right - left, 0), max_line_width);
+        coverage.baseline = above;
+        coverage.height = above + below;
+        coverage.advance = laid->pen;
+        coverage.alpha.assign(
+            static_cast<std::size_t>(coverage.width) * static_cast<std::size_t>(coverage.height), 0
+        );
+        for (const Painted& each : painted) {
+            const Glyph& drawn = *each.glyph;
+            const int32_t x = coverage.origin + each.visual.pen + each.visual.x_offset + drawn.left;
+            const int32_t y = coverage.baseline - (drawn.top + each.visual.y_offset);
+            for (int32_t row = 0; row < drawn.rows; ++row)
+                for (int32_t column = 0; column < drawn.width; ++column) {
+                    const int32_t px = x + column;
+                    if (px < 0 || px >= coverage.width)
+                        continue;
+                    const int32_t py = y + row;
+                    if (py < 0 || py >= coverage.height)
+                        continue;
+                    auto& pixel =
+                        coverage.alpha[static_cast<std::size_t>(py * coverage.width + px)];
+                    pixel = std::max(
+                        pixel, drawn.alpha[static_cast<std::size_t>(row * drawn.width + column)]
+                    );
+                }
+        }
+        return coverage;
+    }
+#endif
     const auto placements = layout(text, style);
     const auto line = metrics(style);
     if (!placements || !line)

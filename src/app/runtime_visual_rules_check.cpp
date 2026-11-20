@@ -11,7 +11,9 @@
 // its shadow, outline and letter edges the card's; the building being placed drawn over its
 // site at the scene's draw scale, or by the card; the megamap opening only
 // with the Mouse wheel zoom setting off and closing when it is turned on;
-// the megamap presented as the processor composes it; text in the modern
+// the megamap presented as the processor composes it, in the Full tier with
+// the card drawing none of the battlefield under it and, once it closes,
+// the battlefield as it was before it opened; text in the modern
 // fonts with the chat's backdrop presented as composed, what of it lies
 // beside the backdrop the card's in the Full tier; and a named screenshot
 // keeping the standard tier's picture.
@@ -405,8 +407,8 @@ void Runtime::check_visual_rule_overlays(
     // ui.whiteboard: a dot at the unit's map point is drawn where the frame
     // draws that point, and the pointer over the map pixel drawn there finds it.
     if (rules.whiteboard.enabled) {
-        const uint8_t color = oa::ui::hud::player_dot_color(match_->state(), match_local_player_);
-        const auto expected = shown(color);
+        const uint8_t color = oa::ui::hud::stock_dot_color(match_->state(), match_local_player_);
+        const auto expected = shown(oa::ui::hud::drawn_dot_color(color));
         const int32_t half = oa::ui::hud::kWhiteboardDotSide / 2;
         const auto check_dot = [&](const std::string& which) {
             whiteboard_ = {};
@@ -757,11 +759,12 @@ void Runtime::check_visual_rule_overlays(
                   << tiers_name() << '\n';
     }
 
-    // ui.megamap acts only with the Mouse wheel zoom setting off: with it
-    // on, Tab and the wheel rolled toward the player open no megamap; with
-    // it off, Tab opens it; turning the setting on in the match, as the
-    // settings dialog does, closes it. The setting stays off for the
-    // megamap's presentation below.
+    // ui.megamap's toggle answers whatever the Mouse wheel zoom setting is,
+    // and the wheel opens the megamap only with the setting off. With it on,
+    // the wheel rolled toward the player opens no megamap, and Tab opens and
+    // closes it; turning the setting on in the match, as the settings dialog
+    // does, leaves an open megamap open; with it off, Tab opens it as before.
+    // The setting stays off for the megamap's presentation below.
     const bool wheel_zoom = engine_settings().wheel_zoom;
     // The setting changed with the battlefield's zoom left as it is.
     const auto set_wheel_zoom = [&](bool on) {
@@ -779,19 +782,25 @@ void Runtime::check_visual_rule_overlays(
         const auto middle_y =
             static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2);
         set_wheel_zoom(true);
-        if (take_megamap_toggle(tab) || megamap_wheel(-1.0F, middle_x, middle_y) || megamap_open_)
-            fail("the megamap opened with the Mouse wheel zoom setting on");
+        if (megamap_wheel(-1.0F, middle_x, middle_y) || megamap_open_)
+            fail("the wheel opened the megamap with the Mouse wheel zoom setting on");
+        if (!take_megamap_toggle(tab) || !megamap_shown())
+            fail("Tab did not open the megamap with the Mouse wheel zoom setting on");
+        if (!take_megamap_toggle(tab) || megamap_open_ || megamap_shown())
+            fail("Tab did not close the megamap with the Mouse wheel zoom setting on");
         set_wheel_zoom(false);
         if (!take_megamap_toggle(tab) || !megamap_shown())
             fail("Tab did not open the megamap with the Mouse wheel zoom setting off");
         auto chosen = engine_settings();
         chosen.wheel_zoom = true;
         apply_engine_settings(chosen);
-        if (megamap_open_ || megamap_shown())
-            fail("turning the Mouse wheel zoom setting on did not close the megamap");
+        if (!megamap_shown())
+            fail("turning the Mouse wheel zoom setting on closed the megamap");
+        set_megamap_open(false);
         set_wheel_zoom(false);
-        std::cout << "render tiers check: visual rules: the megamap opens only with the Mouse "
-                     "wheel zoom setting off, and turning the setting on closes it\n";
+        std::cout << "render tiers check: visual rules: Tab opens and closes the megamap with the "
+                     "Mouse wheel zoom setting on or off, the wheel opens it only with the "
+                     "setting off, and turning the setting on leaves it open\n";
     }
 
     // ui.megamap: open over the battlefield, it is presented exactly as the
@@ -802,13 +811,38 @@ void Runtime::check_visual_rule_overlays(
             const std::span<const float> zooms = level == HardwareAcceleration::full
                                                      ? std::span<const float>(full_megamap_zooms)
                                                      : std::span<const float>(megamap_zooms);
+            const bool card = level == HardwareAcceleration::full;
             for (const float zoom : zooms) {
                 at_zoom(zoom);
+                // In the Full tier, the battlefield before the megamap opens,
+                // which the first frame after it closes is to show again.
+                const auto before = card ? drawn() : Drawn{};
                 set_megamap_open(true);
                 const auto read = drawn();
+                // The card draws none of the battlefield the megamap covers.
+                if (card && (!full_->drawn || !full_->drawn_covered || full_->drawn_batches != 0))
+                    fail(
+                        "the card drew the battlefield under the megamap " + tier_name(level) +
+                        " at zoom " + zoom_name(zoom)
+                    );
                 renderer::Surface composed;
                 compose_match_frame(composed);
                 set_megamap_open(false);
+                if (card) {
+                    const auto after = drawn();
+                    if (!full_->drawn || full_->drawn_covered)
+                        fail(
+                            "the card did not draw the battlefield once the megamap closed at "
+                            "zoom " +
+                            zoom_name(zoom)
+                        );
+                    if (battlefield_of(after).rgb != battlefield_of(before).rgb)
+                        fail(
+                            "the first frame after the megamap closed " + tier_name(level) +
+                            " at zoom " + zoom_name(zoom) +
+                            " does not show the battlefield as it was before it opened"
+                        );
+                }
                 if (read.frame.width != composed.width || read.frame.height != composed.height)
                     fail("the presented frame and the composition differ in size over the megamap");
                 int most = 0;
@@ -838,7 +872,10 @@ void Runtime::check_visual_rule_overlays(
         std::cout << "render tiers check: visual rules: the megamap is presented as composed at "
                      "zoom 0.5 and 2.5, "
                   << names_of(accelerated)
-                  << (checks(HardwareAcceleration::full) ? ", and at the full tier's floor" : "")
+                  << (checks(HardwareAcceleration::full)
+                          ? ", and at the full tier's floor, where the card draws none of the "
+                            "battlefield under it and, once it closes, the battlefield as it was"
+                          : "")
                   << '\n';
     }
     if (rules.megamap.enabled)

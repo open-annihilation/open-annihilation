@@ -261,10 +261,99 @@ void test_kit_screens() {
     expect(full_screens.kit_screen_count == kMaxKitScreens, "a full table keeps its kit screens");
 }
 
+void check_menu_move() {
+    using oa::app::MenuAction;
+    using oa::app::MenuMove;
+    using oa::app::MenuMoveCount;
+    using oa::app::MenuMovePhase;
+    expect(oa::app::menu_move_of(static_cast<const char*>(nullptr)) == MenuMove::none, "null id");
+    expect(oa::app::menu_move_of("") == MenuMove::none, "empty id");
+    expect(
+        oa::app::menu_move_of("ui.screen-focus-next") == MenuMove::none,
+        "next control is not a menu move"
+    );
+    expect(
+        oa::app::menu_move_of("ui.screen-up") == MenuMove::none, "a screen arrow is not a menu move"
+    );
+    expect(oa::app::menu_move_of("ui.menu-focus-next") == MenuMove::next, "next button");
+    expect(
+        oa::app::menu_move_of("ui.menu-focus-previous") == MenuMove::previous, "previous button"
+    );
+    expect(oa::app::menu_move_of("ui.menu-focus-left") == MenuMove::left, "focus left");
+    expect(oa::app::menu_move_of("ui.menu-focus-right") == MenuMove::right, "focus right");
+    expect(oa::app::menu_move_of("ui.menu-focus-up") == MenuMove::up, "focus up");
+    expect(oa::app::menu_move_of("ui.menu-list-up") == MenuMove::up, "list up");
+    expect(oa::app::menu_move_of("ui.menu-focus-down") == MenuMove::down, "focus down");
+    expect(oa::app::menu_move_of("ui.menu-list-down") == MenuMove::down, "list down");
+    expect(oa::app::menu_move_of("ui.screen-home") == MenuMove::home, "go to start");
+    expect(oa::app::menu_move_of("ui.screen-end") == MenuMove::end, "go to end");
+    expect(oa::app::menu_move_of("ui.screen-page-up") == MenuMove::page_up, "page up");
+    expect(oa::app::menu_move_of("ui.screen-page-down") == MenuMove::page_down, "page down");
+    expect(oa::app::menu_move_of("ui.menu-accept") == MenuMove::accept, "accept");
+    expect(oa::app::menu_move_of("ui.menu-press") == MenuMove::press, "press");
+    expect(!oa::app::menu_move_is_travel(MenuMove::none), "none does not travel");
+    expect(!oa::app::menu_move_is_travel(MenuMove::accept), "accept does not travel");
+    expect(!oa::app::menu_move_is_travel(MenuMove::press), "press does not travel");
+    expect(oa::app::menu_move_is_travel(MenuMove::down), "down travels");
+    expect(oa::app::menu_move_is_place(MenuMove::page_up), "page up is a place move");
+    expect(!oa::app::menu_move_is_place(MenuMove::next), "next is not a place move");
+
+    const MenuAction both[] = {
+        MenuAction{"ui.screen-up", MenuMovePhase::down},
+        MenuAction{"ui.screen-page-up", MenuMovePhase::down},
+    };
+    const auto page = oa::app::menu_move_fired(both, 2, MenuMoveCount::down);
+    expect(page.move == MenuMove::page_up, "page up beats a screen arrow");
+    expect(page.id == "ui.screen-page-up", "the reported id is page up");
+
+    const MenuAction released[] = {
+        MenuAction{"ui.menu-focus-next", MenuMovePhase::released},
+    };
+    expect(
+        oa::app::menu_move_fired(released, 1, MenuMoveCount::down).move == MenuMove::none,
+        "a release is not a press"
+    );
+    expect(
+        oa::app::menu_move_fired(released, 1, MenuMoveCount::with_release).move == MenuMove::next,
+        "a release counts when the order asks"
+    );
+    const MenuAction held[] = {
+        MenuAction{"ui.menu-focus-left", MenuMovePhase::other},
+    };
+    expect(
+        oa::app::menu_move_fired(held, 1, MenuMoveCount::with_release).move == MenuMove::none,
+        "a hold is not a press or a release"
+    );
+    expect(
+        oa::app::menu_move_fired(held, 1, MenuMoveCount::every).move == MenuMove::left,
+        "a hold counts for the main menu's order"
+    );
+    const MenuAction repeat[] = {
+        MenuAction{"ui.menu-list-down", MenuMovePhase::repeated},
+    };
+    expect(
+        oa::app::menu_move_fired(repeat, 1, MenuMoveCount::down).move == MenuMove::down,
+        "a repeat is a press"
+    );
+    const MenuAction ranked[] = {
+        MenuAction{"ui.menu-accept", MenuMovePhase::down},
+        MenuAction{"ui.menu-focus-next", MenuMovePhase::repeated},
+    };
+    const auto next = oa::app::menu_move_fired(ranked, 2, MenuMoveCount::down);
+    expect(
+        next.move == MenuMove::next && next.id == "ui.menu-focus-next", "next button is named first"
+    );
+    expect(
+        oa::app::menu_move_fired(nullptr, 4, MenuMoveCount::every).move == MenuMove::none,
+        "no events"
+    );
+}
+
 } // namespace
 
 int main() {
     using namespace oa::app;
+    check_menu_move();
     static ScreenRegistry registry{};
     ScreenDesc screen{};
     screen.id = kFirstPackageScreen;

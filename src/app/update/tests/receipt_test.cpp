@@ -4,7 +4,8 @@
 // The receipt the helper leaves for the game: its names, the outcome a
 // failed run leaves, which outcomes hold a release, a round trip through the
 // file, and the receipts that are refused. Also the state file's quit
-// marker and how a watched start ended. A scratch folder holds the files.
+// marker, how a watched start ended, and when a quit hands a release to the
+// helper. A scratch folder holds the files.
 
 #include "oa/app/update/plan.hpp"
 #include "oa/app/update/receipt.hpp"
@@ -306,6 +307,97 @@ void the_quit_marker_in_the_file() {
     OA_CHECK(!update::read_state(bytes_of(wrong), &error).has_value());
 }
 
+/// The receipt a helper another copy started leaves when the silent setup
+/// could not replace the game and the kept files could not go back.
+update::Receipt left_half_moved() {
+    update::Receipt receipt = sample();
+    receipt.outcome = update::Outcome::recovery_incomplete;
+    receipt.started_at = 1793000600;
+    receipt.finished_at = 1793000660;
+    return receipt;
+}
+
+void a_quit_hands_over_only_what_this_run_saw() {
+    update::HandOffFacts facts;
+    facts.now = 1793001000;
+    // Nothing on disk, nothing seen: the release is handed over.
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::none);
+    // The receipt this run read at its start, unchanged: handed over, even
+    // when it is a failure of this release the player chose to try again.
+    facts.receipt = sample();
+    facts.seen = sample();
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::none);
+    facts.seen->shown = true;
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::none);
+    // The journal and the marker a failure this run read left are the next
+    // helper's to put back first; refusing on them alone would never end.
+    facts.journal = true;
+    facts.installer_pending = true;
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::none);
+
+    // Another copy's helper failed this release since this run read the
+    // receipt, and left the files half-moved: this copy does not hand it over.
+    facts.receipt = left_half_moved();
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::left_unfinished);
+    facts.journal = false;
+    facts.installer_pending = false;
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::receipt_changed);
+    // A receipt that appeared after a start that saw none.
+    facts.seen.reset();
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::receipt_changed);
+    // The same run at another point: running then, failed now.
+    update::Receipt running = left_half_moved();
+    running.outcome = update::Outcome::running;
+    facts.seen = running;
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::receipt_changed);
+
+    // A helper at work, whatever this run saw, until it is cut short.
+    facts.receipt = running;
+    facts.receipt->started_at = facts.now - 60;
+    facts.seen = facts.receipt;
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::helper_at_work);
+    facts.receipt->started_at = facts.now - update::receipt_cut_short_seconds;
+    facts.seen = facts.receipt;
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::none);
+
+    // A held release waits for Try again.
+    facts.held = true;
+    OA_CHECK(update::hand_off_stop(facts) == update::HandOffStop::held);
+
+    OA_CHECK(update::same_helper_run(std::nullopt, std::nullopt));
+    OA_CHECK(!update::same_helper_run(sample(), std::nullopt));
+    update::Receipt other_release = sample();
+    other_release.release = 13;
+    OA_CHECK(!update::same_helper_run(sample(), other_release));
+}
+
+void the_facts_on_disk() {
+    const fs::path folder = oa::test::make_scratch_directory("update-hand-off");
+    update::HandOffFacts facts;
+    facts.held = true;
+    update::read_hand_off_facts(folder, facts);
+    OA_CHECK(!facts.journal);
+    OA_CHECK(!facts.installer_pending);
+    OA_CHECK(!facts.receipt.has_value());
+    OA_CHECK(facts.held);
+    std::string error;
+    OA_CHECK(
+        update::write_receipt(
+            folder / std::string(update::receipt_file_name), left_half_moved(), &error
+        )
+    );
+    std::ofstream(folder / std::string(update::journal_file_name)) << "{}";
+    std::ofstream(folder / std::string(update::installer_pending_name)) << "C:\\Games\\OA";
+    update::read_hand_off_facts(folder, facts);
+    OA_CHECK(facts.journal);
+    OA_CHECK(facts.installer_pending);
+    OA_CHECK(facts.receipt && same(*facts.receipt, left_half_moved()));
+    OA_CHECK(std::string(update::journal_file_name) == "journal.json");
+    OA_CHECK(std::string(update::installer_pending_name) == "installer-pending");
+    std::error_code removed;
+    fs::remove_all(folder, removed);
+}
+
 } // namespace
 
 int main() {
@@ -317,5 +409,7 @@ int main() {
     file_round_trip();
     a_quit_is_not_a_failed_start();
     the_quit_marker_in_the_file();
+    a_quit_hands_over_only_what_this_run_saw();
+    the_facts_on_disk();
     return oa::test::check_exit_status();
 }

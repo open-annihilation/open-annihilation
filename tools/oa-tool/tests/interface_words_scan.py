@@ -573,6 +573,7 @@ def module_of(rel: str) -> str | None:
         ("src/ui/game-files/", "game-files"),
         ("src/ui/folder-chooser/", "folder-chooser"),
         ("src/ui/touch-hud/", "touch-hud"),
+        ("src/ui/photo-panel/", "photo-panel"),
         ("src/netgame/match/", "net-match"),
         ("src/ui/kit/", "engine-settings"),
         ("src/data/mod-profile/", "engine-settings"),
@@ -713,6 +714,13 @@ MODULES = (
         "oa::netgame::match",
         "src/netgame/match/include/oa/netgame/match/interface_words.hpp",
         "network play's notices",
+        False,
+    ),
+    (
+        "photo-panel",
+        "oa::ui::photo_panel",
+        "src/ui/photo-panel/include/oa/ui/photo_panel/interface_words.hpp",
+        "the photo panel",
         False,
     ),
     (

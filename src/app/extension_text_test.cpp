@@ -27,6 +27,15 @@ namespace {
 
 namespace settings = oa::ui::engine_settings;
 
+// A face's value never moves: a face added later takes the next one, whatever
+// place the chain looks in it.
+static_assert(static_cast<int>(oa::app::ModernTextFace::sans_bold) == 0);
+static_assert(static_cast<int>(oa::app::ModernTextFace::sans) == 1);
+static_assert(static_cast<int>(oa::app::ModernTextFace::endonyms) == 2);
+static_assert(static_cast<int>(oa::app::ModernTextFace::emoji) == 3);
+static_assert(static_cast<int>(oa::app::ModernTextFace::endonyms_bengali) == 4);
+static_assert(oa::app::modern_text_face_count == 5);
+
 /// What the stub was handed.
 struct Recorded {
     int calls{};
@@ -100,12 +109,16 @@ chain_face(const oa::app::ModernTextChain& chain, oa::app::ModernTextFace face) 
     return nullptr;
 }
 
-/// The chain's rows are the greatest rows of its faces.
+/// The chain's rows are the greatest rows of its faces, the Bengali endonym
+/// face apart: its descent is deeper than the others', and it never changes
+/// the rows of a line.
 void chain_rows_are_its_faces(const oa::app::ModernTextChain& chain) {
     int32_t ascent = 0;
     int32_t descent = 0;
     for (int32_t index = 0; index < chain.count; ++index) {
         const oa::app::ModernFaceMetrics& face = chain.faces[static_cast<std::size_t>(index)];
+        if (face.face == oa::app::ModernTextFace::endonyms_bengali)
+            continue;
         ascent = std::max(ascent, face.ascent);
         descent = std::max(descent, face.descent);
     }
@@ -123,14 +136,18 @@ void chain_at_the_message_log_size() {
     OA_CHECK(chain->faces[0].face == oa::app::ModernTextFace::sans_bold);
     OA_CHECK(chain->faces[1].face == oa::app::ModernTextFace::sans);
     OA_CHECK(chain->faces[2].face == oa::app::ModernTextFace::endonyms);
-    OA_CHECK(chain->faces[3].face == oa::app::ModernTextFace::emoji);
+    OA_CHECK(chain->faces[3].face == oa::app::ModernTextFace::endonyms_bengali);
+    OA_CHECK(chain->faces[4].face == oa::app::ModernTextFace::emoji);
     OA_CHECK(chain->faces[0].pixel_size == 14 && chain->faces[1].pixel_size == 14);
-    OA_CHECK(chain->faces[2].pixel_size == 12 && chain->faces[3].pixel_size == 12);
+    // The Bengali endonym face is drawn at the sans faces' size.
+    OA_CHECK(chain->faces[2].pixel_size == 12 && chain->faces[3].pixel_size == 14);
+    OA_CHECK(chain->faces[4].pixel_size == 12);
     // Rows as the fonts report them at this size. The line is the endonym
-    // face's, which keeps the rows of the face it was cut from.
+    // face's, which keeps the rows of the face it was cut from, and the
+    // Bengali endonym face does not change it.
     OA_CHECK(chain->faces[0].ascent == 13 && chain->faces[0].descent == 4);
     OA_CHECK(chain->faces[2].ascent == 14 && chain->faces[2].descent == 4);
-    OA_CHECK(chain->faces[3].ascent == 12 && chain->faces[3].descent == 3);
+    OA_CHECK(chain->faces[4].ascent == 12 && chain->faces[4].descent == 3);
     OA_CHECK(chain->ascent == 14 && chain->descent == 4);
     chain_rows_are_its_faces(*chain);
 
@@ -139,14 +156,16 @@ void chain_at_the_message_log_size() {
     const auto plain = oa::app::modern_text_chain(regular);
     OA_CHECK(plain.has_value());
     if (plain) {
-        OA_CHECK(plain->count == 3);
+        OA_CHECK(plain->count == 4);
         OA_CHECK(plain->faces[0].face == oa::app::ModernTextFace::sans);
         OA_CHECK(plain->faces[1].face == oa::app::ModernTextFace::endonyms);
-        OA_CHECK(plain->faces[2].face == oa::app::ModernTextFace::emoji);
-        OA_CHECK(plain->faces[3].pixel_size == 0 && plain->faces[3].ascent == 0);
+        OA_CHECK(plain->faces[2].face == oa::app::ModernTextFace::endonyms_bengali);
+        OA_CHECK(plain->faces[3].face == oa::app::ModernTextFace::emoji);
+        OA_CHECK(plain->faces[4].pixel_size == 0 && plain->faces[4].ascent == 0);
         OA_CHECK(plain->faces[0].pixel_size == 14);
         OA_CHECK(plain->faces[0].ascent == 13 && plain->faces[0].descent == 4);
-        OA_CHECK(plain->faces[1].pixel_size == 12 && plain->faces[2].pixel_size == 12);
+        OA_CHECK(plain->faces[1].pixel_size == 12 && plain->faces[2].pixel_size == 14);
+        OA_CHECK(plain->faces[3].pixel_size == 12);
         OA_CHECK(plain->ascent == 14 && plain->descent == 4);
         chain_rows_are_its_faces(*plain);
     }
@@ -176,7 +195,8 @@ void chain_at_the_message_log_size() {
     OA_CHECK(!oa::app::modern_text_chain(none));
 }
 
-/// A mixed line comes from the bold sans, the endonym face and emoji, in that order.
+/// A mixed line comes from the bold sans, the endonym face and emoji, in that
+/// order, and Bengali's letters from the Bengali endonym face.
 void layout_follows_the_chain() {
     const oa::app::ModernTextSize log = oa::app::message_log_text_size(100, 1, false);
     const auto placed = oa::app::modern_text_layout("A\xE4\xB8\xAD\xF0\x9F\x9A\x80", log);
@@ -191,6 +211,14 @@ void layout_follows_the_chain() {
         OA_CHECK((*placed)[2].character == 0x1F680);
         OA_CHECK((*placed)[2].face == oa::app::ModernTextFace::emoji);
         OA_CHECK((*placed)[2].pen == (*placed)[1].pen + (*placed)[1].advance);
+    }
+    // "বা": BA and the vowel sign AA, one syllable.
+    const auto bengali = oa::app::modern_text_layout("\xE0\xA6\xAC\xE0\xA6\xBE", log);
+    OA_CHECK(bengali && bengali->size() == 2);
+    if (bengali && bengali->size() == 2) {
+        OA_CHECK((*bengali)[0].character == 0x09AC && (*bengali)[1].character == 0x09BE);
+        OA_CHECK((*bengali)[0].face == oa::app::ModernTextFace::endonyms_bengali);
+        OA_CHECK((*bengali)[1].face == oa::app::ModernTextFace::endonyms_bengali);
     }
     oa::app::ModernTextSize regular = log;
     regular.bold = false;

@@ -190,6 +190,32 @@ bool hack_listed(const std::vector<std::string>& hacks_on, std::string_view hack
     return false;
 }
 
+/// The bit of a context, or 0 when the name is not one.
+///
+/// @param name the context id
+/// @return the bit
+uint32_t context_bit(std::string_view name) {
+    const std::span<const Context> table = actions::contexts();
+    for (std::size_t index = 0; index < table.size(); ++index) {
+        if (table[index].name == name)
+            return uint32_t{1} << static_cast<uint32_t>(index);
+    }
+    return 0;
+}
+
+/// The bit of a condition, or 0 when the name is not one.
+///
+/// @param name the condition id
+/// @return the bit
+uint32_t condition_bit(std::string_view name) {
+    const std::span<const std::string_view> table = actions::conditions();
+    for (std::size_t index = 0; index < table.size(); ++index) {
+        if (table[index] == name)
+            return uint32_t{1} << static_cast<uint32_t>(index);
+    }
+    return 0;
+}
+
 /// The left button, the one the left-click scheme shares.
 ///
 /// @param chord the chord
@@ -222,6 +248,52 @@ bool resource_row_pair(std::string_view first, std::string_view second) {
     const bool view_first = first == "watch.player-view" && second == "watch.lock-view";
     const bool lock_first = first == "watch.lock-view" && second == "watch.player-view";
     return view_first || lock_first;
+}
+
+/// One of the four keys that change whose view is on show, or how the camera follows.
+///
+/// @param id the action id
+/// @return true for those four
+bool watch_view_action(std::string_view id) {
+    return id == "watch.next-player-view" || id == "watch.previous-player-view" ||
+           id == "watch.whole-view" || id == "watch.camera-mode";
+}
+
+/// A replay action beside one that cannot answer while a replay plays.
+///
+/// The other action's context is play, or it needs a seat. Pause is the
+/// exception: game.pause shares the key and does the same as the replay's pause.
+/// Two replay actions are left to the ordinary rule, so Pin the bar on the
+/// same key as a view action still clashes. The four view keys are replay
+/// keys for this test. A match key on one of those four stays clear: it does
+/// not answer while a replay plays. A watch action, a global action or a
+/// photo action on the same key still clashes.
+///
+/// @param first one side
+/// @param second the other side
+/// @return true when the pair is that case
+bool replay_beside_another(const Side& first, const Side& second) {
+    const bool first_replay = first.id.starts_with("watch.replay-") || watch_view_action(first.id);
+    const bool second_replay =
+        second.id.starts_with("watch.replay-") || watch_view_action(second.id);
+    if (first_replay == second_replay)
+        return false;
+    const Side& other = first_replay ? second : first;
+    const Side& replay = first_replay ? first : second;
+    if ((replay.id == "watch.replay-pause" && other.id == "game.pause") ||
+        (other.id == "watch.replay-pause" && replay.id == "game.pause"))
+        return true;
+    if ((other.when & condition_bit("seat")) != 0)
+        return true;
+    const bool play = (other.contexts & context_bit("play")) != 0;
+    const bool watch = (other.contexts & context_bit("watch")) != 0;
+    const bool match = (other.contexts & context_bit("match")) != 0;
+    const bool global = (other.contexts & context_bit("global")) != 0;
+    if (watch || global)
+        return false;
+    if (play)
+        return !match;
+    return watch_view_action(replay.id) && match;
 }
 
 /// The kind and target of a resolved action. A made action is a press with no target.
@@ -360,9 +432,20 @@ Relation relate(
     }
     if (resource_row_pair(first.id, second.id))
         return relation;
+    if (replay_beside_another(first, second))
+        return relation;
     if (!conditions_meet(first.when, second.when))
         return relation;
+    // A replay action's conditions are stricter than an action with none, which
+    // would otherwise shadow it. Both can answer while the replay plays, so the
+    // editor lists a clash.
+    const bool replay_meets =
+        first.id.starts_with("watch.replay-") || second.id.starts_with("watch.replay-");
     if (layers_meet(first.contexts, second.contexts)) {
+        if (replay_meets) {
+            relation.overlap = Overlap::clash;
+            return relation;
+        }
         if (first.precedence != second.precedence) {
             relation.overlap = Overlap::taken_by_hack;
             relation.first_wins = first.precedence > second.precedence;

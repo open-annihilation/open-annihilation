@@ -503,6 +503,58 @@ class Failure : public std::runtime_error {
 /// @return exit_done, or exit_usage when the arguments are not `--json`
 [[nodiscard]] int run_interface_words(std::span<const std::string> arguments, Output& output);
 
+// The replay commands, defined in replay.cpp.
+
+/// Writes a replay as a `.oademo` or a `.tad`.
+///
+/// `--format` is `oademo` or `tad`, and `--out` names the file. Both are
+/// required. A `.oademo` is written at the export zstd level. A `.tad` is
+/// plain packets, version 5, with no network address; names and statuses
+/// are cut to what TA Demo Recorder reads, and a warning for each cut goes
+/// to the error stream. `--no-oa-sectors` leaves out Open Annihilation's
+/// own sectors, and applies only to a `.tad`. `--force` replaces a file
+/// that already exists.
+///
+/// @param arguments the recording and any options
+/// @param[in,out] output receives the written path, or a usage line
+/// @return exit_done, or exit_usage when the arguments are not the command's
+/// @throws Failure when the recording cannot be read or the file cannot be written
+[[nodiscard]] int run_replay_export(std::span<const std::string> arguments, Output& output);
+
+/// Prints what a `.oademo` or a `.tad` holds.
+///
+/// One positional argument is the file. `--json` prints one JSON object.
+/// A `.tad`'s address sector is left out.
+///
+/// @param arguments the file and any options
+/// @param[in,out] output receives the description, or a usage line
+/// @return exit_done, or exit_usage when the arguments are not the command's
+/// @throws Failure when the file cannot be read
+[[nodiscard]] int run_replay_info(std::span<const std::string> arguments, Output& output);
+
+/// Wraps a `.tad` as a `.oademo`.
+///
+/// The recording is stored as plain packets, and an address sector is left
+/// out. `--level N` is a zstd level from 1 to 22. `--deflate` stores the
+/// recording with deflate. The two are not given together. `--out` names
+/// the file, and `--force` replaces one that already exists.
+///
+/// @param arguments the recording and any options
+/// @param[in,out] output receives the written path, or a usage line
+/// @return exit_done, or exit_usage when the arguments are not the command's
+/// @throws Failure when the recording cannot be read or the replay cannot be written
+[[nodiscard]] int run_replay_pack(std::span<const std::string> arguments, Output& output);
+
+/// Writes a `.oademo`'s recording back as a `.tad`.
+///
+/// `--out` names the file, and `--force` replaces one that already exists.
+///
+/// @param arguments the replay and any options
+/// @param[in,out] output receives the written path, or a usage line
+/// @return exit_done, or exit_usage when the arguments are not the command's
+/// @throws Failure when the replay cannot be read or the file cannot be written
+[[nodiscard]] int run_replay_unpack(std::span<const std::string> arguments, Output& output);
+
 /// Returns the tool's commands, in the order help lists them.
 ///
 /// @return the command table

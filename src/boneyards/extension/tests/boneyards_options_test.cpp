@@ -434,6 +434,18 @@ int main() {
         "the launch check plays the joiner"
     );
     expect(!plain.boneyards.boneyards_launch, "no launch check without the flag");
+    expect(!launch.boneyards.launch_for_fun, "the launch check picks Galactic War");
+    expect(
+        parse({
+                  "--boneyards-replay",
+                  "host.replay",
+                  "--check-boneyards-launch",
+                  "host",
+                  "--boneyards-launch-for-fun",
+              })
+            .boneyards.launch_for_fun,
+        "the launch check can pick For Fun"
+    );
     const auto features =
         parse({"--boneyards-replay", "beta.replay", "--check-boneyards-features", "beta"});
     expect(
@@ -598,6 +610,7 @@ int main() {
           "--boneyards-replay",
           "--boneyards-login",
           "--check-boneyards-launch",
+          "--boneyards-launch-for-fun",
           "--check-boneyards-features",
           "--check-boneyards-unit-limit",
           "--check-boneyards-overlay",

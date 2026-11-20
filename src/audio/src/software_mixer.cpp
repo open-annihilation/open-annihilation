@@ -27,7 +27,7 @@ constexpr float unity_gain = static_cast<float>(int32_t{1} << mixer_gain_bits);
 /// Bits a sample times a gain is shifted down by to join the sum.
 constexpr uint32_t gain_to_sum_bits = mixer_gain_bits - mixer_sum_bits;
 /// Added to the sum before its fraction bits are dropped, so that it rounds to nearest.
-constexpr int32_t sum_rounding = int32_t{1} << (mixer_sum_bits - 1);
+constexpr int64_t sum_rounding = int64_t{1} << (mixer_sum_bits - 1);
 /// Most channels a converted stream keeps: left and right.
 constexpr uint32_t mixed_channels_max = 2;
 /// Converted frames kept before the mixed ones are dropped from the front.
@@ -277,7 +277,7 @@ class MixerStream final : public OutputStream {
     /// @param[in,out] sum the mix, frames * mixer_output_channels samples
     ///        with mixer_sum_bits fraction bits
     /// @param frames frames wanted
-    void add_to(int32_t* sum, uint32_t frames) {
+    void add_to(int64_t* sum, uint32_t frames) {
         if (paused_)
             return;
         uint32_t feed_calls = 0;
@@ -313,19 +313,18 @@ class MixerStream final : public OutputStream {
         const int32_t* from = converted_.data() + converted_read_;
         const int32_t left = left_gain_;
         const int32_t right = right_gain_;
-        // A sample times a gain fits 64 bits; an arithmetic shift rounds it
-        // toward negative infinity.
+        // A sample times a gain fits 64 bits, and so does the sum of any
+        // number of them; an arithmetic shift rounds it toward negative infinity.
         if (channels_ == 1) {
             for (std::size_t i = 0; i < take; ++i, sum += 2) {
                 const int64_t sample = from[i];
-                sum[0] += static_cast<int32_t>((sample * left) >> gain_to_sum_bits);
-                sum[1] += static_cast<int32_t>((sample * right) >> gain_to_sum_bits);
+                sum[0] += (sample * left) >> gain_to_sum_bits;
+                sum[1] += (sample * right) >> gain_to_sum_bits;
             }
         } else {
             for (std::size_t i = 0; i < take; ++i, sum += 2) {
-                sum[0] += static_cast<int32_t>((int64_t{from[2 * i]} * left) >> gain_to_sum_bits);
-                sum[1] +=
-                    static_cast<int32_t>((int64_t{from[2 * i + 1]} * right) >> gain_to_sum_bits);
+                sum[0] += (int64_t{from[2 * i]} * left) >> gain_to_sum_bits;
+                sum[1] += (int64_t{from[2 * i + 1]} * right) >> gain_to_sum_bits;
             }
         }
         converted_read_ += take * channels_;
@@ -428,7 +427,7 @@ void SoftwareMixer::mix(int16_t* out, uint32_t frames) {
     // added first, the sum rounds to nearest.
     for (std::size_t i = 0; i < sum_.size(); ++i)
         out[i] = static_cast<int16_t>(
-            std::clamp((sum_[i] + sum_rounding) >> mixer_sum_bits, sample_min, sample_max)
+            std::clamp<int64_t>((sum_[i] + sum_rounding) >> mixer_sum_bits, sample_min, sample_max)
         );
 }
 

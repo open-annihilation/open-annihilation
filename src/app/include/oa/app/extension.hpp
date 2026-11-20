@@ -23,9 +23,11 @@
 //   register_screens, register_settings_pages, ready,
 //   check_multiplayer_menu, frame, match_game,
 //   match_event, check_console, draw_loading, draw_match_hud,
-//   draw_match_overlay, pause_changed, load_progress, speed_changed and
-//   app_mode_set; also message_hooks, console_host and team_panel_host,
-//   whose entries are single owners (below);
+//   draw_match_overlay, pause_changed, load_progress, speed_changed,
+//   app_mode_set, replay_frame, replay_hold, replay_play, replay_pause,
+//   replay_set_speed, replay_step_speed and replay_seek; also
+//   message_hooks, console_host and team_panel_host, whose entries are
+//   single owners (below);
 // - every extension, in reverse list order: shutdown and release_runtime;
 // - the first that takes it, asking the last extension in the list first:
 //   take_option (the option goes to the first that takes it, with that
@@ -34,8 +36,8 @@
 //   phase), start_scene, simulation_step, give_resources, player_gone,
 //   close_requested, open_recording (each extension asked is given replay
 //   and info all zero, and only the one that takes the recording fills the
-//   caller's) and select_multiplayer (the first answer other than
-//   unavailable);
+//   caller's), select_multiplayer (the first answer other than
+//   unavailable) and replay_state;
 // - the first answer, asking the last extension in the list first: the
 //   first that is not null for disconnect_text and for text's usage_note
 //   and register_switch (an empty text is an answer), and the first that
@@ -96,9 +98,12 @@
 //   error (the game's log when it plays), "open-annihilation: extension
 //   hook <hook>: <message>"; the same line again is printed only when its
 //   count reaches a power of two, with the count;
-// - must not throw: speed_changed, app_mode_set, release_runtime and the
-//   hooks of ReplayHooks. One that throws all the same is reported as a reported
-//   hook is, and the engine carries on as it does when the hook is null.
+// - must not throw: speed_changed, app_mode_set, release_runtime, the
+//   hooks of ReplayHooks, and the replay viewer's hooks replay_frame,
+//   replay_hold, replay_play, replay_pause, replay_set_speed,
+//   replay_step_speed, replay_seek and replay_state. One that throws is
+//   reported as a reported hook is, and the engine carries on as it does
+//   when the hook is null.
 // Every other hook's error is raised. When several extensions fill a hook,
 // those after the one that threw are not called for that call.
 // docs/development/conventions.md states this rule for the extension table
@@ -237,7 +242,36 @@
 /// text_length, scroll_up and scroll_down members, and the calls
 /// answer_multiplayer_entry, defer_inactive_loop_release,
 /// post_extension_note and take_extension_notes. None is a hook.
-#define OA_EXTENSION_API_VERSION 20
+/// Version 21 adds the accessibility fields on a control (its role, label,
+/// description, value, range, place in a set, shortcut, live announcement
+/// and the states chosen, expanded, pressed, hidden and modal) and the same
+/// facts on the kit's automation entries. kit::Control gains label, search,
+/// place and set_size, before parts, and the kit gains kit::AccessRole. It
+/// is not a hook: the engine does not call it. The Boneyards module fills
+/// hidden on its planets while a console covers the map.
+/// Version 21 also adds the replay viewer's hooks, after release_runtime:
+/// replay_frame, replay_hold, replay_play, replay_pause, replay_set_speed,
+/// replay_step_speed, replay_seek and replay_state, with ReplayFrameHost
+/// and ReplayPlaybackView.
+/// Version 21 also adds the rectangle where an extension window's art takes
+/// the press: ExtensionWindow's press_x, press_y, press_width and
+/// press_height. A width or a height of zero means the window states no
+/// such place. A screen button that lies wholly inside it is listed hidden
+/// and stays enabled as the screen reported it. It is not a hook: the
+/// engine does not call it.
+/// Version 21 also adds ScreenServices::main_menu_order_owns_key. The
+/// main-menu overlay calls it. While it answers, the host owns that key:
+/// the overlay drops its focus and passes the key on. The engine fills it.
+/// No extension fills it. It is not a hook.
+/// Version 21 also adds ScreenServices::bound_focus_action. The multiplayer
+/// screens call it for the focus, list and screen action a key fires, and
+/// for whether the family's ring is showing. The engine fills it. No
+/// extension fills it. It is not a hook.
+/// Version 21 also adds spoken_updates_open, which an extension asks before
+/// it composes a spoken line, and post_extension_note's kinds line, room,
+/// place, muzzle and hear, which go to spoken updates only and are never
+/// returned by take_extension_notes. Neither is a hook.
+#define OA_EXTENSION_API_VERSION 21
 
 namespace oa {
 struct Game;
@@ -245,6 +279,10 @@ struct Player;
 struct Surface;
 struct World;
 } // namespace oa
+
+namespace oa::sim::match_runtime {
+class Match;
+}
 
 namespace oa::app::command_line {
 struct SwitchHandler;
@@ -529,6 +567,64 @@ struct ReplayHooks {
     ///
     /// @param context ReplayHooks::context
     void (*close)(void* context){};
+};
+
+/// One stretch of a replay a keyframe can jump into. The ends are included.
+struct ReplayReadySpan {
+    uint32_t begin{};
+    uint32_t end{};
+};
+
+/// What a caller reads about the replay being watched.
+///
+/// `unavailable` and `ready` stay valid until the next call that fills this
+/// view. `catch_up_percent` is -1 while no catch-up is running.
+struct ReplayPlaybackView {
+    uint32_t tick{};
+    uint32_t length_known{};
+    uint32_t furthest{};
+    uint32_t asked_milli{};   ///< 1000 at 1x; 0 while skipping
+    uint32_t reached_milli{}; ///< the speed the last paced frame reached
+    bool reached_lower{};
+    bool paused{};
+    bool skipping{};
+    int32_t catch_up_percent{-1};
+    const char* unavailable{}; ///< null or "" while a jump can run
+    const ReplayReadySpan* ready{};
+    std::size_t ready_count{};
+};
+
+/// What the engine hands a replay frame so the viewer can step the match.
+///
+/// `context` is the runtime. None of these throws; a tick that fails is
+/// reported through note_error. The pointers are the engine's, and a replay
+/// calls them only during replay_frame.
+struct ReplayFrameHost {
+    void* context{};
+    /// The match being watched, or null when none is running.
+    oa::sim::match_runtime::Match* (*match)(void* context){};
+    /// The tick the match clock last presented.
+    uint32_t (*clock_tick)(void* context){};
+    /// Sets that tick after a restore, so the next frame presents from there.
+    void (*set_clock_tick)(void* context, uint32_t tick){};
+    /// Runs one tick. `draw` false leaves its unit sounds and effects out.
+    ///
+    /// @return false when the tick did not run
+    bool (*run_tick)(void* context, bool draw){};
+    /// Expires the frame's messages and snaps the held clock after the ticks.
+    void (*present)(void* context, uint32_t ticks_before){};
+    /// Milliseconds the unit-sound gate counts.
+    uint32_t (*sound_millis)(void* context){};
+    /// Turns unit speech on or off for the ticks ahead.
+    void (*set_unit_speech)(void* context, bool on){};
+    /// Whether unit speech is on.
+    bool (*unit_speech)(void* context){};
+    /// Reports a tick the frame could not finish.
+    void (*note_error)(void* context, const char* what){};
+    /// Asks the engine to leave the match once this frame's hook returns.
+    void (*stop)(void* context){};
+    /// Posts a line to the match's message log. An empty line posts nothing.
+    void (*tell)(void* context, const char* line){};
 };
 
 struct Extension {
@@ -1171,6 +1267,88 @@ struct Extension {
     /// @param context Extension::context
     /// @param runtime the runtime being destroyed
     void (*release_runtime)(void* context, Runtime& runtime){};
+
+    /// Runs one frame of a replay the viewer is watching.
+    ///
+    /// Called when the match clock would have stepped and the replay bit is
+    /// set, in place of that clock. Pause, an open menu and the end of a jump
+    /// hold no time for a later frame. It must not throw; one that throws is
+    /// reported (file header) and the engine carries on.
+    ///
+    /// @param context Extension::context
+    /// @param runtime the running app
+    /// @param now_ms the frame's clock, in milliseconds
+    /// @param host how the frame steps, draws and stops the match
+    void (*replay_frame)(
+        void* context, Runtime& runtime, uint32_t now_ms, const ReplayFrameHost& host
+    ){};
+
+    /// Forgets the time an open menu held, so the next frame is one frame.
+    ///
+    /// Called when the match clock does not step. It must not throw; one that
+    /// throws is reported (file header) and the engine carries on.
+    ///
+    /// @param context Extension::context
+    /// @param runtime the running app
+    /// @param now_ms the frame's clock, in milliseconds
+    void (*replay_hold)(void* context, Runtime& runtime, uint32_t now_ms){};
+
+    /// Plays a paused replay. The world's pause bit is the pause. It must not
+    /// throw; one that throws is reported (file header) and the engine carries on.
+    ///
+    /// @param context Extension::context
+    /// @param runtime the running app
+    void (*replay_play)(void* context, Runtime& runtime){};
+
+    /// Pauses the replay. The world's pause bit is the pause. It must not
+    /// throw; one that throws is reported (file header) and the engine carries on.
+    ///
+    /// @param context Extension::context
+    /// @param runtime the running app
+    void (*replay_pause)(void* context, Runtime& runtime){};
+
+    /// Sets the speed the replay is watched at, in thousandths of 1x.
+    ///
+    /// 500, 1000, 2000, 4000, 8000 and 16000 are the ladder. Another value
+    /// changes nothing. It must not throw; one that throws is reported (file
+    /// header) and the engine carries on.
+    ///
+    /// @param context Extension::context
+    /// @param runtime the running app
+    /// @param milli the speed, 1000 at 1x
+    void (*replay_set_speed)(void* context, Runtime& runtime, int32_t milli){};
+
+    /// Steps that speed one place up or down the ladder.
+    ///
+    /// It must not throw; one that throws is reported (file header) and the
+    /// engine carries on. Skip is not on the ladder, so a step during a jump
+    /// changes the speed underneath it.
+    ///
+    /// @param context Extension::context
+    /// @param runtime the running app
+    /// @param delta positive to go faster, negative to go slower
+    void (*replay_step_speed)(void* context, Runtime& runtime, int32_t delta){};
+
+    /// Asks to jump to a tick. A jump already waiting or running is replaced,
+    /// and the latest target is the one that runs. It must not throw; one that
+    /// throws is reported (file header) and the engine carries on.
+    ///
+    /// @param context Extension::context
+    /// @param runtime the running app
+    /// @param tick the tick to land on
+    void (*replay_seek)(void* context, Runtime& runtime, uint32_t tick){};
+
+    /// Fills what a caller reads about the replay. The first extension that
+    /// returns true has filled `out`.
+    ///
+    /// It must not throw; one that throws is reported (file header) and the
+    /// engine carries on as for a hook that returned false.
+    ///
+    /// @param context Extension::context
+    /// @param runtime the running app
+    /// @param[out] out the view, unchanged when this returns false
+    /// @return true when a replay is being watched and `out` was filled
+    bool (*replay_state)(void* context, Runtime& runtime, ReplayPlaybackView* out){};
 };
 
 /// Returns the player's own folder of a runtime: where that run keeps the
@@ -1242,7 +1420,9 @@ void set_unit_limit(Runtime& runtime, int32_t units_per_player, SettingScope sco
 /// With no multiplayer map, plays the big-button sound and shows the notice
 /// that multiplayer is not available, then returns true. When the mod cannot
 /// start a game, plays that sound, shows that warning, and returns true.
-/// Otherwise returns false, and the extension opens multiplayer itself.
+/// Then asks the extensions (`select_multiplayer`). When one has taken the
+/// game over, returns true, and the caller leaves the main menu as it is.
+/// Otherwise returns false, and the caller opens multiplayer itself.
 ///
 /// It is not a hook: the engine does not call it, and no extension fills it.
 ///
@@ -1309,24 +1489,26 @@ void defer_inactive_loop_release(bool defer);
 [[nodiscard]] bool open_web_address(const char* address);
 
 /// One font of the modern text stack. The values match the font stack's
-/// base faces. A line looks in them in the chain's order, which places the
-/// endonym face before emoji.
+/// base faces, so a value never moves when a face is added: a new face takes
+/// the next. A line looks in the faces in the chain's order, not the values',
+/// and that order places both endonym faces before emoji.
 enum class ModernTextFace : uint8_t {
-    sans_bold, ///< Latin, Greek, Cyrillic and symbols, bold
-    sans,      ///< the same scripts with more characters, regular
-    endonyms,  ///< languages' own names and the notice before a pack is installed
-    emoji,     ///< emoji, drawn in one colour like any character
+    sans_bold,        ///< Latin, Greek, Cyrillic and symbols, bold
+    sans,             ///< the same scripts with more characters, regular
+    endonyms,         ///< languages' own names and the notice before a pack is installed
+    emoji,            ///< emoji, drawn in one colour like any character
+    endonyms_bengali, ///< Bengali's own name and the notice before its pack is installed
 };
 
 /// How many fonts the modern text stack holds.
-inline constexpr int modern_text_face_count = 4;
+inline constexpr int modern_text_face_count = 5;
 
 /// The pixel size a modern line is drawn at.
 ///
-/// pixel_size is the sans faces' pixels per em. The endonym and emoji faces
-/// take their own sizes from it. least_cjk_pixel_size holds an
-/// ideograph-sized face to a least size, or 0 to leave it at the size
-/// derived from pixel_size.
+/// pixel_size is the sans faces' pixels per em, and the Bengali endonym face's.
+/// The endonym and emoji faces take their own sizes from it.
+/// least_cjk_pixel_size holds an ideograph-sized face to a least size, or 0 to
+/// leave it at the size derived from pixel_size.
 struct ModernTextSize {
     /// pixels per em of the sans faces
     int32_t pixel_size{14};
@@ -1348,10 +1530,11 @@ struct ModernFaceMetrics {
 /// The modern faces a line looks in, and the rows of that line.
 ///
 /// count faces are filled, in fallback order. Entries at and after count are
-/// zero. A bold line looks in all four faces; a regular line looks in the
-/// regular sans face, then the endonym face, then emoji.
+/// zero. A bold line looks in all five faces; a regular line looks in the
+/// regular sans face, then the endonym faces, then emoji.
 /// ascent and descent are the rows of the line the game draws, which fit
-/// every face of the chain.
+/// every face of the chain but the Bengali endonym face, whose descent is
+/// deeper: it never changes the rows of a line.
 struct ModernTextChain {
     std::array<ModernFaceMetrics, modern_text_face_count> faces{};
     int32_t count{};
@@ -1550,6 +1733,44 @@ enum class ExtensionControlKind : uint8_t {
     image,      ///< a picture that takes no pointer
 };
 
+/// What a control is to a screen reader, beside ExtensionControlKind.
+///
+/// The values match AutomationControlRole, in the same order. `switch_control`
+/// is written "switch". Leave `role_set` false to have the host fill the role
+/// from `kind`.
+enum class ExtensionControlRole : uint8_t {
+    none,           ///< decoration, or not chosen yet
+    button,         ///< a push button
+    check_box,      ///< a box that is on or off
+    switch_control, ///< a switch
+    radio_group,    ///< a strip or a row, with one part chosen
+    radio,          ///< one part of a strip or a row
+    tab_list,       ///< a row of tabs
+    tab,            ///< one tab
+    list,           ///< a list of rows
+    list_item,      ///< one row
+    tree,           ///< a tree of rows
+    tree_item,      ///< one row of a tree
+    text_field,     ///< a field that takes typed text
+    password,       ///< a masked field
+    search,         ///< a search field
+    slider,         ///< a slider or a scroll bar
+    log,            ///< a log of lines
+    dialog,         ///< a dialog
+    alert_dialog,   ///< a message box
+    group,          ///< a group of controls
+    image,          ///< a picture with a meaning
+    link,           ///< a link
+    label,          ///< words that take no pointer
+};
+
+/// How a change of a control is announced. The values match AutomationLive.
+enum class ExtensionLive : uint8_t {
+    off,       ///< a change is not announced
+    polite,    ///< a change waits for a pause
+    assertive, ///< a change is announced at once
+};
+
 /// One control of a window an extension shows.
 ///
 /// Its place is on the game's canvas, in that canvas's pixels, as the
@@ -1564,8 +1785,12 @@ struct ExtensionControl {
     bool visible{true};          ///< it is shown
     bool enabled{true};          ///< it takes a click
     bool focused{};              ///< it holds the keyboard focus
-    bool checked{};              ///< a check box is checked
-    std::string text;            ///< its caption, its label's text or a field's typed text
+    /// The window itself holds the focus. A reported first stop sets
+    /// `focused` and leaves this false, so the family's ring is not drawn
+    /// around a stop the window did not focus.
+    bool holds_focus{};
+    bool checked{};   ///< a check box is checked
+    std::string text; ///< its caption, its label's text or a field's typed text
     /// A masked field. `text` stays empty. `text_length` is the characters it holds.
     bool masked{};
     int32_t text_length{};
@@ -1578,12 +1803,44 @@ struct ExtensionControl {
     std::string scroll_up;
     /// A list's control that scrolls toward its end.
     std::string scroll_down;
+    /// Set when `role` was chosen. Otherwise the host fills it from `kind`.
+    bool role_set{};
+    ExtensionControlRole role{ExtensionControlRole::none}; ///< what a screen reader calls it
+    std::string label;                                     ///< words a player hears
+    std::string description;                               ///< more words about it
+    std::string value_text;                                ///< its value as words
+    bool has_value{};                                      ///< `value` is set
+    int32_t value{};                                       ///< a slider's position
+    bool has_range{};                       ///< `range_least`, `range_most` and `step` are set
+    int32_t range_least{};                  ///< the least value
+    int32_t range_most{};                   ///< the greatest value
+    int32_t step{};                         ///< how far one step moves the value
+    int32_t place{};                        ///< its place in a set, from 1; 0 when it has none
+    int32_t set_size{};                     ///< how many share the set; 0 when it has none
+    std::string shortcut;                   ///< a quick key or a bound key
+    ExtensionLive live{ExtensionLive::off}; ///< how a change of it is announced
+    bool chosen{};                          ///< it is the chosen one of a group
+    bool expanded{};                        ///< a tree row is open
+    bool pressed{};                         ///< a switch is on
+    /// It is covered. It stays listed and does not take a click.
+    bool hidden{};
+    bool modal{}; ///< it belongs to a dialog that covers what is behind it
 };
 
 /// One window an extension shows over the game, and the controls on it.
+///
+/// The press rectangle is the place where the window's art takes the press.
+/// A width or a height of zero means the window states no such place. A
+/// screen button that lies wholly inside it is listed hidden, and stays
+/// enabled as the screen reported it. The window's own controls stay as
+/// they are, and nothing is drawn differently.
 struct ExtensionWindow {
     std::string name;                       ///< as the extension spells it; empty is left out
     std::vector<ExtensionControl> controls; ///< its controls, in the extension's order
+    int32_t press_x{};                      ///< where its art takes the press, left column
+    int32_t press_y{};                      ///< where its art takes the press, top row
+    int32_t press_width{};                  ///< that place's width; zero states none
+    int32_t press_height{};                 ///< that place's height; zero states none
 };
 
 /// Lists the windows an extension shows, for a program driving the game.
@@ -1606,7 +1863,9 @@ using ExtensionWindowSource =
 /// on the thread that runs main(), and copies what they append before it
 /// calls the next. At most 16 sources are kept. A call may come from any
 /// hook. The windows are listed ahead of the screen's own controls, since
-/// they take the pointer over the screen.
+/// they take the pointer over the screen. A window may state the rectangle
+/// where its art takes the press; a screen button wholly inside it is
+/// listed hidden.
 ///
 /// It is not a hook: the engine does not call it, and no extension fills it.
 ///
@@ -1615,10 +1874,25 @@ using ExtensionWindowSource =
 /// @param source the list of windows; null removes the source for `context`
 void set_extension_window_source(Runtime& runtime, void* context, ExtensionWindowSource source);
 
+/// Whether spoken updates will be heard.
+///
+/// True under the screen-reader preference `on`, or under `auto` while a
+/// screen reader is running; never under `off`. A module asks before it
+/// composes a spoken line, so a closed gate reads no catalogue and posts no
+/// line. The call does not throw. It is not a hook.
+///
+/// @return true when a spoken line would be announced
+[[nodiscard]] bool spoken_updates_open();
+
 /// Posts a short note a program driving the game can read as an event.
 ///
 /// `kind` and `text` are copied. At most 256 notes are kept; an older one
-/// is dropped. A null or empty kind is ignored. The call does not throw.
+/// is dropped. A null or empty kind is ignored. Kinds `line`, `room`,
+/// `place`, `muzzle` and `hear` are copied into the spoken inbox and not
+/// this ring: the feed never reads them, and a full room must not push the
+/// feed's own notes out. While spoken updates are closed
+/// (`spoken_updates_open`), the inbox takes only `muzzle` and `hear`, so a
+/// player's mute is known when a reader starts. The call does not throw.
 /// It is not a hook. A call may come from any hook.
 ///
 /// @param runtime the running app

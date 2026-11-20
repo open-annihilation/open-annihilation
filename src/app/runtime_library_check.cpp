@@ -1717,10 +1717,18 @@ void Runtime::check_library() {
             "the Updates tab did not open on its four updates" + on
         );
         run_frame(running);
+        // With Replays second the filters may lie below the section list's
+        // fold at 640x480: they are listed, scrolled out of view.
+        const auto listed = [this](std::string_view name) {
+            std::vector<AutomationControl> controls;
+            oa_layer().automation_controls(controls);
+            return std::any_of(controls.begin(), controls.end(), [&](const AutomationControl& c) {
+                return c.name == name;
+            });
+        };
         require(
             named("oa.library.action.update-all").has_value() &&
-                (named("oa.library.filter").has_value() ||
-                 named("oa.library.filter.updates").has_value()),
+                (named("oa.library.filter").has_value() || listed("oa.library.filter.updates")),
             "the Updates tab shows no UPDATE ALL or no filters" + on
         );
         snapshot("updates-" + size);
@@ -2432,24 +2440,27 @@ void Runtime::check_library() {
         return std::nullopt;
     };
 
-    // Opening the Library puts the text focus in the tab's search.
+    // Opening the Library puts the text focus in the tab's search, and draws
+    // the ring. The tree names that control whether or not the ring is drawn.
     const std::optional<AutomationControl> search_open = named("oa.library.search");
     require(
-        search_open.has_value() && search_open->focused,
+        search_open.has_value() && search_open->focused && search_open->focus_shown,
         "opening the Library left its search without the focus"
     );
     std::cout << "library check: opening the Library focuses its search\n";
-    // Y gives it the focus again once the focus has gone.
+    // Hiding the ring leaves the search focused. Y draws the ring on it again.
     host.state.interaction.focus_shown = false;
     run_frame(running);
     const std::optional<AutomationControl> search_before = named("oa.library.search");
     require(
-        search_before.has_value() && !search_before->focused,
-        "the search was missing or kept the focus"
+        search_before.has_value() && search_before->focused && !search_before->focus_shown,
+        "the search was missing or kept its ring"
     );
     tap_pad(SDL_GAMEPAD_BUTTON_NORTH);
     const std::optional<AutomationControl> search = named("oa.library.search");
-    require(search.has_value() && search->focused, "Y did not focus the search");
+    require(
+        search.has_value() && search->focused && search->focus_shown, "Y did not focus the search"
+    );
     std::cout << "library check: pad Y focuses the search\n";
 
     require(host.model.tab == library::Tab::updates, "Y left the Updates tab");

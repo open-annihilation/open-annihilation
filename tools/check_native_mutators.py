@@ -47,6 +47,7 @@ import threading
 import time
 
 import check_native_automation as automation
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -56,7 +57,11 @@ START_FAILED = "Skirmish start failed: "
 UNIT_LINE = re.compile(r"^tick=(\d+) slot=\d+ type=\d+ owner=(\d+) .* health=(-?\d+)")
 RUN_TIMEOUT = 300
 # The first line of a preferences file.
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 # The preference that sets the clash mode a mutator's manifest leaves unset.
 CLASH_DEFAULT = "mutators.clash-default"
 # The health ridge-commander-copy gives its copy of CORCOM.
@@ -531,10 +536,16 @@ class HostedGame:
         environment = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy",
                            SDL_RENDER_DRIVER="software")
         fark_file.parent.mkdir(parents=True, exist_ok=True)
+        preferences = workdir / f"{name}.conf"
+        if not preferences.exists():
+            # No preferences means the defaults, which leave both online checks on.
+            preferences.write_text(PREFERENCES_HEADER + "\n", encoding="utf-8")
+        data_dir = workdir / f"{name}.data"
+        data_dir.mkdir(exist_ok=True)
         command = [
             *RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
-            "--preferences-file", str(workdir / f"{name}.conf"), "--user-folder", str(user),
-            "--fark", "--fark-file", str(fark_file), *arguments,
+            "--preferences-file", str(preferences), "--user-folder", str(user),
+            "--data-dir", str(data_dir), "--fark", "--fark-file", str(fark_file), *arguments,
         ]
         self.process = subprocess.Popen(
             command, cwd=workdir, env=environment, stdout=subprocess.PIPE,

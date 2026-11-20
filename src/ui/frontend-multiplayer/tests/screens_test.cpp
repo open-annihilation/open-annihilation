@@ -23,6 +23,7 @@
 #include "oa/netgame/records.hpp"
 #include "oa/present/palette_tables.hpp"
 #include "oa/ui/frontend_renderer.hpp"
+#include "oa/ui/gui_layout/gui_gadget.hpp"
 #include "oa/ui/frontend_multiplayer/presence_card.hpp"
 #include "oa/ui/frontend_multiplayer/map_list.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
@@ -74,7 +75,32 @@ struct Host {
     int frontend_state = -1;
     int frontend_signal = -1;
     int frontend_passes = 0;
+    /// The family's ring, as the layer would report it before this key.
+    bool ring_shown = false;
+    /// The pixel the pointer last rested on, counted as the layer counts it.
+    bool pointer_known = false;
+    int32_t pointer_x = 0;
+    int32_t pointer_y = 0;
+    /// A focus action a key fires instead of the game's own. An empty value
+    /// fires none. A key that is absent keeps the game's own.
+    std::map<uint64_t, std::string> focus_overrides;
+    /// The screen asked about the last key, and the action it was given:
+    /// empty when none fired or it asked only for the ring. The ring
+    /// follows that answer, as the layer's does.
+    bool focus_asked = false;
+    std::string focus_given;
 };
+
+void note_screen_opened(Host& host);
+void note_pointer_ring(Host& host, float x, float y);
+void note_key_ring(Host& host, uint32_t key, uint16_t modifiers);
+int bound_focus_action(
+    void* host,
+    const oa::app::ScreenInput* input,
+    char* action,
+    std::size_t capacity,
+    int* ring_shown
+);
 
 void request_screen(void* host, ScreenId id) {
     static_cast<Host*>(host)->requested = id;
@@ -92,8 +118,13 @@ void write_number(void*, const char*, const char*, uint32_t) {
 }
 
 int read_string(void* host, const char* section, const char* key, char* out, std::size_t capacity) {
+    if (host == nullptr || key == nullptr || out == nullptr || capacity == 0)
+        return 0;
+    // A null section is the preference key whole, as the screens read
+    // Always show focus. Any other lookup is section|key.
+    const std::string id = section == nullptr ? std::string(key) : std::string(section) + "|" + key;
     const auto& strings = static_cast<Host*>(host)->strings;
-    const auto found = strings.find(std::string(section) + "|" + key);
+    const auto found = strings.find(id);
     if (found == strings.end() || found->second.size() >= capacity)
         return 0;
     std::memcpy(out, found->second.c_str(), found->second.size() + 1);
@@ -140,7 +171,12 @@ constexpr oa::app::ScreenServices kServices{
     nullptr,
     nullptr,
     nullptr,
-    run_frontend
+    run_frontend,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    bound_focus_action
 };
 
 struct Driver {
@@ -166,6 +202,7 @@ struct Driver {
         host.requested.reset();
         if (const auto* next = desc(id); next != nullptr && next->enter != nullptr)
             next->enter(&ctx, next->state);
+        note_screen_opened(host);
     }
 
     bool follow(ScreenId expected, const char* what) {
@@ -196,6 +233,21 @@ struct Driver {
         const auto* screen = desc(current);
         (void)screen->event(&ctx, screen->state);
         ctx.input = nullptr;
+        if (kind == oa::app::ScreenInputKind::pointer_move)
+            note_pointer_ring(host, input.x, input.y);
+    }
+
+    /// Sends one pointer move to the current screen at a point between pixels.
+    void move_between_pixels(float x, float y) {
+        oa::app::ScreenInput input{};
+        input.kind = oa::app::ScreenInputKind::pointer_move;
+        input.x = x;
+        input.y = y;
+        ctx.input = &input;
+        const auto* screen = desc(current);
+        (void)screen->event(&ctx, screen->state);
+        ctx.input = nullptr;
+        note_pointer_ring(host, x, y);
     }
 
     /// Presses a key on the current screen, with the modifier keys held.
@@ -205,9 +257,12 @@ struct Driver {
         input.key = code;
         input.modifiers = modifiers;
         ctx.input = &input;
+        host.focus_asked = false;
+        host.focus_given.clear();
         const auto* screen = desc(current);
         (void)screen->event(&ctx, screen->state);
         ctx.input = nullptr;
+        note_key_ring(host, code, modifiers);
     }
 
     /// Sends typed text to the current screen, as the system does after a key press types it.
@@ -923,8 +978,129 @@ constexpr uint32_t kKeyUp = 0x40000052;
 constexpr uint32_t kKeyReturn = 0x0d;
 constexpr uint16_t kKeyShift = 0x0001;
 constexpr uint32_t kKeyEscape = 0x1b;
+constexpr uint32_t kKeyHome = 0x4000004A;
+constexpr uint32_t kKeyEnd = 0x4000004D;
+constexpr uint32_t kKeyPageUp = 0x4000004B;
+constexpr uint32_t kKeyPageDown = 0x4000004E;
+constexpr uint32_t kKeyF6 = 0x4000003F;
+constexpr uint32_t kKeyF7 = 0x40000040;
 constexpr uint32_t kKeyN = 'n';
 constexpr uint32_t kKeyY = 'y';
+/// Either Shift key, as the platform reports it on a key.
+constexpr uint16_t kShiftBits = 0x0003;
+
+/// The focus action the game's own layout fires for a key.
+const char* default_focus_action(uint32_t key, uint16_t modifiers) {
+    const bool shift = (modifiers & kShiftBits) != 0;
+    if (key == kKeyTab)
+        return shift ? "ui.menu-focus-previous" : "ui.menu-focus-next";
+    if (shift)
+        return nullptr;
+    if (key == kKeyLeft)
+        return "ui.menu-focus-left";
+    if (key == kKeyRight)
+        return "ui.menu-focus-right";
+    if (key == kKeyUp)
+        return "ui.menu-list-up";
+    if (key == kKeyDown)
+        return "ui.menu-list-down";
+    if (key == kKeyHome)
+        return "ui.screen-home";
+    if (key == kKeyEnd)
+        return "ui.screen-end";
+    if (key == kKeyPageUp)
+        return "ui.screen-page-up";
+    if (key == kKeyPageDown)
+        return "ui.screen-page-down";
+    return nullptr;
+}
+
+/// The focus action this key fires, an override ahead of the game's own.
+std::string focus_action_name(const Host& host, uint32_t key, uint16_t modifiers) {
+    const uint64_t id = (static_cast<uint64_t>(modifiers) << 32) | key;
+    const auto over = host.focus_overrides.find(id);
+    if (over != host.focus_overrides.end())
+        return over->second;
+    const char* name = default_focus_action(key, modifiers);
+    return name != nullptr ? std::string(name) : std::string();
+}
+
+/// Whether Always show focus is a whole number above zero.
+bool preference_shows_focus(const Host& host) {
+    const auto found = host.strings.find("open-annihilation.access.always-show-focus");
+    if (found == host.strings.end())
+        return false;
+    bool above_zero = false;
+    for (const char digit : found->second) {
+        if (digit < '0' || digit > '9')
+            return false;
+        if (digit != '0')
+            above_zero = true;
+    }
+    return above_zero;
+}
+
+void note_screen_opened(Host& host) {
+    host.ring_shown = preference_shows_focus(host);
+    host.pointer_known = true;
+    host.pointer_x = 0;
+    host.pointer_y = 0;
+}
+
+void note_pointer_ring(Host& host, float x, float y) {
+    const auto column = static_cast<int32_t>(x);
+    const auto row = static_cast<int32_t>(y);
+    if (!host.pointer_known) {
+        host.pointer_known = true;
+        host.pointer_x = column;
+        host.pointer_y = row;
+        return;
+    }
+    if (column == host.pointer_x && row == host.pointer_y)
+        return;
+    host.pointer_x = column;
+    host.pointer_y = row;
+    host.ring_shown = false;
+}
+
+void note_key_ring(Host& host, uint32_t key, uint16_t modifiers) {
+    const std::string action =
+        host.focus_asked ? host.focus_given : focus_action_name(host, key, modifiers);
+    if (action == "ui.menu-focus-next" || action == "ui.menu-focus-previous" || key == kKeyF6)
+        host.ring_shown = true;
+    else if (key == kKeyReturn)
+        host.ring_shown = false;
+}
+
+int bound_focus_action(
+    void* host,
+    const oa::app::ScreenInput* input,
+    char* action,
+    std::size_t capacity,
+    int* ring_shown
+) {
+    auto* held = static_cast<Host*>(host);
+    if (ring_shown != nullptr)
+        *ring_shown = held != nullptr && held->ring_shown ? 1 : 0;
+    if (held == nullptr || input == nullptr || input->kind != oa::app::ScreenInputKind::key_down)
+        return 0;
+    held->focus_asked = true;
+    held->focus_given.clear();
+    if (action == nullptr || capacity == 0)
+        return 0;
+    const std::string name = focus_action_name(*held, input->key, input->modifiers);
+    if (name.empty() || name.size() + 1 > capacity)
+        return 0;
+    std::memcpy(action, name.data(), name.size() + 1);
+    held->focus_given = name;
+    return 1;
+}
+
+/// Binds one key to a focus action. An empty action fires none.
+void bind_focus(Host& host, uint32_t key, uint16_t modifiers, const char* action) {
+    const uint64_t id = (static_cast<uint64_t>(modifiers) << 32) | key;
+    host.focus_overrides[id] = action != nullptr ? action : "";
+}
 
 // What the launch link heard during the launch checks.
 struct LaunchRecord {
@@ -2696,18 +2872,166 @@ bool tab_until_name(Driver& d, std::string_view name) {
     return focused_name() == name;
 }
 
-/// Presses Tab until a player's row is focused, or the walk is exhausted.
+/// Moves along the battle room's old arrow walk until a control is focused.
+///
+/// Down leaves the chat line. Right leaves every other control, including a
+/// list, where Down would change the selection instead.
+///
+/// @param d the screens
+/// @param name the control's name
+/// @return true when that control is focused
+bool arrow_until_name(Driver& d, std::string_view name) {
+    for (int guard = 0; guard < 64; ++guard) {
+        if (focused_name() == name)
+            return true;
+        if (focused_name() == "MESSAGE")
+            d.key(kKeyDown);
+        else
+            d.key(kKeyRight);
+    }
+    return focused_name() == name;
+}
+
+/// Moves along the old arrow walk until a remote player's row is focused.
 ///
 /// @param d the screens
 /// @param slot the row's slot
 /// @return true when that row is focused
-bool tab_until_slot(Driver& d, int32_t slot) {
+bool arrow_until_slot(Driver& d, int32_t slot) {
     for (int guard = 0; guard < 64; ++guard) {
         if (mp::multiplayer_focused_player_slot() == slot)
             return true;
-        d.key(kKeyTab);
+        if (focused_name() == "MESSAGE")
+            d.key(kKeyDown);
+        else
+            d.key(kKeyRight);
     }
     return mp::multiplayer_focused_player_slot() == slot;
+}
+
+/// Tells whether Tab may stop on a control, by the same rules as the screens.
+bool control_is_tab_stop(const mp::Control& control) {
+    if (control.active == 0 || control.grayed || control.display_only)
+        return false;
+    if ((control.attributes & oa::ui::gui_layout::attribute::no_focus) != 0)
+        return false;
+    if (control.width <= 0 || control.height <= 0)
+        return false;
+    switch (control.type) {
+    case mp::ControlType::label:
+    case mp::ControlType::image:
+    case mp::ControlType::panel:
+        return false;
+    case mp::ControlType::hot_surface:
+        if (!control.hot)
+            return false;
+        break;
+    case mp::ControlType::slider:
+        if (control.height > control.width)
+            return false;
+        break;
+    default:
+        break;
+    }
+    return true;
+}
+
+/// The battle room's Tab stops, in order, as the panel is now.
+std::vector<std::string> battle_tab_stops() {
+    std::vector<std::string> names;
+    const auto add = [&](const std::string& name) {
+        const mp::Control* found = control(name);
+        if (found != nullptr && control_is_tab_stop(*found))
+            names.push_back(std::string(mp::control_name(*found)));
+    };
+    if (mp::multiplayer_lobby().game != nullptr) {
+        const auto slot =
+            std::to_string(static_cast<int>(mp::multiplayer_lobby().game->local_player_index));
+        add("READY" + slot);
+        add("SIDE" + slot);
+        add("LOGO" + slot);
+        add("TEAMICONS" + slot);
+    }
+    for (const char* name : {
+             "COMMANDER",
+             "FIXEDLOC",
+             "MAPPING",
+             "LOSTYPE",
+             "CHEATING",
+             "WATCHING",
+             "GAMEOPEN",
+             "RESTRICTIONS",
+             "MAP",
+             "METAL",
+             "ENERGY",
+             "MAXUNITS",
+             "OUTPUT",
+             "MESSAGE",
+             "START",
+             "PREVMENU",
+         })
+        add(name);
+    return names;
+}
+
+/// One full Tab cycle, starting at the stop the first Tab lands on.
+std::vector<std::string> tab_cycle(Driver& d) {
+    const std::string origin = focused_name();
+    d.key(kKeyTab);
+    const std::string first = focused_name();
+    std::vector<std::string> names{first};
+    if (first == origin)
+        return names;
+    for (int guard = 0; guard < 64; ++guard) {
+        d.key(kKeyTab);
+        const std::string name = focused_name();
+        if (name == first)
+            break;
+        names.push_back(name);
+    }
+    return names;
+}
+
+/// Joins control names for a failure line.
+std::string join_names(const std::vector<std::string>& names) {
+    std::string out;
+    for (const auto& name : names) {
+        if (!out.empty())
+            out.push_back(' ');
+        out += name.empty() ? std::string("?") : name;
+    }
+    return out;
+}
+
+/// Tells whether `wanted` appears in `names` in that order, wrapping once.
+bool cyclic_order(const std::vector<std::string>& names, const std::vector<std::string>& wanted) {
+    if (wanted.empty())
+        return true;
+    const auto start = std::find(names.begin(), names.end(), wanted.front());
+    if (start == names.end())
+        return false;
+    std::vector<std::string> rotated(start, names.end());
+    rotated.insert(rotated.end(), names.begin(), start);
+    std::size_t from = 0;
+    for (const auto& name : wanted) {
+        const auto found =
+            std::find(rotated.begin() + static_cast<std::ptrdiff_t>(from), rotated.end(), name);
+        if (found == rotated.end())
+            return false;
+        from = static_cast<std::size_t>(found - rotated.begin()) + 1;
+    }
+    return true;
+}
+
+/// Shift+Tab undoes one Tab, and Tab does it again.
+void expect_shift_tab(Driver& d, const char* what) {
+    const auto here = focused_name();
+    d.key(kKeyTab);
+    const auto next = focused_name();
+    d.key(kKeyTab, kKeyShift);
+    expect(focused_name() == here, what);
+    d.key(kKeyTab);
+    expect(focused_name() == next, what);
 }
 
 /// Tab and the arrow keys reach each remote player's row, skip the local
@@ -2754,7 +3078,12 @@ void check_player_row_focus(Driver& d) {
     std::vector<FocusStop> walked;
     bool back_at_chat = false;
     for (int press = 0; press < 64 && !back_at_chat; ++press) {
-        d.key(kKeyTab);
+        // Before any Tab the arrows keep the old walk. Down leaves the chat
+        // line; Right leaves a list, where Down would change its selection.
+        if (focused_name() == "MESSAGE")
+            d.key(kKeyDown);
+        else
+            d.key(kKeyRight);
         FocusStop stop;
         stop.name = focused_name();
         const auto& panel = mp::multiplayer_panel();
@@ -2769,12 +3098,12 @@ void check_player_row_focus(Driver& d) {
             walked.push_back(stop);
     }
     if (!back_at_chat) {
-        std::fprintf(stderr, "focus walk:");
+        std::fprintf(stderr, "arrow walk:");
         for (const auto& stop : walked)
             std::fprintf(stderr, " %s", stop.name.c_str());
         std::fprintf(stderr, "\n");
     }
-    expect(back_at_chat, "Tab returns to the chat line");
+    expect(back_at_chat, "Down and Right return to the chat line");
     bool saw_local = false;
     bool saw_kirby = false;
     bool saw_mira = false;
@@ -2797,14 +3126,14 @@ void check_player_row_focus(Driver& d) {
     }
     expect(
         saw_kirby && saw_mira && saw_classic && !saw_local && lists_before_rows,
-        "Tab reaches each remote row after the lists and skips the local row"
+        "before Tab, the arrows reach each remote row after the lists and skip the local row"
     );
     expect(mp::multiplayer_loopback().sent_count == sent_before, "moving the focus sends nothing");
 
-    d.key(kKeyTab, kKeyShift);
+    d.key(kKeyUp);
     expect(
         mp::multiplayer_focused_player_slot() == classic,
-        "Shift+Tab from the chat line focuses the last remote row, and names its slot"
+        "Up from the chat line focuses the last remote row, and names its slot"
     );
     d.key(kKeyDown);
     expect(focused_name() == "MESSAGE", "Down from the last remote row returns to the chat line");
@@ -2826,24 +3155,29 @@ void check_player_row_focus(Driver& d) {
     for (const auto& stop : walked) {
         if (!stop.list)
             continue;
-        if (!tab_until_name(d, stop.name))
+        if (focused_name() != stop.name && !arrow_until_name(d, stop.name))
             stayed_in_list = false;
         const auto& panel = mp::multiplayer_panel();
         const auto* list = panel.focus > 0 && panel.focus < panel.count
                                ? &panel.controls[static_cast<std::size_t>(panel.focus)]
                                : nullptr;
-        if (list == nullptr || list->list_item_height == 0)
+        if (list == nullptr || list->list_item_height == 0) {
+            if (focused_name() == stop.name)
+                d.key(kKeyRight);
             continue;
+        }
         const auto selection = list->list_selection;
         d.key(kKeyDown);
         d.key(kKeyUp);
         if (focused_name() != stop.name || list->list_selection != selection)
             stayed_in_list = false;
+        d.key(kKeyRight);
     }
     expect(stayed_in_list, "Up and Down stay inside a list and move its selection");
+    expect(arrow_until_name(d, "MESSAGE"), "the arrows return to the chat line after the lists");
 
     expect(
-        tab_until_slot(d, kirby) && mp::multiplayer_focused_player_slot() == kirby,
+        arrow_until_slot(d, kirby) && mp::multiplayer_focused_player_slot() == kirby,
         "the focused OA row's slot is the one multiplayer_focused_player_slot names"
     );
     redraw(d);
@@ -2855,18 +3189,18 @@ void check_player_row_focus(Driver& d) {
     expect(trigger.key_info(focused_badge_slot()), "F1 on the focused OA row is taken");
     expect(trigger.open_slot() == kirby, "F1 opens that player's card");
     expect(
-        tab_until_slot(d, mira) && trigger.focus(focused_badge_slot()),
+        arrow_until_slot(d, mira) && trigger.focus(focused_badge_slot()),
         "the card follows the focus to the other OA row"
     );
     expect(trigger.open_slot() == mira, "the card is now the other player's");
-    expect(tab_until_slot(d, classic), "Tab reaches the row with no OA badge");
+    expect(arrow_until_slot(d, classic), "the arrows reach the row with no OA badge");
     mp::PresenceCardTrigger classic_key;
     expect(
         focused_badge_slot() == mp::presence_card_no_slot &&
             !classic_key.key_info(focused_badge_slot()),
         "F1 on a focused row with no OA badge opens no card"
     );
-    expect(tab_until_name(d, "MESSAGE"), "Tab returns to the chat line again");
+    expect(arrow_until_name(d, "MESSAGE"), "the arrows return to the chat line again");
     redraw(d);
     expect(
         pixel_at(d, kirby_box.x - 1, kirby_box.y) == ring_before,
@@ -2887,7 +3221,7 @@ void check_player_row_focus(Driver& d) {
     const auto mira_status = mp::slot_player(lobby, mira).status;
     const auto classic_status = mp::slot_player(lobby, classic).status;
     const auto sent_at_keys = mp::multiplayer_loopback().sent_count;
-    expect(tab_until_slot(d, classic), "the row with no badge is focused for Return");
+    expect(arrow_until_slot(d, classic), "the row with no badge is focused for Return");
     d.key(kKeyReturn);
     expect(
         row_key.open_slot() == mp::presence_card_no_slot &&
@@ -2896,7 +3230,7 @@ void check_player_row_focus(Driver& d) {
             mp::multiplayer_loopback().sent_count == sent_at_keys,
         "Return on a focused row with no OA badge does nothing and sends nothing"
     );
-    expect(tab_until_slot(d, kirby), "the first OA row is focused for Return");
+    expect(arrow_until_slot(d, kirby), "the first OA row is focused for Return");
     d.key(kKeyReturn);
     expect(
         row_key.open_slot() == kirby && mp::multiplayer_modal_kind() == mp::ModalKind::none &&
@@ -2922,7 +3256,7 @@ void check_player_row_focus(Driver& d) {
         const auto sent_at_ai = mp::multiplayer_loopback().sent_count;
         const auto ai_status = mp::slot_player(lobby, computer).status;
         expect(
-            tab_until_slot(d, computer) && ai_status == mp::kSlotComputer,
+            arrow_until_slot(d, computer) && ai_status == mp::kSlotComputer,
             "the AI's row can take the focus"
         );
         d.key(kKeyReturn);
@@ -2936,7 +3270,7 @@ void check_player_row_focus(Driver& d) {
     }
 
     const auto rejects_before = rejects_sent();
-    expect(tab_until_slot(d, kirby), "the OA row is focused again before the click");
+    expect(arrow_until_slot(d, kirby), "the OA row is focused again before the click");
     expect(d.click(("PLAYER" + std::to_string(kirby)).c_str()), "the host clicks that row");
     expect(
         mp::multiplayer_modal_kind() == mp::ModalKind::confirm &&
@@ -2950,6 +3284,461 @@ void check_player_row_focus(Driver& d) {
             mp::slot_player(lobby, kirby).status == kirby_status,
         "declining the question leaves the player in the room"
     );
+
+    // The row is not a Tab stop, so the first Tab lands on the first stop and
+    // shows the ring. The walk is the player's own row, then the options.
+    expect(arrow_until_slot(d, kirby), "a remote row is focused before Tab");
+    const auto expected = battle_tab_stops();
+    const auto walked_tab = tab_cycle(d);
+    if (walked_tab != expected) {
+        std::fprintf(stderr, "tab: %s\n", join_names(walked_tab).c_str());
+        std::fprintf(stderr, "expected: %s\n", join_names(expected).c_str());
+    }
+    expect(walked_tab == expected, "Tab walks the battle room and skips the other players' rows");
+    for (const auto& name : walked_tab)
+        expect(name.rfind("PLAYER", 0) != 0, "Tab does not stop on a player's row");
+    expect_shift_tab(d, "Shift+Tab undoes one step of the battle room");
+
+    const auto logo = "LOGO" + std::to_string(static_cast<int>(local));
+    expect(tab_until_name(d, logo), "Tab reaches the player's colour");
+    const auto colour_before = mp::local_info(lobby).color;
+    const auto sent_at_colour = mp::multiplayer_loopback().sent_count;
+    d.key(kKeyRight);
+    const auto sent_by_right = mp::multiplayer_loopback().sent_count - sent_at_colour;
+    const auto colour_right = mp::local_info(lobby).color;
+    expect(
+        colour_right != colour_before && focused_name() == logo,
+        "Right moves the colour to the next one and stays on it"
+    );
+    d.key(kKeyLeft);
+    const auto sent_by_left =
+        mp::multiplayer_loopback().sent_count - sent_at_colour - sent_by_right;
+    expect(
+        mp::local_info(lobby).color != colour_right && sent_by_left == sent_by_right &&
+            focused_name() == logo,
+        "Left moves the colour on in the same way"
+    );
+    const auto sent_at_click = mp::multiplayer_loopback().sent_count;
+    expect(d.click(logo.c_str()), "a click on the colour");
+    expect(
+        mp::multiplayer_loopback().sent_count - sent_at_click == sent_by_right,
+        "the colour key sends what the click sends"
+    );
+
+    // A move that stays inside one pixel keeps the ring, as the layer keeps
+    // the ring it draws: the pixel is the one that holds the point.
+    d.move_between_pixels(20.2F, 20.2F);
+    d.key(kKeyTab, kKeyShift);
+    d.key(kKeyTab);
+    expect(focused_name() == logo, "Shift+Tab and Tab return to the colour with the ring");
+    d.move_between_pixels(20.8F, 20.8F);
+    const auto colour_in_pixel = mp::local_info(lobby).color;
+    d.key(kKeyRight);
+    expect(
+        mp::local_info(lobby).color != colour_in_pixel && focused_name() == logo,
+        "a move inside one pixel keeps the ring, so Right still moves the colour"
+    );
+
+    d.pointer(oa::app::ScreenInputKind::pointer_move, 4, 4);
+    d.pointer(oa::app::ScreenInputKind::pointer_move, 12, 12);
+    const auto colour_held = mp::local_info(lobby).color;
+    const auto sent_held = mp::multiplayer_loopback().sent_count;
+    d.key(kKeyRight);
+    expect(
+        mp::local_info(lobby).color == colour_held &&
+            mp::multiplayer_loopback().sent_count == sent_held && focused_name() != logo,
+        "after the pointer moves, Right leaves the colour and sends nothing"
+    );
+
+    expect(tab_until_name(d, "METAL"), "Tab reaches Metal");
+    const auto* metal = control("METAL");
+    expect(metal != nullptr && !metal->grayed, "the host's Metal takes a key");
+    if (metal != nullptr) {
+        const auto knob = metal->scroll.knob;
+        d.key(kKeyRight);
+        expect(metal->scroll.knob > knob && focused_name() == "METAL", "Right steps Metal");
+        d.key(kKeyHome);
+        expect(
+            metal->scroll.knob == 0 && focused_name() == "METAL", "Home returns Metal to its start"
+        );
+        d.pointer(oa::app::ScreenInputKind::pointer_move, 4, 4);
+        const auto at_metal = focused_name();
+        d.key(kKeyF6);
+        expect(focused_name() == at_metal, "F6 leaves the focus where it is");
+        const auto knob_again = metal->scroll.knob;
+        d.key(kKeyRight);
+        expect(
+            metal->scroll.knob > knob_again && focused_name() == "METAL",
+            "Right steps Metal once F6 has shown the ring"
+        );
+    }
+
+    // Return on the Mutators button is taken by that button, and the layer
+    // hides the ring. The room reads the layer, so the next Down walks as it
+    // did before Next button and does not land on another player's row.
+    expect(tab_until_name(d, "MESSAGE"), "Next button returns to the chat line");
+    d.host.ring_shown = false;
+    d.key(kKeyDown);
+    expect(
+        focused_name().rfind("PLAYER", 0) != 0,
+        "Down after the ring is hidden does not stick on another player's row"
+    );
+
+    mp::panel_set_grayed(mp::multiplayer_panel(), "CHEATING", true);
+    expect(
+        mp::panel_find(mp::multiplayer_panel(), "CHEATING") != mp::kNoControl,
+        "Cheats stays on the panel when it is greyed"
+    );
+    const auto without_cheats = battle_tab_stops();
+    mp::multiplayer_panel().focus = mp::kNoControl;
+    const auto greyed_walk = tab_cycle(d);
+    if (greyed_walk != without_cheats) {
+        std::fprintf(stderr, "greyed tab: %s\n", join_names(greyed_walk).c_str());
+        std::fprintf(stderr, "expected: %s\n", join_names(without_cheats).c_str());
+    }
+    expect(
+        std::find(greyed_walk.begin(), greyed_walk.end(), "CHEATING") == greyed_walk.end() &&
+            greyed_walk == without_cheats,
+        "Tab skips Cheats while it is greyed"
+    );
+    const auto sent_at_grey = mp::multiplayer_loopback().sent_count;
+    mp::multiplayer_panel().focus = mp::panel_find(mp::multiplayer_panel(), "CHEATING");
+    d.key(kKeyReturn);
+    expect(
+        mp::multiplayer_loopback().sent_count == sent_at_grey,
+        "Return on greyed Cheats sends nothing"
+    );
+
+    d.host.strings["open-annihilation.access.always-show-focus"] = "1";
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Shown", "Host"))
+        return;
+    d.frame();
+    expect(focused_name() == "MESSAGE", "the chat line is focused when the ring is shown at open");
+    d.key(kKeyDown);
+    expect(
+        focused_name() == "MESSAGE",
+        "with Always show focus, Down reads other players, and none are seated"
+    );
+    d.pointer(oa::app::ScreenInputKind::pointer_move, 3, 3);
+    d.pointer(oa::app::ScreenInputKind::pointer_move, 9, 9);
+    d.key(kKeyDown);
+    expect(
+        focused_name() != "MESSAGE",
+        "once the pointer hides the ring, Down walks on from the chat line"
+    );
+
+    // Escape is the room's way back while the ring shows, as it is without.
+    d.key(kKeyTab);
+    d.key(kKeyEscape);
+    (void)d.follow(mp::kScreenGameList, "Escape leaves the battle room while the ring shows");
+}
+
+/// The client's Tab order leaves out the host's greyed controls, which stay
+/// on the panel, and Return on one of them sends nothing.
+void check_client_keys(Driver& d) {
+    const auto expected = battle_tab_stops();
+    mp::multiplayer_panel().focus = mp::kNoControl;
+    const auto walked = tab_cycle(d);
+    if (walked != expected) {
+        std::fprintf(stderr, "client tab: %s\n", join_names(walked).c_str());
+        std::fprintf(stderr, "expected: %s\n", join_names(expected).c_str());
+    }
+    expect(walked == expected, "Tab walks the client's battle room");
+    expect_shift_tab(d, "Shift+Tab undoes one step for the client");
+    for (const auto& name : walked)
+        expect(name.rfind("PLAYER", 0) != 0, "the client's Tab does not stop on a player's row");
+    expect(
+        mp::panel_find(mp::multiplayer_panel(), "COMMANDER") != mp::kNoControl &&
+            std::find(walked.begin(), walked.end(), "COMMANDER") == walked.end(),
+        "the client's commander stays on the panel and out of Tab's order"
+    );
+    expect(
+        mp::panel_find(mp::multiplayer_panel(), "METAL") != mp::kNoControl &&
+            std::find(walked.begin(), walked.end(), "METAL") == walked.end(),
+        "the client's Metal stays on the panel and out of Tab's order"
+    );
+    expect(
+        std::find(walked.begin(), walked.end(), "PREVMENU") != walked.end(),
+        "Tab reaches the client's Previous Menu"
+    );
+    const auto* metal = control("METAL");
+    const auto sent_at_metal = mp::multiplayer_loopback().sent_count;
+    if (metal != nullptr) {
+        const auto knob = metal->scroll.knob;
+        mp::multiplayer_panel().focus = mp::panel_find(mp::multiplayer_panel(), "METAL");
+        d.key(kKeyRight);
+        expect(
+            metal->scroll.knob == knob && mp::multiplayer_loopback().sent_count == sent_at_metal,
+            "Right on the client's Metal sends nothing and leaves the knob"
+        );
+    }
+    const auto sent_at_option = mp::multiplayer_loopback().sent_count;
+    mp::multiplayer_panel().focus = mp::panel_find(mp::multiplayer_panel(), "COMMANDER");
+    d.key(kKeyReturn);
+    expect(
+        mp::multiplayer_loopback().sent_count == sent_at_option,
+        "Return on the client's commander sends nothing"
+    );
+}
+
+/// Tab, Shift+Tab, Up, Down and Return on the provider list, the address,
+/// the game list and the new-game screen.
+void check_connection_keys(Driver& d) {
+    d.host.strings.erase("open-annihilation.access.always-show-focus");
+    mp::multiplayer_reset();
+    d.go(mp::kScreenProviders);
+    expect(focused_name() == "SELECT", "Select keeps the focus as the provider list opens");
+    const auto* providers = control("DPLAY");
+    expect(providers != nullptr, "the provider list is on the screen");
+    if (providers == nullptr)
+        return;
+    const auto provider_selection = providers->list_selection;
+    d.key(kKeyUp);
+    d.key(kKeyDown);
+    expect(focused_name() == "SELECT", "Up and Down leave the provider screen's focus");
+    expect(
+        providers->list_selection == provider_selection,
+        "the provider list stays until it is focused"
+    );
+    const auto provider_stops = tab_cycle(d);
+    if (!cyclic_order(provider_stops, {"DPLAY", "SELECT", "PREVMENU"}))
+        std::fprintf(stderr, "providers: %s\n", join_names(provider_stops).c_str());
+    expect(
+        cyclic_order(provider_stops, {"DPLAY", "SELECT", "PREVMENU"}),
+        "Tab walks the provider list, Select and Previous Menu"
+    );
+    expect_shift_tab(d, "Shift+Tab undoes one step of the provider screen");
+    expect(tab_until_name(d, "DPLAY"), "Tab reaches the provider list");
+    const auto* provider_list = control("DPLAY");
+    if (provider_list != nullptr &&
+        provider_list->list_selection + 1 < static_cast<int32_t>(provider_list->items.size())) {
+        const auto at = provider_list->list_selection;
+        d.key(kKeyDown);
+        expect(
+            provider_list->list_selection == at + 1 && focused_name() == "DPLAY",
+            "Down steps the provider list"
+        );
+        d.key(kKeyUp);
+        expect(
+            provider_list->list_selection == at && focused_name() == "DPLAY",
+            "Up steps back on the provider list"
+        );
+        // Each press is one step. A held Down is handed to the screen as one
+        // press per repeat, at the player's delay and rate.
+        if (at + 3 < static_cast<int32_t>(provider_list->items.size())) {
+            d.key(kKeyDown);
+            d.key(kKeyDown);
+            d.key(kKeyDown);
+            expect(
+                provider_list->list_selection == at + 3 && focused_name() == "DPLAY",
+                "three Downs step the provider list three rows"
+            );
+            d.key(kKeyUp);
+            d.key(kKeyUp);
+            d.key(kKeyUp);
+            expect(
+                provider_list->list_selection == at && focused_name() == "DPLAY",
+                "three Ups restore the provider list"
+            );
+        }
+    }
+    expect(tab_until_name(d, "SELECT"), "Tab returns to Select");
+    // Row 1 is TCP/IP. Up and Down put the selection back where the list opened.
+    if (auto* chosen = mp::panel_control(mp::multiplayer_panel(), "DPLAY"))
+        chosen->list_selection = 1;
+    d.key(kKeyReturn);
+    if (!d.follow(mp::kScreenTcp, "Return on Select opens the address"))
+        return;
+
+    expect(focused_name() == "ADDRESS", "the address line keeps the focus");
+    d.key(kKeyUp);
+    d.key(kKeyDown);
+    expect(focused_name() == "ADDRESS", "Up and Down leave the address line");
+    const auto address_stops = tab_cycle(d);
+    if (!cyclic_order(address_stops, {"ADDRESS", "OK"}))
+        std::fprintf(stderr, "address: %s\n", join_names(address_stops).c_str());
+    expect(cyclic_order(address_stops, {"ADDRESS", "OK"}), "Tab walks the address and OK");
+    expect_shift_tab(d, "Shift+Tab undoes one step of the address");
+    expect(tab_until_name(d, "OK"), "Tab reaches OK without pressing the address");
+    mp::panel_set_text(mp::multiplayer_panel(), "ADDRESS", "127.0.0.1");
+    d.key(kKeyReturn);
+    if (!d.follow(mp::kScreenGameList, "Return on OK opens the game list"))
+        return;
+
+    expect(focused_name() == "GAMENAME", "the game list keeps the focus");
+    const auto game_stops = tab_cycle(d);
+    if (!cyclic_order(game_stops, {"GAMENAME", "STARTNEW"}))
+        std::fprintf(stderr, "games: %s\n", join_names(game_stops).c_str());
+    expect(
+        cyclic_order(game_stops, {"GAMENAME", "STARTNEW"}),
+        "Tab walks the game list and Start a new game"
+    );
+    expect_shift_tab(d, "Shift+Tab undoes one step of the game list");
+    auto& listed = mp::multiplayer_loopback();
+    for (uint8_t game = 0; game < 2; ++game) {
+        mp::SessionEntry entry{};
+        entry.instance_guid[0] = static_cast<uint8_t>(70 + game);
+        const auto title = "Listed " + std::to_string(game);
+        std::snprintf(
+            entry.name, sizeof(entry.name), "%-16.16s%-15.15s", title.c_str(), "Seven Islands"
+        );
+        entry.max_players = 10;
+        mp::PlayerSetupInfo info{};
+        info.options = 2 | mp::option::watching_allowed;
+        info.version_major = 3;
+        std::memcpy(
+            entry.user, reinterpret_cast<const uint8_t*>(&info) + mp::kSessionUserInfoOffset, 16
+        );
+        expect(mp::loopback_add_session(listed, entry), "a game is listed for the keys");
+    }
+    expect(d.click("UPDATE"), "the game list is refreshed");
+    expect(tab_until_name(d, "GAMENAME"), "Tab returns to the game list");
+    const auto* games = control("GAMENAME");
+    expect(games != nullptr && games->items.size() >= 2, "two games are listed");
+    if (games != nullptr && games->items.size() >= 2) {
+        d.host.requested.reset();
+        const auto sent_before_step = listed.sent_count;
+        const auto at = games->list_selection;
+        d.key(kKeyDown);
+        expect(
+            games->list_selection != at && focused_name() == "GAMENAME" &&
+                !d.host.requested.has_value() && listed.sent_count == sent_before_step,
+            "Down selects the next game and does not join it"
+        );
+    }
+    expect(tab_until_name(d, "STARTNEW"), "Tab reaches Start a new game");
+    d.key(kKeyReturn);
+    if (!d.follow(mp::kScreenNewGame, "Return on Start a new game opens it"))
+        return;
+
+    expect(focused_name() == "GAMENAME", "the new game's name keeps the focus");
+    d.key(kKeyUp);
+    d.key(kKeyDown);
+    expect(focused_name() == "GAMENAME", "Up and Down leave the new game's name");
+    const auto new_stops = tab_cycle(d);
+    const std::vector<std::string> new_order = {"GAMENAME", "NICKNAME", "PASSWORD", "OK", "CANCEL"};
+    if (!cyclic_order(new_stops, new_order))
+        std::fprintf(stderr, "new game: %s\n", join_names(new_stops).c_str());
+    expect(
+        cyclic_order(new_stops, new_order),
+        "Tab walks the new game's name, nickname, password, OK and Cancel"
+    );
+    expect_shift_tab(d, "Shift+Tab undoes one step of the new game");
+}
+
+/// A letter bound to Next button still types, and Next button moved to F7
+/// walks where Tab walked. A layout that restates Tab walks as Tab does.
+void check_rebound_keys(Driver& d) {
+    d.host.focus_overrides.clear();
+    d.host.strings.erase("open-annihilation.access.always-show-focus");
+    mp::multiplayer_reset();
+    d.go(mp::kScreenProviders);
+    auto* providers = mp::panel_control(mp::multiplayer_panel(), "DPLAY");
+    expect(providers != nullptr, "the provider list is up for a rebound key");
+    if (providers == nullptr)
+        return;
+    providers->list_selection = 1;
+    d.key(kKeyReturn);
+    if (!d.follow(mp::kScreenTcp, "Return on Select opens the address for a rebound key"))
+        return;
+
+    expect(focused_name() == "ADDRESS", "the address line is focused for a rebound key");
+    mp::panel_set_text(mp::multiplayer_panel(), "ADDRESS", "");
+    bind_focus(d.host, static_cast<uint32_t>('a'), 0, "ui.menu-focus-next");
+    d.key(static_cast<uint32_t>('a'));
+    expect(focused_name() == "ADDRESS", "a letter bound to Next button stays in the address");
+    expect(!d.host.ring_shown, "a letter typed into the address shows no ring");
+    d.text("a");
+    expect(
+        mp::panel_text(mp::multiplayer_panel(), "ADDRESS") == "a",
+        "that letter is typed into the address"
+    );
+    d.host.focus_overrides.clear();
+    mp::panel_set_text(mp::multiplayer_panel(), "ADDRESS", "127.0.0.1");
+    d.key(kKeyReturn);
+    if (!d.follow(mp::kScreenGameList, "the game list opens for a rebound key"))
+        return;
+
+    expect(focused_name() == "GAMENAME", "the game list is focused for a rebound key");
+    bind_focus(d.host, kKeyTab, 0, "ui.menu-focus-next");
+    bind_focus(d.host, kKeyTab, kKeyShift, "ui.menu-focus-previous");
+    const auto listed = focused_name();
+    d.key(kKeyTab);
+    expect(focused_name() != listed, "Tab still walks the game list when the layout restates it");
+    d.key(kKeyTab, kKeyShift);
+    expect(focused_name() == listed, "Shift+Tab still steps back when the layout restates it");
+    d.host.focus_overrides.clear();
+
+    bind_focus(d.host, kKeyTab, 0, "");
+    bind_focus(d.host, kKeyTab, kKeyShift, "");
+    bind_focus(d.host, kKeyF7, 0, "ui.menu-focus-next");
+    const auto before_list = focused_name();
+    d.key(kKeyTab);
+    expect(focused_name() == before_list, "Tab no longer walks the game list");
+    d.key(kKeyF7);
+    expect(focused_name() != before_list, "F7 walks the game list when it is Next button");
+    d.host.focus_overrides.clear();
+
+    // A letter bound to Next button walks from the list to the nickname,
+    // and the character its press sends is typed nowhere.
+    expect(tab_until_name(d, "GAMENAME"), "Tab returns to the game list for a letter");
+    const std::string nickname(mp::panel_text(mp::multiplayer_panel(), "NICKNAME"));
+    bind_focus(d.host, static_cast<uint32_t>('j'), 0, "ui.menu-focus-next");
+    d.key(static_cast<uint32_t>('j'));
+    d.text("j");
+    expect(
+        focused_name() == "NICKNAME" &&
+            mp::panel_text(mp::multiplayer_panel(), "NICKNAME") == nickname,
+        "a letter bound to Next button walks to the nickname and types nothing there"
+    );
+    expect(d.host.ring_shown, "a letter that walks shows the ring");
+    d.host.focus_overrides.clear();
+
+    if (!d.click("STARTNEW") ||
+        !d.follow(mp::kScreenNewGame, "the new game opens for a rebound key"))
+        return;
+    expect(focused_name() == "GAMENAME", "the new game's name is focused for a rebound key");
+    mp::panel_set_text(mp::multiplayer_panel(), "GAMENAME", "");
+    bind_focus(d.host, static_cast<uint32_t>('a'), 0, "ui.menu-focus-next");
+    d.key(static_cast<uint32_t>('a'));
+    expect(focused_name() == "GAMENAME", "a letter bound to Next button stays in the game name");
+    d.text("a");
+    expect(
+        mp::panel_text(mp::multiplayer_panel(), "GAMENAME") == "a",
+        "that letter is typed into the game name"
+    );
+    d.host.focus_overrides.clear();
+
+    mp::multiplayer_reset();
+    if (!host_battleroom(d, "Rebound", "Host"))
+        return;
+    expect(focused_name() == "MESSAGE", "the chat line is focused for a rebound key");
+    bind_focus(d.host, static_cast<uint32_t>('a'), 0, "ui.menu-focus-next");
+    d.key(static_cast<uint32_t>('a'));
+    expect(focused_name() == "MESSAGE", "a letter bound to Next button stays in the chat line");
+    expect(!d.host.ring_shown, "a letter typed into the chat line shows no ring");
+    d.text("a");
+    expect(
+        mp::panel_text(mp::multiplayer_panel(), "MESSAGE") == "a",
+        "that letter is typed into the chat line"
+    );
+    d.key(kKeyDown);
+    expect(
+        focused_name() == "OUTPUT", "after a typed letter, Down keeps the walk it has before Tab"
+    );
+    d.key(kKeyUp);
+    d.host.focus_overrides.clear();
+
+    bind_focus(d.host, kKeyTab, 0, "");
+    bind_focus(d.host, kKeyTab, kKeyShift, "");
+    bind_focus(d.host, kKeyF7, 0, "ui.menu-focus-next");
+    const auto before_room = focused_name();
+    d.key(kKeyTab);
+    expect(focused_name() == before_room, "Tab no longer walks the battle room");
+    d.key(kKeyF7);
+    expect(focused_name() != before_room, "F7 walks the battle room when it is Next button");
+    d.host.focus_overrides.clear();
 }
 
 } // namespace
@@ -4015,6 +4804,7 @@ int main() {
             "a grayed option button lights the lamp of its stage, grayed and shaded"
         );
     }
+    check_client_keys(d);
 
     // VIEW MAP shows the selected map's minimap, and follows the host's
     // choice of map while it is open.
@@ -4393,6 +5183,8 @@ int main() {
     check_pack_map_titles(d);
     check_presence_badges(d);
     check_player_row_focus(d);
+    check_connection_keys(d);
+    check_rebound_keys(d);
 
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);

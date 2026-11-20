@@ -57,6 +57,13 @@ struct DataFacts {
     bool mod_folder{false};
     /// Mutators the match would carry. Any number above zero is refused.
     uint32_t mutator_count{0};
+    /// A file of the played copy that is not Total Annihilation's: a stray
+    /// archive in a bundle's folder, or a file that is not a known hash.
+    /// Empty when every file is known. Anything here is refused, and the
+    /// refusal names it.
+    std::string stock_file{};
+    /// The folder `stock_file` is in.
+    std::string stock_folder{};
 };
 
 /// Whether the Boneyards may launch and report on these facts.
@@ -65,7 +72,8 @@ struct DataVerdict {
     /// and the Boneyards' own files.
     bool allowed{true};
     /// The refusal the player is shown; null when the data is allowed.
-    /// Static storage when set.
+    /// Static storage when set; a refusal that names a file stays until
+    /// the next verdict.
     const char* message{};
 };
 
@@ -81,10 +89,13 @@ struct DataVerdict {
 /// and Battle Tactics, which add no profile. The Boneyards' own profile is
 /// allowed while it changes no simulation data. Developer Mode's overrides
 /// count only while Developer Mode is on; a display change stays allowed.
-/// Unreadable facts are refused.
+/// Unreadable facts are refused. A file of the played copy that is not
+/// Total Annihilation's (DataFacts::stock_file) is refused first, with a
+/// sentence that names it and its folder.
 ///
 /// @param facts what is known about the data
-/// @return the verdict; `message` is kBoneyardsDataRefusal when refused
+/// @return the verdict; `message` is kBoneyardsDataRefusal when refused for
+///         the mod, the mutators or the simulation
 [[nodiscard]] DataVerdict boneyards_data_verdict(const DataFacts& facts);
 
 /// Reads the facts of the running game. Null answers as plain 3.1c, which is allowed.

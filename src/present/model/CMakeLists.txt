@@ -6,7 +6,8 @@ add_library(oa-present-model src/mesh_raster.cpp src/model_library.cpp src/model
 add_library(oa::present::model ALIAS oa-present-model)
 target_link_libraries(oa-present-model PRIVATE oa-base-game-math)
 target_include_directories(oa-present-model PUBLIC include)
-target_link_libraries(oa-present-model PUBLIC oa-present oa-formats-objects3d oa-formats-gaf oa-sim-sprite-animation oa-formats-hpi
+target_link_libraries(oa-present-model PUBLIC oa-present oa-present-colour-vision
+  oa-formats-objects3d oa-formats-gaf oa-sim-sprite-animation oa-formats-hpi
   oa-sim-model-runtime oa-core-types oa-sim-effect-particles oa-data-limits
   PRIVATE oa-base-geometry oa-options oa-sim-feature-runtime)
 target_compile_features(oa-present-model PUBLIC cxx_std_20)

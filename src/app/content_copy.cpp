@@ -16,14 +16,15 @@
 #include "oa/base/sha256.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/file_clone.hpp"
+#include "oa/platform/file_time.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/game_installs.hpp"
 #include "oa/platform/preferences.hpp"
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -92,43 +93,6 @@ uint32_t narrow_count(std::size_t count) noexcept {
     if (count > limit)
         return std::numeric_limits<uint32_t>::max();
     return static_cast<uint32_t>(count);
-}
-
-/// Converts a file time to whole seconds since 1970, as the import does.
-template <typename Clock>
-[[nodiscard]] int64_t seconds_of_clock(typename Clock::time_point time) {
-    const auto count = [](auto system_time) {
-        return std::chrono::floor<std::chrono::seconds>(system_time).time_since_epoch().count();
-    };
-    if constexpr (requires { Clock::to_sys(time); })
-        return static_cast<int64_t>(count(Clock::to_sys(time)));
-    else {
-        const auto utc = Clock::to_utc(time);
-        using Utc = typename decltype(utc)::clock;
-        return static_cast<int64_t>(count(Utc::to_sys(utc)));
-    }
-}
-
-/// Converts whole seconds since 1970 to a file time.
-template <typename Clock>
-[[nodiscard]] typename Clock::time_point time_of_clock(int64_t seconds) {
-    const std::chrono::sys_seconds system{std::chrono::seconds{seconds}};
-    if constexpr (requires { Clock::from_sys(system); }) {
-        return std::chrono::time_point_cast<typename Clock::duration>(Clock::from_sys(system));
-    } else {
-        using Utc = typename decltype(Clock::to_utc(typename Clock::time_point{}))::clock;
-        return std::chrono::time_point_cast<typename Clock::duration>(
-            Clock::from_utc(Utc::from_sys(system))
-        );
-    }
-}
-
-[[nodiscard]] int64_t modified_seconds(fs::file_time_type time) {
-    return seconds_of_clock<fs::file_time_type::clock>(time);
-}
-
-[[nodiscard]] fs::file_time_type time_from_seconds(int64_t seconds) {
-    return time_of_clock<fs::file_time_type::clock>(seconds);
 }
 
 [[nodiscard]] char fold_byte(char byte) noexcept {
@@ -524,7 +488,7 @@ list_tree(const fs::path& root, std::vector<ContentSourceFile>& files, std::stri
                     if (!size_error) {
                         listed.size = narrow_size(size);
                         if (!time_error)
-                            listed.modified = modified_seconds(stamp);
+                            listed.modified = oa::platform::file_seconds_since_1970(stamp);
                         files.push_back(std::move(listed));
                     }
                 }
@@ -731,7 +695,7 @@ struct TailRequest {
         return false;
     digest = oa::base::sha256::finish(hasher);
     size = got;
-    modified = modified_seconds(stamp);
+    modified = oa::platform::file_seconds_since_1970(stamp);
     return true;
 }
 
@@ -745,7 +709,7 @@ struct TailRequest {
 
 [[nodiscard]] bool set_modified(const fs::path& path, int64_t modified, std::string* error) {
     std::error_code failure;
-    fs::last_write_time(path, time_from_seconds(modified), failure);
+    fs::last_write_time(path, oa::platform::file_time_from_seconds(modified), failure);
     if (failure) {
         set_error(error, "the copied file's time could not be set");
         return false;
@@ -764,7 +728,7 @@ file_matches_record(const fs::path& dest, const ContentRecordFile& recorded, uin
     const auto stamp = fs::last_write_time(dest, failure);
     if (failure)
         return false;
-    return modified_seconds(stamp) == recorded.modified;
+    return oa::platform::file_seconds_since_1970(stamp) == recorded.modified;
 }
 
 [[nodiscard]] uint64_t regular_size(const fs::path& path) {
@@ -978,7 +942,7 @@ stamp_tree(const fs::path& root, std::vector<SourceStamp>& stamps, std::string& 
                     reason = "the fixture's time could not be read";
                     return false;
                 }
-                stamp.modified = modified_seconds(written);
+                stamp.modified = oa::platform::file_seconds_since_1970(written);
                 if (!load_bytes(child, stamp.bytes, reason))
                     return false;
                 stamps.push_back(std::move(stamp));
@@ -998,7 +962,7 @@ stamp_tree(const fs::path& root, std::vector<SourceStamp>& stamps, std::string& 
         }
         std::error_code failure;
         const auto written = fs::last_write_time(stamp.path, failure);
-        if (failure || modified_seconds(written) != stamp.modified) {
+        if (failure || oa::platform::file_seconds_since_1970(written) != stamp.modified) {
             reason = "the source changed time";
             return false;
         }
@@ -1042,7 +1006,7 @@ void stop_after_one_file(void* context, const CopyProgress& progress) {
             reason = "the fixture could not be written";
         return false;
     }
-    fs::last_write_time(dest, time_from_seconds(k_check_time), failure);
+    fs::last_write_time(dest, oa::platform::file_time_from_seconds(k_check_time), failure);
     if (failure) {
         reason = "the fixture's time could not be set";
         return false;
@@ -2313,7 +2277,231 @@ void count_up(uint32_t& count) noexcept {
         ++count;
 }
 
+/// The files of a bundle that differ, leaving out its stray archives.
+///
+/// @param bundle one bundle from the check
+/// @return files_differ less the strays
+[[nodiscard]] uint32_t table_files_differ(const ContentBundleCheck& bundle) noexcept {
+    const auto strays = static_cast<uint32_t>(
+        std::min<std::size_t>(bundle.strays.size(), std::numeric_limits<uint32_t>::max())
+    );
+    return bundle.files_differ > strays ? bundle.files_differ - strays : 0;
+}
+
 } // namespace
+
+std::string content_stray_line(const ContentBundleCheck& bundle, const ContentStrayArchive& stray) {
+    return replace_token(
+        replace_token(
+            replace_token(
+                replace_token(
+                    oa::data::languages::interface_text(
+                        "{file} in {folder}, {size} bytes, is not a file of {bundle}. The game "
+                        "does not read it."
+                    ),
+                    "{file}",
+                    stray.name
+                ),
+                "{folder}",
+                path_to_utf8(stray.folder)
+            ),
+            "{size}",
+            std::to_string(stray.size)
+        ),
+        "{bundle}",
+        oa::data::languages::interface_text(bundle.english_name)
+    );
+}
+
+bool archive_file_name(std::string_view name) noexcept {
+    const std::size_t dot = name.rfind('.');
+    if (dot == std::string_view::npos)
+        return false;
+    const std::string_view extension = name.substr(dot);
+    for (const std::string_view archive : {".hpi", ".ufo", ".ccx", ".gp3"}) {
+        if (extension.size() != archive.size())
+            continue;
+        bool same = true;
+        for (std::size_t at = 0; at < archive.size() && same; ++at)
+            same = std::tolower(static_cast<unsigned char>(extension[at])) == archive[at];
+        if (same)
+            return true;
+    }
+    return false;
+}
+
+std::vector<ContentStrayArchive>
+stray_archives(const fs::path& folder, const bundles::Bundle& bundle) {
+    std::vector<ContentStrayArchive> strays;
+    std::error_code failure;
+    fs::directory_iterator entries(folder, failure);
+    if (failure)
+        return strays;
+    for (const fs::directory_entry& entry : entries) {
+        std::error_code entry_failure;
+        if (!entry.is_regular_file(entry_failure) || entry_failure)
+            continue;
+        const std::string name = path_to_utf8(entry.path().filename());
+        if (!archive_file_name(name))
+            continue;
+        bool listed = false;
+        for (const bundles::ContentFile& file : bundle.files)
+            listed = listed || folded_equal(file.copy_name, name);
+        if (listed)
+            continue;
+        ContentStrayArchive stray;
+        stray.name = name;
+        stray.folder = folder;
+        const uintmax_t size = entry.file_size(entry_failure);
+        stray.size = entry_failure ? 0 : static_cast<uint64_t>(size);
+        strays.push_back(std::move(stray));
+    }
+    std::sort(strays.begin(), strays.end(), [](const auto& left, const auto& right) {
+        return left.name < right.name;
+    });
+    return strays;
+}
+
+bool played_content_differs(
+    const ContentCheck& check, std::string_view base_game, std::span<const std::string> expansions
+) noexcept {
+    for (const ContentBundleCheck& bundle : check.bundles) {
+        // Music changes no rules, so two games are not compared by it.
+        if (bundle.files_differ == 0 || bundle.id == "music")
+            continue;
+        if (bundle.id == base_game)
+            return true;
+        for (const std::string& expansion : expansions)
+            if (expansion == bundle.id)
+                return true;
+    }
+    return false;
+}
+
+StockFilesRefusal stock_files_refusal(
+    const ContentCheck& check, const fs::path& user_folder, std::string_view repaired_id
+) {
+    namespace languages = oa::data::languages;
+    StockFilesRefusal refusal;
+    const auto named = [&](std::string_view pattern) {
+        refusal.sentence = replace_token(
+            replace_token(languages::interface_text(pattern), "{file}", refusal.file),
+            "{folder}",
+            path_to_utf8(refusal.folder)
+        );
+    };
+    for (const ContentBundleCheck& bundle : check.bundles) {
+        if (bundle.id == "music" || bundle.strays.empty())
+            continue;
+        const ContentStrayArchive& stray = bundle.strays.front();
+        refusal.refused = true;
+        refusal.stray = true;
+        refusal.file = stray.name;
+        refusal.folder = stray.folder;
+        refusal.size = stray.size;
+        refusal.bundle_name = bundle.english_name;
+        named(
+            "{file} in {folder} is not one of Total Annihilation's files, so the Boneyards "
+            "cannot be entered. Remove it to enter."
+        );
+        return refusal;
+    }
+    for (const ContentBundleCheck& bundle : check.bundles) {
+        if (bundle.id == "music" || bundle.id == repaired_id || bundle.differing.empty())
+            continue;
+        refusal.refused = true;
+        refusal.file = bundle.differing.front().copy_name;
+        refusal.bundle_name = bundle.english_name;
+        const bundles::Bundle* known = bundles::find_bundle(bundle.id);
+        refusal.folder = known != nullptr ? bundle_folder(user_folder, *known) : user_folder;
+        named(
+            "{file} in {folder} does not match Total Annihilation's, so the Boneyards cannot "
+            "be entered. Copy the game again from your own install or CD to enter."
+        );
+        return refusal;
+    }
+    return refusal;
+}
+
+ContentCheck check_game_folder(const fs::path& folder, bool first_only) {
+    ContentCheck check;
+    const bundles::Bundle* base = bundles::find_bundle("totala");
+    if (base == nullptr)
+        return check;
+    ContentBundleCheck reported;
+    reported.id = std::string(base->id);
+    reported.english_name = std::string(base->english_name);
+    reported.kind = base->kind;
+    reported.file_count = narrow_count(base->files.size());
+    // The table's files at a bundle folder's top, of any bundle, by name.
+    const auto table_file = [](std::string_view name) -> const bundles::ContentFile* {
+        for (const bundles::Bundle& bundle : bundles::bundles())
+            for (const bundles::ContentFile& file : bundle.files)
+                if (file.copy_name.find('/') == std::string_view::npos &&
+                    folded_equal(file.copy_name, name))
+                    return &file;
+        return nullptr;
+    };
+
+    struct Named {
+        fs::path path;
+        std::string name;
+        const bundles::ContentFile* file;
+    };
+
+    std::vector<Named> to_hash;
+    std::error_code failure;
+    std::vector<fs::directory_entry> entries;
+    for (const fs::directory_entry& entry : fs::directory_iterator(folder, failure))
+        entries.push_back(entry);
+    std::sort(entries.begin(), entries.end(), [](const auto& left, const auto& right) {
+        return left.path().filename() < right.path().filename();
+    });
+    for (const fs::directory_entry& entry : entries) {
+        std::error_code entry_failure;
+        if (!entry.is_regular_file(entry_failure) || entry_failure)
+            continue;
+        const std::string name = path_to_utf8(entry.path().filename());
+        if (!archive_file_name(name))
+            continue;
+        const uintmax_t size = entry.file_size(entry_failure);
+        const bundles::ContentFile* file = table_file(name);
+        if (file == nullptr) {
+            ContentStrayArchive stray;
+            stray.name = name;
+            stray.folder = folder;
+            stray.size = entry_failure ? 0 : static_cast<uint64_t>(size);
+            reported.strays.push_back(std::move(stray));
+            count_up(reported.files_differ);
+            if (first_only)
+                break;
+            continue;
+        }
+        if (entry_failure || static_cast<uint64_t>(size) != file->size) {
+            reported.differing.push_back(ContentFileDifference{name});
+            count_up(reported.files_differ);
+            if (first_only)
+                break;
+            continue;
+        }
+        to_hash.push_back(Named{entry.path(), name, file});
+    }
+    if (!first_only || reported.files_differ == 0)
+        for (const Named& named : to_hash) {
+            oa::base::sha256::Digest digest{};
+            uint64_t hashed_size = 0;
+            int64_t hashed_time = 0;
+            if (hash_whole_file(named.path, digest, hashed_size, hashed_time, nullptr) &&
+                bundles::known_hash(*named.file, digest))
+                continue;
+            reported.differing.push_back(ContentFileDifference{named.name});
+            count_up(reported.files_differ);
+            if (first_only)
+                break;
+        }
+    check.bundles.push_back(std::move(reported));
+    return check;
+}
 
 bool content_notice_due(const ContentCheck& check) noexcept {
     for (const ContentBundleCheck& bundle : check.bundles) {
@@ -2344,10 +2532,14 @@ ContentNoticeCopy content_difference_notice(const ContentCheck& check) {
     for (const ContentBundleCheck& bundle : check.bundles) {
         if (bundle.files_differ == 0)
             continue;
-        copy.lines.push_back(
-            std::string(oa::data::languages::interface_text(bundle.english_name)) + " / " +
-            differ_count_line(bundle.files_differ, bundle.file_count)
-        );
+        const uint32_t table = table_files_differ(bundle);
+        if (table > 0)
+            copy.lines.push_back(
+                std::string(oa::data::languages::interface_text(bundle.english_name)) + " / " +
+                differ_count_line(table, bundle.file_count)
+            );
+        for (const ContentStrayArchive& stray : bundle.strays)
+            copy.lines.push_back(content_stray_line(bundle, stray));
     }
     copy.lines.push_back(
         std::string(
@@ -2375,6 +2567,8 @@ ContentNoticeCopy content_file_notice(const ContentCheck& check) {
                 std::string(oa::data::languages::interface_text(bundle.english_name)) + ": " +
                 file.copy_name
             );
+        for (const ContentStrayArchive& stray : bundle.strays)
+            copy.lines.push_back(content_stray_line(bundle, stray));
     }
     copy.ok = std::string(oa::data::languages::interface_text("OK"));
     return copy;
@@ -2389,6 +2583,20 @@ std::string content_tracks_line(uint32_t held, uint32_t total) {
 }
 
 std::string content_bundle_line(const ContentBundleCheck& bundle) {
+    // Archives the bundle does not list, and nothing else, are named.
+    if (bundle.files_differ > 0 && table_files_differ(bundle) == 0) {
+        if (bundle.strays.size() == 1)
+            return replace_token(
+                oa::data::languages::interface_text("{file} is not one of its files"),
+                "{file}",
+                bundle.strays.front().name
+            );
+        return replace_token(
+            oa::data::languages::interface_text("{count} archives are not its files"),
+            "{count}",
+            std::to_string(bundle.strays.size())
+        );
+    }
     if (bundle.files_differ > 0)
         return differ_count_line(bundle.files_differ, bundle.file_count);
     if (bundle.id == "music" && bundle.files_not_in_source > 0 &&
@@ -2576,9 +2784,10 @@ ContentCheck check_managed_content(
                     return check;
                 continue;
             }
-            const bool unchanged = recorded && timed && !never_held &&
-                                   narrow_size(disk_bytes) == record.files[index].size &&
-                                   modified_seconds(stamp) == record.files[index].modified;
+            const bool unchanged =
+                recorded && timed && !never_held &&
+                narrow_size(disk_bytes) == record.files[index].size &&
+                oa::platform::file_seconds_since_1970(stamp) == record.files[index].modified;
             oa::base::sha256::Digest digest{};
             bool have_digest = false;
             if (unchanged) {
@@ -2620,6 +2829,11 @@ ContentCheck check_managed_content(
             if (!considered())
                 return check;
         }
+        // An archive the bundle does not list is not mounted, but it is not
+        // Total Annihilation's either: it is named, and the bundle differs.
+        reported.strays = stray_archives(folder, bundle);
+        for (std::size_t index = 0; index < reported.strays.size(); ++index)
+            count_up(reported.files_differ);
         // A record that cannot be stored is hashed again next start. This
         // start's answer stands either way.
         if (wrote) {

@@ -308,6 +308,7 @@ void form_destroyed(void* user);
 void ensure_form(RegistrationView* view);
 void show_reply(RegistrationView* view);
 void apply_route(RegistrationView* view);
+void hold_page_focus(RegistrationView* view, bool web);
 void close_registration(RegistrationView* view);
 
 void reply_closed(void* user, MessageBox*) {
@@ -526,6 +527,60 @@ void apply_route(RegistrationView* view) {
     // BACK TO LOGIN would sit in the form's status box. The form's CANCEL
     // goes back instead.
     show_window(view->back, view->form_root == nullptr || view->form_root->visible == 0);
+    hold_page_focus(view, web);
+}
+
+bool holds(const Window* root, const Window* window) {
+    for (const Window* cursor = window; cursor != nullptr; cursor = cursor->parent) {
+        if (cursor == root)
+            return true;
+    }
+    return false;
+}
+
+// The page confines the keyboard and leaves it on the button that opened
+// the page. The first Tab or arrow lands on Open, or on Back when Open is
+// hidden. The in-game form keeps the name field it already focused.
+void hold_page_focus(RegistrationView* view, bool web) {
+    Window* page = gui_screen_root(view->screen);
+    const bool form_up = view->form_root != nullptr && view->form_root->visible != 0;
+    if (form_up) {
+        if (page != nullptr)
+            page->modal = 0;
+        view->form_root->modal = 1;
+        return;
+    }
+    if (view->form_root != nullptr)
+        view->form_root->modal = 0;
+    if (page == nullptr)
+        return;
+    page->modal = web && window_is_shown(page) ? 1 : 0;
+    if (page->modal == 0 || page->focus_return != nullptr)
+        return;
+    Desktop* desktop = services().desktop;
+    if (desktop != nullptr && desktop->focus != nullptr && !holds(page, desktop->focus))
+        page->focus_return = desktop->focus;
+}
+
+void restore_page(Window* page) {
+    if (page == nullptr)
+        return;
+    Window* back = page->focus_return;
+    page->focus_return = nullptr;
+    page->modal = 0;
+    Desktop* desktop = services().desktop;
+    if (desktop == nullptr || desktop->focus == nullptr)
+        return;
+    if (window_is_shown(desktop->focus) && !holds(page, desktop->focus))
+        return;
+    // A click on Back leaves the keyboard on Back, as it always has, so
+    // REGISTER draws no white frame. A key hands it back to REGISTER.
+    if (desktop->pointer_last != 0 && holds(page, desktop->focus))
+        return;
+    if (desktop_holds(desktop, back) && window_is_shown(back))
+        services_desktop_focus(back);
+    else if (!window_is_shown(desktop->focus))
+        services_desktop_focus(nullptr);
 }
 
 void close_registration(RegistrationView* view) {
@@ -542,6 +597,7 @@ void close_registration(RegistrationView* view) {
     if (root != nullptr) {
         root->visible = 0;
         root->owned = 1;
+        restore_page(root);
     }
 }
 

@@ -528,6 +528,93 @@ Registration withdraw_in(TypeSet types, const Places& places) {
     return done;
 }
 
+/// Writes `value` when it is missing or differs.
+///
+/// @param[in,out] done the registration's record
+/// @param value the value
+/// @return false when the registry refused
+bool write_missing(Registration& done, const RegistryValue& value) {
+    if (holds(value))
+        return true;
+    const LONG result = write(value);
+    if (result != ERROR_SUCCESS) {
+        done.error = "cannot write " + place_of(value) + ": " + error_text(result);
+        return false;
+    }
+    done.changed = true;
+    done.lines.push_back("wrote " + place_of(value));
+    return true;
+}
+
+/// The replay registration itself. The eight types are not touched. .tad gains only an
+/// OpenWithProgids value.
+///
+/// @param executable the program, absolute
+/// @param places where it writes
+/// @return what was done
+Registration register_replay_in(const fs::path& executable, const Places& places) {
+    Registration done{};
+    done.supported = true;
+    if (!executable.is_absolute()) {
+        done.error = "the program's path " + detail::utf8_of(executable) + " is not absolute";
+        return done;
+    }
+    const std::wstring program = executable.wstring();
+    if (const std::wstring temporary = temporary_folder_of(program); !temporary.empty()) {
+        done.lines.push_back(
+            "skipped: " + narrow_of(program) + " lies in the temporary folder " +
+            narrow_of(temporary)
+        );
+        return done;
+    }
+    const std::wstring classes = wide_of(places.classes_key);
+    const std::wstring icon = wide_of(default_icon(executable));
+    const std::wstring extension = classes + L"\\." + wide_of(replay_extension);
+    const std::wstring program_id = wide_of(replay_program_id);
+    const std::wstring program_key = classes + L"\\" + program_id;
+    const RegistryValue owned[] = {
+        {extension, L"", program_id},
+        {extension, L"Content Type", wide_of(replay_mime_type)},
+        {extension + L"\\OpenWithProgids", program_id, L""},
+        {program_key, L"", wide_of(replay_type_name)},
+        {program_key + L"\\DefaultIcon", L"", icon},
+        {program_key + L"\\shell\\open\\command",
+         L"",
+         wide_of(open_command(executable, Opening::watch))},
+    };
+    for (const RegistryValue& value : owned)
+        if (!write_missing(done, value))
+            return done;
+    // Offered, never the default: no (Default) and no Content Type under .tad.
+    const RegistryValue offered{
+        classes + L"\\." + wide_of(tad_extension) + L"\\OpenWithProgids", program_id, L""
+    };
+    if (!write_missing(done, offered))
+        return done;
+    tell_shell(done, places);
+    return done;
+}
+
+/// The replay withdrawal itself. .tad loses only the OpenWithProgids value.
+///
+/// @param places where it writes
+/// @return what was done
+Registration withdraw_replay_in(const Places& places) {
+    Registration done{};
+    done.supported = true;
+    const std::wstring classes = wide_of(places.classes_key);
+    if (!withdraw_type(done, classes, places, replay_file_type))
+        return done;
+    if (!take_value(
+            done,
+            classes + L"\\." + wide_of(tad_extension) + L"\\OpenWithProgids",
+            wide_of(replay_program_id)
+        ))
+        return done;
+    tell_shell(done, places);
+    return done;
+}
+
 } // namespace
 
 Registration
@@ -549,6 +636,28 @@ Registration withdraw_windows(const TypeSet types, const Places& places) {
         Registration failed{};
         failed.supported = true;
         failed.error = std::string("the file types could not be withdrawn: ") + error.what();
+        return failed;
+    }
+}
+
+Registration register_replay_windows(const fs::path& executable, const Places& places) {
+    try {
+        return register_replay_in(executable, places);
+    } catch (const std::exception& error) {
+        Registration failed{};
+        failed.supported = true;
+        failed.error = std::string("the replay type could not be registered: ") + error.what();
+        return failed;
+    }
+}
+
+Registration withdraw_replay_windows(const Places& places) {
+    try {
+        return withdraw_replay_in(places);
+    } catch (const std::exception& error) {
+        Registration failed{};
+        failed.supported = true;
+        failed.error = std::string("the replay type could not be withdrawn: ") + error.what();
         return failed;
     }
 }

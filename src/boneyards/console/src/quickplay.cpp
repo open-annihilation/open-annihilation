@@ -11,6 +11,7 @@
 #include "widgets.hpp"
 
 #include "oa/boneyards/console/gui_screen.hpp"
+#include "oa/boneyards/console/status_widget.hpp"
 #include "oa/boneyards/message_box.hpp"
 #include "oa/boneyards/screens/lobby_widgets.hpp"
 #include "oa/boneyards/screens/quickplay.hpp"
@@ -18,7 +19,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace oa::boneyards::console {
 namespace {
@@ -30,6 +33,12 @@ constexpr int32_t k_check_height = 11;
 constexpr int32_t k_host_capacity = 8;
 constexpr const char* k_click = "GREEN_BUTTON";
 constexpr const char* k_screen_path = "gui/quickplay.gui";
+// Distinct among siblings. The five game types share one stop; where, skill
+// and side are the other stops.
+constexpr uint8_t k_pick_group = 1;
+constexpr uint8_t k_where_group = 2;
+constexpr uint8_t k_skill_group = 3;
+constexpr uint8_t k_side_group = 4;
 // Blurb, timer and scan lines: left aligned, their tops on the layout's lines.
 constexpr int32_t k_line_style = text_style::left | text_style::top;
 
@@ -165,9 +174,37 @@ void read_navigation(QuickPlayView* view) {
     screens::quickplay_set_favorite(&view->model, navigation->profile.profile.favorite_map);
 }
 
+// A hotspot draws nothing of its own, so Pressed and Disabled change no
+// pixel. Pressed is the chosen type (the one keyboard stop). Disabled is a
+// type this planet does not offer, so the arrows skip it.
+bool pick_is_class(const char* name) {
+    return name != nullptr && (std::strcmp(name, class_name::button) == 0 ||
+                               std::strcmp(name, class_name::radio_button) == 0);
+}
+
+const WindowOps* game_type_ops() {
+    static WindowOps ops{};
+    static bool ready = false;
+    if (!ready) {
+        ops = k_hotspot_button_ops;
+        ops.is_class = pick_is_class;
+        ready = true;
+    }
+    return &ops;
+}
+
 void refresh_types(QuickPlayView* view) {
     for (int32_t i = 0; i < screens::kQuickPlayTypeCount; ++i) {
         const bool selected = view->model.selected == i;
+        const bool allowed = screens::quickplay_type_allowed(&view->model, i);
+        Window* pick = view->picks[i];
+        if (pick != nullptr) {
+            const int32_t state = !allowed   ? button_state::disabled
+                                  : selected ? button_state::pressed
+                                             : button_state::unpressed;
+            if (pick->states.current != state)
+                window_set_state(pick, state);
+        }
         Handle font = view->fonts.small;
         if (selected && view->fonts.small_light >= 0)
             font = view->fonts.small_light;
@@ -247,10 +284,11 @@ void refresh_chrome(QuickPlayView* view) {
     }
 }
 
-void link_group(Window* const* radios, int32_t count) {
+void link_group(Window* const* radios, int32_t count, uint8_t group) {
     for (int32_t i = 0; i < count; ++i) {
         if (radios[i] == nullptr)
             continue;
+        radios[i]->radio_group = group;
         auto* radio = reinterpret_cast<screens::LobbyRadio*>(radios[i]);
         for (int32_t other = 0; other < count; ++other) {
             if (other != i && radios[other] != nullptr)
@@ -328,6 +366,10 @@ void take_controls(QuickPlayView* view) {
         view->icons[i] = find_window(screen, type_name);
         view->type_labels[i] = find_window(screen, label_name);
         view->picks[i] = find_window(screen, pick_name);
+        if (view->picks[i] != nullptr) {
+            view->picks[i]->ops = game_type_ops();
+            view->picks[i]->radio_group = k_pick_group;
+        }
     }
     for (int32_t line = 0; line < screens::kQuickPlayBlurbLines; ++line) {
         char name[8] = "Blurb0";
@@ -369,9 +411,9 @@ void take_controls(QuickPlayView* view) {
 void bind_choices(QuickPlayView* view) {
     Window* where[2] = {view->where_any, view->where_fuel};
     Window* sides[3] = {view->side_arm, view->side_core, view->side_either};
-    link_group(where, 2);
-    link_group(view->skills, 3);
-    link_group(sides, 3);
+    link_group(where, 2, k_where_group);
+    link_group(view->skills, 3, k_skill_group);
+    link_group(sides, 3, k_side_group);
     if (view->where_any != nullptr)
         window_set_state(view->where_any, button_state::pressed);
     if (view->skills[1] != nullptr)
@@ -551,6 +593,12 @@ void take_notices(QuickPlayView* view) {
         else if (notice.kind == QuickPlayNoticeKind::withdrawn)
             effect = screens::quickplay_apply_withdrawn(&view->model, &notice.withdrawn);
         show_effect(effect);
+        if (effect.show_offer) {
+            char offer_line[192];
+            screens::quickplay_offer_line(&view->model, offer_line, sizeof offer_line);
+            if (offer_line[0] != '\0')
+                boneyards_console_driver_note("alert", offer_line);
+        }
     }
 }
 

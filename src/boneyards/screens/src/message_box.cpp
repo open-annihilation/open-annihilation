@@ -68,9 +68,20 @@ bool blank_button_draw(Window* self) {
     return true;
 }
 
+/// Enter and Space press this answer. The letters and Escape stay with the box,
+/// so a Yes/No box still answers Y, N and Escape while an answer is focused.
+bool blank_button_key_down(Window* self, const Message* msg) {
+    if (msg == nullptr || self->parent == nullptr || self->parent->ops == nullptr)
+        return false;
+    if (msg->key == key::enter || msg->key == ' ')
+        return k_button_ops.key_down(self, msg);
+    return self->parent->ops->key_down(self->parent, msg);
+}
+
 WindowOps make_blank_button_ops() {
     WindowOps ops = k_button_ops;
     ops.draw = blank_button_draw;
+    ops.key_down = blank_button_key_down;
     return ops;
 }
 
@@ -114,8 +125,14 @@ void message_box_on_notify(Window* self, const Notify* notify) {
 ///
 /// @param self the box
 /// @param msg key message
-/// @return true always: every key is consumed
+/// @return true when the key answered the box. Tab, F6 and the arrows are
+///     left for the desktop, so they move between the buttons.
 bool message_box_key_down(Window* self, const Message* msg) {
+    if (msg == nullptr)
+        return false;
+    if (msg->key == key::tab || msg->key == key::f6 || msg->key == key::left ||
+        msg->key == key::right || msg->key == key::up || msg->key == key::down)
+        return false;
     MessageBox* box = as_box(self);
     const Window* ok = window_find_named(self, message_box_name::ok, class_name::button);
     const Window* cancel = window_find_named(self, message_box_name::cancel, class_name::button);
@@ -455,16 +472,16 @@ MessageBox* message_box_create(
         std::abort();
     }
     window_init(&box->base, &k_message_box_ops);
-    // The box takes the keyboard, so its keys answer it whatever had the focus
-    // (a text field, say); that window gets it back when the box closes,
-    // unless the caller names another.
+    // The box keeps the keyboard, as it does today, so opening it draws no
+    // white frame. Enter still answers OK, or Yes when there is no OK, until
+    // an answer itself has the focus. The window that had the keyboard gets
+    // it back when the box closes, unless the caller names another.
     Desktop* desktop = services().desktop;
     Window* had_focus = desktop != nullptr ? desktop->focus : nullptr;
     box->focus_return = focus_return != nullptr ? focus_return : had_focus;
     message_box_build(box, text, buttons, accepted, declined);
-    if (desktop != nullptr) {
+    if (desktop != nullptr)
         services_desktop_focus(&box->base);
-    }
     if (g_box_opened != nullptr)
         g_box_opened(text != nullptr ? text : "");
     return box;

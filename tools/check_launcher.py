@@ -59,9 +59,10 @@ def check(root, source):
     repo = root / "repo"
     repo.mkdir()
     shutil.copy2(source / "run.sh", repo / "run.sh")
-    # The files run.sh looks for before it bootstraps the pinned SDL, and
-    # FreeType with the text fonts, so that it bootstraps neither. It takes
-    # FreeType of any release, freetype-install-*.
+    # The files run.sh looks for before it bootstraps the pinned SDL,
+    # FreeType, HarfBuzz, the text fonts and AccessKit, so that it
+    # bootstraps none of them. It takes FreeType of any release,
+    # freetype-install-*, and HarfBuzz of any release, harfbuzz-install-*.
     (repo / "local/deps/sdl-install/lib/cmake/SDL3").mkdir(parents=True)
     (repo / "local/deps/sdl-install/lib/cmake/SDL3/SDL3Config.cmake").touch()
     (repo / "local/deps/text-fonts").mkdir(parents=True)
@@ -69,9 +70,15 @@ def check(root, source):
     freetype_config = repo / "local/deps/freetype-install-any/lib/cmake/freetype"
     freetype_config.mkdir(parents=True)
     (freetype_config / "freetype-config.cmake").touch()
+    harfbuzz_config = repo / "local/deps/harfbuzz-install-any/lib/cmake/harfbuzz"
+    harfbuzz_config.mkdir(parents=True)
+    (harfbuzz_config / "harfbuzzConfig.cmake").touch()
     # The page fonts, already fetched.
     (repo / "local/deps/fonts/liberation").mkdir(parents=True)
     (repo / "local/deps/fonts/liberation/LiberationSans-Regular.ttf").touch()
+    # AccessKit, already fetched. The same marker run.sh looks for.
+    (repo / "local/deps/accesskit-c-0.23.2").mkdir(parents=True)
+    (repo / "local/deps/accesskit-c-0.23.2/.oa-accesskit-settings.json").touch()
     (root / "bin").mkdir()
     (root / "build").mkdir()
     # The installation lies beside the checkout, where a workspace might keep

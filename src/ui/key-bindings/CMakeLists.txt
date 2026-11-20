@@ -40,6 +40,13 @@ if(BUILD_TESTING)
     oa-options)
   add_test(NAME ui-key-bindings-layouts COMMAND oa-ui-key-bindings-layouts-exe)
 
+  # The GUI files on screen, and page changes from a kept resolution over a mod's GUI keys.
+  add_executable(oa-ui-key-bindings-pages-exe tests/pages_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-pages-exe PRIVATE oa-ui-key-bindings oa-test-support
+    oa-options)
+  add_test(NAME ui-key-bindings-pages COMMAND oa-ui-key-bindings-pages-exe)
+  set_tests_properties(ui-key-bindings-pages PROPERTIES TIMEOUT 300)
+
   # One binding per event, the gestures, and a modifier role read from the keys held now.
   add_executable(oa-ui-key-bindings-dispatcher-exe tests/dispatcher_test.cpp)
   target_link_libraries(oa-ui-key-bindings-dispatcher-exe PRIVATE oa-ui-key-bindings oa-test-support

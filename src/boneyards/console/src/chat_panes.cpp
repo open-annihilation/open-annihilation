@@ -107,6 +107,62 @@ screens::ChatConsole* chat_of(const InfoPane* pane) {
     return &pane->owner->navigation->chat;
 }
 
+bool keyboard_ring_shown() {
+    const Desktop* desktop = services().desktop;
+    return desktop != nullptr && desktop->keyboard_ring != 0;
+}
+
+/// The three tabs are one Tab stop: the open one. The arrows and a click
+/// still reach each of them, as before.
+void mark_open_tab(PlayerPaneView* view, int32_t open) {
+    if (open < 0 || open >= k_player_pane_tabs)
+        open = 0;
+    for (int32_t i = 0; i < k_player_pane_tabs; ++i) {
+        Window* tab = view->tabs[i];
+        if (tab == nullptr)
+            continue;
+        tab->tab_place = 7;
+        tab->access_set = 1;
+        tab->access_chosen = static_cast<uint8_t>(i == open ? 1 : 0);
+    }
+}
+
+/// Left and Right change the open tab once the ring shows. Until then they
+/// move the keyboard, as a click on a tab does today.
+bool player_tab_key_down(Window* self, const Message* msg) {
+    if (msg == nullptr)
+        return false;
+    if (!keyboard_ring_shown() || (msg->key != key::left && msg->key != key::right))
+        return k_button_ops.key_down(self, msg);
+    if (self->parent == nullptr)
+        return true;
+    PlayerPaneView* view = as_player(self->parent);
+    int32_t index = -1;
+    for (int32_t i = 0; i < k_player_pane_tabs; ++i) {
+        if (view->tabs[i] == self)
+            index = i;
+    }
+    if (index < 0)
+        return true;
+    const int32_t next = msg->key == key::right ? (index + 1) % k_player_pane_tabs
+                                                : (index == 0 ? k_player_pane_tabs - 1 : index - 1);
+    if (!screens::chat_pane_on_click(chat_of(&view->pane), k_tab_controls[next]))
+        return true;
+    services_desktop_focus(view->tabs[next]);
+    return true;
+}
+
+const WindowOps* player_tab_ops() {
+    static WindowOps ops{};
+    static bool ready = false;
+    if (!ready) {
+        ops = k_hotspot_button_ops;
+        ops.key_down = player_tab_key_down;
+        ready = true;
+    }
+    return &ops;
+}
+
 void play_sound(const InfoPane* pane, const char* name) {
     const MainMenuHost& host = pane->owner->config.host;
     if (host.play_sound != nullptr)
@@ -486,11 +542,14 @@ InfoPane* player_pane_create(MainFrame* frame, const char* title) {
     view->whisper_lock = screens::lobby_check_box_create(
         self, l::check_x, l::whisper_lock_y, "Whisper Lock", f.small_dim
     );
+    view->whisper_lock->base.tab_place = 8;
     view->muzzle =
         screens::lobby_check_box_create(self, l::check_x, l::muzzle_y, "Muzzle", f.small_dim);
+    view->muzzle->base.tab_place = 9;
     view->page = button_create();
     screens::function_button_setup(view->page, true, l::page_x, l::page_y, "PAGE", self);
     window_set_state(view->page, button_state::unpressed);
+    view->page->tab_place = 10;
     for (int32_t i = 0; i < k_player_pane_tabs; ++i) {
         view->tab_labels[i] = screens::lobby_label_create(
             self,
@@ -504,6 +563,7 @@ InfoPane* player_pane_create(MainFrame* frame, const char* title) {
             l::tab_height
         );
         view->tabs[i] = hotspot_button_create();
+        view->tabs[i]->ops = player_tab_ops();
         window_create(
             view->tabs[i],
             k_tab_names[i],
@@ -515,8 +575,13 @@ InfoPane* player_pane_create(MainFrame* frame, const char* title) {
             true
         );
     }
+    mark_open_tab(view, 0);
     view->html = html_view_create(owner, self, l::html_x, l::html_y, l::html_width, l::html_height);
     view->html->base.visible = 1;
+    // The page's scroll bar, shown while the page is longer than the view,
+    // follows PAGE. Without a place it would take the order of the windows
+    // the focus last raised, and a round could pass it by.
+    view->html->slider->base.tab_place = 11;
     view->arm_insignia = image_load(
         screens::kWidgetsGaf, k_insignia_sequence, screens::insignia_frame::arm, screens::kWidgetKey
     );
@@ -564,6 +629,7 @@ void player_pane_show(PlayerPaneView* view, const screens::PlayerPane& pane, boo
             view->tab_labels[i], pane.tab_highlighted[i] ? f.button_hover : f.button_normal
         );
     }
+    mark_open_tab(view, pane.tab);
     if (page)
         html_view_set_text(view->html, text_or_empty(pane.html));
 }

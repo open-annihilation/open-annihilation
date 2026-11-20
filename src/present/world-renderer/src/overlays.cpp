@@ -8,6 +8,7 @@
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 
+#include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/display.hpp"
 #include "oa/present/polygon.hpp"
 #include "oa/present/raster.hpp"
@@ -273,6 +274,19 @@ void overlay_meter_bar(
         part.x1 = part.x2 + 1;
         part.x2 = rect.x2;
         fill_rect(raster, surface, part, colors[4]);
+    }
+    // Notches at one third and two thirds, in the trough's colour, only while
+    // shape cues are in effect. The bar above is unchanged with cues off.
+    if (!oa::present::colour_vision::shape_cues_active())
+        return;
+    const int32_t span = rect.x2 - rect.x1 + 1;
+    if (span < 3 || rect.y2 + y_offset < rect.y1 + y_offset)
+        return;
+    for (int32_t third = 1; third <= 2; ++third) {
+        const int32_t column = rect.x1 + (span * third) / 3;
+        fill_rect(
+            raster, surface, {column, rect.y1 + y_offset, column, rect.y2 + y_offset}, colors[0]
+        );
     }
 }
 

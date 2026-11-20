@@ -14,10 +14,10 @@
 
 #include "oa/app/mod_profile_loader.hpp"
 #include "oa/formats/zip.hpp"
+#include "oa/platform/file_time.hpp"
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <limits>
 #include <system_error>
 #include <unordered_map>
@@ -484,44 +484,6 @@ void add_to_part(PartSummary& summary, std::string_view name, uint64_t size, boo
     return !error && size == demo_1997.archive_size;
 }
 
-/// Converts a time of a file clock to whole seconds since 1970, rounded down: directly where
-/// the clock converts to the system clock, else through UTC, as some standard libraries'
-/// file clocks only do.
-///
-/// @param time a time of the clock
-/// @return seconds since 1970
-template <typename Clock>
-[[nodiscard]] int64_t seconds_of_clock(typename Clock::time_point time) {
-    if constexpr (requires { Clock::to_sys(time); }) {
-        return std::chrono::floor<std::chrono::seconds>(Clock::to_sys(time))
-            .time_since_epoch()
-            .count();
-    } else {
-        const auto utc = Clock::to_utc(time);
-        using Utc = typename decltype(utc)::clock;
-        return std::chrono::floor<std::chrono::seconds>(Utc::to_sys(utc))
-            .time_since_epoch()
-            .count();
-    }
-}
-
-/// Converts whole seconds since 1970 to a time of a file clock, as seconds_of_clock() reads it.
-///
-/// @param seconds seconds since 1970
-/// @return the clock's time
-template <typename Clock>
-[[nodiscard]] typename Clock::time_point time_of_clock(int64_t seconds) {
-    const std::chrono::sys_seconds system{std::chrono::seconds{seconds}};
-    if constexpr (requires { Clock::from_sys(system); }) {
-        return std::chrono::time_point_cast<typename Clock::duration>(Clock::from_sys(system));
-    } else {
-        using Utc = typename decltype(Clock::to_utc(typename Clock::time_point{}))::clock;
-        return std::chrono::time_point_cast<typename Clock::duration>(
-            Clock::from_utc(Utc::from_sys(system))
-        );
-    }
-}
-
 } // namespace
 
 std::optional<LeftOutReason>
@@ -618,11 +580,11 @@ std::string old_folder_name(uint32_t number) {
 }
 
 int64_t seconds_since_1970(fs::file_time_type time) noexcept {
-    return seconds_of_clock<fs::file_time_type::clock>(time);
+    return oa::platform::file_seconds_since_1970(time);
 }
 
 fs::file_time_type file_time_from_seconds(int64_t seconds) noexcept {
-    return time_of_clock<fs::file_time_type::clock>(seconds);
+    return oa::platform::file_time_from_seconds(seconds);
 }
 
 ImportPaths import_paths(const fs::path& game_folder, const fs::path& data_folder) {

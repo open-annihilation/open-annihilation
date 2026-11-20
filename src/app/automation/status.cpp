@@ -270,7 +270,9 @@ EventHooks StatusStream::hooks() {
     hook_.stream = this;
     EventHooks hooks;
     hooks.context = &hook_;
-    hooks.wanted = [](void* /*context*/, uint32_t kind) { return kind != event_kind::transfer; };
+    hooks.wanted = [](void* /*context*/, uint32_t kind) {
+        return kind != event_kind::transfer && kind != event_kind::focus;
+    };
     hooks.begin = [](void* context, std::string_view kind) {
         auto& state = *static_cast<HookState*>(context);
         state.kind.assign(kind.begin(), kind.end());

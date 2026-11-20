@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+import native_offline
 
 VARIANTS = (
     "folder",
@@ -87,6 +88,24 @@ STOP_AFTER = 8_000_000
 
 # The free space the short-space variant reports, in bytes.
 SHORT_FREE_BYTES = 50_000_000
+
+
+
+def _offline_preferences(path):
+    """Leaves both online checks off so the run does not fetch a catalogue."""
+    from pathlib import Path
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    text = target.read_text(encoding='utf-8') if target.is_file() else 'open-annihilation-preferences 1\n'
+    if 'open-annihilation.update-check' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.update-check" "never"\n'
+    if 'open-annihilation.content-updates' not in text:
+        if not text.endswith('\n'):
+            text += '\n'
+        text += '"open-annihilation.content-updates" "never"\n'
+    target.write_text(text, encoding='utf-8')
 
 
 def parse_arguments(argv):
@@ -282,6 +301,7 @@ def main(argv):
             picture.unlink()
     else:
         recreate(work)
+    _offline_preferences(work / "preferences.conf")
     options = prepare(arguments, work, game_dir)
     if options is None:
         say(variant, "skipped: the installed game lacks a file of the subset")

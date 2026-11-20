@@ -928,6 +928,120 @@ void waiting() {
     OA_CHECK(clock.now >= 60000);
 }
 
+void other_copies_are_found_in_the_install() {
+    const std::vector<helper::RunningProgram> running{
+        {10, "C:\\Program Files\\Open Annihilation\\open-annihilation.exe"},
+        {11, "c:/program files/open annihilation/oa-tool.exe"},
+        {12, "C:\\Program Files\\Open Annihilation\\oa-update.exe"},
+        {13, "C:\\Program Files\\Open Annihilation 2\\open-annihilation.exe"},
+        {14, "C:\\Program Files\\Open Annihilation"},
+        {15, ""},
+        {0, "C:\\Program Files\\Open Annihilation\\open-annihilation.exe"},
+        {16, "\\\\?\\C:\\Program Files\\Open Annihilation\\fonts\\tool.exe"},
+        {17, "C:\\Windows\\explorer.exe"},
+    };
+    // Letter case is ignored where the system ignores it, either slash
+    // separates names, and the helper's own process is never a copy.
+    const std::vector<int64_t> folded =
+        helper::copies_in_install(running, "C:/Program Files/Open Annihilation/", 12, true);
+    OA_CHECK((folded == std::vector<int64_t>{10, 11, 16}));
+    const std::vector<int64_t> exact =
+        helper::copies_in_install(running, "C:\\Program Files\\Open Annihilation", 12, false);
+    OA_CHECK((exact == std::vector<int64_t>{10, 16}));
+    const std::vector<int64_t> with_helper =
+        helper::copies_in_install(running, "C:/Program Files/Open Annihilation", 99, true);
+    OA_CHECK((with_helper == std::vector<int64_t>{10, 11, 12, 16}));
+    OA_CHECK(helper::copies_in_install(running, "", 99, true).empty());
+
+    // A macOS bundle: the game runs from inside it.
+    const std::vector<helper::RunningProgram> bundle{
+        {20, "/Applications/Open Annihilation.app/Contents/MacOS/open-annihilation"},
+        {21, "/Applications/Open Annihilation.app/Contents/MacOS/oa-update"},
+        {22, "/Applications/Other.app/Contents/MacOS/open-annihilation"},
+    };
+    const std::vector<int64_t> in_bundle =
+        helper::copies_in_install(bundle, "/Applications/Open Annihilation.app", 21, true);
+    OA_CHECK((in_bundle == std::vector<int64_t>{20}));
+}
+
+struct ListedCopies {
+    int64_t now{0};
+    int looks_with_copy{0}; ///< looks that still find a copy; below 0 for every look
+    int looks{0};
+    int waiting_calls{0};
+};
+
+int64_t copies_now(void* context) {
+    return static_cast<ListedCopies*>(context)->now;
+}
+
+void copies_sleep(void* context, int64_t milliseconds) {
+    static_cast<ListedCopies*>(context)->now += milliseconds;
+}
+
+std::vector<helper::RunningProgram> copies_running(void* context) {
+    auto* listed = static_cast<ListedCopies*>(context);
+    const bool copy = listed->looks_with_copy < 0 || listed->looks < listed->looks_with_copy;
+    listed->looks += 1;
+    std::vector<helper::RunningProgram> running{{7, "/games/oa/oa-update"}, {8, "/usr/bin/sh"}};
+    if (copy)
+        running.push_back({9, "/games/oa/open-annihilation"});
+    return running;
+}
+
+void copies_waiting(void* context) {
+    static_cast<ListedCopies*>(context)->waiting_calls += 1;
+}
+
+void waiting_for_other_copies() {
+    ListedCopies listed;
+    helper::CopiesHooks hooks;
+    hooks.context = &listed;
+    hooks.now_ms = copies_now;
+    hooks.sleep_ms = copies_sleep;
+    hooks.running = copies_running;
+    hooks.waiting = copies_waiting;
+    std::string error;
+
+    // Nothing else runs from the install: no line, no pause.
+    OA_CHECK(
+        helper::wait_for_other_copies("/games/oa", 7, &hooks, &error) ==
+        helper::WaitOutcome::finished
+    );
+    OA_CHECK(listed.looks == 1);
+    OA_CHECK(listed.waiting_calls == 0);
+    OA_CHECK(listed.now == 0);
+    OA_CHECK(error.empty());
+
+    // The player closes the other copy after three looks.
+    listed = ListedCopies{};
+    listed.looks_with_copy = 3;
+    OA_CHECK(
+        helper::wait_for_other_copies("/games/oa", 7, &hooks, &error) ==
+        helper::WaitOutcome::finished
+    );
+    OA_CHECK(listed.looks == 4);
+    OA_CHECK(listed.waiting_calls == 3);
+    OA_CHECK(listed.now > 0 && listed.now < helper::wait_limit_ms);
+    OA_CHECK(error.empty());
+
+    // A copy that stays open stops the wait after a minute, with the line
+    // the receipt records.
+    listed = ListedCopies{};
+    listed.looks_with_copy = -1;
+    OA_CHECK(
+        helper::wait_for_other_copies("/games/oa", 7, &hooks, &error) ==
+        helper::WaitOutcome::still_running
+    );
+    OA_CHECK(error == helper::other_windows_open_text);
+    OA_CHECK(listed.now >= helper::wait_limit_ms);
+    OA_CHECK(listed.waiting_calls > 0);
+    OA_CHECK(
+        std::string(helper::close_other_windows_text) ==
+        "Close the other Open Annihilation windows."
+    );
+}
+
 void window() {
     const helper::PlacedUpdateWindow placed =
         helper::place_update_window("Installing 0.0.2", "0.0.1 is kept.", 400);
@@ -1016,6 +1130,8 @@ int main() {
     the_release_spelling_of_the_top_folder_unpacks();
     journal();
     waiting();
+    other_copies_are_found_in_the_install();
+    waiting_for_other_copies();
     window();
     test_windows_routes();
     test_linux_versions_route();

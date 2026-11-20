@@ -25,12 +25,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through. Empty runs the executable.
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 
-PREFERENCES_HEADER = "open-annihilation-preferences 1"
+PREFERENCES_HEADER = (
+    "open-annihilation-preferences 1\n"
+    '"open-annihilation.update-check" "never"\n'
+    '"open-annihilation.content-updates" "never"'
+)
 BRAIN_KEY = "open-annihilation.brain.default"
 USER_FOLDER_NAME = "Open Annihilation"
 TRACE_SEED = 1234567

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # The OA UI kit: one look, one text measure, one layout and one set of controls
-# for every OA screen (include/oa/ui/kit/theme.hpp, include/oa/ui/kit/text.hpp,
+# for every OA screen (include/oa/ui/kit/theme.hpp, include/oa/ui/kit/state_colours.hpp,
+# include/oa/ui/kit/text.hpp,
 # include/oa/ui/kit/layout.hpp, include/oa/ui/kit/input.hpp,
 # include/oa/ui/kit/looks.hpp, include/oa/ui/kit/canvas.hpp, include/oa/ui/kit/components.hpp,
 # include/oa/ui/kit/chrome.hpp, include/oa/ui/kit/controls.hpp,
@@ -15,19 +16,30 @@ add_library(oa-ui-kit src/text.cpp src/wrap.cpp src/layout.cpp src/input.cpp src
   src/keys.cpp)
 # Declared rows: a settings page as a table (include/oa/ui/kit/rows.hpp).
 target_sources(oa-ui-kit PRIVATE src/rows.cpp)
+# Ok, caution, danger and information follow the colour-vision mode
+# (include/oa/ui/kit/state_colours.hpp).
+target_sources(oa-ui-kit PRIVATE src/state_colours.cpp)
 add_library(oa::ui::kit ALIAS oa-ui-kit)
 target_include_directories(oa-ui-kit PUBLIC include)
 target_compile_features(oa-ui-kit PUBLIC cxx_std_20)
 # The canvas's smooth form paints with oa-ui-paint in the bundled modern fonts.
 target_link_libraries(oa-ui-kit PUBLIC oa-ui-paint oa-platform-text-font oa-ui-frontend-renderer
   oa-present oa-formats-fnt oa-formats-hpi oa-platform-preferences PRIVATE oa-base-text oa-ui-decoded
-  oa-options)
+  oa-options oa-present-colour-vision)
 
 if(BUILD_TESTING)
   add_executable(oa-ui-kit-theme-test tests/theme_test.cpp)
   target_link_libraries(oa-ui-kit-theme-test PRIVATE oa-ui-kit oa-test-support oa-options)
   add_test(NAME ui-kit-theme COMMAND oa-ui-kit-theme-test)
   set_tests_properties(ui-kit-theme PROPERTIES TIMEOUT 30)
+
+  # Each colour-vision mode's mark slots and kit state colours, and that the
+  # focus ring's token does not move.
+  add_executable(oa-ui-kit-state-colours-test tests/state_colours_test.cpp)
+  target_link_libraries(oa-ui-kit-state-colours-test PRIVATE oa-ui-kit oa-present-colour-vision
+    oa-test-support oa-options)
+  add_test(NAME ui-kit-state-colours COMMAND oa-ui-kit-state-colours-test)
+  set_tests_properties(ui-kit-state-colours PROPERTIES TIMEOUT 30)
 
   add_executable(oa-ui-kit-text-test tests/text_test.cpp)
   target_link_libraries(oa-ui-kit-text-test PRIVATE oa-ui-kit oa-test-support oa-options oa-ui-paint
@@ -65,6 +77,14 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-kit-controls-test PRIVATE oa-ui-kit oa-test-support oa-options)
   add_test(NAME ui-kit-controls COMMAND oa-ui-kit-controls-test)
   set_tests_properties(ui-kit-controls PROPERTIES TIMEOUT 30)
+
+  # A state chip's mark while shape cues are in effect, and a chip's width
+  # and pixels with the cues off.
+  add_executable(oa-ui-kit-chip-marks-test tests/chip_marks_test.cpp)
+  target_link_libraries(oa-ui-kit-chip-marks-test PRIVATE oa-ui-kit oa-present-colour-vision
+    oa-test-support oa-options)
+  add_test(NAME ui-kit-chip-marks COMMAND oa-ui-kit-chip-marks-test)
+  set_tests_properties(ui-kit-chip-marks PROPERTIES TIMEOUT 30)
 
   add_executable(oa-ui-kit-tag-icons-test tests/tag_icons_test.cpp)
   target_link_libraries(oa-ui-kit-tag-icons-test PRIVATE oa-ui-kit oa-test-support oa-options

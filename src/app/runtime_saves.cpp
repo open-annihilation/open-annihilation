@@ -9,6 +9,7 @@
 #include "oa_layer.hpp"
 
 #include "oa/app/game_directory.hpp"
+#include "oa/app/package_install/replay_release.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/saves/content_record.hpp"
@@ -18,6 +19,7 @@
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -168,15 +170,27 @@ std::string sentence_of(std::string_view title, const saves::ContentGap& gap) {
     return question.paragraphs.empty() ? std::string{} : question.paragraphs[0].text;
 }
 
+/// An `.oademo` replay is compared from its manifest, not from the note beside it.
+///
+/// @param path the recording
+/// @return true when the file is an `.oademo`
+bool manifest_replay(const fs::path& path) {
+    return path_to_utf8(path.extension()) == ".oademo";
+}
+
 } // namespace
 
 std::string Runtime::content_switch_sentence(const fs::path& path) const {
+    if (manifest_replay(path))
+        return {};
     return sentence_of(
         path_to_utf8(path.filename()), gap_for(path, false, content_choice(), options_.game_dir)
     );
 }
 
 bool Runtime::offer_content_switch(const fs::path& path, std::string_view title, bool recording) {
+    if (manifest_replay(path))
+        return false;
     const auto choice = content_choice();
     const saves::ContentGap gap = gap_for(path, false, choice, options_.game_dir);
     if (!gap.needed)
@@ -234,10 +248,40 @@ void Runtime::take_pending_content() {
     };
     const std::string demo = take(saves::pending_demo_key);
     const std::string save = take(saves::pending_load_key);
-    if (!demo.empty() || !save.empty())
+    const std::string pack = take(saves::replay_map_pack_key);
+    if (!demo.empty() || !save.empty() || !pack.empty())
         flush_preferences();
     pending_demo_path_ = demo;
     pending_save_path_ = save;
+    if (!demo.empty())
+        arm_pending_replay_pack(pack);
+}
+
+void Runtime::arm_pending_replay_pack(std::string_view folder_text) {
+    hold_replay_map_pack_ = false;
+    if (folder_text.empty() || user_folder_.empty())
+        return;
+    const fs::path stored = path_from_utf8(std::string(folder_text));
+    const std::string name = path_to_utf8(stored.filename());
+    const std::optional<fs::path> verified =
+        package_install::replay_release_folder(user_folder_, name);
+    if (!verified)
+        return;
+    std::error_code error;
+    if (!fs::equivalent(*verified, stored, error) || error)
+        return;
+    use_replay_map_pack(*verified);
+    hold_replay_map_pack_ = true;
+}
+
+void Runtime::abandon_pending_replay() {
+    pending_demo_path_.clear();
+    hold_replay_map_pack_ = false;
+    if (match_ != nullptr || screen_ == Screen::match)
+        leave_match();
+    use_replay_map_pack({});
+    pending_replay_refused_ = true;
+    settle_replay_content();
 }
 
 } // namespace oa::app

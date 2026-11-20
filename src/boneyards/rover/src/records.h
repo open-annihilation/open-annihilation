@@ -190,8 +190,8 @@ uint32_t rover_record_field_uint(const RoverRecordField* field, uint32_t fallbac
 
 /// Parses one "<T:key=value>" at the start of text, decoding the value.
 ///
-/// The key must be non-empty and free of reserved bytes and the value non-empty. A missing ">"
-/// fails.
+/// The key must be non-empty and free of reserved bytes. A string value may be empty; a number
+/// may not. A missing ">" fails.
 ///
 /// @param text text starting at the field's "<"
 /// @param length bytes left in the entry
