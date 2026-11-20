@@ -497,7 +497,7 @@ int Runtime::check_live_renderer() {
         const bool play_unlocked = live_renderer_unlocked();
         const auto play_selected = selected_match_unit_;
         const auto play_tick = match_timing_.tick;
-        const auto play_simulation_tick = match_->simulation().tick;
+        const uint32_t play_simulation_tick = match_->simulation().tick;
         const std::array<float, 2> play_pointer{pointer_x_, pointer_y_};
         const auto play_hover = hovered_match_unit_;
         const auto play_cursor = match_->state().game.cursor_unit_id;
