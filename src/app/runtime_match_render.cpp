@@ -1096,6 +1096,7 @@ MatchModels& Runtime::match_models() {
         fresh.display, oa::present::palette_from_bytes(match_palette_)
     );
     oa::present::copy_alpha_table(fresh.display.context, display_.context.alpha_table);
+    oa::present::copy_shade_table(fresh.display.context, display_.context.shade_table);
     fresh.renderer.composite_limits = limits_.model_composite;
     model_render::init_composite_buffer(fresh.renderer);
     fresh.renderer.user = &fresh;

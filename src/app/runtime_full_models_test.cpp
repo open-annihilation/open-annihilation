@@ -939,6 +939,8 @@ struct Scene {
         in.library = &library;
         in.display = &display;
         in.graphics_flags = world->game.graphics_flags;
+        std::copy(std::begin(renderer.light), std::end(renderer.light), in.light.begin());
+        in.light_scale = renderer.light_scale;
         in.water_shimmer = water_shimmer;
         in.water_sea_level = world->game.sea_level;
         in.vertex_heights = vertex_heights;
@@ -1549,9 +1551,72 @@ void test_no_order_shows() {
     }
 }
 
-// A lit building: the squares facing the camera take the bright row their
-// normals give under the light and draw from the bright page, the steep
-// ramp a dark row, and a flat square's colour goes through the shade table.
+/// Authored rows retain orange hues and apply coverage before remapping indices.
+void test_authored_texture_shading() {
+    constexpr uint8_t orange = 197;
+    constexpr uint8_t shaded_orange = 196;
+    constexpr uint8_t row = 20;
+    TextureFixture textures;
+    auto& source = *textures.texels.front();
+    std::fill(source.begin(), source.end(), orange);
+    auto palette = gray_palette();
+    palette.entries[orange] = {255, 170, 0, 0};
+    palette.entries[shaded_orange] = {239, 187, 51, 0};
+    palette.entries[240] = {255, 239, 0, 0};
+    palette.entries[draw::image_key] = {9, 23, 77, 0};
+    Scene scene(palette, std::move(textures.library));
+    scene.renderer.light_scale = 12;
+    OA_CHECK(
+        oa::present::gpu_world::shade_row(
+            0, -1, 0, scene.renderer.light, scene.renderer.light_scale
+        ) == row
+    );
+    scene.display.shade[row * OA_PALETTE_COLORS + orange] = shaded_orange;
+    auto model = square_model();
+    model->objects[0].primitives[0] = primitive({0, 3, 2, 1}, 0, "plain");
+    SceneUnit& building = scene.add_unit(model, 1, unit_x, unit_z);
+    building.unit->flags |= OA_UNIT_FLAG_BUILDING;
+    building.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    ProcessorPicture processor;
+    scene.begin_frame(processor, draw::graphics_shading);
+    scene.plan_unit(building);
+    scene.raster_processor(processor);
+    Card card(scene);
+    const auto orange_picture = card.raster(scene);
+    const auto* pixel = orange_picture.at(unit_x, unit_z);
+    OA_CHECK(pixel[0] == 239 && pixel[1] == 187 && pixel[2] == 51 && pixel[3] == 255);
+    OA_CHECK(processor.at(unit_x, unit_z)[0] == pixel[0]);
+    OA_CHECK(processor.at(unit_x, unit_z)[1] == pixel[1]);
+    OA_CHECK(processor.at(unit_x, unit_z)[2] == pixel[2]);
+    const auto placed = card.stage.counts().frames_placed;
+    OA_CHECK(card.raster(scene).rgba == orange_picture.rgba);
+    OA_CHECK(card.stage.counts().frames_placed == placed);
+
+    // The table changing invalidates cached row textures. An opaque source
+    // texel mapped to the image key keeps coverage; a source key stays clear
+    // even when its row maps to an opaque orange.
+    scene.display.shade[row * OA_PALETTE_COLORS + orange] = draw::image_key;
+    scene.display.shade[row * OA_PALETTE_COLORS + draw::image_key] = shaded_orange;
+    for (size_t y = 0; y < 16; ++y)
+        std::fill_n(source.begin() + y * 16, 8, draw::image_key);
+    const auto keyed_picture = card.raster(scene);
+    size_t covered = 0, clear = 0;
+    for (int32_t y = unit_z - half_side; y < unit_z + half_side; ++y)
+        for (int32_t x = unit_x - half_side; x < unit_x + half_side; ++x) {
+            const auto* texel = keyed_picture.at(x, y);
+            if (texel[3] == 0) {
+                ++clear;
+                continue;
+            }
+            ++covered;
+            OA_CHECK(texel[0] == 9 && texel[1] == 23 && texel[2] == 77 && texel[3] == 255);
+        }
+    OA_CHECK(covered > 0 && clear > 0);
+    OA_CHECK(card.stage.counts().frames_placed > placed);
+}
+
+// A lit building: each textured face reads the indexed shade row its normals
+// give under the light, and a flat square's colour reads the same table.
 void test_lit_building() {
     TextureFixture textures(true);
     Scene scene(gray_palette(), std::move(textures.library));
@@ -1570,14 +1635,12 @@ void test_lit_building() {
     // The ramp's steep edges step more than a row a column, where the
     // card's centre sampling lands a pixel further than the processor's.
     OA_CHECK(lit.far_coverage <= steep_edge_pixels_allowed);
-    // The rows scale the texels: the table snaps to the nearest gray, the
-    // card multiplies, within the tolerance; the squares' row is a bright
-    // one, so their frames went to the bright page.
+    // Textures use the table's snapped colours, including its bright rows.
     OA_CHECK(lit.far == 0 || !card_samples_triangle_texels());
     if (lit.far != 0)
         print_far(drawn, processor, scene);
-    OA_CHECK(card.stage.bright_pages().memory().frames == 3);
-    OA_CHECK(card.stage.pages().memory().frames == 1);
+    OA_CHECK(card.stage.bright_pages().memory().frames == 0);
+    OA_CHECK(card.stage.pages().memory().frames == 7);
     std::printf(
         "lit building: %u frames on the pages, %u on the bright pages\n",
         card.stage.pages().memory().frames,
@@ -3249,6 +3312,7 @@ int main(int argc, char** argv) {
         test_depth_sorted();
         test_resting_on_depth_plane();
         test_no_order_shows();
+        test_authored_texture_shading();
         test_lit_building();
         test_cloaked();
         test_nanoframe();

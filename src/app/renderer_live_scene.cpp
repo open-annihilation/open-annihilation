@@ -8,6 +8,7 @@
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
 #include "renderer_water_surface.hpp"
+#include "renderer_model_shading.hpp"
 
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
@@ -5198,10 +5199,8 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
     ModelMaterials materials{colors, textures};
     std::vector<CardCorner> card_corners;
     std::vector<std::array<float, 3>> card_points;
-    std::unordered_map<const Sprite*, AtlasRect> bright_textures;
-    PaletteBytes bright_palette = *in.palette;
-    for (auto& channel : bright_palette)
-        channel = static_cast<uint8_t>(std::min(255, 2 * int(channel)));
+    std::array<std::array<std::unordered_map<const Sprite*, AtlasRect>, 32>, 2> shade_textures;
+    std::array<std::optional<PaletteBytes>, 32> shade_palettes;
     PaletteBytes white_palette{};
     white_palette[0] = white_palette[1] = white_palette[2] = 255;
     std::optional<AtlasRect> white_material;
@@ -5212,6 +5211,78 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             in.light.begin(), in.light.end(), [](float value) { return std::isfinite(value); }
         ) &&
         std::any_of(in.light.begin(), in.light.end(), [](float value) { return value != 0; });
+
+    struct ShadeCorner {
+        Vertex vertex;
+        float row{};
+    };
+
+    // Each row keeps the original indices and coverage; only its palette changes.
+    const auto shaded_texture = [&](const Sprite& frame, uint8_t row, bool keyed) {
+        auto& cache = shade_textures[keyed ? 1 : 0][row];
+        if (const auto found = cache.find(&frame); found != cache.end())
+            return found->second;
+        auto& palette = shade_palettes[row];
+        if (!palette) {
+            palette.emplace();
+            for (std::size_t index = 0; index < OA_PALETTE_COLORS; ++index) {
+                const auto mapped = in.shade_table[std::size_t{row} * OA_PALETTE_COLORS + index];
+                std::copy_n(
+                    in.palette->data() + mapped * palette_entry_bytes,
+                    palette_entry_bytes,
+                    palette->data() + index * palette_entry_bytes
+                );
+            }
+        }
+        const auto rect = material(
+            pass,
+            *palette,
+            frame.width,
+            frame.height,
+            {static_cast<const uint8_t*>(frame.data), std::size_t{frame.width} * frame.height},
+            {},
+            keyed ? model::image_key : -1,
+            Fog::seen
+        );
+        cache.emplace(&frame, rect);
+        return rect;
+    };
+    const auto shade_surface = [&](std::span<const Vertex> corners,
+                                   const Sprite& frame,
+                                   const AtlasRect& source,
+                                   std::span<const int32_t> rows,
+                                   bool keyed,
+                                   auto emit) {
+        for (std::size_t corner = 1; corner + 1 < corners.size(); ++corner) {
+            const std::array triangle{
+                ShadeCorner{corners[0], float(rows[0])},
+                ShadeCorner{corners[corner], float(rows[corner])},
+                ShadeCorner{corners[corner + 1], float(rows[corner + 1])}
+            };
+            renderer_model_shading::for_shade_bands<ShadeCorner>(
+                triangle,
+                [](const ShadeCorner& vertex) { return vertex.row; },
+                [](const ShadeCorner& a, const ShadeCorner& b, float t) {
+                    auto vertex = water_edge(a.vertex, b.vertex, t);
+                    vertex.emission_r = std::lerp(a.vertex.emission_r, b.vertex.emission_r, t);
+                    vertex.emission_g = std::lerp(a.vertex.emission_g, b.vertex.emission_g, t);
+                    vertex.emission_b = std::lerp(a.vertex.emission_b, b.vertex.emission_b, t);
+                    return ShadeCorner{vertex, std::lerp(a.row, b.row, t)};
+                },
+                [&](uint8_t row, std::span<const ShadeCorner> band) {
+                    const auto target = shaded_texture(frame, row, keyed);
+                    std::array<Vertex, renderer_model_shading::maximum_corners> mapped{};
+                    for (std::size_t index = 0; index < band.size(); ++index) {
+                        auto& vertex = mapped[index];
+                        vertex = band[index].vertex;
+                        vertex.u += (float(target.x) - source.x) / pass.scene.texture_width;
+                        vertex.v += (float(target.y) - source.y) / pass.scene.texture_height;
+                    }
+                    emit(std::span<const Vertex>(mapped.data(), band.size()));
+                }
+            );
+        }
+    };
     std::optional<AtlasRect> frame_material;
     const auto& projection = in.clip_projection;
     const bool screen_bounds = in.clip_width > 0 && in.clip_height > 0 &&
@@ -5407,6 +5478,10 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
             const auto& prepared = reference.prepared->objects.at(piece.object_index);
             const bool image =
                 draw.plan.model.from_image && reference.state && reference.state->image.sprite.data;
+            const bool keyed =
+                image &&
+                (reference.state->image.sprite.aux != nullptr ||
+                 (piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0);
             const bool rows =
                 shade_ready && image && (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 &&
                 (in.graphics_flags & model::graphics_shading) != 0 &&
@@ -5442,8 +5517,6 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                             );
                         }
                     }
-                const bool bright = !colored && rows &&
-                                    *std::max_element(shade_rows.begin(), shade_rows.end()) >= 16;
                 const bool shaded_color = colored && rows && in.shade_table.size() >= 32 * 256;
                 // A polygon of the image key at every corner is clear in a
                 // unit's picture: a wall that hides the pieces sunk below the
@@ -5456,6 +5529,7 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     }))
                     continue;
                 AtlasRect rect{};
+                const Sprite* texture_frame = nullptr;
                 if (shaded_color) {
                     if (!white_material) {
                         const std::array<uint8_t, 1> pixel{0};
@@ -5479,9 +5553,10 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     if (frame == nullptr || frame->data == nullptr ||
                         frame->encoding != OA_SPRITE_RAW || source.vertex_indices.size() != 4)
                         continue;
+                    texture_frame = frame;
                     // primitive_texture already selects animation and team colour.
                     // Its frame pointer is stable only for this build's read-only pass.
-                    auto& texture_cache = bright ? bright_textures : textures;
+                    auto& texture_cache = textures;
                     auto found = texture_cache.find(frame);
                     if (found == texture_cache.end())
                         found =
@@ -5490,7 +5565,7 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                                     frame,
                                     material(
                                         pass,
-                                        bright ? bright_palette : *in.palette,
+                                        *in.palette,
                                         frame->width,
                                         frame->height,
                                         {static_cast<const uint8_t*>(frame->data),
@@ -5528,22 +5603,27 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                             (*in.palette)[palette_index * palette_entry_bytes + 1] / 255.0F;
                         corner.blue =
                             (*in.palette)[palette_index * palette_entry_bytes + 2] / 255.0F;
-                    } else if (!colored && rows) {
-                        corner.brightness *= std::clamp(
-                            shade_rows[index] * 0.06875F * (bright ? 0.5F : 1.0F), 0.0F, 1.0F
-                        );
                     }
                 }
                 const float remaining = std::clamp(unit->build_remaining, 0.0F, 1.0F);
                 const float detail = 1 - remaining;
                 if (reflects && !back_facing(corners, reflected_view)) {
-                    for (std::size_t corner = 1; corner + 1 < corners.size() &&
-                                                 reflected_faces.size() + 3 <= reflection_budget;
-                         ++corner)
-                        reflected_faces.insert(
-                            reflected_faces.end(),
-                            {corners[0], corners[corner], corners[corner + 1]}
+                    const auto reflect_surface = [&](std::span<const Vertex> surface) {
+                        for (std::size_t corner = 1;
+                             corner + 1 < surface.size() &&
+                             reflected_faces.size() + 3 <= reflection_budget;
+                             ++corner)
+                            reflected_faces.insert(
+                                reflected_faces.end(),
+                                {surface[0], surface[corner], surface[corner + 1]}
+                            );
+                    };
+                    if (texture_frame != nullptr && rows)
+                        shade_surface(
+                            corners, *texture_frame, rect, shade_rows, keyed, reflect_surface
                         );
+                    else
+                        reflect_surface(corners);
                 }
                 if (remaining == 0 && back_facing(corners, in.view_direction))
                     continue;
@@ -5573,8 +5653,19 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     if (translucent)
                         vertex.opacity *= translucent_opacity;
                 }
-                if (detail > 0)
-                    polygon(pass, corners);
+                if (detail > 0) {
+                    if (texture_frame != nullptr && rows)
+                        shade_surface(
+                            corners,
+                            *texture_frame,
+                            rect,
+                            shade_rows,
+                            keyed,
+                            [&](std::span<const Vertex> surface) { polygon(pass, surface); }
+                        );
+                    else
+                        polygon(pass, corners);
+                }
                 if (remaining > 0)
                     nanoframe(in, pass, corners, remaining, frame_material);
             }
