@@ -12,6 +12,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
 TICK_BUDGET_NS = 33_333_333
@@ -157,7 +158,7 @@ def main():
                         "Total Annihilation\\Skirmish|Player1Energy": "9000",
                     }
                     profile = workdir / f"idle-{enabled}-{index}.conf"
-                    lines = ["open-annihilation-preferences 1"]
+                    lines = native_offline.preferences_text().splitlines()
                     lines.extend(f'{json.dumps(key)} {json.dumps(value)}' for key, value in settings.items())
                     profile.write_text("\n".join(lines) + "\n", encoding="utf-8")
                 process, report = play(native, game_dir, workdir, f"idle-{enabled}-{index}",

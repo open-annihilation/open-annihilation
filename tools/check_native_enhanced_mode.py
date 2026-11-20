@@ -10,6 +10,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+import native_offline
 
 
 def recording_rules_version(path):
