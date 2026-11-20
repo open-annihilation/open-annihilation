@@ -254,6 +254,16 @@ int Runtime::check_live_renderer() {
         }
         return match_world_cpu_;
     };
+    // Frozen view comparisons use a fixed settling interval on both sides.
+    // The live scene holds moving terrain for ten builds; overlay redraws
+    // reuse that scene, so leave two additional stationary snapshots.
+    const auto settled_snapshot = [&] {
+        constexpr uint32_t stationary_snapshots = 12;
+        renderer::Surface picture;
+        for (uint32_t frame = 0; frame < stationary_snapshots; ++frame)
+            picture = snapshot();
+        return picture;
+    };
     // A key goes in as the event loop takes it: with the place a keyboard
     // sends, fed to the action dispatcher first, whose actions the live
     // renderer answers, and then let go.
@@ -374,7 +384,7 @@ int Runtime::check_live_renderer() {
     // from their pictures; from the next the card draws them and casts their
     // shadows, whose edges may fall a texel from the laid ones'.
     snapshot();
-    const auto rotated = snapshot();
+    const auto rotated = settled_snapshot();
     const auto same_live_terrain = [](const renderer::Surface& one,
                                       const renderer::Surface& other) {
         return one.width == other.width && one.height == other.height && one.rgb == other.rgb;
@@ -459,7 +469,8 @@ int Runtime::check_live_renderer() {
     view_hold_ = before_scroll_hold;
     place_match_view(before_scroll_view[0], before_scroll_view[1]);
     require(
-        same_live_terrain(snapshot(), rotated), "scrolling back changed the frozen rotated view"
+        same_live_terrain(settled_snapshot(), rotated),
+        "scrolling back changed the frozen rotated view"
     );
 
     // In play, Right held for 20 seconds at Full's widest zoom stays within
@@ -913,7 +924,7 @@ int Runtime::check_live_renderer() {
             play_release();
             // Prove this fixture restored the frozen picture before a menu
             // can change it. The menu's later comparison keeps this reference.
-            auto play_restored = snapshot();
+            const auto play_restored = settled_snapshot();
             if (!same_live_terrain(play_restored, rotated)) {
                 std::size_t changed_pixels = 0;
                 int32_t left = static_cast<int32_t>(rotated.width);
@@ -961,32 +972,6 @@ int Runtime::check_live_renderer() {
                           << match_timing_.tick << '\n';
                 save_picture("rotated-before-full-pan.png", rotated);
                 save_picture("rotated-after-full-pan.png", play_restored);
-                // The live scene holds a moving camera's terrain for ten
-                // builds. A snapshot's overlay redraw reuses its scene, so
-                // leave two guard snapshots beyond that settling bound.
-                constexpr uint32_t restored_view_attempts = 12;
-                for (uint32_t attempt = 1; attempt <= restored_view_attempts; ++attempt) {
-                    play_restored = snapshot();
-                    std::size_t remaining_pixels = 0;
-                    if (play_restored.width == rotated.width &&
-                        play_restored.height == rotated.height &&
-                        play_restored.rgb.size() == rotated.rgb.size())
-                        for (std::size_t pixel = 0; pixel < rotated.rgb.size() / 3; ++pixel) {
-                            const auto at = pixel * 3;
-                            remaining_pixels += !std::equal(
-                                rotated.rgb.begin() + at,
-                                rotated.rgb.begin() + at + 3,
-                                play_restored.rgb.begin() + at
-                            );
-                        }
-                    const bool exact = same_live_terrain(play_restored, rotated);
-                    std::cerr << "live renderer check: Full pan stationary snapshot " << attempt
-                              << "; changed pixels " << remaining_pixels << "; exact " << exact
-                              << '\n';
-                    if (exact)
-                        break;
-                }
-                save_picture("rotated-after-full-pan-settled.png", play_restored);
                 require(
                     same_live_terrain(play_restored, rotated),
                     "Full pan checks changed the frozen rotated battlefield after settling"
