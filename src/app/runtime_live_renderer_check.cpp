@@ -476,14 +476,28 @@ int Runtime::check_live_renderer() {
     // In play, Right held for 20 seconds at Full's widest zoom stays within
     // the view's limits. A further pan stays there, the frame is still drawn,
     // and Full stays on. This frame stands Full up, as the classic capture
-    // does, and puts it back. The camera, the zoom and the hold come back
-    // too, so the frozen picture above still matches.
+    // does, and puts it back. Camera state, projected bounds and picking
+    // return exactly; later pixel controls freeze their own restored scene.
     {
         require(!photo_mode(), "the play pan ran in photo mode");
         require(live_renderer_active(), "the play pan's view was not turned");
         const auto play_place = match_view_place();
         const auto play_angles = live_camera_angles();
         const auto play_origin = live_project_world(0, 0, 0);
+        const auto projected_depths = [&] {
+            return std::array{
+                live_project_depth(0, 0, 0),
+                live_project_depth(1, 0, 0),
+                live_project_depth(0, 1, 0),
+                live_project_depth(0, 0, 1)
+            };
+        };
+        const auto play_depths = projected_depths();
+        const auto play_bounds = bounds_and_picks();
+        const bool play_unlocked = live_renderer_unlocked();
+        const auto play_selected = selected_match_unit_;
+        const auto play_tick = match_timing_.tick;
+        const auto play_simulation_tick = match_->simulation().tick;
         const std::array<float, 2> play_pointer{pointer_x_, pointer_y_};
         const auto play_hover = hovered_match_unit_;
         const auto play_cursor = match_->state().game.cursor_unit_id;
@@ -922,9 +936,39 @@ int Runtime::check_live_renderer() {
                 match_layout_ = play_layout;
             }
             play_release();
-            // Prove this fixture restored the frozen picture before a menu
-            // can change it. The menu's later comparison keeps this reference.
+            // Distant views can repack the terrain's atlas. Prove exact
+            // restoration of the camera, geometry bounds and picking without
+            // comparing texel interpolation through different atlas places.
             const auto play_restored = settled_snapshot();
+            require(
+                match_view_place() == play_place && live_camera_angles() == play_angles &&
+                    live_renderer_unlocked() == play_unlocked && match_zoom_ == play_zoom &&
+                    match_zoom_target_ == play_zoom_target,
+                "Full pan checks did not restore the exact camera and zoom"
+            );
+            require(
+                match_layout_.width == play_layout.width &&
+                    match_layout_.height == play_layout.height &&
+                    match_layout_.left == play_layout.left &&
+                    match_layout_.top == play_layout.top &&
+                    match_layout_.bottom == play_layout.bottom &&
+                    play_restored.width == rotated.width && play_restored.height == rotated.height,
+                "Full pan checks did not restore the battlefield layout"
+            );
+            require(
+                view_hold_.held == play_hold.held && view_hold_.centre_x == play_hold.centre_x &&
+                    view_hold_.centre_z == play_hold.centre_z,
+                "Full pan checks did not restore the exact view hold"
+            );
+            require(
+                projected_depths() == play_depths && bounds_and_picks() == play_bounds,
+                "Full pan checks changed unrounded depth projections, unit bounds or picks"
+            );
+            require(
+                selected_match_unit_ == play_selected && match_timing_.tick == play_tick &&
+                    match_->simulation().tick == play_simulation_tick,
+                "Full pan checks changed the selection or advanced simulation"
+            );
             if (!same_live_terrain(play_restored, rotated)) {
                 std::size_t changed_pixels = 0;
                 int32_t left = static_cast<int32_t>(rotated.width);
@@ -954,14 +998,14 @@ int Runtime::check_live_renderer() {
                 const auto restored_angles = live_camera_angles();
                 const auto restored_origin = live_project_world(0, 0, 0);
                 std::cerr << std::setprecision(17)
-                          << "live renderer check: Full pan restoration: picture " << rotated.width
-                          << 'x' << rotated.height << " -> " << play_restored.width << 'x'
-                          << play_restored.height << "; changed pixels " << changed_pixels << " in "
-                          << left << ',' << top << ".." << right << ',' << bottom << "; place "
-                          << play_place[0] << ',' << play_place[1] << " -> " << restored_place[0]
-                          << ',' << restored_place[1] << "; angles " << play_angles[0] << ','
-                          << play_angles[1] << " -> " << restored_angles[0] << ','
-                          << restored_angles[1] << "; origin " << play_origin.x << ','
+                          << "live renderer check: Full pan terrain atlas: picture "
+                          << rotated.width << 'x' << rotated.height << " -> " << play_restored.width
+                          << 'x' << play_restored.height << "; changed pixels " << changed_pixels
+                          << " in " << left << ',' << top << ".." << right << ',' << bottom
+                          << "; place " << play_place[0] << ',' << play_place[1] << " -> "
+                          << restored_place[0] << ',' << restored_place[1] << "; angles "
+                          << play_angles[0] << ',' << play_angles[1] << " -> " << restored_angles[0]
+                          << ',' << restored_angles[1] << "; origin " << play_origin.x << ','
                           << play_origin.y << " -> " << restored_origin.x << ','
                           << restored_origin.y << "; pointer " << play_pointer[0] << ','
                           << play_pointer[1] << " -> " << pointer_x_ << ',' << pointer_y_
@@ -972,10 +1016,6 @@ int Runtime::check_live_renderer() {
                           << match_timing_.tick << '\n';
                 save_picture("rotated-before-full-pan.png", rotated);
                 save_picture("rotated-after-full-pan.png", play_restored);
-                require(
-                    same_live_terrain(play_restored, rotated),
-                    "Full pan checks changed the frozen rotated battlefield after settling"
-                );
             }
         } catch (...) {
             play_release();
@@ -983,6 +1023,10 @@ int Runtime::check_live_renderer() {
         }
     }
 
+    // Keep one owned reference for the controls after the independent Full
+    // fixture. A menu never repacks a moved camera's terrain, so it must
+    // preserve these exact pixels, as must turning the contour back off.
+    const auto restored_rotated = settled_snapshot();
     // Menu keys keep the gameplay dispatcher while the battlefield is rotated.
     // Exercise the full event route, including a selected unit and open panels.
     const auto press_menu_key = [&](SDL_Keycode code, SDL_Scancode scancode) {
@@ -1011,7 +1055,7 @@ int Runtime::check_live_renderer() {
     SDL_SetModState(menu_modifiers);
     require(menu_drag_began, "camera drag before opening the menu did not begin");
     const auto menu_pressed = snapshot();
-    if (!same_live_terrain(menu_pressed, rotated)) {
+    if (!same_live_terrain(menu_pressed, restored_rotated)) {
         std::cerr << "live renderer check: menu camera press: pointer " << menu_pointer[0] << ','
                   << menu_pointer[1] << " -> " << pointer_x_ << ',' << pointer_y_ << "; hover "
                   << menu_hover << " -> " << hovered_match_unit_ << "; cursor " << menu_cursor
@@ -1049,7 +1093,8 @@ int Runtime::check_live_renderer() {
     require(!live_renderer_take_event(menu_motion), "camera drag stayed latched after menu close");
     require(selected_match_unit_ == commander, "menu navigation lost the selected commander");
     require(
-        same_live_terrain(snapshot(), rotated), "closing the menu changed the rotated battlefield"
+        same_live_terrain(snapshot(), restored_rotated),
+        "closing the menu changed the rotated battlefield"
     );
 
     // Escape preserves its cancel-first behavior; the menu is the next
@@ -1077,25 +1122,26 @@ int Runtime::check_live_renderer() {
     std::vector<uint8_t> full_visibility;
     std::vector<float> full_depth;
     live_scene_visibility(full_visibility, full_depth);
-    std::vector<uint32_t> row_left(rotated.height);
-    std::vector<uint32_t> row_right(rotated.height);
-    for (uint32_t row = 0; row < rotated.height; ++row) {
-        row_left[row] = row % 3 == 0 ? 0 : rotated.width / 4;
-        row_right[row] = row % 3 == 0 ? 0 : rotated.width * 3 / 4;
+    std::vector<uint32_t> row_left(restored_rotated.height);
+    std::vector<uint32_t> row_right(restored_rotated.height);
+    for (uint32_t row = 0; row < restored_rotated.height; ++row) {
+        row_left[row] = row % 3 == 0 ? 0 : restored_rotated.width / 4;
+        row_right[row] = row % 3 == 0 ? 0 : restored_rotated.width * 3 / 4;
     }
     std::vector<uint8_t> clipped_visibility;
     std::vector<float> clipped_depth;
     live_scene_visibility(clipped_visibility, clipped_depth, false, row_left, row_right);
     require(
-        full_visibility.size() == static_cast<std::size_t>(rotated.width) * rotated.height &&
+        full_visibility.size() ==
+                static_cast<std::size_t>(restored_rotated.width) * restored_rotated.height &&
             full_depth.size() == full_visibility.size() &&
             full_visibility.size() == clipped_visibility.size() &&
             full_depth.size() == clipped_depth.size(),
         "clipped visibility changed the output dimensions"
     );
-    for (uint32_t row = 0; row < rotated.height; ++row)
-        for (uint32_t column = 0; column < rotated.width; ++column) {
-            const auto pixel = static_cast<std::size_t>(row) * rotated.width + column;
+    for (uint32_t row = 0; row < restored_rotated.height; ++row)
+        for (uint32_t column = 0; column < restored_rotated.width; ++column) {
+            const auto pixel = static_cast<std::size_t>(row) * restored_rotated.width + column;
             if (column >= row_left[row] && column < row_right[row]) {
                 require(
                     clipped_visibility[pixel] == full_visibility[pixel] &&
@@ -1114,11 +1160,12 @@ int Runtime::check_live_renderer() {
     // Separated light rectangles leave gaps even within a row's enclosing
     // interval. Sparse masking must preserve exactly the requested samples.
     std::vector<uint8_t> requested_pixels(full_visibility.size(), 0);
-    for (uint32_t row = 0; row < rotated.height; ++row)
+    for (uint32_t row = 0; row < restored_rotated.height; ++row)
         for (uint32_t column = row_left[row]; column < row_right[row]; ++column) {
             constexpr uint32_t stripe_width = 16;
             if ((column / stripe_width + row / stripe_width) % 2 == 0)
-                requested_pixels[static_cast<std::size_t>(row) * rotated.width + column] = 1;
+                requested_pixels[static_cast<std::size_t>(row) * restored_rotated.width + column] =
+                    1;
         }
     std::vector<uint8_t> sparse_visibility;
     std::vector<float> sparse_depth;
@@ -1206,7 +1253,8 @@ int Runtime::check_live_renderer() {
     // reveal unexplored terrain. Exercise this before the reveal cheat.
     const auto terrain_mask = live_terrain_visibility_mask();
     require(
-        terrain_mask.size() == static_cast<std::size_t>(rotated.width) * rotated.height,
+        terrain_mask.size() ==
+            static_cast<std::size_t>(restored_rotated.width) * restored_rotated.height,
         "the rotated terrain visibility mask has the wrong dimensions"
     );
     enter_console_check_line("+contour 3");
@@ -1215,9 +1263,9 @@ int Runtime::check_live_renderer() {
     std::size_t changed_ground_pixels{};
     for (std::size_t pixel = 0; pixel < terrain_mask.size(); ++pixel) {
         const auto at = pixel * 3;
-        const bool changed = rotated.rgb[at] != fog_contoured.rgb[at] ||
-                             rotated.rgb[at + 1] != fog_contoured.rgb[at + 1] ||
-                             rotated.rgb[at + 2] != fog_contoured.rgb[at + 2];
+        const bool changed = restored_rotated.rgb[at] != fog_contoured.rgb[at] ||
+                             restored_rotated.rgb[at + 1] != fog_contoured.rgb[at + 1] ||
+                             restored_rotated.rgb[at + 2] != fog_contoured.rgb[at + 2];
         if (terrain_mask[pixel] == 0) {
             ++protected_pixels;
             require(!changed, "contour changed an object or unexplored terrain pixel");
@@ -1231,7 +1279,10 @@ int Runtime::check_live_renderer() {
     enter_console_check_line("+contour 0");
     const auto fog_contour_off = snapshot();
     save_picture("contour-fog-off.png", fog_contour_off);
-    require(fog_contour_off.rgb == rotated.rgb, "disabling contour changed the fogged battlefield");
+    require(
+        fog_contour_off.rgb == restored_rotated.rgb,
+        "disabling contour changed the fogged battlefield"
+    );
 
     const auto saved_pointer = std::array{pointer_x_, pointer_y_};
     const auto commander_bounds = live_unit_bounds(commander);
@@ -1698,7 +1749,7 @@ int Runtime::check_live_renderer() {
     require(panned_view != view_before_pan, "middle-drag did not move the camera");
     const auto panned = snapshot();
     require(
-        !live_renderer_failed() && panned.rgb != rotated.rgb,
+        !live_renderer_failed() && panned.rgb != restored_rotated.rgb,
         "middle-drag did not change the rendered world"
     );
     save_picture("panned.png", panned);
