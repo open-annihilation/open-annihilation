@@ -348,6 +348,7 @@ struct NanoBands {
     int32_t below{};
     int32_t band{};
     uint8_t outline{}; ///< the outline's palette entry
+    std::optional<draw::BuildEffectScan> scan{};
 };
 
 int32_t hi(int32_t value) noexcept {
@@ -471,6 +472,7 @@ NanoBands bands_of(uint32_t pulse_tick, const draw::ModelRef& model) {
     bands.below = own.below;
     bands.band = own.band;
     bands.outline = own.outline;
+    bands.scan = own.scan;
     return bands;
 }
 
@@ -2296,6 +2298,8 @@ void Emitter::apply_nanoframe(
     // primitives on a plane of the model's own.
     impl_.outline_corners.clear();
     impl_.outline_primitives.clear();
+    constexpr uint8_t surface_mark = 2;
+    std::vector<uint8_t> surface_marks;
     const Model& source = model.instance->model();
     const auto pieces = model.instance->pieces();
     for (size_t n = pieces.size(); n != 0; --n) {
@@ -2322,6 +2326,12 @@ void Emitter::apply_nanoframe(
             const bool fills = (primitive.flags & draw::primitive_colored) != 0 ||
                                corners.size() == quad_corner_count;
             impl_.outline_primitives.emplace_back(static_cast<uint32_t>(corners.size()), fills);
+            surface_marks.push_back(
+                (primitive.flags & draw::primitive_colored) != 0 &&
+                        primitive.color == draw::image_key
+                    ? draw::image_key
+                    : surface_mark
+            );
         }
     }
     if (impl_.outline_corners.empty())
@@ -2348,22 +2358,55 @@ void Emitter::apply_nanoframe(
     }
     const auto size = static_cast<size_t>(wide * high);
     impl_.outline_depth.assign(size, 0);
-    impl_.outline_marks.assign(size, 0);
+    impl_.outline_marks.assign(size, bands.scan ? draw::image_key : 0);
     Sprite plane{};
     plane.width = static_cast<uint16_t>(wide);
     plane.height = static_cast<uint16_t>(high);
     plane.key = 0;
     plane.data = impl_.outline_marks.data();
     plane.aux = impl_.outline_depth.data();
-    // The depth plane: every primitive the image fills, its marks left
-    // unmarked.
+    // The depth plane keeps the visible surface for the scan, including
+    // walls of the image key that clear surfaces behind them.
     size_t first = 0;
+    size_t primitive_index = 0;
     for (const auto& [count, fills] : impl_.outline_primitives) {
         if (fills && count >= 3)
             oa::present::fill_depth_polygon(
-                plane, impl_.outline_corners.data() + first, static_cast<int32_t>(count), 0
+                plane,
+                impl_.outline_corners.data() + first,
+                static_cast<int32_t>(count),
+                bands.scan ? surface_marks[primitive_index] : 0
             );
         first += count;
+        ++primitive_index;
+    }
+    // A scan uses the visible image plane, so an unfilled near face still
+    // hides the line on a face behind it.
+    if (bands.scan) {
+        const auto& scan = *bands.scan;
+        const auto colour = palette_colour(impl_.palette, impl_.gamma, scan.colour, 1.0F);
+        const auto lights = [&](int32_t x, int32_t y) {
+            const auto at = static_cast<size_t>(y) * plane.width + x;
+            if (impl_.outline_marks[at] == draw::image_key)
+                return false;
+            const float ground_x = static_cast<float>(x - shift_x - placement.dx);
+            const int32_t height = int32_t{impl_.outline_depth[at]} - placement.depth_base;
+            const float ground_z = static_cast<float>(y - shift_y - placement.dy + (height >> 1));
+            const float along = scan.axis_x * ground_x + scan.axis_z * ground_z;
+            return along >= scan.low && along < scan.high;
+        };
+        for (int32_t y = 0; y < plane.height; ++y)
+            for (int32_t x = 0; x < plane.width;) {
+                if (!lights(x, y)) {
+                    ++x;
+                    continue;
+                }
+                const int32_t start = x;
+                while (x < plane.width && lights(x, y))
+                    ++x;
+                impl_.outline_runs.push_back({start - shift_x, y - shift_y, x - start, colour});
+            }
+        std::fill(impl_.outline_marks.begin(), impl_.outline_marks.end(), 0);
     }
     // The outline over it, each primitive closed by its first corner again.
     constexpr uint8_t marked = 1;

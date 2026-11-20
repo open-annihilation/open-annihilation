@@ -858,40 +858,40 @@ void plan_unit_draws(
 
 /// The build effect the building being placed is drawn with at a tick of
 /// its pulse (ui.build-preview, view_rules::build_preview_look): its
-/// outline, its fill or nothing, and the scanline over the heights the
-/// look lights, counted from the lowest point of its visible pieces.
+/// outline, its fill or nothing, and the scanline from the building's back
+/// to its front, rotated with the building's facing.
 ///
 /// @param model the building, its pieces placed for the frame
+/// @param facing the building's preview facing on the map
 /// @param pulse_tick ticks since its pulse started
 /// @param fill the preview fills the model
 /// @return the bands its image is drawn with
-model_render::BuildEffectBands
-build_preview_bands(const model_render::ModelRef& model, uint32_t pulse_tick, bool fill) {
+model_render::BuildEffectBands build_preview_bands(
+    const model_render::ModelRef& model,
+    view_rules::BuildFacing facing,
+    uint32_t pulse_tick,
+    bool fill
+) {
     constexpr uint16_t visible = static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
     constexpr int32_t whole_shift = 16;
-    std::optional<std::pair<int32_t, int32_t>> heights;
+    const auto [axis_x, axis_z] = view_rules::build_preview_scan_axis(facing);
+    std::optional<std::pair<float, float>> extents;
     for (const auto& piece : model.instance->pieces()) {
         if ((piece.flags & visible) == 0)
             continue;
         for (const auto& vertex : piece.transformed_vertices) {
-            const int32_t height = vertex.y >> whole_shift;
-            if (!heights)
-                heights = std::pair{height, height};
-            heights->first = std::min(heights->first, height);
-            heights->second = std::max(heights->second, height);
+            const float along = axis_x * static_cast<float>(vertex.x >> whole_shift) +
+                                axis_z * static_cast<float>(-int64_t{vertex.z} >> whole_shift);
+            if (!extents)
+                extents = std::pair{along, along};
+            extents->first = std::min(extents->first, along);
+            extents->second = std::max(extents->second, along);
         }
     }
-    const auto [lowest, highest] = heights.value_or(std::pair{0, 0});
-    const auto look = view_rules::build_preview_look(pulse_tick, fill, highest - lowest);
-    // Depths are heights over the model's base, as its image's depth plane
-    // holds them.
-    const bool digger = model.def != nullptr && (model.def->flags & OA_UNIT_DEF_FLAG_DIGGER) != 0;
-    const int32_t base =
-        model_render::model_depth_base + (digger ? model_render::digger_depth_bias : 0);
-    const auto depth = [&](int32_t up) {
-        constexpr int32_t deepest = 0xff;
-        return static_cast<uint8_t>(std::clamp(base + lowest + up, 0, deepest));
-    };
+    const auto [lowest, highest] = extents.value_or(std::pair{0.0F, 0.0F});
+    const auto look = view_rules::build_preview_look(
+        pulse_tick, fill, static_cast<int32_t>(std::ceil(highest - lowest))
+    );
     model_render::BuildEffectBands bands;
     const int32_t body = look.fill ? int32_t{*look.fill} : model_render::remap_clear;
     bands.below = body;
@@ -899,9 +899,13 @@ build_preview_bands(const model_render::ModelRef& model, uint32_t pulse_tick, bo
     bands.above = body;
     bands.outline = look.outline;
     if (look.scanning) {
-        bands.band_low = depth(look.scan_low);
-        bands.band_end = depth(look.scan_high + 1);
-        bands.band = view_rules::build_preview_scan_colour;
+        bands.scan = model_render::BuildEffectScan{
+            axis_x,
+            axis_z,
+            lowest + look.scan_low,
+            lowest + look.scan_high + 1,
+            view_rules::build_preview_scan_colour
+        };
     }
     return bands;
 }
@@ -2686,7 +2690,7 @@ bool Runtime::draw_match_surface() {
         constexpr uint32_t pulse = view_rules::build_preview_pulse_ticks;
         const uint32_t pulse_tick = (renderer.tick % pulse + pulse - build_turn_phase_) % pulse;
         preview.state.build_bands =
-            build_preview_bands(model, pulse_tick, ui_rules().build_preview.fill);
+            build_preview_bands(model, preview.facing, pulse_tick, ui_rules().build_preview.fill);
         draw_list.stand_ins.push_back(preview.unit);
         add_model(
             model,

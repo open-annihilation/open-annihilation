@@ -4451,12 +4451,19 @@ void nanoframe(
     Pass& pass,
     std::span<const Vertex> corners,
     float remaining,
-    std::optional<AtlasRect>& cached
+    std::optional<AtlasRect>& cached,
+    std::optional<uint8_t> preview_colour = std::nullopt
 ) {
     auto palette = *in.palette;
-    palette[0] = 48;
-    palette[1] = 224;
-    palette[2] = 80;
+    if (preview_colour) {
+        const auto at = *preview_colour * palette_entry_bytes;
+        for (std::size_t channel = 0; channel < palette_entry_bytes; ++channel)
+            palette[channel] = (*in.palette)[at + channel];
+    } else {
+        palette[0] = 48;
+        palette[1] = 224;
+        palette[2] = 80;
+    }
     constexpr std::array<uint8_t, 1> pixel{0};
     if (!cached)
         cached = material(pass, palette, 1, 1, pixel, {}, -1, Fog::seen);
@@ -4511,6 +4518,60 @@ Vertex water_edge(const Vertex& a, const Vertex& b, float t) {
     out.terrain_x = std::lerp(a.terrain_x, b.terrain_x, t);
     out.terrain_y = std::lerp(a.terrain_y, b.terrain_y, t);
     return out;
+}
+
+/// Clips visible preview surfaces to one boundary of the ground-plane strip.
+std::vector<Vertex> preview_scan_edge(
+    std::span<const Vertex> source,
+    const model::BuildEffectScan& scan,
+    float x,
+    float z,
+    float edge,
+    bool keep_above
+) {
+    std::vector<Vertex> clipped;
+    if (source.empty())
+        return clipped;
+    const auto along = [&](const Vertex& vertex) {
+        return scan.axis_x * (vertex.x - x) + scan.axis_z * (vertex.z - z);
+    };
+    auto previous = source.back();
+    float previous_at = along(previous);
+    for (const auto& current : source) {
+        const float current_at = along(current);
+        const bool previous_inside = keep_above ? previous_at >= edge : previous_at <= edge;
+        const bool current_inside = keep_above ? current_at >= edge : current_at <= edge;
+        if (previous_inside != current_inside)
+            clipped.push_back(
+                water_edge(previous, current, (edge - previous_at) / (current_at - previous_at))
+            );
+        if (current_inside)
+            clipped.push_back(current);
+        previous = current;
+        previous_at = current_at;
+    }
+    return clipped;
+}
+
+/// Draws a preview surface with its unshaded palette colour.
+void preview_surface(
+    const Inputs& in,
+    Pass& pass,
+    std::span<Vertex> corners,
+    uint8_t colour,
+    std::array<std::optional<AtlasRect>, 256>& materials
+) {
+    auto& cached = materials[colour];
+    if (!cached) {
+        const std::array pixel{colour};
+        cached = material(pass, *in.palette, 1, 1, pixel, {}, -1, Fog::seen);
+    }
+    for (auto& corner : corners) {
+        corner.u = (cached->x + 0.5F) / pass.scene.texture_width;
+        corner.v = (cached->y + 0.5F) / pass.scene.texture_height;
+        corner.brightness = corner.opacity = corner.red = corner.green = corner.blue = 1;
+    }
+    polygon(pass, corners);
 }
 
 /// Clips a triangle to positive water depth, including the shoreline intersection.
@@ -5213,6 +5274,8 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
         ) &&
         std::any_of(in.light.begin(), in.light.end(), [](float value) { return value != 0; });
     std::optional<AtlasRect> frame_material;
+    std::array<std::optional<AtlasRect>, 256> preview_materials{};
+    std::array<std::optional<AtlasRect>, 256> preview_outlines{};
     const auto& projection = in.clip_projection;
     const bool screen_bounds = in.clip_width > 0 && in.clip_height > 0 &&
                                std::all_of(projection.begin(), projection.end(), [](float value) {
@@ -5535,6 +5598,22 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     }
                 }
                 const float remaining = std::clamp(unit->build_remaining, 0.0F, 1.0F);
+                if (reference.state && reference.state->build_bands) {
+                    const auto& bands = *reference.state->build_bands;
+                    if (bands.band >= 0)
+                        preview_surface(
+                            in, pass, corners, static_cast<uint8_t>(bands.band), preview_materials
+                        );
+                    if (bands.scan) {
+                        const auto& scan = *bands.scan;
+                        auto clipped = preview_scan_edge(corners, scan, x, z, scan.low, true);
+                        clipped = preview_scan_edge(clipped, scan, x, z, scan.high, false);
+                        if (clipped.size() >= 3)
+                            preview_surface(in, pass, clipped, scan.colour, preview_materials);
+                    }
+                    nanoframe(in, pass, corners, 1, preview_outlines[bands.outline], bands.outline);
+                    continue;
+                }
                 const float detail = 1 - remaining;
                 if (reflects && !back_facing(corners, reflected_view)) {
                     for (std::size_t corner = 1; corner + 1 < corners.size() &&

@@ -547,6 +547,10 @@ void opponent_facings() {
 
 void build_preview_helpers() {
     namespace vr = oa::app::view_rules;
+    OA_CHECK(vr::build_preview_scan_axis(vr::BuildFacing::south) == (std::array{0.0F, 1.0F}));
+    OA_CHECK(vr::build_preview_scan_axis(vr::BuildFacing::east) == (std::array{1.0F, 0.0F}));
+    OA_CHECK(vr::build_preview_scan_axis(vr::BuildFacing::north) == (std::array{0.0F, -1.0F}));
+    OA_CHECK(vr::build_preview_scan_axis(vr::BuildFacing::west) == (std::array{-1.0F, 0.0F}));
     OA_CHECK(vr::preview_lists_piece("body2, turret2, guns2, supports", "TURRET2"));
     OA_CHECK(vr::preview_lists_piece("body2,turret2", "body2"));
     OA_CHECK(vr::preview_lists_piece(" supports ", "supports"));
@@ -572,8 +576,8 @@ void build_preview_helpers() {
         OA_CHECK(look.outline == later.outline && look.fill == later.fill);
         OA_CHECK(look.scanning == later.scanning && look.scan_low == later.scan_low);
     }
-    // The scanline climbs a model 254 pixels tall from its foot to its top
-    // over the first 15 ticks of the pulse, lighting 5 heights a tick.
+    // The scanline crosses a model 254 pixels deep from back to front
+    // over the first 15 ticks of the pulse, lighting 5 coordinates a tick.
     const auto foot = vr::build_preview_look(0, false, 254);
     OA_CHECK(foot.scanning && foot.scan_low == 0 && foot.scan_high == 2);
     const auto top = vr::build_preview_look(14, false, 254);
@@ -582,7 +586,7 @@ void build_preview_helpers() {
     OA_CHECK(middle.scanning && middle.scan_low == 125 && middle.scan_high == 129);
     OA_CHECK(!vr::build_preview_look(15, false, 254).scanning);
     OA_CHECK(!vr::build_preview_look(29, false, 254).scanning);
-    // A flat model is lit on the climb's first tick only.
+    // A model with no ground depth is lit on the sweep's first tick only.
     OA_CHECK(vr::build_preview_look(0, false, 0).scanning);
     OA_CHECK(!vr::build_preview_look(1, false, 0).scanning);
 }

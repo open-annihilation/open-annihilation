@@ -5416,14 +5416,15 @@ into the records and decisions of the modules that carry them out, and
   record (`ready_build_preview`), facing the way the building is built:
   half a turn from heading 0, then its facing's quarter turns. It is drawn
   with build bands of its own (`ModelState::build_bands`, which the
-  processor's `apply_build_effect` and the Full tier's nanoframe take in
+  processor's `apply_build_effect`, the Full tier and the turned 3D view take in
   place of the unit's), set for each frame from its pulse
   (`build_preview_look`, `build_preview_bands`): every 30 ticks of the
   match, restarting as the player turns it, its outline walks the nano
   greens from bright to black and back, with `fill` the model is filled
   half a walk away, and for the first 15 ticks a bright green scanline
-  climbs the model from its foot to its top. The pulse follows the match's
-  ticks alone, at every zoom and frame rate. A type's preview keys pick
+  crosses its ground plane towards the preview's facing, from north to
+  south by default, to indicate a factory's exit direction. The pulse
+  follows the match's ticks alone, at every zoom and frame rate. A type's preview keys pick
   the pieces drawn (`preview_lists_piece`, per facing first) or another
   model (`objects3d/<name>.3DO`); without them every piece is drawn but
   the muzzle flashes and wakes (`preview_skips_piece`).

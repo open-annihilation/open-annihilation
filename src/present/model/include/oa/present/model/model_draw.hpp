@@ -100,6 +100,15 @@ struct ModelBounds {
 
 struct FinerModel;
 
+/// A strip across a preview's visible surfaces, measured along its ground-plane axis.
+struct BuildEffectScan {
+    float axis_x{};
+    float axis_z{};
+    float low{};
+    float high{}; ///< first coordinate beyond the strip
+    uint8_t colour{};
+};
+
 /// A build effect drawn in place of the one a unit's build progress and
 /// pulse give it (apply_build_effect): the image's depths from band_low up
 /// to band_end take `band`, those below `below` and those from band_end up
@@ -111,7 +120,8 @@ struct BuildEffectBands {
     int32_t below{remap_keep};
     int32_t band{remap_keep};
     int32_t above{remap_keep};
-    uint8_t outline{}; ///< palette entry
+    uint8_t outline{};                     ///< palette entry
+    std::optional<BuildEffectScan> scan{}; ///< directional preview strip, independent of height
 };
 
 // Draw state kept with a model instance; the pieces themselves live in

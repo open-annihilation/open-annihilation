@@ -407,6 +407,42 @@ void test_build_effect() {
     CHECK(nano > 0);
 }
 
+void test_directional_preview_scan() {
+    for (const auto axis :
+         {std::array{0.0F, 1.0F},
+          std::array{1.0F, 0.0F},
+          std::array{0.0F, -1.0F},
+          std::array{-1.0F, 0.0F}}) {
+        Scene scene;
+        scene.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        scene.unit->build_remaining = 1;
+        constexpr uint8_t sweep = 250;
+        for (const float start : {-4.0F, 3.0F}) {
+            scene.state.build_bands = BuildEffectBands{
+                .below = remap_clear,
+                .band = remap_clear,
+                .above = remap_clear,
+                .outline = 0xa8,
+                .scan = BuildEffectScan{axis[0], axis[1], start, start + 1, sweep}
+            };
+            CHECK(prepare_model_image(scene.renderer, scene.ref(), false, pass_all_pieces));
+            CHECK(apply_build_effect(scene.renderer, scene.state.image.sprite, scene.ref()));
+            const auto& image = scene.state.image.sprite;
+            const auto* pixels = static_cast<const uint8_t*>(image.data);
+            int count = 0;
+            for (int y = 0; y < image.height; ++y)
+                for (int x = 0; x < image.width; ++x)
+                    if (pixels[y * image.width + x] == sweep) {
+                        const float along =
+                            axis[0] * (x - image.origin_x) + axis[1] * (y - image.origin_y);
+                        CHECK(along >= start && along < start + 1);
+                        ++count;
+                    }
+            CHECK(count > 0);
+        }
+    }
+}
+
 // How many times a colour of the pulse comes back to the bright end of the
 // ramp over `ticks` ticks from `start`: the times it reaches 0xa0 from
 // another colour.
@@ -892,6 +928,7 @@ int main() {
     test_ground_shadow_matches_the_draw();
     test_remap_depth_bands();
     test_build_effect();
+    test_directional_preview_scan();
     test_build_pulse_colours();
     test_build_pulse_frame_rate();
     test_build_pulse_rate();

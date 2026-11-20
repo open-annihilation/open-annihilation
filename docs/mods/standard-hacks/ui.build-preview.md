@@ -36,7 +36,7 @@ hacks:
 
 ```yaml
 hacks:
-  # The preview's build sweep covers the whole model, not only its top.
+  # Fill the model behind the scanline and outline.
   ui.build-preview:
     fill: true
 ```
@@ -69,8 +69,10 @@ hacks:
     green to black and back, starting 24 of the walk's 32 steps in;
   - with `fill` the model is filled in the same greens, half a walk away
     from the outline;
-  - for the first 15 ticks a bright green scanline climbs the model from
-    its lowest point to its highest; the last 15 have none.
+  - for the first 15 ticks a bright scanline crosses the model along the
+    ground towards the selected facing. It runs north to south by default
+    and turns with the building to show a factory's exit direction. The
+    last 15 ticks have no scanline.
 - The pulse follows the match's ticks alone: every frame drawn during a
   tick shows the same, at every zoom and however many frames a second are
   drawn.

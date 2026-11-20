@@ -1551,6 +1551,76 @@ void planned_model_visibility() {
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
 }
 
+/// Clips a flat preview's bright sweep to the same ground strip in every facing.
+void directional_preview_scan() {
+    Fixture fixture;
+    namespace drawing = oa::present::model;
+    namespace models = oa::formats::objects3d;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    constexpr uint8_t sweep = 250;
+    fixture.palette[sweep * oa::palette_entry_bytes] = 251;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {
+        {-8 * fixed, 0, -8 * fixed},
+        {8 * fixed, 0, -8 * fixed},
+        {8 * fixed, 0, 8 * fixed},
+        {-8 * fixed, 0, 8 * fixed}
+    };
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2, 3};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    drawing::PreparedModel prepared{};
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(1);
+    prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
+    prepared.objects[0].primitives[0].color = ground_index;
+    drawing::ModelState state{};
+    oa::Unit unit{};
+    unit.position = {8 * fixed, 0, 8 * fixed};
+    unit.id = 7;
+    unit.build_remaining = 1;
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models.front();
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.model.state = &state;
+    draw.model.unit = &unit;
+    draw.plan.linked.drawn = true;
+    for (const auto axis :
+         {std::array{0.0F, 1.0F},
+          std::array{1.0F, 0.0F},
+          std::array{0.0F, -1.0F},
+          std::array{-1.0F, 0.0F}}) {
+        state.build_bands = drawing::BuildEffectBands{
+            .below = drawing::remap_clear,
+            .band = drawing::remap_clear,
+            .above = drawing::remap_clear,
+            .outline = 0xa8,
+            .scan = drawing::BuildEffectScan{axis[0], axis[1], -4, -2, sweep}
+        };
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+        if (fixture.scene.unit_ranges.size() != 1)
+            continue;
+        const auto& range = fixture.scene.unit_ranges.front();
+        int count = 0;
+        for (std::size_t at = range.first_vertex; at < range.first_vertex + range.vertex_count;
+             at += 3) {
+            if (triangle_color(fixture.scene, at)[0] != 251)
+                continue;
+            for (std::size_t corner = 0; corner < 3; ++corner) {
+                const auto& vertex = fixture.scene.vertices[at + corner];
+                const float along = axis[0] * (vertex.x - 8) + axis[1] * (vertex.z - 8);
+                OA_CHECK(along >= -4.001F && along <= -1.999F);
+            }
+            ++count;
+        }
+        OA_CHECK(count == 2);
+    }
+}
+
 /// A pictured unit's walls of the image key draw nothing, as its picture
 /// leaves them clear, while a unit drawn flat keeps them as a colour; a
 /// cloaked unit, or every unit under the debug overlay, is drawn at half
@@ -4680,6 +4750,7 @@ int main() {
     emptied_atlas_uploads_packed_rows();
     terrain_material_repack();
     planned_model_visibility();
+    directional_preview_scan();
     model_key_walls_and_cloak();
     model_material_lifetime();
     animated_frames_follow_classic_tiers();
