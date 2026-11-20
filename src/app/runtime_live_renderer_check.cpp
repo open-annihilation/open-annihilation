@@ -40,6 +40,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -374,6 +375,10 @@ int Runtime::check_live_renderer() {
     // shadows, whose edges may fall a texel from the laid ones'.
     snapshot();
     const auto rotated = snapshot();
+    const auto same_live_terrain = [](const renderer::Surface& one,
+                                      const renderer::Surface& other) {
+        return one.width == other.width && one.height == other.height && one.rgb == other.rgb;
+    };
     if (live_renderer_unavailable()) {
         std::cout << "live renderer check: skipped: no supported GPU device is available\n";
         return unavailable_exit;
@@ -453,7 +458,9 @@ int Runtime::check_live_renderer() {
     scroll_clock_ = before_scroll_clock;
     view_hold_ = before_scroll_hold;
     place_match_view(before_scroll_view[0], before_scroll_view[1]);
-    require(snapshot().rgb == rotated.rgb, "scrolling back changed the frozen rotated view");
+    require(
+        same_live_terrain(snapshot(), rotated), "scrolling back changed the frozen rotated view"
+    );
 
     // In play, Right held for 20 seconds at Full's widest zoom stays within
     // the view's limits. A further pan stays there, the frame is still drawn,
@@ -464,6 +471,11 @@ int Runtime::check_live_renderer() {
         require(!photo_mode(), "the play pan ran in photo mode");
         require(live_renderer_active(), "the play pan's view was not turned");
         const auto play_place = match_view_place();
+        const auto play_angles = live_camera_angles();
+        const auto play_origin = live_project_world(0, 0, 0);
+        const std::array<float, 2> play_pointer{pointer_x_, pointer_y_};
+        const auto play_hover = hovered_match_unit_;
+        const auto play_cursor = match_->state().game.cursor_unit_id;
         const auto play_layout = match_layout_;
         const auto play_hold = view_hold_;
         const auto play_time = frame_time_ns_;
@@ -899,6 +911,60 @@ int Runtime::check_live_renderer() {
                 match_layout_ = play_layout;
             }
             play_release();
+            // Prove this fixture restored the frozen picture before a menu
+            // can change it. The menu's later comparison keeps this reference.
+            const auto play_restored = snapshot();
+            if (!same_live_terrain(play_restored, rotated)) {
+                std::size_t changed_pixels = 0;
+                int32_t left = static_cast<int32_t>(rotated.width);
+                int32_t top = static_cast<int32_t>(rotated.height);
+                int32_t right = -1;
+                int32_t bottom = -1;
+                if (play_restored.width == rotated.width &&
+                    play_restored.height == rotated.height &&
+                    play_restored.rgb.size() == rotated.rgb.size())
+                    for (std::size_t pixel = 0; pixel < rotated.rgb.size() / 3; ++pixel) {
+                        const auto at = pixel * 3;
+                        if (std::equal(
+                                rotated.rgb.begin() + at,
+                                rotated.rgb.begin() + at + 3,
+                                play_restored.rgb.begin() + at
+                            ))
+                            continue;
+                        ++changed_pixels;
+                        const auto x = static_cast<int32_t>(pixel % rotated.width);
+                        const auto y = static_cast<int32_t>(pixel / rotated.width);
+                        left = std::min(left, x);
+                        top = std::min(top, y);
+                        right = std::max(right, x);
+                        bottom = std::max(bottom, y);
+                    }
+                const auto restored_place = match_view_place();
+                const auto restored_angles = live_camera_angles();
+                const auto restored_origin = live_project_world(0, 0, 0);
+                std::cerr << std::setprecision(17)
+                          << "live renderer check: Full pan restoration: picture " << rotated.width
+                          << 'x' << rotated.height << " -> " << play_restored.width << 'x'
+                          << play_restored.height << "; changed pixels " << changed_pixels << " in "
+                          << left << ',' << top << ".." << right << ',' << bottom << "; place "
+                          << play_place[0] << ',' << play_place[1] << " -> " << restored_place[0]
+                          << ',' << restored_place[1] << "; angles " << play_angles[0] << ','
+                          << play_angles[1] << " -> " << restored_angles[0] << ','
+                          << restored_angles[1] << "; origin " << play_origin.x << ','
+                          << play_origin.y << " -> " << restored_origin.x << ','
+                          << restored_origin.y << "; pointer " << play_pointer[0] << ','
+                          << play_pointer[1] << " -> " << pointer_x_ << ',' << pointer_y_
+                          << "; hover " << play_hover << " -> " << hovered_match_unit_
+                          << "; cursor " << play_cursor << " -> "
+                          << match_->state().game.cursor_unit_id << "; selected " << commander
+                          << " -> " << selected_match_unit_ << "; tick " << tick << " -> "
+                          << match_timing_.tick << '\n';
+                save_picture("rotated-before-full-pan.png", rotated);
+                save_picture("rotated-after-full-pan.png", play_restored);
+                require(
+                    false, "Full pan checks changed the frozen rotated battlefield before the menu"
+                );
+            }
         } catch (...) {
             play_release();
             throw;
@@ -918,6 +984,9 @@ int Runtime::check_live_renderer() {
         require(running, "a rotated-view menu key ended the run");
         require(live_renderer_active(), "a menu key reset the rotated camera");
     };
+    const std::array<float, 2> menu_pointer{pointer_x_, pointer_y_};
+    const auto menu_hover = hovered_match_unit_;
+    const auto menu_cursor = match_->state().game.cursor_unit_id;
     const auto menu_modifiers = SDL_GetModState();
     SDL_SetModState(SDL_KMOD_ALT);
     SDL_Event menu_drag{};
@@ -929,6 +998,15 @@ int Runtime::check_live_renderer() {
     const bool menu_drag_began = live_renderer_take_event(menu_drag);
     SDL_SetModState(menu_modifiers);
     require(menu_drag_began, "camera drag before opening the menu did not begin");
+    const auto menu_pressed = snapshot();
+    if (!same_live_terrain(menu_pressed, rotated)) {
+        std::cerr << "live renderer check: menu camera press: pointer " << menu_pointer[0] << ','
+                  << menu_pointer[1] << " -> " << pointer_x_ << ',' << pointer_y_ << "; hover "
+                  << menu_hover << " -> " << hovered_match_unit_ << "; cursor " << menu_cursor
+                  << " -> " << match_->state().game.cursor_unit_id << '\n';
+        save_picture("rotated-menu-press.png", menu_pressed);
+        require(false, "the camera press changed the frozen rotated battlefield before the menu");
+    }
     press_menu_key(SDLK_F2, SDL_SCANCODE_F2);
     require(match_paused_, "F2 did not open the menu over the rotated battlefield");
     require(
@@ -958,7 +1036,9 @@ int Runtime::check_live_renderer() {
     menu_motion.motion.xrel = orbit_travel;
     require(!live_renderer_take_event(menu_motion), "camera drag stayed latched after menu close");
     require(selected_match_unit_ == commander, "menu navigation lost the selected commander");
-    require(snapshot().rgb == rotated.rgb, "closing the menu changed the rotated battlefield");
+    require(
+        same_live_terrain(snapshot(), rotated), "closing the menu changed the rotated battlefield"
+    );
 
     // Escape preserves its cancel-first behavior; the menu is the next
     // action only when that setting is enabled, including isolated profiles.
