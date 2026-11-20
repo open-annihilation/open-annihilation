@@ -225,13 +225,15 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         // A turn the bindings give another action is that action's.
         if (take_wheel_actions())
             return;
-        // ui.megamap takes the wheel, which acts only with the Mouse wheel
-        // zoom setting off (megamap_on). Photo mode does not open the
+        // ui.megamap takes the wheel while the Mouse wheel zoom setting is
+        // off (megamap_takes_wheel), and over the open megamap whatever the
+        // setting is, where the turn that closes it closes it; its open
+        // turn answers only with the setting off. Photo mode does not open the
         // megamap: the wheel zooms when that setting is on, and does
         // nothing when it is off. The open and close actions name the
         // direction. The wheel is still taken when neither fired, so it
-        // does not zoom the battlefield.
-        if (megamap_on() && !photo_mode()) {
+        // does not zoom the battlefield, nor the one the megamap hides.
+        if ((megamap_takes_wheel() || megamap_shown()) && !photo_mode()) {
             if (sdl_.renderer != nullptr && !convert_event_to_frame(sdl_.renderer, event))
                 return;
             // One notch is one press. The wheel event opens or closes once.

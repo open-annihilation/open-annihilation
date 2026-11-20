@@ -1030,7 +1030,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
     // A held picture keeps its zoom. The wheel is taken.
     if (photo_camera_locked())
         return true;
-    if (!engine_settings().wheel_zoom || live.failed)
+    // The open megamap hides the turned view, which keeps its zoom, as it
+    // does with Mouse wheel zoom off.
+    if (!engine_settings().wheel_zoom || live.failed || megamap_shown())
         return true;
     const float turned_raw =
         event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;

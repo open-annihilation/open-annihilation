@@ -7,8 +7,9 @@
 // units the minimap shows and the selection's sensor rings; its clicks act
 // as the battlefield's do in the chosen interface type, at the map point
 // they stand for. The enhanced minimap redraws the radar's picture at its
-// own size. The Mouse wheel zoom setting, while on, leaves the hack off for
-// this player.
+// own size. The toggle answers whatever the Mouse wheel zoom setting is;
+// while that setting is on, the wheel zooms the battlefield in place of
+// opening the megamap, and the minimap keeps the game's own picture.
 
 #include "engine_settings_state.hpp"
 #include "oa/app/runtime.hpp"
@@ -160,9 +161,13 @@ void terrain_row(
 } // namespace
 
 bool Runtime::megamap_on() const {
+    return match_ && ui_rules().megamap.enabled;
+}
+
+bool Runtime::megamap_takes_wheel() const {
     // Settings not yet read hold their defaults, the wheel zoom on.
     const bool wheel_zoom = !engine_settings_ || engine_settings_->current.wheel_zoom;
-    return match_ && ui_rules().megamap.enabled && !wheel_zoom;
+    return megamap_on() && !wheel_zoom;
 }
 
 bool Runtime::megamap_shown() const {
@@ -469,7 +474,11 @@ bool Runtime::take_megamap_toggle(const SDL_KeyboardEvent& key) {
 bool Runtime::megamap_wheel(float amount, float x, float y) {
     if (!megamap_on() || amount == 0.0F)
         return false;
+    // Toward the player it opens the megamap only while the wheel is the
+    // megamap's: with Mouse wheel zoom on, that turn zooms the battlefield.
     if (amount < 0.0F) {
+        if (!megamap_takes_wheel())
+            return false;
         set_megamap_open(true);
         return true;
     }
@@ -1018,13 +1027,8 @@ void Runtime::megamap_right_press(
 }
 
 void Runtime::megamap_wheel_zoom_changed() {
-    // Closed without its sound: the setting closes it, not the player's key.
-    if (!megamap_on()) {
-        megamap_open_ = false;
-        megamap_.pressed = false;
-    }
-    // Turned on, the hack makes its picture now rather than as it first opens.
-    prepare_megamap_picture();
+    // The megamap the player opened stays open: its toggle answers whatever
+    // the setting is. Only the minimap's picture follows the setting.
     const auto& rules = ui_rules().megamap;
     if (!rules.enabled || !rules.enhanced_minimap || radar_state_.surfaces.picture == nullptr)
         return;
@@ -1042,13 +1046,13 @@ void Runtime::enhance_radar_picture() {
         game.map_pixel_height <= 0)
         return;
     // The game's own picture, kept as the radar drew it, comes back while the
-    // hack is off for this player.
+    // wheel zooms the battlefield in place of opening the megamap.
     auto& kept = radar_state_.game_picture;
     const auto size =
         static_cast<std::size_t>(picture->pitch) * static_cast<std::size_t>(picture->height);
     if (kept.empty())
         kept.assign(picture->pixels, picture->pixels + size);
-    if (!megamap_on()) {
+    if (!megamap_takes_wheel()) {
         if (kept.size() == size)
             std::copy(kept.begin(), kept.end(), picture->pixels);
         return;

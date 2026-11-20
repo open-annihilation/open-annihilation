@@ -315,10 +315,13 @@ void test_this_mod() {
         if (draw != nullptr)
             OA_CHECK(draw->aside == "held");
     }
-    // Without no-wheel-zoom the megamap's key does not fire, so it is not listed.
-    const editor::OverlayInputs zooming =
-        inputs_for(fixture.resolve({"ui.megamap", "ui.whiteboard"}, nullptr), active, 0);
-    OA_CHECK(find_line(editor::overlay_groups(zooming), "Megamap") == nullptr);
+    // With Mouse wheel zoom on the megamap's key still fires, so it is listed.
+    const editor::OverlayInputs zooming = inputs_for(
+        fixture.resolve({"ui.megamap", "ui.whiteboard"}, nullptr),
+        active,
+        condition_bit("wheel-zoom")
+    );
+    OA_CHECK(find_line(editor::overlay_groups(zooming), "Megamap") != nullptr);
 }
 
 /// The On line carries the latches the caller already formatted.

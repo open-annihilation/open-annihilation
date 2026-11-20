@@ -759,11 +759,12 @@ void Runtime::check_visual_rule_overlays(
                   << tiers_name() << '\n';
     }
 
-    // ui.megamap acts only with the Mouse wheel zoom setting off: with it
-    // on, Tab and the wheel rolled toward the player open no megamap; with
-    // it off, Tab opens it; turning the setting on in the match, as the
-    // settings dialog does, closes it. The setting stays off for the
-    // megamap's presentation below.
+    // ui.megamap's toggle answers whatever the Mouse wheel zoom setting is,
+    // and the wheel opens the megamap only with the setting off. With it on,
+    // the wheel rolled toward the player opens no megamap, and Tab opens and
+    // closes it; turning the setting on in the match, as the settings dialog
+    // does, leaves an open megamap open; with it off, Tab opens it as before.
+    // The setting stays off for the megamap's presentation below.
     const bool wheel_zoom = engine_settings().wheel_zoom;
     // The setting changed with the battlefield's zoom left as it is.
     const auto set_wheel_zoom = [&](bool on) {
@@ -781,19 +782,25 @@ void Runtime::check_visual_rule_overlays(
         const auto middle_y =
             static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2);
         set_wheel_zoom(true);
-        if (take_megamap_toggle(tab) || megamap_wheel(-1.0F, middle_x, middle_y) || megamap_open_)
-            fail("the megamap opened with the Mouse wheel zoom setting on");
+        if (megamap_wheel(-1.0F, middle_x, middle_y) || megamap_open_)
+            fail("the wheel opened the megamap with the Mouse wheel zoom setting on");
+        if (!take_megamap_toggle(tab) || !megamap_shown())
+            fail("Tab did not open the megamap with the Mouse wheel zoom setting on");
+        if (!take_megamap_toggle(tab) || megamap_open_ || megamap_shown())
+            fail("Tab did not close the megamap with the Mouse wheel zoom setting on");
         set_wheel_zoom(false);
         if (!take_megamap_toggle(tab) || !megamap_shown())
             fail("Tab did not open the megamap with the Mouse wheel zoom setting off");
         auto chosen = engine_settings();
         chosen.wheel_zoom = true;
         apply_engine_settings(chosen);
-        if (megamap_open_ || megamap_shown())
-            fail("turning the Mouse wheel zoom setting on did not close the megamap");
+        if (!megamap_shown())
+            fail("turning the Mouse wheel zoom setting on closed the megamap");
+        set_megamap_open(false);
         set_wheel_zoom(false);
-        std::cout << "render tiers check: visual rules: the megamap opens only with the Mouse "
-                     "wheel zoom setting off, and turning the setting on closes it\n";
+        std::cout << "render tiers check: visual rules: Tab opens and closes the megamap with the "
+                     "Mouse wheel zoom setting on or off, the wheel opens it only with the "
+                     "setting off, and turning the setting on leaves it open\n";
     }
 
     // ui.megamap: open over the battlefield, it is presented exactly as the

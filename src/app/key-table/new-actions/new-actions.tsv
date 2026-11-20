@@ -30,6 +30,9 @@ chat.open-allies		key F9	chat=open
 ui.release-pointer		key Insert	none
 ui.keys-overlay	select=commander;armed=build	key Slash primary	none
 megamap.jump		button left megamap clicks=2	camera=centred;megamap=closed
+megamap.jump:wheel-off	wheel-zoom=off	button left megamap clicks=2	camera=centred;megamap=closed
+megamap.toggle:ctrl-wheel		wheel up battlefield ctrl	megamap=open
+megamap.toggle:ctrl-wheel-close		wheel up megamap ctrl	megamap=closed
 order.cancel	select=combat;armed=attack	key PrintScreen	armed=none
 order.cancel:idle		key PrintScreen	none
 select.clear	select=combat	key End	primary=none;selected=0

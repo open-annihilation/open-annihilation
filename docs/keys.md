@@ -367,8 +367,8 @@ at the head of Groups.
 
 | Tool | Key | Action | Where it is set now |
 | --- | --- | --- | --- |
-| tdraw, zdraw | Tab | `megamap.toggle` | The megamap hack's default. The editor lists it in Megamap. Import reads tdraw's MegaMapKey and MegamapKey |
-| tdraw, zdraw | Wheel down, wheel up | `megamap.open-wheel`, `megamap.close-wheel` | The megamap hack's defaults |
+| tdraw, zdraw | Tab | `megamap.toggle` | The megamap hack's default, with Mouse wheel zoom on or off. The editor lists it in Megamap. Import reads tdraw's MegaMapKey and MegamapKey |
+| tdraw, zdraw | Wheel down, wheel up | `megamap.open-wheel`, `megamap.close-wheel` | The megamap hack's defaults. Wheel down opens it only while Mouse wheel zoom is off; wheel up over it closes it either way |
 | tdraw, zdraw | none | `megamap.jump` | Unbound. Set it in the editor |
 | tdraw | hold `\` | `whiteboard.draw` | The whiteboard hack's default, `@Backslash`. Import reads WhiteboardKey |
 | tdraw | Ctrl+`\` | `whiteboard.jump` | The whiteboard hack's default |

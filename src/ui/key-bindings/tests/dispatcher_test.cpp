@@ -288,7 +288,7 @@ void letters(const Resolved& resolved, const KeyboardMap& map) {
 }
 
 /// Shift+Tab gives select.previous-primary. Tab with the megamap on gives
-/// megamap.toggle, and with wheel zoom on select.next-primary.
+/// megamap.toggle, with Mouse wheel zoom on or off.
 void tabs(const Resolved& resolved, const KeyboardMap& map) {
     const uint32_t play = context_bit("play");
     const uint32_t match = context_bit("match");
@@ -325,12 +325,20 @@ void tabs(const Resolved& resolved, const KeyboardMap& map) {
     OA_CHECK(!kept.events.empty());
     OA_CHECK(kept.events.front().context == context_index("match"));
 
-    Dispatcher next = open_dispatcher(resolved, map);
-    use_contexts(next, play | match, single | selection | wheel_zoom);
+    Dispatcher zooming = open_dispatcher(resolved, map);
+    use_contexts(zooming, play | match, single | selection | wheel_zoom);
     expect_only(
-        "wheel zoom on (single player, a selection) gives select.next-primary",
-        next.feed(named_event("Tab", true, 0, 1)),
-        "select.next-primary",
+        "wheel zoom on (single player, a selection) still gives megamap.toggle",
+        zooming.feed(named_event("Tab", true, 0, 1)),
+        "megamap.toggle",
+        Phase::pressed
+    );
+    Dispatcher closing = open_dispatcher(resolved, map);
+    use_contexts(closing, play | match | megamap, single | selection | wheel_zoom);
+    expect_only(
+        "Tab over the open megamap with wheel zoom on gives megamap.toggle",
+        closing.feed(named_event("Tab", true, 0, 1)),
+        "megamap.toggle",
         Phase::pressed
     );
 }
@@ -916,6 +924,93 @@ void modified_wheel(const KeyboardMap& map) {
     }
 }
 
+/// The megamap's wheel beside Mouse wheel zoom. With the setting on, the
+/// wheel down on the battlefield zooms out and does not open the megamap,
+/// and over the open megamap the wheel up closes it rather than zooming in.
+/// With the setting off the wheel down opens it. A toggle the player moved
+/// to Shift and the wheel up answers with the setting on, where no zoom
+/// chord names Shift, and the plain turn still zooms in. A toggle on the
+/// plain wheel down answers beside the zoom out, which is aimed at the
+/// battlefield; the match gives that turn to the toggle the player bound.
+void megamap_wheel(const Resolved& resolved, const KeyboardMap& map) {
+    const uint32_t play = context_bit("play");
+    const uint32_t match = context_bit("match");
+    const uint32_t megamap = context_bit("megamap");
+    const uint32_t single = condition_bit("single-player");
+    const uint32_t zoom = condition_bit("wheel-zoom");
+    const uint32_t no_zoom = condition_bit("no-wheel-zoom");
+
+    Dispatcher closed = open_dispatcher(resolved, map);
+    use_contexts(closed, play | match, single | zoom);
+    expect_only(
+        "the wheel down with wheel zoom on zooms out",
+        closed.feed(wheel_turn(false, 0)),
+        "camera.zoom-out",
+        Phase::pressed
+    );
+    Dispatcher open = open_dispatcher(resolved, map);
+    use_contexts(open, play | match | megamap, single | zoom);
+    expect_only(
+        "the wheel up over the megamap with wheel zoom on closes it",
+        open.feed(wheel_turn(true, 0)),
+        "megamap.close-wheel",
+        Phase::pressed
+    );
+    Dispatcher off = open_dispatcher(resolved, map);
+    use_contexts(off, play | match, single | no_zoom);
+    expect_only(
+        "the wheel down with wheel zoom off opens the megamap",
+        off.feed(wheel_turn(false, 0)),
+        "megamap.open-wheel",
+        Phase::pressed
+    );
+    Dispatcher off_open = open_dispatcher(resolved, map);
+    use_contexts(off_open, play | match | megamap, single | no_zoom);
+    expect_only(
+        "the wheel up over the megamap with wheel zoom off closes it",
+        off_open.feed(wheel_turn(true, 0)),
+        "megamap.close-wheel",
+        Phase::pressed
+    );
+
+    // The toggle moved to one wheel chord, with the megamap's hack on.
+    const auto toggle_on = [&](std::string_view chord) {
+        keys::Layout own;
+        own.bindings.push_back(wheel_binding("megamap.toggle", chord));
+        keys::ResolveInput input;
+        input.keyboard = &map;
+        input.platform.primary_is_meta = true;
+        input.hacks_on = {"ui.megamap"};
+        input.own = &own;
+        return keys::resolve(input);
+    };
+    const Resolved shifted = toggle_on("Shift+WheelUp");
+    Dispatcher shift = open_dispatcher(shifted, map);
+    use_contexts(shift, play | match, single | zoom);
+    expect_only(
+        "a toggle on Shift and the wheel up answers with wheel zoom on",
+        shift.feed(wheel_turn(true, keys::shift)),
+        "megamap.toggle",
+        Phase::pressed
+    );
+    Dispatcher plain = open_dispatcher(shifted, map);
+    use_contexts(plain, play | match, single | zoom);
+    expect_only(
+        "the plain wheel up still zooms in",
+        plain.feed(wheel_turn(true, 0)),
+        "camera.zoom-in",
+        Phase::pressed
+    );
+    Dispatcher shared = open_dispatcher(toggle_on("WheelDown"), map);
+    use_contexts(shared, play | match, single | zoom);
+    const Fed both = shared.feed(wheel_turn(false, 0));
+    if (both.events.size() != 2)
+        show(both);
+    OA_CHECK(both.events.size() == 2);
+    OA_CHECK(has_phase(both, "megamap.toggle", Phase::pressed));
+    OA_CHECK(has_phase(both, "camera.zoom-out", Phase::pressed));
+}
+
 } // namespace
 
 int main() {
@@ -926,6 +1021,7 @@ int main() {
     const Resolved resolved = prepared(map);
     letters(resolved, map);
     tabs(resolved, map);
+    megamap_wheel(resolved, map);
     enter_key(resolved, map);
     equals_key(resolved, map);
     typing(resolved, map);

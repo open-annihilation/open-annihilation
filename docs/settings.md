@@ -202,10 +202,10 @@ Each of these takes effect at once.
   View past the map's edge lets
   it; the battlefield is black past the map, and your aircraft stay in
   view where their flight takes them past its edges. Turned off, the view eases back to the game's own scale. Turn it off if the wheel zooms when
-  you do not mean it to, or to use a mod's megamap, which takes the wheel
-  only while this is off
-  ([ui.megamap](mods/standard-hacks/ui.megamap.md)); the wheel itself can
-  zoom out to the whole map (Maximum zoom out).
+  you do not mean it to, or to open a mod's megamap with the wheel, which
+  it does only while this is off; Tab opens and closes the megamap either
+  way ([ui.megamap](mods/standard-hacks/ui.megamap.md)). The wheel itself
+  can zoom out to the whole map (Maximum zoom out).
 - **Maximum zoom out**, Automatic, Whole map, 1/32, 1/16, 1/8, 1/4 or 1/2,
   Automatic by default. How far out the wheel, a pinch, the touch zoom
   buttons and a controller zoom the battlefield. Automatic goes as far as

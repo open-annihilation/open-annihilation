@@ -92,6 +92,8 @@ struct Prepared {
     std::string interface_name;
     bool switch_alt = false;
     bool wheel_zoom_off = false;
+    /// The megamap opened before the input, as a row on the megamap opens it.
+    bool megamap = false;
     std::string armed;
     bool chat = false;
     bool menu = false;
@@ -560,6 +562,8 @@ Prepared parse_setup(std::string_view text) {
             prepared.switch_alt = true;
         else if (key == "wheel-zoom" && value == "off")
             prepared.wheel_zoom_off = true;
+        else if (key == "megamap" && value == "open")
+            prepared.megamap = true;
         else if (key == "armed")
             prepared.armed = std::string(value);
         else if (key == "chat" && value == "open")
@@ -1587,8 +1591,9 @@ void Runtime::check_key_table() {
             }
             if (row.id.rfind("build.move-queued-site", 0) == 0)
                 queue_build_at_site();
-            if (row.gesture.place == "megamap") {
-                set_wheel_zoom(false);
+            // The megamap opens whatever the Mouse wheel zoom setting is; a
+            // row that needs the setting off says so.
+            if (row.gesture.place == "megamap" || prepared.megamap) {
                 self.set_megamap_open(true);
                 if (!self.megamap_open_)
                     self.megamap_open_ = true;

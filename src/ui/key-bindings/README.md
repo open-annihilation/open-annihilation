@@ -245,8 +245,9 @@ PC lay it out, German QWERTZ and US Dvorak. On the PC's AZERTY `-` and
 layout, a mod letter, a player's own change, a hack's default and its
 replacement, the left-click scheme, the swap, fixed Escape, and the pairs
 that share a key without clashing: modifiers, the left button, a stricter
-condition, chat's Enter, a hack's Tab, and a pointer aimed at a different
-place. Two buttons of one GUI file that share a letter clash. The same
+condition, chat's Enter, a hack's Tab, a pointer aimed at a different
+place, and the megamap's toggle, which holds no condition, moved to the
+wheel beside the battlefield's zoom. Two buttons of one GUI file that share a letter clash. The same
 letter on two files does not, until one file is the order panel and the
 other is the build menu on screen. `oa-default` has no clash where Primary is
 Ctrl or where it is the command key. Primary+5 on the keys overlay and
@@ -268,7 +269,13 @@ page change takes each way, and checks no time.
 `ui-key-bindings-dispatcher` (`tests/dispatcher_test.cpp`) resolves
 `oa-default` and walks synthetic timelines: Attack on A, including with
 Shift or Alt; Ctrl+M matches nothing; Tab across the megamap, the next
-primary and the previous primary; Enter in chat and in play; `=` for speed
+primary and the previous primary, the megamap's toggle taking Tab with
+Mouse wheel zoom on or off; the megamap's wheel beside the zoom: the wheel
+down zooms out with the setting on and opens the megamap with it off, the
+wheel up over the open megamap closes it either way, and a toggle moved to
+Shift and the wheel up answers there while the plain turn zooms, and one
+moved to the wheel down answers beside the zoom out, which is aimed at the
+battlefield; Enter in chat and in play; `=` for speed
 and, with the debug keys, refill; text entry keeping only Escape; Cmd+/
 reaching the keys overlay in global; a repeating pan and a press that does
 not repeat; the status strip's press and release around a Shift; a

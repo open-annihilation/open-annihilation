@@ -130,12 +130,22 @@ int main() {
         OA_CHECK(idle->defaults.empty());
     }
 
+    // The megamap's toggle, its close on the wheel and its jump answer
+    // whatever Mouse wheel zoom is. Only its wheel's opening, on the
+    // battlefield the zoom shares, needs the setting off.
     const uint32_t no_zoom = condition_bit("no-wheel-zoom");
     OA_CHECK(no_zoom != 0);
-    const actions::Action* mega = actions::find("megamap.toggle");
-    OA_CHECK(mega != nullptr);
-    if (mega != nullptr)
-        OA_CHECK((mega->when & no_zoom) != 0);
+    const std::string_view any_zoom[]{"megamap.toggle", "megamap.close-wheel", "megamap.jump"};
+    for (const std::string_view id : any_zoom) {
+        const actions::Action* mega = actions::find(id);
+        OA_CHECK(mega != nullptr);
+        if (mega != nullptr)
+            OA_CHECK(mega->when == 0);
+    }
+    const actions::Action* open_wheel = actions::find("megamap.open-wheel");
+    OA_CHECK(open_wheel != nullptr);
+    if (open_wheel != nullptr)
+        OA_CHECK(open_wheel->when == no_zoom);
 
     const actions::Action* cancel = actions::find("chat.cancel");
     OA_CHECK(cancel != nullptr);

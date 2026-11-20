@@ -783,6 +783,17 @@ void shared_without_a_clash() {
         const Bound* toggle = find_bound(megamap, taken->winner);
         OA_CHECK(toggle != nullptr && source_has(toggle->entry, "ui.megamap"));
     }
+    // The toggle answers whatever Mouse wheel zoom is, so it holds no
+    // condition. A toggle moved to the wheel down is a press, and the zoom
+    // out it shares the turn with is aimed at the battlefield: no clash.
+    const Bound* any_zoom = find_bound(megamap, "megamap.toggle");
+    OA_CHECK(any_zoom != nullptr && any_zoom->when == 0);
+    const Bound* opens = find_bound(megamap, "megamap.open-wheel");
+    OA_CHECK(opens != nullptr && opens->when == condition_bit("no-wheel-zoom"));
+    OA_CHECK(keys::clashes_with(megamap, mega, "megamap.toggle", must_parse("WheelDown")).empty());
+    OA_CHECK(
+        keys::clashes_with(megamap, mega, "megamap.toggle", must_parse("Shift+WheelUp")).empty()
+    );
 
     keys::ModData mod;
     mod.categories = "VE";

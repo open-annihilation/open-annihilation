@@ -17406,20 +17406,26 @@ class Runtime final : public menu::Host,
     /// @param change the switch
     void switch_watched_view(oa::ui::hud::ViewSwitch change);
 
-    /// Tells whether ui.megamap acts for this player: a match runs under it
-    /// and the Mouse wheel zoom setting is off. With the setting on, the
-    /// wheel's zoom takes the megamap's place: Tab and the wheel open no
-    /// megamap and the minimap keeps the game's own picture.
+    /// Tells whether ui.megamap acts for this player: a match runs under it.
+    /// Its toggle and its jump answer whatever the Mouse wheel zoom setting
+    /// is; the wheel opens it only as megamap_takes_wheel says.
     [[nodiscard]] bool megamap_on() const;
+
+    /// Tells whether ui.megamap takes the wheel on the battlefield: the hack
+    /// acts (megamap_on) and the Mouse wheel zoom setting is off. Then the
+    /// wheel rolled toward the player opens the megamap and the minimap
+    /// shows the enhanced picture; with the setting on the wheel zooms the
+    /// battlefield and the minimap keeps the game's own picture.
+    [[nodiscard]] bool megamap_takes_wheel() const;
 
     /// Tells whether the megamap covers the battlefield: ui.megamap acts
     /// (megamap_on) and the megamap is open.
     [[nodiscard]] bool megamap_shown() const;
 
     /// Puts ui.megamap in step with the Mouse wheel zoom setting changed in a
-    /// running match: with the setting on, an open megamap closes; either way
-    /// the minimap takes the picture the hack now asks for
-    /// (enhance_radar_picture) and is filled and composed again.
+    /// running match: an open megamap stays open, and the minimap takes the
+    /// picture the hack now asks for (enhance_radar_picture) and is filled
+    /// and composed again.
     void megamap_wheel_zoom_changed();
 
     /// Reads one megamap icon from the game folder's icon folder, cut to
@@ -17501,10 +17507,12 @@ class Runtime final : public menu::Host,
     bool take_megamap_toggle(const SDL_KeyboardEvent& key);
 
     /// Takes the wheel for ui.megamap: rolled toward the player it opens the
-    /// megamap; rolled away it closes it, the battlefield's view placed so
-    /// that the map point under the pointer stays under it, held within the
-    /// view's limits (set_camera_position). Off the map's picture the view
-    /// stays where it was.
+    /// megamap while the hack takes the wheel (megamap_takes_wheel); rolled
+    /// away it closes the open megamap, whatever the Mouse wheel zoom
+    /// setting, the battlefield's view placed so that the map point under
+    /// the pointer stays under it, held within the view's limits
+    /// (set_camera_position). Off the map's picture the view stays where it
+    /// was.
     ///
     /// @param amount the wheel's roll, negative toward the player
     /// @param x pointer column on the canvas
@@ -17617,9 +17625,10 @@ class Runtime final : public menu::Host,
     uint8_t megamap_cursor_at(float x, float y);
 
     /// Redraws the radar's terrain picture at its own size from the map's
-    /// minimap (ui.megamap enhanced-minimap) while the hack acts
-    /// (megamap_on); while it does not, puts back the game's own picture,
-    /// which the first call keeps (RadarState::game_picture).
+    /// minimap (ui.megamap enhanced-minimap) while the hack takes the wheel
+    /// (megamap_takes_wheel); while it does not, as while the Mouse wheel
+    /// zoom setting is on, puts back the game's own picture, which the first
+    /// call keeps (RadarState::game_picture).
     void enhance_radar_picture();
 
     /// Tells whether ui.whiteboard takes the pointer: a match runs under it,

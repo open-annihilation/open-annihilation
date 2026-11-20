@@ -2110,7 +2110,6 @@ actions:
     area: megamap
     order: 1
     context: [match, megamap]
-    when: [no-wheel-zoom]
     kind: press
     source: [ui.megamap]
     default: ["Tab"]
@@ -2129,7 +2128,6 @@ actions:
     area: megamap
     order: 3
     context: [megamap]
-    when: [no-wheel-zoom]
     kind: wheel
     source: [ui.megamap]
     default: ["WheelUp"]
@@ -2139,7 +2137,6 @@ actions:
     area: megamap
     order: 4
     context: [megamap]
-    when: [no-wheel-zoom]
     kind: pointer
     source: [ui.megamap]
     target: megamap

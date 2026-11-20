@@ -13,7 +13,7 @@
 
 ## Description
 
-Adds a full-screen strategic map: Tab or the mouse wheel replaces the battlefield with the whole map, drawn with its indestructible features, unit category icons and sensor rings, and the player can select units and give orders on it. It can also redraw the minimap at a finer quality. 3.1c has only the minimap. The hack acts only while the player's Mouse wheel zoom setting is off: with the setting on, as it is by default, the wheel's zoom takes the megamap's place.
+Adds a full-screen strategic map: Tab or the mouse wheel replaces the battlefield with the whole map, drawn with its indestructible features, unit category icons and sensor rings, and the player can select units and give orders on it. It can also redraw the minimap at a finer quality. 3.1c has only the minimap. Tab opens and closes the megamap whatever the player's Mouse wheel zoom setting is. The wheel opens it only while that setting is off: with the setting on, as it is by default, the wheel zooms the battlefield instead.
 
 ![Megamap open on Painted Desert, showing the whole map: blue Arm and red Core unit icons meeting on the central plateau, small dark pictures of the map's indestructible features scattered over the sand, and a faint green radar ring around the selected radar tower.](images/ui.megamap-battle.png)
 
@@ -46,12 +46,15 @@ hacks:
 #### Opening and closing
 
 Tab opens and closes the megamap, playing the interface's open and close
-sounds. While a replay plays, a chord that is also a view binding (the next
-or previous player's view, every player, or the camera mode) does that view
-action instead, and the megamap stays as it was. A megamap chord that is
-not one of those still opens and closes it. Rolling the wheel toward the
-player opens it; rolling it away closes
-it and zooms the battlefield in at the pointer: the map point under the
+sounds, whatever the Mouse wheel zoom setting is; so does any other chord
+the key editor gives the toggle, a turn of the wheel among them. While a
+replay plays, a chord that is also a view binding (the next or previous
+player's view, every player, or the camera mode) does that view action
+instead, and the megamap stays as it was. A megamap chord that is not one
+of those still opens and closes it. Rolling the wheel toward the player
+opens it while Mouse wheel zoom is off; rolling it away over the open
+megamap closes it, with the setting on or off, and zooms the battlefield
+in at the pointer: the map point under the
 pointer on the megamap stays under it on the battlefield, unless the view's
 limits at the map's edges hold the view back, as they hold any jump. Off
 the map's picture the view stays where it was.
@@ -60,15 +63,16 @@ the map's picture the view stays where it was.
 
 The settings' Mouse wheel zoom (Controls, on by default) zooms the
 battlefield with the wheel, out to the whole map with Maximum zoom out at
-Whole map, which makes the megamap redundant. While it is on, the hack is
-off for this player, as if the profile left it out: Tab and
-the wheel do what they do without the hack. In a replay that means Tab
-changes the watched player when it is bound to that, and it does not open
-the megamap; the wheel zooms the battlefield, no megamap opens and the
-minimap keeps the game's own picture. Turning the
-setting on during a match closes an open megamap, without its sound, and
-puts the game's minimap picture back; turning it off brings the megamap and
-the enhanced minimap back.
+Whole map. While it is on, the wheel on the battlefield zooms and opens no
+megamap, and the minimap keeps the game's own picture. Tab, and any other
+chord the player gives the toggle, still opens and closes the megamap, and
+Megamap jump still answers on it. A turn of the wheel given to the toggle
+toggles the megamap and does not zoom. Over the open megamap the
+setting makes no difference: rolling the wheel away closes it and zooms in
+at the pointer, and rolling it toward the player does nothing, so the
+battlefield hidden under the megamap keeps its zoom. Turning the setting on
+or off during a match leaves an open megamap open, and swaps the minimap
+between the game's own picture and the enhanced one.
 
 #### What it shows
 
@@ -80,10 +84,9 @@ distance in the OKLab colour space) or, with `dither`, a checkerboard of the
 two nearest. The picture is shaded by what the viewer has mapped and sees,
 as the minimap is.
 
-The picture is made as the match starts, and as the Mouse wheel zoom
-setting is turned off during one, so that the megamap shows at once when it
-first opens. A window resized since makes it again the next time the
-megamap opens.
+The picture is made as the match starts, so that the megamap shows at
+once when it first opens. A window resized since makes it again the next
+time the megamap opens.
 
 With `feature-blobs`, the map's indestructible features that cannot be
 reclaimed, such as rocks, vents and metal patches made of features, are
@@ -197,8 +200,9 @@ interceptor rings of 512 pixels or more.
 This is a view rule: it changes only what this machine shows and how its own input works, never what another machine is told. It is not part of the match hash, so players in one game may have it on, off or set differently without breaking the game.
 
 Orders given on the megamap travel as any other order does. Each player's
-own Mouse wheel zoom setting decides whether the hack acts for them; the
-match hash and every machine's simulation stay as they are.
+own Mouse wheel zoom setting decides what their wheel does on the
+battlefield and which minimap picture they see; the match hash and every
+machine's simulation stay as they are.
 
 ### Related hacks
 
@@ -227,9 +231,11 @@ match hash and every machine's simulation stay as they are.
   shrunk, placed and laid over the terrain, the marks of those without a
   picture, the icon file reader, the icon choice and recolouring, and the
   rings.
-- `Runtime::megamap_on` holds the hack off while the Mouse wheel zoom
-  setting is on; `megamap_wheel_zoom_changed` closes the megamap and puts
-  the minimap's picture back when the setting changes in a match.
+- `Runtime::megamap_on` is the hack acting in a match, whatever the Mouse
+  wheel zoom setting; `megamap_takes_wheel` gives the battlefield's wheel
+  to the megamap and the minimap the enhanced picture only while the
+  setting is off; `megamap_wheel_zoom_changed` swaps the minimap's picture
+  when the setting changes in a match and leaves an open megamap open.
 - Test: `ui-hud-megamap` (`src/ui/hud/tests/megamap_test.cpp`) covers the
   layout, the terrain downscale by red, green and blue and among the map's
   own colours as they look, each pixel as the plain search of the colours
@@ -244,7 +250,8 @@ match hash and every machine's simulation stay as they are.
   rather than a flat mark, while the reclaimable and destructible ones leave
   it as it is; moving the main view leaves the megamap as it was, with no
   rectangle for the view; and the bars beside the map are the dark grey.
-  It rolls the wheel away over a point of the megamap and checks that the
+  It plays the megamap with Mouse wheel zoom on, as it is by default. It
+  rolls the wheel away over a point of the megamap and checks that the
   battlefield then shows that map point under the pointer.
   Then it makes the same clicks on the battlefield and on the megamap in both
   interface types and checks that each leaves the same selection, armed
@@ -266,9 +273,17 @@ match hash and every machine's simulation stay as they are.
   panel, each acting on the megamap as the mouse does there.
 - Test: `native-render-tiers-visual-rules`
   (`src/app/runtime_visual_rules_check.cpp`) checks that with Mouse wheel
-  zoom on, Tab and the wheel open no megamap; that with it off, Tab opens
-  it; and that turning the setting on closes it; then that the open
-  megamap is presented as the processor composes it.
+  zoom on, the wheel opens no megamap and Tab opens and closes it; that
+  with it off, Tab opens it; and that turning the setting on leaves it
+  open; then that the open megamap is presented as the processor composes
+  it.
+- Test: `native-key-table-hacks` and `native-key-table-new-actions`
+  (`src/app/key-table`) play the keys through the bindings with Mouse wheel
+  zoom on and off: Tab opens and closes the megamap with either; the wheel
+  down on the battlefield zooms out with the setting on and opens the
+  megamap with it off; over the open megamap the wheel up closes it and the
+  wheel down does nothing; Megamap jump on a double-click; and the toggle
+  on Ctrl and the wheel up, which opens and closes it with the setting on.
 
 ## Full configuration schema
 

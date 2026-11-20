@@ -140,11 +140,12 @@ the locks a running game puts on them (`settings_locks`).
 | | Update channel, a strip: the feed the check for a new Open Annihilation reads. Stable is the release every player gets; Testing, beside it, gets a release first, which may be unfinished. It takes changes whatever Developer Mode is, takes effect at OK, and the host looks at the channel at once | Stable, Testing | Stable | `open-annihilation.update-channel` (`stable` or `testing`); Cancel and Restore defaults apply |
 | | The overrides of the profile's standard hacks, in Developer Mode's list | any hack on or off, with its parameters | none | `open-annihilation.hack-overrides.<id>`, the id of the profile the game plays, `ta-3.1c` without a mod, `folder:<path>` for a mod folder without a profile |
 
-Mouse wheel zoom, while on, also leaves a profile's megamap off for the
-player: the wheel zooms the battlefield in its place, out to the whole map
-with Maximum zoom out at Whole map
-([ui.megamap](../../../docs/mods/standard-hacks/ui.megamap.md)). Turning it
-on during a match closes an open megamap.
+Mouse wheel zoom, while on, also keeps the wheel from opening a profile's
+megamap: the wheel zooms the battlefield instead, out to the whole map with
+Maximum zoom out at Whole map, and the minimap keeps the game's own picture
+([ui.megamap](../../../docs/mods/standard-hacks/ui.megamap.md)). Tab still
+opens and closes the megamap, and turning the setting on during a match
+leaves an open megamap open.
 
 Maximum zoom out and Maximum zoom in hold every zoom of the player's view,
 with Mouse wheel zoom off too, since a pinch and the touch zoom buttons

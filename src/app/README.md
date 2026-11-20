@@ -2109,8 +2109,10 @@ prompts, Settings › Updates and the headers name one state with one size.
   player unbound zooms on no turn. The megamap's wheel and the build
   tools' rotate and spacing already answered only their own chords: with
   Mouse wheel zoom off the megamap takes every turn and opens or closes
-  only on its chords, and the build tools pass on a turn their chords do
-  not answer.
+  only on its chords, and over the open megamap it does so with the
+  setting on too, so no turn zooms the battlefield it hides; the build
+  tools pass on a turn their chords do not answer. The megamap's toggle on
+  a turn is one of those other actions (`handle_match_action`).
   The wheel and a trackpad set the zoom's target (`handle_match_zoom`,
   `wheel_zoom_target`) by the amount `pointer_zoom_amount` gives a turn,
   the wheel's bindings turned round by Invert mouse zoom
@@ -5605,8 +5607,10 @@ tidal line and the shared camera rectangles, and switches a watcher's view;
 `runtime_whiteboard.cpp` takes the whiteboard's pointer, keys and text and
 makes and applies its batches (`take_whiteboard_batch`,
 `receive_whiteboard_batch`); `runtime_megamap.cpp` opens, draws and clicks
-the megamap and redraws the enhanced minimap, while the Mouse wheel zoom
-setting is off (`megamap_on`, `megamap_wheel_zoom_changed`), its clicks
+the megamap whatever the Mouse wheel zoom setting is (`megamap_on`), and,
+only while that setting is off, opens it with the wheel on the battlefield
+and redraws the enhanced minimap (`megamap_takes_wheel`,
+`megamap_wheel_zoom_changed`), its clicks
 acting as the battlefield's do in the chosen interface type, a drop of the
 selection closing the unit info panel, and a panel over it, such as the exit
 menu, taking its own; a press takes the icon last drawn under it
@@ -5658,8 +5662,9 @@ alone is laid on the battlefield (`note_full_world_covered`,
 the battlefield whole again. `native-render-tiers-visual-rules` runs the
 render tiers check under a profile that turns the visual rules on and checks these overlays
 in the standard and accelerated tiers, and in the Full tier after its own
-cases (`check_visual_rule_overlays`), with the megamap opening only while
-the Mouse wheel zoom setting is off and closing when it is turned on.
+cases (`check_visual_rule_overlays`), with Tab opening and closing the
+megamap whatever the Mouse wheel zoom setting is, the wheel opening it only
+while the setting is off, and turning the setting on leaving it open.
 
 ## Mutators at the start of a match
 

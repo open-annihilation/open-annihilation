@@ -1433,7 +1433,7 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
         middle_pan_ = {};
         middle_pan_swallow_button_ = 0;
     }
-    // ui.megamap acts only while the wheel zoom is off.
+    // ui.megamap's minimap picture follows the wheel zoom.
     if (before.wheel_zoom != chosen.wheel_zoom && match_)
         megamap_wheel_zoom_changed();
     if (before.sticky_modifiers != chosen.sticky_modifiers)

@@ -530,6 +530,16 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     // game menu is named, and leaves before it opens.
     if (photo_mode() && !photo_match_command(id))
         return true;
+    // The megamap's toggle on a chord that is no key, such as a turn of the
+    // wheel (take_wheel_actions). A key is taken before it gets here
+    // (take_megamap_toggle).
+    if (id == "megamap.toggle") {
+        if (!megamap_on())
+            return false;
+        if (action.phase == keys::Phase::pressed)
+            set_megamap_open(!megamap_open_);
+        return true;
+    }
     if (id == "game.kill-board" || id == "game.resource-panel") {
         if ((current_extension_state() & extension_state::replay) != 0) {
             if (action.phase == keys::Phase::pressed)
