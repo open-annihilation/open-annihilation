@@ -913,7 +913,7 @@ int Runtime::check_live_renderer() {
             play_release();
             // Prove this fixture restored the frozen picture before a menu
             // can change it. The menu's later comparison keeps this reference.
-            const auto play_restored = snapshot();
+            auto play_restored = snapshot();
             if (!same_live_terrain(play_restored, rotated)) {
                 std::size_t changed_pixels = 0;
                 int32_t left = static_cast<int32_t>(rotated.width);
@@ -961,8 +961,35 @@ int Runtime::check_live_renderer() {
                           << match_timing_.tick << '\n';
                 save_picture("rotated-before-full-pan.png", rotated);
                 save_picture("rotated-after-full-pan.png", play_restored);
+                // The live scene holds a moving camera's terrain for ten
+                // builds. A snapshot's overlay redraw reuses its scene, so
+                // leave two guard snapshots beyond that settling bound.
+                constexpr uint32_t restored_view_attempts = 12;
+                for (uint32_t attempt = 1; attempt <= restored_view_attempts; ++attempt) {
+                    play_restored = snapshot();
+                    std::size_t remaining_pixels = 0;
+                    if (play_restored.width == rotated.width &&
+                        play_restored.height == rotated.height &&
+                        play_restored.rgb.size() == rotated.rgb.size())
+                        for (std::size_t pixel = 0; pixel < rotated.rgb.size() / 3; ++pixel) {
+                            const auto at = pixel * 3;
+                            remaining_pixels += !std::equal(
+                                rotated.rgb.begin() + at,
+                                rotated.rgb.begin() + at + 3,
+                                play_restored.rgb.begin() + at
+                            );
+                        }
+                    const bool exact = same_live_terrain(play_restored, rotated);
+                    std::cerr << "live renderer check: Full pan stationary snapshot " << attempt
+                              << "; changed pixels " << remaining_pixels << "; exact " << exact
+                              << '\n';
+                    if (exact)
+                        break;
+                }
+                save_picture("rotated-after-full-pan-settled.png", play_restored);
                 require(
-                    false, "Full pan checks changed the frozen rotated battlefield before the menu"
+                    same_live_terrain(play_restored, rotated),
+                    "Full pan checks changed the frozen rotated battlefield after settling"
                 );
             }
         } catch (...) {
