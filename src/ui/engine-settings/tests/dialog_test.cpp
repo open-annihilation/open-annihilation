@@ -9433,6 +9433,7 @@ void enlarged_zoom_thresholds_show_select_and_keep_the_dots_lock() {
     dialog.chosen.zoomed_out_units = settings::ZoomedOutUnits::dots;
     dialog.chosen.zoomed_out_after = settings::ZoomedOutAfter::one_half;
     dialog.focused = settings::first_row_control + 10;
+    dialog.focus_shown = true;
     CHECK(geometry::choice_count(dialog, Setting::zoomed_out_after) == 10);
     const auto check_shown = [&](settings::ZoomedOutAfter choice,
                                  std::size_t index,
