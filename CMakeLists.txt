@@ -1098,6 +1098,9 @@ if(BUILD_TESTING)
   # Chat a computer seat reads and sends: what it may say, who hears it, and
   # the pace of one line per 30 ticks.
   add_executable(oa-app-seat-chat-test src/app/seat_chat_test.cpp)
+  add_executable(oa-app-model-shading-test src/app/renderer_model_shading_test.cpp)
+  target_link_libraries(oa-app-model-shading-test PRIVATE oa-test-support oa-options)
+  add_test(NAME app-model-shading COMMAND oa-app-model-shading-test)
   target_link_libraries(oa-app-seat-chat-test PRIVATE oa-app-seat-chat oa-options)
   add_test(NAME app-seat-chat COMMAND oa-app-seat-chat-test)
   set_tests_properties(app-seat-chat PROPERTIES TIMEOUT 30)

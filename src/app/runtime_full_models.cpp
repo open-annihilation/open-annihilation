@@ -20,15 +20,17 @@
 // without one keeps the processor's order. A polygon of a unit's picture
 // filled with the image key, which the image leaves clear, draws nothing and
 // cuts what it covers out of the polygons drawn before it. The palette's
-// tables are approximated as the design says: the shade rows as a per-vertex
-// multiplier with a bright page for the rows above unlit, the alpha table as
-// alpha 0.5, the blue table as a halved colour and an additive lift, the
-// nanoframe's bands per polygon with its outline as the processor finds its
+// shade table maps textured texels through each interpolated integer row;
+// clipped triangle bands keep the authored palette colours. The alpha table
+// is approximated as alpha 0.5, the blue table as a halved colour and an
+// additive lift, the nanoframe's bands per polygon with its outline as the processor finds its
 // pixels. The texture frames are placed on sprite pages (sprite_pages.hpp)
-// on first sight, in two variants: keyed, where the image key is transparent
-// as in a cached image, and flat, where it is a colour as in a flat draw.
+// on first sight: keyed, where the source image key is transparent as in a
+// cached image, and flat, where it is a colour as in a flat draw, each with
+// variants for the indexed shade rows.
 // Nothing here writes the match or the planner's state.
 #include "runtime_full.hpp"
+#include "renderer_model_shading.hpp"
 #include "renderer_water_shading.hpp"
 #include "renderer_aircraft_shadow.hpp"
 
@@ -184,9 +186,10 @@ card::Sampling game_shadow_sampling(float zoom) noexcept {
     return zoom < 1.0F ? card::Sampling::linear : card::Sampling::pixel_art;
 }
 
-/// A frame's number doubled, plus its variant: the keyed frame, or the flat
-/// one whose image-key texels are a colour.
-constexpr uint64_t variants = 2;
+/// The keyed and flat frame variants, followed by both coverage variants
+/// of every indexed shade row.
+constexpr uint64_t variants = 2 + 2 * renderer_model_shading::shade_rows;
+constexpr uint64_t first_shade_variant = 2;
 constexpr uint64_t flat_variant = 1;
 /// Memory the texture pages start with: the installed game's texture
 /// library is 1.35 MB of indices, 753 frames.
@@ -203,6 +206,7 @@ struct Corner {
     float u{};
     float v{};
     card::Colour colour{};
+    float shade{};        ///< interpolated indexed shade row
     float world_height{}; ///< physical height, independent of cached piece depth bytes
     int32_t depth{};      ///< the depth plane's value at the corner; units' polygons alone
 };
@@ -222,8 +226,9 @@ struct Polygon {
     float height_x{};
     float height_y{};
     float height_origin{};
-    bool bright{};    ///< drawn from the bright page
-    bool flat_page{}; ///< the flat variant of its frame: the image key a colour
+    bool indexed_shading{}; ///< textured colours read an authored shade-table row
+    bool bright{};          ///< drawn from the bright page
+    bool flat_page{};       ///< the flat variant of its frame: the image key a colour
     /// The mesh whose fan splits the polygon, with the primitive; a null
     /// mesh fans from the first corner. A textured quad is drawn as strips
     /// across its rows instead where it is not a parallelogram on screen.
@@ -290,6 +295,7 @@ struct CutPoint {
     double u{};
     double v{};
     card::Colour colour{};
+    float shade{}; ///< interpolated indexed shade row
 };
 
 /// One convex piece of a cut polygon: count of the cut points from first.
@@ -798,7 +804,8 @@ CutPoint cut_point_of(const Corner& corner) noexcept {
         static_cast<double>(corner.y),
         static_cast<double>(corner.u),
         static_cast<double>(corner.v),
-        corner.colour
+        corner.colour,
+        corner.shade
     };
 }
 
@@ -824,7 +831,8 @@ CutPoint cut_point_between(const CutPoint& from, const CutPoint& to, double alon
         {mix_level(from.colour.red, to.colour.red),
          mix_level(from.colour.green, to.colour.green),
          mix_level(from.colour.blue, to.colour.blue),
-         mix_level(from.colour.alpha, to.colour.alpha)}
+         mix_level(from.colour.alpha, to.colour.alpha)},
+        mix_level(from.shade, to.shade)
     };
 }
 
@@ -1442,6 +1450,7 @@ struct ModelStage::Impl {
     bool has_palette{};
     std::vector<PageSlot> slots;
     std::vector<PageSlot> bright_slots;
+    std::vector<uint8_t> texture_shade; ///< table used by the cached row textures
     /// Each texture frame's number on the pages, by the frame's address in
     /// the library, and the next number to give.
     std::unordered_map<const void*, uint64_t> numbers;
@@ -1633,6 +1642,14 @@ class Emitter {
           scale_(pixels_per_map_pixel(view)), whole_scale_(std::floor(scale_) == scale_),
           texel_offset_(whole_scale_ ? texel_edge : texel_centre),
           camera_x_(fixed_of_pixels(view.camera_x)), camera_z_(fixed_of_pixels(view.camera_y)) {
+        if (inputs.display != nullptr &&
+            inputs.display->shade.size() >= static_cast<size_t>(oa::present::shade_table_size) &&
+            impl_.texture_shade != inputs.display->shade) {
+            pages_.clear();
+            bright_pages_.clear();
+            impl_.forget_contents();
+            impl_.texture_shade = inputs.display->shade;
+        }
         // A photo tile projects in the whole photo's map pixels, then
         // subtracts the tile's draw origin. A frame leaves both at zero.
         whole_photo_tile_ = view.strip_anchor_x != 0.0F || view.strip_anchor_y != 0.0F ||
@@ -1745,6 +1762,15 @@ class Emitter {
     );
     [[nodiscard]] bool
     place_texture(const Sprite& sprite, bool flat, bool bright, PlacedFrame& out);
+    /// Places one shade-table row while retaining the source texture's coverage.
+    ///
+    /// @param sprite the original indexed texture
+    /// @param flat whether source image-key texels have coverage
+    /// @param row the indexed shading row
+    /// @param out receives the cached frame's page and rectangle
+    /// @return false when the frame cannot be placed
+    [[nodiscard]] bool
+    place_shaded_texture(const Sprite& sprite, bool flat, uint8_t row, PlacedFrame& out);
     [[nodiscard]] bool ensure_solid_page();
     [[nodiscard]] const gw::ModelMesh* mesh_of(const draw::ModelRef& model);
     [[nodiscard]] const Sprite* frame_of(
@@ -1819,6 +1845,13 @@ class Emitter {
     void emit_polygon(const Canvas& surface, const Polygon& polygon);
     /// Splits the finished face geometry at sea level before shading its wet part.
     void append_body(const Canvas& surface, const Polygon& polygon, card::PageHandle page);
+    /// Clips each triangle into indexed shade rows before holes and water shading.
+    ///
+    /// @param surface the canvas receiving the triangles
+    /// @param polygon the face and its coverage rules
+    /// @param placed the original texture frame's page and rectangle
+    void
+    append_material_body(const Canvas& surface, const Polygon& polygon, const PlacedFrame& placed);
     void emit_cut_polygon(const Canvas& surface, const Polygon& polygon, const PlacedFrame& placed);
     [[nodiscard]] card::Vertex body_vertex(
         const Canvas& surface,
@@ -1939,12 +1972,22 @@ class Emitter {
     bool truncates_{false};
     /// The battlefield target's factor. The shadow target is drawn at one.
     float view_factor_{1.0F};
+
+    struct ShadedVertex {
+        card::Vertex vertex{};
+        float shade{};
+    };
+
     std::vector<card::Vertex> vertices_;
+    std::vector<float> vertex_shades_;
+    std::vector<ShadedVertex> shaded_vertices_;
+    std::vector<card::Index> shaded_indices_;
     std::vector<card::Index> indices_;
     std::vector<card::Vertex> wet_vertices_;
     std::vector<card::Index> wet_indices_;
     /// A textured quad's strips, built beside its corners and triangles.
     std::vector<card::Vertex> strip_vertices_;
+    std::vector<float> strip_shades_;
     std::vector<card::Index> strip_indices_;
     /// A polygon's triangles with its holes left out, and the scratch the
     /// cutting works in (leave_out_holes).
@@ -2006,6 +2049,19 @@ bool Emitter::place_texture(const Sprite& sprite, bool flat, bool bright, Placed
                         bright_pages_, impl_.bright_slots, frame_id, &sprite, flat, nullptr, out
                     )
                   : place_frame(pages_, impl_.slots, frame_id, &sprite, flat, nullptr, out);
+}
+
+bool Emitter::place_shaded_texture(const Sprite& sprite, bool flat, uint8_t row, PlacedFrame& out) {
+    const uint64_t frame_id = frame_number(&sprite) * variants + first_shade_variant +
+                              uint64_t{row} * 2 + (flat ? flat_variant : 0);
+    if (pages_.find(frame_id, gw::DrawMode::opaque).status == gw::FrameStatus::not_held) {
+        render_texture(sprite, flat, impl_.rendered);
+        const auto offset = static_cast<size_t>(row) * OA_PALETTE_COLORS;
+        for (auto& index : impl_.rendered.pixels)
+            index = impl_.texture_shade[offset + index];
+        return place_frame(pages_, impl_.slots, frame_id, nullptr, flat, &impl_.rendered, out);
+    }
+    return place_frame(pages_, impl_.slots, frame_id, &sprite, flat, nullptr, out);
 }
 
 bool Emitter::ensure_solid_page() {
@@ -2152,6 +2208,7 @@ void Emitter::add_piece_polygons(
         polygon.mesh = &mesh;
         polygon.primitive = p;
         polygon.texture = texture;
+        polygon.indexed_shading = textured && shade_table != nullptr;
         polygon.flat_page = flat_page;
         polygon.clears = !textured;
         int64_t depth_sum = 0;
@@ -2190,11 +2247,13 @@ void Emitter::add_piece_polygons(
                     gw::shade_row(normal.x, normal.y, normal.z, in_.light.data(), in_.light_scale);
             }
             highest_row = std::max(highest_row, row);
+            corner.shade = static_cast<float>(row);
             if (textured) {
                 // The row's multiplier, which the normal page clamps at 1;
                 // the bright page's halving comes once the rows are known.
-                const float multiplier =
-                    shading == Shading::rows ? static_cast<float>(row) * shade_row_scale : 1.0F;
+                const float multiplier = shading == Shading::rows && !polygon.indexed_shading
+                                             ? static_cast<float>(row) * shade_row_scale
+                                             : 1.0F;
                 corner.colour = {multiplier, multiplier, multiplier, alpha};
             } else if (shade_table != nullptr) {
                 const uint8_t remapped = shade_table
@@ -2222,7 +2281,7 @@ void Emitter::add_piece_polygons(
             polygon.water_geometry =
                 polygon.water_geometry && in_.water_shimmer > 0 && submerged_corner;
         }
-        if (textured) {
+        if (textured && !polygon.indexed_shading) {
             polygon.bright = highest_row >= first_bright_row;
             for (uint32_t k = 0; k < run.corner_count; ++k) {
                 card::Colour& colour = impl_.corners[polygon.first_corner + k].colour;
@@ -2883,14 +2942,23 @@ bool Emitter::walk_strips(const Canvas& surface, std::span<const Corner> corners
         return end;
     };
     strip_vertices_.clear();
+    strip_shades_.clear();
     strip_indices_.clear();
     // Cuts the quad at a row, and adds the strip from the cut above unless
     // neither of its rows reaches right of its left end: the walk draws
     // nothing of a row whose right end is not past its left.
     const auto cut = [&](const Edge& on_left, const Edge& on_right, float y) {
         const auto below = static_cast<card::Index>(strip_vertices_.size());
-        strip_vertices_.push_back(on_edge(on_left, y));
-        strip_vertices_.push_back(on_edge(on_right, y));
+        for (const Edge& edge : {on_left, on_right}) {
+            strip_vertices_.push_back(on_edge(edge, y));
+            const float from_y = vertices_[edge.from].y + (anchored ? anchor_y : 0.0F);
+            const float to_y = vertices_[edge.to].y + (anchored ? anchor_y : 0.0F);
+            const float along = std::clamp((y - from_y) / (to_y - from_y), 0.0F, 1.0F);
+            strip_shades_.push_back(
+                corners[edge.from].shade +
+                along * (corners[edge.to].shade - corners[edge.from].shade)
+            );
+        }
         if (below == 0)
             return;
         const card::Index above = below - 2;
@@ -3219,6 +3287,71 @@ void Emitter::leave_out_holes(const Canvas& surface, const Polygon& polygon) {
     std::swap(indices_, hole_indices_);
 }
 
+void Emitter::append_material_body(
+    const Canvas& surface, const Polygon& polygon, const PlacedFrame& placed
+) {
+    if (!polygon.indexed_shading || polygon.texture == nullptr) {
+        append_body(surface, polygon, placed.page);
+        return;
+    }
+    shaded_vertices_.clear();
+    for (size_t index = 0; index < vertices_.size(); ++index)
+        shaded_vertices_.push_back({vertices_[index], vertex_shades_[index]});
+    shaded_indices_ = indices_;
+    const auto mix = [](const ShadedVertex& from, const ShadedVertex& to, float along) {
+        const auto level = [along](float a, float b) { return a + along * (b - a); };
+        return ShadedVertex{
+            {level(from.vertex.x, to.vertex.x),
+             level(from.vertex.y, to.vertex.y),
+             {level(from.vertex.colour.red, to.vertex.colour.red),
+              level(from.vertex.colour.green, to.vertex.colour.green),
+              level(from.vertex.colour.blue, to.vertex.colour.blue),
+              level(from.vertex.colour.alpha, to.vertex.colour.alpha)},
+             level(from.vertex.u, to.vertex.u),
+             level(from.vertex.v, to.vertex.v)},
+            level(from.shade, to.shade)
+        };
+    };
+    for (size_t first = 0; first + 2 < shaded_indices_.size(); first += 3) {
+        const std::array triangle{
+            shaded_vertices_[shaded_indices_[first]],
+            shaded_vertices_[shaded_indices_[first + 1]],
+            shaded_vertices_[shaded_indices_[first + 2]]
+        };
+        renderer_model_shading::for_shade_bands<ShadedVertex>(
+            triangle,
+            [](const ShadedVertex& vertex) { return vertex.shade; },
+            mix,
+            [&](uint8_t row, std::span<const ShadedVertex> band) {
+                PlacedFrame shaded;
+                if (!place_shaded_texture(*polygon.texture, polygon.flat_page, row, shaded)) {
+                    ++counts_.culled;
+                    return;
+                }
+                vertices_.clear();
+                indices_.clear();
+                const float source_page = static_cast<float>(placed.page_size);
+                const float target_page = static_cast<float>(shaded.page_size);
+                for (const auto& corner : band) {
+                    auto vertex = corner.vertex;
+                    vertex.u = (vertex.u * source_page - static_cast<float>(placed.rect.x) +
+                                static_cast<float>(shaded.rect.x)) /
+                               target_page;
+                    vertex.v = (vertex.v * source_page - static_cast<float>(placed.rect.y) +
+                                static_cast<float>(shaded.rect.y)) /
+                               target_page;
+                    vertices_.push_back(vertex);
+                }
+                for (card::Index index = 1; index + 1 < band.size(); ++index)
+                    indices_.insert(indices_.end(), {0, index, index + 1});
+                append_body(surface, polygon, shaded.page);
+                if (polygon.underwater)
+                    lift_under_water(surface);
+            }
+        );
+    }
+}
+
 void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::PageHandle page) {
     if (polygon.hole_count != 0)
         leave_out_holes(surface, polygon);
@@ -3289,10 +3422,13 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
         return;
     }
     vertices_.clear();
-    for (const Corner& corner : corners)
+    vertex_shades_.clear();
+    for (const Corner& corner : corners) {
         vertices_.push_back(body_vertex(
             surface, polygon, placed, corner.x, corner.y, corner.u, corner.v, corner.colour
         ));
+        vertex_shades_.push_back(corner.shade);
+    }
     indices_.clear();
     if (polygon.mesh != nullptr && polygon.primitive < polygon.mesh->primitives.size()) {
         const gw::MeshPrimitive& run = polygon.mesh->primitives[polygon.primitive];
@@ -3325,14 +3461,44 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
         const auto opaque_corner = [](const Corner& corner) { return corner.colour.alpha >= 1.0F; };
         const bool opaque = std::ranges::all_of(corners, opaque_corner) &&
                             (polygon.flat_page || !has_keyed_texels(*polygon.texture));
-        if (opaque)
-            append_body(surface, polygon, placed.page);
+        if (opaque) {
+            if (!polygon.indexed_shading) {
+                append_body(surface, polygon, placed.page);
+            } else {
+                // The backing stays whole so shade boundaries cannot leave
+                // holes along a face's edge. Its representative table row
+                // shows only where the strips leave a raster gap.
+                float shade = 0;
+                for (const Corner& corner : corners)
+                    shade += corner.shade;
+                const auto row = static_cast<uint8_t>(std::clamp(
+                    shade / static_cast<float>(corners.size()),
+                    0.0F,
+                    static_cast<float>(renderer_model_shading::shade_rows - 1)
+                ));
+                PlacedFrame backing;
+                if (place_shaded_texture(*polygon.texture, polygon.flat_page, row, backing)) {
+                    const float source_page = static_cast<float>(placed.page_size);
+                    const float target_page = static_cast<float>(backing.page_size);
+                    for (auto& vertex : vertices_) {
+                        vertex.u = (vertex.u * source_page - static_cast<float>(placed.rect.x) +
+                                    static_cast<float>(backing.rect.x)) /
+                                   target_page;
+                        vertex.v = (vertex.v * source_page - static_cast<float>(placed.rect.y) +
+                                    static_cast<float>(backing.rect.y)) /
+                                   target_page;
+                    }
+                    append_body(surface, polygon, backing.page);
+                }
+            }
+        }
         std::swap(vertices_, strip_vertices_);
+        std::swap(vertex_shades_, strip_shades_);
         std::swap(indices_, strip_indices_);
     }
-    append_body(surface, polygon, placed.page);
+    append_material_body(surface, polygon, placed);
     ++counts_.polygons;
-    if (polygon.underwater)
+    if (polygon.underwater && (!polygon.indexed_shading || polygon.texture == nullptr))
         lift_under_water(surface);
 }
 
@@ -3347,6 +3513,7 @@ void Emitter::emit_cut_polygon(
     const Canvas& surface, const Polygon& polygon, const PlacedFrame& placed
 ) {
     vertices_.clear();
+    vertex_shades_.clear();
     indices_.clear();
     const uint32_t end_piece = std::min(
         polygon.first_piece + polygon.piece_count, static_cast<uint32_t>(impl_.cut_pieces.size())
@@ -3359,6 +3526,7 @@ void Emitter::emit_cut_polygon(
             vertices_.push_back(body_vertex(
                 surface, polygon, placed, point.x, point.y, point.u, point.v, point.colour
             ));
+            vertex_shades_.push_back(point.shade);
         }
         for (uint32_t k = 1; k + 1 < piece.point_count; ++k) {
             indices_.push_back(first);
@@ -3368,9 +3536,9 @@ void Emitter::emit_cut_polygon(
     }
     if (indices_.empty())
         return;
-    append_body(surface, polygon, placed.page);
+    append_material_body(surface, polygon, placed);
     ++counts_.polygons;
-    if (polygon.underwater)
+    if (polygon.underwater && (!polygon.indexed_shading || polygon.texture == nullptr))
         lift_under_water(surface);
 }
 

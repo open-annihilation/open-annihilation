@@ -95,6 +95,14 @@ int Runtime::check_live_renderer() {
     }
     start_benchmark_skirmish();
     require(match_ != nullptr, "Skirmish did not create a match");
+    const auto& model_display = match_models().display;
+    require(
+        display_.context.shade_table != nullptr &&
+            std::equal(
+                model_display.shade.begin(), model_display.shade.end(), display_.context.shade_table
+            ),
+        "model rendering replaced the game's shading table"
+    );
     select_local_commander();
     require(selected_match_unit_ != 0, "Skirmish did not select a commander");
     const auto commander = selected_match_unit_;

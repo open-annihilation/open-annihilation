@@ -4223,11 +4223,17 @@ void naval_reflection_visibility() {
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
 }
 
-/// Building shade rows match classic bright textures and indexed palette remaps.
+/// Building textures and solid faces use the authored indexed shade rows.
 void model_shade_parity() {
     Fixture fixture;
     namespace models = oa::formats::objects3d;
     namespace drawing = oa::present::model;
+    constexpr uint8_t model_index = 3;
+    std::copy_n(
+        fixture.palette.begin() + ground_index * oa::palette_entry_bytes,
+        oa::palette_entry_bytes,
+        fixture.palette.begin() + model_index * oa::palette_entry_bytes
+    );
     constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
     auto source = std::make_shared<models::Model>();
     source->objects.resize(1);
@@ -4238,7 +4244,7 @@ void model_shade_parity() {
     instance.rebuild_transforms();
     instance.pieces()[0].flags |= static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached) |
                                   static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::shaded);
-    std::array<uint8_t, 1> pixel{ground_index};
+    std::array<uint8_t, 1> pixel{model_index};
     drawing::TextureSequence texture;
     texture.frames.resize(1);
     texture.frames[0].width = texture.frames[0].height = 1;
@@ -4267,19 +4273,51 @@ void model_shade_parity() {
     fixture.inputs.light = {0, 0, 1};
     fixture.inputs.light_scale = 20;
     std::array<uint8_t, 32 * 256> shades{};
-    shades.fill(alternate_index);
+    shades.fill(ground_index);
+    shades[20 * 256 + ground_index] = alternate_index;
+    shades[20 * 256 + model_index] = alternate_index;
     fixture.inputs.shade_table = shades;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(!fixture.scene.unit_ranges.empty());
     if (fixture.scene.unit_ranges.empty())
         return;
     const auto first = fixture.scene.unit_ranges[0].first_vertex;
-    OA_CHECK(triangle_color(fixture.scene, first)[0] == 165);
-    OA_CHECK(std::abs(fixture.scene.vertices[first].brightness - 20 * 0.06875F / 2) < tolerance);
+    OA_CHECK(triangle_color(fixture.scene, first) == (std::array<uint8_t, 4>{30, 120, 240, 255}));
+    OA_CHECK(fixture.scene.vertices[first].brightness == 1);
     // Camera orientation changes visibility, never the baked model light direction.
     fixture.inputs.view_direction = {0, 0, 1};
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
-    OA_CHECK(std::abs(fixture.scene.vertices[first].brightness - 20 * 0.06875F / 2) < tolerance);
+    OA_CHECK(triangle_color(fixture.scene, first)[0] == alternate_color[0]);
+    OA_CHECK(fixture.scene.vertices[first].brightness == 1);
+    fixture.inputs.light_scale = 10;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first)[0] == ground_color[0]);
+    fixture.inputs.light_scale = 20;
+    // A shade row mapping an opaque texel to the image-key index keeps coverage.
+    pixel[0] = model_index;
+    shades[20 * 256 + model_index] = drawing::image_key;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first) == (std::array<uint8_t, 4>{120, 60, 30, 255}));
+    pixel[0] = drawing::image_key;
+    shades[20 * 256 + drawing::image_key] = alternate_index;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first)[3] == 0);
+    // An unfinished moving piece over a plain image keeps its flat coverage,
+    // even while the same authored row maps its source image-key colour.
+    const auto cached = static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached);
+    instance.pieces()[0].flags &= static_cast<uint16_t>(~cached);
+    unit.build_remaining = 0.25F;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first) == (std::array<uint8_t, 4>{30, 120, 240, 255}));
+    instance.pieces()[0].flags |= cached;
+    unit.build_remaining = 0;
+    // A flat model draws the same source index as an opaque palette colour.
+    draw.plan.model.from_image = false;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first) == (std::array<uint8_t, 4>{120, 60, 30, 255}));
+    draw.plan.model.from_image = true;
+    pixel[0] = model_index;
+    shades[20 * 256 + model_index] = alternate_index;
     fixture.inputs.view_direction = {};
     unit.flags = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
@@ -4292,12 +4330,6 @@ void model_shade_parity() {
     fixture.inputs.graphics_flags = drawing::graphics_shading;
     // The ground's colour at an index other than the image key, which a
     // pictured unit's polygons leave clear.
-    constexpr uint8_t model_index = 3;
-    std::copy_n(
-        fixture.palette.begin() + ground_index * oa::palette_entry_bytes,
-        oa::palette_entry_bytes,
-        fixture.palette.begin() + model_index * oa::palette_entry_bytes
-    );
     prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
     prepared.objects[0].primitives[0].color = model_index;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
