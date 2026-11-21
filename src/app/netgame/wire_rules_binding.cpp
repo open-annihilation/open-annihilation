@@ -100,6 +100,11 @@ ng::WireRules wire_rules_of(const mp::ModProfile* profile) noexcept {
     rules.speed_max = byte_of(std::max(speed.maximum, speed.minimum));
     rules.speed_lock = speed.enabled && speed.syncon;
 
+    // Every machine of an Enhanced Mode match is an Open Annihilation
+    // machine playing the same rules, so its route changes travel as
+    // complete batches.
+    rules.route_batches = profile->rules.setup.enhanced_mode.enabled;
+
     rules.weapon_types = profile->limits.weapon_types.types;
     const auto side_count = profile->limits.sides.count;
     rules.sides = byte_of(side_count > 255u ? 255 : static_cast<int32_t>(side_count));

@@ -959,6 +959,8 @@ struct Link {
     std::deque<Datagram> queue;
     Link* peer{};
     std::vector<Datagram> sent;
+    uint32_t drop_every{}; // every this many datagrams one is lost on the way; 0 loses none
+    uint32_t sends{};
 };
 
 uint32_t
@@ -966,7 +968,8 @@ link_send(void* context, uint32_t from, uint32_t to, uint32_t, const uint8_t* da
     auto* link = static_cast<Link*>(context);
     Datagram datagram{from, to, std::vector<uint8_t>(data, data + size)};
     link->sent.push_back(datagram);
-    if (link->peer != nullptr)
+    const bool lost = link->drop_every != 0 && ++link->sends % link->drop_every == 0;
+    if (link->peer != nullptr && !lost)
         link->peer->queue.push_back(std::move(datagram));
     return transport_result::ok;
 }
@@ -4962,6 +4965,502 @@ void commander_warp_follows_its_rule() {
 
 } // namespace
 
+// ---- the unit-state wire of two machines ----
+
+constexpr uint32_t kWireIds[2] = {0x41, 0x52};
+constexpr uint16_t kWireGroundDef = 1;
+constexpr uint16_t kWireAirDef = 2;
+constexpr uint32_t kWireDefCount = 3;
+
+// One of two machines over a Link, each player with a block of mobile units
+// (ground and aircraft by turns), whose own units' movement records the
+// test changes every tick. The replication hooks keep a record per slot and
+// count the movement steps the receiver runs.
+struct WireMachine {
+    World* world{};
+    NetConnection connection{};
+    Link link;
+    std::unique_ptr<NetMatch> match = std::make_unique<NetMatch>();
+    std::vector<MovementRecord> movement;
+    uint32_t steps{}; // movement steps run for the other player's units
+
+    WireMachine(uint8_t local_slot, const WireRules& rules, uint16_t units_per_player) {
+        world = world_create();
+        const WorldCapacity capacity{2u * units_per_player + 1u, kWireDefCount, 0};
+        const bool allocated = world != nullptr && world_alloc_tables(world, &capacity) != 0;
+        CHECK(allocated);
+        if (!allocated)
+            return;
+        world->unit_defs[kWireGroundDef].bm_code = 1;
+        world->unit_defs[kWireAirDef].bm_code = 1;
+        world->unit_defs[kWireAirDef].flags |= OA_UNIT_DEF_FLAG_CAN_FLY;
+        for (uint8_t i = 0; i < OA_PLAYER_COUNT; ++i) {
+            auto& p = world->game.players[i];
+            p.index = i;
+            p.player_id = no_player_id;
+            p.info = oa_ref_from_index(i);
+            if (i < 2) {
+                p.in_use = 1;
+                p.player_id = kWireIds[i];
+                p.status = i == local_slot ? OA_PLAYER_STATUS_LOCAL : OA_PLAYER_STATUS_MIRRORED;
+                p.machine_group = i + 1u;
+            }
+        }
+        world->game.local_player_index = local_slot;
+        world->game.session_flags = kNetFlagLive;
+        world->game.units_per_player = units_per_player;
+        world->game.unit_def_id_bits = unit_def_id_bits_for_count(kWireDefCount);
+        for (uint32_t slot = 0; slot < world->unit_slot_count; ++slot)
+            world->units[slot].id = static_cast<uint16_t>(slot);
+        match_assign_unit_ranges(world);
+        for (uint8_t owner = 0; owner < 2; ++owner) {
+            uint32_t count = 0;
+            Unit* first = world_player_units(world, &world->game.players[owner], &count);
+            for (uint32_t i = 0; i < count && first != nullptr; ++i) {
+                Unit& unit = first[i];
+                unit.type_index = (i % 2) == 0 ? kWireGroundDef : kWireAirDef;
+                unit.def = oa_ref_from_index(unit.type_index);
+                unit.position = {static_cast<int32_t>((64 + i) << 16), 0, (64 + owner) << 16};
+                unit.health = 100;
+                unit.movement = 1;
+                unit.flags |= OA_UNIT_FLAG_LIVE;
+            }
+        }
+        movement.assign(world->unit_slot_count, MovementRecord{});
+        connection.packets = new PacketLayer();
+        packet_layer_create(connection.packets);
+        packet_layer_start(connection.packets, NetTransport{&link, link_send, link_receive});
+        net_connection_set_rules(&connection, rules);
+        ReplicationSim sim{};
+        sim.context = this;
+        sim.movement = [](void* c, World* w, Unit* unit) -> MovementRecord* {
+            auto& self = *static_cast<WireMachine*>(c);
+            const auto slot = world_unit_slot(w, unit);
+            if (slot >= self.movement.size() || unit->type_index >= w->unit_def_count)
+                return nullptr;
+            auto& record = self.movement[slot];
+            if (record.driver == MovementClass::none)
+                record.driver = movement_class_for_def(w->unit_defs[unit->type_index]);
+            return &record;
+        };
+        sim.movement_tick = [](void* c, World*, Unit*) { ++static_cast<WireMachine*>(c)->steps; };
+        net_match_begin(match.get(), &connection, world, sim, NetMatchHooks{});
+        net_match_enter_game(match.get());
+    }
+
+    ~WireMachine() {
+        delete connection.packets;
+        world_destroy(world);
+    }
+
+    WireMachine(const WireMachine&) = delete;
+    WireMachine& operator=(const WireMachine&) = delete;
+
+    Player& local() { return world->game.players[world->game.local_player_index]; }
+};
+
+/// Changes the movement records of a machine's own units for a tick, the
+/// same way on every run: three of every four units take a new route head
+/// of one to three points, every fifth one flips its blocked bit, and the
+/// aircraft among them take a new target, seek or no goal.
+///
+/// @param m the machine
+/// @param tick the tick the changes belong to
+void turn_wire_units(WireMachine& m, uint32_t tick) {
+    uint32_t count = 0;
+    Unit* first = world_player_units(m.world, &m.local(), &count);
+    for (uint32_t i = 0; i < count && first != nullptr; ++i) {
+        if ((i * 7u + tick) % 4u == 0)
+            continue;
+        auto& record = m.movement[first[i].id];
+        if (record.driver == MovementClass::none)
+            record.driver = movement_class_for_def(m.world->unit_defs[first[i].type_index]);
+        if ((i + tick) % 5u == 0)
+            record.flags = static_cast<uint8_t>(record.flags ^ movement_blocked);
+        if (record.driver == MovementClass::ground) {
+            record.ground.path_count = static_cast<int32_t>(1u + (i + tick) % 3u);
+            for (int32_t point = 0; point < record.ground.path_count; ++point) {
+                record.ground.path[point][0] = static_cast<int16_t>(
+                    (i * 13u + tick * 3u + static_cast<uint32_t>(point)) & 0x7fffu
+                );
+                record.ground.path[point][1] =
+                    static_cast<int16_t>((i * 5u + tick * 11u) & 0x7fffu);
+            }
+            record.ground.flags = static_cast<uint8_t>(
+                record.ground.flags | ground_driver_path_set | ground_driver_resend
+            );
+            continue;
+        }
+        record.air.flags |= air_driver_resend;
+        switch ((i + tick) % 3u) {
+        case 0:
+            record.air.goal_kind = air_goal_kind_target;
+            record.air.target = AirTargetGoal{};
+            record.air.target.flags = air_target_has_position | air_target_has_altitude;
+            record.air.target.altitude = static_cast<int16_t>(tick);
+            record.air.target.position[0] = static_cast<int32_t>((i + tick) << 16);
+            record.air.target.position[2] = static_cast<int32_t>(i << 16);
+            break;
+        case 1:
+            record.air.goal_kind = air_goal_kind_seek;
+            record.air.seek = AirSeekGoal{};
+            record.air.seek.flag = (tick % 2u) != 0;
+            record.air.seek.point[0] = static_cast<int32_t>(i << 16);
+            record.air.seek.step[2] = static_cast<int32_t>(tick);
+            record.air.seek.heading = static_cast<uint16_t>(tick * 97u);
+            break;
+        default:
+            record.air.goal_kind = air_goal_kind_none;
+            break;
+        }
+    }
+}
+
+/// Runs one networked tick of a wire machine: the tick advances, the pump
+/// applies what arrived, the own units turn, the unit state goes out and
+/// every channel is flushed.
+///
+/// @param m the machine
+/// @param turn whether the own units turn this tick
+void wire_tick(WireMachine& m, bool turn = true) {
+    auto& game = m.world->game;
+    ++game.tick;
+    (void)net_match_pump(m.match.get());
+    if (turn)
+        turn_wire_units(m, game.tick);
+    net_match_send_player_state(m.match.get(), &m.local());
+    net_match_after_tick(m.match.get());
+    packet_layer_flush(m.connection.packets, 0, true);
+}
+
+/// FNV-1a over every datagram a link sent: its addresses, its length and its bytes.
+///
+/// @param link the link
+/// @return the hash
+uint64_t sent_datagrams_hash(const Link& link) {
+    uint64_t hash = 0xcbf29ce484222325ull;
+    const auto mix = [&hash](uint8_t byte) {
+        hash ^= byte;
+        hash *= 0x100000001b3ull;
+    };
+    const auto mix_word = [&mix](uint32_t word) {
+        for (int shift = 0; shift < 32; shift += 8)
+            mix(static_cast<uint8_t>(word >> shift));
+    };
+    for (const auto& datagram : link.sent) {
+        mix_word(datagram.from);
+        mix_word(datagram.to);
+        mix_word(static_cast<uint32_t>(datagram.bytes.size()));
+        for (const auto byte : datagram.bytes)
+            mix(byte);
+    }
+    return hash;
+}
+
+// With Enhanced Mode off every byte two machines send each other stays as it
+// was before the complete route batches: their unit states, cut at 0x200
+// bytes as 3.1c cuts them, with the units past the cut put off to later
+// ticks. The hashes were recorded from the engine before the batches
+// existed.
+void off_match_frames_keep_their_bytes() {
+    start_case("off_match_frames_keep_their_bytes");
+    constexpr uint16_t kUnits = 96;
+    constexpr uint32_t kTicks = 48;
+    WireMachine a(0, WireRules{}, kUnits);
+    WireMachine b(1, WireRules{}, kUnits);
+    a.link.peer = &b.link;
+    b.link.peer = &a.link;
+    for (uint32_t t = 0; t < kTicks; ++t) {
+        wire_tick(a);
+        wire_tick(b);
+    }
+    std::size_t largest = 0;
+    for (const auto* m : {&a, &b})
+        for (const auto& record : records_sent(m->link, RecordType::unit_state))
+            largest = std::max(largest, record.bytes.size());
+    const uint64_t a_hash = sent_datagrams_hash(a.link);
+    const uint64_t b_hash = sent_datagrams_hash(b.link);
+    std::printf(
+        "net match: Off wire: %zu / %zu datagrams, hashes %016llx / %016llx, largest unit state "
+        "%zu\n",
+        a.link.sent.size(),
+        b.link.sent.size(),
+        static_cast<unsigned long long>(a_hash),
+        static_cast<unsigned long long>(b_hash),
+        largest
+    );
+    CHECK(a.link.sent.size() == kTicks && b.link.sent.size() == kTicks);
+    CHECK(a_hash == 0x27508ae11ab5babbull && b_hash == 0xe8fceb1477672a86ull);
+    CHECK(largest > unit_state_soft_limit_bytes && largest < 2 * unit_state_soft_limit_bytes);
+    CHECK(a.match->record_errors == 0 && b.match->record_errors == 0);
+    CHECK(a.steps != 0 && b.steps != 0);
+}
+
+/// Splits every frame a link sent into records, 3.1c's and the route batch
+/// records alike.
+///
+/// @param link the link
+/// @param[out] whole false when some frame did not split to its end
+/// @return the records, type byte first
+std::vector<Bytes> wire_records(const Link& link, bool* whole) {
+    std::vector<Bytes> out;
+    *whole = true;
+    for (const auto& datagram : link.sent) {
+        const auto frame = oa::netgame::network::decode_frame(datagram.bytes);
+        std::size_t at = frame_header_bytes;
+        while (at < frame.size()) {
+            uint16_t length = 0;
+            const auto* record = frame.data() + at;
+            const auto available = frame.size() - at;
+            const bool sized =
+                is_route_batch_record_type(record[0])
+                    ? route_batch_record_length(record, available, &length) == WireError::ok
+                    : record_wire_length(record, available, &length) == WireError::ok;
+            if (!sized || length == 0)
+                break;
+            out.emplace_back(record, record + length);
+            at += length;
+        }
+        *whole = *whole && at == frame.size();
+    }
+    return out;
+}
+
+/// Counts the records of one type byte.
+///
+/// @param records records, type byte first
+/// @param type the byte
+/// @return how many
+std::size_t count_of(const std::vector<Bytes>& records, uint8_t type) {
+    return static_cast<std::size_t>(
+        std::count_if(records.begin(), records.end(), [type](const Bytes& r) {
+            return !r.empty() && r[0] == type;
+        })
+    );
+}
+
+/// Tells whether every unit of a machine's own player has the movement record
+/// on another machine that it has on its own: the head, the blocked bit and
+/// an aircraft's goal.
+///
+/// @param owner the machine whose player owns the units
+/// @param copy the other machine
+/// @return true when every copy matches
+bool copies_hold_the_heads(WireMachine& owner, WireMachine& copy) {
+    uint32_t count = 0;
+    Unit* first = world_player_units(owner.world, &owner.local(), &count);
+    bool same = first != nullptr && count != 0;
+    for (uint32_t i = 0; same && i < count; ++i) {
+        const auto& sent = owner.movement[first[i].id];
+        const auto& held = copy.movement[first[i].id];
+        if (sent.driver == MovementClass::ground) {
+            // Only a ground delta carries the blocked bit.
+            same = (held.flags & movement_blocked) == (sent.flags & movement_blocked) &&
+                   held.ground.path_count == sent.ground.path_count;
+            for (int32_t p = 0; same && p < sent.ground.path_count; ++p)
+                same = held.ground.path[p][0] == sent.ground.path[p][0] &&
+                       held.ground.path[p][1] == sent.ground.path[p][1];
+        } else {
+            same = held.air.goal_kind == sent.air.goal_kind &&
+                   (held.flags & movement_substate_mask) == (sent.flags & movement_substate_mask);
+            // A seek goal carries its heading only when its flag is set.
+            if (sent.air.goal_kind == air_goal_kind_seek)
+                same = same && held.air.seek.flag == sent.air.seek.flag &&
+                       (!sent.air.seek.flag || held.air.seek.heading == sent.air.seek.heading);
+            if (sent.air.goal_kind == air_goal_kind_target)
+                same = same && held.air.target.altitude == sent.air.target.altitude &&
+                       held.air.target.position[0] == sent.air.target.position[0];
+        }
+    }
+    return same;
+}
+
+/// Plays two wire machines until each holds every route batch of the other
+/// and has nothing left to send again, or a bound passes.
+///
+/// @param a one machine
+/// @param b the other
+/// @return true when both settled
+bool settle_route_batches(WireMachine& a, WireMachine& b) {
+    // Each machine acknowledges once per send interval: a batch kept longer
+    // than two of them is one some acknowledgement has not covered.
+    const auto acknowledged = [](const WireMachine& m, uint8_t slot) {
+        const auto& kept = m.match->route_outboxes[slot].kept;
+        const uint32_t interval = m.connection.packets->ticks_between_sends;
+        return kept.empty() || kept.front().tick + 2 * interval + 2 >= m.world->game.tick;
+    };
+    for (uint32_t round = 0; round < 3 * route_batch_resend_ticks; ++round) {
+        const bool settled = a.match->route_inboxes[1].pending.empty() &&
+                             b.match->route_inboxes[0].pending.empty() && acknowledged(a, 0) &&
+                             acknowledged(b, 1) &&
+                             a.match->route_inboxes[1].applied_through + 1 >= b.world->game.tick &&
+                             b.match->route_inboxes[0].applied_through + 1 >= a.world->game.tick;
+        if (settled)
+            return true;
+        wire_tick(a, false);
+        wire_tick(b, false);
+    }
+    return false;
+}
+
+// With route batches each player's tick of changes goes out whole, in place
+// of its 0x2c, however many units changed: the other machine holds every
+// head its owner chose and steps each copy once per batch, and each machine
+// acknowledges what it holds.
+void route_batches_replace_the_unit_state() {
+    start_case("route_batches_replace_the_unit_state");
+    constexpr uint16_t kUnits = 96;
+    constexpr uint32_t kTicks = 48;
+    WireRules rules{};
+    rules.route_batches = true;
+    WireMachine a(0, rules, kUnits);
+    WireMachine b(1, rules, kUnits);
+    a.link.peer = &b.link;
+    b.link.peer = &a.link;
+    for (uint32_t t = 0; t < kTicks; ++t) {
+        wire_tick(a);
+        wire_tick(b);
+        // The machine that ticked second holds the first one's heads of this tick.
+        CHECK(copies_hold_the_heads(a, b));
+    }
+    bool whole = false;
+    const auto records = wire_records(a.link, &whole);
+    CHECK(whole);
+    CHECK(count_of(records, static_cast<uint8_t>(RecordType::unit_state)) == 0);
+    const auto& sent = a.match->route_batches;
+    CHECK(sent.batches_sent == kTicks && sent.parts_sent > kTicks && sent.parts_resent == 0);
+    CHECK(count_of(records, 0xe4) == sent.parts_sent);
+    CHECK(count_of(records, 0xe5) == b.match->route_batches.acks_received);
+    CHECK(sent.largest_changes > 60 && sent.largest_parts > 1);
+    const auto& applied = b.match->route_batches.applied;
+    CHECK(applied.batches == kTicks && applied.given_up == 0 && applied.errors == 0);
+    CHECK(b.steps == kTicks * kUnits && a.steps == (kTicks - 1) * kUnits);
+    CHECK(b.world->game.players[0].last_sim_tick == static_cast<int32_t>(a.world->game.tick));
+    CHECK(a.match->record_errors == 0 && b.match->record_errors == 0);
+    CHECK(b.match->route_batches.acks_sent > 0 && a.match->route_batches.acks_received > 0);
+    CHECK(settle_route_batches(a, b));
+    // The machine that ticks first takes the other's last tick at its next.
+    wire_tick(a, false);
+    CHECK(copies_hold_the_heads(a, b) && copies_hold_the_heads(b, a));
+}
+
+// Frames lost on both links, batches and acknowledgements alike: every
+// batch still reaches the other machine whole and in order, each part that
+// was lost going out again, and no step is given up.
+void route_batches_recover_lost_frames() {
+    start_case("route_batches_recover_lost_frames");
+    constexpr uint16_t kUnits = 96;
+    constexpr uint32_t kTicks = 48;
+    WireRules rules{};
+    rules.route_batches = true;
+    WireMachine a(0, rules, kUnits);
+    WireMachine b(1, rules, kUnits);
+    a.link.peer = &b.link;
+    b.link.peer = &a.link;
+    a.link.drop_every = 5;
+    b.link.drop_every = 7;
+    uint32_t held_ticks = 0;
+    for (uint32_t t = 0; t < kTicks; ++t) {
+        wire_tick(a);
+        wire_tick(b);
+        held_ticks +=
+            b.world->game.players[0].last_sim_tick != static_cast<int32_t>(a.world->game.tick) ? 1u
+                                                                                               : 0u;
+    }
+    a.link.drop_every = b.link.drop_every = 0;
+    CHECK(settle_route_batches(a, b));
+    const auto& applied = b.match->route_batches.applied;
+    CHECK(applied.batches == a.match->route_batches.batches_sent);
+    wire_tick(a, false);
+    CHECK(copies_hold_the_heads(a, b) && copies_hold_the_heads(b, a));
+    CHECK(applied.given_up == 0 && applied.errors == 0 && applied.longest_hold > 0);
+    CHECK(applied.longest_hold < route_batch_resend_ticks + 2 * route_batch_fast_resend_ticks);
+    CHECK(a.match->route_batches.parts_resent > 0 && b.match->route_batches.parts_resent > 0);
+    CHECK(b.steps == applied.batches * kUnits);
+    CHECK(held_ticks > 0);
+    CHECK(a.match->record_errors == 0 && b.match->record_errors == 0);
+    std::printf(
+        "net match: route batches over lossy links: %u batches, %u parts resent, longest hold %u "
+        "ticks\n",
+        applied.batches,
+        a.match->route_batches.parts_resent,
+        applied.longest_hold
+    );
+}
+
+// Without the rule no machine sends a route batch record, so a plain peer
+// never receives one; and a receiver without the rule ends its split at
+// one, as 3.1c does, applying nothing of a batch sent to it.
+void plain_peers_never_see_route_batches() {
+    start_case("plain_peers_never_see_route_batches");
+    constexpr uint16_t kUnits = 24;
+    {
+        WireMachine a(0, WireRules{}, kUnits);
+        WireMachine b(1, WireRules{}, kUnits);
+        a.link.peer = &b.link;
+        b.link.peer = &a.link;
+        for (uint32_t t = 0; t < 12; ++t) {
+            wire_tick(a);
+            wire_tick(b);
+        }
+        for (const auto* m : {&a, &b}) {
+            bool whole = false;
+            const auto records = wire_records(m->link, &whole);
+            CHECK(whole && count_of(records, 0xe4) == 0 && count_of(records, 0xe5) == 0);
+            CHECK(count_of(records, static_cast<uint8_t>(RecordType::unit_state)) == 12);
+            CHECK(
+                m->match->route_batches.batches_sent == 0 && m->match->route_batches.acks_sent == 0
+            );
+        }
+    }
+    WireRules rules{};
+    rules.route_batches = true;
+    WireMachine a(0, rules, kUnits);
+    WireMachine b(1, WireRules{}, kUnits);
+    a.link.peer = &b.link;
+    for (uint32_t t = 0; t < 12; ++t) {
+        wire_tick(a);
+        wire_tick(b);
+    }
+    CHECK(a.match->route_batches.batches_sent == 12);
+    CHECK(
+        b.steps == 0 && b.match->records_applied == 0 && b.match->route_inboxes[0].pending.empty()
+    );
+    CHECK(b.match->route_batches.parts_received == 0 && b.match->record_errors == 0);
+}
+
+// The pump admits a route batch record in the game only: one that arrives
+// while the receiver still loads is refused, and is sent again until the
+// receiver, now in the game, holds it, so its batches apply in order.
+void route_batches_are_admitted_in_game_only() {
+    start_case("route_batches_are_admitted_in_game_only");
+    constexpr uint16_t kUnits = 24;
+    WireRules rules{};
+    rules.route_batches = true;
+    WireMachine a(0, rules, kUnits);
+    WireMachine b(1, rules, kUnits);
+    a.link.peer = &b.link;
+    b.link.peer = &a.link;
+    b.match->phase = NetPhase::loading;
+    wire_tick(a);
+    (void)net_match_pump(b.match.get());
+    CHECK(b.match->records_refused > 0 && b.match->route_inboxes[0].pending.empty());
+    CHECK(b.match->route_batches.parts_received == 0 && b.steps == 0);
+    net_match_enter_game(b.match.get());
+    for (uint32_t t = 0; t < 2 * route_batch_resend_ticks; ++t) {
+        wire_tick(a);
+        wire_tick(b);
+    }
+    CHECK(a.match->route_batches.parts_resent > 0);
+    CHECK(b.match->route_inboxes[0].applied_through + 1 >= a.world->game.tick);
+    CHECK(
+        b.match->route_batches.applied.batches == a.match->route_batches.batches_sent ||
+        b.match->route_batches.applied.batches + 1 == a.match->route_batches.batches_sent
+    );
+    CHECK(b.match->route_batches.applied.given_up == 0);
+    CHECK(b.steps == b.match->route_batches.applied.batches * kUnits);
+}
+
 int main() {
     packet_layer_over_memory();
     packet_layer_reads_game_send_options();
@@ -5023,6 +5522,11 @@ int main() {
     recorder_take_hands_a_silent_players_units_over();
     recorder_dobase_builds_the_offered_base();
     commander_warp_follows_its_rule();
+    off_match_frames_keep_their_bytes();
+    route_batches_replace_the_unit_state();
+    route_batches_recover_lost_frames();
+    plain_peers_never_see_route_batches();
+    route_batches_are_admitted_in_game_only();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

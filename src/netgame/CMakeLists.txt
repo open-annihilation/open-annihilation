@@ -19,6 +19,7 @@ add_library(oa-netgame
   wire/recorder_session.cpp
   wire/unicode_chat.cpp
   wire/presence.cpp
+  wire/route_batch.cpp
   wire/dplay.cpp
   dplay/protocol.cpp
   dplay/engine.cpp

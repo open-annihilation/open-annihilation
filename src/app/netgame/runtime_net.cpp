@@ -105,6 +105,24 @@ namespace nm = oa::netgame::match;
 namespace {
 
 constexpr uint16_t kLoopbackUnitsPerPlayer = 20;
+// With --net-loopback-route-burst: the host's movers, a type of the base
+// game, stand in a block of rows this many wide and this far apart, in
+// world units, on a large flat map of the base game (an install without it
+// plays its first map), this far from its edge and at least
+// kRouteBurstClearance from either commander. At kRouteBurstTick of the
+// host's every mover is sent this far south at once.
+constexpr const char* kRouteBurstMoverType = "ARMPW";
+constexpr const char* kRouteBurstMap = "Painted Desert";
+constexpr uint32_t kRouteBurstColumns = 60;
+constexpr int32_t kRouteBurstSpacing = 32;
+constexpr int32_t kRouteBurstMargin = 256;
+constexpr int32_t kRouteBurstClearance = 1024;
+constexpr int32_t kRouteBurstMarch = 256;
+constexpr uint32_t kRouteBurstTick = 300;
+// Movers the host makes in one tick, and the ticks the joiner has for the
+// last copy to stand.
+constexpr std::size_t kRouteBurstMadePerTick = 100;
+constexpr uint32_t kRouteBurstCopyTicks = 600;
 // With --net-loopback-computer: room for the computer player's base and
 // army, on a small map of the base game whose bases lie close together; an
 // install without it plays its first map.
@@ -2825,6 +2843,247 @@ struct NetworkPlay::NetHost {
         }
         joiner.net_leave();
     }
+
+    /// Plays the loopback route burst.
+    ///
+    /// The host's player is given `movers` finished units of the base game in
+    /// a block of rows, made a hundred a tick, and both machines play until
+    /// the joiner holds a copy of every one. From then on each machine loses
+    /// `loss_percent` of the frames it sends, before the transport, as -e
+    /// makes it. At the host's tick 300 every mover is sent south at once,
+    /// a burst of route changes in one tick, and the machines play on until
+    /// the host has played `ticks`. Each tick the joiner reads every byte the
+    /// host sent it before it steps (loopback_deliver): what a lost frame
+    /// held only comes as it is sent again. Both machines then play until
+    /// their worlds agree.
+    ///
+    /// The check prints a line in the form
+    /// "route batches: ticks T, changes C, parts P, resent R, longest hold H ticks":
+    /// T is the ticks from the host's tick of its batch with the most changes
+    /// to the joiner's tick that applied it, C and P that batch's changes and
+    /// parts, R the parts the host sent again and H the longest the joiner
+    /// held one of the host's movement steps. Neither machine may give a
+    /// step up, nor count a record error. Progress goes to stdout; a failure
+    /// throws std::runtime_error.
+    ///
+    /// @param host network play's state for the hosting runtime, in its running match
+    /// @param joiner network play's state for the joining runtime, in its running match
+    /// @param ticks the host's tick the burst plays to
+    /// @param movers the movers the host's player is given
+    /// @param loss_percent the share of frames each machine loses once the movers stand
+    /// @param in_flight the bytes the machines have sent each other and not yet read
+    static void route_burst_match(
+        NetworkPlay& host,
+        NetworkPlay& joiner,
+        std::size_t ticks,
+        std::size_t movers,
+        int32_t loss_percent,
+        const int64_t& in_flight
+    ) {
+        const auto require = [](bool ok, const char* what) {
+            if (!ok)
+                throw std::runtime_error(std::string("net loopback check: ") + what);
+        };
+        auto& host_world = *host.net_->net->world;
+        auto& client_world = *joiner.net_->net->world;
+        auto& host_match = *host.net_->binding.match;
+        const auto& host_net = *host.net_->net;
+        const auto& client_net = *joiner.net_->net;
+        require(
+            host_net.rules.route_batches && client_net.rules.route_batches,
+            "the match sends no route batches: the route burst needs Enhanced Mode"
+        );
+        const auto commander = local_commander(host);
+        require(commander != 0, "host commander");
+        const auto mover_type = unit_type_named(host_world, kRouteBurstMoverType);
+        require(mover_type != 0, "the route burst's mover type is not in the match");
+        const auto owner = host_world.units[commander].owner_index;
+        const int32_t map_width = static_cast<int32_t>(host_world.game.map_pixel_width);
+        const int32_t map_height = static_cast<int32_t>(host_world.game.map_pixel_height);
+        // The movers' block, their march south included, stands in the map
+        // corner farthest from both commanders, out of the joiner's
+        // commander's reach: its weapons would fire on the host's movers.
+        const auto rows =
+            static_cast<int32_t>((movers + kRouteBurstColumns - 1) / kRouteBurstColumns);
+        const int32_t block_width = static_cast<int32_t>(kRouteBurstColumns) * kRouteBurstSpacing;
+        const int32_t block_height = rows * kRouteBurstSpacing + kRouteBurstMarch;
+        require(
+            2 * kRouteBurstMargin + block_width < map_width &&
+                2 * kRouteBurstMargin + block_height < map_height,
+            "the map is too small for the route burst's movers"
+        );
+        const auto joiner_commander = local_commander(joiner);
+        const auto clearance = [&](int32_t left, int32_t top) {
+            int32_t nearest = INT32_MAX;
+            for (const auto slot : {commander, joiner_commander}) {
+                if (slot == 0)
+                    continue;
+                const auto& at = host_world.units[slot].position;
+                const int32_t dx =
+                    std::max({left - (at.x >> 16), (at.x >> 16) - left - block_width, 0});
+                const int32_t dz =
+                    std::max({top - (at.z >> 16), (at.z >> 16) - top - block_height, 0});
+                nearest = std::min(nearest, std::max(dx, dz));
+            }
+            return nearest;
+        };
+        int32_t corner_x = kRouteBurstMargin;
+        int32_t corner_z = kRouteBurstMargin;
+        for (const int32_t left : {kRouteBurstMargin, map_width - kRouteBurstMargin - block_width})
+            for (const int32_t top :
+                 {kRouteBurstMargin, map_height - kRouteBurstMargin - block_height})
+                if (clearance(left, top) > clearance(corner_x, corner_z)) {
+                    corner_x = left;
+                    corner_z = top;
+                }
+        require(
+            clearance(corner_x, corner_z) >= kRouteBurstClearance,
+            "no corner of the map keeps the movers clear of the commanders"
+        );
+        const auto play_tick = [&] {
+            host.net_frame();
+            joiner.net_frame();
+            loopback_step(host);
+            loopback_deliver(host, joiner, in_flight);
+            loopback_step(joiner);
+            loopback_deliver(host, joiner, in_flight);
+        };
+        // The movers, a hundred a tick, then until the joiner holds them all.
+        std::vector<uint16_t> made;
+        std::vector<std::array<int32_t, 2>> places;
+        made.reserve(movers);
+        while (made.size() < movers) {
+            for (std::size_t n = 0; n < kRouteBurstMadePerTick && made.size() < movers; ++n) {
+                const auto index = static_cast<uint32_t>(made.size());
+                const int32_t x = corner_x + static_cast<int32_t>(index % kRouteBurstColumns) *
+                                                 kRouteBurstSpacing;
+                const int32_t z = corner_z + static_cast<int32_t>(index / kRouteBurstColumns) *
+                                                 kRouteBurstSpacing;
+                const auto fixed_x = static_cast<uint32_t>(x) << 16;
+                const auto fixed_z = static_cast<uint32_t>(z) << 16;
+                oa::sim::unit_spawn::Request request{};
+                request.player = owner;
+                request.type = mover_type;
+                request.finished = true;
+                request.state = kGroundOccupancyState;
+                request.position = {
+                    fixed_x,
+                    static_cast<uint32_t>(host_match.map_height(fixed_x, fixed_z)) << 16,
+                    fixed_z
+                };
+                const auto* placed = host_match.create(request);
+                require(placed != nullptr && placed->unit != nullptr, "a mover could not be made");
+                made.push_back(static_cast<uint16_t>(placed->unit_index));
+                places.push_back({x, z});
+            }
+            play_tick();
+        }
+        const auto copies_held = [&] {
+            return std::all_of(made.begin(), made.end(), [&](uint16_t slot) {
+                return unit_live(host_world.units[slot]) && unit_live(client_world.units[slot]);
+            });
+        };
+        for (uint32_t waited = 0; waited < kRouteBurstCopyTicks && !copies_held(); ++waited)
+            play_tick();
+        require(copies_held(), "the joiner has no copy of a mover");
+        require(host_world.game.tick < kRouteBurstTick, "the movers took past the burst's tick");
+        std::cout << "net loopback check: the host made " << made.size() << " "
+                  << kRouteBurstMoverType << " movers by tick " << host_world.game.tick
+                  << "; frames lost from now: " << loss_percent << "%\n";
+        host_world.game.send_error_percent = loss_percent;
+        client_world.game.send_error_percent = loss_percent;
+
+        // A mover can die standing where it was made; only the live ones move.
+        std::size_t moved = 0;
+        while (host_world.game.tick < ticks) {
+            if (host_world.game.tick + 1 == kRouteBurstTick) {
+                // The group move: every mover heads south at the same tick.
+                for (std::size_t i = 0; i < made.size(); ++i) {
+                    if (!unit_live(host_world.units[made[i]]))
+                        continue;
+                    ++moved;
+                    const auto fixed_x = static_cast<uint32_t>(places[i][0]) << 16;
+                    const auto fixed_z = static_cast<uint32_t>(places[i][1] + kRouteBurstMarch)
+                                         << 16;
+                    (void)host_match.issue_ground_move(
+                        made[i],
+                        {static_cast<int32_t>(fixed_x),
+                         host_match.map_height(fixed_x, fixed_z) << 16,
+                         static_cast<int32_t>(fixed_z)},
+                        false
+                    );
+                }
+            }
+            play_tick();
+        }
+        // Settle: a copy takes its health from its owner's full record, which
+        // refreshes every slot once per units_per_player ticks.
+        uint64_t host_digest = 0;
+        uint64_t client_digest = 0;
+        uint32_t settled_after = 0;
+        bool agreed = false;
+        const auto settle_limit = 3u * host_world.game.units_per_player;
+        for (uint32_t extra = 0; extra < settle_limit && !agreed; ++extra) {
+            play_tick();
+            host_digest = world_digest(host_world);
+            client_digest = world_digest(client_world);
+            agreed = host_digest == client_digest;
+            settled_after = extra + 1;
+        }
+        const auto& sent = host_net.route_batches;
+        const auto& applied = client_net.route_batches.applied;
+        const auto& joiner_sent = client_net.route_batches;
+        const auto& host_applied = host_net.route_batches.applied;
+        const uint32_t complete_after = applied.largest_applied_at - applied.largest_tick;
+        std::cout << "net loopback check: route batches: ticks " << complete_after << ", changes "
+                  << sent.largest_changes << ", parts " << sent.largest_parts << ", resent "
+                  << sent.parts_resent << ", longest hold " << applied.longest_hold << " ticks\n";
+        std::cout << "net loopback check: the host's largest batch, of its tick "
+                  << sent.largest_tick << ", took " << sent.largest_bytes << " bytes in "
+                  << sent.largest_parts << " parts; the host sent " << sent.batches_sent
+                  << " batches in " << sent.parts_sent << " parts and " << sent.bytes_sent
+                  << " bytes, the joiner applied " << applied.batches << ", gave up "
+                  << applied.given_up << ", took " << client_net.route_batches.duplicates
+                  << " parts twice and sent " << joiner_sent.acks_sent
+                  << " acknowledgements; the joiner resent " << joiner_sent.parts_resent
+                  << " parts and the host held a step at most " << host_applied.longest_hold
+                  << " ticks\n";
+        char digests[64];
+        std::snprintf(
+            digests,
+            sizeof digests,
+            "%016llx / %016llx",
+            static_cast<unsigned long long>(host_digest),
+            static_cast<unsigned long long>(client_digest)
+        );
+        std::cout << "net loopback check: " << ticks << " ticks + " << settled_after
+                  << " settle, tick " << host_world.game.tick << " / " << client_world.game.tick
+                  << ", digests " << digests << ", records applied " << host_net.records_applied
+                  << " / " << client_net.records_applied << ", errors " << host_net.record_errors
+                  << " / " << client_net.record_errors << "\n";
+        require(agreed, "world digests differ after settling");
+        require(host_net.record_errors == 0 && client_net.record_errors == 0, "record errors");
+        require(applied.given_up == 0 && host_applied.given_up == 0, "a held step was given up");
+        std::cout << "net loopback check: " << moved << " live movers were sent south at tick "
+                  << kRouteBurstTick << "\n";
+        require(moved * 2 > movers, "most movers died before the burst");
+        require(
+            sent.largest_changes >= moved && sent.largest_tick == kRouteBurstTick,
+            "the burst's route changes did not travel in one batch"
+        );
+        require(
+            applied.largest_tick == sent.largest_tick &&
+                applied.largest_changes == sent.largest_changes,
+            "the joiner did not apply the burst's batch whole"
+        );
+        require(
+            (loss_percent != 0) == (sent.parts_resent != 0),
+            "parts were sent again without loss, or not at all with it"
+        );
+        host_world.game.send_error_percent = 0;
+        client_world.game.send_error_percent = 0;
+        joiner.net_leave();
+    }
 };
 
 void NetworkPlay::destroy_net_state(NetState* state) noexcept {
@@ -4194,6 +4453,9 @@ void NetworkPlay::net_leave() {
         return;
     NetHost::finish_recording(*this);
     auto& state = *net_;
+    // What the match's route batches did here, for whoever reads the run's output.
+    if (state.net->rules.route_batches)
+        std::cout << "network play: " << nm::net_match_route_batch_line(state.net.get()) << "\n";
     if (runtime_.match_)
         nm::net_connection_finish(&state.connection, &runtime_.match_->state().game);
     state.active = false;
@@ -4379,18 +4641,27 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     // on the joiner as well.
     const bool each_ai = net_options().net_loopback_each_ai;
     const bool computer = net_options().net_loopback_computer || each_ai;
+    // --net-loopback-route-burst: room for the movers beside the commanders.
+    const std::size_t burst = net_options().net_loopback_route_burst;
     auto& host_info = mp::local_info(*host.lobby);
     host_info.max_units = computer ? kLoopbackComputerUnitsPerPlayer : kLoopbackUnitsPerPlayer;
+    if (burst != 0)
+        host_info.max_units = static_cast<uint16_t>(
+            std::min<std::size_t>(burst + kLoopbackUnitsPerPlayer, UINT16_MAX)
+        );
     host_info.metal_hundreds = 10;
     host_info.energy_hundreds = 10;
     host_info.side = 0;
     host_info.color = 0;
     const bool small_map = computer && select_map_named(kLoopbackComputerMap);
+    const bool burst_map = burst != 0 && !small_map && select_map_named(kRouteBurstMap);
     std::snprintf(
         host_info.map_name,
         sizeof host_info.map_name,
         "%s",
-        small_map ? kLoopbackComputerMap : runtime_.first_map_name_.c_str()
+        small_map   ? kLoopbackComputerMap
+        : burst_map ? kRouteBurstMap
+                    : runtime_.first_map_name_.c_str()
     );
     mp::lobby_publish_session(*host.lobby);
 
@@ -4975,6 +5246,12 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     if (computer) {
         NetHost::computer_match(
             *this, joiner_play, ticks, computer_id, watching, joiner_computer_id, in_flight
+        );
+        return 0;
+    }
+    if (burst != 0) {
+        NetHost::route_burst_match(
+            *this, joiner_play, ticks, burst, net_options().net_loopback_loss, in_flight
         );
         return 0;
     }

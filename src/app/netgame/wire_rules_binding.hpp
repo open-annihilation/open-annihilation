@@ -17,7 +17,9 @@ namespace oa::app::netgame {
 /// No profile gives 3.1c's rules. A network version other than 3.1 makes
 /// joining need the same major version, with no launch bias, as the clients
 /// of such a game compare it. The game speed range, and whether the host
-/// may lock it with .syncon, come from console.game-speed-range.
+/// may lock it with .syncon, come from console.game-speed-range. With
+/// Enhanced Mode on (setup.enhanced-mode) route changes travel as complete
+/// route batches.
 ///
 /// @param profile the resolved profile, or null
 /// @return the rules

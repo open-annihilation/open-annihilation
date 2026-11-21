@@ -224,6 +224,33 @@ int main() {
                 .find("--choose-game-dir opens a dialog") == 0,
         "--net-loopback-check with --choose-game-dir"
     );
+    // The route burst names its movers and, for the lossy check, the frames lost.
+    const auto burst = parse(
+        {"--net-loopback-check",
+         "900",
+         "--net-loopback-route-burst",
+         "3000",
+         "--net-loopback-loss",
+         "10"}
+    );
+    expect(
+        burst.net.net_loopback_route_burst == 3000 && burst.net.net_loopback_loss == 10,
+        "--net-loopback-route-burst and --net-loopback-loss"
+    );
+    expect(
+        plain.net.net_loopback_route_burst == 0 && plain.net.net_loopback_loss == 0,
+        "no route burst and no loss unless asked"
+    );
+    expect(
+        rejection({"--net-loopback-route-burst", "0"}) ==
+            "--net-loopback-route-burst takes at least one mover",
+        "a route burst of no movers is refused"
+    );
+    expect(
+        rejection({"--net-loopback-loss", "101"}) ==
+            "--net-loopback-loss takes a percentage, 0 to 100",
+        "a loss above 100% is refused"
+    );
     // The host-not-found check plays through the main loop, unattended and
     // without the intro.
     const auto host_not_found = parse({"--check-host-not-found"});
@@ -395,6 +422,8 @@ int main() {
           "--net-loopback-check",
           "--net-loopback-photo",
           "--net-loopback-watcher",
+          "--net-loopback-route-burst",
+          "--net-loopback-loss",
           "--check-host-not-found",
           "--dplay-guid",
           "--host",

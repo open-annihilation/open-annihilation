@@ -104,6 +104,14 @@ uint16_t copy_record_length(const PeerRecords* r, std::size_t at) noexcept {
     }
     if (r->wide_records && is_wide_record_type(type))
         return wide_record_length_table[static_cast<std::size_t>(type - first_wide_record_type)];
+    if (r->route_batches && is_route_batch_record_type(type)) {
+        // Measured within the frame copy: a record whose length field lies
+        // past the frame, or that is shorter than its header, ends the split.
+        uint16_t length = 0;
+        const std::size_t available = r->copy_size > at ? r->copy_size - at : 0;
+        const auto measured = route_batch_record_length(r->copy + at, available, &length);
+        return measured == WireError::ok || measured == WireError::truncated ? length : 0;
+    }
     return record_length_table[type];
 }
 
@@ -112,12 +120,31 @@ uint16_t copy_record_length(const PeerRecords* r, std::size_t at) noexcept {
 /// @param r the peer's records
 /// @param type the byte
 /// @return true for 0x02..0x2c, for a recorder record when the ring splits
-///         them, for 0xf0 when the ring splits presence records, and for
-///         0xe0..0xe2 when the ring splits wide weapon records
+///         them, for 0xf0 when the ring splits presence records, for
+///         0xe0..0xe2 when the ring splits wide weapon records, and for
+///         0xe4..0xe5 when the ring splits route batch records
 bool splits_record(const PeerRecords* r, uint8_t type) noexcept {
     return is_record_type(type) || (r->recorder_records && is_recorder_record_type(type)) ||
            (r->presence_records && type == presence_record_type) ||
-           (r->wide_records && is_wide_record_type(type));
+           (r->wide_records && is_wide_record_type(type)) ||
+           (r->route_batches && is_route_batch_record_type(type));
+}
+
+/// Tells whether a record of the ring's frame copy takes a tick of the
+/// spread of a fresh frame's records: every record does but a route batch
+/// record that does not end its batch, so that all the parts of one batch
+/// fall due together, as one 0x2c would.
+///
+/// @param r the peer's records, holding the frame copy
+/// @param at offset of the record's type byte in the copy
+/// @return false for an acknowledgement, and for a part that is not its batch's last
+bool spaces_ticks(const PeerRecords* r, std::size_t at) noexcept {
+    const auto type = r->copy[at];
+    if (!r->route_batches || !is_route_batch_record_type(type))
+        return true;
+    constexpr std::size_t part_flags_offset = 13;
+    return type == static_cast<uint8_t>(RouteBatchRecordType::part) &&
+           (r->copy[at + part_flags_offset] & route_batch_part_last) != 0;
 }
 
 /// Binds a peer slot to a sender with no sequence, nothing held and an empty ring.
@@ -303,6 +330,7 @@ WireError unpack_frame_records(
     std::size_t at = frame_header_bytes;
     auto remaining = static_cast<int64_t>(size) - static_cast<int64_t>(frame_header_bytes);
     int32_t count = 0;
+    int32_t spaced = 0; // records that take a tick of the spread (spaces_ticks)
     if (remaining <= 0)
         return WireError::ok;
     for (;;) {
@@ -318,6 +346,7 @@ WireError unpack_frame_records(
         remaining -= length;
         if (remaining < 0)
             break;
+        spaced += spaces_ticks(r, at) ? 1 : 0;
         at += length;
         ++count;
         if (remaining <= 0)
@@ -337,8 +366,8 @@ WireError unpack_frame_records(
             span = 1;
         if (span > record_spread_max_ticks)
             span = record_spread_max_ticks;
-        if (count > span)
-            step = (count << 4) / span;
+        if (spaced > span)
+            step = (spaced << 4) / span;
     }
     uint32_t accumulator = 0;
     uint32_t pushed = 0;
@@ -351,6 +380,10 @@ WireError unpack_frame_records(
         } else {
             if (!record_queue_push(r, static_cast<uint16_t>(at), fresh ? stamp : tick, length))
                 return WireError::ok;
+            if (!spaces_ticks(r, at)) {
+                at += length;
+                continue;
+            }
             ++pushed;
             if (fresh && (pushed << 4) >= accumulator) {
                 accumulator += static_cast<uint32_t>(step);

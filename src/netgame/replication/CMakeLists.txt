@@ -3,7 +3,8 @@
 
 add_library(oa-netgame-replication
   deltas.cpp
-  replication.cpp)
+  replication.cpp
+  route_batches.cpp)
 add_library(oa::netgame::replication ALIAS oa-netgame-replication)
 target_include_directories(oa-netgame-replication PUBLIC include)
 target_link_libraries(oa-netgame-replication PUBLIC oa-netgame oa-core-types oa-options)

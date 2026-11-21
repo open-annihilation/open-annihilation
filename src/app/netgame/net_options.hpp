@@ -60,6 +60,14 @@ struct NetOptions {
     // commander, which fires at the ground beside the commander's aim point.
     // Empty: the check makes none.
     std::string net_loopback_shooter;
+    // The loopback host's player is given this many movers and, at tick
+    // 300, moves them all at once, a burst of route changes in one tick;
+    // the check reports the route batches that carry it. 0: no burst.
+    std::size_t net_loopback_route_burst = 0;
+    // With the route burst: once the movers stand on both machines, each
+    // machine loses this share of the frames it sends, in percent, as -e
+    // makes it. 0 loses none.
+    int32_t net_loopback_loss = 0;
     // A join whose host is not found, played through the main loop (with
     // --frames and "-n1:<address>" naming an address where no game is
     // hosted): a launch counts as active until the game list begins to wait

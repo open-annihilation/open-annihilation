@@ -582,6 +582,8 @@ Network play's own checks, the last rows, are in every build.
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
 | `--net-loopback-shooter TYPE` | The loopback check's host makes one finished `TYPE` beside its commander, and that unit fires at the ground beside the commander's aim point. |
+| `--net-loopback-route-burst MOVERS` | The loopback check's host is given `MOVERS` units and, at tick 300, moves them all at once; with `--enhanced-mode` the check reports the route batches that carry the burst and requires both worlds to agree. |
+| `--net-loopback-loss PERCENT` | With `--net-loopback-route-burst`, once the movers stand on both machines each machine loses `PERCENT` of the frames it sends, as `-e` does. |
 | `--net-loopback-each-ai` | The loopback check's host and joiner each seat a computer player. |
 | `--net-loopback-fixed-starts` | The loopback check's host fixes the start positions. |
 | `--check-host-not-found` | Checks a joiner whose host is never found. |
