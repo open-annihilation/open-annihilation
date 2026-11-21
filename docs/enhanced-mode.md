@@ -364,6 +364,35 @@ on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
 
+`--benchmark-features SPEC` is a development flag for the battle benchmark
+only. SPEC is a comma-separated base (`v<N>` for an old alias version, or
+feature names) followed by `+name` and `-name` items; the engine closes the
+set and plays it in that benchmark, including the `stage` scenario. It is
+refused everywhere else, and it is refused beside a rules version, an
+Enhanced Mode version, Enhanced Mode off, or a network game. While it is
+set the rules are held at version 1, so anything that still reads the rules'
+set sees only capacity, and the report's `enhanced_version` is 1.
+`enhanced_features` names the set the match played, in id order.
+`enhanced_features_spec` is the flag's text. `enhanced_features_override`
+is true when the flag chose the set. `data_faults` counts distinct data-fault
+lines. `staged_battle.extra` is an empty object until a later measurement
+fills it. R05 makes the rules carry the set and replaces the override.
+R06 routes the flag into its own choice, or keeps the `v<N>` form as a
+development alias, and the gate then passes R06's `--enhanced-features`.
+R06 or R09 deletes the override and the version-1 hold. R09 removes
+`--benchmark-features` with the other aliases.
+
+`oa-enh-gate` takes `--features SPEC` (it passes `--enhanced-mode
+--benchmark-features SPEC` and refuses `--version` beside it), `--noise
+PATH` (the noise file, default `baseline/gate/noise.json`), `--noise-out
+PATH` (where `--noise-from` writes) and `--keep-trace` (gzip each battle's
+per-tick stream into `--out`). Its report adds `.all` totals over both
+players, `attackers.pN`, `faults`, `work.NAME` and `extra.NAME`.
+`oa-enh-reference --features SPEC` compares that set with `--against
+VERSION`, `--against-features SPEC2`, or `--twice`, and plays `ai-patrol`
+through the benchmark's `stage` scenario. Without `--features` both tools
+keep their previous options and output.
+
 ### Staged battles
 
 The benchmark's `stage` scenario measures a battle with computer players

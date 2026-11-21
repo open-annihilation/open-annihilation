@@ -191,7 +191,7 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
         out << *audit.first_error_tick;
     else
         out << "null";
-    out << "}\n  }";
+    out << "},\n    \"extra\": {}\n  }";
 }
 
 } // namespace
@@ -758,6 +758,11 @@ std::string report_json(const Report& report) {
         json_string(out, report.enhanced_features[index]);
     }
     out << ']';
+    text("enhanced_features_spec", report.played_feature_spec);
+    out << ",\n  ";
+    json_string(out, std::string("enhanced_features_") + "override");
+    out << ": " << (report.played_feature_override ? "true" : "false");
+    number("data_faults", report.data_faults);
     text("simulation_hash", report.simulation_hash);
     text("world_digest", report.world_digest);
     text("renderer", report.renderer);

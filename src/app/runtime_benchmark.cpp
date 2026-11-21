@@ -1879,6 +1879,7 @@ void Runtime::run_battle_benchmark() {
     const uint16_t kept_limit = frontend_game().max_units_setting;
     bool held_rules_for_setup = false;
     const auto restore_setup = [&] {
+        benchmark_feature_set_.reset();
         if (held_rules_for_setup)
             release_enhanced_rules_once(true);
         std::swap(preferences_, kept_preferences);
@@ -1893,6 +1894,18 @@ void Runtime::run_battle_benchmark() {
     } restore{restore_setup};
 
     const auto write_report = [&] {
+        // The features the match played, which a --benchmark-features set
+        // chooses in place of the held rules' set.
+        if (match_) {
+            report.enhanced_features.clear();
+            const auto played = match_->enhanced_features();
+            for (const auto& row : oa::data::enhanced_mode::feature_table())
+                if (played.has(row.id))
+                    report.enhanced_features.emplace_back(row.name);
+        }
+        report.played_feature_spec = options_.benchmark_features_spec;
+        report.played_feature_override = benchmark_feature_set_.has_value();
+        report.data_faults = reported_data_faults_.size();
         const std::string json = benchmark::report_json(report);
         const auto bytes =
             std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(json.data()), json.size());
@@ -1960,7 +1973,18 @@ void Runtime::run_battle_benchmark() {
     if (staged)
         report.requested_units_per_side = 0;
     try {
-        if (options_.benchmark_rules_version != 0) {
+        if (options_.benchmark_features) {
+            // The flag chose the set. Hold version 1 so a reader that still
+            // asks the rules sees only capacity, and the played set is the
+            // override copied into the match.
+            benchmark_feature_set_ = *options_.benchmark_features;
+            if (!report.enhanced_mode)
+                throw std::runtime_error("--benchmark-features needs Enhanced Mode");
+            if (!hold_enhanced_rules_once(oa::data::enhanced_mode::capacity_version))
+                throw std::runtime_error("the benchmark Enhanced rules version is unsupported");
+            held_rules_for_setup = true;
+            report.enhanced_version = oa::data::enhanced_mode::capacity_version;
+        } else if (options_.benchmark_rules_version != 0) {
             if (!report.enhanced_mode)
                 throw std::runtime_error("a benchmark rules version requires Enhanced Mode");
             if (!hold_enhanced_rules_once(options_.benchmark_rules_version))

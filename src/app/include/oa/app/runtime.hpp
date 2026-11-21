@@ -24480,6 +24480,9 @@ class Runtime final : public menu::Host,
     /// The faults of the game data the run has logged, by their lines
     /// (report_data_fault).
     std::set<std::string> reported_data_faults_{};
+    /// The feature set a battle benchmark plays. Set only inside that run
+    /// and cleared on the way out. Empty for every other match.
+    std::optional<oa::data::enhanced_mode::FeatureSet> benchmark_feature_set_{};
     // The GUI context's cursor and pointer, with the picture the software
     // cursor shows and the cursor table index of the animation shown; the
     // runtime keeps them in place of the Game block's gui_context_block and
