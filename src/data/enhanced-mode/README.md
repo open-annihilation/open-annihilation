@@ -84,3 +84,36 @@ version-10 canonical and simulation hashes, distinct version-11 and
 version-13 identities,
 preservation of selected mod rules and match choices, and refusals of
 unsupported versions or rules that require Enhanced Mode while Off.
+
+## Features, sets and revisions
+
+A feature is one named engine change (`Feature`): local traffic flow, one
+of the three shared-route builders, cohort targets and so on, 27 in all.
+`feature_table()` lists each one in id order with its snake_case name, its
+kind (capacity, simulation or orders), the features it needs directly and
+the features it cannot share a match with. Only the three route builders
+exclude each other. A feature's id never changes and is never given to
+another feature: changing what a shipped feature does means a new feature
+with a new id.
+
+Code asks only whether a feature is on: `FeatureSet::has` is one bit test,
+cheap enough for every unit on every tick. Once the version checks are
+converted, no code outside this module compares a version number.
+`close_features` adds everything a set's
+features need, transitively. `feature_set_problem` says why a set cannot be
+played: an unknown feature, two features that exclude each other, a missing
+need, or a set that is not empty yet lacks `capacity`, which sizes the
+Enhanced Mode state every other feature uses. `feature_by_name` and
+`feature_name` convert between features and their names.
+
+A revision is a frozen, numbered set of features; `highest_revision` is the
+highest this build plays, and `revision_features` gives each one's set.
+Revision 1 is provisional until its features are decided (V01): until then
+it holds version 4's set, today's new-game preset.
+
+During the restructure, `version_features` maps each old numbered preset
+(Off, 1 to 8, 10, 11 and 13) to the features it switches on, and
+`features(rules)` reads the set resolved rules play. The aliases reproduce
+every check each old version made; they are removed in R09. The test proves
+each alias set and each revision complete and conflict-free, and pins the
+whole feature table.

@@ -6,10 +6,14 @@
 #include "oa/data/mod_profile/overrides.hpp"
 #include "oa/test/check.hpp"
 
+#include <array>
+#include <cstddef>
+#include <initializer_list>
 #include <limits>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -622,6 +626,245 @@ void check_required_version() {
     OA_CHECK(!options.overrides.front().on);
 }
 
+using Feature = enhanced::Feature;
+using FeatureKind = enhanced::FeatureKind;
+using FeatureSet = enhanced::FeatureSet;
+
+// A set answers from its bits alone, in constant expressions.
+static_assert(FeatureSet{}.empty());
+static_assert(FeatureSet{}.with(Feature::capacity).has(Feature::capacity));
+static_assert(!FeatureSet{}.with(Feature::capacity).has(Feature::local_flow));
+static_assert(FeatureSet{}.with(Feature::local_flow).bits() == 0b100);
+static_assert(FeatureSet::from_bits(0b110).without(Feature::capacity).bits() == 0b100);
+
+/// Makes a feature set from feature ids, as the feature table writes them.
+///
+/// @param id_list the features' ids
+/// @return their set
+FeatureSet ids(std::initializer_list<unsigned> id_list) {
+    FeatureSet result;
+    for (const unsigned id : id_list)
+        result = result.with(static_cast<Feature>(id));
+    return result;
+}
+
+/// Checks the union, difference and containment of sets.
+void check_feature_set_operations() {
+    const FeatureSet routes = ids({1, 2, 3});
+    const FeatureSet flow = ids({1, 2});
+    OA_CHECK((routes | ids({6})) == ids({1, 2, 3, 6}));
+    OA_CHECK((routes - flow) == ids({3}));
+    OA_CHECK((flow - routes).empty());
+    OA_CHECK(routes.contains(flow));
+    OA_CHECK(!flow.contains(routes));
+    OA_CHECK(routes.contains(FeatureSet{}));
+    OA_CHECK(FeatureSet::from_bits(routes.bits()) == routes);
+    OA_CHECK(!(routes == flow));
+}
+
+/// Pins the feature table: ids, names, kinds, needs and exclusions never change.
+void check_feature_table() {
+    struct Row {
+        unsigned id;
+        std::string_view name;
+        FeatureKind kind;
+        FeatureSet needs;
+        FeatureSet excludes;
+    };
+
+    constexpr FeatureKind capacity = FeatureKind::capacity;
+    constexpr FeatureKind simulation = FeatureKind::simulation;
+    constexpr FeatureKind orders = FeatureKind::orders;
+    const std::array<Row, 27> expected{{
+        {1, "capacity", capacity, {}, {}},
+        {2, "local_flow", simulation, ids({1}), {}},
+        {3, "routes_original", simulation, ids({1, 2}), ids({4, 5})},
+        {4, "routes_large_regions", simulation, ids({1, 2}), ids({3, 5})},
+        {5, "routes_fine_regions", simulation, ids({1, 2}), ids({3, 4})},
+        {6, "indexed_searches", capacity, ids({1}), {}},
+        {7, "route_corner_advance", simulation, ids({2}), {}},
+        {8, "swept_ground_steps", simulation, ids({1}), {}},
+        {9, "corridor_lanes", simulation, ids({2}), {}},
+        {10, "patrol_goal_retention", simulation, ids({1}), {}},
+        {11, "ai_strike_retarget", simulation, ids({1, 2}), {}},
+        {12, "squad_position_index", capacity, ids({1}), {}},
+        {13, "route_queue", simulation, ids({2}), {}},
+        {14, "group_destination_repair", orders, ids({1}), {}},
+        {15, "distributed_arrivals", orders, ids({14}), {}},
+        {16, "moving_corner_advance", simulation, ids({7}), {}},
+        {17, "local_throat_guide", simulation, ids({2}), {}},
+        {18, "credited_fallback_search", simulation, ids({2, 5}), {}},
+        {19, "bounded_strike_recruits", simulation, ids({1}), {}},
+        {20, "ai_attack_retention", simulation, ids({11}), {}},
+        {21, "ai_rally_retention", simulation, ids({11}), {}},
+        {22, "local_following", simulation, ids({2, 13}), {}},
+        {23, "occupancy_free_planning", simulation, ids({1}), {}},
+        {24, "cohort_targets", simulation, ids({11}), {}},
+        {25, "steering_projection_reuse", capacity, ids({2}), {}},
+        {26, "cohort_retention", simulation, ids({24}), {}},
+        {27, "cardinal_queue_escape", simulation, ids({2}), {}},
+    }};
+    const auto table = enhanced::feature_table();
+    OA_CHECK(table.size() == expected.size());
+    if (table.size() != expected.size())
+        return;
+    for (std::size_t index = 0; index < table.size(); ++index) {
+        const enhanced::FeatureInfo& row = table[index];
+        OA_CHECK(static_cast<unsigned>(row.id) == index + 1);
+        OA_CHECK(static_cast<unsigned>(row.id) == expected[index].id);
+        OA_CHECK(row.name == expected[index].name);
+        OA_CHECK(row.kind == expected[index].kind);
+        OA_CHECK(row.needs == expected[index].needs);
+        OA_CHECK(row.excludes == expected[index].excludes);
+        for (std::size_t later = index + 1; later < table.size(); ++later)
+            OA_CHECK(row.name != table[later].name);
+        // Every need has a lower id, so needs never form a loop.
+        OA_CHECK((row.needs.bits() >> static_cast<unsigned>(row.id)) == 0);
+        OA_CHECK(enhanced::feature_name(row.id) == row.name);
+        OA_CHECK(enhanced::feature_by_name(enhanced::feature_name(row.id)) == row.id);
+    }
+    for (const std::string_view unknown :
+         {"", "Capacity", "capacity ", "local-flow", "routes", "enhanced_mode"})
+        OA_CHECK(!enhanced::feature_by_name(unknown));
+    OA_CHECK(enhanced::feature_name(static_cast<Feature>(0)).empty());
+    OA_CHECK(enhanced::feature_name(static_cast<Feature>(28)).empty());
+    OA_CHECK(enhanced::feature_name(static_cast<Feature>(255)).empty());
+}
+
+/// Checks that closing a set adds what its features need, and only that.
+void check_closing_features() {
+    const auto table = enhanced::feature_table();
+    for (const enhanced::FeatureInfo& row : table) {
+        const FeatureSet closed = enhanced::close_features(FeatureSet{}.with(row.id));
+        OA_CHECK(closed.has(row.id));
+        OA_CHECK(closed.contains(row.needs));
+        for (const enhanced::FeatureInfo& other : table)
+            if (closed.has(other.id))
+                OA_CHECK(closed.contains(other.needs));
+        OA_CHECK(enhanced::close_features(closed) == closed);
+        // Every chain of needs ends in capacity, so one feature closes to a playable set.
+        OA_CHECK(closed.has(Feature::capacity));
+        OA_CHECK(enhanced::feature_set_problem(closed) == nullptr);
+    }
+    OA_CHECK(enhanced::close_features({}).empty());
+    OA_CHECK(enhanced::close_features(ids({26})) == ids({1, 2, 11, 24, 26}));
+    OA_CHECK(enhanced::close_features(ids({16, 22})) == ids({1, 2, 7, 13, 16, 22}));
+    OA_CHECK(enhanced::close_features(ids({18})) == ids({1, 2, 5, 18}));
+    OA_CHECK(enhanced::close_features(ids({15, 23})) == ids({1, 14, 15, 23}));
+
+    // The three route builders exclude each other, both ways, and nothing else excludes.
+    const FeatureSet builders = ids({3, 4, 5});
+    for (const enhanced::FeatureInfo& row : table) {
+        if (builders.has(row.id)) {
+            OA_CHECK(row.excludes == builders.without(row.id));
+        } else {
+            OA_CHECK(row.excludes.empty());
+        }
+        for (const enhanced::FeatureInfo& other : table)
+            OA_CHECK(row.excludes.has(other.id) == other.excludes.has(row.id));
+    }
+}
+
+/// Checks every old version's features against the alias table, written out.
+void check_version_features() {
+    const std::array<std::pair<uint32_t, FeatureSet>, 12> aliases{{
+        {0, {}},
+        {1, ids({1})},
+        {2, ids({1, 2, 3, 6})},
+        {3, ids({1, 2, 4, 6, 7})},
+        {4, ids({1, 2, 4, 6, 7, 8})},
+        {5, ids({1, 2, 4, 6, 7, 8, 9})},
+        {6, ids({1, 2, 4, 6, 7, 8, 10, 11, 12, 13, 14})},
+        {7, ids({1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21})},
+        {8, ids({1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23})},
+        {10,
+         ids({1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25})},
+        {11, ids({1,  2,  5,  6,  7,  8,  10, 11, 12, 13, 14, 15,
+                  16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26})},
+        {13, ids({1,  2,  5,  6,  7,  8,  10, 11, 12, 13, 14, 15,
+                  16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27})},
+    }};
+    for (const auto& [version, expected] : aliases) {
+        OA_CHECK(enhanced::supported_version(version));
+        OA_CHECK(enhanced::version_features(version) == expected);
+        // Complete and conflict-free.
+        OA_CHECK(enhanced::feature_set_problem(expected) == nullptr);
+        OA_CHECK(enhanced::close_features(expected) == expected);
+    }
+    for (const uint32_t version : {9u, 12u, 14u, 99u, std::numeric_limits<uint32_t>::max()}) {
+        OA_CHECK(!enhanced::supported_version(version));
+        OA_CHECK(enhanced::version_features(version).empty());
+    }
+    for (uint32_t version = 0; version <= 64; ++version)
+        OA_CHECK(
+            enhanced::version_features(version).empty() ==
+            (version == enhanced::off_version || !enhanced::supported_version(version))
+        );
+}
+
+/// Checks the reasons a set cannot be played.
+void check_feature_set_problems() {
+    OA_CHECK(enhanced::feature_set_problem({}) == nullptr);
+    OA_CHECK(enhanced::feature_set_problem(ids({1})) == nullptr);
+    const auto reason = [](FeatureSet set) {
+        const char* problem = enhanced::feature_set_problem(set);
+        return problem == nullptr ? std::string_view{} : std::string_view{problem};
+    };
+    OA_CHECK(
+        reason(ids({1, 2, 3, 4})) ==
+        "routes_original cannot share a match with routes_large_regions"
+    );
+    OA_CHECK(
+        reason(ids({1, 2, 4, 5})) ==
+        "routes_large_regions cannot share a match with routes_fine_regions"
+    );
+    OA_CHECK(reason(ids({1, 26})) == "cohort_retention needs cohort_targets");
+    OA_CHECK(reason(ids({1, 3})) == "routes_original needs local_flow");
+    OA_CHECK(reason(ids({1, 2, 18})) == "credited_fallback_search needs routes_fine_regions");
+    OA_CHECK(reason(ids({2})) == "a set with any feature needs capacity");
+    OA_CHECK(
+        reason(ids({1, 2, 4, 6, 7, 8, 9}).without(Feature::capacity)) ==
+        "a set with any feature needs capacity"
+    );
+    OA_CHECK(
+        reason(FeatureSet::from_bits(0b1)) == "the set holds a feature this build does not know"
+    );
+    OA_CHECK(
+        reason(ids({1}) | FeatureSet::from_bits(uint64_t{1} << 28)) ==
+        "the set holds a feature this build does not know"
+    );
+}
+
+/// Checks the revisions: Revision 1 is provisionally version 4's set.
+void check_revision_features() {
+    OA_CHECK(enhanced::highest_revision == 1);
+    OA_CHECK(enhanced::revision_features(1) == enhanced::version_features(4));
+    OA_CHECK(enhanced::revision_features(0).empty());
+    OA_CHECK(enhanced::revision_features(2).empty());
+    OA_CHECK(enhanced::revision_features(enhanced::highest_revision + 1).empty());
+    OA_CHECK(enhanced::revision_features(std::numeric_limits<uint32_t>::max()).empty());
+    for (uint32_t revision = 1; revision <= enhanced::highest_revision; ++revision) {
+        OA_CHECK(!enhanced::revision_features(revision).empty());
+        OA_CHECK(enhanced::feature_set_problem(enhanced::revision_features(revision)) == nullptr);
+    }
+}
+
+/// Checks that resolved rules play their version's features.
+void check_rules_features() {
+    OA_CHECK(enhanced::features({}).empty());
+    const auto text = profiles::base_game_profile_text();
+    for (const uint32_t version : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u, 13u}) {
+        const auto resolved = enhanced::resolve_profile(bytes(text), "base", {}, version);
+        OA_CHECK(resolved.resolution.has_value());
+        if (!resolved.resolution)
+            continue;
+        OA_CHECK(
+            enhanced::features(resolved.resolution->profile.rules) ==
+            enhanced::version_features(version)
+        );
+    }
+}
+
 } // namespace
 
 int main() {
@@ -657,5 +900,12 @@ int main() {
     check_enhanced_capacity();
     check_refusals();
     check_required_version();
+    check_feature_set_operations();
+    check_feature_table();
+    check_closing_features();
+    check_version_features();
+    check_feature_set_problems();
+    check_revision_features();
+    check_rules_features();
     return oa::test::check_exit_status();
 }

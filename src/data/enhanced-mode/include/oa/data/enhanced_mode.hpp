@@ -3,12 +3,15 @@
 
 // Enhanced Mode is a versioned match preset. Off leaves the chosen game's
 // rules and hashes alone; an enabled preset records its version among the
-// simulation rules. Graphics choices are not part of a preset.
+// simulation rules. Graphics choices are not part of a preset. Each preset
+// and revision is a set of named features, and the engine asks only whether
+// a feature is on.
 #pragma once
 
 #include "oa/data/mod_profile.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -136,5 +139,275 @@ inline constexpr uint32_t current_version = swept_ground_version;
     const mod_profile::ResolveOptions& options,
     uint32_t version
 );
+
+/// One named Enhanced Mode engine change.
+///
+/// Each value is the feature's id, from 1 to 63. An id is stable forever:
+/// it is never renumbered or given to another feature, because saves,
+/// recordings and battle rooms name features by id. Changing what a feature
+/// does in a shipped revision means a new feature with a new id.
+enum class Feature : uint8_t {
+    /// 10,000 units per participating player, at most 32,767 units and 32,767
+    /// shots in a match, and contact passes that reuse spatial projections.
+    capacity = 1,
+    /// Temporary local traffic heads that steer ground units around moving
+    /// units, with short deferred replans and staggered recovery.
+    local_flow = 2,
+    /// Coarse routes shared by nearby destinations, each edge rechecked, built
+    /// at the original 4-cell spacing.
+    routes_original = 3,
+    /// Shared coarse routes built over large regions, with visible bends pruned
+    /// and blocked fields retained.
+    routes_large_regions = 4,
+    /// Shared coarse routes built over fine regions at a 2-cell spacing, with
+    /// more fields.
+    routes_fine_regions = 5,
+    /// Indexed target, sighting and order searches that find what a full scan
+    /// finds, and air-goal sweeps skipped until an air goal exists.
+    indexed_searches = 6,
+    /// A blocked ground unit passes the next route corner when its footprint
+    /// has a clear, fully known line beyond it.
+    route_corner_advance = 7,
+    /// Each ground step checks the unit's footprint along the whole step.
+    swept_ground_steps = 8,
+    /// Advisory one-way lanes through fully known narrow corridors.
+    corridor_lanes = 9,
+    /// A patrolling unit keeps an unchanged leg's goal and search while it
+    /// travels.
+    patrol_goal_retention = 10,
+    /// Computer strikes replace a lost or dying target early.
+    ai_strike_retarget = 11,
+    /// Squad removals find a member by an index, keeping the original order.
+    squad_position_index = 12,
+    /// A briefly blocked unit queues behind a same-owner leader on the same
+    /// route instead of passing it.
+    route_queue = 13,
+    /// Group Move and Patrol orders send a unit whose formation point is
+    /// unusable to the clicked point instead.
+    group_destination_repair = 14,
+    /// Each unit of a repaired group order gets its own arrival point around
+    /// the clicked point.
+    distributed_arrivals = 15,
+    /// A moving ground unit may skip a nearby route anchor when its next leg is
+    /// known and clear.
+    moving_corner_advance = 16,
+    /// Two-by-two ground units take a right-hand lane through a known two-lane
+    /// throat.
+    local_throat_guide = 17,
+    /// When a shared route falls back, each player's longest-waiting unit
+    /// searches first, and every ordinary search start is bounded.
+    credited_fallback_search = 18,
+    /// A computer strike recruits at most 256 new members at a time.
+    bounded_strike_recruits = 19,
+    /// A computer strike's refresh keeps a live chase instead of restarting it.
+    ai_attack_retention = 20,
+    /// A computer rally's refresh keeps a unit's march and patrol queue.
+    ai_rally_retention = 21,
+    /// A queue follows its leader only while the leader's current step still
+    /// advances it.
+    local_following = 22,
+    /// Ground routes are planned through the places moving units occupy.
+    occupancy_free_planning = 23,
+    /// Computer strikes split into spatial cohorts with their own nearby
+    /// targets.
+    cohort_targets = 24,
+    /// Movement reuses one steering projection while its inputs are unchanged.
+    steering_projection_reuse = 25,
+    /// A cohort keeps its verified target while it costs within 12.5% of the
+    /// best.
+    cohort_retention = 26,
+    /// A long-blocked queue may step into a clear neighbouring cell in one of
+    /// the four main directions.
+    cardinal_queue_escape = 27,
+};
+
+/// What a feature changes. The machines of a match agree on every kind.
+enum class FeatureKind : uint8_t {
+    /// Pool sizes, and searches meant to find exactly what the original
+    /// searches find.
+    capacity,
+    /// What the simulation computes.
+    simulation,
+    /// The orders a player's clicks issue.
+    orders,
+};
+
+/// A set of Enhanced Mode features: bit n holds the feature with id n, and
+/// bit 0 is never a feature.
+///
+/// Asking whether a set holds a feature is one bit test, cheap enough for a
+/// tick's innermost loops.
+class FeatureSet {
+  public:
+
+    /// Makes the empty set, which is Off.
+    constexpr FeatureSet() noexcept = default;
+
+    /// Makes the set whose bits are given.
+    ///
+    /// @param mask bit n for the feature with id n; bits of no known feature
+    ///     are kept, and feature_set_problem refuses them
+    /// @return the set
+    [[nodiscard]] static constexpr FeatureSet from_bits(uint64_t mask) noexcept {
+        FeatureSet set;
+        set.bits_ = mask;
+        return set;
+    }
+
+    /// Returns the set's bits.
+    ///
+    /// @return bit n for the feature with id n
+    [[nodiscard]] constexpr uint64_t bits() const noexcept { return bits_; }
+
+    /// Tells whether the set holds no feature.
+    ///
+    /// @return true for the empty set
+    [[nodiscard]] constexpr bool empty() const noexcept { return bits_ == 0; }
+
+    /// Tells whether the set holds a feature.
+    ///
+    /// @param feature the feature
+    /// @return true when the set holds it
+    [[nodiscard]] constexpr bool has(Feature feature) const noexcept {
+        return (bits_ & bit(feature)) != 0;
+    }
+
+    /// Returns the set with a feature added.
+    ///
+    /// @param feature the feature to add
+    /// @return this set and the feature
+    [[nodiscard]] constexpr FeatureSet with(Feature feature) const noexcept {
+        return from_bits(bits_ | bit(feature));
+    }
+
+    /// Returns the set with a feature taken out.
+    ///
+    /// @param feature the feature to take out
+    /// @return this set without the feature
+    [[nodiscard]] constexpr FeatureSet without(Feature feature) const noexcept {
+        return from_bits(bits_ & ~bit(feature));
+    }
+
+    /// Tells whether the set holds every feature of another.
+    ///
+    /// @param other the other set
+    /// @return true when every feature of `other` is in this set
+    [[nodiscard]] constexpr bool contains(FeatureSet other) const noexcept {
+        return (other.bits_ & ~bits_) == 0;
+    }
+
+    /// Tells whether two sets hold the same features.
+    ///
+    /// @param other the other set
+    /// @return true when both hold the same features
+    [[nodiscard]] constexpr bool operator==(const FeatureSet& other) const noexcept = default;
+
+    /// Returns the features either set holds.
+    ///
+    /// @param left one set
+    /// @param right the other set
+    /// @return their union
+    [[nodiscard]] friend constexpr FeatureSet
+    operator|(FeatureSet left, FeatureSet right) noexcept {
+        return from_bits(left.bits_ | right.bits_);
+    }
+
+    /// Returns the features one set holds and another does not.
+    ///
+    /// @param left the set to take from
+    /// @param right the features to take out
+    /// @return the features of `left` that are not in `right`
+    [[nodiscard]] friend constexpr FeatureSet
+    operator-(FeatureSet left, FeatureSet right) noexcept {
+        return from_bits(left.bits_ & ~right.bits_);
+    }
+
+  private:
+
+    /// Returns a feature's bit.
+    ///
+    /// @param feature the feature, whose id is below 64
+    /// @return the bit its id names
+    [[nodiscard]] static constexpr uint64_t bit(Feature feature) noexcept {
+        return uint64_t{1} << static_cast<uint8_t>(feature);
+    }
+
+    uint64_t bits_{}; ///< bit n for the feature with id n
+};
+
+/// One feature as the feature table describes it.
+struct FeatureInfo {
+    Feature id{};          ///< the feature's stable id
+    std::string_view name; ///< its snake_case name, as flags and reports spell it
+    FeatureKind kind{};    ///< what it changes
+    FeatureSet needs;      ///< the features it needs directly; close_features adds them
+    FeatureSet excludes;   ///< the features that cannot share a match with it
+};
+
+/// Lists every feature this build knows.
+///
+/// @return one entry for each feature, in id order from id 1, with no gaps
+[[nodiscard]] std::span<const FeatureInfo> feature_table() noexcept;
+
+/// Finds a feature by its name.
+///
+/// @param name the feature's snake_case name, matched exactly
+/// @return the feature, or nothing for a name no feature has
+[[nodiscard]] std::optional<Feature> feature_by_name(std::string_view name) noexcept;
+
+/// Returns a feature's name.
+///
+/// @param feature the feature
+/// @return its snake_case name, or an empty view for an id no feature has
+[[nodiscard]] std::string_view feature_name(Feature feature) noexcept;
+
+/// Adds every feature a set needs, and every feature those need in turn.
+///
+/// @param set the features asked for
+/// @return the smallest set holding `set` and everything its features need
+[[nodiscard]] FeatureSet close_features(FeatureSet set) noexcept;
+
+/// Says why a set of features cannot be played.
+///
+/// A set can be played when it holds only known features, no two of them
+/// exclude each other, every feature it holds has what it needs, and, unless
+/// it is empty (Off), it holds capacity, the feature every other one builds on.
+///
+/// @param set the features to check
+/// @return nullptr when the set can be played; otherwise a short English
+///     reason naming the features at fault, valid for the program's lifetime
+[[nodiscard]] const char* feature_set_problem(FeatureSet set) noexcept;
+
+/// Returns the features an old numbered preset switches on.
+///
+/// Restructure only; removed in R09, before the version numbers leave the
+/// engine. Each old version's set reproduces every check that version made.
+///
+/// @param version the preset version, or off_version
+/// @return the version's features; the empty set for Off and for every
+///     version supported_version refuses
+[[nodiscard]] FeatureSet version_features(uint32_t version) noexcept;
+
+/// Returns the features resolved match rules play.
+///
+/// @param rules the resolved match rules
+/// @return version_features of the rules' Enhanced Mode version; the empty
+///     set when Enhanced Mode is off
+[[nodiscard]] FeatureSet features(const match_rules::MatchRules& rules) noexcept;
+
+/// The highest Enhanced Mode revision this build plays. A revision is a
+/// frozen set of features: every later build plays it exactly as the build
+/// that first shipped it.
+inline constexpr uint32_t highest_revision = 1;
+
+/// Returns the features of an Enhanced Mode revision.
+///
+/// Revision 1 is provisional until its features are decided (V01): until
+/// then it holds old version 4's features, today's new-game preset.
+///
+/// @param revision the revision, from 1 to highest_revision
+/// @return its features; the empty set for 0 and for a revision this build
+///     does not know
+[[nodiscard]] FeatureSet revision_features(uint32_t revision) noexcept;
 
 } // namespace oa::data::enhanced_mode
