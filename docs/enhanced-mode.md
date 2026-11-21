@@ -185,10 +185,121 @@ the battle room. Enhanced games require matching supported versions and
 simulation hashes before START. A guest does not automatically adopt the
 host's mode in this implementation. Enhanced matches cannot start with
 legacy clients.
-The current movement transport still has a small per-tick route-update budget.
-The new effective traffic heads are replicated, but simultaneous changes from
-thousands of movers require a complete tick-batch transport before large
-network battles can be treated as validated.
+Unit movement travels between the machines of an Enhanced match as complete
+route batches ([Network transport](#network-transport)): a tick of route
+changes from thousands of movers reaches every machine whole.
+
+## Network transport
+
+With Enhanced Mode Off, and in any game with a 3.1c machine, a player's tick
+travels as 3.1c's unit state record (0x2c): the units whose route changed
+are listed until the record reaches 0x200 bytes, about 33 three-point route
+heads, and the rest are put off to later ticks, where only each unit's
+newest head goes out; a lost frame is not sent again. None of that changes.
+
+Every machine of an Enhanced match is an Open Annihilation machine playing
+the same rules, so there each local player's tick travels as one complete
+route batch in place of its 0x2c. The network rules carry the batches
+whenever `setup.enhanced-mode` is on. Every build with Enhanced Mode has
+them; they are no feature of a revision.
+
+- **Complete.** A batch lists every unit whose route, traffic head or
+  blocked bit changed in the tick, and every aircraft whose goal changed,
+  with no byte budget, in the layout of the 0x2c list, and ends with the
+  round-robin full unit record. A part is closed once it reaches 0x380
+  bytes, so no part is longer than one send buffer (0x42a). A tick's
+  changes are never merged with another's: each tick sends all of its own.
+  Each batch names the tick of the player's batch before it, so a receiver
+  knows their order whatever ticks it skips. A batch that cannot be packed
+  sends nothing.
+- **Applied whole, in order.** A receiver keeps a sender's parts until the
+  batch is whole and the batch before it is applied. It then applies every
+  change, steps the sender's units once and applies the full record, so
+  each copy steers from exactly the heads its owner chose in that tick. The
+  step a sender's tick triggers is held until then. Parts may arrive in any
+  order; one already held, or of a batch already applied, changes nothing,
+  and so does a malformed one. Spread over the receiver's ticks, a batch's
+  parts fall due together, as one 0x2c would.
+- **Reliable.** Each machine acknowledges, from each of its players, what it
+  holds of every other player's batches, at most once per send interval (6
+  ticks at the default rate) and every 30 ticks while it holds one it
+  cannot apply yet. A sender keeps each batch until every other player has
+  acknowledged it, and sends a part again to a player that lacks it after
+  30 ticks, or after 6 once that player holds a batch sent later.
+- **Bounded.** A movement step is held at most 900 ticks, the lag at which
+  the game loop starts slowing for a player that falls behind: a batch a
+  receiver has held that long is applied with the parts it holds, and its
+  sender stops sending it.
+- **Gated.** The pump admits the batch records in the game only. A machine
+  without the rule ends its frame split at them, as 3.1c does, and sends
+  none. Where batches carry the unit states, a 0x2c only gives the commander
+  start sync.
+- **Recorded.** A recording keeps each part once, as it was first sent or
+  first arrived, and no acknowledgement. Playback of network games and of
+  recorded skirmishes puts the parts back into their frames and applies
+  each batch whole before its step.
+
+The records, little-endian:
+
+| Record | Offset | Field |
+| --- | --- | --- |
+| Part (0xe4) | 0 | type |
+| | 1 | u16 length, the type byte included |
+| | 3 | u32 tick whose changes the batch holds |
+| | 7 | u32 tick of the sender's batch before it, 0 for its first |
+| | 11 | u16 part index, from 0 |
+| | 13 | u8 flags: bit 0 on the batch's last part |
+| | 14 | bit stream as the 0x2c list: per change a u16 unit index, the def index and the unit's delta; the u16 terminator 0xffff; in the last part only, a flag bit and the full unit record; padded to a byte |
+| Acknowledgement (0xe5) | 0 | type |
+| | 1 | u16 length, the type byte included |
+| | 3 | u32 player id whose batches it acknowledges |
+| | 7 | u32 tick of the last batch applied, 0 for none |
+| | 11 | u32 highest tick of which any part is held |
+| | 15 | u8 entries, at most 8 |
+| | 16 | per entry, oldest first, a batch held but not applied: u32 tick, u16 parts mapped, u8 flags (bit 0: its last part is held), then one bit per part held |
+
+Measured on the Mac Studio over its loopback (`native-net-loopback-route-burst`
+and `-loss`): 3,000 movers sent south at the same tick make one batch of
+3,000 changes, 35,171 bytes in 39 parts, about 11.7 bytes a change. With no
+loss the joiner applies it at the tick it was sent, no step is held and no
+part is sent again. With 10% of each machine's frames lost it is whole 7 to
+19 ticks after the burst's tick; the longest held step was 18 to 19 ticks
+on the joiner and 25 to 42 on the host, for the joiner's own batches, and
+about 430 to 520 parts were sent again over 3,030 ticks. Five thousand head
+changes in one tick pack into 84 parts of 75,788 bytes (`net-replication`).
+
+The bound: each lost frame costs one more round, which takes at most about
+36 ticks (the 30-tick resend and one send interval) and usually 6 to 12. At
+10% loss a frame is still missing after four rounds one time in ten
+thousand, so the burst's twenty-odd frames are whole within about 150 ticks
+in all but two bursts in a thousand, far inside the 900-tick lag rule. No
+burst can hold a step past 900 ticks: there the batch is taken with what
+has arrived.
+
+### Three-machine test plan
+
+For the suite's network case of Revision 1:
+
+- Machines: the Mac Studio hosts on macOS; its Windows and Linux guests
+  join. Every machine plays Enhanced Mode, Revision 1.
+- Stage: each of the three players gets 3,000 movers from a fixed stage on
+  a large flat map, apart from the commanders, and a scripted group move of
+  all of a player's movers on every machine at the same tick, then the
+  match plays 1,800 ticks. Each machine writes a world digest every tick
+  (`--trace-digest`).
+- Runs: one with no loss, then one with 10% of the frames lost on one link
+  (shaped by the suite; `-e 10` on one guest instead loses that share of
+  every frame the guest sends).
+- Pass:
+  - the world digests are equal on all three machines at every 300th tick
+    and at the end;
+  - no machine holds a step longer than the bound above (150 ticks in the
+    lossy run, a few ticks in the lossless one), and none gives a step up;
+  - each machine's `route batches:` line, printed as it leaves the match,
+    is kept with the run.
+- Plus an Off run of the same stage, whose wire is byte for byte the base's
+  (the capture compare of the crossplay cases), and a battle room with a
+  3.1c machine, which plays Off with unchanged bytes.
 
 ## Measuring battles
 
@@ -1460,8 +1571,8 @@ Ray tracing remains deferred.
    measured stalls remain. The synthetic counterflow, crossing and choke
    fixtures check arrival, determinism and zero overlap; those results alone
    do not establish that every installed-map group finishes its trip. Preserve
-   Off and earlier presets, and add complete tick batches for large network
-   route bursts.
+   Off and earlier presets, and run the three-machine route burst plan
+   ([Network transport](#network-transport)) in the suite.
 3. Separate simulation from presentation. The current application ticks and
    renders on the same thread: a 27 ms tick can miss a 16.7 ms frame deadline.
    Keep mutable World ownership on the simulation thread, queue commands for
