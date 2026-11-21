@@ -3,6 +3,7 @@
 
 // Mature traffic recovery is admitted by the real Match tick's phase and
 // tick-start progress snapshot, independently of later live-clock changes.
+#include "oa/data/enhanced_mode.hpp"
 #include "combat_fixture.hpp"
 #include "tick_internal.hpp"
 
@@ -77,8 +78,9 @@ void configure_ground(Fixture& fixture, uint32_t version) {
             8, 8, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
-    input.rules.setup.enhanced_mode.enabled = version != 0;
-    input.rules.setup.enhanced_mode.version = version;
+    oa::data::enhanced_mode::apply_alias(
+        input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    );
     input.unit_player_mask = 3;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
     fixture.match->configure_strategic_environment({0, 0.5F, 0});

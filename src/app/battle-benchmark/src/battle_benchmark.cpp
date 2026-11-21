@@ -750,6 +750,14 @@ std::string report_json(const Report& report) {
     text("activity_sampling_scope", report.activity_sampling_scope);
     out << ",\n  \"enhanced_mode\": " << (report.enhanced_mode ? "true" : "false");
     number("enhanced_version", report.enhanced_version);
+    number("enhanced_revision", report.enhanced_revision);
+    out << ",\n  \"enhanced_features\": [";
+    for (std::size_t index = 0; index < report.enhanced_features.size(); ++index) {
+        if (index != 0)
+            out << ", ";
+        json_string(out, report.enhanced_features[index]);
+    }
+    out << ']';
     text("simulation_hash", report.simulation_hash);
     text("world_digest", report.world_digest);
     text("renderer", report.renderer);

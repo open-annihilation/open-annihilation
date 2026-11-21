@@ -112,14 +112,16 @@ int Runtime::check_live_renderer() {
         rules.setup.enhanced_mode.enabled = true;
         MarkerFramePolicy frame{true, true};
         for (int32_t version = 0; version <= 12; ++version) {
-            rules.setup.enhanced_mode.version = version;
+            oa::data::enhanced_mode::apply_alias(
+                rules.setup.enhanced_mode, version > 0 ? static_cast<uint32_t>(version) : 0U
+            );
             require(
                 compact_marker_frame(rules, frame) ==
                     (version == 7 || version == 8 || version == 10 || version == 11),
                 "the compact marker production rules gate is wrong"
             );
         }
-        rules.setup.enhanced_mode.version = 7;
+        oa::data::enhanced_mode::apply_alias(rules.setup.enhanced_mode, 7);
         rules.setup.enhanced_mode.enabled = false;
         require(!compact_marker_frame(rules, frame), "disabled Enhanced Mode selected markers");
         rules.setup.enhanced_mode.enabled = true;
@@ -4270,7 +4272,8 @@ int Runtime::check_live_renderer() {
             require(match_ != nullptr, "the Enhanced ground-query match did not start");
             const auto& enhanced = match_->rules().setup.enhanced_mode;
             require(
-                enhanced.enabled && enhanced.version == static_cast<int32_t>(version),
+                enhanced.enabled &&
+                    oa::data::enhanced_mode::rules_version(match_->rules()) == version,
                 "the ground-query fixture did not start the requested real Enhanced match"
             );
             select_local_commander();

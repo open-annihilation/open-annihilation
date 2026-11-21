@@ -1546,8 +1546,9 @@ struct RecruitRun {
           source(naval ? Squad::navy : Squad::land_army) {
         fake.player(0, OA_PLAYER_STATUS_LOCAL, 1, first - 1);
         fake.player(player, OA_PLAYER_STATUS_COMPUTER, first, first + sources + existing);
-        rules.setup.enhanced_mode.enabled = version != 0;
-        rules.setup.enhanced_mode.version = version;
+        oa::data::enhanced_mode::apply_alias(
+            rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        );
         state.rules.match = &rules;
         state.features = oa::data::enhanced_mode::version_features(version);
         describe_catalog(state);

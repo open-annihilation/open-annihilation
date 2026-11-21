@@ -39,8 +39,9 @@ enum class March { move, patrol, repair_patrol };
 /// Supplies room and durable units for one real rally task.
 Options options_for(uint32_t version, bool bridge) {
     Options options;
-    options.rules.setup.enhanced_mode.enabled = version != 0;
-    options.rules.setup.enhanced_mode.version = version;
+    oa::data::enhanced_mode::apply_alias(
+        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    );
     options.per_player_limit = 8;
     options.maximum_health = 30000;
     options.sight_cells = bridge ? 129 : 9;
@@ -197,8 +198,9 @@ struct Rally {
                 fixture.altitude_patterns
             }
         };
-        input.rules.setup.enhanced_mode.enabled = version != 0;
-        input.rules.setup.enhanced_mode.version = version;
+        oa::data::enhanced_mode::apply_alias(
+            input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        );
         input.unit_player_mask = 3;
         fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
         match().configure_strategic_environment({0, 0.5F, 0});

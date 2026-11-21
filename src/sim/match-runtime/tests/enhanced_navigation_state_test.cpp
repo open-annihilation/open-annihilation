@@ -34,8 +34,9 @@ constexpr std::array<const char*, 5> navigation_tables{
 
 Options options_for(uint32_t version) {
     Options options;
-    options.rules.setup.enhanced_mode.enabled = version != 0;
-    options.rules.setup.enhanced_mode.version = version;
+    oa::data::enhanced_mode::apply_alias(
+        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    );
     return options;
 }
 
@@ -366,7 +367,7 @@ void following_restores_a_building_fine_frontier() {
     Fixture previous(options_for(oa::data::enhanced_mode::distributed_battle_flow_version));
     Fixture following(options_for(oa::data::enhanced_mode::following_flow_version));
     for (auto* fixture : {&previous, &following}) {
-        const uint32_t version = fixture->match->rules().setup.enhanced_mode.version;
+        const uint32_t version = oa::data::enhanced_mode::rules_version(fixture->match->rules());
         fixture->match.reset();
         fixture->map.attribute_width = fixture->map.attribute_height = side;
         fixture->map.attributes.resize(size_t(side) * side);

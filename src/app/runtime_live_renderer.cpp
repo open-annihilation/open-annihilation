@@ -1454,10 +1454,11 @@ bool Runtime::render_live_match_surface() {
         // surfaces among the frame's own triangles.
         inputs.models_on_card = live_models_on_card();
         const auto& enhanced = match_->rules().setup.enhanced_mode;
-        inputs.body_lod_enabled =
-            enhanced.enabled &&
-            data::enhanced_mode::uses_enhanced_unit_rendering(enhanced.version) &&
-            director_ == nullptr && !photo_mode();
+        inputs.body_lod_enabled = enhanced.enabled &&
+                                  data::enhanced_mode::uses_enhanced_unit_rendering(
+                                      data::enhanced_mode::alias_of(enhanced)
+                                  ) &&
+                                  director_ == nullptr && !photo_mode();
         inputs.root_prefix_enabled =
             options_.prototype_root_prefix && inputs.body_lod_enabled && inputs.models_on_card;
         inputs.shadow_index_templates = inputs.body_lod_enabled;

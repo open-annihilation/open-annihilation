@@ -13,6 +13,7 @@
 // copy by its own health, and a weapon hit on a feature goes to the host,
 // which applies it and has every machine start the die sequence.
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/netgame/condenser.hpp"
 #include "oa/netgame/match/match_binding.hpp"
 #include "oa/sim/air/driver.hpp"
@@ -762,8 +763,10 @@ struct Pair {
         host->inbox.peer = &joiner->inbox;
         joiner->inbox.peer = &host->inbox;
         for (auto* machine : {host.get(), joiner.get()}) {
-            machine->rules.setup.enhanced_mode.enabled = enhanced_version != released_mode;
-            machine->rules.setup.enhanced_mode.version = static_cast<int32_t>(enhanced_version);
+            oa::data::enhanced_mode::apply_alias(
+                machine->rules.setup.enhanced_mode,
+                static_cast<uint32_t>(static_cast<int32_t>(enhanced_version))
+            );
         }
         host->start(0);
         joiner->start(1);

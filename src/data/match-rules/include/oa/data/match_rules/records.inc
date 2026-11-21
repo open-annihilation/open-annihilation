@@ -632,13 +632,48 @@ struct SetupTeamStartPositions {
     bool operator==(const SetupTeamStartPositions&) const = default;
 };
 
+/// The values of setup.enhanced-mode features.
+enum class SetupEnhancedModeFeatures : uint8_t {
+    capacity, ///< capacity
+    local_flow, ///< local-flow
+    routes_original, ///< routes-original
+    routes_large_regions, ///< routes-large-regions
+    routes_fine_regions, ///< routes-fine-regions
+    indexed_searches, ///< indexed-searches
+    route_corner_advance, ///< route-corner-advance
+    swept_ground_steps, ///< swept-ground-steps
+    corridor_lanes, ///< corridor-lanes
+    patrol_goal_retention, ///< patrol-goal-retention
+    ai_strike_retarget, ///< ai-strike-retarget
+    squad_position_index, ///< squad-position-index
+    route_queue, ///< route-queue
+    group_destination_repair, ///< group-destination-repair
+    distributed_arrivals, ///< distributed-arrivals
+    moving_corner_advance, ///< moving-corner-advance
+    local_throat_guide, ///< local-throat-guide
+    credited_fallback_search, ///< credited-fallback-search
+    bounded_strike_recruits, ///< bounded-strike-recruits
+    ai_attack_retention, ///< ai-attack-retention
+    ai_rally_retention, ///< ai-rally-retention
+    local_following, ///< local-following
+    occupancy_free_planning, ///< occupancy-free-planning
+    cohort_targets, ///< cohort-targets
+    steering_projection_reuse, ///< steering-projection-reuse
+    cohort_retention, ///< cohort-retention
+    cardinal_queue_escape, ///< cardinal-queue-escape
+};
+/// @return the number of SetupEnhancedModeFeatures values
+[[nodiscard]] constexpr size_t enum_size(SetupEnhancedModeFeatures) noexcept { return 27; }
+
 /// setup.enhanced-mode: Version 1 permits 10000 units per participating player and 32767
 /// projectiles; version 2 adds shared routing and local unit flow. Graphics settings remain
 /// independent.
 struct SetupEnhancedMode {
     bool enabled{}; ///< the profile turns the hack on
-    /// version; 3.1c: 1
-    int32_t version{1};
+    /// revision; 3.1c: 1
+    int32_t revision{1};
+    /// features; 3.1c: []
+    EnumSet<SetupEnhancedModeFeatures, 27> features{};
     /// Compares every field.
     bool operator==(const SetupEnhancedMode&) const = default;
 };

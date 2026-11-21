@@ -166,19 +166,47 @@ Off, existing profiles keep their canonical rules and hashes.
 
 ## Saved and recorded games
 
-A game saved or recorded with Enhanced Mode keeps its rules version.
-Loading it restores that mode without changing the preference for new
-games. Older saves and recordings without a mode account play with the
-mode Off. Unsupported versions and malformed metadata are refused.
+A saved game records Enhanced Mode in an EnhancedMode account, format 2.
+The account holds Revision (an integer, at least 1 when the mode is on),
+Features (feature ids as comma-separated decimals, written in id order,
+never names) and Needs Version (the text of the first engine version that
+plays the choice, such as `0.9.3`, omitted when the writer did not know
+one). It also keeps the unit-player mask and the physical unit-range
+order. A game with the mode off writes no account. A missing account
+loads as Off. A format-1 account is unreadable.
+
+A recording stores the same choice in the `OAE1` sector. The sector is 16
+bytes, little-endian, after its type word:
+
+| offset | size | field |
+| --- | --- | --- |
+| 0 | u32 | revision, at least 1 |
+| 4 | u64 | feature bits, bit (id − 1), so bit 0 is feature 1 |
+| 12 | u32 | needed engine version, `major << 16 \| minor << 8 \| patch`, or 0 when unknown |
+
+Any other length is refused. This build writes `0.9.3` as `0x00000903`.
+A recording without the sector plays with the mode off. Bit 63 would be
+feature 64, which does not fit the feature set, so a reader refuses it
+instead of dropping it.
+
+Loading a save or playing a recording restores that choice and does not
+change the preference for new games. A revision or a feature id this build
+does not know is refused. The refusal names the stored engine version:
+"This game needs Open Annihilation {version} or later." When the file
+stored no version, it is "This game needs a later version of Open
+Annihilation." The reader does not guess a version it was not told. A set
+that is not closed, that conflicts, or that pairs revision 0 with features
+is refused as unusable. A malformed account or sector is refused.
+
 Enhanced saves retain both the original participants and their physical
 unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
-Versions 1 and 2 remain supported with their original behavior and simulation hashes.
-Versions 2, 3 and 4 save five owner-local navigation tables: shared fields, the
-current static-map revision, temporary traffic heads, actual-progress clocks
-and the shared-route scan clock. The scan clock prevents a load pass and a
-regular pass at the same tick from polling the unit ranges twice. These
-tables stay outside shared world and trace hashes.
+The old numbered presets remain playable as revision 1 plus that preset's
+feature set. Versions 2, 3 and 4 save five owner-local navigation tables:
+shared fields, the current static-map revision, temporary traffic heads,
+actual-progress clocks and the shared-route scan clock. The scan clock
+prevents a load pass and a regular pass at the same tick from polling the
+unit ranges twice. These tables stay outside shared world and trace hashes.
 
 In multiplayer, every player must select the same mode before entering
 the battle room. Enhanced games require matching supported versions and

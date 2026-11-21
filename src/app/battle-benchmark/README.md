@@ -72,7 +72,8 @@ costs are excluded.
 
 `report_json` writes schema version 1, explicit completion and error fields,
 the scenario and seed, requested and observed populations, successful tick
-counts, Enhanced Mode and its version, simulation identity and timing facts.
+counts, Enhanced Mode, its revision, its feature names and the alias
+version, simulation identity and timing facts.
 Movement, damage, projectile high-water and activity-observed facts state
 whether a labelled workload did corresponding work and when it was sampled.
 Spatial projection preparations, projected slots, bucket queries and bucket

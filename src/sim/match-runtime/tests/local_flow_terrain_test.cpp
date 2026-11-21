@@ -3,6 +3,7 @@
 
 // Local traffic probes stop at known impassable terrain, while unseen
 // terrain keeps the navigator's unknown-passable rule.
+#include "oa/data/enhanced_mode.hpp"
 #include "combat_fixture.hpp"
 
 #include "oa/sim/ground_orders/steering_target.hpp"
@@ -69,8 +70,7 @@ void configure_water_barrier(Fixture& fixture, bool water, uint8_t footprint = 1
             8, 8, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
-    input.rules.setup.enhanced_mode.enabled = true;
-    input.rules.setup.enhanced_mode.version = 2;
+    oa::data::enhanced_mode::apply_alias(input.rules.setup.enhanced_mode, static_cast<uint32_t>(2));
     input.unit_player_mask = 3;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
     fixture.match->configure_strategic_environment({0, 0.5F, 0});

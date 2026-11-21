@@ -4,6 +4,7 @@
 // Orders written to a savegame and restored into another match: the queues,
 // the words each mission's handler keeps, the target links and the head
 // order's goal.
+#include "oa/data/enhanced_mode.hpp"
 #include "combat_fixture.hpp"
 #include "saved_game.hpp"
 
@@ -210,8 +211,9 @@ void attack_orders_survive_a_save() {
 void restored_ground_owned_air_goal_loses_dead_target() {
     for (const uint32_t version : {0u, 1u, 2u}) {
         Options options;
-        options.rules.setup.enhanced_mode.enabled = version != 0;
-        options.rules.setup.enhanced_mode.version = version;
+        oa::data::enhanced_mode::apply_alias(
+            options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        );
         Fixture f(options);
         auto& owner = f.spawn(0, 64, 64);
         auto& target = f.spawn(1, 128, 64);

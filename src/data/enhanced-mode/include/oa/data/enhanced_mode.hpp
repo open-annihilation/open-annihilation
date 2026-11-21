@@ -46,6 +46,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 
 /// Selects the known presets inheriting distributed battle flow.
 ///
+/// Restructure only; removed in R09.
+///
 /// @param version the recorded preset version
 /// @return true only for known presets retaining distributed battle flow
 [[nodiscard]] inline constexpr bool uses_distributed_battle_flow(uint32_t version) noexcept {
@@ -56,6 +58,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 
 /// Selects the known presets following an applied local movement leg.
 ///
+/// Restructure only; removed in R09.
+///
 /// @param version the recorded preset version
 /// @return true only for known presets retaining local following
 [[nodiscard]] inline constexpr bool uses_following_battle_flow(uint32_t version) noexcept {
@@ -64,6 +68,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 }
 
 /// Selects deterministic AI strike-target distribution among spatial cohorts.
+///
+/// Restructure only; removed in R09.
 ///
 /// @param version the recorded preset version
 /// @return true only for known presets retaining cohort-target distribution
@@ -74,6 +80,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 
 /// Selects bounded retention of verified prior targets for spatial cohorts.
 ///
+/// Restructure only; removed in R09.
+///
 /// @param version the recorded preset version
 /// @return true only for the explicit cohort-retention preset
 [[nodiscard]] inline constexpr bool uses_cohort_target_retention(uint32_t version) noexcept {
@@ -82,6 +90,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 
 /// Selects bounded cardinal exits after a mature local queue's existing choices.
 ///
+/// Restructure only; removed in R09.
+///
 /// @param version the recorded preset version
 /// @return true only for the explicit cardinal queue escape preset
 [[nodiscard]] inline constexpr bool uses_cardinal_queue_escape(uint32_t version) noexcept {
@@ -89,6 +99,8 @@ inline constexpr uint32_t current_version = swept_ground_version;
 }
 
 /// Selects the enhanced unit rendering policies shared by known experimental presets.
+///
+/// Restructure only; removed in R09.
 ///
 /// @param version the recorded preset version
 /// @return true only for known presets permitting animated body detail and deferred geometry
@@ -99,46 +111,27 @@ inline constexpr uint32_t current_version = swept_ground_version;
 
 /// Tells whether this build can resolve a preset, including Off.
 ///
+/// Restructure only; removed in R09.
+///
 /// @param version the preset version, or off_version
 /// @return true for a supported version
 [[nodiscard]] bool supported_version(uint32_t version) noexcept;
 
-/// Reads the Enhanced Mode version held by resolved match rules.
+/// The old version number of a feature set that matches no numbered preset.
+///
+/// Restructure only; removed in R09. It is neither Off nor a preset this
+/// build plays.
+inline constexpr uint32_t no_alias_version = 0xffffffffu;
+
+/// Reads the old preset version held by resolved match rules.
+///
+/// Restructure only; removed in R09. Off is off_version. An enabled match
+/// whose features equal an old preset reads as that preset; any other set
+/// reads as no_alias_version.
 ///
 /// @param rules the resolved match rules
-/// @return off_version when disabled, otherwise the recorded version
+/// @return the alias of the stored features, or off_version when disabled
 [[nodiscard]] uint32_t rules_version(const match_rules::MatchRules& rules) noexcept;
-
-/// Resolves the chosen game's profile with a required Enhanced Mode preset.
-///
-/// Off delegates to the normal resolver unchanged, then refuses a profile
-/// that enables Enhanced Mode itself. An enabled preset follows existing
-/// match choices and must resolve completely at the requested version.
-/// Version 1 permits 10000 units per participating player and 32767
-/// projectiles. Version 2 adds routing and unit-flow changes while retaining
-/// those capacities. Version 3 selects regional shared-route construction.
-/// Version 4 adds bounded obstacle checks along each ground step.
-/// Version 5 reserves a separate identity for corridor flow when integrated.
-/// Version 6 selects persistent patrol goals and bounded AI strike retargeting.
-/// Version 7 retains battle flow and distributes repaired group destinations.
-/// Version 8 retains version 7's static routing for experimental local following.
-/// Version 10 inherits version 8 and distributes AI strike targets among spatial cohorts.
-/// Version 11 inherits version 10 and retains verified prior cohort targets within a cost margin.
-/// Version 13 inherits version 10 and permits bounded cardinal exits from mature local queues.
-/// Versions 9, 12 and 14 are unsupported. Rendering remains independent.
-/// Errors leave no usable resolution.
-///
-/// @param text the chosen game's profile bytes
-/// @param source the name used by profile diagnostics
-/// @param options the chosen game's settings, overrides and match choices
-/// @param version the required preset version, or off_version
-/// @return the resolved rules and hashes, or diagnostics
-[[nodiscard]] mod_profile::ResolveResult resolve_profile(
-    std::span<const uint8_t> text,
-    std::string_view source,
-    const mod_profile::ResolveOptions& options,
-    uint32_t version
-);
 
 /// One named Enhanced Mode engine change.
 ///
@@ -380,19 +373,27 @@ struct FeatureInfo {
 
 /// Returns the features an old numbered preset switches on.
 ///
-/// Restructure only; removed before the version numbers leave the engine.
-/// Each old version's set reproduces every check that version made.
+/// Restructure only; removed in R09. Each old version's set reproduces
+/// every check that version made.
 ///
 /// @param version the preset version, or off_version
 /// @return the version's features; the empty set for Off and for every
 ///     version supported_version refuses
 [[nodiscard]] FeatureSet version_features(uint32_t version) noexcept;
 
+/// Reads the old preset version whose feature set equals a set.
+///
+/// Restructure only; removed in R09.
+///
+/// @param features the features a match plays
+/// @return off_version for the empty set, the matching preset version, or
+///     no_alias_version when no preset has exactly those features
+[[nodiscard]] uint32_t alias_version(FeatureSet features) noexcept;
+
 /// Returns the features resolved match rules play.
 ///
 /// @param rules the resolved match rules
-/// @return version_features of the rules' Enhanced Mode version; the empty
-///     set when Enhanced Mode is off
+/// @return the stored set; the empty set when Enhanced Mode is off
 [[nodiscard]] FeatureSet features(const match_rules::MatchRules& rules) noexcept;
 
 /// The highest Enhanced Mode revision this build plays. A revision is a
@@ -409,5 +410,162 @@ inline constexpr uint32_t highest_revision = 1;
 /// @return its features; the empty set for 0 and for a revision this build
 ///     does not know
 [[nodiscard]] FeatureSet revision_features(uint32_t revision) noexcept;
+
+/// The Enhanced Mode identity of one match: a revision and the features it plays.
+///
+/// Off is revision 0 with the empty set.
+struct Choice {
+    uint32_t revision{};   ///< 0 is Off; a played revision is at least 1
+    FeatureSet features{}; ///< the features the match plays; empty when Off
+
+    /// Compares the revision and the features.
+    bool operator==(const Choice&) const = default;
+};
+
+/// Says why a choice cannot be played.
+///
+/// A choice can be played when it is Off, or when its revision is one this
+/// build knows and its features can be played together. A revision of 0
+/// that still names features cannot.
+///
+/// @param choice the revision and features
+/// @return nullptr when the choice can be played; otherwise a short English
+///     reason, valid for the program's lifetime
+[[nodiscard]] const char* choice_problem(const Choice& choice) noexcept;
+
+/// Tells whether a choice names a revision or a feature this build does not have.
+///
+/// A save or recording that does is refused with the needs-version sentence.
+/// A set that is not closed, or that conflicts, is a different refusal.
+///
+/// @param choice the revision and features
+/// @return true when the revision or a feature id is unknown here
+[[nodiscard]] bool choice_lacks_support(const Choice& choice) noexcept;
+
+/// Resolves the chosen game's profile with a required Enhanced Mode choice.
+///
+/// Off delegates to the normal resolver unchanged, then refuses a profile
+/// that enables Enhanced Mode itself. An enabled choice pushes
+/// `setup.enhanced-mode.revision` and `setup.enhanced-mode.features` after
+/// every other match choice, so the engine's choice wins. The resolved
+/// rules must hold that revision and those features. Errors leave no usable
+/// resolution.
+///
+/// @param text the chosen game's profile bytes
+/// @param source the name used by profile diagnostics
+/// @param options the chosen game's settings, overrides and match choices
+/// @param choice the required revision and features; Off is revision 0
+/// @return the resolved rules and hashes, or diagnostics
+[[nodiscard]] mod_profile::ResolveResult resolve_profile(
+    std::span<const uint8_t> text,
+    std::string_view source,
+    const mod_profile::ResolveOptions& options,
+    const Choice& choice
+);
+
+/// Resolves the chosen game's profile with an old numbered preset.
+///
+/// Restructure only; removed in R09. Off is revision 0. Any other supported
+/// version is revision 1 with that version's features. An unsupported
+/// version is refused and is not turned into a choice.
+///
+/// @param text the chosen game's profile bytes
+/// @param source the name used by profile diagnostics
+/// @param options the chosen game's settings, overrides and match choices
+/// @param version the required preset version, or off_version
+/// @return the resolved rules and hashes, or diagnostics
+[[nodiscard]] mod_profile::ResolveResult resolve_profile(
+    std::span<const uint8_t> text,
+    std::string_view source,
+    const mod_profile::ResolveOptions& options,
+    uint32_t version
+);
+
+/// Writes an old numbered preset into a rules record.
+///
+/// Restructure only; removed in R09. Off and every unsupported version
+/// clear the record. A supported version enables revision 1 and that
+/// version's features.
+///
+/// @param[out] mode the Enhanced Mode record
+/// @param version the preset version, or off_version
+void apply_alias(match_rules::SetupEnhancedMode& mode, uint32_t version) noexcept;
+
+/// Reads the features stored on an Enhanced Mode record, ignoring whether it is on.
+///
+/// @param mode the Enhanced Mode record
+/// @return the stored set; bits of no known feature are kept
+[[nodiscard]] FeatureSet stored_features(const match_rules::SetupEnhancedMode& mode) noexcept;
+
+/// Names the first engine version that plays a revision.
+///
+/// @param revision the revision, from 1
+/// @return its version text, such as "0.9.3", or nullptr when this build
+///     does not know the revision
+[[nodiscard]] const char* first_engine_version(uint32_t revision) noexcept;
+
+/// Names the first engine version that plays a feature.
+///
+/// @param feature the feature
+/// @return its version text, such as "0.9.3", or nullptr for an id no feature has
+[[nodiscard]] const char* first_engine_version(Feature feature) noexcept;
+
+/// Names the newest first-version among a choice's revision and features.
+///
+/// A writer stores this text in a save and its packed form in a recording.
+/// Off has none. A choice this build cannot name has none: the writer does
+/// not guess.
+///
+/// @param choice the revision and features
+/// @return the version text, or nullptr for Off or for a part this build cannot name
+[[nodiscard]] const char* needed_engine_version(const Choice& choice) noexcept;
+
+/// Packs an engine version as major << 16 | minor << 8 | patch.
+///
+/// @param text a version such as "0.9.3"; each part fits in one byte
+/// @return the packed version, or 0 when the text is empty or not three numbers
+[[nodiscard]] uint32_t packed_engine_version(std::string_view text) noexcept;
+
+/// The English sentence a player sees when a save or recording needs a later game.
+///
+/// The caller translates the sentence, then replaces `{version}` with
+/// `stored` when `stored` is not empty. An empty `stored` is the sentence
+/// that names no version.
+///
+/// @param stored the version the file stored, or empty when it stored none
+/// @return the English sentence, with `{version}` still in it when a version was stored
+[[nodiscard]] const char* refusal_needs_version(std::string_view stored) noexcept;
+
+/// Reads the old preset version of one Enhanced Mode record.
+///
+/// Restructure only; removed in R09.
+///
+/// @param mode the Enhanced Mode record
+/// @return off_version when the record is off, otherwise alias_version of its features
+[[nodiscard]] inline uint32_t alias_of(const match_rules::SetupEnhancedMode& mode) noexcept {
+    return mode.enabled ? alias_version(stored_features(mode)) : off_version;
+}
+
+/// The feature bits a recording sector stores: bit (id − 1), so bit 0 is id 1.
+///
+/// @param features the features a match plays
+/// @return those bits; bit 63 is id 64 and is never set by a set this build can hold
+[[nodiscard]] inline uint64_t sector_feature_bits(const FeatureSet& features) noexcept {
+    return features.bits() >> 1;
+}
+
+/// Reads feature bits stored by a recording sector.
+///
+/// Bit 63 is id 64, which does not fit in a feature set. That bit is refused
+/// rather than dropped.
+///
+/// @param sector_bits bit (id − 1) for each stored feature
+/// @return the set, or nothing when bit 63 is set
+[[nodiscard]] inline std::optional<FeatureSet>
+features_from_sector_bits(uint64_t sector_bits) noexcept {
+    if ((sector_bits & (uint64_t{1} << 63)) != 0)
+        return std::nullopt;
+    return FeatureSet::from_bits(sector_bits << 1);
+}
 
 } // namespace oa::data::enhanced_mode

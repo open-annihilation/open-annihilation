@@ -163,7 +163,9 @@ void hold_unit_draw_states(MatchModels& models) {
     auto& deferred = models.deferred_geometry;
     const auto& enhanced = models.offline->rules().setup.enhanced_mode;
     if (enhanced.enabled &&
-        oa::data::enhanced_mode::uses_enhanced_unit_rendering(enhanced.version) &&
+        oa::data::enhanced_mode::uses_enhanced_unit_rendering(
+            oa::data::enhanced_mode::alias_of(enhanced)
+        ) &&
         deferred.units.size() <= highest)
         try {
             deferred.units.resize(static_cast<size_t>(highest) + 1);
@@ -186,8 +188,9 @@ void hold_unit_draw_states(MatchModels& models) {
         }
         auto& instance = runtime.instance->model();
         deferred.prepare(slot, runtime.instance_generation, instance, false);
-        if (enhanced.enabled &&
-            oa::data::enhanced_mode::uses_enhanced_unit_rendering(enhanced.version)) {
+        if (enhanced.enabled && oa::data::enhanced_mode::uses_enhanced_unit_rendering(
+                                    oa::data::enhanced_mode::alias_of(enhanced)
+                                )) {
             auto& draw_state = unit_draw_state(
                 models.units, static_cast<uint16_t>(slot), runtime.instance_generation
             );
@@ -2836,14 +2839,14 @@ bool Runtime::draw_match_surface() {
         match_->rules().setup.enhanced_mode.enabled,
         !photo_mode() && match_->rules().setup.enhanced_mode.enabled &&
             oa::data::enhanced_mode::uses_enhanced_unit_rendering(
-                match_->rules().setup.enhanced_mode.version
+                oa::data::enhanced_mode::alias_of(match_->rules().setup.enhanced_mode)
             ),
         options_.prototype_root_prefix && full_presentation() && geometry_shadow_metadata &&
             !options_.debug_order_lines && world_record.game.debug_overlay == 0 &&
             !models.preplanning_visibility.force_ordinary &&
             match_->rules().setup.enhanced_mode.enabled &&
             oa::data::enhanced_mode::uses_enhanced_unit_rendering(
-                match_->rules().setup.enhanced_mode.version
+                oa::data::enhanced_mode::alias_of(match_->rules().setup.enhanced_mode)
             )
     };
     if (live_world && dots)

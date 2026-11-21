@@ -162,8 +162,11 @@ struct Fixture {
             {}
         };
         input.feature_defs = features;
-        input.rules.setup.enhanced_mode.enabled = enabled && version != 0;
-        input.rules.setup.enhanced_mode.version = version;
+        oa::data::enhanced_mode::apply_alias(
+            input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        );
+        if (!enabled)
+            input.rules.setup.enhanced_mode.enabled = false;
         if (input.rules.setup.enhanced_mode.enabled)
             input.unit_player_mask = 3;
         match = std::make_unique<sim::match_runtime::Match>(input, services);

@@ -127,8 +127,9 @@ struct Scene {
                 fixture.altitude_patterns
             }
         };
-        inputs.rules.setup.enhanced_mode.enabled = version != 0;
-        inputs.rules.setup.enhanced_mode.version = version;
+        oa::data::enhanced_mode::apply_alias(
+            inputs.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        );
         inputs.unit_player_mask = 3;
         fixture.match = std::make_unique<runtime::Match>(inputs, fixture.services);
         match().configure_strategic_environment({0, 0.5F, 0});
@@ -348,7 +349,7 @@ void observe_advanced_prefix(Scene& scene, bool& observed) {
     const auto* front = scene.match().local_flow_head(scene.queue[0]);
     const auto* back = scene.match().local_flow_head(scene.queue[1]);
     std::cout << "Observed native prefix candidate: version="
-              << scene.match().rules().setup.enhanced_mode.version
+              << oa::data::enhanced_mode::rules_version(scene.match().rules())
               << ", tick=" << scene.match().simulation().tick << ", leader=" << scene.queue[0]
               << ", follower=" << scene.queue[1] << ", leader raw=" << leader.geometry.position[0]
               << ',' << leader.geometry.position[2]

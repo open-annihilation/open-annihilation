@@ -1781,7 +1781,10 @@ struct NetworkPlay::NetHost {
                              : std::string();
         oa::session::demo::RecordingSetup setup{};
         setup.max_units = static_cast<uint16_t>(world.game.units_per_player);
-        setup.enhanced_mode_version = enhanced_mode_version(runtime);
+        setup.enhanced_mode = enhanced_mode_choice(runtime);
+        if (const char* needed =
+                oa::data::enhanced_mode::needed_engine_version(setup.enhanced_mode))
+            setup.needed_engine_version = oa::data::enhanced_mode::packed_engine_version(needed);
         setup.map_name = map;
         setup.recorder_text = kProgramLine;
         setup.date_text = local_time_text("%Y-%m-%d %H:%M");
@@ -2981,7 +2984,7 @@ void skirmish_record_seen(void* context, uint32_t sender, const uint8_t* bytes, 
     if (stored == 0)
         return;
     const uint32_t recorded_sender =
-        held->recording.setup.enhanced_mode_version != 0 ? sender : stored;
+        held->recording.setup.enhanced_mode.revision != 0 ? sender : stored;
     oa::session::demo::recording_add(
         &held->recording, recorded_sender, recording_clock_ms(), {bytes, size}
     );
@@ -3335,7 +3338,7 @@ void NetworkPlay::note_skirmish_departure() {
         if (slot == local || skirmish_->sender_ids[slot] == 0)
             continue;
         oa::netgame::RejectRecord leaving{};
-        leaving.player_id = skirmish_->recording.setup.enhanced_mode_version != 0
+        leaving.player_id = skirmish_->recording.setup.enhanced_mode.revision != 0
                                 ? player.player_id
                                 : skirmish_->sender_ids[slot];
         leaving.reason = static_cast<uint8_t>(oa::netgame::RejectReason::leaving);
@@ -3523,7 +3526,10 @@ void NetworkPlay::consider_skirmish_recording() {
         const bool utf8_text = runtime_.game_text_utf8();
         oa::session::demo::RecordingSetup setup{};
         setup.max_units = static_cast<uint16_t>(world->game.units_per_player);
-        setup.enhanced_mode_version = enhanced_mode_version(runtime_);
+        setup.enhanced_mode = enhanced_mode_choice(runtime_);
+        if (const char* needed =
+                oa::data::enhanced_mode::needed_engine_version(setup.enhanced_mode))
+            setup.needed_engine_version = oa::data::enhanced_mode::packed_engine_version(needed);
         setup.map_name = map;
         setup.recorder_text = kProgramLine;
         setup.date_text = local_time_text("%Y-%m-%d %H:%M");
@@ -3549,7 +3555,7 @@ void NetworkPlay::consider_skirmish_recording() {
             setup.limits = recorded;
         }
         const uint16_t allocated_players =
-            setup.enhanced_mode_version != 0 ? runtime_.running_match()->unit_player_mask() : 0;
+            setup.enhanced_mode.revision != 0 ? runtime_.running_match()->unit_player_mask() : 0;
         std::vector<oa::session::demo::ReplayPlayerFacts> player_facts;
         const auto add_player = [&](uint8_t player_slot) {
             const auto& player = world->game.players[player_slot];
@@ -3557,7 +3563,7 @@ void NetworkPlay::consider_skirmish_recording() {
             // The live id of the first slot is 0. A recording numbers players
             // from 1, and playback seats them in this order.
             entry.player_id = static_cast<uint32_t>(player_slot) + 1u;
-            if (setup.enhanced_mode_version != 0) {
+            if (setup.enhanced_mode.revision != 0) {
                 entry.source_player_id = player.in_use != 0 && player.player_id != nm::no_player_id
                                              ? player.player_id
                                              : static_cast<uint32_t>(player_slot);

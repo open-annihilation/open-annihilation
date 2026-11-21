@@ -1955,7 +1955,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         full.models.set_body_lod_enabled(
             match_->rules().setup.enhanced_mode.enabled &&
             data::enhanced_mode::uses_enhanced_unit_rendering(
-                match_->rules().setup.enhanced_mode.version
+                data::enhanced_mode::alias_of(match_->rules().setup.enhanced_mode)
             ) &&
             director_ == nullptr && !photo_mode()
         );

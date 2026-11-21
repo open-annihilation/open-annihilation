@@ -331,6 +331,8 @@ void reports() {
     report.activity_observed = true;
     report.enhanced_mode = true;
     report.enhanced_version = 1;
+    report.enhanced_revision = 1;
+    report.enhanced_features = {"capacity", "local_flow"};
     report.simulation_hash = "hash";
     report.world_digest = "digest";
     report.ticks.mean_ns = 1.5;
@@ -367,6 +369,8 @@ void reports() {
     CHECK(json.find("\"phase\\\"name\":") != std::string::npos);
     CHECK(json.find("\"successful_ticks\": 100") != std::string::npos);
     CHECK(json.find("\"enhanced_version\": 1") != std::string::npos);
+    CHECK(json.find("\"enhanced_revision\": 1") != std::string::npos);
+    CHECK(json.find("\"enhanced_features\": [\"capacity\", \"local_flow\"]") != std::string::npos);
     CHECK(json.find("\"moved_unit_ticks\": 40") != std::string::npos);
     CHECK(json.find("\"damaged_unit_ticks\": 3") != std::string::npos);
     CHECK(json.find("\"projectile_high_water\": 12") != std::string::npos);

@@ -31,9 +31,10 @@ struct MarkerFramePolicy {
         frame.retained)
         return false;
     const auto& enhanced = rules.setup.enhanced_mode;
-    return frame.explicit_check ||
-           (!frame.headless && enhanced.enabled &&
-            oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version));
+    return frame.explicit_check || (!frame.headless && enhanced.enabled &&
+                                    oa::data::enhanced_mode::uses_distributed_battle_flow(
+                                        oa::data::enhanced_mode::alias_of(enhanced)
+                                    ));
 }
 
 } // namespace oa::app

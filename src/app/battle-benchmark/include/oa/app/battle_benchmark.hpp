@@ -427,7 +427,12 @@ struct Report {
     bool activity_observed{};
     std::string activity_sampling_scope{"after_each_successful_warmup_and_measured_tick"};
     bool enhanced_mode{};
+    /// The old preset number whose feature set matches, until R09.
     uint32_t enhanced_version{};
+    /// The Enhanced Mode revision the match played. Zero is Off.
+    uint32_t enhanced_revision{};
+    /// Feature names in id order, snake_case, empty when the mode is off.
+    std::vector<std::string> enhanced_features{};
     std::string simulation_hash{};
     std::string world_digest{};
     std::string renderer{"none"};

@@ -70,7 +70,9 @@ UnitPoseCapture
 unit_pose_capture(const oa::data::match_rules::MatchRules& rules, bool global_dots) noexcept {
     const auto& enhanced = rules.setup.enhanced_mode;
     return global_dots && enhanced.enabled &&
-                   oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)
+                   oa::data::enhanced_mode::uses_distributed_battle_flow(
+                       oa::data::enhanced_mode::alias_of(enhanced)
+                   )
                ? UnitPoseCapture::root
                : UnitPoseCapture::full;
 }

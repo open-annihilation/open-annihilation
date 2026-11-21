@@ -318,8 +318,13 @@ tad::Demo build_demo(const RecordingSetup& setup, std::vector<std::vector<uint8_
             {static_cast<uint32_t>(tad::SectorType::limits), keep({encoded.begin(), encoded.end()})}
         );
     }
-    if (setup.enhanced_mode_version != 0) {
-        const auto encoded = formats::tad::encode_enhanced_mode_sector(setup.enhanced_mode_version);
+    if (setup.enhanced_mode.revision != 0) {
+        const formats::tad::RecordedEnhancedMode recorded{
+            setup.enhanced_mode.revision,
+            oa::data::enhanced_mode::sector_feature_bits(setup.enhanced_mode.features),
+            setup.needed_engine_version
+        };
+        const auto encoded = formats::tad::encode_enhanced_mode_sector(recorded);
         demo.sectors.push_back(
             {static_cast<uint32_t>(tad::SectorType::enhanced_mode),
              keep({encoded.begin(), encoded.end()})}

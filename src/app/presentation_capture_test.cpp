@@ -419,8 +419,10 @@ void test_capture_policy() {
     oa::data::match_rules::MatchRules rules;
     for (const bool enabled : {false, true})
         for (int32_t version = 0; version <= 12; ++version) {
-            rules.setup.enhanced_mode.enabled = enabled;
-            rules.setup.enhanced_mode.version = version;
+            oa::data::enhanced_mode::apply_alias(
+                rules.setup.enhanced_mode, version > 0 ? static_cast<uint32_t>(version) : 0U
+            );
+            rules.setup.enhanced_mode.enabled = enabled && rules.setup.enhanced_mode.enabled;
             CHECK(app::unit_pose_capture(rules, false) == app::UnitPoseCapture::full);
             const auto expected =
                 enabled && (version == 7 || version == 8 || version == 10 || version == 11)

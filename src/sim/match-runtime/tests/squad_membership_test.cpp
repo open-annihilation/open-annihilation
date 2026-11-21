@@ -37,8 +37,9 @@ constexpr std::array<uint32_t, 8> groups = {0, 1, 2, 3, 4, 6, 9, 100};
 /// Keeps the fixture's units alive and prevents autonomous attacks.
 Options options_for(uint32_t version) {
     Options options;
-    options.rules.setup.enhanced_mode.enabled = version != 0;
-    options.rules.setup.enhanced_mode.version = version;
+    oa::data::enhanced_mode::apply_alias(
+        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    );
     options.per_player_limit = 16;
     // Off retains all ten banks; match that capacity in the enabled fixtures.
     options.unit_player_mask = static_cast<uint16_t>((uint32_t{1} << OA_PLAYER_COUNT) - 1);
