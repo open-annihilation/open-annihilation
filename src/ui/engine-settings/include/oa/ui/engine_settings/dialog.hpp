@@ -339,6 +339,9 @@ enum class Setting : uint8_t {
     welcome_setup,
     /// Fog of War: a strip of Classic and Smooth
     fog_of_war,
+    /// Lighter far units: a switch, Off by default. In an Enhanced Mode game
+    /// it draws far units with simpler animated bodies on the graphics card.
+    lighter_far_units,
     /// New unit shadows: a switch, On for Open Annihilation's shadows where
     /// the graphics card draws them, Off for the game's own
     new_unit_shadows,

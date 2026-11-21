@@ -319,9 +319,9 @@ void Runtime::pace_next_frame(bool& running) {
                             PadAccess::input_held(*this);
     activity.unattended = options_.unattended;
     paced_frames_per_second_ = paced_frame_rate(options_.max_frames_per_second, activity);
-    const bool enhanced =
-        screen_ == Screen::match && match_ && match_->rules().setup.enhanced_mode.enabled;
-    const auto cadence = frame_pacing::display_frame_cadence(enhanced, vertical_sync_in_effect_);
+    const auto cadence = frame_pacing::display_frame_cadence(
+        frame_presentation().full_display_cadence, vertical_sync_in_effect_
+    );
     // Vertical sync bounds presentation. Enhanced matches keep the full
     // display rate; the ordinary cadence stays just below it.
     if (vertical_sync_in_effect_)

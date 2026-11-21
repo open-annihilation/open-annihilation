@@ -13,7 +13,7 @@
 #include "renderer_effect_sources.hpp"
 #include "renderer_live_scene.hpp"
 #include "renderer_live_camera.hpp"
-#include "renderer_marker_policy.hpp"
+#include "presentation_policy.hpp"
 #include "runtime_ground_query_check.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
@@ -104,39 +104,54 @@ int Runtime::check_live_renderer() {
     // Existing pixel and picking controls always exercise their released path.
     options_.prototype_root_prefix = false;
     const GroundQueryObservations ground_query_observations;
-    // Check the actual production gate independently of the check-only
-    // headless override, without changing the running match's rules.
+    // Check the production gate independently of the check-only headless
+    // override. Compact markers follow Enhanced Mode, not the graphics option.
     {
-        using oa::data::match_rules::MatchRules;
-        MatchRules rules{};
-        rules.setup.enhanced_mode.enabled = true;
-        MarkerFramePolicy frame{true, true};
-        for (int32_t version = 0; version <= 12; ++version) {
-            rules.setup.enhanced_mode.version = version;
-            require(
-                compact_marker_frame(rules, frame) ==
-                    (version == 7 || version == 8 || version == 10 || version == 11),
-                "the compact marker production rules gate is wrong"
-            );
-        }
-        rules.setup.enhanced_mode.version = 7;
-        rules.setup.enhanced_mode.enabled = false;
-        require(!compact_marker_frame(rules, frame), "disabled Enhanced Mode selected markers");
-        rules.setup.enhanced_mode.enabled = true;
-        for (const auto excluded : std::array<MarkerFramePolicy, 6>{
-                 {{false, true},
-                  {true, false},
-                  {true, true, true},
-                  {true, true, false, true},
-                  {true, true, false, false, true},
-                  {true, true, false, false, false, true}}
-             })
-            require(!compact_marker_frame(rules, excluded), "an excluded frame selected markers");
-        frame.headless = frame.explicit_check = true;
-        rules.setup.enhanced_mode.enabled = false;
-        require(compact_marker_frame(rules, frame), "the dedicated headless check is excluded");
-        frame.directed = true;
-        require(!compact_marker_frame(rules, frame), "the check bypassed a director exclusion");
+        PresentationInputs inputs;
+        inputs.enhanced = true;
+        inputs.global_dots = true;
+        inputs.gpu_ready = true;
+        inputs.tier = PresentationTier::card;
+        require(
+            presentation_policy(inputs).compact_markers, "enhanced dots omitted compact markers"
+        );
+        inputs.lighter_far_units = true;
+        require(
+            presentation_policy(inputs).compact_markers,
+            "compact markers waited on the graphics option"
+        );
+        inputs.lighter_far_units = false;
+        inputs.enhanced = false;
+        require(
+            !presentation_policy(inputs).compact_markers, "disabled Enhanced Mode selected markers"
+        );
+        inputs.enhanced = true;
+        inputs.global_dots = false;
+        require(!presentation_policy(inputs).compact_markers, "an excluded frame selected markers");
+        inputs.global_dots = true;
+        inputs.gpu_ready = false;
+        require(!presentation_policy(inputs).compact_markers, "an excluded frame selected markers");
+        inputs.gpu_ready = true;
+        inputs.debug_lines = true;
+        require(!presentation_policy(inputs).compact_markers, "an excluded frame selected markers");
+        inputs.debug_lines = false;
+        inputs.director = true;
+        require(!presentation_policy(inputs).compact_markers, "an excluded frame selected markers");
+        inputs.director = false;
+        inputs.retained = true;
+        require(!presentation_policy(inputs).compact_markers, "an excluded frame selected markers");
+        inputs.retained = false;
+        inputs.headless = true;
+        require(!presentation_policy(inputs).compact_markers, "an excluded frame selected markers");
+        inputs.explicit_check = true;
+        inputs.enhanced = false;
+        require(
+            presentation_policy(inputs).compact_markers, "the dedicated headless check is excluded"
+        );
+        inputs.director = true;
+        require(
+            !presentation_policy(inputs).compact_markers, "the check bypassed a director exclusion"
+        );
     }
     // SDL's GPU backend needs the native video driver, but no window or
     // visible renderer is created by this check.
@@ -155,6 +170,186 @@ int Runtime::check_live_renderer() {
                     oa::ui::engine_settings::default_effect_intensity(
                         slider.percent, HardwareAcceleration::full
                     );
+    }
+    // The snapshot-only water capture later in this check fails a borrowed-vertex
+    // compare on the base app as well, so the option pictures are taken first.
+    if (!options_.snapshot.empty()) {
+        namespace mode = oa::data::enhanced_mode;
+        const auto kept_settings = engine_settings();
+        fs::create_directories(options_.snapshot);
+        const auto differing_pixels = [](const renderer::Surface& left,
+                                         const renderer::Surface& right) {
+            if (left.width != right.width || left.height != right.height ||
+                left.rgb.size() != right.rgb.size())
+                return static_cast<std::size_t>(-1);
+            std::size_t count = 0;
+            for (std::size_t pixel = 0; pixel + 2 < left.rgb.size(); pixel += 3)
+                if (left.rgb[pixel] != right.rgb[pixel] ||
+                    left.rgb[pixel + 1] != right.rgb[pixel + 1] ||
+                    left.rgb[pixel + 2] != right.rgb[pixel + 2])
+                    ++count;
+            return count;
+        };
+        const auto begin_picture_match = [&] {
+            leave_match();
+            load(Screen::main_menu);
+            // Each picture match takes one hold. Drop the previous one first.
+            release_enhanced_rules_once(true);
+            require(
+                hold_enhanced_rules_once(mode::cohort_target_version),
+                "the card pictures could not select Enhanced rules"
+            );
+            start_benchmark_skirmish();
+            require(
+                match_->rules().setup.enhanced_mode.enabled,
+                "the card pictures did not start Enhanced Mode"
+            );
+            select_local_commander();
+            match_layout_ = lay_out_match(1280, 800);
+            require(turn_live_camera(20, -53), "the card pictures' camera did not turn");
+            render_match_surface();
+            require(
+                live_renderer_active() && !live_renderer_failed(),
+                "the card pictures did not draw on the card"
+            );
+        };
+        begin_picture_match();
+        constexpr int32_t picture_fixed = 65536;
+        require(selected_tnt_.has_value(), "the card pictures have no map");
+        const oa::sim::unit_movement::Terrain picture_terrain(*selected_tnt_);
+        const auto picture_anchor = match_->world().record.units[selected_match_unit_].position;
+        oa::sim::unit_spawn::Request picture_request;
+        picture_request.player = match_local_player_;
+        picture_request.type = oa::sim::unit_spawn::find_type_index(spawn_type_names_, "ARMPW");
+        picture_request.finished = true;
+        picture_request.state = kGroundOccupancyState;
+        picture_request.position = {
+            static_cast<uint32_t>(picture_anchor.x + 96 * picture_fixed),
+            0,
+            static_cast<uint32_t>(picture_anchor.z)
+        };
+        const auto picture_floor = picture_terrain.height(
+            static_cast<int32_t>(picture_request.position[0]),
+            static_cast<int32_t>(picture_request.position[2])
+        );
+        require(
+            picture_request.type != 0 && picture_floor >= picture_terrain.sea_level(),
+            "the card pictures lack a dry ARMPW spawn"
+        );
+        picture_request.position[1] = static_cast<uint32_t>(picture_floor * picture_fixed);
+        auto* picture_placed = match_->create(picture_request);
+        require(picture_placed && picture_placed->unit, "the card picture ARMPW did not spawn");
+        picture_placed->unit->object_present = true;
+        const auto picture_walker = picture_placed->unit_index;
+        require(match_->takes_move_order(picture_walker), "the card picture unit cannot walk");
+        match_layout_ = lay_out_match(1280, 800);
+        {
+            auto chosen = kept_settings;
+            chosen.lighter_far_units = true;
+            chosen.zoomed_out_units = oa::ui::engine_settings::ZoomedOutUnits::rendered;
+            chosen.smooth_motion = true;
+            apply_engine_settings(chosen);
+        }
+        match_zoom_ = match_zoom_target_ = 0.315F;
+        require(turn_live_camera(20, -20), "the card pictures' camera did not turn");
+        center_camera_on_unit(picture_walker);
+        bool picture_walked = false;
+        const int32_t picture_map_width = static_cast<int32_t>(selected_tnt_->attribute_width) * 16;
+        const int32_t picture_map_height =
+            static_cast<int32_t>(selected_tnt_->attribute_height) * 16;
+        for (const auto& picture_direction :
+             std::array<std::array<int32_t, 2>, 4>{{{256, 0}, {0, 256}, {-256, 0}, {0, -256}}}) {
+            const auto here = match_->world().record.units[picture_walker].position;
+            const int32_t picture_x = here.x / picture_fixed + picture_direction[0];
+            const int32_t picture_z = here.z / picture_fixed + picture_direction[1];
+            if (picture_x < 16 || picture_z < 16 || picture_x >= picture_map_width - 16 ||
+                picture_z >= picture_map_height - 16)
+                continue;
+            const auto destination_floor =
+                picture_terrain.height(picture_x * picture_fixed, picture_z * picture_fixed);
+            if (destination_floor < picture_terrain.sea_level())
+                continue;
+            (void)match_->issue_ground_move(
+                picture_walker,
+                {picture_x * picture_fixed,
+                 destination_floor * picture_fixed,
+                 picture_z * picture_fixed},
+                false
+            );
+            for (unsigned picture_step = 0; picture_step < 80 && !picture_walked; ++picture_step) {
+                const auto before = match_->world().record.units[picture_walker].position;
+                step_match_simulation();
+                set_presentation_alpha(0.5F);
+                render_match_surface();
+                const auto after = match_->world().record.units[picture_walker].position;
+                const auto& motion = match_models().presentation.units[picture_walker];
+                picture_walked =
+                    (before.x != after.x || before.z != after.z) && motion.pieces_moved;
+            }
+            if (picture_walked)
+                break;
+        }
+        require(picture_walked, "the card picture ARMPW did not walk");
+        set_presentation_alpha(0.5F);
+        const auto picture_shot = [&](bool on, float zoom, const char* zoom_name) {
+            auto chosen = engine_settings();
+            chosen.lighter_far_units = on;
+            chosen.zoomed_out_units = oa::ui::engine_settings::ZoomedOutUnits::rendered;
+            apply_engine_settings(chosen);
+            match_zoom_ = match_zoom_target_ = zoom;
+            center_camera_on_unit(picture_walker);
+            render_match_surface();
+            write_picture(
+                options_.snapshot /
+                    (std::string("card-") + zoom_name + "-option-" + (on ? "on" : "off") + ".png"),
+                match_world_cpu_
+            );
+            return match_world_cpu_;
+        };
+        for (const auto& picture_zoom : std::array<std::pair<float, const char*>, 3>{
+                 {{1.0F, "1"}, {0.5F, "0.5"}, {0.315F, "0.315"}}
+             }) {
+            const auto picture_off = picture_shot(false, picture_zoom.first, picture_zoom.second);
+            const auto picture_on = picture_shot(true, picture_zoom.first, picture_zoom.second);
+            std::cout << "live renderer check: option pictures card-" << picture_zoom.second
+                      << " differing_pixels " << differing_pixels(picture_off, picture_on)
+                      << " body_lod_models " << bench_timers::body_counts.body_lod_models << '\n';
+        }
+        const auto card_switch = [&](bool lighter) {
+            begin_picture_match();
+            auto chosen = engine_settings();
+            chosen.lighter_far_units = lighter;
+            chosen.smooth_motion = true;
+            chosen.zoomed_out_units = oa::ui::engine_settings::ZoomedOutUnits::dots;
+            chosen.zoomed_out_after = oa::ui::engine_settings::ZoomedOutAfter::one_half;
+            apply_engine_settings(chosen);
+            set_presentation_alpha(0.0F);
+            match_zoom_ = match_zoom_target_ = 0.25F;
+            for (int picture_step = 0; picture_step < 30; ++picture_step) {
+                step_match_simulation();
+                render_match_surface();
+            }
+            require(dots_frame(), "the card switch-over did not draw dots");
+            match_zoom_ = match_zoom_target_ = 1.0F;
+            set_presentation_alpha(0.5F);
+            require(!dots_frame(), "the card switch-over stayed on dots at zoom 1");
+            render_match_surface();
+            std::size_t primed = 0;
+            for (const auto& unit : match_models().presentation.units)
+                if (unit.rig_primed)
+                    ++primed;
+            std::cout << "live renderer check: root-capture switch-over card"
+                      << (lighter ? " option-on" : " option-off") << " primed=" << primed << '\n';
+            return match_world_cpu_;
+        };
+        const auto card_off = card_switch(false);
+        const auto card_on = card_switch(true);
+        std::cout << "live renderer check: root-capture switch-over card differing_pixels "
+                  << differing_pixels(card_off, card_on) << '\n';
+        apply_engine_settings(kept_settings);
+        leave_match();
+        release_enhanced_rules_once(true);
+        load(Screen::main_menu);
     }
     start_benchmark_skirmish();
     require(match_ != nullptr, "Skirmish did not create a match");
@@ -4636,17 +4831,30 @@ int Runtime::check_live_renderer() {
         // any frozen comparison. No record position, piece pose or tick is
         // manufactured to make the visibility proof succeed.
         constexpr uint32_t deferred_geometry_version = mode::cohort_target_version;
-        for (const auto [preplan_zoom, preplan_version] : std::array{
-                 std::pair{1.0F, mode::following_flow_version},
-                 std::pair{0.35F, mode::following_flow_version},
-                 std::pair{1.0F, deferred_geometry_version},
-                 std::pair{0.35F, deferred_geometry_version},
-                 std::pair{1.0F, mode::cohort_retention_version},
-                 std::pair{0.35F, mode::cohort_retention_version}
-             }) {
-            const bool deferred_geometry_preset = preplan_version == mode::cohort_target_version ||
-                                                  preplan_version == mode::cohort_retention_version;
+
+        struct DeferredProof {
+            float zoom;
+            int32_t version;
+            bool lighter_far_units;
+        };
+
+        for (const DeferredProof proof : std::array<DeferredProof, 6>{{
+                 {1.0F, mode::following_flow_version, false},
+                 {0.35F, mode::following_flow_version, false},
+                 {1.0F, deferred_geometry_version, true},
+                 {0.35F, deferred_geometry_version, true},
+                 {1.0F, mode::cohort_retention_version, true},
+                 {0.35F, mode::cohort_retention_version, true},
+             }}) {
+            const float preplan_zoom = proof.zoom;
+            const int32_t preplan_version = proof.version;
             start_ground_match(preplan_version);
+            {
+                auto chosen = engine_settings();
+                chosen.lighter_far_units = proof.lighter_far_units;
+                apply_engine_settings(chosen);
+            }
+            const bool deferred_geometry_preset = frame_presentation().deferred_geometry;
             enter_console_check_line("+nowisee");
             constexpr int32_t fixed = 65536;
             constexpr float preplan_pitch = -20;
@@ -6230,6 +6438,54 @@ int Runtime::check_live_renderer() {
         }
 #include "runtime_stock_shadow_cache_check.inc"
 #include "runtime_live_root_prefix_check.inc"
+        if (!options_.snapshot.empty()) {
+            const auto differing_pixels = [](const renderer::Surface& left,
+                                             const renderer::Surface& right) {
+                if (left.width != right.width || left.height != right.height ||
+                    left.rgb.size() != right.rgb.size())
+                    return static_cast<std::size_t>(-1);
+                std::size_t count = 0;
+                for (std::size_t index = 0; index + 2 < left.rgb.size(); index += 3)
+                    if (left.rgb[index] != right.rgb[index] ||
+                        left.rgb[index + 1] != right.rgb[index + 1] ||
+                        left.rgb[index + 2] != right.rgb[index + 2])
+                        ++count;
+                return count;
+            };
+            const auto card_frame = [&](bool lighter) {
+                start_ground_match(mode::cohort_target_version);
+                require(live_renderer_active(), "the card switch-over did not draw on the card");
+                auto chosen = engine_settings();
+                chosen.lighter_far_units = lighter;
+                chosen.smooth_motion = true;
+                chosen.zoomed_out_units = oa::ui::engine_settings::ZoomedOutUnits::dots;
+                chosen.zoomed_out_after = oa::ui::engine_settings::ZoomedOutAfter::one_half;
+                apply_engine_settings(chosen);
+                set_presentation_alpha(0.0F);
+                match_zoom_ = match_zoom_target_ = 0.25F;
+                for (int tick_step = 0; tick_step < 30; ++tick_step) {
+                    step_match_simulation();
+                    render_match_surface();
+                }
+                require(dots_frame(), "the card switch-over did not draw dots");
+                match_zoom_ = match_zoom_target_ = 1.0F;
+                set_presentation_alpha(0.5F);
+                require(!dots_frame(), "the card switch-over stayed on dots at zoom 1");
+                render_match_surface();
+                std::size_t primed = 0;
+                for (const auto& unit : match_models().presentation.units)
+                    if (unit.rig_primed)
+                        ++primed;
+                std::cout << "live renderer check: root-capture switch-over card"
+                          << (lighter ? " option-on" : " option-off") << " primed=" << primed
+                          << '\n';
+                return match_world_cpu_;
+            };
+            const auto card_off = card_frame(false);
+            const auto card_on = card_frame(true);
+            std::cout << "live renderer check: root-capture switch-over card differing_pixels "
+                      << differing_pixels(card_off, card_on) << '\n';
+        }
         leave_match();
     } catch (...) {
         finish_ground_check();

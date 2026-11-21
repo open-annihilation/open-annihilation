@@ -70,6 +70,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Coastal waves, locked as Water ripples is | 0–200%, steps of 10% | 30% | `open-annihilation.coastal-waves.intensity` |
 | | Underwater shimmer, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.underwater-shimmer.intensity` |
 | | Naval reflections, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.naval-reflections.intensity` |
+| | Lighter far units: in an Enhanced Mode game, far units use simpler animated bodies on the graphics card. Enhanced Mode Off draws nothing from it | Off, On | Off | `open-annihilation.lighter-far-units` (`0` or `1`; absent stays Off) |
 | | New unit shadows, Graphics' last row: the shadows of units and wrecks Open Annihilation draws where the graphics card draws the battlefield (Hardware acceleration Full), or the game's own; the processor always draws the game's own | Off, On | On | `open-annihilation.new-unit-shadows` (`0` or `1`) |
 | User Interface | Menu scaling | Sharp, Whole steps, Unfiltered | Sharp | `open-annihilation.menu-scaling` (`sharp`, `whole-steps` or `unfiltered`) |
 | | Window frame: whether a window shows its title bar and borders while a game is played; the game menu, a panel it opens and every other screen show them | Hidden in play, Always shown | Hidden in play | `open-annihilation.window-frame` (`hidden-in-play` or `always-shown`) |
@@ -1562,7 +1563,7 @@ while the modern fonts are Off, lifted as they turn On; the Language
 drop-down's choices, each language named in itself, its field and list,
 the pointer and the keys on them, a press off the list, the command line's
 lock, and lists that scroll or open over their field;
-the Graphics section's twenty-two rows, New unit shadows last, their places at every offset
+the Graphics section's twenty-three rows, Lighter far units then New unit shadows last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's and New unit shadows' switches and their two hints each, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
 the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's twenty-three rows, a colour-vision mode turning Shape cues on, Achromatopsia locking it, the preview's fourteen chips, the captions at both ends of each range, Choose… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down

@@ -4,7 +4,6 @@
 // Independent scalar captures and drawing-pool captures leave the same full
 // history, including rates, across tick, generation and attachment changes.
 #include "presentation_capture.hpp"
-#include "oa/data/enhanced_mode.hpp"
 
 #include "oa/base/float_precision.hpp"
 
@@ -414,22 +413,6 @@ void test_parallel_history() {
     CHECK(same_totals({}, app::capture_unit_poses({}, 1, empty_scratch, &four)));
 }
 
-/// The engine hack follows exactly the opted-in preset and existing global policy.
-void test_capture_policy() {
-    oa::data::match_rules::MatchRules rules;
-    for (const bool enabled : {false, true})
-        for (int32_t version = 0; version <= 12; ++version) {
-            rules.setup.enhanced_mode.enabled = enabled;
-            rules.setup.enhanced_mode.version = version;
-            CHECK(app::unit_pose_capture(rules, false) == app::UnitPoseCapture::full);
-            const auto expected =
-                enabled && (version == 7 || version == 8 || version == 10 || version == 11)
-                    ? app::UnitPoseCapture::root
-                    : app::UnitPoseCapture::full;
-            CHECK(app::unit_pose_capture(rules, true) == expected);
-        }
-}
-
 /// Root capture does not touch scripts; a same-tick model request primes the actual rig.
 void test_root_capture_and_query_transition() {
     constexpr uint32_t identity = 719;
@@ -573,7 +556,6 @@ void test_parallel_roots_without_rig_storage() {
 
 int main() {
     test_parallel_history();
-    test_capture_policy();
     test_root_capture_and_query_transition();
     test_parallel_roots_without_rig_storage();
     return failures == 0 ? 0 : 1;

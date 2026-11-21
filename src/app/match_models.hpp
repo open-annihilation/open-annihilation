@@ -319,8 +319,8 @@ shown_unit_position(const MatchModels& models, const oa::World& world, uint16_t 
 /// @param[in,out] models the match's renderer state
 /// @param match the match
 /// @param pool drawing workers; null observes on the calling thread alone
-/// @param global_dots the existing graphics choice draws no unit models;
-///        only the explicitly enabled version-7 and version-8 presets omit rig capture
+/// @param global_dots this frame captures roots only; the caller passes
+///        the presentation policy's root capture on a dots frame
 void observe_match_tick(
     MatchModels& models,
     oa::sim::match_runtime::Match& match,

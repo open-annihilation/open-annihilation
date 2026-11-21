@@ -812,8 +812,9 @@ excluded. These measurements precede the later minimap and recording changes.
 ## Experimental cardinal queue escape (version 13)
 
 Version 13 is an explicit experiment based on version 10. It keeps
-version 10's distributed routing, local following, cohort target assignment,
-animated body detail and deferred unit geometry. It does not select version
+version 10's distributed routing, local following and cohort target assignment.
+Animated body detail and deferred unit geometry are the Graphics choice
+Lighter far units, not part of the version. It does not select version
 11's target retention. Off and the earlier supported presets retain their
 existing rules. Versions 9, 12 and 14 remain unsupported.
 
@@ -854,8 +855,8 @@ FPS; tick timings were affected by other work. The default stays version 4.
 
 ## Experimental cohort target retention (version 11)
 
-Version 11 inherits version 10's movement, cohort distribution and unit
-rendering policies. It may retain a target named by a strict majority of
+Version 11 inherits version 10's movement and cohort distribution.
+Unit rendering is a Graphics choice, Lighter far units, not a version. It may retain a target named by a strict majority of
 the cohort's current strike members when their compatible owned attack
 heads still name an eligible enemy. Members without a compatible head
 remain in the majority denominator and cast no vote. This uses the current
@@ -878,8 +879,8 @@ For ordinary play, opt in explicitly:
 The normal frontend opens and the rules choice lasts for this launch.
 Loaded games and recordings keep their own version; multiplayer peers
 must agree on the version and simulation rules. Graphics choices remain
-independent, and version 11 inherits version 10's animated body detail and
-deferred unit geometry. The supplied new-game preset remains version 4.
+independent. Animated body detail and deferred unit geometry follow
+Lighter far units while Enhanced Mode is on. The supplied new-game preset remains version 4.
 This separate identity does not establish better battle flow or 60 FPS;
 those require fresh moving-and-fighting measurements.
 
@@ -1057,6 +1058,7 @@ once their ordinary white material is already persistent and adaptive model
 budgeting is inactive. Full models, reflections and card handling keep their
 existing pass. The joined vertices, picking ranges and material order are
 checked against the original renderer, including windowless GPU pixels.
+Compact markers are drawn in every Enhanced Mode game, not from a version.
 A same-input 20,000-marker Scene check measured 1.059 to 0.511 ms with four
 total drawing threads; a one-thread control added about 0.026 ms. This is
 Scene construction timing, not gameplay FPS. The model-stage timer sums the
@@ -1387,13 +1389,17 @@ the 60 FPS target, and rear-army flow remains mixed. Ray tracing is deferred.
 
 ### Root capture and script dispatch checkpoint
 
-Experimental preset 7 now captures only root movement while the graphics policy
-draws every unit as a strategic dot. Unit scripts, motion, queries and combat
-continue to run. Returning to models immediately captures the current rig,
-including while paused; piece interpolation resumes after the next complete
-tick endpoint. That first interval uses the current piece poses, without
-inventing earlier animation. Off, earlier presets, director rendering and
-debug order lines retain complete capture. Renderer selection stays independent.
+Every Enhanced Mode game captures only root movement while the graphics
+policy draws every unit as a strategic dot. Unit scripts, motion, queries
+and combat continue to run. Returning to models immediately captures the
+current rig, including while paused; piece interpolation resumes after the
+next complete tick endpoint. That first interval uses the current piece
+poses, without inventing earlier animation. Those frames match a full
+capture, on the processor, in Full and on the card, so root capture is on
+for every Enhanced Mode game. Enhanced Mode Off, director rendering and
+debug order lines retain complete capture. Lighter far units changes how
+far units' bodies are drawn; it does not choose this capture.
+Renderer selection stays independent.
 
 A component check used 20,000 distinct procedural VM/model instances with
 310,000 pieces and four total threads. Six paired blocks of eight captures

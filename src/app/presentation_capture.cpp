@@ -4,7 +4,6 @@
 #include "presentation_capture.hpp"
 
 #include "oa/base/float_precision.hpp"
-#include "oa/data/enhanced_mode.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -65,15 +64,6 @@ struct CaptureFloatControl {
 };
 
 } // namespace
-
-UnitPoseCapture
-unit_pose_capture(const oa::data::match_rules::MatchRules& rules, bool global_dots) noexcept {
-    const auto& enhanced = rules.setup.enhanced_mode;
-    return global_dots && enhanced.enabled &&
-                   oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)
-               ? UnitPoseCapture::root
-               : UnitPoseCapture::full;
-}
 
 UnitCaptureTotals capture_unit_poses(
     std::span<const UnitCaptureItem> items,
