@@ -752,7 +752,8 @@ void check_reused_transforms() {
 
     auto measured = oa::sim::model_runtime::make_instance(model, destination_owner, names);
     const auto base_bytes = measured.transform_storage_bytes();
-    auto& points = measured.pieces().front().transformed_vertices;
+    const auto measured_pieces = measured.pieces();
+    auto& points = measured_pieces.front().transformed_vertices;
     const auto previous_capacity = points.capacity();
     points.reserve(previous_capacity + 11);
     require(

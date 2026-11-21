@@ -2277,7 +2277,7 @@ bool Runtime::draw_match_surface() {
     // stays rendered until its picture cannot be allocated.
     // The live view's dots follow the explicit graphics choice; its unit
     // geometry does not need the processor's model bridge memory fallback.
-    const auto& graphics = engine_settings();
+    static_cast<void>(engine_settings());
     const bool live_dots = !directed && live_renderer_active() && zoomed_out_units_frame();
     bool dots = !directed && (live_dots || (!live_renderer_active() && dots_frame()));
     // The map the view shows: the fill below draws nothing beyond it. The
