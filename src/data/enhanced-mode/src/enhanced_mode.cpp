@@ -46,7 +46,7 @@ using enum Feature;
 /// The feature table, in id order: entry n - 1 describes the feature with
 /// id n. Every feature needs Enhanced Mode on, and every chain of needs ends
 /// in capacity, the feature that sizes the Enhanced Mode state.
-constexpr std::array<FeatureInfo, 28> feature_rows{{
+constexpr std::array<FeatureInfo, 29> feature_rows{{
     {capacity, "capacity", FeatureKind::capacity, {}, {}},
     {local_flow, "local_flow", FeatureKind::simulation, set_of({capacity}), {}},
     {routes_original,
@@ -111,7 +111,7 @@ constexpr std::array<FeatureInfo, 28> feature_rows{{
      "bounded_strike_recruits",
      FeatureKind::simulation,
      set_of({capacity}),
-     {}},
+     set_of({wide_strike_recruits})},
     {ai_attack_retention,
      "ai_attack_retention",
      FeatureKind::simulation,
@@ -151,6 +151,13 @@ constexpr std::array<FeatureInfo, 28> feature_rows{{
      FeatureKind::capacity,
      set_of({capacity}),
      set_of({indexed_searches})},
+    // Strike recruits in larger batches; the old versions keep
+    // bounded_strike_recruits.
+    {wide_strike_recruits,
+     "wide_strike_recruits",
+     FeatureKind::simulation,
+     set_of({capacity}),
+     set_of({bounded_strike_recruits})},
 }};
 
 /// Every feature the table describes.
@@ -367,7 +374,7 @@ constexpr FeatureSet revision_1_features = version_4_features;
 constexpr std::array<const char*, feature_rows.size()> feature_engine_versions{{
     "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
     "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
 }};
 
 /// The first engine version of each revision. Index 0 is Off and has none.
@@ -434,7 +441,7 @@ using FeatureEnum = match_rules::SetupEnhancedModeFeatures;
 
 static_assert(enum_size(FeatureEnum{}) == feature_rows.size());
 static_assert(static_cast<int>(FeatureEnum::capacity) == 0);
-static_assert(static_cast<int>(FeatureEnum::exact_indexed_searches) == 27);
+static_assert(static_cast<int>(FeatureEnum::wide_strike_recruits) == 28);
 
 /// Writes a feature set into the registry's enumeration set.
 ///

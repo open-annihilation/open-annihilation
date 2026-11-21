@@ -216,6 +216,8 @@ enum class Feature : uint8_t {
     /// reaches a unit that has moved within its cell out of the bucket it was
     /// filed in, so it finds exactly what a full scan finds.
     exact_indexed_searches = 28,
+    /// A computer strike recruits at most 1,024 new members at a time.
+    wide_strike_recruits = 29,
 };
 
 /// What a feature changes. The machines of a match agree on every kind.
