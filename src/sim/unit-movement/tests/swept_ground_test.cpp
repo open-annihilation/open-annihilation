@@ -271,7 +271,7 @@ struct OriginSet {
     }
 };
 
-/// Enumerates all intersected origin rectangles with an exact rational oracle.
+/// Enumerates all intersected origin rectangles by exact rational intersection.
 OriginSet crossed_origins(const movement::Unit& unit, const movement::Movement& moving) {
     OriginSet result{};
     std::array<int64_t, 2> start{}, velocity{};
@@ -445,8 +445,8 @@ void both_diagonal_sides_keep_the_collision_veto() {
     }
 }
 
-/// Half-open endpoints and exact diagonal transitions agree with an enumeration oracle.
-void crossed_origin_sets_match_exact_oracle() {
+/// Half-open endpoints and exact diagonal transitions agree with an independent enumeration.
+void crossed_origin_sets_match_exact_enumeration() {
     constexpr std::array<Fixed, 7> phases{
         0, 1, pixel - 1, 8 * pixel, 16 * pixel - 2, 16 * pixel - 1, 7 * pixel
     };
@@ -748,7 +748,7 @@ int main() {
     positive_interval_witness_is_blocked();
     intermediate_static_and_mobile_plots_block();
     both_diagonal_sides_keep_the_collision_veto();
-    crossed_origin_sets_match_exact_oracle();
+    crossed_origin_sets_match_exact_enumeration();
     clear_steps_preserve_legacy_state_and_lifecycle();
     same_cell_and_no_motion_keep_native_behavior();
     query_budgets_are_preflighted_and_charged();
