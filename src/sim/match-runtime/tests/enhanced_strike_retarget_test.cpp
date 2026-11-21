@@ -493,8 +493,9 @@ struct StrikeFixture {
         // Keep an actual split when members may choose another selected front.
         // The short-range fixture retains separate targets at its shared Z.
         const bool nearby_fronts =
-            !short_range_weapon &&
-            oa::data::enhanced_mode::uses_cohort_target_distribution(version);
+            !short_range_weapon && fixture.match->enhanced_features().has(
+                                       oa::data::enhanced_mode::Feature::cohort_targets
+                                   );
         auto& second = fixture.spawn(
             enemy_player,
             nearby_fronts ? target_x : replacement_x,
@@ -526,7 +527,9 @@ struct StrikeFixture {
         initial_issue_tick = head_record(fixture, members.front()).issue_tick;
         regular_refresh_tick = initial_issue_tick + strike_refresh_ticks;
         CHECK(strike().next_tick == regular_refresh_tick);
-        if (oa::data::enhanced_mode::uses_cohort_target_distribution(version)) {
+        if (fixture.match->enhanced_features().has(
+                oa::data::enhanced_mode::Feature::cohort_targets
+            )) {
             std::size_t first_members = 0;
             std::size_t second_members = 0;
             for (const auto member : members) {
@@ -1032,8 +1035,11 @@ void live_target_does_not_add_command_refreshes(uint32_t version) {
     battle.fixture.run(1);
     battle.check_attack(
         battle.target,
-        oa::data::enhanced_mode::uses_distributed_battle_flow(version) ? battle.initial_issue_tick
-                                                                       : battle.regular_refresh_tick
+        battle.fixture.match->enhanced_features().has(
+            oa::data::enhanced_mode::Feature::ai_attack_retention
+        )
+            ? battle.initial_issue_tick
+            : battle.regular_refresh_tick
     );
     const auto next_refresh = battle.regular_refresh_tick + strike_refresh_ticks;
     CHECK(battle.strike().next_tick == next_refresh);
