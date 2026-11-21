@@ -88,6 +88,7 @@ struct PlaybackStats {
     uint32_t sends_dropped{};       // the watcher's own outgoing frames
     uint32_t unknown_senders{};     // packets from a number no player chunk names; dropped
     uint32_t wide_records{};        // 0xE0..0xE2 kept in the rebuilt frames
+    uint32_t route_batch_records{}; // 0xE4..0xE5 kept in the rebuilt frames
 };
 
 struct DemoPlayback {

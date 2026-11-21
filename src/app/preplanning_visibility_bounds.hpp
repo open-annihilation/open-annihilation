@@ -865,15 +865,16 @@ template <typename Bounds>
     const auto camera = detail::prepare_rejection(shown, view, gate);
     if (!camera)
         return false;
-    std::optional<FixedBounds> far;
+    std::optional<FixedBounds> far_bound;
     if (try_far) {
-        far = bound_far_instance(geometry, *shown.instance, scratch);
-        if (far && detail::rejection_proof_with_fixed_bound(shown, view, gate, *far, *camera))
+        far_bound = bound_far_instance(geometry, *shown.instance, scratch);
+        if (far_bound &&
+            detail::rejection_proof_with_fixed_bound(shown, view, gate, *far_bound, *camera))
             return true;
     }
     const auto exact =
-        far ? detail::bound_with_validated_topology(geometry, *shown.instance, effective_root)
-            : bound_instance(geometry, *shown.instance, effective_root, scratch);
+        far_bound ? detail::bound_with_validated_topology(geometry, *shown.instance, effective_root)
+                  : bound_instance(geometry, *shown.instance, effective_root, scratch);
     return exact && detail::rejection_proof_with_fixed_bound(shown, view, gate, *exact, *camera);
 }
 

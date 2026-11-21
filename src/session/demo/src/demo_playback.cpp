@@ -8,6 +8,7 @@
 #include "oa/netgame/private_channel.hpp"
 #include "oa/netgame/records.hpp"
 #include "oa/netgame/recorder_messages.hpp"
+#include "oa/netgame/route_batch.hpp"
 #include "oa/netgame/unit_state.hpp"
 #include "oa/netgame/network.hpp"
 #include "oa/base/text.hpp"
@@ -20,6 +21,7 @@
 #include <exception>
 #include <fstream>
 #include <iterator>
+#include <span>
 #include <unordered_set>
 
 namespace oa::session::demo {
@@ -60,10 +62,48 @@ bool append_empty_unit_state(uint32_t tick, unsigned def_bits, std::vector<uint8
     return true;
 }
 
+/// Appends the route batch records of a recorded packet to a rebuilt frame.
+///
+/// A recording keeps each route batch record (0xe4, 0xe5) in a packet of its
+/// own, as it keeps every record but a 0x2c, and each is sized by the length
+/// it carries.
+///
+/// @param records the packet's records, after its payload marker
+/// @param[in,out] frame the frame being rebuilt
+/// @param[out] last_tick the latest tick a part names, 0 for none
+/// @param[in,out] stats counts the records kept
+/// @return false, appending nothing, when the packet holds anything but whole route batch records
+bool append_route_batch_records(
+    std::span<const uint8_t> records,
+    std::vector<uint8_t>* frame,
+    uint32_t* last_tick,
+    PlaybackStats* stats
+) {
+    uint32_t tick = 0;
+    uint32_t count = 0;
+    for (std::size_t at = 0; at < records.size();) {
+        uint16_t length = 0;
+        if (netgame::route_batch_record_length(records.data() + at, records.size() - at, &length) !=
+            netgame::WireError::ok)
+            return false;
+        netgame::RouteBatchPartHeader header{};
+        if (records[at] == static_cast<uint8_t>(netgame::RouteBatchRecordType::part) &&
+            netgame::decode_route_batch_part_header(records.data() + at, length, &header) ==
+                netgame::WireError::ok)
+            tick = std::max(tick, header.tick);
+        at += length;
+        ++count;
+    }
+    frame->insert(frame->end(), records.begin(), records.end());
+    *last_tick = tick;
+    stats->route_batch_records += count;
+    return count != 0;
+}
+
 // A recorded packet as the frame the packet layer would have received:
 // sequence dword, then the game records with unit states restored. Reports
-// the last sender tick among its unit states, restored or stored whole (0
-// when none).
+// the last sender tick among its unit states, restored or stored whole, or
+// among its route batch parts (0 when none).
 bool rebuild_frame(
     const formats::tad::Packet& packet,
     unsigned def_bits,
@@ -77,6 +117,13 @@ bool rebuild_frame(
     uint32_t game_records = 0;
     const auto decoded = formats::tad::decode_payload(packet.payload);
     if (!decoded.ok()) {
+        ++stats->bad_packets;
+        return false;
+    }
+    if (decoded.bytes.size() > 1 && netgame::is_route_batch_record_type(decoded.bytes[1])) {
+        const std::span<const uint8_t> records(decoded.bytes.data() + 1, decoded.bytes.size() - 1);
+        if (append_route_batch_records(records, frame, last_tick, stats))
+            return true;
         ++stats->bad_packets;
         return false;
     }
@@ -525,11 +572,16 @@ bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* 
             continue;
         }
         uint32_t last_tick = 0;
+        const auto route_batch_records = playback->stats.route_batch_records;
         const bool built = rebuild_frame(
             packet, playback->unit_def_bits, forms, &frame, &last_tick, &playback->stats
         );
+        // A part sent again carries the tick of its batch, which can lie
+        // before the frames already due: it is due with them.
         if (last_tick != 0)
-            due_tick = last_tick;
+            due_tick = playback->stats.route_batch_records != route_batch_records
+                           ? std::max(due_tick, last_tick)
+                           : last_tick;
         keep_packet_cameras(playback, packet, due_tick);
         if (!built) {
             ++playback->stats.empty_packets;
@@ -813,6 +865,10 @@ bool demo_session_begin(
         session->playback.limits.has_value() &&
         session->playback.limits->weapon_types > formats::tad::recorded_base_weapon_types;
     session->connection.packets->receiver.wide_records = play_wide;
+    // A recording that holds route batch records plays them as the machine
+    // that recorded it did; one without them splits as before.
+    session->connection.packets->receiver.route_batches =
+        session->playback.stats.route_batch_records != 0;
     netgame::match::match_binding_init(&session->binding, match, &session->net);
     session->binding.full_record_probe = {session, note_full_record};
     session->full_records = {};

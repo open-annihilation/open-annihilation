@@ -220,7 +220,7 @@ with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with 
 | `--hardware-acceleration[=off\|basic\|full]` | Sets Hardware acceleration for this run; alone it is `full`. |
 | `--no-hardware-acceleration` | Turns Hardware acceleration off for this run. |
 | `--experimental-3d` | Accepted for older launch scripts; camera access is now controlled by Graphics → Allow Full 3D Mode, On by default. |
-| `--prototype-root-prefix` | Enables the experimental [Q30 body rendering policy](development/root-prefix-rendering.md) for eligible local ground units in Enhanced 10, 11 or 13 matches using Full 3D. Off by default; its GPU transforms and picking follow the linked policy. |
+| `--prototype-root-prefix` | Enables the experimental [Q30 body rendering policy](development/root-prefix-rendering.md) for eligible local ground units in an Enhanced Mode match that also has Graphics → Lighter far units on, using Full 3D. Off by default; its GPU transforms and picking follow the linked policy. |
 | `--native-density` | Opens the window at the display's own pixel density for this run. |
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
 | `--enhanced-mode[=on\|off]` | Sets Enhanced Mode for this launch; alone it is On and selects the supplied new-game preset. |
@@ -582,6 +582,8 @@ Network play's own checks, the last rows, are in every build.
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
 | `--net-loopback-shooter TYPE` | The loopback check's host makes one finished `TYPE` beside its commander, and that unit fires at the ground beside the commander's aim point. |
+| `--net-loopback-route-burst MOVERS` | The loopback check's host is given `MOVERS` units and, at tick 300, moves them all at once; with `--enhanced-mode` the check reports the route batches that carry the burst and requires both worlds to agree. |
+| `--net-loopback-loss PERCENT` | With `--net-loopback-route-burst`, once the movers stand on both machines each machine loses `PERCENT` of the frames it sends, as `-e` does. |
 | `--net-loopback-each-ai` | The loopback check's host and joiner each seat a computer player. |
 | `--net-loopback-fixed-starts` | The loopback check's host fixes the start positions. |
 | `--check-host-not-found` | Checks a joiner whose host is never found. |

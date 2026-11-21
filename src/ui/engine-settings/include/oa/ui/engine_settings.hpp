@@ -177,6 +177,8 @@ inline constexpr std::string_view native_density = "open-annihilation.native-den
 inline constexpr std::string_view explosion_flash = "open-annihilation.explosion-flash";
 /// "classic" or "smooth" (EngineSettings::fog_of_war).
 inline constexpr std::string_view fog_of_war = "open-annihilation.fog-of-war";
+/// 1 or 0 (EngineSettings::lighter_far_units). Absent stays off.
+inline constexpr std::string_view lighter_far_units = "open-annihilation.lighter-far-units";
 /// 1 or 0 (EngineSettings::new_unit_shadows).
 inline constexpr std::string_view new_unit_shadows = "open-annihilation.new-unit-shadows";
 /// "rendered" or "dots" (EngineSettings::zoomed_out_units).
@@ -1593,6 +1595,10 @@ struct EngineSettings {
     /// How the fog's edges are drawn while the graphics card draws the
     /// battlefield; the processor's drawing is always Classic.
     FogOfWar fog_of_war{FogOfWar::smooth};
+    /// In an Enhanced Mode game, far units are drawn with simpler animated
+    /// bodies on the graphics card. Off keeps the full picture. Enhanced
+    /// Mode Off draws nothing from it.
+    bool lighter_far_units{false};
     /// Units' and wrecks' shadows as Open Annihilation draws them where the
     /// graphics card draws the battlefield (Full): laid on the ground under
     /// everything, overlaps darkening once, an aircraft's with a soft edge.

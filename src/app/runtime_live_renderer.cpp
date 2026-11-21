@@ -3,9 +3,7 @@
 
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
-#include "oa/data/enhanced_mode.hpp"
 #include "unit_bounds.hpp"
-#include "renderer_marker_policy.hpp"
 #include "oa/app/camera_inversion.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "bench_timers.hpp"
@@ -1447,43 +1445,29 @@ bool Runtime::render_live_match_surface() {
         inputs.new_unit_shadows = engine_settings().new_unit_shadows;
         // A recording draws each frame at the plan's detail.
         inputs.tiles_hold_while_moving = director_ == nullptr;
-        inputs.ground_holds_contained_views = match_->rules().setup.enhanced_mode.enabled;
+        const auto drawing = frame_presentation(frame_draws_.units_as_dots);
+        inputs.ground_holds_contained_views = drawing.ground_holds;
         inputs.pool = draw_pool_.get();
         // The card draws the models it can from their types' models where
         // it adds the lights too: the processor's lights find their
         // surfaces among the frame's own triangles.
         inputs.models_on_card = live_models_on_card();
-        const auto& enhanced = match_->rules().setup.enhanced_mode;
-        inputs.body_lod_enabled = enhanced.enabled &&
-                                  data::enhanced_mode::uses_enhanced_unit_rendering(
-                                      data::enhanced_mode::alias_of(enhanced)
-                                  ) &&
-                                  director_ == nullptr && !photo_mode();
-        inputs.root_prefix_enabled =
-            options_.prototype_root_prefix && inputs.body_lod_enabled && inputs.models_on_card;
-        inputs.shadow_index_templates = inputs.body_lod_enabled;
+        inputs.body_lod_enabled = drawing.body_detail;
+        inputs.root_prefix_enabled = drawing.root_prefix && inputs.models_on_card;
+        inputs.shadow_index_templates = drawing.shadow_templates;
         live.gpu.shadow_templates_allowed = inputs.shadow_index_templates;
-        inputs.shadow_index_procedural = inputs.body_lod_enabled;
+        inputs.shadow_index_procedural = drawing.shadow_templates;
         live.gpu.shadow_procedural_allowed = inputs.shadow_index_procedural;
         // Keep this policy enabled through a resource failure: any image
         // already deferred must force a genuine-pixel replan if its type
         // can no longer cast the frame's shadow on the card.
         inputs.geometry_shadow_metadata = local_geometry_shadow_frame(
             match_->state().game,
-            match_->rules().setup.enhanced_mode.enabled,
+            drawing.geometry_shadow_metadata,
             director_ != nullptr || photo_mode()
         );
         inputs.geometry_shadows_in_view = inputs.geometry_shadow_metadata;
-        inputs.markers_on_card = compact_marker_frame(
-            match_->rules(),
-            {frame_draws_.units_as_dots,
-             live_markers_on_card(),
-             options_.debug_order_lines,
-             director_ != nullptr,
-             turned_overlay_checked_,
-             options_.headless_check,
-             options_.check_live_renderer}
-        );
+        inputs.markers_on_card = drawing.compact_markers;
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         if (tiling) {
@@ -1789,8 +1773,8 @@ bool Runtime::render_live_match_surface() {
         auto* check = options_.check_live_renderer && ground_query_observations.watching
                           ? &ground_query_observations
                           : nullptr;
-        const bool initial_ground_queries = match_->rules().setup.enhanced_mode.enabled &&
-                                            !photo_mode() && !live.initial_ground_queries_attempted;
+        const bool initial_ground_queries =
+            frame_presentation().initial_ground_queries && !live.initial_ground_queries_attempted;
         if (result == renderer_live_gpu::Result::success && (initial_ground_queries || check)) {
             const auto& scene = live.scene;
             const auto count = scene.terrain_vertex_count;
@@ -2033,7 +2017,7 @@ void Runtime::rebuild_live_picking() {
     live.pick_blocks.resize(blocks);
     const std::size_t first_projected = ground_held ? ground / 3 / pick_block_triangles : 0;
     const auto coordinates = renderer_live_picking::ground_coordinates(
-        live.scene, match_ && match_->rules().setup.enhanced_mode.enabled
+        live.scene, frame_presentation().compact_picking_coordinates
     );
     oa::platform::job_pool::run_bands(
         draw_pool_.get(),

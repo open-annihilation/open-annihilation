@@ -806,6 +806,8 @@ EngineSettings read_settings(
         settings.unlocked_camera = *number > 0;
     if (const auto number = stored_number(values, key::smooth_motion))
         settings.smooth_motion = *number > 0;
+    if (const auto number = stored_number(values, key::lighter_far_units))
+        settings.lighter_far_units = *number > 0;
     if (const auto number = stored_number(values, key::new_unit_shadows))
         settings.new_unit_shadows = *number > 0;
     // An effect with no stored percent follows the stored acceleration.
@@ -1303,6 +1305,14 @@ void write_settings(
         switch_text(chosen.smooth_motion),
         chosen.smooth_motion != opened.smooth_motion,
         chosen.smooth_motion == defaults.smooth_motion,
+        restored
+    );
+    store(
+        values,
+        key::lighter_far_units,
+        switch_text(chosen.lighter_far_units),
+        chosen.lighter_far_units != opened.lighter_far_units,
+        chosen.lighter_far_units == defaults.lighter_far_units,
         restored
     );
     store(

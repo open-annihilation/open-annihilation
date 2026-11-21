@@ -4786,6 +4786,14 @@
 	it=Non riuscito;
 	}
 
+[Far units keep the full picture.]
+	{
+	de=Ferne Einheiten behalten das volle Bild.;
+	fr=Les unités lointaines gardent l'image complète.;
+	es=Las unidades lejanas conservan la imagen completa.;
+	it=Le unità lontane tengono l'immagine intera.;
+	}
+
 [Features]
 	{
 	de=Geländeobjekte;
@@ -5896,6 +5904,14 @@
 	fr=Ignorer les morts de l'unité 0;
 	es=Ignorar las muertes de la unidad 0;
 	it=Ignora le morti dell'unità 0;
+	}
+
+[In Enhanced Mode games, draws far units with simpler animated bodies on the graphics card. Changes how they look.]
+	{
+	de=In Spielen mit dem Erweiterten Modus zeichnet ferne Einheiten mit einfacheren bewegten Körpern auf der Grafikkarte. Das ändert, wie sie aussehen.;
+	fr=Dans les parties en mode amélioré, dessine les unités lointaines avec des corps animés plus simples sur la carte graphique. Ça change leur aspect.;
+	es=En partidas con el modo mejorado, dibuja las unidades lejanas con cuerpos animados más simples en la tarjeta gráfica. Cambia cómo se ven.;
+	it=Nelle partite in modalità avanzata, disegna le unità lontane con corpi animati più semplici sulla scheda grafica. Cambia come appaiono.;
 	}
 
 [In Full the card draws 16x16 samples a pixel and scales them down for smoother edges.]
@@ -7344,6 +7360,14 @@
 	fr=Léger;
 	es=Ligero;
 	it=Leggero;
+	}
+
+[Lighter far units]
+	{
+	de=Leichtere ferne Einheiten;
+	fr=Unités lointaines plus légères;
+	es=Unidades lejanas más ligeras;
+	it=Unità lontane più leggere;
 	}
 
 [Lines of 2x2 walls build as a double row.]

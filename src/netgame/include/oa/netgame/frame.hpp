@@ -13,6 +13,7 @@
 // arrives ahead of the expected one. All storage is fixed-size.
 
 #include "oa/core/player.h"
+#include "oa/netgame/route_batch.hpp"
 #include "oa/netgame/wire.hpp"
 
 #include <cstdint>
@@ -169,6 +170,10 @@ struct PeerRecords {
     /// instead of ending the frame. Without this they end the split, as on
     /// 3.1c.
     bool wide_records{};
+    /// OA route batch records 0xe4..0xe5 are split out by the length each
+    /// carries instead of ending the frame. Without this they end the
+    /// split, as on 3.1c.
+    bool route_batches{};
     // Two spare bytes: a 0x2c record at the very end of a frame takes its
     // length from the bytes after the frame, which keep what an earlier,
     // longer frame left there, as in 3.1c.
@@ -196,7 +201,12 @@ enum class UnpackOutcome : uint8_t {
 /// number and whose length word equals the rest of the frame is split out
 /// as a record; a 0xf0 anywhere else ends the split, as on 3.1c. With
 /// wide_records set, 0xe0..0xe2 are split out by their table lengths;
-/// without it those bytes end the split, as on 3.1c. Beyond 0x200 records,
+/// without it those bytes end the split, as on 3.1c. With route_batches set,
+/// 0xe4..0xe5 are split out by the length each carries; one that does not
+/// carry a whole header's length ends the split, and without the flag those
+/// bytes end it, as on 3.1c. Spread over the ticks, a batch's parts take one
+/// tick together, at its last part, and an acknowledgement takes none.
+/// Beyond 0x200 records,
 /// that many 0x2c records are dropped from the front. A zero-length record
 /// would never advance the split, so it reports zero_length_record.
 ///
@@ -256,6 +266,9 @@ struct FrameReceiver {
     /// Every peer's frames are split with the wide weapon records
     /// (PeerRecords::wide_records).
     bool wide_records{};
+    /// Every peer's frames are split with the route batch records
+    /// (PeerRecords::route_batches).
+    bool route_batches{};
 };
 
 struct FrameDelivery {

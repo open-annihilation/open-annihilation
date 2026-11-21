@@ -6,8 +6,7 @@
 // emitted limbs. The Scene component test separately checks indexed moving
 // limb coordinates. Frozen comparisons retain the same physical LOD policy.
 {
-    namespace mode = oa::data::enhanced_mode;
-    if (!mode::uses_enhanced_unit_rendering(preplan_version)) {
+    if (!engine_settings().lighter_far_units) {
         require(
             bench_timers::body_counts.body_lod_models == 0 &&
                 bench_timers::body_counts.body_lod_vertices == 0,
@@ -93,6 +92,36 @@
             << match_zoom() << ": " << counts.body_lod_models << "; logical body vertices " << counts.body_lod_vertices
             << "; zero distance/budget markers; real walking/source-pose animation; frozen pixels, "
                "picks, pose, clocks and RNG preserved\n";
+        // The same frozen frame with Lighter far units off and on, for the
+        // maintainer's pictures. A run without --snapshot does not draw them.
+        if (!options_.snapshot.empty()) {
+            static bool wrote_option_pictures = false;
+            if (!wrote_option_pictures) {
+                wrote_option_pictures = true;
+                const auto kept_settings = engine_settings();
+                fs::create_directories(options_.snapshot);
+                const auto shot = [&](bool on, float zoom, const char* zoom_name) {
+                    auto chosen = kept_settings;
+                    chosen.lighter_far_units = on;
+                    apply_engine_settings(chosen);
+                    match_zoom_ = match_zoom_target_ = zoom;
+                    center_camera_on_unit(walker);
+                    render_match_surface();
+                    write_picture(
+                        options_.snapshot / (std::string("card-") + zoom_name + "-option-" +
+                                             (on ? "on" : "off") + ".png"),
+                        match_world_cpu_
+                    );
+                };
+                shot(false, 1.0F, "1");
+                shot(true, 1.0F, "1");
+                shot(false, 0.5F, "0.5");
+                shot(true, 0.5F, "0.5");
+                shot(false, 0.315F, "0.315");
+                shot(true, 0.315F, "0.315");
+                apply_engine_settings(kept_settings);
+            }
+        }
         match_zoom_ = prior_zoom;
         match_zoom_target_ = prior_zoom_target;
         center_camera_on_unit(walker);

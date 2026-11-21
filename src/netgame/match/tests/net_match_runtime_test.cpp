@@ -106,6 +106,8 @@ struct Inbox {
     std::deque<Datagram> queue;
     Inbox* peer{};
     std::vector<Datagram> sent; // every datagram this machine sent, oldest first
+    uint32_t drop_every{};      // every this many datagrams one is lost on the way; 0 loses none
+    uint32_t sends{};
 };
 
 uint32_t inbox_send(
@@ -114,7 +116,8 @@ uint32_t inbox_send(
     auto* inbox = static_cast<Inbox*>(context);
     Datagram datagram{from, to, std::vector<uint8_t>(data, data + size)};
     inbox->sent.push_back(datagram);
-    inbox->peer->queue.push_back(std::move(datagram));
+    if (inbox->drop_every == 0 || ++inbox->sends % inbox->drop_every != 0)
+        inbox->peer->queue.push_back(std::move(datagram));
     return transport_result::ok;
 }
 
@@ -348,6 +351,9 @@ struct Machine {
     NetConnection connection{};
     std::unique_ptr<NetMatch> net = std::make_unique<NetMatch>();
     MatchBinding binding;
+    uint16_t units_per_player = kUnitsPerPlayer;
+    // The network rules the connection plays by; 3.1c's unless a test sets them before start.
+    WireRules wire{};
 
     explicit Machine(
         uint16_t structure_type = 0,
@@ -579,7 +585,7 @@ struct Machine {
             masks,
             sight_cells,
             sight_cells,
-            kUnitsPerPlayer,
+            units_per_player,
             2,
             local_slot,
             30,
@@ -629,6 +635,8 @@ struct Machine {
         connection.packets = new PacketLayer();
         packet_layer_create(connection.packets);
         packet_layer_start(connection.packets, NetTransport{&inbox, inbox_send, inbox_receive});
+        if (!(wire == WireRules{}))
+            net_connection_set_rules(&connection, wire);
         match_binding_init(&binding, match.get(), net.get());
         net_match_begin(
             net.get(),
@@ -752,7 +760,9 @@ struct Pair {
         bool killable = false,
         bool naval = false,
         bool transports = false,
-        uint32_t enhanced_version = released_mode
+        uint32_t enhanced_version = released_mode,
+        uint16_t units_per_player = kUnitsPerPlayer,
+        const WireRules& wire = {}
     )
         : host(
               std::make_unique<Machine>(structure_type, cells, armed, killable, naval, transports)
@@ -767,6 +777,8 @@ struct Pair {
                 machine->rules.setup.enhanced_mode,
                 static_cast<uint32_t>(static_cast<int32_t>(enhanced_version))
             );
+            machine->units_per_player = units_per_player;
+            machine->wire = wire;
         }
         host->start(0);
         joiner->start(1);
@@ -1021,6 +1033,126 @@ void local_traffic_heads_keep_their_copies() {
             CHECK(saw_head && saw_original_route && resumed);
         } else
             CHECK(!saw_head);
+    }
+}
+
+/// Two thousand traffic heads turned in one tick travel as one complete route
+/// batch: every copy steps through its owner's poses, over a lossless wire
+/// and over one that loses frames both ways, each held step bounded.
+void local_traffic_heads_keep_their_copies_in_a_burst() {
+    constexpr uint16_t burst_units = 2000;
+    constexpr uint16_t burst_map_cells = 128;
+    constexpr uint16_t columns = 50;
+    constexpr int32_t spacing = 24;
+    constexpr int32_t march = 320;
+    WireRules wire{};
+    wire.route_batches = true;
+    for (const uint32_t drop_every : {0u, 6u}) {
+        Pair pair(
+            0,
+            burst_map_cells,
+            false,
+            false,
+            false,
+            false,
+            enhanced_flow_mode,
+            burst_units + 4,
+            wire
+        );
+        auto& host = *pair.host;
+        auto& joiner = *pair.joiner;
+        CHECK(host.match->fault() == nullptr && joiner.match->fault() == nullptr);
+        if (host.match->fault() != nullptr || joiner.match->fault() != nullptr)
+            continue;
+        std::vector<uint16_t> indices;
+        std::vector<std::array<int32_t, 2>> starts;
+        for (uint16_t i = 0; i < burst_units; ++i) {
+            const int32_t x = 64 + (i % columns) * spacing;
+            const int32_t z = 64 + (i / columns) * spacing;
+            auto* made = host.match->create(
+                {0,
+                 1,
+                 {static_cast<uint32_t>(x << 16), 0, static_cast<uint32_t>(z << 16)},
+                 true,
+                 1,
+                 0}
+            );
+            if (made == nullptr)
+                break;
+            indices.push_back(made->unit_index);
+            starts.push_back({x, z});
+        }
+        CHECK(indices.size() == burst_units);
+        if (indices.size() != burst_units)
+            continue;
+        std::vector<Divergence> divergence(burst_units);
+        constexpr uint32_t ticks = 200;
+        for (uint32_t t = 0; t < ticks + 3 * route_batch_resend_ticks; ++t) {
+            if (t == 10) {
+                // Every copy now stands; from here frames are lost both ways.
+                host.inbox.drop_every = drop_every;
+                joiner.inbox.drop_every = drop_every != 0 ? drop_every + 1 : 0;
+            }
+            if (t >= ticks) {
+                // Without loss the joiner soon holds every batch.
+                host.inbox.drop_every = joiner.inbox.drop_every = 0;
+                if (joiner.net->route_inboxes[0].pending.empty())
+                    break;
+            }
+            if (t == 30)
+                for (std::size_t i = 0; i < indices.size(); ++i)
+                    (void)host.match->issue_ground_move(
+                        indices[i], {starts[i][0] << 16, 0, (starts[i][1] + march) << 16}, false
+                    );
+            if (t == 32) {
+                // The burst: every route head turns in this one tick.
+                for (std::size_t i = 0; i < indices.size(); ++i) {
+                    auto& nav = host.match->ground_runtime(indices[i])->navigation;
+                    const auto x = static_cast<int16_t>(starts[i][0]);
+                    nav.points[0] = {x, static_cast<int16_t>(starts[i][1])};
+                    nav.points[1] = nav.points[2] = {x, static_cast<int16_t>(starts[i][1] + march)};
+                    nav.count = 3;
+                    nav.flags = sim::ground_orders::route_present_flag |
+                                sim::ground_orders::route_changed_flag;
+                }
+            }
+            step(host);
+            for (std::size_t i = 0; i < indices.size(); ++i)
+                divergence[i].note_owner(host, indices[i]);
+            step(joiner);
+            if (t >= 10)
+                for (std::size_t i = 0; i < indices.size(); ++i)
+                    divergence[i].compare(joiner, 0, indices[i]);
+        }
+        uint32_t moving = 0;
+        uint32_t differing = 0;
+        uint32_t least_compared = UINT32_MAX;
+        for (const auto& tracked : divergence) {
+            moving += tracked.moving != 0 ? 1u : 0u;
+            differing += tracked.differing;
+            least_compared = std::min(least_compared, tracked.compared);
+        }
+        const auto& sent = host.net->route_batches;
+        const auto& applied = joiner.net->route_batches.applied;
+        std::printf(
+            "net-match-runtime: %u movers, frames lost every %u: largest batch %u changes in %u "
+            "parts, %u resent, longest hold %u ticks, %u copies moved\n",
+            burst_units,
+            drop_every,
+            sent.largest_changes,
+            sent.largest_parts,
+            sent.parts_resent,
+            applied.longest_hold,
+            moving
+        );
+        CHECK(sent.largest_changes >= burst_units && sent.largest_parts > 1);
+        CHECK(applied.largest_changes == sent.largest_changes);
+        CHECK(applied.given_up == 0 && applied.errors == 0);
+        CHECK(applied.batches == sent.batches_sent);
+        CHECK(differing == 0 && least_compared >= 150 && moving == burst_units);
+        CHECK((sent.parts_resent != 0) == (drop_every != 0));
+        CHECK(applied.longest_hold <= route_batch_resend_ticks + 2 * route_batch_fast_resend_ticks);
+        CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
     }
 }
 
@@ -3121,6 +3253,7 @@ int main() {
     preparing_a_binding_keeps_canonical_records();
     replicated_play();
     local_traffic_heads_keep_their_copies();
+    local_traffic_heads_keep_their_copies_in_a_burst();
     restored_traffic_heads_publish_their_effective_route();
     remote_driver_brakes_and_blocks();
     remote_aircraft_follow_their_owner();

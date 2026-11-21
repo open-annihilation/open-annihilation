@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 142> kExpected{{
+constexpr std::array<Expected, 143> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -170,6 +170,7 @@ constexpr std::array<Expected, 142> kExpected{{
     {Setting::unlocked_camera, RowKind::toggle, "Unlocked camera", 1, 1, 0, 0, 0, false, Lock::none, &Locks::unlocked_camera},
     {Setting::welcome_setup, RowKind::value_and_button, "Welcome setup", 2, 2, 0, 0, 0, false, Lock::main_menu, &Locks::welcome_setup},
     {Setting::fog_of_war, RowKind::levels, "Fog of War", 1, 1, 2, 56, 2, false, Lock::none, nullptr},
+    {Setting::lighter_far_units, RowKind::toggle, "Lighter far units", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::new_unit_shadows, RowKind::toggle, "New unit shadows", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::mod_limits_heading, RowKind::text, "Set by the mod", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::weapon_types, RowKind::text, "Weapon types", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
@@ -819,7 +820,7 @@ void tab_follows_the_dialogs_focus_order() {
     OA_CHECK(
         tab_order(graphics) ==
         with_footer_and_list(
-            {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 40}
+            {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 40, 41}
         )
     );
     // Developer with its first area open: the section list, then its rows,

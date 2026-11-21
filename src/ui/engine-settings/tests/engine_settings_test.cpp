@@ -3334,6 +3334,59 @@ void the_smooth_motion_default_read_and_round_trip() {
     CHECK(alone.empty());
 }
 
+/// Lighter far units: Off everywhere by default, so a file written before it
+/// reads Off. A number above 0 reads On, any other number Off, and a text
+/// that is no number keeps the default. On written alone as 1 and read back,
+/// and Restore defaults then OK erases the key. It leaves every other key
+/// as it was.
+void the_lighter_far_units_default_read_and_round_trip() {
+    CHECK(settings::key::lighter_far_units == "open-annihilation.lighter-far-units");
+    settings::Inputs own_mac = players_own_on_linux;
+    own_mac.macos = true;
+    settings::Inputs light = players_own_on_linux;
+    light.light_machine = true;
+    settings::Inputs deck = players_own_on_linux;
+    deck.steam_deck_panel_hz = 90;
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac, light, deck}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(!defaults.lighter_far_units);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    CHECK(read_one(settings::key::lighter_far_units, "1").lighter_far_units);
+    CHECK(read_one(settings::key::lighter_far_units, "2").lighter_far_units);
+    CHECK(!read_one(settings::key::lighter_far_units, "0").lighter_far_units);
+    CHECK(!read_one(settings::key::lighter_far_units, "-1").lighter_far_units);
+    CHECK(!read_one(settings::key::lighter_far_units, "off").lighter_far_units);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto on = defaults;
+    on.lighter_far_units = true;
+    Values values;
+    values[std::string{settings::key::fog_of_war}] = "classic";
+    values["open-annihilation.not-a-setting"] = "kept";
+    const Values others = values;
+    const auto opened = settings::read_settings(values, players_own_on_linux, false);
+    auto chosen = opened;
+    chosen.lighter_far_units = true;
+    settings::write_settings(values, opened, chosen, defaults, false);
+    CHECK(values.size() == others.size() + 1);
+    for (const auto& [key, value] : others)
+        CHECK(values.contains(key) && values.at(key) == value);
+    CHECK(values.at(std::string{settings::key::lighter_far_units}) == "1");
+    CHECK(settings::read_settings(values, players_own_on_linux, false).lighter_far_units);
+    settings::write_settings(values, chosen, opened, defaults, false);
+    CHECK(values.at(std::string{settings::key::lighter_far_units}) == "0");
+    CHECK(!settings::read_settings(values, players_own_on_linux, false).lighter_far_units);
+
+    Values alone;
+    settings::write_settings(alone, defaults, on, defaults, false);
+    CHECK(alone.size() == 1);
+    CHECK(alone.at(std::string{settings::key::lighter_far_units}) == "1");
+    CHECK(settings::read_settings(alone, players_own_on_linux, false) == on);
+    settings::write_settings(alone, on, defaults, defaults, true);
+    CHECK(alone.empty());
+}
+
 /// New unit shadows: On everywhere by default, a light machine and a Steam
 /// Deck included, so a file written before it reads On; a number above 0
 /// reads On, any other number Off and a text that is no number keeps the
@@ -3868,6 +3921,7 @@ int main() {
     the_look_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
     the_smooth_motion_default_read_and_round_trip();
+    the_lighter_far_units_default_read_and_round_trip();
     the_new_unit_shadows_default_read_and_round_trip();
     visual_effect_switches_round_trip();
     water_effects_round_trip();

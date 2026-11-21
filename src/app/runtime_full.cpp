@@ -37,7 +37,6 @@
 #include "full_presentation.hpp"
 #include "graphics_report.hpp"
 #include "bench_timers.hpp"
-#include "oa/data/enhanced_mode.hpp"
 #include "match_models.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
@@ -1952,13 +1951,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         full.sprite_pages.set_growth_hooks(growth);
         full.models.set_growth_hooks(growth);
         full.sprite_pages.begin_frame();
-        full.models.set_body_lod_enabled(
-            match_->rules().setup.enhanced_mode.enabled &&
-            data::enhanced_mode::uses_enhanced_unit_rendering(
-                data::enhanced_mode::alias_of(match_->rules().setup.enhanced_mode)
-            ) &&
-            director_ == nullptr && !photo_mode()
-        );
+        full.models.set_body_lod_enabled(frame_presentation().body_detail);
         full.models.begin_frame();
         full.sprites = {};
         full.frame_vertices = {};

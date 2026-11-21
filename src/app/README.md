@@ -4282,7 +4282,11 @@ prompts, Settings › Updates and the headers name one state with one size.
   `app-presentation-interpolation` tests the blends and the grid's
   numbers, and `--check-interpolation` (`runtime_interpolation_check.cpp`)
   the frames, the application loop's among them with Smooth motion On and
-  Off.
+  Off. Which of those draws run is `presentation_policy`
+  (`presentation_policy.hpp`): Enhanced Mode on or off, the Graphics
+  settings and the frame. Lighter far units is the switch for the choices
+  that change the picture, and it does nothing while Enhanced Mode is off.
+  `app-presentation-policy` checks that function.
 - Units of other machines' players: `advance_match_clock` has the unit
   playout (`src/present/unit-playout`, `Runtime::unit_playout_`) read the
   match after each step, whether the engine or an extension ran it, and the

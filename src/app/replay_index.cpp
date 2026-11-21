@@ -14,6 +14,7 @@
 #include "oa/media/director/planner.hpp"
 #include "oa/netgame/private_channel.hpp"
 #include "oa/netgame/records.hpp"
+#include "oa/netgame/route_batch.hpp"
 #include "oa/netgame/unicode_chat.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/session/demo.hpp"
@@ -905,6 +906,19 @@ std::optional<StreamNotes> read_stream_notes(std::span<const uint8_t> file, std:
         const tad::DecodedPayload decoded = tad::decode_payload(packet.payload);
         if (!decoded.ok())
             continue;
+        // A route batch part fills its packet and names its tick; one sent
+        // again is due with the packets already due (demo_load).
+        netgame::RouteBatchPartHeader part{};
+        if (decoded.bytes.size() > 1 && netgame::is_route_batch_record_type(decoded.bytes[1])) {
+            uint16_t length = 0;
+            if (netgame::route_batch_record_length(
+                    decoded.bytes.data() + 1, decoded.bytes.size() - 1, &length
+                ) == netgame::WireError::ok &&
+                netgame::decode_route_batch_part_header(decoded.bytes.data() + 1, length, &part) ==
+                    netgame::WireError::ok)
+                due_tick = std::max(due_tick, part.tick);
+            continue;
+        }
         const tad::RecordSplit split = tad::split_records(decoded.bytes, forms);
         uint32_t last_tick = 0;
         uint32_t game_records = 0;

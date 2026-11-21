@@ -4,7 +4,6 @@
 // Composition of the match battlefield frame, and the groups of text it
 // lays over the backings painted with them (BackedText).
 #include "oa/app/runtime.hpp"
-#include "oa/data/enhanced_mode.hpp"
 #include "runtime_classic_overlay_check.hpp"
 #include "bench_timers.hpp"
 #include "plan_work_counts.hpp"
@@ -152,7 +151,8 @@ model_render::ModelRef unit_model(MatchModels& models, uint16_t slot) {
 /// with a model instance, as unit_model would grow them slot by slot.
 ///
 /// @param[in,out] models the match's renderer state
-void hold_unit_draw_states(MatchModels& models) {
+/// @param deferred_geometry this frame keeps deferred body storage
+void hold_unit_draw_states(MatchModels& models, bool deferred_geometry) {
     const uint32_t slots = models.offline->world().record.unit_slot_count;
     uint32_t highest = 0;
     for (uint32_t slot = 1; slot < slots; ++slot)
@@ -161,12 +161,7 @@ void hold_unit_draw_states(MatchModels& models) {
     if (models.units.size() <= highest)
         models.units.resize(static_cast<std::size_t>(highest) + 1);
     auto& deferred = models.deferred_geometry;
-    const auto& enhanced = models.offline->rules().setup.enhanced_mode;
-    if (enhanced.enabled &&
-        oa::data::enhanced_mode::uses_enhanced_unit_rendering(
-            oa::data::enhanced_mode::alias_of(enhanced)
-        ) &&
-        deferred.units.size() <= highest)
+    if (deferred_geometry && deferred.units.size() <= highest)
         try {
             deferred.units.resize(static_cast<size_t>(highest) + 1);
         } catch (const std::bad_alloc&) {
@@ -188,9 +183,7 @@ void hold_unit_draw_states(MatchModels& models) {
         }
         auto& instance = runtime.instance->model();
         deferred.prepare(slot, runtime.instance_generation, instance, false);
-        if (enhanced.enabled && oa::data::enhanced_mode::uses_enhanced_unit_rendering(
-                                    oa::data::enhanced_mode::alias_of(enhanced)
-                                )) {
+        if (deferred_geometry) {
             auto& draw_state = unit_draw_state(
                 models.units, static_cast<uint16_t>(slot), runtime.instance_generation
             );
@@ -1751,7 +1744,7 @@ void observe_match_tick(
         presentation.seen = true;
     }
     auto& world = match.world();
-    const auto fields = unit_pose_capture(match.rules(), global_dots);
+    const auto fields = unit_pose_capture(global_dots);
     const uint32_t slots = world.record.unit_slot_count;
     if (presentation.units.size() < slots)
         presentation.units.resize(slots);
@@ -1845,6 +1838,27 @@ void observe_match_tick(
     observe_debris(presentation.debris, tick, effects.debris);
 }
 
+PresentationPolicy Runtime::frame_presentation(bool global_dots, bool ignore_photo) {
+    PresentationInputs inputs;
+    inputs.enhanced = screen_ == Screen::match && match_ != nullptr &&
+                      match_->rules().setup.enhanced_mode.enabled;
+    inputs.global_dots = global_dots;
+    inputs.headless = options_.headless_check;
+    inputs.explicit_check = options_.check_live_renderer;
+    inputs.photo = ignore_photo ? false : photo_mode();
+    inputs.director = director_ != nullptr;
+    inputs.debug_lines = options_.debug_order_lines;
+    inputs.gpu_ready = live_markers_on_card();
+    inputs.retained = turned_overlay_checked_;
+    if (live_renderer_active())
+        inputs.tier = PresentationTier::card;
+    else if (full_presentation())
+        inputs.tier = PresentationTier::full;
+    inputs.prototype_root_prefix = options_.prototype_root_prefix;
+    inputs.lighter_far_units = engine_settings().lighter_far_units;
+    return presentation_policy(inputs);
+}
+
 void Runtime::place_tracking_camera() {
     if (screen_ != Screen::match || match_paused_ || !match_ || !match_tracking_ || director_mode())
         return;
@@ -1854,7 +1868,10 @@ void Runtime::place_tracking_camera() {
     auto& models = match_models();
     const bool dots = live_renderer_active() ? zoomed_out_units_frame() : dots_frame();
     // Explicit debug queries keep the full snapshot at its original instant.
-    observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
+    const bool root_capture = frame_presentation(dots).root_pose_capture;
+    observe_match_tick(
+        models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines && root_capture
+    );
     const FixedVec3 shown = shown_unit_position(
         models, world, tracked_match_unit_, tick_fraction(presentation_alpha())
     );
@@ -2364,16 +2381,18 @@ bool Runtime::draw_match_surface() {
     models.preplanning_visibility.budget_safe = false;
     {
         const plan_work::Span work_span(plan_work::Phase::pose_capture, true);
-        observe_match_tick(models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines);
+        const bool root_capture = frame_presentation(dots).root_pose_capture;
+        observe_match_tick(
+            models, *match_, draw_pool_.get(), dots && !options_.debug_order_lines && root_capture
+        );
     }
     auto& presentation = models.presentation;
-    const bool primed_rigs =
-        !dots && unit_pose_capture(match_->rules(), true) == UnitPoseCapture::root &&
-        std::any_of(
-            presentation.units.begin(), presentation.units.end(), [](const UnitMotion& unit) {
-                return unit.rig_primed;
-            }
-        );
+    const bool primed_rigs = !dots && frame_presentation(dots).root_pose_capture &&
+                             std::any_of(
+                                 presentation.units.begin(),
+                                 presentation.units.end(),
+                                 [](const UnitMotion& unit) { return unit.rig_primed; }
+                             );
     presentation.fraction = tick_fraction(presentation_alpha());
     apply_photo_fraction(presentation.fraction);
     // The moment the units of other machines' players are drawn at on their
@@ -2728,7 +2747,8 @@ bool Runtime::draw_match_surface() {
     // which must not move while the frame's draws point into it: it grows
     // now to hold every slot with a model instance, which is every slot
     // the draws can reach (unit_model).
-    hold_unit_draw_states(models);
+    // Photo frames still allocate deferred storage, as they did before.
+    hold_unit_draw_states(models, frame_presentation(false, true).deferred_geometry);
     // The model bridge holds the scene's map pixels and writes them back at
     // the draw scale.
     const auto scale = scene_view.scale == 0.0F ? 1.0F : scene_view.scale;
@@ -2776,6 +2796,7 @@ bool Runtime::draw_match_surface() {
     }
     // The "+stats" panel says when this frame drew the units as dots.
     frame_draws_.units_as_dots = dots;
+    const auto drawing = frame_presentation(dots);
     // Models draw into the bridge and sprites straight into the RGB frame,
     // so the bridge's pixels go back to the frame before a sprite draws over
     // them (a commit), and the next model captures the frame again.
@@ -2793,7 +2814,7 @@ bool Runtime::draw_match_surface() {
                                  (renderer.graphics_flags & model_render::graphics_shadows) == 0;
     const bool geometry_shadow_metadata = local_geometry_shadow_frame(
                                               world_record.game,
-                                              match_->rules().setup.enhanced_mode.enabled,
+                                              drawing.geometry_shadow_metadata,
                                               director_ != nullptr || photo_mode()
                                           ) &&
                                           live_world && live_models_on_card() &&
@@ -2836,18 +2857,11 @@ bool Runtime::draw_match_surface() {
         &models.preplanning_visibility,
         &preplanning_sight,
         frame_draws_.probe_unit,
-        match_->rules().setup.enhanced_mode.enabled,
-        !photo_mode() && match_->rules().setup.enhanced_mode.enabled &&
-            oa::data::enhanced_mode::uses_enhanced_unit_rendering(
-                oa::data::enhanced_mode::alias_of(match_->rules().setup.enhanced_mode)
-            ),
-        options_.prototype_root_prefix && full_presentation() && geometry_shadow_metadata &&
+        drawing.checked_integer_rotation,
+        drawing.deferred_geometry,
+        drawing.root_prefix && full_presentation() && geometry_shadow_metadata &&
             !options_.debug_order_lines && world_record.game.debug_overlay == 0 &&
-            !models.preplanning_visibility.force_ordinary &&
-            match_->rules().setup.enhanced_mode.enabled &&
-            oa::data::enhanced_mode::uses_enhanced_unit_rendering(
-                oa::data::enhanced_mode::alias_of(match_->rules().setup.enhanced_mode)
-            )
+            !models.preplanning_visibility.force_ordinary
     };
     if (live_world && dots)
         for (auto& cache : models.transform_caches)
@@ -3955,8 +3969,7 @@ bool Runtime::draw_match_surface() {
     const auto bar_size = oa::ui::hud::health_bar_size(match_zoom());
     // The digits lie over every unit's bar and over each other's boxes.
     std::optional<BackedText> unit_digits(std::in_place, *this);
-    bool countdowns_only =
-        !live_renderer_active() && dots && match_->rules().setup.enhanced_mode.enabled;
+    bool countdowns_only = drawing.countdown_overlays;
     if (countdowns_only)
         for (uint8_t owner = 0; owner < OA_PLAYER_COUNT; ++owner) {
             const auto& player = world_record.game.players[owner];

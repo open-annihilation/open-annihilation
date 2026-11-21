@@ -7,6 +7,7 @@
 #include "app.hpp"
 #include "oa/app/automation_host.hpp"
 #include "director_presentation.hpp"
+#include "presentation_policy.hpp"
 #include "expansion_entry.hpp"
 #include "extension.hpp"
 #include "frame_pacing.hpp"
@@ -14676,6 +14677,14 @@ class Runtime final : public menu::Host,
     ///
     /// @return true when the Full branch presents the frame
     [[nodiscard]] bool full_presentation() const noexcept;
+
+    /// The drawing choices for this frame. Enhanced Mode's revision is not an input.
+    ///
+    /// @param global_dots this frame draws every unit as a dot
+    /// @param ignore_photo storage for deferred geometry ignores a photo frame
+    /// @return the choices this frame may use
+    [[nodiscard]] PresentationPolicy
+    frame_presentation(bool global_dots = false, bool ignore_photo = false);
 
     /// Marks the frames from the next as the Full tier's, or not. On, the
     /// first Full match frame makes the executor, the terrain pages and the

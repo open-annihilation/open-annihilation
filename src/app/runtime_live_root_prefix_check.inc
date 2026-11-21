@@ -55,6 +55,7 @@ if (root_prefix_requested) {
         prefix_settings.hardware_acceleration = oa::ui::engine_settings::HardwareAcceleration::full;
         prefix_settings.zoomed_out_units = oa::ui::engine_settings::ZoomedOutUnits::rendered;
         prefix_settings.new_unit_shadows = true;
+        prefix_settings.lighter_far_units = true;
         prefix_settings.allow_full_3d = true;
         apply_engine_settings(prefix_settings);
         options_.headless_check = false;

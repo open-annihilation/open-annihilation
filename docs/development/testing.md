@@ -668,6 +668,19 @@ names, these run the game headless:
 - `native-net-loopback-sides` runs the plain check on `ridge-sides`, whose
   profile raises only the side limit, so weapon records stay the narrow ones
   (`wide records applied 0 / 0`). It needs the `limits-fixture` fixture;
+- `native-net-loopback-route-burst` (`--net-loopback-check 900
+  --enhanced-mode --net-loopback-route-burst 3000`) gives the host's player
+  3,000 movers on a large map, out of reach of either commander, and at tick
+  300 sends them all south at once. The burst's route changes cross as one
+  complete route batch, which the joiner applies whole before the step it
+  belongs to; after each tick of the host's, the joiner reads every byte
+  sent before it plays its own. The check prints `route batches: ticks T,
+  changes C, parts P, resent R, longest hold H ticks` and requires the
+  worlds to agree once every full record has come round, no record error
+  and no held step given up. `native-net-loopback-route-burst-loss` adds
+  `--net-loopback-loss 10`: once the movers stand, each machine loses 10% of
+  the frames it sends, and every lost part is sent again
+  ([Enhanced Mode's network transport](../enhanced-mode.md#network-transport));
 - `native-multiplayer-menu` (`--check-multiplayer-menu`) clicks MULTI and
   checks the multiplayer screens;
 - `native-recording-hook` (`--check-recording-hook`) checks that the game

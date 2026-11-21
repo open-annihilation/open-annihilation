@@ -248,6 +248,15 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
         if (type.empty())
             throw std::runtime_error("--net-loopback-shooter needs a unit type");
         result.net_loopback_shooter = std::string(type);
+    } else if (argument == "--net-loopback-route-burst") {
+        result.net_loopback_route_burst = parse_count(value());
+        if (result.net_loopback_route_burst == 0)
+            throw std::runtime_error("--net-loopback-route-burst takes at least one mover");
+    } else if (argument == "--net-loopback-loss") {
+        const std::size_t percent = parse_count(value());
+        if (percent > 100)
+            throw std::runtime_error("--net-loopback-loss takes a percentage, 0 to 100");
+        result.net_loopback_loss = static_cast<int32_t>(percent);
     } else if (argument == "--check-host-not-found") {
         result.check_host_not_found = true;
         effects |= option_effect::unattended | option_effect::skip_intro;
@@ -710,6 +719,7 @@ const std::string& usage_runs() {
                   "[--net-loopback-check TICKS] [--net-loopback-watcher] "
                   "[--net-loopback-computer] [--net-loopback-each-ai] "
                   "[--net-loopback-fixed-starts] [--net-loopback-shooter TYPE] "
+                  "[--net-loopback-route-burst MOVERS [--net-loopback-loss PERCENT]] "
                   "[--check-host-not-found] "
                   "[--check-opened-launch start|menu FILE] "
                   "[--play-demo FILE.tad [--replay-keyframe-check TICK] "

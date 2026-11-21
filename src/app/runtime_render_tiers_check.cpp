@@ -2414,6 +2414,109 @@ int Runtime::check_render_tiers() {
         }
         restore_overlay_check();
     }
+    // The same frozen Enhanced frame in Full, with Lighter far units off and
+    // on. A run without --snapshot does not start this match.
+    if (!options_.snapshot.empty()) {
+        leave_match();
+        load(Screen::main_menu);
+        if (!hold_enhanced_rules_once(oa::data::enhanced_mode::cohort_target_version))
+            fail("the lighter-far-units pictures could not select an Enhanced match");
+        start_benchmark_skirmish();
+        if (!match_ || !match_->rules().setup.enhanced_mode.enabled)
+            fail("the lighter-far-units pictures did not start an Enhanced match");
+        set_level(HardwareAcceleration::full);
+        if (!full_presentation())
+            fail("the lighter-far-units pictures did not draw the Full tier");
+        select_local_commander();
+        const auto kept_settings = engine_settings();
+        fs::create_directories(options_.snapshot);
+        const auto shot = [&](bool on, float zoom, const char* zoom_name) {
+            auto chosen = kept_settings;
+            chosen.lighter_far_units = on;
+            chosen.hardware_acceleration = HardwareAcceleration::full;
+            apply_engine_settings(chosen);
+            set_level(HardwareAcceleration::full);
+            match_zoom_ = match_zoom_target_ = zoom;
+            if (selected_match_unit_ != 0)
+                center_camera_on_unit(selected_match_unit_);
+            write_png(
+                options_.snapshot /
+                    (std::string("full-") + zoom_name + "-option-" + (on ? "on" : "off") + ".png"),
+                presented()
+            );
+        };
+        shot(false, 1.0F, "1");
+        shot(true, 1.0F, "1");
+        shot(false, 0.5F, "0.5");
+        shot(true, 0.5F, "0.5");
+        shot(false, 0.315F, "0.315");
+        shot(true, 0.315F, "0.315");
+        apply_engine_settings(kept_settings);
+        // The first model frame after Dots, Smooth motion at half a tick.
+        // Root capture follows Enhanced Mode, so this frame must match
+        // on both sides of Lighter far units.
+        const auto differing_pixels = [](const renderer::Surface& left,
+                                         const renderer::Surface& right) {
+            if (left.width != right.width || left.height != right.height ||
+                left.rgb.size() != right.rgb.size())
+                return static_cast<std::size_t>(-1);
+            std::size_t count = 0;
+            for (std::size_t index = 0; index + 2 < left.rgb.size(); index += 3)
+                if (left.rgb[index] != right.rgb[index] ||
+                    left.rgb[index + 1] != right.rgb[index + 1] ||
+                    left.rgb[index + 2] != right.rgb[index + 2])
+                    ++count;
+            return count;
+        };
+        const auto switch_frame = [&](bool lighter, HardwareAcceleration level) {
+            leave_match();
+            load(Screen::main_menu);
+            if (!hold_enhanced_rules_once(oa::data::enhanced_mode::cohort_target_version))
+                fail("the dots switch-over could not select an Enhanced match");
+            start_benchmark_skirmish();
+            if (!match_ || !match_->rules().setup.enhanced_mode.enabled)
+                fail("the dots switch-over did not start an Enhanced match");
+            auto chosen = engine_settings();
+            chosen.lighter_far_units = lighter;
+            chosen.smooth_motion = true;
+            chosen.zoomed_out_units = oa::ui::engine_settings::ZoomedOutUnits::dots;
+            chosen.zoomed_out_after = oa::ui::engine_settings::ZoomedOutAfter::one_half;
+            chosen.hardware_acceleration = level;
+            apply_engine_settings(chosen);
+            set_level(level);
+            set_presentation_alpha(0.0F);
+            match_zoom_ = match_zoom_target_ = 0.25F;
+            for (int tick_step = 0; tick_step < 30; ++tick_step) {
+                step_match_simulation();
+                render_match_surface();
+            }
+            if (!dots_frame())
+                fail("the dots switch-over did not draw dots");
+            match_zoom_ = match_zoom_target_ = 1.0F;
+            set_presentation_alpha(0.5F);
+            if (dots_frame())
+                fail("the dots switch-over stayed on dots at zoom 1");
+            render_match_surface();
+            std::size_t primed = 0;
+            for (const auto& unit : match_models().presentation.units)
+                if (unit.rig_primed)
+                    ++primed;
+            const char* tier = level == HardwareAcceleration::full ? "full" : "processor";
+            std::cout << "render tiers check: root-capture switch-over " << tier
+                      << (lighter ? " option-on" : " option-off") << " primed=" << primed << '\n';
+            return match_world_cpu_;
+        };
+        const auto processor_off = switch_frame(false, HardwareAcceleration::off);
+        const auto processor_on = switch_frame(true, HardwareAcceleration::off);
+        std::cout << "render tiers check: root-capture switch-over processor differing_pixels "
+                  << differing_pixels(processor_off, processor_on) << '\n';
+        const auto full_off = switch_frame(false, HardwareAcceleration::full);
+        const auto full_on = switch_frame(true, HardwareAcceleration::full);
+        std::cout << "render tiers check: root-capture switch-over full differing_pixels "
+                  << differing_pixels(full_off, full_on) << '\n';
+        apply_engine_settings(kept_settings);
+        leave_match();
+    }
     return 0;
 }
 
@@ -4719,7 +4822,7 @@ void Runtime::check_full_models(const fs::path& report_directory) {
               << counts.polygons << " polygons in " << frame.batches.size() << " batches; against "
               << "the processor's raster: " << comparison.drawn << " pixels drawn, "
               << comparison.same << " the same, " << comparison.phase << " a texel of phase, "
-              << comparison.edge_colour << " another colour at an edge, " << comparison.far
+              << comparison.edge_colour << " another colour at an edge, " << comparison.far_colours
               << " far, " << comparison.edge_coverage << " covered by one within a pixel of the "
               << "other, " << comparison.far_coverage << " covered by one alone, "
               << comparison.shadowed << " shadowed\n";
