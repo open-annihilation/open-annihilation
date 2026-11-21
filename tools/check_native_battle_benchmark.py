@@ -148,8 +148,23 @@ def valid_report(process, report, scenario, enabled, ticks=12, version=None, fea
     staged = report.get("staged_battle")
     if isinstance(staged, dict):
         swept = staged.get("swept_steps")
-        require(isinstance(swept, dict) and staged.get("extra") == {"swept_misses": swept["misses"]},
+        extra = staged.get("extra")
+        require(isinstance(swept, dict) and isinstance(extra, dict) and
+                extra.get("swept_misses") == swept["misses"],
                 "staged battle's extra object does not hold its swept misses")
+        players = staged.get("players") or []
+        live = sum(player["window_live_unit_ticks"] for player in players)
+        unengaged = sum(player["window_stationary_unit_ticks"] -
+                        player["window_engaged_stationary_unit_ticks"] for player in players)
+        require(all(player["window_engaged_stationary_unit_ticks"] <=
+                    player["window_stationary_unit_ticks"] and
+                    player["stationary_throughout_unengaged"] <= player["stationary_throughout"]
+                    for player in players) and
+                abs(extra.get("stationary_unengaged_pct_all", -1) -
+                    (round(100.0 * unengaged / live, 3) if live else 0.0)) < 0.0015 and
+                extra.get("stationary_throughout_unengaged_all") ==
+                sum(player["stationary_throughout_unengaged"] for player in players),
+                "staged battle's engaged split does not add up")
     require(report["renderer"] == "none", "simulation-only benchmark named a drawn renderer")
     require(len(report["simulation_hash"]) == 64 and len(report["world_digest"]) == 16,
             "benchmark lacks its reproducibility digests")
