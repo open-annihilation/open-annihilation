@@ -118,7 +118,7 @@ profiles::ResolveResult resolve_with(
     const ProfileSource& source,
     const std::vector<profiles::HackOverride>& overrides,
     std::span<const mutators::MutatorHack> hacks,
-    uint32_t enhanced_version
+    const oa::data::enhanced_mode::Choice& choice
 ) {
     profiles::ResolveOptions options = source.options;
     options.overrides = overrides;
@@ -131,9 +131,7 @@ profiles::ResolveResult resolve_with(
         option.turn_on = true;
         options.match.push_back(std::move(option));
     }
-    return oa::data::enhanced_mode::resolve_profile(
-        source.text, source.name, options, enhanced_version
-    );
+    return oa::data::enhanced_mode::resolve_profile(source.text, source.name, options, choice);
 }
 
 /// The faults in a planned hack list, or none when the profile accepts them.
@@ -142,7 +140,7 @@ std::vector<mutators::HackCheckError> check_planned(
     const ProfileSource* source,
     const std::vector<profiles::HackOverride>& overrides,
     std::span<const mutators::MutatorHack> hacks,
-    uint32_t enhanced_version
+    const oa::data::enhanced_mode::Choice& choice
 ) {
     if (hacks.empty())
         return {};
@@ -169,8 +167,7 @@ std::vector<mutators::HackCheckError> check_planned(
         }
         return faults;
     }
-    const profiles::ResolveResult resolved =
-        resolve_with(*source, overrides, hacks, enhanced_version);
+    const profiles::ResolveResult resolved = resolve_with(*source, overrides, hacks, choice);
     if (resolved.resolution.has_value())
         return {};
     return mutators::hack_faults(resolved.errors, hacks);
@@ -200,13 +197,32 @@ void Runtime::bind_planned_hack_check(mutators::PipelineInput& input) const {
     std::vector<profiles::HackOverride> overrides;
     if (can_change && settings->current.developer_mode)
         overrides = settings->current.hack_overrides;
-    const uint32_t enhanced_version = enhanced_mode_version(*this);
-    input.check_hacks = [can_change, source, overrides, enhanced_version](
-                            std::span<const mutators::MutatorHack> hacks
-                        ) {
-        return check_planned(
-            can_change, source ? &*source : nullptr, overrides, hacks, enhanced_version
-        );
+    const oa::data::enhanced_mode::Choice choice = enhanced_mode_choice(*this);
+    input.check_hacks =
+        [can_change, source, overrides, choice](std::span<const mutators::MutatorHack> hacks) {
+            return check_planned(can_change, source ? &*source : nullptr, overrides, hacks, choice);
+        };
+}
+
+std::optional<oa::data::enhanced_mode::Choice>
+Runtime::probe_planned_hack_choice(std::span<const oa::data::mutators::MutatorHack> hacks) const {
+    const EngineSettingsState* settings = engine_settings_.get();
+    const bool can_change = settings != nullptr && settings->layered &&
+                            settings->profile_source.has_value() && settings->played != nullptr;
+    if (!can_change)
+        return std::nullopt;
+    std::vector<profiles::HackOverride> overrides;
+    if (settings->current.developer_mode)
+        overrides = settings->current.hack_overrides;
+    const profiles::ResolveResult resolved =
+        resolve_with(*settings->profile_source, overrides, hacks, enhanced_mode_choice(*this));
+    if (!resolved.resolution.has_value())
+        return std::nullopt;
+    const auto& mode = resolved.resolution->profile.rules.setup.enhanced_mode;
+    if (!mode.enabled)
+        return oa::data::enhanced_mode::Choice{};
+    return oa::data::enhanced_mode::Choice{
+        static_cast<uint32_t>(mode.revision), oa::data::enhanced_mode::stored_features(mode)
     };
 }
 
@@ -241,7 +257,7 @@ void Runtime::play_mutator_hacks() {
         can_change && settings_now->current.developer_mode ? settings_now->current.hack_overrides
                                                            : std::vector<profiles::HackOverride>{};
     const std::vector<mutators::HackCheckError> faults =
-        check_planned(can_change, source, overrides, hacks, enhanced_mode_version(*this));
+        check_planned(can_change, source, overrides, hacks, enhanced_mode_choice(*this));
     if (!faults.empty()) {
         for (const mutators::HackCheckError& fault : faults) {
             for (mutators::MutatorResult& one : result.mutators) {
@@ -268,7 +284,7 @@ void Runtime::play_mutator_hacks() {
             profile_on = entries_on(*plain.resolution);
     }
     const profiles::ResolveResult resolved =
-        resolve_with(*settings.profile_source, overrides, hacks, enhanced_mode_version(*this));
+        resolve_with(*settings.profile_source, overrides, hacks, enhanced_mode_choice(*this));
     if (!resolved.resolution.has_value()) {
         const std::vector<mutators::HackCheckError> again =
             mutators::hack_faults(resolved.errors, hacks);

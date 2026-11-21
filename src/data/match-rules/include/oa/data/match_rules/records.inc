@@ -665,9 +665,8 @@ enum class SetupEnhancedModeFeatures : uint8_t {
 /// @return the number of SetupEnhancedModeFeatures values
 [[nodiscard]] constexpr size_t enum_size(SetupEnhancedModeFeatures) noexcept { return 27; }
 
-/// setup.enhanced-mode: Version 1 permits 10000 units per participating player and 32767
-/// projectiles; version 2 adds shared routing and local unit flow. Graphics settings remain
-/// independent.
+/// setup.enhanced-mode: Records the Enhanced Mode revision and the features a match plays. Revision
+/// 1 is the set new games play when Enhanced Mode is on. Graphics settings remain independent.
 struct SetupEnhancedMode {
     bool enabled{}; ///< the profile turns the hack on
     /// revision; 3.1c: 1

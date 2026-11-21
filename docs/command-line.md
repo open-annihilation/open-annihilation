@@ -223,9 +223,10 @@ with, is [Keys](keys.md). `--keys` and `--keys-reset` together are refused with 
 | `--prototype-root-prefix` | Enables the experimental [Q30 body rendering policy](development/root-prefix-rendering.md) for eligible local ground units in an Enhanced Mode match that also has Graphics → Lighter far units on, using Full 3D. Off by default; its GPU transforms and picking follow the linked policy. |
 | `--native-density` | Opens the window at the display's own pixel density for this run. |
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
-| `--enhanced-mode[=on\|off]` | Sets Enhanced Mode for this launch; alone it is On and selects the supplied new-game preset. |
+| `--enhanced-mode[=on\|off]` | Sets Enhanced Mode for this launch; alone it is On and plays the highest revision. |
 | `--no-enhanced-mode` | Starts this launch with Enhanced Mode Off. |
-| `--enhanced-mode-version N` | Selects a known new-game preset for this launch: 1 through 8, 10, 11 or 13 enables Enhanced Mode, and 0 disables it. A conflicting explicit mode switch is refused. |
+| `--enhanced-revision N` | Plays Enhanced Mode, revision N, for this launch. N is a revision this build plays. Implies Enhanced Mode On. Refused when Enhanced Mode is turned off on the same command, and refused in a battle room unless N is the highest revision. |
+| `--enhanced-features LIST` | Plays this launch with a feature set. LIST is a comma list of feature names, or a list whose every item starts with `+` or `-` and is applied to `--enhanced-revision`, or to the highest revision when that flag is absent. Implies Enhanced Mode On. Refused when Enhanced Mode is off, and refused with `--host`, `--join` and `--net-loopback-check`. |
 
 None of these is remembered: [settings](settings.md#for-one-run-the-command-line)
 says what each one shows in Settings. 3.1c's `-d` and `-df` choose a window
@@ -246,32 +247,29 @@ renderer needs Full hardware acceleration and a graphics card SDL can draw
 on through Metal or Vulkan. See the [preview notes](development/pluggable-renderers.md#interactive-skirmish-preview)
 for limitations and a weapon-effect test recipe.
 
-For ordinary play with the experimental version-10 rules, run:
+For a skirmish or campaign on Revision 1 with one feature added, run:
 
 ```sh
-./run.sh --skip-intro --enhanced-mode-version 10 --hardware-acceleration=full
+./run.sh --skip-intro --enhanced-revision 1 --enhanced-features +cardinal_queue_escape --hardware-acceleration=full
 ```
 
-Use `--enhanced-mode-version 11` to select the experimental policy that retains cohort
-targets instead. `--enhanced-mode-version 13` selects the experimental
-cardinal queue escape policy based on version 10; it does not retain
-cohort targets. Its [20,000-unit results remain mixed](enhanced-mode.md#experimental-cardinal-queue-escape-version-13).
-Versions 9, 12 and 14 are
-unsupported. Each supported version has a distinct rules identity;
-multiplayer peers must select the same version.
+`--enhanced-features -swept_ground_steps` removes that feature from the
+revision. An absolute list such as `capacity,local_flow` names the whole
+set. A battle room refuses a feature list: `--enhanced-features` is for
+skirmishes, campaigns and benchmarks; a battle room plays a revision. The
+same applies to `--enhanced-revision` below the highest revision.
 
 This opens the normal frontend. Start a Skirmish or campaign as usual;
 the match starts in the classic 2.5D view, and the camera controls above
-switch to 3D independently. The version choice lasts for this launch and
-is not saved in preferences. Saved games and recordings keep their own
-rules, even when this option chooses another version. After leaving one,
-the next new game uses the command-line selection again. Version 4 remains
-the supplied preset when no version is named. With version 0, turning
-Enhanced Mode On later in Settings selects that supplied preset.
-Benchmark selectors remain session overrides: `--benchmark-rules-version`
-with `--battle-benchmark`, and nonzero `rules_version` in a `--bench` file,
-take precedence over the new-game version for their measured match. A
-`--bench` file with `rules_version 0` keeps the normal launch selection.
+switch to 3D independently. The choice lasts for this launch and is not
+saved in preferences. Saved games and recordings keep their own revision
+and features. After leaving one, the next new game uses the command-line
+selection again. With no revision named, Enhanced Mode On plays the highest
+revision. A benchmark takes the same two flags, and a `--bench` file takes
+`enhanced_revision` and `enhanced_features`. Either one applies to that
+measured match.
+
+Development aliases (removed before release): `--enhanced-mode-version`, `--benchmark-rules-version` and `--benchmark-features`. `--benchmark-features` is another name for `--enhanced-features`.
 
 ### Network play
 
@@ -676,7 +674,8 @@ a comment. Every key may be left out:
 | `label NAME` | The run's name in its lines. | the file's name without its extension |
 | `stage FILE` | A stage played into the match once it starts; a path that is not absolute is taken from the view file's folder. | none |
 | `players N` | The skirmish's players, from 2 to 10. | 2 |
-| `rules_version N` | Enhanced rules preset for this benchmark session, from 1 to 8, 10, 11 or experimental 13; requires Enhanced Mode On. 0 keeps the normal settings. | 0, normal settings |
+| `enhanced_revision N` | Enhanced Mode revision for this benchmark session. Requires Enhanced Mode On. N is a revision this build plays. | the launch's revision |
+| `enhanced_features LIST` | Feature names, or `+name` and `-name` against the revision. Requires Enhanced Mode On. | the revision's features |
 | `menu_seconds S` | Seconds on the main menu first. | 1 |
 | `warmup_ticks N` | The match tick the measured span starts at. | 600 |
 | `warmup_frames N` | Additional rendered warm-up frames after staging and the tick warm-up. | 0 |
@@ -705,15 +704,16 @@ does not start, a match that ends in the warm-up and a closed window: the
 bench prints `bench: FAILED` and what went wrong, and the game ends with
 status 1.
 
-To compare Enhanced presets, put `rules_version 4` or `rules_version 6` in
-the view file while Enhanced Mode is On. The selection applies to this
+To compare feature sets, put `enhanced_revision 1` in the view file, and
+optionally `enhanced_features` with a comma list of names or with `+` and
+`-` items, while Enhanced Mode is On. The selection applies to this
 benchmark session and is released when it finishes or fails; preferences
-keep their normal setting. Leaving the key out, or giving 0, keeps the
-normal rules, including Enhanced Mode Off when that is selected. The
-benchmark checks the started match's actual preset before measuring it
-and reports the actual and requested versions in `INITIAL`. Renderer and
-graphics choices remain independent; selecting rules leaves the gameplay
-mode's real-window, clock, focus and presentation requirements in force.
+keep their normal setting. Leaving both keys out keeps the launch's choice,
+including Enhanced Mode Off when that is selected. The benchmark checks the
+started match's revision and features before measuring it and reports them
+in `INITIAL`. Renderer and graphics choices remain independent; selecting
+rules leaves the gameplay mode's real-window, clock, focus and presentation
+requirements in force.
 
 For a fixed rendering workload, pause in the stage, set `warmup_ticks 0`,
 and use `warmup_frames` to prepare the actual rendering caches. Set
@@ -759,7 +759,7 @@ its log (or into the folder `--log-dir` names), each beginning `bench:`:
 | `WARMUP label=NAME to tick N` | The warm-up has begun. |
 | `MEASURING label=NAME tick=N seconds=S` | The span begins at match tick N. |
 | `SEC N frames F frame MS sim MS draw MS units A+B vertices V tick T` | Each second of the span: its frames, their mean frame, simulation and drawing times, the live units of the local player and of the others, the turned view's vertices in the last frame and the match tick. |
-| `INITIAL ... enhanced_mode B rules_version V requested_rules_version R` | Every run's actual Enhanced Mode state and preset, plus the view file's request (0 keeps normal settings). Gameplay also reports `units`, `owner0`, `owner1`, `seed`, `controller0`, `controller1` and `setup_clock_reanchored 1`: its staged population, seed and controller statuses, with synchronous setup excluded from the game clock. |
+| `INITIAL ... enhanced_mode B revision R features F requested_revision R2 requested_features F2` | Every run's actual Enhanced Mode state, revision and feature names, plus the view file's request. A feature list is names separated by commas, or `-` when none was asked or none is on. A requested revision of 0 and requested features of `-` mean the view file named neither. Gameplay also reports `units`, `owner0`, `owner1`, `seed`, `controller0`, `controller1` and `setup_clock_reanchored 1`: its staged population, seed and controller statuses, with synchronous setup excluded from the game clock. |
 | `REAL_WINDOW output WxH pixels WxH display D refresh R density S vsync V max_fps N warmup_complete B` | Gameplay's actual renderer output, physical window pixels, display, refresh rate, density, pacing choices and warm-up status. |
 | `ACTIVITY_BASELINE tick T shots A+B damage A+B deaths A+B births A+B` | Gameplay counters after warm-up, before measurement. Counts refer to player slots 0 and 1; damage is positive weapon damage received. |
 | `ACTIVITY tick T moved A+B ... moving_xz A+B sample_ticks N sample_seconds S` | Original units observed changing position since staging, cumulative combat counters, current projectiles, and still-live original units displaced in X/Z over the stated sample interval. |
@@ -1857,7 +1857,8 @@ independent graphics setting.
 | `--stage FILE` | The staged battle's stage; only with the `stage` scenario | |
 | `--benchmark-crossing NAME=X0,Z0,X1,Z1` | A measure line of the staged battle, at most eight | |
 | `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
-| `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8\|10\|11\|13` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
+| `--enhanced-revision N` | Plays this benchmark at revision N. Requires Enhanced Mode On. | the highest revision |
+| `--enhanced-features LIST` | Plays this benchmark with a feature list, absolute or `+` and `-` against the revision. Requires Enhanced Mode On. | the revision's features |
 | `--match-ticks N` | Successful measured ticks required | 300 |
 | `--seed N` | Match random seed | the engine's fixed seed |
 | `--enhanced-mode[=on\|off]` | Enhanced rules for this run; a bare flag means on | stored choice |
@@ -1880,8 +1881,9 @@ is refused instead of placing units outside it. The current maximum is
 6,553 units per side with Enhanced Mode Off, or 10,000 per side with it On.
 
 The report records the engine version, map, scenario, seed, requested and
-actual populations, match unit limit, Enhanced rules version, simulation
-hash, final world digest, successful warmup and measured tick counts, and
+actual populations, match unit limit, Enhanced Mode revision and feature
+names, simulation hash, final world digest, successful warmup and measured
+tick counts, and
 minimum, mean, p50, p95, p99 and maximum tick time in nanoseconds. Percentiles
 use the nearest-rank method. Warmup and setup costs are excluded.
 
@@ -1932,11 +1934,12 @@ additional armies are placed, so a moving opponent is not mistaken for a
 static obstacle. This is an opposing-flow workload; the installed map is
 not claimed to have a choke point.
 
-For an A/B comparison, repeat the same command with each supported version:
+For an A/B comparison, repeat the same command with each feature set:
 
 ```sh
 ./run.sh --game-dir "/path/to/Total Annihilation" --enhanced-mode \
-  --battle-benchmark /tmp/oa-group-v2.json --benchmark-rules-version 2 \
+  --battle-benchmark /tmp/oa-group.json --enhanced-revision 1 \
+  --enhanced-features +cardinal_queue_escape \
   --benchmark-scenario group-march --benchmark-map "Core Prime Industrial Area" \
   --benchmark-units 1000 --benchmark-warmup 30 --match-ticks 600 --seed 7
 ```
@@ -1984,7 +1987,7 @@ The report's `map` is the map played and `requested_units_per_side` is 0.
 
 ```sh
 ./run.sh --game-dir "/path/to/Total Annihilation" --skip-intro --mute \
-  --preferences-file battle.conf --enhanced-mode --benchmark-rules-version 6 \
+  --preferences-file battle.conf --enhanced-mode --enhanced-revision 1 \
   --battle-benchmark /tmp/oa-staged.json --benchmark-scenario stage \
   --stage battle.stage --benchmark-crossing middle=5120,0,5120,10367 \
   --benchmark-warmup 0 --match-ticks 9000 --seed 7

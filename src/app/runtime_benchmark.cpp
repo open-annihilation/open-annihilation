@@ -8,6 +8,7 @@
 #include "oa/app/battle_benchmark.hpp"
 #include "benchmark_thread_cpu.hpp"
 #include "oa/app/enhanced_mode.hpp"
+#include "bench.hpp"
 #include "oa/data/limits.hpp"
 #if __has_include("oa_engine_build.hpp")
 #include "oa_engine_build.hpp"
@@ -1960,7 +1961,28 @@ void Runtime::run_battle_benchmark() {
     if (staged)
         report.requested_units_per_side = 0;
     try {
-        if (options_.benchmark_rules_version != 0) {
+        if (options_.enhanced_revision || options_.enhanced_features) {
+            const uint32_t revision = options_.enhanced_revision.value_or(mode::highest_revision);
+            mode::FeatureSet features = mode::revision_features(revision);
+            if (options_.enhanced_features) {
+                std::string list_error;
+                if (!bench::resolve_feature_list(
+                        *options_.enhanced_features,
+                        revision,
+                        features,
+                        list_error,
+                        "--enhanced-features"
+                    ))
+                    throw std::runtime_error(list_error);
+            }
+            const mode::Choice requested{revision, features};
+            if (!report.enhanced_mode)
+                throw std::runtime_error("an Enhanced Mode choice requires Enhanced Mode");
+            if (!hold_enhanced_rules_once(requested))
+                throw std::runtime_error("the requested Enhanced Mode rules could not be selected");
+            held_rules_for_setup = true;
+            note_choice(requested, mode::alias_version(features));
+        } else if (options_.benchmark_rules_version != 0) {
             if (!report.enhanced_mode)
                 throw std::runtime_error("a benchmark rules version requires Enhanced Mode");
             if (!hold_enhanced_rules_once(options_.benchmark_rules_version))

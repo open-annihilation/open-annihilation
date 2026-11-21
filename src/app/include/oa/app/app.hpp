@@ -407,7 +407,14 @@ struct Options {
     /// Overrides Enhanced Mode for this run; absent uses the stored choice.
     std::optional<bool> enhanced_mode{};
     /// Selects a new game's Enhanced preset for this run; saved games keep their own version.
+    /// Development alias, removed before release.
     std::optional<uint32_t> enhanced_mode_version{};
+    /// One-session Enhanced Mode revision, from 1 to the highest this build plays.
+    std::optional<uint32_t> enhanced_revision{};
+    /// A feature list for this launch: names, or items that each start with + or -.
+    std::optional<std::string> enhanced_features{};
+    /// The stored feature list was given with --benchmark-features, the alias.
+    bool enhanced_features_alias{};
     /// A deterministic, simulation-only benchmark writes its JSON report here.
     fs::path battle_benchmark_report{};
     /// Total initial units per side, including each side's commander.

@@ -21,10 +21,11 @@ def result_for(text):
                                        0, text, "")
 
 
-def initial_line(rules_version=0, requested_rules_version=0):
-    """Return the receipt for the rules actually selected and requested."""
-    return (f"bench: INITIAL enhanced_mode {int(rules_version != 0)} "
-            f"rules_version {rules_version} requested_rules_version {requested_rules_version}")
+def initial_line(revision=0, features="-", requested_revision=0, requested_features="-"):
+    """Return the receipt for the revision and features actually selected and requested."""
+    return (f"bench: INITIAL enhanced_mode {int(revision != 0)} "
+            f"revision {revision} features {features} "
+            f"requested_revision {requested_revision} requested_features {requested_features}")
 
 
 def spread_line(name, milliseconds):
@@ -43,10 +44,10 @@ def simulation_record(frame, **changes):
             "ticks {ticks} steps {steps} max_step_ms {maximum} max_step_tick {slowest}").format(**values)
 
 
-def transcript(rules_version=0, requested_rules_version=0, timers=False):
+def transcript(revision=0, features="-", requested_revision=0, requested_features="-", timers=False):
     """Return a complete run with one 1000 ms frame each second."""
     seconds = 3
-    lines = [initial_line(rules_version, requested_rules_version),
+    lines = [initial_line(revision, features, requested_revision, requested_features),
              "bench: WARMUP label=check to tick 30",
              f"bench: MEASURING label=check tick=30 seconds={seconds}"]
     for second in range(1, seconds + 1):
@@ -409,11 +410,15 @@ class NativeBenchReceiptTest(unittest.TestCase):
                                     shadow_index_record(1, legacy=True, **changes))
                 self.assert_work_rejected(text)
 
-    def test_current_shadow_rows_do_not_admit_unsupported_rules(self):
-        """Current telemetry cannot extend the independently supported rules preset set."""
-        text = render_work_transcript().replace(initial_line(), initial_line(12, 12))
+    def test_current_shadow_rows_do_not_admit_an_inconsistent_receipt(self):
+        """Current telemetry cannot hide a receipt whose request disagrees with the set."""
+        text = render_work_transcript().replace(
+            initial_line(),
+            initial_line(revision=1, features="capacity", requested_revision=1,
+                         requested_features="capacity,local_flow"))
         self.assert_rejected(result_for(text), bench.check_lines, True,
-                             rules_version=12, requested_rules_version=12)
+                             revision=1, features="capacity", requested_revision=1,
+                             requested_features="capacity,local_flow")
 
     def test_work_families_are_independent_complete_projections(self):
         """Both diagnostics preserve every older companion combination and original return value."""
@@ -995,76 +1000,103 @@ class NativeBenchReceiptTest(unittest.TestCase):
             with self.subTest(changed=changed):
                 self.assert_rejected(result_for(changed), bench.check_lines, True)
 
-    def test_initial_accepts_default_current_and_explicit_versions(self):
-        """Off, the current preset without a request, and explicit supported versions identify themselves."""
-        for actual, requested in ((4, 0), *((version, version) for version in (*range(9), 10, 11, 13))):
-            with self.subTest(actual=actual, requested=requested):
-                bench.check_initial(result_for(initial_line(actual, requested) + "\n"),
-                                    rules_version=actual, requested_rules_version=requested)
+    def test_initial_accepts_off_revision_and_explicit_features(self):
+        """Off, Revision 1 without a request, and an explicit feature list identify themselves."""
+        revision_1 = bench.REVISION_1
+        cases = (
+            {},
+            dict(revision=1, features=revision_1),
+            dict(revision=1, features=revision_1, requested_revision=1),
+            dict(revision=1, features="capacity", requested_revision=1, requested_features="capacity"),
+            dict(revision=1, features="capacity,local_flow", requested_revision=1,
+                 requested_features="capacity,local_flow"),
+        )
+        for kwargs in cases:
+            with self.subTest(kwargs=kwargs):
+                bench.check_initial(result_for(initial_line(**kwargs) + "\n"), **kwargs)
+
+    def test_initial_accepts_the_gameplay_prefix(self):
+        """A gameplay INITIAL line carries the same revision and feature fields."""
+        short = initial_line(revision=1, features=bench.REVISION_1)
+        line = ("bench: INITIAL units 400 owner0 200 owner1 200 seed 7 "
+                "controller0 1 controller1 2 setup_clock_reanchored 1 " +
+                short[len("bench: INITIAL "):])
+        bench.check_initial(result_for(line + "\n"), revision=1, features=bench.REVISION_1)
 
     def test_initial_requires_one_complete_anchored_receipt(self):
         """Missing, repeated, reordered fields and extra receipt text are refused."""
         line = initial_line()
         malformed = ("", line + "\n" + line, "prefix " + line, line + " trailing",
-                     "bench: INITIAL enhanced_mode 0 rules_version 0",
-                     "bench: INITIAL rules_version 0 enhanced_mode 0 requested_rules_version 0",
-                     "bench: INITIAL enhanced_mode 2 rules_version 0 requested_rules_version 0",
-                     "bench: INITIAL enhanced_mode 0 rules_version -1 requested_rules_version 0",
-                     "bench: INITIAL enhanced_mode 0 rules_version 0.5 requested_rules_version 0")
+                     "bench: INITIAL enhanced_mode 0 revision 0 features -",
+                     "bench: INITIAL revision 0 enhanced_mode 0 features - "
+                     "requested_revision 0 requested_features -",
+                     "bench: INITIAL enhanced_mode 2 revision 0 features - "
+                     "requested_revision 0 requested_features -",
+                     "bench: INITIAL enhanced_mode 0 revision -1 features - "
+                     "requested_revision 0 requested_features -",
+                     "bench: INITIAL enhanced_mode 0 revision 0.5 features - "
+                     "requested_revision 0 requested_features -")
         for text in malformed:
             with self.subTest(text=text):
                 self.assert_rejected(result_for(text + "\n"), bench.check_initial)
 
-    def test_initial_refuses_wrong_boolean_actual_or_requested_version(self):
-        """The enabled bit and both version words must agree with the expected receipt."""
-        cases = (("bench: INITIAL enhanced_mode 1 rules_version 0 requested_rules_version 0", 0, 0),
-                 ("bench: INITIAL enhanced_mode 0 rules_version 4 requested_rules_version 4", 4, 4),
-                 (initial_line(6, 6), 4, 6),
-                 (initial_line(4, 0), 4, 4),
-                 (initial_line(4, 6), 4, 4),
-                 (initial_line(4, 8), 4, 8),
-                 (initial_line(8, 7), 8, 7),
-                 (initial_line(10, 11), 10, 11),
-                 (initial_line(11, 10), 11, 10),
-                 (initial_line(10, 13), 10, 13),
-                 (initial_line(13, 10), 13, 10),
-                 ("bench: INITIAL enhanced_mode 0 rules_version 8 requested_rules_version 8", 8, 8))
-        for line, actual, requested in cases:
-            with self.subTest(line=line, actual=actual, requested=requested):
-                self.assert_rejected(result_for(line + "\n"), bench.check_initial,
-                                     rules_version=actual, requested_rules_version=requested)
-
-    def test_initial_refuses_unsupported_versions_even_when_expected(self):
-        """An unsupported actual or requested version cannot pass by matching an expectation."""
-        for actual, requested in ((9, 0), (9, 9), (4, 9), (12, 0), (12, 12), (4, 12),
-                                  (14, 0), (14, 14), (4, 14)):
-            with self.subTest(actual=actual, requested=requested):
-                self.assert_rejected(result_for(initial_line(actual, requested) + "\n"),
-                                     bench.check_initial, rules_version=actual,
-                                     requested_rules_version=requested)
+    def test_initial_refuses_an_inconsistent_or_unexpected_receipt(self):
+        """The enabled bit, the request and the expected names must agree with the line."""
+        revision_1 = bench.REVISION_1
+        cases = (
+            ("bench: INITIAL enhanced_mode 1 revision 0 features - "
+             "requested_revision 0 requested_features -", {}),
+            ("bench: INITIAL enhanced_mode 0 revision 1 features " + revision_1 +
+             " requested_revision 1 requested_features -",
+             dict(revision=1, features=revision_1, requested_revision=1)),
+            (initial_line(revision=1, features="capacity", requested_revision=1,
+                          requested_features="capacity"),
+             dict(revision=1, features=revision_1, requested_revision=1, requested_features="capacity")),
+            (initial_line(revision=1, features=revision_1),
+             dict(revision=1, features=revision_1, requested_revision=1)),
+            (initial_line(revision=1, features="capacity", requested_revision=1,
+                          requested_features="capacity,local_flow"),
+             dict(revision=1, features="capacity", requested_revision=1,
+                  requested_features="capacity,local_flow")),
+            (initial_line(revision=1, features="capacity,local_flow", requested_revision=1,
+                          requested_features="capacity"),
+             dict(revision=1, features="capacity,local_flow", requested_revision=1,
+                  requested_features="capacity")),
+        )
+        for line, kwargs in cases:
+            with self.subTest(line=line, kwargs=kwargs):
+                self.assert_rejected(result_for(line + "\n"), bench.check_initial, **kwargs)
 
     def test_complete_timers_off_transcripts_pass(self):
         """Receipt checks preserve the complete three-second, three-frame validation path."""
-        for actual, requested in ((0, 0), (4, 0), (4, 4), (6, 6), (7, 7), (8, 8),
-                                  (10, 10), (11, 11), (13, 13)):
-            with self.subTest(actual=actual, requested=requested):
-                text = transcript(actual, requested)
-                self.assertEqual(bench.check_lines(result_for(text), False, rules_version=actual,
-                                                   requested_rules_version=requested),
-                                 text.splitlines())
+        revision_1 = bench.REVISION_1
+        cases = (
+            {},
+            dict(revision=1, features=revision_1),
+            dict(revision=1, features=revision_1, requested_revision=1),
+            dict(revision=1, features="capacity", requested_revision=1, requested_features="capacity"),
+            dict(revision=1, features="capacity,local_flow", requested_revision=1,
+                 requested_features="capacity,local_flow"),
+        )
+        for kwargs in cases:
+            with self.subTest(kwargs=kwargs):
+                text = transcript(**kwargs)
+                self.assertEqual(bench.check_lines(result_for(text), False, **kwargs), text.splitlines())
 
-    def test_complete_experimental_timers_on_transcripts_pass(self):
-        """Following and cohort presets retain the timed transcript and simulation checks."""
-        for version in (8, 10, 11, 13):
-            with self.subTest(version=version):
-                text = transcript(version, version, timers=True)
-                self.assertEqual(bench.check_lines(result_for(text), True, rules_version=version,
-                                                   requested_rules_version=version), text.splitlines())
+    def test_complete_feature_list_timers_on_transcripts_pass(self):
+        """An explicit feature list retains the timed transcript and simulation checks."""
+        for features in (bench.REVISION_1, "capacity", "capacity,local_flow"):
+            with self.subTest(features=features):
+                text = transcript(revision=1, features=features, requested_revision=1,
+                                  requested_features=features, timers=True)
+                self.assertEqual(bench.check_lines(
+                    result_for(text), True, revision=1, features=features,
+                    requested_revision=1, requested_features=features), text.splitlines())
 
     def test_unsupported_rules_stop_before_the_battle(self):
         """The exact error and exit code cannot hide a battle that already started."""
-        expected = ("bench: FAILED fixture.bench: line 2: rules_version takes 0 or a supported "
-                    "Enhanced Mode rules version")
+        expected = ("bench: FAILED fixture.bench: line 2: enhanced_revision takes a revision "
+                    "this build plays")
         rejected = result_for(expected + "\n")
         rejected.returncode = 1
         bench.check_rules_rejection(rejected, expected)
@@ -1073,7 +1105,8 @@ class NativeBenchReceiptTest(unittest.TestCase):
         missing.returncode = 1
         self.assert_rejected(missing, bench.check_rules_rejection, expected)
         for progress in ("Offline match world prepared for a map.",
-                         "stage: unit 1 queues 1 armpw", initial_line(8, 8),
+                         "stage: unit 1 queues 1 armpw",
+                         initial_line(revision=1, features=bench.REVISION_1),
                          "bench: WARMUP label=check to tick 30",
                          "bench: MEASURING label=check tick=30 seconds=3",
                          "bench: SEC 0 frames 1", "bench: STATIC tick 0",
@@ -1093,7 +1126,8 @@ class NativeBenchReceiptTest(unittest.TestCase):
         """Missing and wrong receipts fail through the full checker as well as its helper."""
         lines = transcript().splitlines()
         self.assert_rejected(result_for("\n".join(lines[1:]) + "\n"), bench.check_lines, False)
-        self.assert_rejected(result_for(transcript(4, 0)), bench.check_lines, False)
+        self.assert_rejected(result_for(transcript(revision=1, features=bench.REVISION_1)),
+                             bench.check_lines, False)
         lines.insert(1, lines[0])
         self.assert_rejected(result_for("\n".join(lines) + "\n"), bench.check_lines, False)
 
@@ -1110,10 +1144,13 @@ class NativeBenchReceiptTest(unittest.TestCase):
 
     def test_receipt_does_not_bypass_existing_spread_checks(self):
         """A matching receipt still fails when a timing spread is out of order."""
-        text = transcript(6, 6).replace(spread_line("draw", 1),
-                                        spread_line("draw", 1).replace("p95 1.00", "p95 0.50"))
-        self.assert_rejected(result_for(text), bench.check_lines, False, rules_version=6,
-                             requested_rules_version=6, message="spread is out of order")
+        text = transcript(revision=1, features=bench.REVISION_1, requested_revision=1,
+                          requested_features=bench.REVISION_1).replace(
+                              spread_line("draw", 1),
+                              spread_line("draw", 1).replace("p95 1.00", "p95 0.50"))
+        self.assert_rejected(result_for(text), bench.check_lines, False,
+                             revision=1, features=bench.REVISION_1, requested_revision=1,
+                             requested_features=bench.REVISION_1, message="spread is out of order")
 
     def test_simulation_rows_distinguish_catchup_from_one_slow_step(self):
         """The same 90 ms sum can mean five bounded steps or one genuinely slow step."""
@@ -1459,21 +1496,21 @@ class NativeBenchReceiptTest(unittest.TestCase):
                 self.assert_rejected(result_for(changed), bench.check_renderer_records,
                                      changed.splitlines(), 3, False)
 
-    def test_distinct_cohort_rules_are_rejected_in_complete_transcripts(self):
-        """Supported cohort presets still need to match an explicit session request."""
-        for actual, requested in ((10, 11), (11, 10), (10, 13), (13, 10), (11, 13), (13, 11)):
-            with self.subTest(actual=actual, requested=requested):
-                self.assert_rejected(result_for(transcript(actual, requested)), bench.check_lines,
-                                     False, rules_version=actual,
-                                     requested_rules_version=requested)
+    def test_a_request_that_differs_from_the_set_fails_the_complete_transcript(self):
+        """A receipt whose requested features differ from the set is inconsistent."""
+        self.assert_rejected(
+            result_for(transcript(revision=1, features="capacity,local_flow", requested_revision=1,
+                                  requested_features="capacity")),
+            bench.check_lines, False, revision=1, features="capacity,local_flow",
+            requested_revision=1, requested_features="capacity")
 
-    def test_unsupported_rules_are_rejected_in_complete_transcripts(self):
-        """Matching expectations cannot allow an unsupported version through the full checker."""
-        for version in (9, 12, 14):
-            with self.subTest(version=version):
-                self.assert_rejected(result_for(transcript(version, version)), bench.check_lines,
-                                     False, rules_version=version,
-                                     requested_rules_version=version)
+    def test_a_receipt_must_match_the_expected_features(self):
+        """Matching a different feature list cannot pass the full checker."""
+        self.assert_rejected(
+            result_for(transcript(revision=1, features="capacity", requested_revision=1,
+                                  requested_features="capacity")),
+            bench.check_lines, False, revision=1, features=bench.REVISION_1,
+            requested_revision=1, requested_features="capacity")
 
 
 if __name__ == "__main__":

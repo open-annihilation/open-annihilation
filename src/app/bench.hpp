@@ -9,6 +9,8 @@
 
 #include "bench_timers.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -26,11 +28,17 @@ struct View {
     std::string label;           ///< the run's name in its lines; the file's stem
     std::filesystem::path stage; ///< a stage played into the match; empty for none
     uint16_t players = 2;        ///< the skirmish's players
-    uint32_t rules_version{};    ///< one-session Enhanced preset; 0 keeps normal settings
-    double menu_seconds = 1.0;   ///< seconds on the main menu before SINGLE
-    uint32_t warmup_ticks = 600; ///< the match tick the measured span starts at
-    uint32_t warmup_frames{};    ///< rendered warm-up frames after the tick warm-up
-    double measure_seconds = 25; ///< the longest measured span, in seconds
+    /// One-session Enhanced Mode revision, from 1; 0 keeps the launch's choice.
+    uint32_t enhanced_revision{};
+    /// The feature list, when the file names `enhanced_features`. The same
+    /// grammar as `--enhanced-features`: names, or items that each start with
+    /// `+` or `-`.
+    std::string enhanced_features;
+    bool enhanced_features_named{}; ///< the file names `enhanced_features`
+    double menu_seconds = 1.0;      ///< seconds on the main menu before SINGLE
+    uint32_t warmup_ticks = 600;    ///< the match tick the measured span starts at
+    uint32_t warmup_frames{};       ///< rendered warm-up frames after the tick warm-up
+    double measure_seconds = 25;    ///< the longest measured span, in seconds
     /// The measured span in match ticks, however long they take, within
     /// measure_seconds; 0 measures for measure_seconds.
     uint32_t measure_ticks{};
@@ -83,22 +91,50 @@ struct View {
 /// @return true when the file read
 [[nodiscard]] bool read_view(const std::filesystem::path& file, View& view, std::string& error);
 
-/// Checks an optional preset against the player's Enhanced Mode setting.
+/// Resolves a feature list against a revision.
+///
+/// An absolute list is names separated by commas. A relative list is items
+/// that each start with `+` or `-`, applied to `revision`: `+` adds the
+/// feature and closes the set, and `-` removes it. Closing must not put a
+/// removed feature back. The set must be one this build can play.
+///
+/// @param text the list
+/// @param revision the revision a relative list starts from
+/// @param[out] features the resolved set
+/// @param[out] error why the list is refused, naming `subject`
+/// @param subject the flag or bench key the message names
+/// @return true when the list is a set this build plays
+[[nodiscard]] bool resolve_feature_list(
+    std::string_view text,
+    uint32_t revision,
+    oa::data::enhanced_mode::FeatureSet& features,
+    std::string& error,
+    std::string_view subject
+);
+
+/// Writes a set as a comma list of feature names, or `-` when it is empty.
+///
+/// @param features the set
+/// @return the names in id order, or `-`
+[[nodiscard]] std::string feature_list_text(oa::data::enhanced_mode::FeatureSet features);
+
+/// Checks an optional revision or feature list against Enhanced Mode.
 ///
 /// @param view the requested benchmark setup
-/// @param enhanced whether Enhanced Mode is enabled in normal settings
+/// @param enhanced whether Enhanced Mode is enabled for the launch
 /// @param[out] error why the request cannot be used
-/// @return true for normal settings or a supported enabled preset
+/// @return true when the file leaves the choice alone, or Enhanced Mode is on
 [[nodiscard]] bool validate_rules_request(const View& view, bool enhanced, std::string& error);
 
-/// Checks the actual match's preset before a benchmark measures it.
+/// Checks the started match's choice before a benchmark measures it.
 ///
 /// @param view the requested benchmark setup
-/// @param actual_version the version held by the started match, 0 for Off
-/// @param[out] error why the actual rules cannot be measured
-/// @return true when the actual rules are supported and match an explicit request
-[[nodiscard]] bool
-validate_started_rules(const View& view, uint32_t actual_version, std::string& error);
+/// @param actual the revision and features the match plays
+/// @param[out] error why the actual choice cannot be measured
+/// @return true when the choice can be played and matches an explicit request
+[[nodiscard]] bool validate_started_rules(
+    const View& view, const oa::data::enhanced_mode::Choice& actual, std::string& error
+);
 
 /// The spread of a measure over the frames of the span, in milliseconds.
 struct Spread {

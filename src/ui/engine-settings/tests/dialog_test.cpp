@@ -2932,7 +2932,8 @@ void sections_that_fit_do_not_scroll() {
     // slider, When the window loses focus's drop-down and Group keys centre
     // the view's drop-down are 957.
     // Engine Limits' three sliders, Enhanced Mode, the mod's heading and
-    // its two rows are 428. Graphics' twenty-three rows are 1314, Language's
+    // its two rows are 440. Enhanced Mode's hint wraps to one more line than
+    // the previous sentence, 12 points. Graphics' twenty-three rows are 1314, Language's
     // drop-down, five switches and slider 424, and User Interface's five
     // strips and switches with the Interface and Window size rows and Reset
     // window positions are 497. All of them scroll. Developer's list scrolls
@@ -2940,8 +2941,8 @@ void sections_that_fit_do_not_scroll() {
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{957, 428, 1314, 424, 497};
-    const std::array<int32_t, 5> limits{737, 208, 1094, 204, 277};
+    const std::array<int32_t, 5> content{957, 440, 1314, 424, 497};
+    const std::array<int32_t, 5> limits{737, 220, 1094, 204, 277};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {

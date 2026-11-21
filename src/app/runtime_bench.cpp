@@ -7,6 +7,7 @@
 // presented as a player's are, reported in "bench:" lines
 // (docs/command-line.md#--bench).
 #include "oa/app/runtime.hpp"
+#include "oa/app/enhanced_mode.hpp"
 #include "bench.hpp"
 #include "bench_timers.hpp"
 #include "render_run.hpp"
@@ -414,8 +415,21 @@ void Runtime::play_bench() {
         ~RestoreRules() { restore(); }
     } restore{restore_rules};
 
-    if (view.rules_version != 0) {
-        if (!hold_enhanced_rules_once(view.rules_version))
+    namespace mode = oa::data::enhanced_mode;
+    mode::Choice requested;
+    if (view.enhanced_revision != 0 || view.enhanced_features_named) {
+        const uint32_t revision =
+            view.enhanced_revision != 0 ? view.enhanced_revision : mode::highest_revision;
+        mode::FeatureSet features = mode::revision_features(revision);
+        if (view.enhanced_features_named) {
+            std::string list_error;
+            if (!bench::resolve_feature_list(
+                    view.enhanced_features, revision, features, list_error, "enhanced_features"
+                ))
+                fail(list_error);
+        }
+        requested = mode::Choice{revision, features};
+        if (!hold_enhanced_rules_once(requested))
             fail("the requested Enhanced Mode rules could not be selected");
         held_rules = true;
     }
@@ -429,9 +443,13 @@ void Runtime::play_bench() {
         options_.stage_file = view.stage;
         apply_stage();
     }
-    const uint32_t actual_rules_version = oa::data::enhanced_mode::rules_version(match_->rules());
-    if (std::string error; !bench::validate_started_rules(view, actual_rules_version, error))
+    const mode::Choice actual_choice = enhanced_mode_choice(*this);
+    if (std::string error; !bench::validate_started_rules(view, actual_choice, error))
         fail(error);
+    const std::string actual_features = bench::feature_list_text(actual_choice.features);
+    const std::string asked_features = view.enhanced_features_named
+                                           ? bench::feature_list_text(requested.features)
+                                           : std::string("-");
     // Live timings are painted into the software battlefield itself; they
     // would make identical paused scenes produce different image receipts.
     show_frame_stats(!view.require_paused && !view.require_gameplay);
@@ -520,24 +538,29 @@ void Runtime::play_bench() {
         snap_held_clock();
         std::printf(
             "bench: INITIAL units %u owner0 %u owner1 %u seed %u controller0 %u "
-            "controller1 %u setup_clock_reanchored 1 enhanced_mode %u rules_version %u "
-            "requested_rules_version %u\n",
+            "controller1 %u setup_clock_reanchored 1 enhanced_mode %u revision %u "
+            "features %s requested_revision %u requested_features %s\n",
             initial_total,
             initial_census[0],
             initial_census[1],
             *options_.seed,
             unsigned(match_->state().game.players[0].status),
             unsigned(match_->state().game.players[1].status),
-            unsigned(actual_rules_version != 0),
-            actual_rules_version,
-            view.rules_version
+            unsigned(actual_choice.revision != 0),
+            static_cast<unsigned>(actual_choice.revision),
+            actual_features.c_str(),
+            static_cast<unsigned>(view.enhanced_revision),
+            asked_features.c_str()
         );
     } else {
         std::printf(
-            "bench: INITIAL enhanced_mode %u rules_version %u requested_rules_version %u\n",
-            unsigned(actual_rules_version != 0),
-            actual_rules_version,
-            view.rules_version
+            "bench: INITIAL enhanced_mode %u revision %u features %s "
+            "requested_revision %u requested_features %s\n",
+            unsigned(actual_choice.revision != 0),
+            static_cast<unsigned>(actual_choice.revision),
+            actual_features.c_str(),
+            static_cast<unsigned>(view.enhanced_revision),
+            asked_features.c_str()
         );
     }
     // The warm-up's frames are timed too, so that the kept ground's

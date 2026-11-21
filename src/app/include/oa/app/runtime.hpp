@@ -84,6 +84,7 @@
 #include "oa/ui/brain_picker/model.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/mutators/choice.hpp"
+#include "oa/data/mutators/hacks.hpp"
 #include "oa/data/mutators/dry_run.hpp"
 #include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/pad_controls.hpp"
@@ -8031,6 +8032,18 @@ class Runtime final : public menu::Host,
     /// The profile source and the overrides are copied into the check, so a
     /// dry run does not read this runtime while it runs.
     void bind_planned_hack_check(oa::data::mutators::PipelineInput& input) const;
+
+    /// Resolves planned hacks the way the hack check does, and returns the
+    /// Enhanced Mode choice the resolved profile plays.
+    ///
+    /// Empty when the profile cannot be resolved. A hack that names
+    /// setup.enhanced-mode.features does not replace the match's set: the
+    /// match's choice is applied after the hack.
+    ///
+    /// @param hacks the planned hacks
+    /// @return the revision and features the resolved profile plays
+    [[nodiscard]] std::optional<oa::data::enhanced_mode::Choice>
+    probe_planned_hack_choice(std::span<const oa::data::mutators::MutatorHack> hacks) const;
 
     /// Lays the applied mutators' hacks over the profile this match plays.
     ///

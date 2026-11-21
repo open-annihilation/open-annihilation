@@ -489,6 +489,8 @@ inline constexpr std::string_view interface_words[] = {
     "Performance graph",
     "Placement by Builder",
     "Playing",
+    "Plays Enhanced Mode, Revision {revision}, in skirmishes, campaigns and the battle rooms you "
+    "host. Applies from the next game.",
     "Pointer",
     "Pointer acceleration",
     "Pointer keys",
@@ -704,7 +706,6 @@ inline constexpr std::string_view interface_words[] = {
     "Updates",
     "Use English",
     "Use modern fonts for game text",
-    "Use the enhanced rules preset. Applies from the next game.",
     "Used while {mod} is played. Same as the game uses Key layout.",
     "User Interface",
     "Version Check",

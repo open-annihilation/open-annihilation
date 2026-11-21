@@ -13818,12 +13818,12 @@
 	it=Usa font moderni per il testo di gioco;
 	}
 
-[Use the enhanced rules preset. Applies from the next game.]
+[Plays Enhanced Mode, Revision {revision}, in skirmishes, campaigns and the battle rooms you host. Applies from the next game.]
 	{
-	de=Das erweiterte Regelprofil verwenden. Gilt ab dem nächsten Spiel.;
-	fr=Utiliser le préréglage de règles améliorées. S’applique à partir de la prochaine partie.;
-	es=Usar el conjunto de reglas mejoradas. Se aplica a partir de la próxima partida.;
-	it=Usa il profilo di regole avanzate. Si applica dalla prossima partita.;
+	de=Spielt den Erweiterten Modus, Revision {revision}, in Gefechten, Kampagnen und den Kampfräumen, die du leitest. Gilt ab dem nächsten Spiel.;
+	fr=Joue au Mode amélioré, révision {revision}, dans les escarmouches, les campagnes et les salles de bataille que tu héberges. S’applique à partir de la prochaine partie.;
+	es=Juega al Modo mejorado, revisión {revision}, en escaramuzas, campañas y las salas de batalla que alojas. Se aplica a partir de la próxima partida.;
+	it=Gioca alla Modalità avanzata, revisione {revision}, nelle schermaglie, nelle campagne e nelle stanze di battaglia che ospiti. Si applica dalla prossima partita.;
 	}
 
 [Use the system picker…]

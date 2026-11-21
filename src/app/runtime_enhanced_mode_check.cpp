@@ -8,6 +8,8 @@
 #include "engine_settings_state.hpp"
 #include "stage_state.hpp"
 #include "oa/data/enhanced_mode.hpp"
+#include "oa/data/mutators/hacks.hpp"
+#include "oa/data/mutators/pipeline.hpp"
 #include "oa/data/mission_types.hpp"
 #include "oa/data/persist/hapibank.hpp"
 #include "oa/data/persist/save_enhanced_mode.hpp"
@@ -1109,6 +1111,61 @@ void Runtime::check_enhanced_mode() {
             enhanced_mode_version(*this) == rules_before, "a future recording changed the rules"
         );
     }
+
+    // A mutator's hack check reads the choice new games play. A planned hack
+    // that names the feature set cannot replace it.
+    if (match_)
+        leave_match();
+    release_enhanced_rules_once(false);
+    const auto kept_mode = options_.enhanced_mode;
+    const auto kept_version = options_.enhanced_mode_version;
+    const auto kept_revision = options_.enhanced_revision;
+    const auto kept_features = options_.enhanced_features;
+    const bool kept_features_alias = options_.enhanced_features_alias;
+    const oa::data::mutators::MutatorHack feature_hack{
+        "ridge", "setup.enhanced-mode.features", "[capacity]"
+    };
+    const auto hacks = std::span<const oa::data::mutators::MutatorHack>(&feature_hack, 1);
+    const auto expect_set = [&](const mode::Choice& wanted, const char* what) {
+        apply_hack_overrides();
+        require(enhanced_mode_choice(*this) == wanted, what);
+        oa::data::mutators::PipelineInput input;
+        bind_planned_hack_check(input);
+        require(static_cast<bool>(input.check_hacks), "the hack check was not bound");
+        const std::vector<oa::data::mutators::HackCheckError> faults = input.check_hacks(hacks);
+        if (!faults.empty())
+            throw std::runtime_error("Enhanced Mode check: " + faults.front().message);
+        const std::optional<mode::Choice> probed = probe_planned_hack_choice(hacks);
+        require(probed.has_value() && *probed == wanted, "a mutator changed the match's set");
+    };
+    options_.enhanced_mode = true;
+    options_.enhanced_mode_version.reset();
+    options_.enhanced_revision = mode::highest_revision;
+    options_.enhanced_features.reset();
+    options_.enhanced_features_alias = false;
+    {
+        oa::ui::engine_settings::EngineSettings playing = engine_settings();
+        playing.enhanced_mode = true;
+        apply_engine_settings(playing);
+    }
+    expect_set(
+        mode::Choice{mode::highest_revision, mode::revision_features(mode::highest_revision)},
+        "Revision 1 was not the mutator check's choice"
+    );
+    options_.enhanced_revision.reset();
+    options_.enhanced_features.reset();
+    options_.enhanced_mode_version = mode::following_flow_version;
+    expect_set(
+        mode::Choice{1, mode::version_features(mode::following_flow_version)},
+        "the alias set was not the mutator check's choice"
+    );
+    options_.enhanced_mode = kept_mode;
+    options_.enhanced_mode_version = kept_version;
+    options_.enhanced_revision = kept_revision;
+    options_.enhanced_features = kept_features;
+    options_.enhanced_features_alias = kept_features_alias;
+    apply_hack_overrides();
+    std::puts("Enhanced Mode: mutator checks keep Revision 1 and an alias set");
     std::puts(
         "Enhanced Mode: preset, graphics independence, frozen matches and save restoration passed"
     );
