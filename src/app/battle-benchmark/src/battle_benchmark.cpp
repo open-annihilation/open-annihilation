@@ -4,7 +4,10 @@
 #include "oa/app/battle_benchmark.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
+#include <cstddef>
 #include <iomanip>
 #include <locale>
 #include <limits>
@@ -129,6 +132,66 @@ void json_progress(std::ostream& out, const ProgressSummary& progress) {
         first = false;
     }
     out << "]}";
+}
+
+/// Writes a finite number, or null.
+void json_number(std::ostream& out, double value) {
+    if (std::isfinite(value))
+        out << value;
+    else
+        out << "null";
+}
+
+/// Writes a staged battle's lines, players and ownership audits.
+void json_staged(std::ostream& out, const StagedBattle& staged) {
+    out << "{\n    \"stage\": ";
+    json_string(out, staged.stage);
+    out << ",\n    \"window_ticks\": " << staged.window_ticks;
+    out << ",\n    \"lines\": [";
+    for (std::size_t index = 0; index < staged.lines.size(); ++index) {
+        const auto& line = staged.lines[index];
+        out << (index == 0 ? "" : ", ") << "{\"name\": ";
+        json_string(out, line.name);
+        out << ", \"from\": [" << line.from.x << ", " << line.from.z << "], \"to\": [" << line.to.x
+            << ", " << line.to.z << "]}";
+    }
+    out << "],\n    \"players\": [";
+    for (std::size_t index = 0; index < staged.players.size(); ++index) {
+        const auto& player = staged.players[index];
+        const auto& targets = player.strike_targets;
+        out << (index == 0 ? "\n      " : ",\n      ") << "{\"player\": " << unsigned{player.player}
+            << ", \"computer\": " << (player.computer ? "true" : "false")
+            << ", \"tracked_units\": " << player.tracked_units
+            << ", \"live_tracked_units\": " << player.live_tracked_units
+            << ", \"births\": " << player.births << ", \"deaths\": " << player.deaths
+            << ", \"goal_units\": " << player.goal_units << ", \"mean_progress_pixels\": ";
+        json_number(out, player.mean_progress_pixels);
+        out << ", \"advanced_units\": " << player.advanced_units
+            << ", \"window_live_unit_ticks\": " << player.window_live_unit_ticks
+            << ", \"window_stationary_unit_ticks\": " << player.window_stationary_unit_ticks
+            << ", \"stationary_throughout\": " << player.stationary_throughout
+            << ", \"crossers\": [";
+        for (std::size_t line = 0; line < player.crossers.size(); ++line)
+            out << (line == 0 ? "" : ", ") << player.crossers[line];
+        out << "], \"strike_targets\": {\"samples\": " << targets.samples
+            << ", \"attackers\": " << targets.attackers
+            << ", \"distinct_targets\": " << targets.distinct_targets << ", \"largest_share\": ";
+        json_number(out, targets.largest_share);
+        out << "}}";
+    }
+    const auto& audit = staged.audit;
+    out << (staged.players.empty() ? "]" : "\n    ]")
+        << ",\n    \"ownership_audit\": {\"audits\": " << audit.audits
+        << ", \"audited_units\": " << audit.audited_units
+        << ", \"outside_units\": " << audit.outside_units
+        << ", \"ownership_errors\": " << audit.ownership_errors
+        << ", \"units_with_errors\": " << audit.units_with_errors
+        << ", \"overlap_cells\": " << audit.overlap_cells << ", \"first_error_tick\": ";
+    if (audit.first_error_tick)
+        out << *audit.first_error_tick;
+    else
+        out << "null";
+    out << "}\n  }";
 }
 
 } // namespace
@@ -362,6 +425,232 @@ ProgressSummary summarize_progress(std::span<const ProgressState> states) {
     return summary;
 }
 
+std::optional<CrossingLine> parse_crossing_line(std::string_view text) {
+    constexpr std::size_t longest_name = 32;
+    const auto equals = text.find('=');
+    if (equals == std::string_view::npos || equals == 0 || equals > longest_name)
+        return {};
+    CrossingLine line;
+    line.name = std::string(text.substr(0, equals));
+    for (const auto letter : line.name)
+        if (!(std::isalnum(static_cast<unsigned char>(letter)) != 0 || letter == '-' ||
+              letter == '_'))
+            return {};
+    std::array<int32_t, 4> values{};
+    auto rest = text.substr(equals + 1);
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        const auto comma = rest.find(',');
+        if ((comma == std::string_view::npos) != (index + 1 == values.size()))
+            return {};
+        const auto word = rest.substr(0, comma);
+        if (word.empty() || word.size() > 5)
+            return {};
+        int32_t value = 0;
+        for (const auto digit : word) {
+            if (digit < '0' || digit > '9')
+                return {};
+            value = value * 10 + (digit - '0');
+        }
+        if (value > static_cast<int32_t>(maximum_map_extent))
+            return {};
+        values[index] = value;
+        if (comma != std::string_view::npos)
+            rest = rest.substr(comma + 1);
+    }
+    line.from = {values[0], values[1]};
+    line.to = {values[2], values[3]};
+    if (line.from == line.to)
+        return {};
+    return line;
+}
+
+namespace {
+
+/// Returns the sign of the cross product of (b - a) and (point - a).
+int orientation(Point a, Point b, Point point) noexcept {
+    const auto cross = (static_cast<int64_t>(b.x) - a.x) * (static_cast<int64_t>(point.z) - a.z) -
+                       (static_cast<int64_t>(b.z) - a.z) * (static_cast<int64_t>(point.x) - a.x);
+    return cross > 0 ? 1 : cross < 0 ? -1 : 0;
+}
+
+} // namespace
+
+int line_side(const CrossingLine& line, Point point) noexcept {
+    return orientation(line.from, line.to, point);
+}
+
+bool crosses_line(const CrossingLine& line, Point before, Point after) noexcept {
+    const auto start = line_side(line, before);
+    const auto end = line_side(line, after);
+    if (start == 0 || end == 0 || start == end)
+        return false;
+    // The step reaches across the line; it crosses the segment unless both
+    // of the segment's ends lie strictly on one side of the step.
+    const auto first = orientation(before, after, line.from);
+    const auto second = orientation(before, after, line.to);
+    return first == 0 || second == 0 || first != second;
+}
+
+StagedUnit begin_staged_unit(
+    uint8_t player, Point start, std::optional<Point> goal, std::span<const CrossingLine> lines
+) {
+    StagedUnit unit;
+    unit.player = player;
+    unit.start = unit.position = start;
+    unit.goal = goal;
+    for (std::size_t index = 0; index < lines.size() && index < maximum_crossing_lines; ++index)
+        unit.start_side[index] = static_cast<int8_t>(line_side(lines[index], start));
+    return unit;
+}
+
+void sample_staged_unit(
+    StagedUnit& unit,
+    std::span<const CrossingLine> lines,
+    Point position,
+    bool moved,
+    bool live,
+    bool in_window
+) {
+    if (!unit.live)
+        return;
+    if (!live) {
+        unit.live = false;
+        return;
+    }
+    for (std::size_t index = 0; index < lines.size() && index < maximum_crossing_lines; ++index) {
+        const auto bit = static_cast<uint8_t>(1U << index);
+        if ((unit.crossed & bit) != 0 || unit.start_side[index] == 0)
+            continue;
+        if (crosses_line(lines[index], unit.position, position) &&
+            line_side(lines[index], position) == -unit.start_side[index])
+            unit.crossed = static_cast<uint8_t>(unit.crossed | bit);
+    }
+    if (in_window) {
+        ++unit.window_live_ticks;
+        if (!moved)
+            ++unit.window_stationary_ticks;
+    }
+    unit.position = position;
+}
+
+void add_target_sample(TargetSpread& spread, std::span<uint16_t> targets) {
+    if (targets.empty())
+        return;
+    std::sort(targets.begin(), targets.end());
+    uint64_t distinct = 0;
+    uint64_t largest = 0;
+    for (std::size_t index = 0; index < targets.size();) {
+        auto next = index;
+        while (next < targets.size() && targets[next] == targets[index])
+            ++next;
+        ++distinct;
+        largest = std::max<uint64_t>(largest, next - index);
+        index = next;
+    }
+    ++spread.samples;
+    spread.attackers += targets.size();
+    spread.distinct_targets += distinct;
+    spread.largest_share += static_cast<double>(largest) / static_cast<double>(targets.size());
+}
+
+void audit_ownership(
+    OwnershipAudit& audit,
+    uint32_t tick,
+    uint32_t width,
+    uint32_t height,
+    std::span<const AuditUnit> units,
+    const void* context,
+    OccupantReader occupant,
+    std::vector<uint8_t>& scratch
+) {
+    ++audit.audits;
+    scratch.assign(static_cast<std::size_t>(width) * height, 0);
+    bool error_seen = false;
+    for (const auto& unit : units) {
+        if (unit.cell_x < 0 || unit.cell_z < 0 || unit.footprint_x < 0 || unit.footprint_z < 0 ||
+            static_cast<int64_t>(unit.cell_x) + unit.footprint_x >= width ||
+            static_cast<int64_t>(unit.cell_z) + unit.footprint_z >= height) {
+            ++audit.outside_units;
+            continue;
+        }
+        ++audit.audited_units;
+        bool unit_error = false;
+        for (int32_t row = 0; row < unit.footprint_z; ++row)
+            for (int32_t column = 0; column < unit.footprint_x; ++column) {
+                const auto cell = static_cast<std::size_t>(unit.cell_z + row) * width +
+                                  static_cast<std::size_t>(unit.cell_x + column);
+                if (occupant(context, cell, unit.air) != unit.id) {
+                    ++audit.ownership_errors;
+                    unit_error = true;
+                }
+                if (unit.air)
+                    continue;
+                if (scratch[cell] == 1)
+                    ++audit.overlap_cells;
+                if (scratch[cell] < 2)
+                    ++scratch[cell];
+            }
+        audit.units_with_errors += unit_error;
+        error_seen |= unit_error;
+    }
+    if (audit.overlap_cells != 0)
+        error_seen = true;
+    if (error_seen && !audit.first_error_tick)
+        audit.first_error_tick = tick;
+}
+
+std::vector<StagedPlayer>
+summarize_staged(std::span<const StagedUnit> units, std::size_t line_count, uint64_t window_ticks) {
+    std::vector<StagedPlayer> players;
+    std::vector<double> progress_sums;
+    const auto entry = [&](uint8_t player) -> std::size_t {
+        for (std::size_t index = 0; index < players.size(); ++index)
+            if (players[index].player == player)
+                return index;
+        auto position = players.begin();
+        while (position != players.end() && position->player < player)
+            ++position;
+        const auto index = static_cast<std::size_t>(position - players.begin());
+        StagedPlayer added;
+        added.player = player;
+        added.crossers.assign(std::min(line_count, maximum_crossing_lines), 0);
+        players.insert(position, added);
+        progress_sums.insert(progress_sums.begin() + static_cast<std::ptrdiff_t>(index), 0.0);
+        return index;
+    };
+    for (const auto& unit : units) {
+        const auto index = entry(unit.player);
+        auto& summary = players[index];
+        ++summary.tracked_units;
+        summary.live_tracked_units += unit.live;
+        if (unit.goal) {
+            const auto before = std::hypot(
+                static_cast<double>(unit.start.x) - unit.goal->x,
+                static_cast<double>(unit.start.z) - unit.goal->z
+            );
+            const auto after = std::hypot(
+                static_cast<double>(unit.position.x) - unit.goal->x,
+                static_cast<double>(unit.position.z) - unit.goal->z
+            );
+            ++summary.goal_units;
+            progress_sums[index] += before - after;
+            summary.advanced_units += before - after >= advance_distance_pixels;
+        }
+        summary.window_live_unit_ticks += unit.window_live_ticks;
+        summary.window_stationary_unit_ticks += unit.window_stationary_ticks;
+        summary.stationary_throughout += window_ticks != 0 &&
+                                         unit.window_live_ticks == window_ticks &&
+                                         unit.window_stationary_ticks == window_ticks;
+        for (std::size_t line = 0; line < summary.crossers.size(); ++line)
+            summary.crossers[line] += (unit.crossed >> line) & 1U;
+    }
+    for (std::size_t index = 0; index < players.size(); ++index)
+        if (players[index].goal_units != 0)
+            players[index].mean_progress_pixels =
+                progress_sums[index] / static_cast<double>(players[index].goal_units);
+    return players;
+}
+
 Timing summarize(std::span<const uint64_t> samples) {
     if (samples.empty())
         return {};
@@ -486,6 +775,11 @@ std::string report_json(const Report& report) {
         first = false;
     }
     out << (first ? "}" : "\n  }");
+    out << ",\n  \"staged_battle\": ";
+    if (report.staged)
+        json_staged(out, *report.staged);
+    else
+        out << "null";
     out << ",\n  \"tick_ns\": ";
     json_timing(out, report.ticks);
     out << "\n}\n";

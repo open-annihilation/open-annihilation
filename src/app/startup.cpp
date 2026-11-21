@@ -1370,6 +1370,7 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
     }
     if (argument == "--benchmark-units") {
         options.benchmark_options_named = true;
+        options.benchmark_layout_named = true;
         options.benchmark_units = parse_count(option_value(cursor));
         if (options.benchmark_units == 0 ||
             options.benchmark_units > data::limits::highest_enhanced_units_per_player)
@@ -1400,15 +1401,30 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.benchmark_options_named = true;
         options.benchmark_scenario = option_value(cursor);
         if (options.benchmark_scenario != "idle" && options.benchmark_scenario != "march" &&
-            options.benchmark_scenario != "combat" && options.benchmark_scenario != "group-march")
+            options.benchmark_scenario != "combat" && options.benchmark_scenario != "group-march" &&
+            options.benchmark_scenario != "stage")
             throw std::runtime_error(
-                "--benchmark-scenario takes idle, march, group-march or combat"
+                "--benchmark-scenario takes idle, march, group-march, combat or stage"
             );
         return true;
     }
     if (argument == "--benchmark-map") {
         options.benchmark_options_named = true;
+        options.benchmark_layout_named = true;
         options.benchmark_map = option_value(cursor);
+        return true;
+    }
+    if (argument == "--benchmark-crossing") {
+        options.benchmark_options_named = true;
+        // NAME=X0,Z0,X1,Z1; the benchmark reads each line before the match
+        // starts (oa::app::battle_benchmark::parse_crossing_line).
+        constexpr std::size_t most_crossing_lines = 8;
+        const std::string text(option_value(cursor));
+        if (text.find('=') == std::string::npos)
+            throw std::runtime_error("--benchmark-crossing expects NAME=X0,Z0,X1,Z1");
+        if (options.benchmark_crossings.size() >= most_crossing_lines)
+            throw std::runtime_error("--benchmark-crossing is given at most 8 times");
+        options.benchmark_crossings.push_back(text);
         return true;
     }
     if (argument == "--frames") {
@@ -2098,9 +2114,10 @@ void write_startup_line(std::string_view text) {
                      "[--enhanced-mode[=on|off] | --no-enhanced-mode] "
                      "[--enhanced-mode-version 0|1|2|3|4|5|6|7|8|10|11|13] "
                      "[--battle-benchmark REPORT.json [--benchmark-units N] "
-                     "[--benchmark-scenario idle|march|group-march|combat] [--benchmark-warmup N] "
+                     "[--benchmark-scenario idle|march|group-march|combat|stage] "
+                     "[--benchmark-warmup N] "
                      "[--benchmark-rules-version 1|2|3|4|5|6|7|8|10|11|13] "
-                     "[--benchmark-map NAME]] "
+                     "[--benchmark-map NAME] [--benchmark-crossing NAME=X0,Z0,X1,Z1]...] "
                      "[--benchmark FRAMES] [--bench FILE] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
                      "[--follow] [--frame-clock MS]]] "
@@ -2239,12 +2256,24 @@ void write_startup_line(std::string_view text) {
                 throw std::runtime_error(
                     std::string("--battle-benchmark cannot be used with ") + std::string(name)
                 );
+        // The stage scenario plays the preferences' skirmish and its stage:
+        // the stage places the armies, so the layout options have no part.
+        const bool staged = result.benchmark_scenario == "stage";
+        if (staged && result.stage_file.empty())
+            throw std::runtime_error("--benchmark-scenario stage needs --stage");
+        if (staged && result.benchmark_layout_named)
+            throw std::runtime_error(
+                "--benchmark-scenario stage cannot be used with --benchmark-units or "
+                "--benchmark-map"
+            );
+        if (!staged && !result.benchmark_crossings.empty())
+            throw std::runtime_error("--benchmark-crossing needs --benchmark-scenario stage");
         const std::pair<bool, const char*> refused[] = {
             {result.benchmark_frames.has_value(), "--benchmark"},
             {!result.bench_file.empty(), "--bench"},
             {result.frame_limit.has_value(), "--frames"},
             {result.frame_rate.has_value(), "--frame-rate"},
-            {!result.stage_file.empty(), "--stage"},
+            {!staged && !result.stage_file.empty(), "--stage"},
             {result.combat_units != 0, "--combat"},
             {result.busy_combat, "--busy-combat"},
             {!result.load_file.empty(), "--load"},
@@ -2279,7 +2308,7 @@ void write_startup_line(std::string_view text) {
     } else if (result.benchmark_options_named) {
         throw std::runtime_error(
             "--benchmark-units, --benchmark-warmup, --benchmark-rules-version, "
-            "--benchmark-scenario and --benchmark-map need "
+            "--benchmark-scenario, --benchmark-map and --benchmark-crossing need "
             "--battle-benchmark"
         );
     }

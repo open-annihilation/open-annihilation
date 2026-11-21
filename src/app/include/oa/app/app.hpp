@@ -416,12 +416,16 @@ struct Options {
     std::size_t benchmark_warmup{30};
     /// Explicit Enhanced rules version for a benchmark; zero uses the selected mode.
     uint32_t benchmark_rules_version{};
-    /// Workload: idle, march or combat.
+    /// Workload: idle, march, group-march, combat or stage.
     std::string benchmark_scenario{"combat"};
     /// Map selected explicitly instead of the remembered skirmish choice.
     std::string benchmark_map{"Coast To Coast"};
     /// The parser saw a benchmark companion, including one naming its default.
     bool benchmark_options_named{};
+    /// The parser saw --benchmark-units or --benchmark-map, which the stage scenario refuses.
+    bool benchmark_layout_named{};
+    /// The stage scenario's crossing lines, each NAME=X0,Z0,X1,Z1 as given.
+    std::vector<std::string> benchmark_crossings{};
     // Headless in-match run: ticks to simulate, output size, per-side army.
     std::optional<std::size_t> match_ticks;
     // Two seats of a headless brain match: installed ids, folders or builtin
