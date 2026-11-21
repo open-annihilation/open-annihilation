@@ -1970,6 +1970,7 @@ void Match::keep_rules(const OfflineInputs& input) {
     input_.weapon_rules = {weapon_rules_.get(), weapon_rule_count_};
     value_rules = rules_view();
     value_limits = &input_.limits;
+    value_features = enhanced_features_;
     keep_build_site_kickout();
     keep_structure_gifts();
 }

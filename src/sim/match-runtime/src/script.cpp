@@ -349,7 +349,8 @@ oa::sim::unit_script::UnitValueServices services(ValueBridge& bridge) {
         bridge_state_flag,
         bridge_yard,
         bridge.host.value_rules,
-        bridge.host.value_limits
+        bridge.host.value_limits,
+        bridge.host.value_features
     };
 }
 } // namespace
