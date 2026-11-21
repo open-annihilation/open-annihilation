@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <limits>
 #include <locale>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -412,6 +413,196 @@ void reports() {
     CHECK(failed.find("\"total_saturated\": true") != std::string::npos);
 }
 
+/// Checks crossing lines: reading, sides, strict crossings and segment ends.
+void crossing_lines() {
+    const auto line = benchmark::parse_crossing_line("bridge-north=100,0,100,200");
+    CHECK(line && line->name == "bridge-north");
+    CHECK(
+        line && line->from == (benchmark::Point{100, 0}) && line->to == (benchmark::Point{100, 200})
+    );
+    CHECK(!benchmark::parse_crossing_line("=1,2,3,4"));
+    CHECK(!benchmark::parse_crossing_line("a b=1,2,3,4"));
+    CHECK(!benchmark::parse_crossing_line("a=1,2,3"));
+    CHECK(!benchmark::parse_crossing_line("a=1,2,3,4,5"));
+    CHECK(!benchmark::parse_crossing_line("a=1,2,-3,4"));
+    CHECK(!benchmark::parse_crossing_line("a=1,2,32768,4"));
+    CHECK(!benchmark::parse_crossing_line("a=5,5,5,5"));
+    CHECK(!benchmark::parse_crossing_line("a=1,,3,4"));
+    CHECK(benchmark::parse_crossing_line("a=0,0,32767,32767").has_value());
+    const auto& bridge = *line;
+    CHECK(benchmark::line_side(bridge, {99, 50}) == -benchmark::line_side(bridge, {101, 50}));
+    CHECK(benchmark::line_side(bridge, {99, 50}) != 0);
+    CHECK(benchmark::line_side(bridge, {100, 500}) == 0);
+    // Across the segment, past its end, onto and off the line.
+    CHECK(benchmark::crosses_line(bridge, {98, 50}, {102, 50}));
+    CHECK(benchmark::crosses_line(bridge, {102, 200}, {98, 200}));
+    CHECK(!benchmark::crosses_line(bridge, {98, 250}, {102, 250}));
+    CHECK(!benchmark::crosses_line(bridge, {98, 50}, {100, 50}));
+    CHECK(!benchmark::crosses_line(bridge, {100, 50}, {102, 50}));
+    CHECK(!benchmark::crosses_line(bridge, {98, 50}, {99, 60}));
+    // A diagonal step whose path passes the segment's end exactly crosses.
+    CHECK(benchmark::crosses_line(bridge, {99, 199}, {101, 201}));
+}
+
+/// Checks staged-unit tracking: crossings away from the start side, the
+/// stationary window, retirement and per-player summaries.
+void staged_units() {
+    const std::array<benchmark::CrossingLine, 2> lines{
+        benchmark::CrossingLine{"centre", {100, 0}, {100, 1000}},
+        benchmark::CrossingLine{"far", {500, 0}, {500, 1000}}
+    };
+    auto runner = benchmark::begin_staged_unit(0, {90, 10}, benchmark::Point{190, 10}, lines);
+    CHECK(runner.start_side[0] != 0 && runner.start_side[1] == runner.start_side[0]);
+    benchmark::sample_staged_unit(runner, lines, {95, 10}, true, true, false);
+    benchmark::sample_staged_unit(runner, lines, {105, 10}, true, true, false);
+    CHECK(runner.crossed == 1);
+    // Back and over again counts once.
+    benchmark::sample_staged_unit(runner, lines, {95, 10}, true, true, false);
+    benchmark::sample_staged_unit(runner, lines, {105, 10}, true, true, false);
+    CHECK(runner.crossed == 1);
+    benchmark::sample_staged_unit(runner, lines, {105, 10}, false, true, true);
+    benchmark::sample_staged_unit(runner, lines, {110, 10}, true, true, true);
+    CHECK(runner.window_live_ticks == 2 && runner.window_stationary_ticks == 1);
+    // A unit starting on the far side of a line crosses it only towards the near side.
+    auto returner = benchmark::begin_staged_unit(1, {120, 10}, std::nullopt, lines);
+    benchmark::sample_staged_unit(returner, lines, {130, 10}, true, true, false);
+    CHECK(returner.crossed == 0);
+    benchmark::sample_staged_unit(returner, lines, {90, 10}, true, true, false);
+    CHECK(returner.crossed == 1);
+    // A still unit through the whole window, and one that dies in it.
+    auto still = benchmark::begin_staged_unit(0, {10, 10}, benchmark::Point{10, 110}, lines);
+    benchmark::sample_staged_unit(still, lines, {10, 10}, false, true, true);
+    benchmark::sample_staged_unit(still, lines, {10, 10}, false, true, true);
+    auto lost = benchmark::begin_staged_unit(0, {10, 500}, benchmark::Point{10, 400}, lines);
+    benchmark::sample_staged_unit(lost, lines, {10, 480}, true, true, true);
+    benchmark::sample_staged_unit(lost, lines, {10, 470}, true, false, true);
+    benchmark::sample_staged_unit(lost, lines, {10, 300}, true, true, true);
+    CHECK(!lost.live && lost.position == (benchmark::Point{10, 480}));
+    CHECK(lost.window_live_ticks == 1);
+    const std::array<benchmark::StagedUnit, 4> units{returner, runner, still, lost};
+    const auto players = benchmark::summarize_staged(units, lines.size(), 2);
+    CHECK(players.size() == 2 && players[0].player == 0 && players[1].player == 1);
+    const auto& first = players[0];
+    CHECK(first.tracked_units == 3 && first.live_tracked_units == 2 && first.goal_units == 3);
+    // Progress: runner 100 -> 80, still 100 -> 100, lost 100 -> 80.
+    CHECK(first.mean_progress_pixels > 13.33 && first.mean_progress_pixels < 13.34);
+    CHECK(first.advanced_units == 2);
+    CHECK(first.window_live_unit_ticks == 5 && first.window_stationary_unit_ticks == 3);
+    CHECK(first.stationary_throughout == 1);
+    CHECK(first.crossers.size() == 2 && first.crossers[0] == 1 && first.crossers[1] == 0);
+    CHECK(players[1].goal_units == 0 && players[1].mean_progress_pixels == 0);
+    CHECK(players[1].crossers[0] == 1);
+}
+
+/// Checks strike-target spread samples.
+void target_spread() {
+    benchmark::TargetSpread spread;
+    std::vector<uint16_t> none;
+    benchmark::add_target_sample(spread, none);
+    CHECK(spread.samples == 0);
+    std::vector<uint16_t> targets{7, 3, 7, 7, 9};
+    benchmark::add_target_sample(spread, targets);
+    CHECK(spread.samples == 1 && spread.attackers == 5 && spread.distinct_targets == 3);
+    CHECK(spread.largest_share > 0.599 && spread.largest_share < 0.601);
+    std::vector<uint16_t> one{4};
+    benchmark::add_target_sample(spread, one);
+    CHECK(spread.samples == 2 && spread.attackers == 6 && spread.distinct_targets == 4);
+    CHECK(spread.largest_share > 1.599 && spread.largest_share < 1.601);
+}
+
+/// Checks ownership audits: owned cells, a stolen cell, an overlap, an air
+/// unit and a footprint past the map's edge.
+void ownership_audits() {
+    constexpr uint32_t width = 8;
+    constexpr uint32_t height = 6;
+
+    struct Plots {
+        std::array<uint16_t, width * height> ground{};
+        std::array<uint16_t, width * height> air{};
+    } plots;
+
+    const auto read = [](const void* context, std::size_t cell, bool air) -> uint16_t {
+        const auto& words = *static_cast<const Plots*>(context);
+        return air ? words.air[cell] : words.ground[cell];
+    };
+    const auto claim = [&](uint16_t id, int32_t x, int32_t z, int32_t size, bool air) {
+        for (int32_t row = 0; row < size; ++row)
+            for (int32_t column = 0; column < size; ++column)
+                (air ? plots.air : plots.ground)
+                    [static_cast<std::size_t>(z + row) * width +
+                     static_cast<std::size_t>(x + column)] = id;
+    };
+    claim(1, 0, 0, 2, false);
+    claim(2, 3, 0, 2, false);
+    claim(3, 3, 0, 1, true);
+    std::vector<benchmark::AuditUnit> units{
+        {1, 0, 0, 2, 2, false},
+        {2, 3, 0, 2, 2, false},
+        {3, 3, 0, 1, 1, true},
+        {4, 7, 5, 2, 2, false}
+    };
+    benchmark::OwnershipAudit audit;
+    std::vector<uint8_t> scratch;
+    benchmark::audit_ownership(audit, 0, width, height, units, &plots, read, scratch);
+    CHECK(audit.audits == 1 && audit.audited_units == 3 && audit.outside_units == 1);
+    CHECK(audit.ownership_errors == 0 && audit.overlap_cells == 0 && !audit.first_error_tick);
+    // Unit 5 stands over unit 2's cell (4, 1); the plot names unit 2.
+    units.push_back({5, 4, 1, 2, 2, false});
+    plots.ground[2 * width + 4] = 5;
+    plots.ground[2 * width + 5] = 5;
+    plots.ground[1 * width + 5] = 5;
+    benchmark::audit_ownership(audit, 150, width, height, units, &plots, read, scratch);
+    CHECK(audit.audits == 2 && audit.audited_units == 7);
+    CHECK(audit.ownership_errors == 1 && audit.units_with_errors == 1);
+    CHECK(audit.overlap_cells == 1 && audit.first_error_tick == 150u);
+    benchmark::audit_ownership(audit, 300, width, height, units, &plots, read, scratch);
+    CHECK(audit.first_error_tick == 150u && audit.overlap_cells == 2);
+    CHECK(audit.ownership_errors == 2);
+}
+
+/// Checks the staged battle's report block and its absence for other scenarios.
+void staged_report() {
+    benchmark::Report report;
+    report.scenario = "combat";
+    CHECK(benchmark::report_json(report).find("\"staged_battle\": null") != std::string::npos);
+    report.scenario = "stage";
+    benchmark::StagedBattle staged;
+    staged.stage = "aligned\\patrol.stage";
+    staged.window_ticks = benchmark::stationary_window_ticks;
+    staged.lines.push_back({"north", {5120, 4800}, {5120, 5000}});
+    benchmark::StagedPlayer player;
+    player.player = 1;
+    player.computer = true;
+    player.tracked_units = 10;
+    player.deaths = 2;
+    player.mean_progress_pixels = 12.5;
+    player.crossers = {4};
+    player.strike_targets.samples = 2;
+    player.strike_targets.largest_share = 0.75;
+    staged.players.push_back(player);
+    staged.audit.audits = 61;
+    staged.audit.first_error_tick = 450u;
+    report.staged = staged;
+    const auto json = benchmark::report_json(report);
+    CHECK(json.find("\"stage\": \"aligned\\\\patrol.stage\"") != std::string::npos);
+    CHECK(json.find("\"window_ticks\": 300") != std::string::npos);
+    CHECK(
+        json.find("{\"name\": \"north\", \"from\": [5120, 4800], \"to\": [5120, 5000]}") !=
+        std::string::npos
+    );
+    CHECK(
+        json.find("{\"player\": 1, \"computer\": true, \"tracked_units\": 10") != std::string::npos
+    );
+    CHECK(json.find("\"deaths\": 2") != std::string::npos);
+    CHECK(json.find("\"mean_progress_pixels\": 12.5") != std::string::npos);
+    CHECK(json.find("\"crossers\": [4]") != std::string::npos);
+    CHECK(json.find("\"largest_share\": 0.75") != std::string::npos);
+    CHECK(json.find("\"audits\": 61") != std::string::npos);
+    CHECK(json.find("\"first_error_tick\": 450") != std::string::npos);
+    report.staged->audit.first_error_tick.reset();
+    CHECK(benchmark::report_json(report).find("\"first_error_tick\": null") != std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -420,5 +611,10 @@ int main() {
     group_arrivals();
     progress();
     reports();
+    crossing_lines();
+    staged_units();
+    target_spread();
+    ownership_audits();
+    staged_report();
     return failures == 0 ? 0 : 1;
 }

@@ -550,6 +550,14 @@ const std::vector<ValueCase>& value_cases() {
         {"--benchmark-rules-version", "1", {"--battle-benchmark", "report.json"}},
         {"--benchmark-scenario", "idle", {"--battle-benchmark", "report.json"}},
         {"--benchmark-map", "Coast To Coast", {"--battle-benchmark", "report.json"}},
+        {"--benchmark-crossing",
+         "bridge=10,0,10,20",
+         {"--battle-benchmark",
+          "report.json",
+          "--benchmark-scenario",
+          "stage",
+          "--stage",
+          "s.stage"}},
         {"--bench", "low.bench", {}},
         {"--max-fps", "60", {}},
         {"--display-modes", "none", {"--headless-check"}},
@@ -1070,8 +1078,65 @@ void enhanced_benchmark_options() {
         );
     expect(
         rejection({"--battle-benchmark", "report.json", "--benchmark-scenario", "unknown"}) ==
-            "--benchmark-scenario takes idle, march, group-march or combat",
+            "--benchmark-scenario takes idle, march, group-march, combat or stage",
         "unknown workloads are refused"
+    );
+    const auto staged = parse(
+        {"--battle-benchmark",
+         "report.json",
+         "--benchmark-scenario",
+         "stage",
+         "--stage",
+         "battle.stage",
+         "--benchmark-crossing",
+         "north=5120,4800,5120,5000",
+         "--benchmark-crossing",
+         "south=5120,5300,5120,5500",
+         "--benchmark-warmup",
+         "0",
+         "--match-ticks",
+         "9000"}
+    );
+    expect(
+        staged.benchmark_scenario == "stage" &&
+            staged.stage_file == oa::app::path_from_utf8("battle.stage") &&
+            staged.benchmark_crossings.size() == 2 &&
+            staged.benchmark_crossings[1] == "south=5120,5300,5120,5500" &&
+            staged.match_ticks == 9000u && staged.headless_check,
+        "the stage scenario measures the preferences' skirmish and a stage, with its lines"
+    );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--benchmark-scenario", "stage"}) ==
+            "--benchmark-scenario stage needs --stage",
+        "the stage scenario needs its stage"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--benchmark-scenario",
+             "stage",
+             "--stage",
+             "s.stage",
+             "--benchmark-units",
+             "100"}
+        ) == "--benchmark-scenario stage cannot be used with --benchmark-units or --benchmark-map",
+        "a stage places its own armies"
+    );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--stage", "s.stage"}) ==
+            "--battle-benchmark cannot be used with --stage",
+        "only the stage scenario plays a stage"
+    );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--benchmark-crossing", "a=1,2,3,4"}) ==
+            "--benchmark-crossing needs --benchmark-scenario stage",
+        "crossing lines belong to staged battles"
+    );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--benchmark-crossing", "a"}) ==
+            "--benchmark-crossing expects NAME=X0,Z0,X1,Z1",
+        "a crossing line names its two ends"
     );
     expect(
         rejection({"--battle-benchmark", "report.json", "--match-ticks", "0"}) ==

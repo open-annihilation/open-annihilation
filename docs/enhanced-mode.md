@@ -225,6 +225,53 @@ on the same seed. The report includes simulation phase timings and
 cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
 
+### Staged battles
+
+The benchmark's `stage` scenario measures a battle with computer players
+and group orders: it starts the skirmish the preferences set up, plays a
+stage file's placements and group orders through the player's order path,
+and then measures every tick. Outside the timed step it follows the units
+the stage left and reports, per player, progress toward each unit's first
+move or patrol destination, the share of the last 300 ticks they stood
+still, units crossing named measure lines (`--benchmark-crossing`), deaths
+and births, how widely attackers spread over their targets, and an audit
+every 150 ticks that each mobile unit's footprint cells name it. Its
+per-tick digests are those of the same stage played headless with
+`--stage`. See [the command-line reference](command-line.md#staged-battles)
+for the fields.
+
+The version 6 aligned-patrol battle is such a stage: 9,999 stock troops a
+side in aligned columns on Core Prime Industrial Area, each army with its
+commander given one patrol click, Fire at Will and Maneuver, CORE played
+from the local seat and ARM by the normal computer player, seed 7. With
+version 4 for 9,000 ticks it reproduces that checkpoint's deaths (521 CORE,
+223 ARM), births (none and six) and 61 clean audits.
+
+### Reference fixtures and gate battles (0.9.3)
+
+The 0.9.3 restructure keeps two scripts with its plan, outside this
+repository; both run a worktree's build on the build machine and build
+nothing.
+
+- `oa-enh-reference [--fixture F] [--version N]` replays three short,
+  deterministic fixtures for Off and every old version: the `group-march`
+  and `combat` benchmarks at 1,000 units a side, and a headless stage of
+  the aligned-patrol formation's front eight columns (1,356 troops a side,
+  the most Off's unit limit holds) with the normal computer player, each
+  for 1,800 ticks at seed 7. It compares each run's `--trace-digest` stream
+  with the reference recorded before the restructure and prints `same` or
+  the first tick that differs, and fails on any difference.
+- `oa-enh-gate --version N [--map M] [--ticks T] [--baseline NAME]
+  [--out DIR]` runs the gate battles one at a time: the aligned-patrol
+  battle; Expanded Confluence (rivers crossed at fords) and Dire Straits
+  (narrow straits between the halves), each 10,000 stock units a side
+  placed where the benchmark finds clear ground, with one patrol click per
+  army and a computer player; all for 9,000 ticks at seed 7; and the
+  synthetic counterflow, crossing and choke fixtures. It writes
+  `report.json` and `report.md`, and against a named baseline it prints
+  each metric's change and whether the change exceeds the measured
+  run-to-run noise.
+
 ## First 20,000-unit checkpoint
 
 An Apple M5 Mac with 24 GB of memory completed the combat workload on Core

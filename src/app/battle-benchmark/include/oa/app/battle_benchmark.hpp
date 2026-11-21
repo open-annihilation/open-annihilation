@@ -9,6 +9,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace oa::app::battle_benchmark {
@@ -175,6 +176,193 @@ void sample_progress(ProgressState& state, Point position, bool live);
 /// @return counts over setup, warmup and measured samples supplied by the caller
 [[nodiscard]] ProgressSummary summarize_progress(std::span<const ProgressState> states);
 
+/// The final measured ticks over which a staged battle's stationary share is counted.
+inline constexpr uint32_t stationary_window_ticks = 300;
+/// Measured ticks between two ownership audits of a staged battle.
+inline constexpr uint32_t audit_interval_ticks = 150;
+/// Measured ticks between two samples of a staged battle's strike targets.
+inline constexpr uint32_t target_sample_interval_ticks = 30;
+/// The most crossing lines one staged battle counts.
+inline constexpr std::size_t maximum_crossing_lines = 8;
+/// The fewest pixels a unit must gain on its destination to count as advanced.
+inline constexpr double advance_distance_pixels = 16.0;
+
+/// A named measure line a staged battle counts crossers of, in whole map
+/// pixels: a bridge, a choke or a river bank. It does nothing to the battle.
+struct CrossingLine {
+    std::string name{};
+    Point from{};
+    Point to{};
+};
+
+/// Reads a crossing line written NAME=X0,Z0,X1,Z1.
+///
+/// @param text the line; NAME is 1 to 32 letters, digits, '-' or '_'
+/// @return the line, or none for a malformed text or a line of zero length
+[[nodiscard]] std::optional<CrossingLine> parse_crossing_line(std::string_view text);
+
+/// Tells which side of a crossing line, extended without end, a point lies on.
+///
+/// @param line the line
+/// @param point the point
+/// @return the sign of the cross product of (to - from) and (point - from): 1 on
+///     one side, -1 on the other, 0 on the line
+[[nodiscard]] int line_side(const CrossingLine& line, Point point) noexcept;
+
+/// Tells whether a step crosses a crossing line's segment from one side to the other.
+///
+/// A step that only reaches the line, or leaves it, does not cross.
+///
+/// @param line the line
+/// @param before where the step starts
+/// @param after where the step ends
+/// @return true when the step's two ends lie on opposite sides of the line and the
+///     line's ends do not both lie on one side of the step
+[[nodiscard]] bool crosses_line(const CrossingLine& line, Point before, Point after) noexcept;
+
+/// Tracks one unit a stage placed, from the end of staging to the end of the run.
+struct StagedUnit {
+    uint8_t player{};
+    Point start{};
+    Point position{}; ///< last live position
+    /// The point of the first order the unit held when staging ended, when that
+    /// order names a point and no unit: its move or patrol destination.
+    std::optional<Point> goal{};
+    bool live{true};
+    std::array<int8_t, maximum_crossing_lines> start_side{}; ///< line_side of `start`
+    uint8_t crossed{}; ///< one bit a line: crossed away from its start side
+    uint64_t window_live_ticks{};
+    uint64_t window_stationary_ticks{};
+};
+
+/// Begins tracking a unit where staging left it.
+///
+/// @param player the unit's owner
+/// @param start its position
+/// @param goal its destination, if its first order names one
+/// @param lines the battle's crossing lines, at most maximum_crossing_lines
+/// @return the tracking state
+[[nodiscard]] StagedUnit begin_staged_unit(
+    uint8_t player, Point start, std::optional<Point> goal, std::span<const CrossingLine> lines
+);
+
+/// Samples a tracked unit after one completed tick.
+///
+/// Once a unit is gone it stays gone: a later unit in its slot is not it.
+///
+/// @param[in,out] unit the tracking state
+/// @param lines the battle's crossing lines
+/// @param position its position now, in whole map pixels
+/// @param moved whether its exact position changed during the tick
+/// @param live whether it is still the same live unit
+/// @param in_window whether the tick is one of the final stationary_window_ticks
+void sample_staged_unit(
+    StagedUnit& unit,
+    std::span<const CrossingLine> lines,
+    Point position,
+    bool moved,
+    bool live,
+    bool in_window
+);
+
+/// Strike targets of one player's units, sampled every target_sample_interval_ticks.
+struct TargetSpread {
+    uint64_t samples{};          ///< samples with at least one attacker
+    uint64_t attackers{};        ///< attackers summed over those samples
+    uint64_t distinct_targets{}; ///< distinct targets summed over those samples
+    double largest_share{};      ///< share of attackers on the commonest target, summed
+};
+
+/// Adds one sample: the unit each of a player's attackers is ordered to attack.
+///
+/// @param[in,out] spread the player's samples so far
+/// @param targets one entry an attacker; sorted in place
+void add_target_sample(TargetSpread& spread, std::span<uint16_t> targets);
+
+/// A mobile unit whose footprint an ownership audit checks.
+struct AuditUnit {
+    uint16_t id{};
+    int32_t cell_x{}, cell_z{};           ///< footprint origin cell
+    int32_t footprint_x{}, footprint_z{}; ///< footprint size in cells
+    bool air{};                           ///< claims the air layer instead of the ground
+};
+
+/// What the ownership audits of a staged battle found.
+struct OwnershipAudit {
+    uint64_t audits{};
+    uint64_t audited_units{};     ///< units checked, summed over audits
+    uint64_t outside_units{};     ///< units skipped with a footprint past a map edge
+    uint64_t ownership_errors{};  ///< footprint cells whose occupant word names another unit
+    uint64_t units_with_errors{}; ///< units with at least one such cell, summed over audits
+    uint64_t overlap_cells{};     ///< cells inside two ground units' footprints, summed
+    std::optional<uint32_t> first_error_tick{};
+};
+
+/// Reads the occupant word of a map cell on the ground or air layer.
+using OccupantReader = uint16_t (*)(const void* context, std::size_t cell, bool air);
+
+/// Checks that every audited unit's footprint cells name it on its layer and
+/// that no map cell lies inside two ground units' footprints.
+///
+/// A footprint with a cell past the map's last row or column is skipped, as
+/// the game leaves such a unit off the map's cells.
+///
+/// @param[in,out] audit the findings so far
+/// @param tick the measured tick
+/// @param width map width in cells
+/// @param height map height in cells
+/// @param units the live, finished, unattached mobile units
+/// @param context passed to `occupant`
+/// @param occupant reads a cell's occupant word
+/// @param[in,out] scratch reused between audits
+void audit_ownership(
+    OwnershipAudit& audit,
+    uint32_t tick,
+    uint32_t width,
+    uint32_t height,
+    std::span<const AuditUnit> units,
+    const void* context,
+    OccupantReader occupant,
+    std::vector<uint8_t>& scratch
+);
+
+/// One player's results in a staged battle.
+struct StagedPlayer {
+    uint8_t player{};
+    bool computer{}; ///< a computer player controls it
+    uint64_t tracked_units{};
+    uint64_t live_tracked_units{};
+    uint64_t births{}; ///< units of this player that appeared during the run
+    uint64_t deaths{}; ///< units of this player that died during the run, born ones too
+    uint64_t goal_units{};
+    double mean_progress_pixels{}; ///< over goal units: start distance less final distance
+    uint64_t advanced_units{};     ///< goal units that gained advance_distance_pixels or more
+    uint64_t window_live_unit_ticks{};
+    uint64_t window_stationary_unit_ticks{};
+    uint64_t stationary_throughout{}; ///< live through the window and never moved in it
+    std::vector<uint64_t> crossers{}; ///< one count a crossing line
+    TargetSpread strike_targets{};
+};
+
+/// Summarizes the tracked units of each player that has any.
+///
+/// @param units every tracked unit
+/// @param line_count the battle's crossing lines
+/// @param window_ticks the stationary window's measured ticks
+/// @return one entry a player, by player index; births, deaths, computer and
+///     strike targets left for the caller
+[[nodiscard]] std::vector<StagedPlayer>
+summarize_staged(std::span<const StagedUnit> units, std::size_t line_count, uint64_t window_ticks);
+
+/// A staged battle's measured results.
+struct StagedBattle {
+    std::string stage{};
+    std::vector<CrossingLine> lines{};
+    uint32_t window_ticks{};
+    std::vector<StagedPlayer> players{};
+    OwnershipAudit audit{};
+};
+
 /// Holds nearest-rank timings, cumulative nanoseconds and reference-budget counts.
 struct Timing {
     uint64_t count{};
@@ -248,6 +436,8 @@ struct Report {
     std::string thread_cpu_clock{"unsupported"};
     std::string thread_cpu_status{"unsupported"};
     std::vector<PhaseTiming> simulation_phases{};
+    /// The stage scenario's results; none for the other scenarios.
+    std::optional<StagedBattle> staged{};
 };
 
 /// Writes a UTF-8 JSON object with stable keys and locale-independent numbers.

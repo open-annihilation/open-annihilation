@@ -254,6 +254,236 @@ constexpr int32_t kVersionRoomBottom = 22;
     return digest;
 }
 
+/// Follows a staged battle outside the timed simulation step: the units the
+/// stage left, births and deaths, strike targets and ground ownership. It
+/// only reads the match.
+class StagedObserver {
+  public:
+
+    /// Reads the crossing lines before the match starts.
+    ///
+    /// Throws std::runtime_error naming a line that does not read.
+    ///
+    /// @param crossing_texts the crossing lines, each NAME=X0,Z0,X1,Z1
+    /// @param stage the stage file
+    StagedObserver(const std::vector<std::string>& crossing_texts, const fs::path& stage) {
+        result_.stage = oa::platform::path_to_utf8(stage);
+        result_.window_ticks = battle_benchmark::stationary_window_ticks;
+        for (const auto& text : crossing_texts) {
+            const auto line = battle_benchmark::parse_crossing_line(text);
+            if (!line)
+                throw std::runtime_error(
+                    "--benchmark-crossing " + text +
+                    ": expects NAME=X0,Z0,X1,Z1, a name of letters, digits, - or _ and two "
+                    "different map pixels from 0 to 32767"
+                );
+            result_.lines.push_back(*line);
+        }
+        if (result_.lines.size() > battle_benchmark::maximum_crossing_lines)
+            throw std::runtime_error("--benchmark-crossing is given at most 8 times");
+    }
+
+    /// Starts tracking every unit live once the stage has run.
+    ///
+    /// @param match the staged match
+    void begin(sim::match_runtime::Match& match) {
+        namespace benchmark = battle_benchmark;
+        const auto& slots = match.world().slots;
+        generation_.assign(slots.size(), 0);
+        owner_.assign(slots.size(), 0);
+        live_.assign(slots.size(), false);
+        for (std::size_t index = 0; index < slots.size(); ++index) {
+            const auto& slot = slots[index];
+            if (!live(slot))
+                continue;
+            const auto id = static_cast<uint16_t>(index);
+            live_[index] = true;
+            owner_[index] = slot.record.owner_index;
+            generation_[index] = match.runtime_state(id).instance_generation;
+            std::optional<benchmark::Point> goal;
+            sim::match_runtime::Match::OrderRecordView head{};
+            if (match.queue_records(id, false, &head, 1) == 1 && head.target == 0 &&
+                takes_destination(head.kind))
+                goal = benchmark::Point{
+                    head.point[0] >> static_cast<int32_t>(kFixedShift),
+                    head.point[2] >> static_cast<int32_t>(kFixedShift)
+                };
+            tracked_.push_back(id);
+            tracked_generation_.push_back(generation_[index]);
+            previous_.push_back(slot.record.position);
+            units_.push_back(
+                benchmark::begin_staged_unit(
+                    slot.record.owner_index, pixels(slot.record.position), goal, result_.lines
+                )
+            );
+        }
+    }
+
+    /// Samples the match after one completed tick.
+    ///
+    /// @param match the staged match
+    /// @param in_window whether the tick is one of the final stationary ticks
+    void observe(sim::match_runtime::Match& match, bool in_window) {
+        const auto& slots = match.world().slots;
+        for (std::size_t index = 0; index < slots.size() && index < live_.size(); ++index) {
+            const auto& slot = slots[index];
+            const bool now = live(slot);
+            const auto generation =
+                now ? match.runtime_state(static_cast<uint16_t>(index)).instance_generation : 0;
+            if (live_[index] && (!now || generation != generation_[index]))
+                ++deaths_[owner_[index] % deaths_.size()];
+            if (now && (!live_[index] || generation != generation_[index]))
+                ++births_[slot.record.owner_index % births_.size()];
+            live_[index] = now;
+            generation_[index] = generation;
+            if (now)
+                owner_[index] = slot.record.owner_index;
+        }
+        for (std::size_t entry = 0; entry < tracked_.size(); ++entry) {
+            const auto index = tracked_[entry];
+            const auto& slot = slots[index];
+            const bool same = live_[index] && generation_[index] == tracked_generation_[entry];
+            const auto& position = slot.record.position;
+            const bool moved = position.x != previous_[entry].x ||
+                               position.y != previous_[entry].y || position.z != previous_[entry].z;
+            battle_benchmark::sample_staged_unit(
+                units_[entry], result_.lines, pixels(position), moved, same, in_window
+            );
+            if (same)
+                previous_[entry] = position;
+        }
+    }
+
+    /// Samples the unit each attacker of every player is ordered to attack.
+    ///
+    /// @param match the staged match
+    void sample_targets(sim::match_runtime::Match& match) {
+        for (auto& targets : targets_scratch_)
+            targets.clear();
+        const auto& slots = match.world().slots;
+        for (std::size_t index = 0; index < slots.size(); ++index) {
+            if (!live(slots[index]))
+                continue;
+            sim::match_runtime::Match::OrderRecordView head{};
+            if (match.queue_records(static_cast<uint16_t>(index), false, &head, 1) != 1 ||
+                head.target == 0 ||
+                (head.kind != sim::match_runtime::attack_chase_kind &&
+                 head.kind != sim::match_runtime::attack_no_move_kind))
+                continue;
+            targets_scratch_[slots[index].record.owner_index % targets_scratch_.size()].push_back(
+                head.target
+            );
+        }
+        for (std::size_t player = 0; player < targets_.size(); ++player)
+            battle_benchmark::add_target_sample(targets_[player], targets_scratch_[player]);
+    }
+
+    /// Audits the ground and air ownership of every live, finished,
+    /// unattached mobile unit's footprint.
+    ///
+    /// @param match the staged match
+    /// @param tick the measured tick
+    void audit(sim::match_runtime::Match& match, uint32_t tick) {
+        audited_.clear();
+        const auto& slots = match.world().slots;
+        for (std::size_t index = 0; index < slots.size(); ++index) {
+            const auto& slot = slots[index];
+            const auto& record = slot.record;
+            const auto id = static_cast<uint16_t>(index);
+            const auto layer = record.flags & OA_UNIT_FLAG_OCCUPANCY_MASK;
+            if (!live(slot) || !oa::unit_is_live_target(record.flags) ||
+                match.ground_runtime(id) == nullptr || record.attach_parent != 0 ||
+                (record.flags & OA_UNIT_FLAG_BUILDING) != 0 || record.build_remaining != 0.0F ||
+                (layer != ground_layer && layer != air_layer))
+                continue;
+            audited_.push_back(
+                {id,
+                 record.cell_x,
+                 record.cell_z,
+                 record.footprint_x,
+                 record.footprint_z,
+                 layer == air_layer}
+            );
+        }
+        const auto& spatial = match.spatial();
+        battle_benchmark::audit_ownership(
+            result_.audit,
+            tick,
+            spatial.terrain_width,
+            spatial.terrain_height,
+            audited_,
+            &spatial,
+            [](const void* context, std::size_t cell, bool air) -> uint16_t {
+                const auto& plots = static_cast<const sim::spatial_state::World*>(context)->plots;
+                if (cell >= plots.size())
+                    return 0;
+                return air ? plots[cell].air : plots[cell].ground;
+            },
+            audit_scratch_
+        );
+    }
+
+    /// Ends the run: the per-player results.
+    ///
+    /// @param match the staged match
+    /// @return the staged battle's results
+    [[nodiscard]] battle_benchmark::StagedBattle finish(const sim::match_runtime::Match& match) {
+        result_.players = battle_benchmark::summarize_staged(
+            units_, result_.lines.size(), battle_benchmark::stationary_window_ticks
+        );
+        for (auto& player : result_.players) {
+            const auto index = static_cast<std::size_t>(player.player) % births_.size();
+            player.births = births_[index];
+            player.deaths = deaths_[index];
+            player.strike_targets = targets_[index];
+            player.computer = match.state().game.players[index].status == OA_PLAYER_STATUS_COMPUTER;
+        }
+        return result_;
+    }
+
+  private:
+
+    /// The occupancy layers a mobile unit's flags name.
+    static constexpr uint32_t ground_layer = 1;
+    static constexpr uint32_t air_layer = 2;
+
+    [[nodiscard]] static bool live(const sim::unit_spawn::Slot& slot) noexcept {
+        return slot.unit != nullptr && slot.record.type_index != 0;
+    }
+
+    [[nodiscard]] static battle_benchmark::Point pixels(const oa::FixedVec3& position) noexcept {
+        return {
+            position.x >> static_cast<int32_t>(kFixedShift),
+            position.z >> static_cast<int32_t>(kFixedShift)
+        };
+    }
+
+    /// Tells whether an order kind sends its unit to a point: a move or a patrol.
+    [[nodiscard]] static bool takes_destination(uint8_t kind) noexcept {
+        namespace orders = sim::ground_orders;
+        namespace mr = sim::match_runtime;
+        return kind == orders::move_ground_kind || kind == mr::qmove_kind ||
+               kind == mr::patrol_kind || kind == mr::qpatrol_kind ||
+               kind == mr::repair_patrol_kind || kind == orders::vtol_move_kind ||
+               kind == mr::vtol_patrol_kind || kind == mr::vtol_repair_patrol_kind;
+    }
+
+    battle_benchmark::StagedBattle result_{};
+    std::vector<battle_benchmark::StagedUnit> units_{};
+    std::vector<uint16_t> tracked_{};
+    std::vector<uint32_t> tracked_generation_{};
+    std::vector<oa::FixedVec3> previous_{};
+    std::vector<uint32_t> generation_{};
+    std::vector<uint8_t> owner_{};
+    std::vector<bool> live_{};
+    std::array<uint64_t, OA_PLAYER_COUNT> births_{};
+    std::array<uint64_t, OA_PLAYER_COUNT> deaths_{};
+    std::array<battle_benchmark::TargetSpread, OA_PLAYER_COUNT> targets_{};
+    std::array<std::vector<uint16_t>, OA_PLAYER_COUNT> targets_scratch_{};
+    std::vector<battle_benchmark::AuditUnit> audited_{};
+    std::vector<uint8_t> audit_scratch_{};
+};
+
 } // namespace
 
 void Runtime::step_match_simulation() {
@@ -1709,6 +1939,12 @@ void Runtime::run_battle_benchmark() {
             for (std::size_t side = 0; side < goal_progress.size(); ++side)
                 report.goal_progress[side] = benchmark::summarize_progress(goal_progress[side]);
     };
+    // The stage scenario plays the preferences' skirmish and a stage file, and
+    // follows its units outside the timed step.
+    const bool staged = options_.benchmark_scenario == "stage";
+    std::optional<StagedObserver> observer;
+    if (staged)
+        report.requested_units_per_side = 0;
     try {
         if (options_.benchmark_rules_version != 0) {
             if (!report.enhanced_mode)
@@ -1718,217 +1954,236 @@ void Runtime::run_battle_benchmark() {
             held_rules_for_setup = true;
             report.enhanced_version = options_.benchmark_rules_version;
         }
-        const auto capacity = report.enhanced_mode
-                                  ? oa::data::limits::highest_enhanced_units_per_player
-                                  : oa::data::limits::highest_units_per_player;
-        if (options_.benchmark_units == 0 || options_.benchmark_units > capacity)
-            throw std::runtime_error(
-                "battle benchmark population exceeds the current unit capacity"
-            );
-        exercise_click(menu::resource_name(menu::Button::single_player));
-        exercise_click(entry::resource_name(entry::Button::skirmish));
-        cancel_brain_seats_once();
-        setup_brain_seats(oa::data::brain_library::Setup::skirmish) = {};
-        for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
-            set_brain_seat(player, std::nullopt);
-        // Pin session choices instead of inheriting the player's last setup.
-        preferences_.skirmish = {1, 1, 1, 1};
-        preferences_.skirmish_location = 1;
-        skirmish_settings_.slot_count = 2;
-        skirmish_settings_.map_name = options_.benchmark_map;
-        for (std::size_t side = 0; side < skirmish_settings_.slots.size(); ++side) {
-            auto& slot = skirmish_settings_.slots[side];
-            slot.controller = side < 2 ? entry::controller::human : entry::controller::disabled;
-            slot.side = static_cast<int32_t>(side % 2);
-            slot.color = static_cast<int32_t>(side);
-            slot.alliance = entry::unassigned_alliance;
-            slot.metal = 1000;
-            slot.energy = 1000;
-        }
-        state_.player_count = 2;
-        if (select_map(options_.benchmark_map) == 0 || map_player_capacity() < 2)
-            throw std::runtime_error(
-                "battle benchmark map needs two start positions: " + options_.benchmark_map
-            );
-        frontend_game().max_units_setting = static_cast<uint16_t>(options_.benchmark_units);
-        apply_skirmish_players();
-        if (match_ && !altitude_sight_blocked_)
-            enter_match_view();
-        if (screen_ != Screen::match || !match_ || !selected_tnt_)
-            throw std::runtime_error("battle benchmark could not start its skirmish");
-        // A loaded match now owns the held rules until its normal teardown.
-        held_rules_for_setup = false;
-        report.unit_limit = match_->state().game.units_per_player;
-        if (report.unit_limit < options_.benchmark_units)
-            throw std::runtime_error(
-                "battle benchmark population exceeds the resolved match capacity"
-            );
-        report.simulation_hash = simulation_hash(*this);
-        report.enhanced_version = enhanced_mode_version(*this);
-        report.enhanced_mode = report.enhanced_version != 0;
-        const auto dimensions = shown_map_size();
-        const auto width = static_cast<uint32_t>(dimensions[0]);
-        const auto height = static_cast<uint32_t>(dimensions[1]);
-        constexpr uint32_t spacing = 32;
-        const auto candidates = benchmark::maximum_layout_units(width, height, spacing);
-        const auto planned = benchmark::plan_layout(width, height, candidates, spacing);
-        if (!planned.layout)
-            throw std::runtime_error(planned.error);
         std::array<std::vector<uint16_t>, 2> armies;
-        for (const auto& slot : match_->world().slots)
-            if (slot.unit != nullptr && slot.record.type_index != 0 && slot.record.owner_index < 2)
-                armies[slot.record.owner_index].push_back(slot.unit_index);
-        constexpr std::array<std::string_view, 2> unit_names{"ARMPW", "CORAK"};
-        std::array<uint16_t, 2> troop_types;
-        std::array<uint16_t, 2> commander_types;
-        for (uint8_t side = 0; side < 2; ++side) {
-            if (armies[side].size() != 1)
+        if (staged) {
+            // The skirmish the preferences set up, computer players included,
+            // started as a headless staged run starts it; then the stage.
+            observer.emplace(options_.benchmark_crossings, options_.stage_file);
+            start_benchmark_skirmish();
+            held_rules_for_setup = false;
+            report.map = played_map_name();
+            report.unit_limit = match_->state().game.units_per_player;
+            report.simulation_hash = simulation_hash(*this);
+            report.enhanced_version = enhanced_mode_version(*this);
+            report.enhanced_mode = report.enhanced_version != 0;
+            apply_stage();
+            observer->begin(*match_);
+        } else {
+            const auto capacity = report.enhanced_mode
+                                      ? oa::data::limits::highest_enhanced_units_per_player
+                                      : oa::data::limits::highest_units_per_player;
+            if (options_.benchmark_units == 0 || options_.benchmark_units > capacity)
                 throw std::runtime_error(
-                    "battle benchmark needs exactly one starting commander per side"
+                    "battle benchmark population exceeds the current unit capacity"
                 );
-            troop_types[side] =
-                sim::unit_spawn::find_type_index(spawn_type_names_, unit_names[side]);
-            if (troop_types[side] == 0 || troop_types[side] >= spawn_types_.size())
+            exercise_click(menu::resource_name(menu::Button::single_player));
+            exercise_click(entry::resource_name(entry::Button::skirmish));
+            cancel_brain_seats_once();
+            setup_brain_seats(oa::data::brain_library::Setup::skirmish) = {};
+            for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
+                set_brain_seat(player, std::nullopt);
+            // Pin session choices instead of inheriting the player's last setup.
+            preferences_.skirmish = {1, 1, 1, 1};
+            preferences_.skirmish_location = 1;
+            skirmish_settings_.slot_count = 2;
+            skirmish_settings_.map_name = options_.benchmark_map;
+            for (std::size_t side = 0; side < skirmish_settings_.slots.size(); ++side) {
+                auto& slot = skirmish_settings_.slots[side];
+                slot.controller = side < 2 ? entry::controller::human : entry::controller::disabled;
+                slot.side = static_cast<int32_t>(side % 2);
+                slot.color = static_cast<int32_t>(side);
+                slot.alliance = entry::unassigned_alliance;
+                slot.metal = 1000;
+                slot.energy = 1000;
+            }
+            state_.player_count = 2;
+            if (select_map(options_.benchmark_map) == 0 || map_player_capacity() < 2)
                 throw std::runtime_error(
-                    "battle benchmark lacks unit type " + std::string(unit_names[side])
+                    "battle benchmark map needs two start positions: " + options_.benchmark_map
                 );
-            commander_types[side] = match_->world().slots[armies[side][0]].record.type_index;
-            if (commander_types[side] == 0 || commander_types[side] >= spawn_types_.size())
-                throw std::runtime_error("battle benchmark has an unknown commander type");
-            const auto& definition = spawn_types_[troop_types[side]];
-            if (definition.footprint_x <= 0 || definition.footprint_z <= 0 ||
-                definition.footprint_x > 2 || definition.footprint_z > 2)
-                throw std::runtime_error("battle benchmark units exceed its placement spacing");
-        }
-        std::optional<benchmark::Layout> arrivals;
-        if (options_.benchmark_scenario == "group-march") {
-            const auto available =
-                benchmark::maximum_layout_units(width, height, benchmark::arrival_spacing);
-            const auto destinations = benchmark::plan_group_arrivals(width, height, available);
-            if (!destinations.layout)
-                throw std::runtime_error(destinations.error);
-            std::array<std::vector<benchmark::Footprint>, 2> footprints;
+            frontend_game().max_units_setting = static_cast<uint16_t>(options_.benchmark_units);
+            apply_skirmish_players();
+            if (match_ && !altitude_sight_blocked_)
+                enter_match_view();
+            if (screen_ != Screen::match || !match_ || !selected_tnt_)
+                throw std::runtime_error("battle benchmark could not start its skirmish");
+            // A loaded match now owns the held rules until its normal teardown.
+            held_rules_for_setup = false;
+            report.unit_limit = match_->state().game.units_per_player;
+            if (report.unit_limit < options_.benchmark_units)
+                throw std::runtime_error(
+                    "battle benchmark population exceeds the resolved match capacity"
+                );
+            report.simulation_hash = simulation_hash(*this);
+            report.enhanced_version = enhanced_mode_version(*this);
+            report.enhanced_mode = report.enhanced_version != 0;
+            const auto dimensions = shown_map_size();
+            const auto width = static_cast<uint32_t>(dimensions[0]);
+            const auto height = static_cast<uint32_t>(dimensions[1]);
+            constexpr uint32_t spacing = 32;
+            const auto candidates = benchmark::maximum_layout_units(width, height, spacing);
+            const auto planned = benchmark::plan_layout(width, height, candidates, spacing);
+            if (!planned.layout)
+                throw std::runtime_error(planned.error);
+            for (const auto& slot : match_->world().slots)
+                if (slot.unit != nullptr && slot.record.type_index != 0 &&
+                    slot.record.owner_index < 2)
+                    armies[slot.record.owner_index].push_back(slot.unit_index);
+            constexpr std::array<std::string_view, 2> unit_names{"ARMPW", "CORAK"};
+            std::array<uint16_t, 2> troop_types;
+            std::array<uint16_t, 2> commander_types;
             for (uint8_t side = 0; side < 2; ++side) {
-                const auto& troop = spawn_types_[troop_types[side]];
-                const auto& commander = spawn_types_[commander_types[side]];
-                if (commander.footprint_x <= 0 || commander.footprint_z <= 0)
-                    throw std::runtime_error("battle benchmark commander has an invalid footprint");
-                footprints[side].assign(
-                    options_.benchmark_units,
-                    {static_cast<uint16_t>(troop.footprint_x),
-                     static_cast<uint16_t>(troop.footprint_z)}
-                );
-                footprints[side][0] = {
-                    static_cast<uint16_t>(commander.footprint_x),
-                    static_cast<uint16_t>(commander.footprint_z)
-                };
-            }
-
-            struct ArrivalContext {
-                sim::match_runtime::Match& match;
-                const std::array<uint16_t, 2>& troop_types;
-                const std::array<uint16_t, 2>& commander_types;
-                const std::array<std::vector<benchmark::Footprint>, 2>& footprints;
-            } context{*match_, troop_types, commander_types, footprints};
-
-            const auto can_stand =
-                [](void* opaque, uint8_t side, std::size_t index, benchmark::Point point) {
-                    auto& access = *static_cast<ArrivalContext*>(opaque);
-                    const auto footprint = access.footprints[side][index];
-                    const auto type =
-                        index == 0 ? access.commander_types[side] : access.troop_types[side];
-                    const auto cell_x = (point.x + 8 - footprint.x * 8) / 16;
-                    const auto cell_z = (point.z + 8 - footprint.z * 8) / 16;
-                    return access.match.site_clear_for(type, cell_x, cell_z, 0, 1);
-                };
-            // Validate terrain before the additional armies occupy their start
-            // sites. The original commanders' occupied cells are skipped too.
-            auto selected = benchmark::select_arrivals(
-                width,
-                height,
-                *destinations.layout,
-                {std::span<const benchmark::Footprint>(footprints[0]),
-                 std::span<const benchmark::Footprint>(footprints[1])},
-                {&context, can_stand}
-            );
-            if (!selected.layout)
-                throw std::runtime_error("battle benchmark arrival sites: " + selected.error);
-            arrivals = std::move(*selected.layout);
-        }
-        for (uint8_t side = 0; side < 2; ++side) {
-            const auto type = troop_types[side];
-            const auto& definition = spawn_types_[type];
-            for (const auto& point : planned.layout->armies[side]) {
-                if (armies[side].size() == options_.benchmark_units)
-                    break;
-                const auto cell_x = (point.x + 8 - definition.footprint_x * 8) / 16;
-                const auto cell_z = (point.z + 8 - definition.footprint_z * 8) / 16;
-                if (!match_->site_clear_for(type, cell_x, cell_z, 0, 1))
-                    continue;
-                const auto x = static_cast<uint32_t>(point.x) << kFixedShift;
-                const auto z = static_cast<uint32_t>(point.z) << kFixedShift;
-                sim::unit_spawn::Request request;
-                request.player = side;
-                request.type = type;
-                request.finished = true;
-                request.state = kGroundOccupancyState;
-                request.position = {
-                    x, static_cast<uint32_t>(match_->map_height(x, z)) << kFixedShift, z
-                };
-                const auto* placed = match_->create(request);
-                if (placed == nullptr || placed->unit == nullptr)
+                if (armies[side].size() != 1)
                     throw std::runtime_error(
-                        "battle benchmark could not allocate its requested army"
+                        "battle benchmark needs exactly one starting commander per side"
                     );
-                armies[side].push_back(placed->unit_index);
+                troop_types[side] =
+                    sim::unit_spawn::find_type_index(spawn_type_names_, unit_names[side]);
+                if (troop_types[side] == 0 || troop_types[side] >= spawn_types_.size())
+                    throw std::runtime_error(
+                        "battle benchmark lacks unit type " + std::string(unit_names[side])
+                    );
+                commander_types[side] = match_->world().slots[armies[side][0]].record.type_index;
+                if (commander_types[side] == 0 || commander_types[side] >= spawn_types_.size())
+                    throw std::runtime_error("battle benchmark has an unknown commander type");
+                const auto& definition = spawn_types_[troop_types[side]];
+                if (definition.footprint_x <= 0 || definition.footprint_z <= 0 ||
+                    definition.footprint_x > 2 || definition.footprint_z > 2)
+                    throw std::runtime_error("battle benchmark units exceed its placement spacing");
             }
-            if (armies[side].size() != options_.benchmark_units)
-                throw std::runtime_error(
-                    "battle benchmark map has too few clear placement sites for side " +
-                    std::to_string(side)
-                );
-        }
-        report.goal_metrics_available =
-            options_.benchmark_scenario == "march" || options_.benchmark_scenario == "group-march";
-        for (auto& progress : goal_progress)
-            progress.reserve(options_.benchmark_units);
-        for (uint8_t side = 0; side < 2; ++side)
-            for (std::size_t index = 0; index < armies[side].size(); ++index) {
-                const auto unit = armies[side][index];
-                if (options_.benchmark_scenario == "combat") {
-                    const auto target = armies[1 - side][index % armies[1 - side].size()];
-                    if (!match_->issue_attack_command(unit, target, false, nullptr))
+            std::optional<benchmark::Layout> arrivals;
+            if (options_.benchmark_scenario == "group-march") {
+                const auto available =
+                    benchmark::maximum_layout_units(width, height, benchmark::arrival_spacing);
+                const auto destinations = benchmark::plan_group_arrivals(width, height, available);
+                if (!destinations.layout)
+                    throw std::runtime_error(destinations.error);
+                std::array<std::vector<benchmark::Footprint>, 2> footprints;
+                for (uint8_t side = 0; side < 2; ++side) {
+                    const auto& troop = spawn_types_[troop_types[side]];
+                    const auto& commander = spawn_types_[commander_types[side]];
+                    if (commander.footprint_x <= 0 || commander.footprint_z <= 0)
                         throw std::runtime_error(
-                            "battle benchmark could not issue an attack order"
+                            "battle benchmark commander has an invalid footprint"
                         );
-                } else {
-                    if (report.goal_metrics_available) {
-                        const auto& record = match_->world().slots[unit].record;
-                        const benchmark::Point start{
-                            record.position.x >> kFixedShift, record.position.z >> kFixedShift
-                        };
-                        const auto goal =
-                            arrivals
-                                ? arrivals->armies[side][index]
-                                : benchmark::Point{static_cast<int32_t>(width) - start.x, start.z};
-                        goal_progress[side].push_back(benchmark::begin_progress(start, goal));
-                        const auto x = static_cast<uint32_t>(goal.x) << kFixedShift;
-                        const auto z = static_cast<uint32_t>(goal.z) << kFixedShift;
-                        const sim::ground_orders::Point destination{
-                            static_cast<int32_t>(x),
-                            static_cast<int32_t>(
-                                static_cast<uint32_t>(match_->map_height(x, z)) << kFixedShift
-                            ),
-                            static_cast<int32_t>(z)
-                        };
-                        match_->issue_ground_move(unit, destination, false);
-                    }
-                    // A new unqueued move clears older state orders. Put the
-                    // standing order first only after the move is installed.
-                    if (!give_state_order(unit, "Standing_FireOrder", 0))
-                        throw std::runtime_error("battle benchmark could not set hold fire");
+                    footprints[side].assign(
+                        options_.benchmark_units,
+                        {static_cast<uint16_t>(troop.footprint_x),
+                         static_cast<uint16_t>(troop.footprint_z)}
+                    );
+                    footprints[side][0] = {
+                        static_cast<uint16_t>(commander.footprint_x),
+                        static_cast<uint16_t>(commander.footprint_z)
+                    };
                 }
+
+                struct ArrivalContext {
+                    sim::match_runtime::Match& match;
+                    const std::array<uint16_t, 2>& troop_types;
+                    const std::array<uint16_t, 2>& commander_types;
+                    const std::array<std::vector<benchmark::Footprint>, 2>& footprints;
+                } context{*match_, troop_types, commander_types, footprints};
+
+                const auto can_stand =
+                    [](void* opaque, uint8_t side, std::size_t index, benchmark::Point point) {
+                        auto& access = *static_cast<ArrivalContext*>(opaque);
+                        const auto footprint = access.footprints[side][index];
+                        const auto type =
+                            index == 0 ? access.commander_types[side] : access.troop_types[side];
+                        const auto cell_x = (point.x + 8 - footprint.x * 8) / 16;
+                        const auto cell_z = (point.z + 8 - footprint.z * 8) / 16;
+                        return access.match.site_clear_for(type, cell_x, cell_z, 0, 1);
+                    };
+                // Validate terrain before the additional armies occupy their start
+                // sites. The original commanders' occupied cells are skipped too.
+                auto selected = benchmark::select_arrivals(
+                    width,
+                    height,
+                    *destinations.layout,
+                    {std::span<const benchmark::Footprint>(footprints[0]),
+                     std::span<const benchmark::Footprint>(footprints[1])},
+                    {&context, can_stand}
+                );
+                if (!selected.layout)
+                    throw std::runtime_error("battle benchmark arrival sites: " + selected.error);
+                arrivals = std::move(*selected.layout);
             }
+            for (uint8_t side = 0; side < 2; ++side) {
+                const auto type = troop_types[side];
+                const auto& definition = spawn_types_[type];
+                for (const auto& point : planned.layout->armies[side]) {
+                    if (armies[side].size() == options_.benchmark_units)
+                        break;
+                    const auto cell_x = (point.x + 8 - definition.footprint_x * 8) / 16;
+                    const auto cell_z = (point.z + 8 - definition.footprint_z * 8) / 16;
+                    if (!match_->site_clear_for(type, cell_x, cell_z, 0, 1))
+                        continue;
+                    const auto x = static_cast<uint32_t>(point.x) << kFixedShift;
+                    const auto z = static_cast<uint32_t>(point.z) << kFixedShift;
+                    sim::unit_spawn::Request request;
+                    request.player = side;
+                    request.type = type;
+                    request.finished = true;
+                    request.state = kGroundOccupancyState;
+                    request.position = {
+                        x, static_cast<uint32_t>(match_->map_height(x, z)) << kFixedShift, z
+                    };
+                    const auto* placed = match_->create(request);
+                    if (placed == nullptr || placed->unit == nullptr)
+                        throw std::runtime_error(
+                            "battle benchmark could not allocate its requested army"
+                        );
+                    armies[side].push_back(placed->unit_index);
+                }
+                if (armies[side].size() != options_.benchmark_units)
+                    throw std::runtime_error(
+                        "battle benchmark map has too few clear placement sites for side " +
+                        std::to_string(side)
+                    );
+            }
+            report.goal_metrics_available = options_.benchmark_scenario == "march" ||
+                                            options_.benchmark_scenario == "group-march";
+            for (auto& progress : goal_progress)
+                progress.reserve(options_.benchmark_units);
+            for (uint8_t side = 0; side < 2; ++side)
+                for (std::size_t index = 0; index < armies[side].size(); ++index) {
+                    const auto unit = armies[side][index];
+                    if (options_.benchmark_scenario == "combat") {
+                        const auto target = armies[1 - side][index % armies[1 - side].size()];
+                        if (!match_->issue_attack_command(unit, target, false, nullptr))
+                            throw std::runtime_error(
+                                "battle benchmark could not issue an attack order"
+                            );
+                    } else {
+                        if (report.goal_metrics_available) {
+                            const auto& record = match_->world().slots[unit].record;
+                            const benchmark::Point start{
+                                record.position.x >> kFixedShift, record.position.z >> kFixedShift
+                            };
+                            const auto goal =
+                                arrivals ? arrivals->armies[side][index]
+                                         : benchmark::Point{
+                                               static_cast<int32_t>(width) - start.x, start.z
+                                           };
+                            goal_progress[side].push_back(benchmark::begin_progress(start, goal));
+                            const auto x = static_cast<uint32_t>(goal.x) << kFixedShift;
+                            const auto z = static_cast<uint32_t>(goal.z) << kFixedShift;
+                            const sim::ground_orders::Point destination{
+                                static_cast<int32_t>(x),
+                                static_cast<int32_t>(
+                                    static_cast<uint32_t>(match_->map_height(x, z)) << kFixedShift
+                                ),
+                                static_cast<int32_t>(z)
+                            };
+                            match_->issue_ground_move(unit, destination, false);
+                        }
+                        // A new unqueued move clears older state orders. Put the
+                        // standing order first only after the move is installed.
+                        if (!give_state_order(unit, "Standing_FireOrder", 0))
+                            throw std::runtime_error("battle benchmark could not set hold fire");
+                    }
+                }
+        }
         report.initial_units = census();
         const auto slots = match_->world().slots.size();
         std::vector<oa::FixedVec3> previous_positions(slots);
@@ -1991,6 +2246,17 @@ void Runtime::run_battle_benchmark() {
             step_match_simulation();
             ++report.successful_warmup_ticks;
             note_activity(true);
+            if (observer)
+                observer->observe(*match_, false);
+        }
+        // A staged battle's audits and target samples count measured ticks.
+        const auto window_start =
+            report.measured_ticks > battle_benchmark::stationary_window_ticks
+                ? report.measured_ticks - battle_benchmark::stationary_window_ticks
+                : 0;
+        if (observer) {
+            observer->audit(*match_, 0);
+            observer->sample_targets(*match_);
         }
         std::printf(
             "battle benchmark: measuring %zu units for %zu ticks\n", census(), report.measured_ticks
@@ -2021,6 +2287,15 @@ void Runtime::run_battle_benchmark() {
                 phase_samples[phase].push_back(tick_profile.elapsed[phase]);
             ++report.successful_ticks;
             note_activity(true);
+            if (observer) {
+                const auto measured = tick + 1;
+                observer->observe(*match_, tick >= window_start);
+                if (measured % battle_benchmark::target_sample_interval_ticks == 0)
+                    observer->sample_targets(*match_);
+                if (measured % battle_benchmark::audit_interval_ticks == 0 ||
+                    measured == report.measured_ticks)
+                    observer->audit(*match_, static_cast<uint32_t>(measured));
+            }
         }
         report.final_units = census();
         std::array<char, 17> digest{};
@@ -2048,6 +2323,8 @@ void Runtime::run_battle_benchmark() {
                 {std::string(phase_names[phase]), benchmark::summarize(phase_samples[phase])}
             );
         note_work();
+        if (observer)
+            report.staged = observer->finish(*match_);
         report.completed = true;
         report.error.clear();
         write_report();
@@ -2109,6 +2386,33 @@ void Runtime::run_battle_benchmark() {
                     static_cast<unsigned long long>(progress.longest_stall_ticks)
                 );
             }
+        if (report.staged) {
+            for (const auto& player : report.staged->players) {
+                const auto window = player.window_live_unit_ticks;
+                std::printf(
+                    "battle benchmark player %u: %llu staged units, %llu live, %llu deaths, %llu "
+                    "births, mean progress %.1f px, %.2f%% stationary in the last %u ticks\n",
+                    static_cast<unsigned>(player.player),
+                    static_cast<unsigned long long>(player.tracked_units),
+                    static_cast<unsigned long long>(player.live_tracked_units),
+                    static_cast<unsigned long long>(player.deaths),
+                    static_cast<unsigned long long>(player.births),
+                    player.mean_progress_pixels,
+                    window == 0 ? 0.0
+                                : 100.0 * static_cast<double>(player.window_stationary_unit_ticks) /
+                                      static_cast<double>(window),
+                    static_cast<unsigned>(report.staged->window_ticks)
+                );
+            }
+            const auto& audit = report.staged->audit;
+            std::printf(
+                "battle benchmark ownership: %llu audits, %llu ownership errors, %llu overlap "
+                "cells\n",
+                static_cast<unsigned long long>(audit.audits),
+                static_cast<unsigned long long>(audit.ownership_errors),
+                static_cast<unsigned long long>(audit.overlap_cells)
+            );
+        }
         std::fflush(stdout);
     } catch (const std::exception& error) {
         report.completed = false;

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Check seeded battle reports, workload modes, renderer independence and refusals."""
+"""Check seeded battle reports, workload modes, staged battles, renderer independence and refusals."""
 
 import argparse
 import json
@@ -133,6 +133,115 @@ def valid_report(process, report, scenario, enabled, ticks=12, version=None):
     valid_timing_report(report)
 
 
+# A small staged battle on Ashap Plateau, whose fixed start positions put the
+# ARM commander (player 0) at 3504,304 and the CORE commander (player 1) at
+# 848,3696: twelve troops beside each, each army patrolling to the other
+# commander, CORE a computer player. The measure line lies across ARM's path.
+STAGED_SETTINGS = {
+    "open-annihilation.first-run": "done",
+    "open-annihilation.unit-limit": "250",
+    "Total Annihilation\\Skirmish|Player0Controller": "1",
+    "Total Annihilation\\Skirmish|Player0Side": "0",
+    "Total Annihilation\\Skirmish|Player1Controller": "2",
+    "Total Annihilation\\Skirmish|Player1Side": "1",
+    "Total Annihilation|NumSkirmishPlayers": "2",
+    "Total Annihilation|SkirmishMap": "Ashap Plateau",
+    "Total Annihilation|SkirmishLocation": "1",
+}
+STAGED_LINE = "ahead=2213,383,3787,1617"
+STAGED_TICKS = 900
+
+
+def staged_stage():
+    """The stage text: two groups of twelve troops with their commanders, Fire at Will, patrols."""
+    lines = ["group arm", "group-add 1"]
+    lines += [f"unit 0 ARMPW {dx} {dz}" for dx in (-144, -96, -48, 0) for dz in (64, 112, 160)]
+    lines += ["group core", "group-add 251"]
+    lines += [f"unit 1 CORAK {dx} {dz}" for dx in (0, 48, 96, 144) for dz in (-64, -112, -160)]
+    lines += ["group", "fire-order arm 2", "fire-order core 2",
+              "patrol arm 848 3696", "patrol core 3504 304"]
+    return "\n".join(lines) + "\n"
+
+
+def play_staged(native, game_dir, workdir, name, options=()):
+    """Run the stage scenario with its own preferences and return its process and report."""
+    preferences = workdir / f"{name}.conf"
+    lines = native_offline.preferences_text().splitlines()
+    lines.extend(f"{json.dumps(key)} {json.dumps(value)}" for key, value in STAGED_SETTINGS.items())
+    preferences.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    stage = workdir / "staged.stage"
+    stage.write_text(staged_stage(), encoding="utf-8")
+    report = workdir / f"{name}.json"
+    command = [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
+               "--preferences-file", str(preferences), "--battle-benchmark", str(report),
+               "--benchmark-scenario", "stage", "--stage", str(stage), "--benchmark-warmup", "0",
+               "--match-ticks", str(STAGED_TICKS), "--seed", "7", *options]
+    env = dict(os.environ, SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy")
+    process = subprocess.run(command, cwd=workdir, env=env, check=False,
+                             capture_output=True, text=True, timeout=300)
+    value = json.loads(report.read_text(encoding="utf-8")) if report.exists() else None
+    return process, value
+
+
+def staged_battles(native, game_dir, workdir):
+    """Check the stage scenario's report, its repeatability and its refusals."""
+    reports = []
+    for run in (1, 2):
+        process, report = play_staged(native, game_dir, workdir, f"staged-{run}",
+                                      ("--enhanced-mode", "--benchmark-rules-version", "6",
+                                       "--benchmark-crossing", STAGED_LINE))
+        require(process.returncode == 0 and report is not None and report["completed"],
+                "staged battle failed", process)
+        require(report["scenario"] == "stage" and report["map"] == "Ashap Plateau" and
+                report["requested_units_per_side"] == 0 and report["initial_units"] == 26 and
+                report["successful_ticks"] == STAGED_TICKS and report["enhanced_version"] == 6,
+                "staged battle lost its map, population, ticks or rules", process)
+        valid_timing_report(report)
+        staged = report["staged_battle"]
+        require(isinstance(staged, dict) and staged["window_ticks"] == 300 and
+                [line["name"] for line in staged["lines"]] == ["ahead"],
+                "staged battle lacks its window or measure line")
+        players = staged["players"]
+        require([player["player"] for player in players] == [0, 1] and
+                [player["computer"] for player in players] == [False, True],
+                "staged battle lost its players or its computer player")
+        for player in players:
+            require(player["tracked_units"] == 13 and player["goal_units"] == 13,
+                    "staged battle did not follow every staged unit to its patrol")
+            require(player["window_live_unit_ticks"] <= 13 * 300 and
+                    player["window_stationary_unit_ticks"] <= player["window_live_unit_ticks"],
+                    "stationary counts exceed the window")
+            require(len(player["crossers"]) == 1, "staged battle lost a line's crossers")
+        require(players[0]["mean_progress_pixels"] > 100 and players[0]["advanced_units"] > 0,
+                "the staged ARM army made no progress toward its patrol")
+        require(players[0]["crossers"][0] > 0, "no ARM unit crossed the line across its path")
+        audit = staged["ownership_audit"]
+        require(audit["audits"] == STAGED_TICKS // 150 + 1 and audit["audited_units"] > 0 and
+                audit["ownership_errors"] == 0 and audit["overlap_cells"] == 0 and
+                audit["first_error_tick"] is None,
+                "staged battle's ownership audits did not all run clean")
+        reports.append(report)
+    require(reports[0]["world_digest"] == reports[1]["world_digest"] and
+            reports[0]["staged_battle"] == reports[1]["staged_battle"],
+            "a repeated staged battle measured differently")
+    process, report = play_staged(native, game_dir, workdir, "staged-bad-line",
+                                  ("--enhanced-mode", "--benchmark-crossing", "bad=1,2,3"))
+    require(process.returncode != 0 and report is not None and not report["completed"] and
+            "--benchmark-crossing" in report["error"] and report["successful_ticks"] == 0,
+            "a malformed measure line was accepted", process)
+    for refused, message in (
+            ((), "--benchmark-scenario stage needs --stage"),
+            (("--stage", "staged.stage", "--benchmark-units", "24"),
+             "--benchmark-scenario stage cannot be used with --benchmark-units or --benchmark-map")):
+        command = [*RUNNER, str(native), "--game-dir", str(game_dir), "--skip-intro", "--mute",
+                   "--battle-benchmark", str(workdir / "refused.json"),
+                   "--benchmark-scenario", "stage", *refused]
+        process = subprocess.run(command, cwd=workdir, check=False, capture_output=True, text=True,
+                                 timeout=120)
+        require(process.returncode != 0 and message in process.stdout + process.stderr,
+                f"the stage scenario did not refuse: {message}", process)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path, required=True)
@@ -242,7 +351,9 @@ def main():
                 report["completed"] is False and report["error"] and report["successful_ticks"] == 0,
                 "failed setup left a stale successful report", process)
         valid_timing_report(report)
-    print("battle benchmark: seeded workloads, group flow, preset versions, graphics independence and failures checked")
+        staged_battles(native, game_dir, workdir)
+    print("battle benchmark: seeded workloads, group flow, preset versions, graphics independence, "
+          "staged battles and failures checked")
 
 
 if __name__ == "__main__":

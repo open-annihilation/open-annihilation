@@ -1850,8 +1850,10 @@ independent graphics setting.
 | Option | Meaning | Default |
 |---|---|---|
 | `--benchmark-units N` | Initial units per side, including one commander | 128 |
-| `--benchmark-scenario idle\|march\|group-march\|combat` | Hold fire, independent cross-map moves, shared destination patches, or explicit attacks | combat |
+| `--benchmark-scenario idle\|march\|group-march\|combat\|stage` | Hold fire, independent cross-map moves, shared destination patches, explicit attacks, or a staged battle ([below](#staged-battles)) | combat |
 | `--benchmark-map NAME` | An installed map with two start positions | Coast To Coast |
+| `--stage FILE` | The staged battle's stage; only with the `stage` scenario | |
+| `--benchmark-crossing NAME=X0,Z0,X1,Z1` | A measure line of the staged battle, at most eight | |
 | `--benchmark-warmup N` | Unmeasured simulation ticks | 30 |
 | `--benchmark-rules-version 1\|2\|3\|4\|5\|6\|7\|8\|10\|11\|13` | Explicit Enhanced preset for comparisons; requires Enhanced Mode On | current preset |
 | `--match-ticks N` | Successful measured ticks required | 300 |
@@ -1966,3 +1968,42 @@ be lower than its starting population.
 The workload pins session visibility, commander rules, fixed start locations
 and starting resources instead of inheriting remembered skirmish choices.
 The player's setup choices are restored when the run ends.
+
+### Staged battles
+
+`--benchmark-scenario stage --stage FILE` measures a battle the preferences
+and a stage file set up, with computer players. It starts the skirmish the
+preferences choose (its map, players, sides, computer players and unit
+limit), as a headless `--stage` run does, plays the stage file's lines
+([the stage's lines](../src/app/README.md)) and then measures every tick as
+the other scenarios do. `--benchmark-units` and `--benchmark-map` are
+refused: the stage places the armies and the preferences choose the map.
+The report's `map` is the map played and `requested_units_per_side` is 0.
+
+```sh
+./run.sh --game-dir "/path/to/Total Annihilation" --skip-intro --mute \
+  --preferences-file battle.conf --enhanced-mode --benchmark-rules-version 6 \
+  --battle-benchmark /tmp/oa-staged.json --benchmark-scenario stage \
+  --stage battle.stage --benchmark-crossing middle=5120,0,5120,10367 \
+  --benchmark-warmup 0 --match-ticks 9000 --seed 7
+```
+
+The report's `staged_battle` object (null for the other scenarios) follows,
+outside the timed step, every unit live when the stage has run:
+
+| Field | Meaning |
+|---|---|
+| `stage`, `window_ticks`, `lines` | The stage file, the final measured ticks the stationary counts cover (300), and each measure line with its two ends in map pixels. |
+| `players[].tracked_units`, `live_tracked_units` | The player's units when the stage ended, and how many of them are still alive. |
+| `births`, `deaths` | The player's units that appeared or died during the run, units born in it included. |
+| `goal_units`, `mean_progress_pixels`, `advanced_units` | Units whose first order when the stage ended was a move or a patrol; the mean of each one's straight-line distance to that point at the start less the distance at the end (a dead unit counts where it was last alive); and how many gained 16 pixels or more. |
+| `window_live_unit_ticks`, `window_stationary_unit_ticks`, `stationary_throughout` | Over the final 300 measured ticks, the tracked units' live ticks, the ticks among them in which a unit's exact position did not change, and the units alive through all of them that never moved. |
+| `crossers` | One count a measure line: tracked units whose step crossed the line and ended on the side opposite where the unit started. Each unit counts once a line. |
+| `strike_targets` | Every 30 measured ticks, the player's units whose first order is an attack on a unit: `samples` with at least one, `attackers` and `distinct_targets` summed over them, and `largest_share`, the share of attackers on the commonest target, summed. |
+| `computer` | A computer player controls the player. |
+| `ownership_audit` | Before the first measured tick, every 150 ticks and after the last: each live, finished, unattached mobile unit's footprint cells must name it on its layer. `ownership_errors` counts cells that name another unit, `units_with_errors` the units with one, `overlap_cells` cells inside two ground units' footprints, `outside_units` footprints past a map edge (not checked), and `first_error_tick` the first audit that found one. |
+
+A measure line changes nothing in the battle. The tracking, samples and
+audits run outside the timed step and change no game state: a staged
+battle's `--trace-digest` stream is the one a headless `--stage` run of the
+same preferences, stage, seed and rules writes.
