@@ -191,7 +191,7 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
         out << *audit.first_error_tick;
     else
         out << "null";
-    out << "}\n  }";
+    out << "},\n    \"extra\": {}\n  }";
 }
 
 } // namespace
@@ -750,6 +750,18 @@ std::string report_json(const Report& report) {
     text("activity_sampling_scope", report.activity_sampling_scope);
     out << ",\n  \"enhanced_mode\": " << (report.enhanced_mode ? "true" : "false");
     number("enhanced_version", report.enhanced_version);
+    out << ",\n  \"enhanced_features\": [";
+    for (std::size_t index = 0; index < report.played_feature_names.size(); ++index) {
+        if (index != 0)
+            out << ", ";
+        json_string(out, report.played_feature_names[index]);
+    }
+    out << ']';
+    text("enhanced_features_spec", report.played_feature_spec);
+    out << ",\n  ";
+    json_string(out, std::string("enhanced_features_") + "override");
+    out << ": " << (report.played_feature_override ? "true" : "false");
+    number("data_faults", report.data_faults);
     text("simulation_hash", report.simulation_hash);
     text("world_digest", report.world_digest);
     text("renderer", report.renderer);

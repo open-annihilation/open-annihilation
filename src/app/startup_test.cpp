@@ -1156,6 +1156,202 @@ void enhanced_benchmark_options() {
         !rejection({"--benchmark-rules-version", "1"}).empty(),
         "a benchmark rules version requires the run option"
     );
+    expect(
+        rejection({"--benchmark-features", "v6"}) ==
+            "--benchmark-units, --benchmark-warmup, --benchmark-rules-version, "
+            "--benchmark-scenario, --benchmark-map, --benchmark-crossing and "
+            "--benchmark-features need --battle-benchmark",
+        "a benchmark feature set requires the run option"
+    );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--benchmark-features"}) ==
+            "--benchmark-features requires a value",
+        "a benchmark feature set needs its text"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark", "report.json", "--enhanced-mode", "--benchmark-features", "v6,"}
+        ) == "--benchmark-features has an empty item",
+        "an empty feature item is refused"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode",
+             "--benchmark-features",
+             "+capacity"}
+        ) == "--benchmark-features starts with a version or feature names",
+        "a feature set starts with its base"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode",
+             "--benchmark-features",
+             "v6,capacity"}
+        ) == "--benchmark-features takes one version or a list of feature names",
+        "a version base takes only additions after it"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode",
+             "--benchmark-features",
+             "capacity,v6"}
+        ) == "--benchmark-features takes one version or a list of feature names",
+        "a name base takes only additions after it"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark", "report.json", "--enhanced-mode", "--benchmark-features", "v9"}
+        ) == "--benchmark-features: v9 is not an old version with a feature set",
+        "a withdrawn version is not a feature base"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark", "report.json", "--enhanced-mode", "--benchmark-features", "nope"}
+        ) == "--benchmark-features: unknown feature 'nope'; known features: capacity, local_flow, "
+             "routes_original, routes_large_regions, routes_fine_regions, indexed_searches, "
+             "route_corner_advance, swept_ground_steps, corridor_lanes, patrol_goal_retention, "
+             "ai_strike_retarget, squad_position_index, route_queue, group_destination_repair, "
+             "distributed_arrivals, moving_corner_advance, local_throat_guide, "
+             "credited_fallback_search, bounded_strike_recruits, ai_attack_retention, "
+             "ai_rally_retention, local_following, occupancy_free_planning, cohort_targets, "
+             "steering_projection_reuse, cohort_retention, cardinal_queue_escape",
+        "an unknown feature names the known ones"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode",
+             "--benchmark-features",
+             "v4,-local_flow"}
+        ) == "--benchmark-features: routes_large_regions needs local_flow",
+        "removing a feature closing puts back names the member that needs it"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode",
+             "--benchmark-features",
+             "routes_original,routes_fine_regions"}
+        ) == "--benchmark-features: routes_original cannot share a match with routes_fine_regions",
+        "a closed set the feature rules refuse is refused with their reason"
+    );
+    expect(
+        rejection({"--battle-benchmark", "report.json", "--benchmark-features", "v6"}) ==
+            "--benchmark-features needs Enhanced Mode",
+        "a feature set needs Enhanced Mode on"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode=off",
+             "--benchmark-features",
+             "v6"}
+        ) == "--benchmark-features cannot be used with --enhanced-mode=off",
+        "turning Enhanced Mode off with the value refuses a feature set"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--no-enhanced-mode",
+             "--benchmark-features",
+             "v6"}
+        ) == "--benchmark-features cannot be used with --no-enhanced-mode",
+        "the negative Enhanced Mode flag refuses a feature set"
+    );
+    expect(
+        rejection({"--battle-benchmark",
+                   "report.json",
+                   "--no-enhanced-mode",
+                   "--enhanced-mode",
+                   "--benchmark-features",
+                   "v6"})
+            .empty(),
+        "a later switch that turns Enhanced Mode on clears the off switch"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode",
+             "--benchmark-rules-version",
+             "4",
+             "--benchmark-features",
+             "v6"}
+        ) == "--benchmark-features cannot be used with --benchmark-rules-version",
+        "a feature set cannot share the benchmark with a rules version"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode-version",
+             "4",
+             "--benchmark-features",
+             "v6"}
+        ) == "--benchmark-features cannot be used with --enhanced-mode-version",
+        "a feature set cannot share the launch with an Enhanced Mode version"
+    );
+    oa::app::Extension network{};
+    network.take_option =
+        [](void*, const char* name, const oa::app::OptionValues& values, uint32_t&) {
+            const std::string_view option(name);
+            if (option == "--host")
+                return true;
+            if (option == "--join" || option == "--net-loopback-check") {
+                (void)values.next(values.arguments);
+                return true;
+            }
+            return false;
+        };
+    for (const char* flag : {"--host", "--join", "--net-loopback-check"}) {
+        const char* value = flag[2] == 'h' ? nullptr : "127.0.0.1";
+        std::vector<const char*> line = {
+            "--battle-benchmark",
+            "report.json",
+            "--enhanced-mode",
+            "--benchmark-features",
+            "v6",
+            flag
+        };
+        if (value != nullptr)
+            line.push_back(value);
+        expect(
+            rejection(line, network) ==
+                std::string("--benchmark-features cannot be used with ") + flag,
+            "a feature set cannot share a launch with a network game"
+        );
+    }
+    const auto base_only = parse(
+        {"--battle-benchmark", "report.json", "--enhanced-mode", "--benchmark-features", "v6"}
+    );
+    expect(
+        base_only.benchmark_features_spec == "v6" && base_only.benchmark_features &&
+            *base_only.benchmark_features == oa::data::enhanced_mode::version_features(6),
+        "a version base closes to that version's features"
+    );
+    const auto adjusted = parse(
+        {"--battle-benchmark",
+         "report.json",
+         "--enhanced-mode",
+         "--benchmark-features",
+         "v13,+cohort_retention,-cardinal_queue_escape"}
+    );
+    expect(
+        adjusted.benchmark_features_spec == "v13,+cohort_retention,-cardinal_queue_escape" &&
+            adjusted.benchmark_features &&
+            *adjusted.benchmark_features == oa::data::enhanced_mode::version_features(11),
+        "additions and removals close to the named set"
+    );
 }
 
 // A sample of the options that take a value, from every part of the

@@ -309,8 +309,9 @@ bool Runtime::run_stage_direction(
         const auto command = action == "move" ? oa::sim::gameplay_input::OrderCommand::move
                                               : oa::sim::gameplay_input::OrderCommand::patrol;
         std::size_t ordered = 0;
-        if (oa::data::enhanced_mode::features(match_->rules())
-                .has(oa::data::enhanced_mode::Feature::distributed_arrivals)) {
+        if (match_->enhanced_features().has(
+                oa::data::enhanced_mode::Feature::distributed_arrivals
+            )) {
             std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
             const oa::FixedVec3 click{point[0], point[1], point[2]};
             const auto hooks = order_cursor_hooks();
@@ -440,8 +441,9 @@ bool Runtime::run_stage_direction(
         for (const auto unit : members)
             if (const auto* member = oa::world_unit_at(&world, unit); member != nullptr)
                 oa::sim::gameplay_input::add_to_group_centre(centre, *member);
-        if (oa::data::enhanced_mode::features(match_->rules())
-                .has(oa::data::enhanced_mode::Feature::distributed_arrivals)) {
+        if (match_->enhanced_features().has(
+                oa::data::enhanced_mode::Feature::distributed_arrivals
+            )) {
             std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
             const oa::FixedVec3 click{point[0], point[1], point[2]};
             const auto hooks = order_cursor_hooks();

@@ -428,6 +428,14 @@ struct Report {
     std::string activity_sampling_scope{"after_each_successful_warmup_and_measured_tick"};
     bool enhanced_mode{};
     uint32_t enhanced_version{};
+    /// The features the match played, in id order. Empty before a match exists.
+    std::vector<std::string> played_feature_names{};
+    /// Text of --benchmark-features, or empty when that flag was not given.
+    std::string played_feature_spec{};
+    /// True when --benchmark-features chose the set the match played.
+    bool played_feature_override{};
+    /// Distinct data-fault lines reported by the end of the run.
+    uint64_t data_faults{};
     std::string simulation_hash{};
     std::string world_digest{};
     std::string renderer{"none"};

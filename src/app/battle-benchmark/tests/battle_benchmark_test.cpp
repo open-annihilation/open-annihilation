@@ -367,6 +367,11 @@ void reports() {
     CHECK(json.find("\"phase\\\"name\":") != std::string::npos);
     CHECK(json.find("\"successful_ticks\": 100") != std::string::npos);
     CHECK(json.find("\"enhanced_version\": 1") != std::string::npos);
+    CHECK(json.find("\"enhanced_features\": [") != std::string::npos);
+    CHECK(json.find("\"enhanced_features_spec\": \"\"") != std::string::npos);
+    const std::string chose_features = std::string("\"enhanced_features_") + "override\": false";
+    CHECK(json.find(chose_features) != std::string::npos);
+    CHECK(json.find("\"data_faults\": 0") != std::string::npos);
     CHECK(json.find("\"moved_unit_ticks\": 40") != std::string::npos);
     CHECK(json.find("\"damaged_unit_ticks\": 3") != std::string::npos);
     CHECK(json.find("\"projectile_high_water\": 12") != std::string::npos);
@@ -599,6 +604,7 @@ void staged_report() {
     CHECK(json.find("\"largest_share\": 0.75") != std::string::npos);
     CHECK(json.find("\"audits\": 61") != std::string::npos);
     CHECK(json.find("\"first_error_tick\": 450") != std::string::npos);
+    CHECK(json.find("\"extra\": {}") != std::string::npos);
     report.staged->audit.first_error_tick.reset();
     CHECK(benchmark::report_json(report).find("\"first_error_tick\": null") != std::string::npos);
 }

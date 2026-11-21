@@ -59,7 +59,8 @@ counts cells inside two ground footprints, skips a footprint past the map's
 last row or column (the game leaves such a unit off the map's cells) and
 notes the first tick with an error. `report_json` writes these as the
 `staged_battle` object, or null for the other scenarios; the fields extend
-schema version 1.
+schema version 1. `staged_battle` also holds `extra`, an empty object a
+later measurement fills with a named number or one number a player.
 
 `summarize` copies elapsed-nanosecond samples, sorts the copy and returns the
 minimum, mean, maximum and nearest-rank p50, p95 and p99. Empty samples give
@@ -72,7 +73,12 @@ costs are excluded.
 
 `report_json` writes schema version 1, explicit completion and error fields,
 the scenario and seed, requested and observed populations, successful tick
-counts, Enhanced Mode and its version, simulation identity and timing facts.
+counts, Enhanced Mode and its version, the features the match played
+(`enhanced_features`, names in id order), the text of `--benchmark-features`
+(`enhanced_features_spec`, empty when that flag was absent), whether that
+flag chose the set (a boolean named by joining `enhanced_features` and
+`_override`), and `data_faults`, the number of distinct data-fault lines
+reported by the end of the run. Simulation identity and timing facts follow.
 Movement, damage, projectile high-water and activity-observed facts state
 whether a labelled workload did corresponding work and when it was sampled.
 Spatial projection preparations, projected slots, bucket queries and bucket

@@ -1222,7 +1222,11 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
         );
         inputs.profile_sim_hash = profile->sim_hash;
     }
-    if (oa::data::enhanced_mode::features(inputs.rules)
+    // Only a battle benchmark names a set apart from the rules. Every other
+    // match leaves the override empty, so the rules' set is the one played.
+    if (!options_.battle_benchmark_report.empty() && benchmark_feature_set_)
+        inputs.enhanced_features_override = *benchmark_feature_set_;
+    if (inputs.enhanced_features_override.value_or(oa::data::enhanced_mode::features(inputs.rules))
             .has(oa::data::enhanced_mode::Feature::capacity)) {
         // Campaign scripts may introduce players beyond the initial two.
         // Skirmishes reserve ranges only for players participating in the match.

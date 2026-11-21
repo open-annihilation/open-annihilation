@@ -269,7 +269,9 @@ the next new game uses the command-line selection again. Version 4 remains
 the supplied preset when no version is named. With version 0, turning
 Enhanced Mode On later in Settings selects that supplied preset.
 Benchmark selectors remain session overrides: `--benchmark-rules-version`
-with `--battle-benchmark`, and nonzero `rules_version` in a `--bench` file,
+with `--battle-benchmark`, `--benchmark-features SPEC` with
+`--battle-benchmark` (a closed feature set for that benchmark only), and
+nonzero `rules_version` in a `--bench` file,
 take precedence over the new-game version for their measured match. A
 `--bench` file with `rules_version 0` keeps the normal launch selection.
 

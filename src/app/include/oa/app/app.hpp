@@ -5,6 +5,7 @@
 #pragma once
 
 #include "oa/app/command_line.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_state/game_entry.hpp"
@@ -416,6 +417,12 @@ struct Options {
     std::size_t benchmark_warmup{30};
     /// Explicit Enhanced rules version for a benchmark; zero uses the selected mode.
     uint32_t benchmark_rules_version{};
+    /// Text of --benchmark-features, or empty when that flag was not given.
+    std::string benchmark_features_spec{};
+    /// The closed set --benchmark-features names. Set only with the spec.
+    std::optional<oa::data::enhanced_mode::FeatureSet> benchmark_features{};
+    /// The switch that last turned Enhanced Mode off on this line, if one did.
+    std::string enhanced_mode_off_switch{};
     /// Workload: idle, march, group-march, combat or stage.
     std::string benchmark_scenario{"combat"};
     /// Map selected explicitly instead of the remembered skirmish choice.

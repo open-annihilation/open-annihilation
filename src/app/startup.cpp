@@ -1328,6 +1328,139 @@ take_folder_option(std::string_view argument, ArgumentCursor& cursor, Options& o
     return false;
 }
 
+/// Closes a --benchmark-features specification into the set the benchmark plays.
+///
+/// The text is comma-separated. Leading unsigned items are the base: one
+/// `v<N>` for an old alias version, or feature names. `+name` and `-name`
+/// then apply in order. The result is closed. A removal that closing puts
+/// back is refused, naming the member that needs it.
+///
+/// @param text the flag's text
+/// @param[in,out] options the options read so far
+void take_benchmark_features(std::string_view text, Options& options) {
+    using namespace oa::data::enhanced_mode;
+    options.benchmark_options_named = true;
+    if (text.empty())
+        throw std::runtime_error("--benchmark-features expects a feature set");
+    options.benchmark_features_spec = std::string(text);
+
+    std::vector<std::string_view> items;
+    for (std::size_t start = 0; start <= text.size();) {
+        const auto comma = text.find(',', start);
+        items.push_back(text.substr(
+            start, comma == std::string_view::npos ? text.size() - start : comma - start
+        ));
+        if (comma == std::string_view::npos)
+            break;
+        start = comma + 1;
+        if (start == text.size()) {
+            items.emplace_back();
+            break;
+        }
+    }
+
+    const auto known_names = [] {
+        std::string names;
+        for (const FeatureInfo& row : feature_table()) {
+            if (!names.empty())
+                names += ", ";
+            names += row.name;
+        }
+        return names;
+    };
+    const auto unknown_feature = [&](std::string_view name) {
+        throw std::runtime_error(
+            "--benchmark-features: unknown feature '" + std::string(name) +
+            "'; known features: " + known_names()
+        );
+    };
+
+    bool base_closed = false;
+    bool saw_version = false;
+    bool saw_name = false;
+    FeatureSet set;
+    FeatureSet removed;
+    for (const std::string_view item : items) {
+        if (item.empty())
+            throw std::runtime_error("--benchmark-features has an empty item");
+        const bool addition = item.front() == '+';
+        const bool removal = item.front() == '-';
+        if (addition || removal) {
+            if (!saw_version && !saw_name)
+                throw std::runtime_error(
+                    "--benchmark-features starts with a version or feature names"
+                );
+            base_closed = true;
+            const std::string_view name = item.substr(1);
+            const auto feature = feature_by_name(name);
+            if (!feature)
+                unknown_feature(name);
+            else if (addition) {
+                set = set.with(*feature);
+                removed = removed.without(*feature);
+            } else {
+                set = set.without(*feature);
+                removed = removed.with(*feature);
+            }
+            continue;
+        }
+        if (base_closed)
+            throw std::runtime_error("--benchmark-features applies additions after the base");
+        if (item.front() == 'v') {
+            if (saw_version || saw_name)
+                throw std::runtime_error(
+                    "--benchmark-features takes one version or a list of feature names"
+                );
+            uint32_t version = 0;
+            const auto* const begin = item.data() + 1;
+            const auto* const end = item.data() + item.size();
+            const auto parsed = std::from_chars(begin, end, version);
+            const auto named = version_features(version);
+            if (item.size() < 2 || parsed.ec != std::errc{} || parsed.ptr != end || named.empty())
+                throw std::runtime_error(
+                    "--benchmark-features: " + std::string(item) +
+                    " is not an old version with a feature set"
+                );
+            saw_version = true;
+            set = named;
+            continue;
+        }
+        if (saw_version)
+            throw std::runtime_error(
+                "--benchmark-features takes one version or a list of feature names"
+            );
+        const auto feature = feature_by_name(item);
+        if (!feature)
+            unknown_feature(item);
+        else {
+            saw_name = true;
+            set = set.with(*feature);
+        }
+    }
+
+    const FeatureSet closed = close_features(set);
+    const FeatureSet restored = (closed - set);
+    for (const FeatureInfo& row : feature_table()) {
+        if (!restored.has(row.id) || !removed.has(row.id))
+            continue;
+        std::string_view needer;
+        for (const FeatureInfo& member : feature_table()) {
+            if (member.id == row.id || !closed.has(member.id))
+                continue;
+            if (member.needs.has(row.id)) {
+                needer = member.name;
+                break;
+            }
+        }
+        throw std::runtime_error(
+            "--benchmark-features: " + std::string(needer) + " needs " + std::string(row.name)
+        );
+    }
+    if (const char* problem = feature_set_problem(closed))
+        throw std::runtime_error(std::string("--benchmark-features: ") + problem);
+    options.benchmark_features = closed;
+}
+
 /// Reads an option that sets how long a run lasts and how it draws: its
 /// frames, its frame rates, its window and the threads that draw.
 ///
@@ -1340,6 +1473,10 @@ take_folder_option(std::string_view argument, ArgumentCursor& cursor, Options& o
 take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
     if (argument == "--enhanced-mode" || argument == "--no-enhanced-mode") {
         options.enhanced_mode = argument == "--enhanced-mode";
+        if (argument == "--no-enhanced-mode")
+            options.enhanced_mode_off_switch = "--no-enhanced-mode";
+        else
+            options.enhanced_mode_off_switch.clear();
         return true;
     }
     constexpr std::string_view enhanced_prefix = "--enhanced-mode=";
@@ -1348,6 +1485,10 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         if (value != "on" && value != "off")
             throw std::runtime_error("--enhanced-mode takes on or off");
         options.enhanced_mode = value == "on";
+        if (value == "off")
+            options.enhanced_mode_off_switch = "--enhanced-mode=off";
+        else
+            options.enhanced_mode_off_switch.clear();
         return true;
     }
     if (argument == "--enhanced-mode-version") {
@@ -1395,6 +1536,10 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
                 "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8, 10, 11 or 13"
             );
         options.benchmark_rules_version = version;
+        return true;
+    }
+    if (argument == "--benchmark-features") {
+        take_benchmark_features(option_value(cursor), options);
         return true;
     }
     if (argument == "--benchmark-scenario") {
@@ -1987,6 +2132,10 @@ void write_startup_line(std::string_view text) {
 
     std::optional<AccelerationFlagGiven> acceleration_first;
     std::optional<AccelerationFlagGiven> acceleration_differing;
+    // --host, --join and --net-loopback-check belong to the net extension.
+    // The features flag is refused beside them, so the parser remembers the
+    // first of those words without taking it.
+    std::string network_launch;
     const auto take_acceleration = [&](std::string_view text, HardwareAcceleration level) {
         result.hardware_acceleration = level;
         if (!acceleration_first)
@@ -1996,6 +2145,9 @@ void write_startup_line(std::string_view text) {
     };
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
+        if (network_launch.empty() &&
+            (argument == "--host" || argument == "--join" || argument == "--net-loopback-check"))
+            network_launch = std::string(argument);
         ArgumentCursor cursor{argc, argv, &index, argument};
         // The engine's options come before an extension's. Each is matched
         // by its whole name, so no two of them can take the same argument.
@@ -2305,11 +2457,31 @@ void write_startup_line(std::string_view text) {
             throw std::runtime_error("--battle-benchmark needs at least one measured tick");
         if (!result.seed)
             result.seed = kFixedRandomSeed;
+        if (result.benchmark_features) {
+            if (result.benchmark_rules_version != 0)
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with --benchmark-rules-version"
+                );
+            if (result.enhanced_mode_version)
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with --enhanced-mode-version"
+                );
+            if (!result.enhanced_mode_off_switch.empty())
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with " + result.enhanced_mode_off_switch
+                );
+            if (!result.enhanced_mode || !*result.enhanced_mode)
+                throw std::runtime_error("--benchmark-features needs Enhanced Mode");
+            if (!network_launch.empty())
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with " + network_launch
+                );
+        }
     } else if (result.benchmark_options_named) {
         throw std::runtime_error(
             "--benchmark-units, --benchmark-warmup, --benchmark-rules-version, "
-            "--benchmark-scenario, --benchmark-map and --benchmark-crossing need "
-            "--battle-benchmark"
+            "--benchmark-scenario, --benchmark-map, --benchmark-crossing and "
+            "--benchmark-features need --battle-benchmark"
         );
     }
     if (result.campaign_mission.has_value() != !result.campaign.empty())
