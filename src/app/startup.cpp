@@ -3,6 +3,7 @@
 
 // Command-line parsing for oa-game.
 #include "oa/app/app.hpp"
+#include "bench.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/app/brain_match.hpp"
@@ -1510,6 +1511,25 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.enhanced_mode_version = version;
         return true;
     }
+    if (argument == "--enhanced-revision") {
+        const std::string_view text = option_value(cursor);
+        uint32_t revision{};
+        const auto parsed = std::from_chars(text.data(), text.data() + text.size(), revision);
+        if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || revision < 1 ||
+            revision > oa::data::enhanced_mode::highest_revision)
+            throw std::runtime_error("--enhanced-revision takes a revision this build plays");
+        if (options.enhanced_revision && *options.enhanced_revision != revision)
+            throw std::runtime_error("--enhanced-revision cannot name different revisions");
+        options.enhanced_revision = revision;
+        return true;
+    }
+    if (argument == "--enhanced-features") {
+        const std::string text(option_value(cursor));
+        if (options.enhanced_features && *options.enhanced_features != text)
+            throw std::runtime_error("--enhanced-features cannot name different feature lists");
+        options.enhanced_features = text;
+        return true;
+    }
     if (argument == "--battle-benchmark") {
         options.battle_benchmark_report = path_from_utf8(option_value(cursor));
         return true;
@@ -2137,9 +2157,9 @@ void write_startup_line(std::string_view text) {
 
     std::optional<AccelerationFlagGiven> acceleration_first;
     std::optional<AccelerationFlagGiven> acceleration_differing;
-    // --host, --join and --net-loopback-check belong to the net extension.
-    // The features flag is refused beside them, so the parser remembers the
-    // first of those words without taking it.
+    // --host, --join and --net-loopback-check belong to the netgame extension.
+    // Noting them here does not consume them.
+    bool battle_room = false;
     std::string network_launch;
     const auto take_acceleration = [&](std::string_view text, HardwareAcceleration level) {
         result.hardware_acceleration = level;
@@ -2270,11 +2290,11 @@ void write_startup_line(std::string_view text) {
                      "[--experimental-3d] [--prototype-root-prefix] "
                      "[--native-density] [--display-modes MODES] "
                      "[--enhanced-mode[=on|off] | --no-enhanced-mode] "
-                     "[--enhanced-mode-version 0|1|2|3|4|5|6|7|8|10|11|13] "
+                     "[--enhanced-revision N] [--enhanced-features LIST] "
                      "[--battle-benchmark REPORT.json [--benchmark-units N] "
                      "[--benchmark-scenario idle|march|group-march|combat|stage] "
                      "[--benchmark-warmup N] "
-                     "[--benchmark-rules-version 1|2|3|4|5|6|7|8|10|11|13] "
+                     "[--enhanced-revision N] [--enhanced-features LIST] "
                      "[--benchmark-map NAME] [--benchmark-crossing NAME=X0,Z0,X1,Z1]...] "
                      "[--benchmark FRAMES] [--bench FILE] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
@@ -2324,6 +2344,8 @@ void write_startup_line(std::string_view text) {
                   << extension_text(extension, ExtensionText::usage_note, "");
             write_startup_line(usage.str());
         } else if (argument.starts_with("--")) {
+            if (argument == "--host" || argument == "--join" || argument == "--net-loopback-check")
+                battle_room = true;
             const OptionValues values{&cursor, next_value, following_value};
             uint32_t effects = 0;
             if (!call_hook_or_raise<&Extension::take_option>(
@@ -2355,6 +2377,48 @@ void write_startup_line(std::string_view text) {
                 "--enhanced-mode-version conflicts with the Enhanced Mode switch"
             );
         result.enhanced_mode = enabled;
+    }
+    if (result.enhanced_mode_version && result.enhanced_revision)
+        throw std::runtime_error("--enhanced-mode-version cannot be used with --enhanced-revision");
+    if (result.enhanced_mode_version && result.enhanced_features)
+        throw std::runtime_error("--enhanced-mode-version cannot be used with --enhanced-features");
+    if (result.benchmark_rules_version != 0 && result.enhanced_revision)
+        throw std::runtime_error(
+            "--benchmark-rules-version cannot be used with --enhanced-revision"
+        );
+    if (result.benchmark_rules_version != 0 && result.enhanced_features)
+        throw std::runtime_error(
+            "--benchmark-rules-version cannot be used with --enhanced-features"
+        );
+    if (result.enhanced_mode && !*result.enhanced_mode && result.enhanced_revision)
+        throw std::runtime_error("--enhanced-revision cannot be used when Enhanced Mode is off");
+    if (result.enhanced_mode && !*result.enhanced_mode && result.enhanced_features)
+        throw std::runtime_error("--enhanced-features cannot be used when Enhanced Mode is off");
+    if (battle_room && result.enhanced_features)
+        throw std::runtime_error(
+            "--enhanced-features is for skirmishes, campaigns and benchmarks; a battle room plays "
+            "a revision"
+        );
+    // A revision below the highest is not a value the flag accepts while the
+    // highest revision is 1. The refusal stays for a later revision.
+    if (battle_room && result.enhanced_revision &&
+        *result.enhanced_revision < oa::data::enhanced_mode::highest_revision)
+        throw std::runtime_error(
+            "--enhanced-revision below the highest is for skirmishes, campaigns and benchmarks; a "
+            "battle room plays a revision"
+        );
+    if (result.enhanced_revision || result.enhanced_features) {
+        namespace mode = oa::data::enhanced_mode;
+        const uint32_t revision = result.enhanced_revision.value_or(mode::highest_revision);
+        if (result.enhanced_features) {
+            mode::FeatureSet features;
+            std::string list_error;
+            if (!bench::resolve_feature_list(
+                    *result.enhanced_features, revision, features, list_error, "--enhanced-features"
+                ))
+                throw std::runtime_error(list_error);
+        }
+        result.enhanced_mode = true;
     }
     GuardedSwitches switches;
     switches.handler = call_hook_or_raise<&Extension::switch_handler>(extension);
@@ -2478,6 +2542,11 @@ void write_startup_line(std::string_view text) {
                 );
             if (!result.enhanced_mode || !*result.enhanced_mode)
                 throw std::runtime_error("--benchmark-features needs Enhanced Mode");
+            if (result.enhanced_revision || result.enhanced_features)
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with --enhanced-revision or "
+                    "--enhanced-features"
+                );
             if (!network_launch.empty())
                 throw std::runtime_error(
                     "--benchmark-features cannot be used with " + network_launch

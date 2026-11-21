@@ -172,7 +172,7 @@ SENTENCES = {
     "setup.team-start-positions":
         "Start positions are given out by team, with team-mates next to each other.",
     "setup.enhanced-mode":
-        "Records the Enhanced Mode revision and feature set for a match; graphics choices remain independent.",
+        "Records the Enhanced Mode revision and the features a match plays. Revision 1 is the set new games play when Enhanced Mode is on. Graphics settings remain independent.",
     "setup.map-scripted-units":
         "Maps may place units for each player at the start and at set times, with a neutral computer player "
         "for unowned ones.",

@@ -345,8 +345,8 @@ add_library(oa::app::game_options ALIAS oa-app-game-options)
 target_link_libraries(oa-app-game-options PUBLIC oa-app-headers)
 target_link_libraries(oa-app-game-options PUBLIC oa-ui-frontend-renderer oa-ui-frontend-state oa-sim-scenario
   oa-ui-screen-registry oa-app-command-line oa-platform-preferences oa-app-mod-profile
-  PRIVATE oa-app-package-install oa-platform-job-pool oa-platform-display-modes oa-options
-  oa-data-content-bundles oa-data-mutators oa-base-signing)
+  PRIVATE oa-app-bench oa-app-package-install oa-platform-job-pool oa-platform-display-modes
+  oa-options oa-data-content-bundles oa-data-mutators oa-base-signing)
 # oa-game's game folder: --game-dir, the remembered folder, a folder found
 # where Steam, Heroic or Lutris put it, or the folder dialog's choice, the
 # installation checks, and the installer of the Total Annihilation demo
@@ -556,7 +556,7 @@ target_link_libraries(oa-app-window-icon PUBLIC oa-app-headers PRIVATE oa-format
 add_library(oa-app-bench src/app/bench.cpp)
 add_library(oa::app::bench ALIAS oa-app-bench)
 target_include_directories(oa-app-bench PUBLIC src/app)
-target_link_libraries(oa-app-bench PRIVATE oa-data-enhanced-mode oa-platform-shims oa-options)
+target_link_libraries(oa-app-bench PUBLIC oa-data-enhanced-mode PRIVATE oa-platform-shims oa-options)
 if(BUILD_TESTING)
   add_executable(oa-app-stage-view-test src/app/stage_view_test.cpp)
   target_link_libraries(oa-app-stage-view-test PRIVATE oa-test-support oa-options)
@@ -977,7 +977,7 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-window-icon-test PRIVATE oa-app-window-icon oa-formats-png oa-options)
   add_test(NAME app-window-icon COMMAND oa-app-window-icon-test)
   add_executable(oa-game-options-test src/app/startup_test.cpp)
-  target_link_libraries(oa-game-options-test PRIVATE oa-app-game-options oa-options)
+  target_link_libraries(oa-game-options-test PRIVATE oa-app-game-options oa-data-enhanced-mode oa-options)
   add_test(NAME game-options COMMAND oa-game-options-test)
   # A folder's profile found without case, the profile printed with its
   # hashes, and the errors of one the engine cannot use.

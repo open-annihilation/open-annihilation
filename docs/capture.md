@@ -133,8 +133,9 @@ set the system saw. 30 ticks a second at game speed 10 is the full rate.
 ### Staged 20,000-unit battles
 
 `--showcase skirmish-battle --stage FILE --enhanced-mode` uses the stage's
-placements and orders instead of the generic armies. It selects experimental
-rules 8 before creating the match, requires 10,000 live units on each side,
+placements and orders instead of the generic armies. It starts the match on
+Revision 1 with the staged battle's feature set before creating the match,
+requires 10,000 live units on each side,
 and runs the same normal window loop for a minute. Pausing, a fixed clock,
 an engine error or a change from normal requested game speed ends the run
 with an error. Staging time is excluded from the gameplay clock.

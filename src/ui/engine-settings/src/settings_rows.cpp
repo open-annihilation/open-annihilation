@@ -2869,6 +2869,18 @@ using S = Setting;
 using E = EngineSettings;
 using O = ModOptions;
 
+/// Enhanced Mode's hint. {revision} is the revision new games play.
+constexpr std::string_view enhanced_mode_hint_text =
+    "Plays Enhanced Mode, Revision {revision}, in skirmishes, campaigns and the battle rooms you "
+    "host. Applies from the next game.";
+
+/// Returns Enhanced Mode's hint, naming Revision 1.
+std::string enhanced_mode_hint(const SettingsModel&, std::size_t line) {
+    if (line != 0)
+        return {};
+    return filled(enhanced_mode_hint_text, {{"revision", "1"}});
+}
+
 // clang-format off
 /// Every setting's row, in Setting's order.
 constexpr std::array<SettingRow, kSettingCount> kDeclared{{
@@ -3431,10 +3443,11 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                          frame_graph_level_width,
                          {"How many seconds of frames the graph shows.", {}})},
     {.setting = S::enhanced_mode,
-     .spec = kit::toggle(
+     .spec = changing(kit::toggle(
          "enhanced-mode", "Enhanced Mode",
          &enhanced_mode_on, &set_enhanced_mode,
-         {"Use the enhanced rules preset. Applies from the next game."}),
+         {}),
+         &enhanced_mode_hint, &lines<1>),
      .lock = &Locks::enhanced_mode,
      .copy = &copy_field<&E::enhanced_mode>},
 }};

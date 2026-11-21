@@ -18,6 +18,7 @@
 #include "oa/app/extension.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/command_line.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/platform/preferences.hpp"
 #include <cstdint>
 #include <cstdio>
@@ -465,6 +466,8 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-saved-brains", &Options::check_saved_brains, {}},
         {"--check-simulation-hash", &Options::check_simulation_hash, {}},
         {"--check-enhanced-mode", &Options::check_enhanced_mode, {}},
+        {"--check-enhanced-room", &Options::check_enhanced_room, {}},
+        {"--presence-without-enhanced-mode", &Options::presence_without_enhanced_mode, {}},
         {"--check-zoom-memory", &Options::check_zoom_memory, {}},
         {"--check-language-switch", &Options::check_language_switch, {}},
         {"--check-language-registry", &Options::check_language_registry, {}},
@@ -543,11 +546,11 @@ const std::vector<ValueCase>& value_cases() {
         {"--install-mod", "a.oamod", {}},
         {"--frames", "10", {}},
         {"--benchmark", "10", {}},
-        {"--enhanced-mode-version", "10", {}},
+        {"--enhanced-revision", "1", {}},
+        {"--enhanced-features", "capacity", {}},
         {"--battle-benchmark", "report.json", {}},
         {"--benchmark-units", "128", {"--battle-benchmark", "report.json"}},
         {"--benchmark-warmup", "30", {"--battle-benchmark", "report.json"}},
-        {"--benchmark-rules-version", "1", {"--battle-benchmark", "report.json"}},
         {"--benchmark-scenario", "idle", {"--battle-benchmark", "report.json"}},
         {"--benchmark-map", "Coast To Coast", {"--battle-benchmark", "report.json"}},
         {"--benchmark-crossing",
@@ -987,6 +990,211 @@ void enhanced_new_game_options() {
     expect(
         rejection({"--enhanced-mode-version"}) == "--enhanced-mode-version requires a value",
         "a preset needs its version"
+    );
+}
+
+/// An extension that accepts the battle-room flags, so the engine can refuse
+/// a feature list beside them. --join and --net-loopback-check take a value.
+oa::app::Extension battle_room_flags() {
+    oa::app::Extension table{};
+    table.take_option =
+        [](void*, const char* name, const oa::app::OptionValues& values, uint32_t&) {
+            const std::string_view option(name);
+            if (option == "--host")
+                return true;
+            if (option == "--join" || option == "--net-loopback-check") {
+                (void)values.next(values.arguments);
+                return true;
+            }
+            return false;
+        };
+    return table;
+}
+
+/// The feature names a refusal lists, in the table's order.
+std::string known_feature_names() {
+    std::string names;
+    for (const auto& row : oa::data::enhanced_mode::feature_table()) {
+        if (!names.empty())
+            names += ", ";
+        names.append(row.name);
+    }
+    return names;
+}
+
+/// --enhanced-revision and --enhanced-features choose a skirmish's set.
+/// A battle room plays a revision, and the development aliases stay apart.
+void enhanced_revision_options() {
+    const auto revision = parse({"--enhanced-revision", "1"});
+    expect(
+        revision.enhanced_mode == true && revision.enhanced_revision == 1u &&
+            !revision.enhanced_features && !revision.benchmark_options_named,
+        "a revision turns Enhanced Mode on"
+    );
+    const auto features = parse({"--enhanced-features", "capacity"});
+    expect(
+        features.enhanced_mode == true && features.enhanced_features == "capacity",
+        "an absolute feature list turns Enhanced Mode on"
+    );
+    const auto added =
+        parse({"--enhanced-revision", "1", "--enhanced-features", "+cardinal_queue_escape"});
+    expect(
+        added.enhanced_revision == 1u && added.enhanced_features == "+cardinal_queue_escape",
+        "a plus adds a feature to the revision"
+    );
+    const auto removed = parse({"--enhanced-features", "-swept_ground_steps"});
+    expect(removed.enhanced_mode == true, "removing a feature the revision holds is accepted");
+    const auto absent = parse({"--enhanced-features", "-cardinal_queue_escape"});
+    expect(
+        absent.enhanced_mode == true && absent.enhanced_features == "-cardinal_queue_escape",
+        "removing a feature the revision does not hold is accepted"
+    );
+    expect(
+        parse({"--enhanced-revision", "1", "--enhanced-revision", "1"}).enhanced_revision == 1u,
+        "repeating the same revision is allowed"
+    );
+    expect(
+        parse({"--enhanced-mode", "--enhanced-revision", "1"}).enhanced_mode == true,
+        "a revision agrees with an explicit On"
+    );
+    const auto benchmark = parse(
+        {"--battle-benchmark",
+         "report.json",
+         "--enhanced-revision",
+         "1",
+         "--enhanced-features",
+         "capacity"}
+    );
+    expect(
+        benchmark.enhanced_revision == 1u && benchmark.enhanced_features == "capacity" &&
+            !benchmark.benchmark_options_named,
+        "a battle benchmark takes the same two flags"
+    );
+    const auto room = battle_room_flags();
+    const auto hosted = parse({"--host", "--enhanced-revision", "1"}, room);
+    expect(
+        hosted.enhanced_revision == 1u && hosted.enhanced_mode == true,
+        "the highest revision is allowed in a battle room"
+    );
+
+    expect(
+        rejection({"--enhanced-revision", "0"}) ==
+            "--enhanced-revision takes a revision this build plays",
+        "revision 0 is refused"
+    );
+    expect(
+        rejection({"--enhanced-revision", "2"}) ==
+            "--enhanced-revision takes a revision this build plays",
+        "a revision this build does not play is refused"
+    );
+    expect(
+        rejection({"--enhanced-revision"}) == "--enhanced-revision requires a value",
+        "a revision needs its number"
+    );
+    expect(
+        rejection({"--no-enhanced-mode", "--enhanced-revision", "1"}) ==
+            "--enhanced-revision cannot be used when Enhanced Mode is off",
+        "a revision is refused when Enhanced Mode is off"
+    );
+    expect(
+        rejection({"--enhanced-mode=off", "--enhanced-features", "capacity"}) ==
+            "--enhanced-features cannot be used when Enhanced Mode is off",
+        "a feature list is refused when Enhanced Mode is off"
+    );
+    expect(
+        rejection({"--enhanced-mode=off", "--enhanced-features", "not_a_feature"}) ==
+            "--enhanced-features cannot be used when Enhanced Mode is off",
+        "Enhanced Mode off is reported before a bad list"
+    );
+    expect(
+        rejection({"--enhanced-mode-version", "4", "--enhanced-revision", "1"}) ==
+            "--enhanced-mode-version cannot be used with --enhanced-revision",
+        "the version alias is refused with a revision"
+    );
+    expect(
+        rejection({"--enhanced-mode-version", "4", "--enhanced-features", "capacity"}) ==
+            "--enhanced-mode-version cannot be used with --enhanced-features",
+        "the version alias is refused with a feature list"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--benchmark-rules-version",
+             "4",
+             "--enhanced-revision",
+             "1"}
+        ) == "--benchmark-rules-version cannot be used with --enhanced-revision",
+        "the benchmark version alias is refused with a revision"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--benchmark-rules-version",
+             "4",
+             "--enhanced-features",
+             "capacity"}
+        ) == "--benchmark-rules-version cannot be used with --enhanced-features",
+        "the benchmark version alias is refused with a feature list"
+    );
+    expect(
+        rejection({"--enhanced-features", "-local_flow"}) ==
+            "--enhanced-features cannot remove local_flow: routes_large_regions needs it",
+        "a removal that closing would undo names the feature that needs it"
+    );
+    expect(
+        rejection({"--enhanced-features", "not_a_feature"}) ==
+            "--enhanced-features: unknown feature not_a_feature; known features: " +
+                known_feature_names(),
+        "an unknown feature names the known ones"
+    );
+    expect(
+        rejection({"--enhanced-features", "capacity,+local_flow"}) ==
+            "--enhanced-features is a list of names, or every item starts with + or -",
+        "a mixed list is refused"
+    );
+    expect(
+        rejection({"--enhanced-features", ","}) == "--enhanced-features needs a feature name",
+        "an empty list is refused"
+    );
+    expect(
+        rejection({"--enhanced-features", "capacity,route_corner_advance"}) ==
+            "route_corner_advance needs local_flow",
+        "a set that is not closed is refused with the reason"
+    );
+    expect(
+        rejection({"--enhanced-features", "capacity", "--enhanced-features", "local_flow"}) ==
+            "--enhanced-features cannot name different feature lists",
+        "two different lists are refused"
+    );
+    expect(
+        rejection(
+            {"--battle-benchmark",
+             "report.json",
+             "--enhanced-mode",
+             "--enhanced-features",
+             "capacity",
+             "--benchmark-features",
+             "v6"}
+        ) == "--benchmark-features cannot be used with --enhanced-revision or --enhanced-features",
+        "the benchmark's own feature set and the rules' feature list are refused together"
+    );
+    const char* room_sentence =
+        "--enhanced-features is for skirmishes, campaigns and benchmarks; a battle room plays "
+        "a revision";
+    expect(
+        rejection({"--host", "--enhanced-features", "capacity"}, room) == room_sentence, "--host"
+    );
+    expect(
+        rejection({"--join", "127.0.0.1", "--enhanced-features", "capacity"}, room) ==
+            room_sentence,
+        "--join"
+    );
+    expect(
+        rejection({"--net-loopback-check", "1", "--enhanced-features", "not_a_feature"}, room) ==
+            room_sentence,
+        "--net-loopback-check reports the battle room before a bad list"
     );
 }
 
@@ -2001,6 +2209,7 @@ int main() {
     showcase_tour_options();
     prototype_root_prefix_options();
     enhanced_new_game_options();
+    enhanced_revision_options();
     enhanced_benchmark_options();
     mutator_options();
     key_layout_options();

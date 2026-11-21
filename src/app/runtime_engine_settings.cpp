@@ -38,6 +38,7 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
 #include "oa/data/enhanced_mode.hpp"
+#include "bench.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
 #include "oa/ui/key_editor/text.hpp"
 #include "render_host.hpp"
@@ -1606,12 +1607,12 @@ void Runtime::play_latest_profile() noexcept {
         }
     }
     const auto* profile = mod_profile();
-    limits_.units_per_player =
-        profile && oa::data::enhanced_mode::rules_version(profile->rules) != 0
-            ? profile->limits.units_per_player
-        : options_.mod_profile ? options_.mod_profile->limits.units_per_player
-                               : oa::data::limits::Limits{}.units_per_player;
-    if ((!profile || oa::data::enhanced_mode::rules_version(profile->rules) == 0) &&
+    const bool enhanced_on = profile != nullptr && profile->rules.setup.enhanced_mode.enabled;
+    limits_.units_per_player = enhanced_on ? profile->limits.units_per_player
+                               : options_.mod_profile
+                                   ? options_.mod_profile->limits.units_per_player
+                                   : oa::data::limits::Limits{}.units_per_player;
+    if (!enhanced_on &&
         frontend_game().max_units_setting > oa::data::limits::highest_units_per_player)
         frontend_game().max_units_setting = std::clamp(
             state.current.unit_limit,
@@ -1703,6 +1704,24 @@ void Runtime::apply_hack_overrides() {
     mode::Choice choice;
     if (state.restored_enhanced_choice) {
         choice = *state.restored_enhanced_choice;
+    } else if (options_.enhanced_revision || options_.enhanced_features) {
+        const uint32_t revision = options_.enhanced_revision.value_or(mode::highest_revision);
+        if (revision < 1 || revision > mode::highest_revision ||
+            mode::revision_features(revision).empty())
+            throw std::runtime_error("enhanced_revision takes a revision this build plays");
+        mode::FeatureSet features = mode::revision_features(revision);
+        if (options_.enhanced_features) {
+            std::string list_error;
+            if (!bench::resolve_feature_list(
+                    *options_.enhanced_features,
+                    revision,
+                    features,
+                    list_error,
+                    "--enhanced-features"
+                ))
+                throw std::runtime_error(list_error);
+        }
+        choice = mode::Choice{revision, features};
     } else if (!settings.enhanced_mode) {
         choice = {};
     } else if (options_.enhanced_mode_version && *options_.enhanced_mode_version != 0) {
@@ -2256,7 +2275,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         pad_used()
     );
     if (match_)
-        dialog.match_enhanced_mode = oa::data::enhanced_mode::rules_version(match_->rules()) != 0;
+        dialog.match_enhanced_mode = match_->rules().setup.enhanced_mode.enabled;
     // Nothing can speak when this build leaves the bridge out and the
     // system has no voice. The status line is that fact, and only then.
     dialog.speech_unavailable = !oa::platform::screen_reader::compiled_in() &&

@@ -6,9 +6,11 @@
 // loop's frames and clock, so that a video capture shows them as a player
 // sees them (docs/capture.md).
 #include "oa/app/runtime.hpp"
+#include "oa/app/enhanced_mode.hpp"
 #include "battle_counts.hpp"
 #include "showcase_tour.hpp"
 #include "renderer_effect_sources.hpp"
+#include "bench.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
@@ -69,7 +71,10 @@ constexpr std::size_t kBattleUnitsPerSide = 50;
 /// Units each side brings to an externally staged battle showcase.
 constexpr uint32_t staged_battle_units_per_side = 10000;
 /// Rules selected before the staged showcase's match is created.
-constexpr uint32_t staged_battle_rules_version = oa::data::enhanced_mode::following_flow_version;
+/// The alias set stays until a revision replaces it.
+const oa::data::enhanced_mode::Choice staged_battle_choice{
+    1, oa::data::enhanced_mode::version_features(oa::data::enhanced_mode::following_flow_version)
+};
 // A battle frame longer than five ticks at normal speed, the most a frame
 // catches up, costs the match ticks; the showcase lists the first few.
 constexpr double kSlowFrameSeconds = 5.0 / 30.0;
@@ -202,7 +207,7 @@ void Runtime::run_battle_showcase() {
     } restore{restore_rules};
 
     if (staged) {
-        if (!hold_enhanced_rules_once(staged_battle_rules_version))
+        if (!hold_enhanced_rules_once(staged_battle_choice))
             fail("the staged battle's Enhanced Mode rules could not be selected");
         held_rules = true;
     }
@@ -232,7 +237,8 @@ void Runtime::run_battle_showcase() {
         apply_stage();
         if (screen_ != Screen::match || !match_)
             fail("the stage did not leave a running match");
-        if (oa::data::enhanced_mode::rules_version(match_->rules()) != staged_battle_rules_version)
+        const oa::data::enhanced_mode::Choice staged_choice = enhanced_mode_choice(*this);
+        if (staged_choice != staged_battle_choice)
             fail("the staged battle did not start with its required Enhanced Mode rules");
         const auto initial = battle_counts::count_live_units(match_->state());
         uint32_t total{};
@@ -249,8 +255,9 @@ void Runtime::run_battle_showcase() {
         require_turned_view = angles[0] != 0 || angles[1] != 0;
         report(
             "STAGED_INITIAL tick " + std::to_string(match_timing_.tick) + " seed " +
-            std::to_string(match_->random_seed()) + " rules " +
-            std::to_string(oa::data::enhanced_mode::rules_version(match_->rules())) + " alive " +
+            std::to_string(match_->random_seed()) + " rules revision " +
+            std::to_string(staged_choice.revision) + " features " +
+            bench::feature_list_text(staged_choice.features) + " alive " +
             std::to_string(initial[0]) + "+" + std::to_string(initial[1]) + " total " +
             std::to_string(total) + " census_pass 1 setup_fault none"
         );

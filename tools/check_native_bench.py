@@ -21,8 +21,8 @@ placed its armies and queued its factories. tools/bench/summarise.py must
 read the run. A second run with the stage timers off prints no STAGE or
 SLOW line, and a view file with a key the bench does not know stops the
 bench with a FAILED line naming the file's line, and the game with status 1.
-Short paused runs also check default and explicit Enhanced presets without
-making a running-gameplay or frame-rate claim.
+Short paused runs also check Enhanced Mode off, Revision 1 and explicit
+feature lists without making a running-gameplay or frame-rate claim.
 """
 import argparse
 import math
@@ -45,8 +45,25 @@ BENCH = Path(__file__).resolve().parent / "bench"
 RUN_TIMEOUT = 300
 WARMUP_TICKS = 30
 MEASURE_SECONDS = 3
-CURRENT_RULES_VERSION = 4
-SUPPORTED_RULES_VERSIONS = frozenset((*range(9), 10, 11, 13))
+# Revision 1's features, in feature-id order. Old version 4 asked for this set.
+REVISION_1 = (
+    "capacity,local_flow,routes_large_regions,indexed_searches,"
+    "route_corner_advance,swept_ground_steps")
+# Feature lists the paused loop still asks for, written as revision 1 plus an
+# absolute list. Old version 4 is revision 1 itself, so that run names no list.
+OLD_PRESET_FEATURES = {
+    6: REVISION_1 + ",patrol_goal_retention,ai_strike_retarget,squad_position_index,"
+       "route_queue,group_destination_repair",
+    7: "capacity,local_flow,routes_fine_regions,indexed_searches,route_corner_advance,"
+       "swept_ground_steps,patrol_goal_retention,ai_strike_retarget,squad_position_index,"
+       "route_queue,group_destination_repair,distributed_arrivals,moving_corner_advance,"
+       "local_throat_guide,credited_fallback_search,bounded_strike_recruits,"
+       "ai_attack_retention,ai_rally_retention",
+}
+OLD_PRESET_FEATURES[8] = OLD_PRESET_FEATURES[7] + ",local_following,occupancy_free_planning"
+OLD_PRESET_FEATURES[10] = OLD_PRESET_FEATURES[8] + ",cohort_targets,steering_projection_reuse"
+OLD_PRESET_FEATURES[11] = OLD_PRESET_FEATURES[10] + ",cohort_retention"
+OLD_PRESET_FEATURES[13] = OLD_PRESET_FEATURES[10] + ",cardinal_queue_escape"
 VIEW = """label check
 stage {stage}
 menu_seconds 0
@@ -223,8 +240,12 @@ QUEUED = re.compile(r"^stage: unit \d+ queues (\d+) (\S+)$", re.M)
 # The battle's armies, factories, builders and economies, placed at its
 # start: at least this many live units once it has begun.
 LEAST_UNITS = 400
+FEATURES = r"(?:-|[a-z0-9_]+(?:,[a-z0-9_]+)*)"
 INITIAL = re.compile(
-    r"^bench: INITIAL enhanced_mode ([01]) rules_version (\d+) requested_rules_version (\d+)$")
+    r"^bench: INITIAL(?: units \d+ owner0 \d+ owner1 \d+ seed \d+ "
+    r"controller0 \d+ controller1 \d+ setup_clock_reanchored 1)?"
+    rf" enhanced_mode ([01]) revision (\d+) features ({FEATURES})"
+    rf" requested_revision (\d+) requested_features ({FEATURES})$")
 
 
 class BenchFailure(Exception):
@@ -276,33 +297,40 @@ def check_rules_rejection(result, expected):
     """Checks invalid rules stop at their error before the battle begins."""
     lines = result.stdout.splitlines()
     if result.returncode != 1 or expected not in lines:
-        fail(result, "an unsupported rules version was not refused at its line")
+        fail(result, "an Enhanced Mode revision this build does not play was not refused at its line")
     started = ("Offline match world prepared", "stage: ", "bench: INITIAL ",
                "bench: WARMUP ", "bench: MEASURING ", "bench: SEC ",
                "bench: STATIC ", "bench: FRAME ", "bench: RESULT ", "bench: DONE ")
     if any(line.startswith(started) for line in lines + result.stderr.splitlines()):
-        fail(result, "unsupported rules started a battle before being refused")
+        fail(result, "a refused Enhanced Mode revision started a battle before being refused")
 
 
 def ordered(values):
     return all(left <= right for left, right in zip(values, values[1:]))
 
 
-def check_initial(result, rules_version=0, requested_rules_version=0):
-    """Checks the one INITIAL receipt against the run's actual and requested presets."""
+def check_initial(result, revision=0, features="-", requested_revision=0, requested_features="-"):
+    """Checks the one INITIAL receipt against the run's revision and feature names."""
     initial = [line for line in result.stdout.splitlines() if line.startswith("bench: INITIAL")]
     if len(initial) != 1:
         fail(result, f"the bench printed {len(initial)} INITIAL receipts, not one")
     match = INITIAL.fullmatch(initial[0])
     if not match:
         fail(result, f"the INITIAL line does not read: {initial[0]}")
-    enhanced, actual, requested = (int(value) for value in match.groups())
-    if actual not in SUPPORTED_RULES_VERSIONS or requested not in SUPPORTED_RULES_VERSIONS or \
-            enhanced != int(actual != 0) or (requested != 0 and requested != actual):
+    enhanced = int(match.group(1))
+    actual_revision = int(match.group(2))
+    actual_features = match.group(3)
+    asked_revision = int(match.group(4))
+    asked_features = match.group(5)
+    if enhanced != int(actual_revision != 0) or \
+            (asked_revision != 0 and asked_revision != actual_revision) or \
+            (asked_features != "-" and asked_features != actual_features):
         fail(result, f"the INITIAL rules are inconsistent: {initial[0]}")
-    if actual != rules_version or requested != requested_rules_version:
-        fail(result, f"the INITIAL rules are {actual}/{requested}, "
-             f"not {rules_version}/{requested_rules_version}")
+    if actual_revision != revision or actual_features != features or \
+            asked_revision != requested_revision or asked_features != requested_features:
+        fail(result, f"the INITIAL rules are {actual_revision} {actual_features} "
+             f"{asked_revision} {asked_features}, not {revision} {features} "
+             f"{requested_revision} {requested_features}")
 
 
 def check_unit_detail_records(result, lines):
@@ -923,11 +951,12 @@ def check_renderer_records(result, lines, frames, timers):
     return legacy
 
 
-def check_lines(result, timers, rules_version=0, requested_rules_version=0):
+def check_lines(result, timers, revision=0, features="-", requested_revision=0,
+                requested_features="-"):
     """Checks a finished run's lines and returns them."""
     if result.returncode != 0:
         fail(result, f"the bench exited with {result.returncode}")
-    check_initial(result, rules_version, requested_rules_version)
+    check_initial(result, revision, features, requested_revision, requested_features)
     lines = [line for line in result.stdout.splitlines() if line.startswith("bench: ")]
     # A window the dummy driver leaves away is noted after RESULT.
     away = [line for line in lines if line.startswith("bench: AWAY")]
@@ -1122,7 +1151,13 @@ def main():
                     not in wrong_population.stdout:
                 fail(wrong_population, "a wrong rendering population was not refused")
             for version in (0, 4, 6, 7, 8, 10, 11, 13):
-                rules_view = paused_view + (f"rules_version {version}\n" if version else "")
+                rules_view = paused_view
+                if version == 4:
+                    rules_view += "enhanced_revision 1\n"
+                elif version:
+                    rules_view += (
+                        "enhanced_revision 1\n"
+                        f"enhanced_features {OLD_PRESET_FEATURES[version]}\n")
                 if version == 11:
                     rules_view += "plan_work 1\n"
                 selected = run_bench(
@@ -1132,26 +1167,39 @@ def main():
                         r"^bench: STATIC tick \d+ units 2 world [0-9a-f]{16} "
                         r"warmup_frames 2 verified_frames 3$", selected.stdout, re.M):
                     fail(selected, "the Enhanced paused span did not finish")
-                check_initial(selected, version or CURRENT_RULES_VERSION, version)
+                if version == 0:
+                    check_initial(selected, 1, REVISION_1)
+                elif version == 4:
+                    check_initial(selected, 1, REVISION_1, 1, "-")
+                else:
+                    names = OLD_PRESET_FEATURES[version]
+                    check_initial(selected, 1, names, 1, names)
                 selected_lines = [line for line in selected.stdout.splitlines()
                                   if line.startswith("bench: ")]
                 check_renderer_records(selected, selected_lines, 3, False)
                 check_work_record_presence(selected, selected_lines, plan_enabled=version == 11)
             mode_off = run_bench(
                 arguments.native, arguments.game_dir, workdir, "rules-off",
-                "label rules-off\nrules_version 6\n")
+                "label rules-off\nenhanced_revision 1\n")
             if mode_off.returncode != 1 or \
-                    "bench: FAILED rules_version requires Enhanced Mode" \
+                    "bench: FAILED enhanced_revision requires Enhanced Mode" \
                     not in mode_off.stdout.splitlines():
-                fail(mode_off, "explicit rules without Enhanced Mode were not refused")
-            for version in (9, 12, 14):
-                name = f"rules-unsupported-{version}"
+                fail(mode_off, "an Enhanced Mode revision without Enhanced Mode was not refused")
+            features_off = run_bench(
+                arguments.native, arguments.game_dir, workdir, "features-off",
+                "label features-off\nenhanced_features capacity\n")
+            if features_off.returncode != 1 or \
+                    "bench: FAILED enhanced_features requires Enhanced Mode" \
+                    not in features_off.stdout.splitlines():
+                fail(features_off, "a feature list without Enhanced Mode was not refused")
+            for revision in (9, 12, 14):
+                name = f"rules-unsupported-{revision}"
                 unsupported = run_bench(
                     arguments.native, arguments.game_dir, workdir, name,
-                    f"label {name}\nrules_version {version}\n", enhanced=True)
+                    f"label {name}\nenhanced_revision {revision}\n", enhanced=True)
                 view = workdir / name / (name + ".bench")
-                expected = (f"bench: FAILED {view}: line 2: rules_version takes 0 or a supported "
-                            "Enhanced Mode rules version")
+                expected = (f"bench: FAILED {view}: line 2: enhanced_revision takes a revision "
+                            "this build plays")
                 check_rules_rejection(unsupported, expected)
     except BenchFailure as failure:
         raise SystemExit(f"bench check: {failure}")

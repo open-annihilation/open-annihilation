@@ -902,7 +902,7 @@ entries:
     title: Enhanced Mode
     implemented: true
     area: setup
-    summary: "Version 1 permits 10000 units per participating player and 32767 projectiles; version 2 adds shared routing and local unit flow. Graphics settings remain independent."
+    summary: "Records the Enhanced Mode revision and the features a match plays. Revision 1 is the set new games play when Enhanced Mode is on. Graphics settings remain independent."
     ownership: all-machines
     scope: sim
     mutator: true

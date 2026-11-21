@@ -78,7 +78,138 @@ thread_local SimulationFrame* simulation_frame{};
     return true;
 }
 
+/// Joins every known feature's name.
+///
+/// @return the names, in id order, separated by commas
+[[nodiscard]] std::string known_feature_names() {
+    std::string names;
+    for (const oa::data::enhanced_mode::FeatureInfo& row :
+         oa::data::enhanced_mode::feature_table()) {
+        if (!names.empty())
+            names += ", ";
+        names.append(row.name);
+    }
+    return names;
+}
+
 } // namespace
+
+bool resolve_feature_list(
+    std::string_view text,
+    uint32_t revision,
+    oa::data::enhanced_mode::FeatureSet& features,
+    std::string& error,
+    std::string_view subject
+) {
+    namespace mode = oa::data::enhanced_mode;
+    const std::string subject_text(subject);
+    std::vector<std::string_view> items;
+    std::size_t at = 0;
+    while (at <= text.size()) {
+        const auto comma = text.find(',', at);
+        const std::string_view item = trimmed(
+            comma == std::string_view::npos ? text.substr(at) : text.substr(at, comma - at)
+        );
+        if (item.empty()) {
+            error = subject_text + " needs a feature name";
+            return false;
+        }
+        items.push_back(item);
+        if (comma == std::string_view::npos)
+            break;
+        at = comma + 1;
+    }
+    bool signed_list = false;
+    bool bare = false;
+    for (std::string_view item : items) {
+        if (item.front() == '+' || item.front() == '-') {
+            signed_list = true;
+            item.remove_prefix(1);
+            item = trimmed(item);
+        } else {
+            bare = true;
+        }
+        if (item.empty()) {
+            error = subject_text + " needs a feature name";
+            return false;
+        }
+        if (!mode::feature_by_name(item)) {
+            error = subject_text + ": unknown feature " + std::string(item) +
+                    "; known features: " + known_feature_names();
+            return false;
+        }
+    }
+    if (signed_list && bare) {
+        error = subject_text + " is a list of names, or every item starts with + or -";
+        return false;
+    }
+    if (!signed_list) {
+        mode::FeatureSet set;
+        for (const std::string_view item : items)
+            set = set.with(*mode::feature_by_name(item));
+        if (const char* problem = mode::feature_set_problem(set)) {
+            error = problem;
+            return false;
+        }
+        features = set;
+        return true;
+    }
+    if (revision < 1 || revision > mode::highest_revision ||
+        mode::revision_features(revision).empty()) {
+        error = subject_text + " needs a revision this build plays";
+        return false;
+    }
+    mode::FeatureSet set = mode::revision_features(revision);
+    mode::FeatureSet removed;
+    for (std::string_view item : items) {
+        const bool add = item.front() == '+';
+        item.remove_prefix(1);
+        const mode::Feature feature = *mode::feature_by_name(trimmed(item));
+        if (add) {
+            set = mode::close_features(set.with(feature));
+            removed = removed.without(feature);
+        } else {
+            set = set.without(feature);
+            removed = removed.with(feature);
+        }
+    }
+    const mode::FeatureSet closed = mode::close_features(set);
+    for (const mode::FeatureInfo& row : mode::feature_table()) {
+        if (!removed.has(row.id) || !closed.has(row.id))
+            continue;
+        std::string_view needer;
+        for (const mode::FeatureInfo& other : mode::feature_table()) {
+            if (closed.has(other.id) && other.needs.has(row.id)) {
+                needer = other.name;
+                break;
+            }
+        }
+        error = subject_text + " cannot remove " + std::string(row.name) + ": " +
+                std::string(needer.empty() ? std::string_view{"a feature"} : needer) + " needs it";
+        return false;
+    }
+    if (const char* problem = mode::feature_set_problem(closed)) {
+        error = problem;
+        return false;
+    }
+    features = closed;
+    return true;
+}
+
+std::string feature_list_text(oa::data::enhanced_mode::FeatureSet features) {
+    namespace mode = oa::data::enhanced_mode;
+    if (features.empty())
+        return "-";
+    std::string names;
+    for (const mode::FeatureInfo& row : mode::feature_table()) {
+        if (!features.has(row.id))
+            continue;
+        if (!names.empty())
+            names += ',';
+        names.append(row.name);
+    }
+    return names.empty() ? std::string("-") : names;
+}
 
 SimulationFrameScope::SimulationFrameScope(SimulationFrame* frame) noexcept
     : frame_(frame), previous_(simulation_frame) {
@@ -130,6 +261,7 @@ simulation_frame_line(std::size_t index, double milliseconds, const SimulationFr
 bool parse_view(std::string_view text, View& view, std::string& error) {
     std::set<std::string, std::less<>> given;
     std::size_t line_number = 0;
+    std::size_t features_line = 0;
     while (!text.empty()) {
         ++line_number;
         const auto end = text.find('\n');
@@ -193,12 +325,18 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
                 return false;
             }
             view.players = static_cast<uint16_t>(players);
-        } else if (key == "rules_version") {
-            if (!read_count(value, view.rules_version) ||
-                !oa::data::enhanced_mode::supported_version(view.rules_version)) {
-                error = where + "rules_version takes 0 or a supported Enhanced Mode rules version";
+        } else if (key == "enhanced_revision") {
+            uint32_t revision = 0;
+            if (!read_count(value, revision) || revision < 1 ||
+                revision > oa::data::enhanced_mode::highest_revision) {
+                error = where + "enhanced_revision takes a revision this build plays";
                 return false;
             }
+            view.enhanced_revision = revision;
+        } else if (key == "enhanced_features") {
+            view.enhanced_features = std::string(value);
+            view.enhanced_features_named = true;
+            features_line = line_number;
         } else if (key == "menu_seconds") {
             read = seconds(view.menu_seconds);
         } else if (key == "warmup_ticks") {
@@ -268,6 +406,18 @@ bool parse_view(std::string_view text, View& view, std::string& error) {
         if (!read)
             return false;
     }
+    if (view.enhanced_features_named) {
+        namespace mode = oa::data::enhanced_mode;
+        const uint32_t revision =
+            view.enhanced_revision != 0 ? view.enhanced_revision : mode::highest_revision;
+        mode::FeatureSet resolved;
+        if (!resolve_feature_list(
+                view.enhanced_features, revision, resolved, error, "enhanced_features"
+            )) {
+            error = "line " + std::to_string(features_line) + ": " + error;
+            return false;
+        }
+    }
     if (view.require_paused &&
         (view.warmup_ticks != 0 || view.measure_ticks != 0 || view.turn_rate != 0)) {
         error = "require_paused needs warmup_ticks, measure_ticks and turn_rate set to 0";
@@ -306,24 +456,37 @@ bool read_view(const std::filesystem::path& file, View& view, std::string& error
 }
 
 bool validate_rules_request(const View& view, bool enhanced, std::string& error) {
-    if (!oa::data::enhanced_mode::supported_version(view.rules_version)) {
-        error = "rules_version is unsupported";
-        return false;
-    }
-    if (view.rules_version != 0 && !enhanced) {
-        error = "rules_version requires Enhanced Mode";
+    if (view.enhanced_revision == 0 && !view.enhanced_features_named)
+        return true;
+    if (!enhanced) {
+        error = view.enhanced_revision != 0 ? "enhanced_revision requires Enhanced Mode"
+                                            : "enhanced_features requires Enhanced Mode";
         return false;
     }
     return true;
 }
 
-bool validate_started_rules(const View& view, uint32_t actual_version, std::string& error) {
-    if (!oa::data::enhanced_mode::supported_version(actual_version)) {
-        error = "the skirmish's Enhanced Mode rules version is unsupported";
+bool validate_started_rules(
+    const View& view, const oa::data::enhanced_mode::Choice& actual, std::string& error
+) {
+    namespace mode = oa::data::enhanced_mode;
+    if (const char* problem = mode::choice_problem(actual)) {
+        error = problem;
         return false;
     }
-    if (view.rules_version != 0 && view.rules_version != actual_version) {
-        error = "the skirmish's Enhanced Mode rules differ from rules_version";
+    if (view.enhanced_revision != 0 && actual.revision != view.enhanced_revision) {
+        error = "the skirmish's Enhanced Mode revision differs from enhanced_revision";
+        return false;
+    }
+    if (!view.enhanced_features_named)
+        return true;
+    const uint32_t revision =
+        view.enhanced_revision != 0 ? view.enhanced_revision : mode::highest_revision;
+    mode::FeatureSet asked;
+    if (!resolve_feature_list(view.enhanced_features, revision, asked, error, "enhanced_features"))
+        return false;
+    if (actual.features != asked) {
+        error = "the skirmish's Enhanced Mode features differ from enhanced_features";
         return false;
     }
     return true;

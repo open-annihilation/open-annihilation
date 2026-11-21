@@ -10,6 +10,7 @@
 #include "oa/core/map_plot.h"
 #include "oa/app/runtime.hpp"
 #include "oa/app/enhanced_mode.hpp"
+#include "bench.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/mod_profile_loader.hpp"
@@ -2435,6 +2436,13 @@ void Runtime::run_headless_saveload() {
         match_timing_.tick,
         live,
         static_cast<unsigned long long>(match_world_digest())
+    );
+    const oa::data::enhanced_mode::Choice running = enhanced_mode_choice(*this);
+    const std::string running_features = bench::feature_list_text(running.features);
+    std::printf(
+        "saveload: enhanced_mode revision %u features %s\n",
+        static_cast<unsigned>(running.revision),
+        running_features.c_str()
     );
     std::fflush(stdout);
     if (!options_.snapshot.empty()) {

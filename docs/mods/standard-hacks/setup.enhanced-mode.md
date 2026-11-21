@@ -13,30 +13,10 @@
 
 ## Description
 
-Enables the versioned Enhanced Mode rules for large battles. Version 1
-supports compact participating-player unit ranges, up to 10,000 units per
-player and 32,767 units across a match, and a 32,767-record projectile pool.
-It also reuses spatial projections during contact scans. Renderer selection
-is independent. Version 2 adds shared routing and local unit flow while
-retaining those capacities. Version 3 selects regional shared-route
-construction. Version 4 selects bounded swept ground-step checks. Version 5
-reserves a distinct identity for advisory corridor lanes,
-requiring its matching simulation behavior and validation
-before adoption. Versions 1, 2, 3 and 4 remain available for
-saved and recorded games with their original rules and hashes. The unit and
-projectile capacities stay the same. Version 10 inherits version 8's movement
-and selects AI strike-target distribution among spatial cohorts. Version 11
-inherits version 10 and retains compatible current cohort targets within a
-bounded weighted-cost margin. Version 13 is an experimental cardinal
-queue escape experiment. It inherits version 10's routing, following,
-cohort assignment and rendering policies without version 11's target
-retention. Existing mature retries may try cardinally adjacent origin-cell
-centres only when the ordinary result makes no cell crossing and a fresh
-probe finds moving traffic. Ordinary cell crossings and the unchanged
-fallback result are preserved, with the existing clearance checks and no
-new saved state. Its [20,000-unit results remain mixed](../../enhanced-mode.md#experimental-cardinal-queue-escape-version-13).
-Versions 9, 12 and 14 are unsupported;
-later supported versions do not enable version 9.
+Records the Enhanced Mode revision and the features a match plays. Revision 1
+is the set new games play when Enhanced Mode is on. A match can name a
+revision and a set of features. Graphics settings remain independent. Saved
+games and recordings keep the revision and features they were played with.
 
 ## Configuration example
 
@@ -46,20 +26,19 @@ the same rules explicitly:
 ```yaml
 hacks:
   setup.enhanced-mode:
-    version: 1
+    revision: 1
 ```
 
 The application still requires Enhanced Mode to be selected before loading
-a profile that enables these rules.
-The switch selects version 4 for new games. Later experimental presets
-require an explicit version choice and their matching behavior. An existing profile's bare
-`true` still resolves to version 1 before that match choice is applied.
+a profile that enables these rules. With Enhanced Mode on and no feature
+list, a new game plays Revision 1.
 
 ## Details
 
-The version enters the simulation hash and is recorded in saves and replays.
-Every multiplayer participant must use the same supported version. Games
-with the mode Off retain the classic allocation and simulation path.
+The revision and features enter the simulation hash and are recorded in
+saves and replays. Every multiplayer participant must use the same revision
+and features. Games with the mode Off retain the classic allocation and
+simulation path.
 
 See [Enhanced Mode](../../enhanced-mode.md) for current limitations and
 repeatable battle benchmarks.

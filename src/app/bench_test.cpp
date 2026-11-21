@@ -12,6 +12,7 @@
 #include "bench.hpp"
 #include "bench_timers.hpp"
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/test/check.hpp"
 
@@ -70,14 +71,14 @@ void view_reads_every_key() {
     OA_CHECK(defaults.expected_initial_units == 0 && defaults.expected_initial_per_side == 0);
     OA_CHECK(defaults.expected_output_width == 0 && defaults.expected_output_height == 0);
     OA_CHECK(defaults.display_number == 0 && !defaults.require_gameplay);
-    OA_CHECK(defaults.rules_version == 0);
+    OA_CHECK(defaults.enhanced_revision == 0 && !defaults.enhanced_features_named);
 
     bench::View view;
     const char* text = "# the low view\n"
                        "label low-across\r\n"
                        "stage battle.stage\n"
                        "players 3\n"
-                       "rules_version 6\n"
+                       "enhanced_revision 1\n"
                        "menu_seconds 0.5\n"
                        "warmup_ticks 60\n"
                        "measure_seconds 150\n"
@@ -98,7 +99,7 @@ void view_reads_every_key() {
     OA_CHECK(view.label == "low-across");
     OA_CHECK(oa::platform::path_to_generic_utf8(view.stage) == "battle.stage");
     OA_CHECK(view.players == 3 && near(view.menu_seconds, 0.5));
-    OA_CHECK(view.rules_version == 6);
+    OA_CHECK(view.enhanced_revision == 1 && !view.enhanced_features_named);
     OA_CHECK(view.warmup_ticks == 60 && view.measure_ticks == 750 && view.shot_ticks == 360);
     OA_CHECK(near(view.measure_seconds, 150) && near(view.shot_at, 12));
     OA_CHECK(near(view.centre_x, 1980) && near(view.centre_z, 2080));
@@ -134,88 +135,96 @@ void view_plan_work_is_opt_in() {
     OA_CHECK(refusal("plan_work 0\nplan_work 1") == "line 2: plan_work is given twice");
 }
 
-/// An absent or zero rules request keeps the version selected by the match;
-/// an explicit supported preset requires Enhanced Mode before startup.
+/// An absent request keeps the choice the launch plays. A named revision or
+/// feature list requires Enhanced Mode before startup.
 void rules_requests_preserve_defaults_and_require_enhanced_mode() {
+    namespace mode = oa::data::enhanced_mode;
     bench::View defaults;
     std::string error;
     OA_CHECK(bench::parse_view("", defaults, error));
-    OA_CHECK(defaults.rules_version == 0);
+    OA_CHECK(defaults.enhanced_revision == 0 && !defaults.enhanced_features_named);
     OA_CHECK(bench::validate_rules_request(defaults, false, error));
     OA_CHECK(bench::validate_rules_request(defaults, true, error));
-    OA_CHECK(bench::validate_started_rules(defaults, 0, error));
-    OA_CHECK(bench::validate_started_rules(defaults, 4, error));
-    OA_CHECK(defaults.rules_version == 0);
+    OA_CHECK(bench::validate_started_rules(defaults, {}, error));
+    OA_CHECK(
+        bench::validate_started_rules(defaults, mode::Choice{1, mode::revision_features(1)}, error)
+    );
+    OA_CHECK(defaults.enhanced_revision == 0 && !defaults.enhanced_features_named);
 
-    for (const uint32_t version : std::array<uint32_t, 12>{0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13}) {
-        bench::View view;
-        OA_CHECK(bench::parse_view("rules_version " + std::to_string(version), view, error));
-        OA_CHECK(view.rules_version == version);
-        OA_CHECK(bench::validate_rules_request(view, true, error));
-        OA_CHECK(bench::validate_rules_request(view, false, error) == (version == 0));
-        if (version != 0)
-            OA_CHECK(error == "rules_version requires Enhanced Mode");
-        OA_CHECK(bench::validate_started_rules(view, version, error));
-        OA_CHECK(view.rules_version == version);
-    }
+    bench::View revision;
+    OA_CHECK(bench::parse_view("enhanced_revision 1", revision, error));
+    OA_CHECK(revision.enhanced_revision == 1);
+    OA_CHECK(bench::validate_rules_request(revision, true, error));
+    OA_CHECK(!bench::validate_rules_request(revision, false, error));
+    OA_CHECK(error == "enhanced_revision requires Enhanced Mode");
+    OA_CHECK(
+        bench::validate_started_rules(revision, mode::Choice{1, mode::revision_features(1)}, error)
+    );
 
-    bench::View explicit_zero;
-    OA_CHECK(bench::parse_view("rules_version 0", explicit_zero, error));
-    OA_CHECK(bench::validate_started_rules(explicit_zero, 0, error));
-    OA_CHECK(bench::validate_started_rules(explicit_zero, 4, error));
-    OA_CHECK(bench::validate_started_rules(explicit_zero, 6, error));
-    OA_CHECK(bench::validate_started_rules(explicit_zero, 7, error));
-    OA_CHECK(bench::validate_started_rules(explicit_zero, 8, error));
-    OA_CHECK(bench::validate_started_rules(explicit_zero, 10, error));
-    OA_CHECK(bench::validate_started_rules(explicit_zero, 11, error));
-    OA_CHECK(bench::validate_started_rules(explicit_zero, 13, error));
-    OA_CHECK(explicit_zero.rules_version == 0);
+    bench::View features;
+    OA_CHECK(bench::parse_view("enhanced_features capacity", features, error));
+    OA_CHECK(features.enhanced_features_named && features.enhanced_features == "capacity");
+    OA_CHECK(bench::validate_rules_request(features, true, error));
+    OA_CHECK(!bench::validate_rules_request(features, false, error));
+    OA_CHECK(error == "enhanced_features requires Enhanced Mode");
+    mode::FeatureSet capacity_only;
+    OA_CHECK(bench::resolve_feature_list("capacity", 1, capacity_only, error, "enhanced_features"));
+    OA_CHECK(bench::validate_started_rules(features, mode::Choice{1, capacity_only}, error));
 }
 
-/// An explicit version must equal the rules of the started match. Unsupported
-/// requests and unsupported actual rules are refused independently.
+/// A named revision or feature list must equal the choice the match plays.
 void started_rules_must_match_explicit_requests() {
+    namespace mode = oa::data::enhanced_mode;
     std::string error;
-    for (const uint32_t requested : std::array<uint32_t, 11>{1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13}) {
-        bench::View view;
-        view.rules_version = requested;
-        for (const uint32_t actual :
-             std::array<uint32_t, 12>{0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13}) {
-            OA_CHECK(bench::validate_started_rules(view, actual, error) == (requested == actual));
-            if (requested != actual)
-                OA_CHECK(error == "the skirmish's Enhanced Mode rules differ from rules_version");
-            OA_CHECK(view.rules_version == requested);
-        }
-    }
+    const mode::Choice revision_one{1, mode::revision_features(1)};
+    bench::View view;
+    view.enhanced_revision = 1;
+    OA_CHECK(bench::validate_started_rules(view, revision_one, error));
+    OA_CHECK(!bench::validate_started_rules(view, {}, error));
+    OA_CHECK(error == "the skirmish's Enhanced Mode revision differs from enhanced_revision");
 
-    for (const uint32_t version : {9u, 12u, 14u}) {
-        bench::View unsupported;
-        unsupported.rules_version = version;
-        OA_CHECK(!bench::validate_rules_request(unsupported, true, error));
-        OA_CHECK(error == "rules_version is unsupported");
-        OA_CHECK(!bench::validate_rules_request(unsupported, false, error));
-        OA_CHECK(error == "rules_version is unsupported");
-        for (const uint32_t requested :
-             std::array<uint32_t, 12>{0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13}) {
-            bench::View view;
-            view.rules_version = requested;
-            OA_CHECK(!bench::validate_started_rules(view, version, error));
-            OA_CHECK(error == "the skirmish's Enhanced Mode rules version is unsupported");
-            OA_CHECK(view.rules_version == requested);
-        }
-    }
+    view.enhanced_features = "capacity";
+    view.enhanced_features_named = true;
+    mode::FeatureSet capacity_only;
+    OA_CHECK(bench::resolve_feature_list("capacity", 1, capacity_only, error, "enhanced_features"));
+    OA_CHECK(bench::validate_started_rules(view, mode::Choice{1, capacity_only}, error));
+    OA_CHECK(!bench::validate_started_rules(view, revision_one, error));
+    OA_CHECK(error == "the skirmish's Enhanced Mode features differ from enhanced_features");
+
+    const mode::Choice off_with_features{0, mode::revision_features(1)};
+    bench::View open;
+    OA_CHECK(!bench::validate_started_rules(open, off_with_features, error));
+    OA_CHECK(error == "Enhanced Mode is off and still names features");
 }
 
-/// A rules version is a supported nonnegative whole number and may be named
-/// only once, with the refusal attached to its input line.
+/// A revision is one this build plays and may be named only once. A feature
+/// list uses the flag's grammar, and the refusal names the line.
 void view_refuses_invalid_rules_versions() {
-    for (const std::string_view value :
-         std::array<std::string_view, 6>{"9", "12", "14", "-1", "4.5", "4294967296"})
+    for (const std::string_view value : std::array<std::string_view, 5>{"0", "2", "-1", "1.5", "x"})
         OA_CHECK(
-            refusal("rules_version " + std::string(value)) ==
-            "line 1: rules_version takes 0 or a supported Enhanced Mode rules version"
+            refusal("enhanced_revision " + std::string(value)) ==
+            "line 1: enhanced_revision takes a revision this build plays"
         );
-    OA_CHECK(refusal("rules_version 4\nrules_version 6") == "line 2: rules_version is given twice");
+    OA_CHECK(
+        refusal("enhanced_revision 1\nenhanced_revision 1") ==
+        "line 2: enhanced_revision is given twice"
+    );
+    OA_CHECK(
+        refusal("enhanced_features -local_flow") ==
+        "line 1: enhanced_features cannot remove local_flow: routes_large_regions needs it"
+    );
+    OA_CHECK(
+        refusal("enhanced_features not_a_feature").find("unknown feature not_a_feature") !=
+        std::string::npos
+    );
+    OA_CHECK(
+        refusal("enhanced_features capacity,route_corner_advance") ==
+        "line 1: route_corner_advance needs local_flow"
+    );
+    bench::View added;
+    std::string error;
+    OA_CHECK(bench::parse_view("enhanced_features -swept_ground_steps", added, error));
+    OA_CHECK(added.enhanced_features_named);
 }
 
 /// A combat run verifies its starting armies without requiring casualties

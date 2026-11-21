@@ -390,11 +390,10 @@ set sees only capacity, and the report's `enhanced_version` is 1.
 `enhanced_features_spec` is the flag's text. `enhanced_features_override`
 is true when the flag chose the set. `data_faults` counts distinct data-fault
 lines. `staged_battle.extra` is an empty object until a later measurement
-fills it. R05 makes the rules carry the set and replaces the override.
-R06 routes the flag into its own choice, or keeps the `v<N>` form as a
-development alias, and the gate then passes R06's `--enhanced-features`.
-R06 or R09 deletes the override and the version-1 hold. R09 removes
-`--benchmark-features` with the other aliases.
+fills it. `--benchmark-features` is a development flag: it cannot be combined with
+`--enhanced-revision` or `--enhanced-features`, which put a set into the
+rules themselves, and it goes with the other development aliases before
+release.
 
 `oa-enh-gate` takes `--features SPEC` (it passes `--enhanced-mode
 --benchmark-features SPEC` and refuses `--version` beside it), `--noise
