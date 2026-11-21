@@ -4194,6 +4194,9 @@ void NetworkPlay::net_leave() {
         return;
     NetHost::finish_recording(*this);
     auto& state = *net_;
+    // What the match's route batches did here, for whoever reads the run's output.
+    if (state.net->rules.route_batches)
+        std::cout << "network play: " << nm::net_match_route_batch_line(state.net.get()) << "\n";
     if (runtime_.match_)
         nm::net_connection_finish(&state.connection, &runtime_.match_->state().game);
     state.active = false;

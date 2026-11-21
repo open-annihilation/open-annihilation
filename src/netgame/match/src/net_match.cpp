@@ -3537,6 +3537,17 @@ bool net_match_send(
            WireError::ok;
 }
 
+std::string net_match_route_batch_line(const NetMatch* m) {
+    const auto& stats = m->route_batches;
+    const auto& applied = stats.applied;
+    return "route batches: ticks " +
+           std::to_string(applied.largest_applied_at - applied.largest_tick) + ", changes " +
+           std::to_string(applied.largest_changes) + ", parts " +
+           std::to_string(applied.largest_parts) + ", resent " +
+           std::to_string(stats.parts_resent) + ", longest hold " +
+           std::to_string(applied.longest_hold) + " ticks";
+}
+
 void net_match_send_player_state(NetMatch* m, Player* player) noexcept {
     auto* world = m->world;
     if (player == nullptr || !is_local(*player) || player->index >= OA_PLAYER_COUNT)

@@ -626,6 +626,19 @@ bool net_match_send(
     NetMatch* match, uint32_t from_id, uint32_t to_id, const uint8_t* record, std::size_t size
 ) noexcept;
 
+/// Describes what the route batches did on this machine, in the form
+/// "route batches: ticks T, changes C, parts P, resent R, longest hold H ticks".
+///
+/// Of the batches the other players sent that this machine applied, C and P
+/// are those of the one with the most changes and T the ticks from its
+/// sender's tick to the tick it was applied here; R counts the parts of this
+/// machine's players' batches sent again, and H the longest this machine
+/// held a movement step.
+///
+/// @param match Running match.
+/// @return The line, without a line end.
+[[nodiscard]] std::string net_match_route_batch_line(const NetMatch* match);
+
 /// Packs and broadcasts this tick's 0x2c record of a local player.
 ///
 /// Under WireRules::route_batches the tick goes out as one complete route
