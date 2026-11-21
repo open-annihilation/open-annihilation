@@ -31,6 +31,10 @@ constexpr uint32_t fire_at_will = 2u << OA_UNIT_FLAG_FIRE_ORDER_SHIFT;
 constexpr uint32_t interrupted_attack_events = 0x1080a;
 constexpr uint8_t ground_occupancy = 1;
 constexpr uint8_t last_attack_chase_phase = 3;
+/// A unit is filed in the bucket of the position where it last changed cell,
+/// and moves on inside that cell until it changes cell again: less than one
+/// cell, 16 world units, on either axis.
+constexpr int32_t filed_position_slack = 16;
 
 /// Finds the slot whose view is a unit: the slot at the unit's id, or, when
 /// that slot views another unit, the slot found by walking the pool. Each
@@ -217,8 +221,7 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
         const auto& sightings = match.sightings_[owner];
         std::span<const uint16_t> seen{sightings.seen, sightings.seen_count};
         std::span<const uint16_t> radar{sightings.radar, sightings.radar_count};
-        if (match.enhanced_ &&
-            !match.enhanced_features_.has(data::enhanced_mode::Feature::indexed_searches)) {
+        if (match.enhanced_ && !indexes_searches(match.enhanced_features_)) {
             ++match.enhanced_->counters.target_queries;
             ++match.enhanced_->counters.target_full_scans;
         } else if (match.enhanced_) {
@@ -234,6 +237,11 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
                           match.slots_.size()
                       }
                     : std::span<const uint8_t>{};
+            // The first indexed searches looked only as far as a unit's filed
+            // bucket, and missed a unit that had moved out of it within its
+            // cell; the old versions keep that.
+            const bool exact =
+                match.enhanced_features_.has(data::enhanced_mode::Feature::exact_indexed_searches);
             const auto nearby = nearby_target_sightings(
                 match.state(),
                 match.spatial_,
@@ -244,7 +252,8 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
                 radius,
                 {enhanced.target_query_slots.get(), 2 * match.slots_.size()},
                 membership,
-                sightings.radar_fallback != 0
+                sightings.radar_fallback != 0,
+                exact ? filed_position_slack : 0
             );
             if (nearby.complete) {
                 seen = nearby.seen;

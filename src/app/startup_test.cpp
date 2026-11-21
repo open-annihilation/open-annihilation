@@ -1428,7 +1428,8 @@ void enhanced_benchmark_options() {
              "distributed_arrivals, moving_corner_advance, local_throat_guide, "
              "credited_fallback_search, bounded_strike_recruits, ai_attack_retention, "
              "ai_rally_retention, local_following, occupancy_free_planning, cohort_targets, "
-             "steering_projection_reuse, cohort_retention, cardinal_queue_escape",
+             "steering_projection_reuse, cohort_retention, cardinal_queue_escape, "
+             "exact_indexed_searches",
         "an unknown feature names the known ones"
     );
     expect(

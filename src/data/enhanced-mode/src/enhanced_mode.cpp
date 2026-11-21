@@ -46,7 +46,7 @@ using enum Feature;
 /// The feature table, in id order: entry n - 1 describes the feature with
 /// id n. Every feature needs Enhanced Mode on, and every chain of needs ends
 /// in capacity, the feature that sizes the Enhanced Mode state.
-constexpr std::array<FeatureInfo, 27> feature_rows{{
+constexpr std::array<FeatureInfo, 28> feature_rows{{
     {capacity, "capacity", FeatureKind::capacity, {}, {}},
     {local_flow, "local_flow", FeatureKind::simulation, set_of({capacity}), {}},
     {routes_original,
@@ -64,7 +64,11 @@ constexpr std::array<FeatureInfo, 27> feature_rows{{
      FeatureKind::simulation,
      set_of({capacity, local_flow}),
      set_of({routes_original, routes_large_regions})},
-    {indexed_searches, "indexed_searches", FeatureKind::capacity, set_of({capacity}), {}},
+    {indexed_searches,
+     "indexed_searches",
+     FeatureKind::capacity,
+     set_of({capacity}),
+     set_of({exact_indexed_searches})},
     {route_corner_advance,
      "route_corner_advance",
      FeatureKind::simulation,
@@ -140,6 +144,13 @@ constexpr std::array<FeatureInfo, 27> feature_rows{{
      FeatureKind::simulation,
      set_of({local_flow}),
      {}},
+    // Indexed searches whose target search finds what a full scan finds; the
+    // old versions keep indexed_searches.
+    {exact_indexed_searches,
+     "exact_indexed_searches",
+     FeatureKind::capacity,
+     set_of({capacity}),
+     set_of({indexed_searches})},
 }};
 
 /// Every feature the table describes.
@@ -354,9 +365,9 @@ constexpr FeatureSet revision_1_features = version_4_features;
 /// The first engine version of each feature, in id order. A new feature
 /// names its version here and nowhere else.
 constexpr std::array<const char*, feature_rows.size()> feature_engine_versions{{
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
 }};
 
 /// The first engine version of each revision. Index 0 is Off and has none.
@@ -423,7 +434,7 @@ using FeatureEnum = match_rules::SetupEnhancedModeFeatures;
 
 static_assert(enum_size(FeatureEnum{}) == feature_rows.size());
 static_assert(static_cast<int>(FeatureEnum::capacity) == 0);
-static_assert(static_cast<int>(FeatureEnum::cardinal_queue_escape) == 26);
+static_assert(static_cast<int>(FeatureEnum::exact_indexed_searches) == 27);
 
 /// Writes a feature set into the registry's enumeration set.
 ///

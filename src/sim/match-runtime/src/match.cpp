@@ -426,7 +426,7 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     }
     if (shared_routes)
         enhanced_->static_passability_memo = std::make_unique<StaticPassabilityMemo>();
-    if (enhanced_ && enhanced_features_.has(Feature::indexed_searches)) {
+    if (enhanced_ && indexes_searches(enhanced_features_)) {
         enhanced_->order_ownership = std::make_unique<OrderOwnershipIndex>(slots_.size());
         constexpr size_t orders_per_unit = 4;
         orders_.reserve(slots_.size() * orders_per_unit);
@@ -790,7 +790,7 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
 Match::~Match() = default;
 
 void Match::invalidate_target_query_extras() noexcept {
-    if (enhanced_ && enhanced_features_.has(Feature::indexed_searches))
+    if (enhanced_ && indexes_searches(enhanced_features_))
         enhanced_->target_query_extras_valid = false;
 }
 
@@ -1265,7 +1265,7 @@ sim::unit_spawn::AssetHandle Match::create_movement(sim::unit_spawn::Slot& slot)
     driver = {};
     mirrored_air_goals_.at(slot.unit_index) = {};
     if (slot.unit->type && (slot.unit->type->flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0) {
-        if (enhanced_ && enhanced_features_.has(Feature::indexed_searches))
+        if (enhanced_ && indexes_searches(enhanced_features_))
             enhanced_->air_goal_cleanup_required = true;
         if (runtime->mirrored_driver)
             sim::air::air_driver_init_mirrored(&driver, &slot.record);

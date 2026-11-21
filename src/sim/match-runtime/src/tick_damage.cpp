@@ -842,7 +842,7 @@ void Match::teardown_dead_unit(
     // A match that has never held an air goal has no air target pointers
     // to clear. Once a flying driver or air goal exists, keep every sweep:
     // an arrived copy can outlive the driver's current goal.
-    if (!enhanced_ || !enhanced_features_.has(data::enhanced_mode::Feature::indexed_searches) ||
+    if (!enhanced_ || !indexes_searches(enhanced_features_) ||
         enhanced_->air_goal_cleanup_required) {
         for (auto& order : orders_)
             if (order)
