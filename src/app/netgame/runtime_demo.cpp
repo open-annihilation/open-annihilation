@@ -58,6 +58,19 @@ constexpr std::string_view kNeedsMod =
 constexpr std::string_view kBaseLimits = "This recording was made with 256 weapon types and five "
                                          "sides. The mod you are playing has more.";
 
+/// The English refusal for a recording this build cannot play.
+///
+/// @param stored the version the sector stored, or empty
+/// @return the sentence, with `{version}` replaced when a version was stored
+std::string fill_recorded_refusal(std::string_view stored) {
+    std::string text = oa::data::enhanced_mode::refusal_needs_version(stored);
+    const std::string token = "{version}";
+    const auto at = text.find(token);
+    if (at != std::string::npos)
+        text.replace(at, token.size(), stored);
+    return text;
+}
+
 /// The catalogue sentence with the sector's two counts in place of {n} and {m}.
 ///
 /// @param english the catalogue key
@@ -151,20 +164,39 @@ void NetworkPlay::start_demo_playback() {
     const std::string needs = runtime_.content_switch_sentence(recorded);
     if (!needs.empty())
         throw std::runtime_error(needs);
-    uint32_t enhanced_version{};
+    namespace mode = oa::data::enhanced_mode;
+    mode::Choice enhanced_choice{};
+    std::string stored_version;
     if (const auto* sector = oa::formats::tad::find_sector(
             session->playback.demo, oa::formats::tad::SectorType::enhanced_mode
         )) {
         const auto saved = oa::formats::tad::decode_enhanced_mode_sector(*sector);
         if (!saved)
             throw std::runtime_error("demo playback: Enhanced Mode rules cannot be read");
-        enhanced_version = *saved;
+        const auto features = mode::features_from_sector_bits(saved->feature_bits);
+        if (saved->needed_version != 0) {
+            const uint32_t packed = saved->needed_version;
+            stored_version = std::to_string(packed >> 16) + "." +
+                             std::to_string((packed >> 8) & 0xffu) + "." +
+                             std::to_string(packed & 0xffu);
+        }
+        if (!features) {
+            const std::string sentence = fill_recorded_refusal(stored_version);
+            std::cerr << sentence << '\n';
+            throw std::runtime_error(sentence);
+        }
+        enhanced_choice.revision = saved->revision;
+        enhanced_choice.features = *features;
     }
-    if (!hold_enhanced_mode_once(runtime_, enhanced_version))
-        throw std::runtime_error(
-            "demo playback: Enhanced Mode rules version " + std::to_string(enhanced_version) +
-            " cannot be used"
-        );
+    if (mode::choice_lacks_support(enhanced_choice)) {
+        const std::string sentence = fill_recorded_refusal(stored_version);
+        std::cerr << sentence << '\n';
+        throw std::runtime_error(sentence);
+    }
+    if (const char* problem = mode::choice_problem(enhanced_choice))
+        throw std::runtime_error(std::string("demo playback: ") + problem);
+    if (!hold_enhanced_mode_once(runtime_, enhanced_choice))
+        throw std::runtime_error("demo playback: Enhanced Mode rules cannot be used");
 
     // A recording without the sector explicitly plays the original mode,
     // independent of the preference for new games.
@@ -244,7 +276,7 @@ void NetworkPlay::start_demo_playback() {
         oa::app::netgame::wire_rules_of(runtime_.mod_profile()).ten_player_replay;
     // Enhanced campaigns keep every original allocation, including players a
     // script has not activated yet. Their viewer may need all ten slots free.
-    if (enhanced_version != 0 &&
+    if (enhanced_choice.revision != 0 &&
         session->playback.ten_player_replay == oa::netgame::TenPlayerReplay::off)
         session->playback.ten_player_replay = oa::netgame::TenPlayerReplay::watcher_view;
     const bool slotless = demo::demo_watches_without_slot(session->playback);

@@ -154,8 +154,9 @@ struct Scene {
                 fixture.altitude_patterns
             }
         };
-        input.rules.setup.enhanced_mode.enabled = version != 0;
-        input.rules.setup.enhanced_mode.version = version;
+        oa::data::enhanced_mode::apply_alias(
+            input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        );
         input.unit_player_mask = 3;
         if (installed)
             input.feature_defs = installed->features.defs;

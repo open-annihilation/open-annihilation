@@ -3,6 +3,7 @@
 
 // Advisory lanes enroll live routes after startup, preserve native movement,
 // and resume pending discovery and an entered crossing through saved rule state.
+#include "oa/data/enhanced_mode.hpp"
 #include "combat_fixture.hpp"
 #include "support/match_tick_access.hpp"
 
@@ -150,8 +151,9 @@ struct Crossing {
                 sight_width, sight_width, fixture.altitude_cells, fixture.altitude_patterns
             }
         };
-        inputs.rules.setup.enhanced_mode.enabled = setup.version != 0;
-        inputs.rules.setup.enhanced_mode.version = setup.version;
+        oa::data::enhanced_mode::apply_alias(
+            inputs.rules.setup.enhanced_mode, static_cast<uint32_t>(setup.version)
+        );
         inputs.unit_player_mask = 3;
         fixture.match = std::make_unique<runtime::Match>(inputs, fixture.services);
         auto& match = *fixture.match;

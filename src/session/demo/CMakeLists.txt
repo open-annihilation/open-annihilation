@@ -11,7 +11,7 @@ target_include_directories(oa-session-demo PUBLIC include)
 target_compile_features(oa-session-demo PUBLIC cxx_std_20)
 target_link_libraries(oa-session-demo
   PUBLIC oa-formats-tad oa-formats-oademo oa-base-threads oa-netgame-match-runtime oa-netgame
-    oa-ui-frontend-multiplayer
+    oa-ui-frontend-multiplayer oa-data-enhanced-mode
   PRIVATE oa-base-text oa-base-sha256 oa-base-zstd oa-options oa-formats-sqsh oa-data-mutators
     oa-data-brain-library oa-present oa-platform-shims)
 

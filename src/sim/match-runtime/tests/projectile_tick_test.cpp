@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/weapon_execution/interceptor.hpp"
 #include "oa/sim/ballistics.hpp"
 #include "oa/sim/match_runtime.hpp"
@@ -793,8 +794,7 @@ void silo_waits_for_its_aim_script(
 /// Flies and detonates shots beyond the normal pool in an Enhanced match.
 void expanded_projectile_tick(sim::match_runtime::OfflineInputs input, Services& services) {
     constexpr uint32_t shots = 512;
-    input.rules.setup.enhanced_mode.enabled = true;
-    input.rules.setup.enhanced_mode.version = 1;
+    oa::data::enhanced_mode::apply_alias(input.rules.setup.enhanced_mode, static_cast<uint32_t>(1));
     input.projectile_capacity = 1024;
     input.unit_player_mask = 0x3;
     CHECK(sim::match_runtime::Match::input_error(input) == nullptr);

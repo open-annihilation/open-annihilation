@@ -427,6 +427,8 @@ inline constexpr std::string_view interface_words[] = {
     "release the way this copy was installed.",
     "This game includes no multiplayer maps, so multiplayer is not available.",
     "This game includes no skirmish maps, so skirmish is not available.",
+    "This game needs Open Annihilation {version} or later.",
+    "This game needs a later version of Open Annihilation.",
     "This launch plays other content than the game plays now. Quit Open Annihilation, then open "
     "the file again.",
     "This map is for the TA demo.",

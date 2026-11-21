@@ -9,8 +9,14 @@
 #include "stage_state.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/data/mission_types.hpp"
+#include "oa/data/persist/hapibank.hpp"
+#include "oa/data/persist/save_enhanced_mode.hpp"
+#include "oa/formats/tad.hpp"
+#include "oa/netgame/records.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/platform/files.hpp"
+#include "net_options.hpp"
+#include "network_play.hpp"
 #include "oa/sim/unit_spawn/restore_ranges.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
 #include "oa/sim/unit_movement/local_flow.hpp"
@@ -18,8 +24,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <memory>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -58,6 +67,109 @@ SavedFlowTables flow_tables(const sim::match_runtime::Match& match) {
         saved[at].assign(bytes.begin(), bytes.end());
     }
     return saved;
+}
+
+/// Copies a save and replaces its Enhanced Mode account.
+///
+/// @param source a save this build wrote
+/// @param destination the future save
+/// @param revision the revision the future save names
+/// @param feature_ids the feature ids it names
+/// @param needs_version the stored engine version, or empty when it stored none
+void rewrite_enhanced_account(
+    const fs::path& source,
+    const fs::path& destination,
+    uint32_t revision,
+    std::vector<uint32_t> feature_ids,
+    std::string needs_version
+) {
+    namespace persist = oa::data::persist;
+    persist::Bank bank{};
+    persist::bank_init(&bank);
+
+    struct DropBank {
+        persist::Bank* held;
+
+        ~DropBank() { persist::bank_destroy(held); }
+    } drop{&bank};
+
+    persist::BankError error{};
+    const persist::FileSource reader = persist::stdio_file_source();
+    require(
+        persist::bank_read_file(
+            &bank,
+            oa::platform::path_to_utf8(source).c_str(),
+            persist::savegame_description,
+            nullptr,
+            &reader,
+            &error
+        ),
+        "the future-rules fixture could not read its source save"
+    );
+    persist::SavedEnhancedMode account;
+    account.revision = revision;
+    account.feature_ids = std::move(feature_ids);
+    account.needs_version = std::move(needs_version);
+    account.unit_player_mask = 1;
+    account.order = {0};
+    require(
+        persist::save_write_enhanced_mode(&bank, account),
+        "the future-rules fixture could not write its account"
+    );
+    const persist::FileSink writer = persist::stdio_file_sink();
+    require(
+        persist::bank_write_file(
+            &bank,
+            oa::platform::path_to_utf8(destination).c_str(),
+            persist::savegame_description,
+            true,
+            false,
+            &writer
+        ),
+        "the future-rules fixture could not write its save"
+    );
+}
+
+/// A short recording whose Enhanced Mode sector names a future choice.
+///
+/// @param revision the sector's revision, at least 1
+/// @param feature_bits bit (id − 1) for each feature
+/// @param needed_version the packed engine version, or 0 when unknown
+/// @return the recording's bytes
+std::vector<uint8_t>
+future_recording(uint32_t revision, uint64_t feature_bits, uint32_t needed_version) {
+    namespace tad = oa::formats::tad;
+    const auto encoded = tad::encode_enhanced_mode_sector({revision, feature_bits, needed_version});
+    const std::vector<uint8_t> sector(encoded.begin(), encoded.end());
+    const std::vector<uint8_t> status{0x04};
+    const std::vector<uint8_t> payload{tad::payload_marker, 0xff};
+    // Playback refuses a recording that names no unit type before it reads the sector.
+    oa::netgame::UnitDefHandshakeRecord announced{};
+    announced.subtype = static_cast<uint8_t>(oa::netgame::HandshakeSubtype::def_checksum);
+    announced.key = 1;
+    std::array<uint8_t, tad::layout::unit_check_record_bytes> unit_check{};
+    std::size_t unit_check_bytes = 0;
+    require(
+        oa::netgame::encode_record(
+            announced, unit_check.data(), unit_check.size(), &unit_check_bytes
+        ) == oa::netgame::WireError::ok &&
+            unit_check_bytes == unit_check.size(),
+        "the future-rules fixture could not name a unit type"
+    );
+    tad::Demo demo;
+    demo.version = tad::supported_version;
+    demo.max_units = 250;
+    demo.map_name = "Metal Isles";
+    demo.sectors.push_back(
+        {static_cast<uint32_t>(tad::SectorType::enhanced_mode), std::span<const uint8_t>{sector}}
+    );
+    demo.unit_checks = unit_check;
+    demo.players.push_back({1, 0, 1, "Pilot"});
+    demo.statuses.push_back({1, std::span<const uint8_t>{status}});
+    demo.packets.push_back({0, 40, 40, 1, std::span<const uint8_t>{payload}});
+    const tad::WriteResult written = tad::write(demo);
+    require(written.ok(), "the future-rules fixture could not write its recording");
+    return written.bytes;
 }
 
 } // namespace
@@ -583,7 +695,9 @@ void Runtime::check_enhanced_mode() {
     require(hold_enhanced_rules_once(mode::off_version), "a subsequent load could not hold Off");
     release_enhanced_rules_once(true);
     require(
-        engine_settings_->restored_enhanced_version == mode::current_version &&
+        engine_settings_->restored_enhanced_choice &&
+            mode::alias_version(engine_settings_->restored_enhanced_choice->features) ==
+                mode::current_version &&
             engine_settings_->restored_enhanced_started,
         "a failed subsequent load lost the active match's mode hold"
     );
@@ -927,6 +1041,74 @@ void Runtime::check_enhanced_mode() {
     options_.enhanced_mode = command_line_mode;
     options_.enhanced_mode_version = command_line_version;
     apply_engine_settings(kept);
+    // A later game's revision, or a feature id this build does not know, is
+    // refused with the stored version. The reader does not guess one.
+    const uint32_t rules_before = enhanced_mode_version(*this);
+    const std::string version_line = [] {
+        std::string text = mode::refusal_needs_version("0.9.4");
+        const auto token = text.find("{version}");
+        require(token != std::string::npos, "the version refusal lost its placeholder");
+        text.replace(token, std::string_view{"{version}"}.size(), "0.9.4");
+        return text;
+    }();
+    const std::string later_line = mode::refusal_needs_version("");
+    const uint32_t packed_later = mode::packed_engine_version("0.9.4");
+    require(packed_later == 0x00000904u, "0.9.4 did not pack as major, minor, patch");
+
+    struct FutureRules {
+        const char* name;
+        uint32_t revision;
+        std::vector<uint32_t> feature_ids;
+        uint64_t feature_bits;
+        const char* needs_version;
+        uint32_t packed_version;
+        const std::string* line;
+    };
+
+    const FutureRules futures[] = {
+        {"future-revision", 2, {}, 0, "0.9.4", packed_later, &version_line},
+        {"future-feature", 1, {60}, uint64_t{1} << 59, "0.9.4", packed_later, &version_line},
+        {"future-unversioned", 2, {}, 0, "", 0, &later_line},
+    };
+    const fs::path future_dir = options_.preferences_file->parent_path();
+    for (const FutureRules& future : futures) {
+        const fs::path save = future_dir / (std::string{future.name} + ".sav");
+        rewrite_enhanced_account(
+            enhanced_save, save, future.revision, future.feature_ids, future.needs_version
+        );
+        require(!load_saved_game(save), "a future save was accepted");
+        require(status_ == *future.line, "a future save used the wrong refusal");
+        require(enhanced_mode_version(*this) == rules_before, "a future save changed the rules");
+        const fs::path recording = future_dir / (std::string{future.name} + ".tad");
+        const std::vector<uint8_t> bytes =
+            future_recording(future.revision, future.feature_bits, future.packed_version);
+        {
+            std::ofstream out(recording, std::ios::binary);
+            require(static_cast<bool>(out), "a future recording file did not open");
+            out.write(
+                reinterpret_cast<const char*>(bytes.data()),
+                static_cast<std::streamsize>(bytes.size())
+            );
+            require(static_cast<bool>(out), "a future recording file did not write");
+        }
+        netgame_context().staged_recording =
+            StagedRecording{oa::platform::path_to_utf8(recording.filename()), bytes, false};
+        bool refused = false;
+        std::string message;
+        try {
+            NetworkPlay::of(*this).start_demo_playback();
+        } catch (const std::runtime_error& playback_error) {
+            refused = true;
+            message = playback_error.what();
+        }
+        require(refused, "a future recording was accepted");
+        if (message != *future.line)
+            std::cerr << "future recording refusal: " << message << '\n';
+        require(message == *future.line, "a future recording used the wrong refusal");
+        require(
+            enhanced_mode_version(*this) == rules_before, "a future recording changed the rules"
+        );
+    }
     std::puts(
         "Enhanced Mode: preset, graphics independence, frozen matches and save restoration passed"
     );

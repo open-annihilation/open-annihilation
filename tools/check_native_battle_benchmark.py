@@ -120,8 +120,20 @@ def valid_report(process, report, scenario, enabled, ticks=12, version=None):
     require(report["enhanced_mode"] is enabled and
             (report["enhanced_version"] > 0 if enabled else report["enhanced_version"] == 0),
             "benchmark did not record its Enhanced rules")
+    revision = report["enhanced_revision"]
+    features = report["enhanced_features"]
+    require(isinstance(revision, int), "benchmark revision is not a number")
+    require(isinstance(features, list) and
+            all(isinstance(name, str) and name.isidentifier() and name.islower() for name in features),
+            "benchmark features are not snake_case names")
+    require((revision != 0) is enabled, "benchmark revision does not match Enhanced Mode")
+    if enabled:
+        require(features, "an Enhanced benchmark recorded no features")
+    else:
+        require(revision == 0 and features == [], "an Off benchmark recorded Enhanced rules")
     if version is not None:
         require(report["enhanced_version"] == version, "benchmark selected the wrong rules version")
+        require(revision == 1, "an alias benchmark did not record revision 1")
     require(report["renderer"] == "none", "simulation-only benchmark named a drawn renderer")
     require(len(report["simulation_hash"]) == 64 and len(report["world_digest"]) == 16,
             "benchmark lacks its reproducibility digests")
@@ -194,7 +206,8 @@ def staged_battles(native, game_dir, workdir):
                 "staged battle failed", process)
         require(report["scenario"] == "stage" and report["map"] == "Ashap Plateau" and
                 report["requested_units_per_side"] == 0 and report["initial_units"] == 26 and
-                report["successful_ticks"] == STAGED_TICKS and report["enhanced_version"] == 6,
+                report["successful_ticks"] == STAGED_TICKS and report["enhanced_version"] == 6 and
+                report["enhanced_revision"] == 1 and report["enhanced_features"],
                 "staged battle lost its map, population, ticks or rules", process)
         valid_timing_report(report)
         staged = report["staged_battle"]

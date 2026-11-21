@@ -37,6 +37,7 @@
 #include "oa/data/languages/language_pack.hpp"
 #include "oa/data/brain_facts.hpp"
 #include "oa/data/brain_library/seats.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
@@ -1653,9 +1654,18 @@ class Runtime final : public menu::Host,
 
   private:
 
-    /// Holds recorded rules for the next loaded match, keeping the preference separate.
+    /// Holds a recorded choice for the next loaded match, keeping the preference separate.
     ///
-    /// @param version the recorded rules version, or zero for released rules
+    /// @param choice the recorded revision and features; Off is revision 0
+    /// @return false when the choice cannot be played or the rules do not resolve
+    [[nodiscard]] bool hold_enhanced_rules_once(const oa::data::enhanced_mode::Choice& choice);
+
+    /// Holds a recorded preset for the next loaded match, keeping the preference separate.
+    ///
+    /// Restructure only; removed in R09. An unsupported version is refused
+    /// before it becomes a choice.
+    ///
+    /// @param version the recorded preset version, or zero for released rules
     /// @return false for unsupported versions or unresolved rules
     [[nodiscard]] bool hold_enhanced_rules_once(uint32_t version);
 

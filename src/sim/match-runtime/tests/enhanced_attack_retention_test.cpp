@@ -41,8 +41,9 @@ constexpr uint32_t cancel_event = 2, target_lost_event = 8, attack_abort_event =
 /// Supplies durable targets and room for a small built-in strike.
 Options options_for(uint32_t version, bool bridge) {
     Options options;
-    options.rules.setup.enhanced_mode.enabled = version != 0;
-    options.rules.setup.enhanced_mode.version = version;
+    oa::data::enhanced_mode::apply_alias(
+        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    );
     options.per_player_limit = 8;
     options.maximum_health = 30000;
     options.gun_reload_time = "10";
@@ -213,8 +214,9 @@ struct Battle {
                 fixture.altitude_patterns
             }
         };
-        input.rules.setup.enhanced_mode.enabled = version != 0;
-        input.rules.setup.enhanced_mode.version = version;
+        oa::data::enhanced_mode::apply_alias(
+            input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        );
         input.unit_player_mask = 3;
         fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
         match().configure_strategic_environment({0, 0.5F, 0});

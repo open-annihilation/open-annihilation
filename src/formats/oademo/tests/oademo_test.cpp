@@ -1057,7 +1057,8 @@ std::vector<uint8_t> export_fixture(bool compressed) {
     const std::vector<uint8_t> brains{'b', 'r'};
     const std::array<uint8_t, limits_sector_bytes> limits =
         encode_limits_sector(RecordedLimits{512, 6});
-    const auto enhanced = encode_enhanced_mode_sector(13);
+    const RecordedEnhancedMode enhanced_recorded{1, uint64_t{1} << 12, 0x00090300u};
+    const auto enhanced = encode_enhanced_mode_sector(enhanced_recorded);
     const std::vector<uint8_t> address{'A', 'D', 'D', 'R'};
     const std::vector<uint8_t> recorder{'o', 'a', '-', 't', 'e', 's', 't'};
     const std::string date_text = "2026-11-04 14:32";
@@ -1123,7 +1124,10 @@ void an_export_is_plain_and_the_same_twice() {
     const Sector* enhanced = find_sector(demo, SectorType::enhanced_mode);
     OA_CHECK(enhanced != nullptr);
     if (enhanced != nullptr)
-        OA_CHECK(decode_enhanced_mode_sector(*enhanced) == 13);
+        OA_CHECK(
+            (decode_enhanced_mode_sector(*enhanced) ==
+             RecordedEnhancedMode{1, uint64_t{1} << 12, 0x00090300u})
+        );
     OA_CHECK(demo.players.size() == 2 && demo.statuses.size() == 2);
     OA_CHECK(demo.map_name.size() == exported_name_bytes);
     OA_CHECK(demo.players[1].name.size() == exported_name_bytes);
@@ -1183,7 +1187,10 @@ void an_export_is_plain_and_the_same_twice() {
         const Sector* kept_enhanced = find_sector(*kept_parsed.demo, SectorType::enhanced_mode);
         OA_CHECK(kept_enhanced != nullptr);
         if (kept_enhanced != nullptr)
-            OA_CHECK(decode_enhanced_mode_sector(*kept_enhanced) == 13);
+            OA_CHECK(
+                (decode_enhanced_mode_sector(*kept_enhanced) ==
+                 RecordedEnhancedMode{1, uint64_t{1} << 12, 0x00090300u})
+            );
         OA_CHECK(kept_parsed.demo->map_name.size() == exported_name_bytes + 1);
         OA_CHECK(kept_parsed.demo->players[1].name.size() == exported_name_bytes + 1);
         OA_CHECK(kept_parsed.demo->statuses[1].datagram.size() == exported_status_bytes + 1);
@@ -1284,7 +1291,10 @@ void a_replay_export_keeps_a_clean_recording() {
             oa::formats::tad::find_sector(*inner.demo, oa::formats::tad::SectorType::enhanced_mode);
         OA_CHECK(enhanced != nullptr);
         if (enhanced != nullptr)
-            OA_CHECK(oa::formats::tad::decode_enhanced_mode_sector(*enhanced) == 13);
+            OA_CHECK(
+                (oa::formats::tad::decode_enhanced_mode_sector(*enhanced) ==
+                 oa::formats::tad::RecordedEnhancedMode{1, uint64_t{1} << 12, 0x00090300u})
+            );
     }
 }
 

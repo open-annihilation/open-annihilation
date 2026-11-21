@@ -13,8 +13,29 @@ import tempfile
 import native_offline
 
 
-def recording_rules_version(path):
-    """Reads the one Enhanced Mode sector from a recording's chunked header."""
+def sector_bits(feature_ids):
+    """Bit (id − 1) for each feature id, the recording sector's layout."""
+    bits = 0
+    for feature_id in feature_ids:
+        bits |= 1 << (feature_id - 1)
+    return bits
+
+
+# Alias sets for versions 10, 11 and 13, feature ids in id order.
+# Version 10 is version 8 plus cohort targets and steering-projection reuse.
+# Version 11 adds cohort retention. Version 13 adds cardinal queue escape
+# and does not include cohort retention.
+ALIAS_FEATURES = {
+    10: [1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+    11: [1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+    13: [1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27],
+}
+# 0.9.3 packed as major << 16 | minor << 8 | patch.
+NEEDED_ENGINE = 0x00000903
+
+
+def recording_enhanced(path):
+    """Reads the one Enhanced Mode sector: revision, feature bits, needed version."""
     with path.open("rb") as stream:
         def chunk():
             length_bytes = stream.read(2)
@@ -34,18 +55,34 @@ def recording_rules_version(path):
         count = int.from_bytes(count_bytes, "little")
         if count > 256:
             raise RuntimeError(f"{path.name}: too many recording sectors")
-        versions = []
+        found = []
         for _ in range(count):
             sector = chunk()
             if len(sector) < 4:
                 raise RuntimeError(f"{path.name}: missing sector type")
             if int.from_bytes(sector[:4], "little") == 0x4F414531:
-                if len(sector) != 8:
+                # The type word plus 16 little-endian bytes: revision, bits, version.
+                if len(sector) != 20:
                     raise RuntimeError(f"{path.name}: invalid Enhanced Mode sector")
-                versions.append(int.from_bytes(sector[4:], "little"))
-        if len(versions) != 1:
+                body = sector[4:]
+                found.append((
+                    int.from_bytes(body[0:4], "little"),
+                    int.from_bytes(body[4:12], "little"),
+                    int.from_bytes(body[12:16], "little"),
+                ))
+        if len(found) != 1:
             raise RuntimeError(f"{path.name}: expected one Enhanced Mode sector")
-        return versions[0]
+        return found[0]
+
+
+def require_alias_sector(path, version):
+    """The recording stores revision 1, that version's feature bits and engine 0.9.3."""
+    recorded = recording_enhanced(path)
+    expected = (1, sector_bits(ALIAS_FEATURES[version]), NEEDED_ENGINE)
+    if recorded != expected:
+        raise RuntimeError(
+            f"{path.name}: Enhanced Mode sector {recorded} is not alias {version} {expected}"
+        )
 
 
 def main():
@@ -71,6 +108,16 @@ def main():
             raise RuntimeError(result.stdout + result.stderr)
         if "Enhanced Mode: preset, graphics independence" not in result.stdout:
             raise RuntimeError("the native check did not report success\n" + result.stdout)
+        refusal_log = result.stdout + result.stderr
+        for line in (
+            "This game needs Open Annihilation 0.9.4 or later.",
+            "This game needs a later version of Open Annihilation.",
+        ):
+            if line not in refusal_log:
+                raise RuntimeError("the native check did not log a refusal\n" + refusal_log)
+            # The game writes these on stderr. Repeat them so the test log
+            # keeps the two sentences the check required.
+            print(line)
         print(result.stdout)
         base = shlex.split(os.environ.get("OA_TEST_RUNNER", "")) + [
             str(args.native.resolve()), "--game-dir", str(args.game_dir.resolve()),
@@ -102,8 +149,7 @@ def main():
         if cohort_record.returncode or not cohort_recording.is_file():
             raise RuntimeError("v10 network recording failed\n" +
                                cohort_record.stdout + cohort_record.stderr)
-        if recording_rules_version(cohort_recording) != 10:
-            raise RuntimeError("the CLI v10 recording did not record rules version 10")
+        require_alias_sector(cohort_recording, 10)
         cohort_playback = subprocess.run(
             base + ["--enhanced-mode-version", "8", "--play-demo", str(cohort_recording),
                     "--match-ticks", "300", "--preferences-file",
@@ -124,8 +170,7 @@ def main():
         if retained_record.returncode or not retained_recording.is_file():
             raise RuntimeError("v11 network recording failed\n" +
                                retained_record.stdout + retained_record.stderr)
-        if recording_rules_version(retained_recording) != 11:
-            raise RuntimeError("the CLI v11 recording did not record rules version 11")
+        require_alias_sector(retained_recording, 11)
         retained_playback = subprocess.run(
             base + ["--enhanced-mode-version", "10", "--play-demo", str(retained_recording),
                     "--match-ticks", "300", "--preferences-file",
@@ -146,8 +191,7 @@ def main():
         if cardinal_record.returncode or not cardinal_recording.is_file():
             raise RuntimeError("v13 network recording failed\n" +
                                cardinal_record.stdout + cardinal_record.stderr)
-        if recording_rules_version(cardinal_recording) != 13:
-            raise RuntimeError("the CLI v13 recording did not record rules version 13")
+        require_alias_sector(cardinal_recording, 13)
         cardinal_playback = subprocess.run(
             base + ["--enhanced-mode-version", "10", "--play-demo", str(cardinal_recording),
                     "--match-ticks", "300", "--preferences-file",

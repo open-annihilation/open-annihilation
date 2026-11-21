@@ -112,6 +112,56 @@ campaign_set_from(const std::vector<oa::data::mutators::ResolvedMutator>& resolv
     return chosen;
 }
 
+/// Replaces `{version}` in a needs-version sentence.
+///
+/// @param text the sentence, still holding `{version}` when a version was stored
+/// @param version the stored version, or empty
+/// @return the sentence with the version filled in
+std::string fill_version(std::string text, std::string_view version) {
+    const std::string token = "{version}";
+    const auto at = text.find(token);
+    if (at != std::string::npos)
+        text.replace(at, token.size(), version);
+    return text;
+}
+
+/// Builds a choice from saved feature ids. An id that does not fit the set
+/// is reported and is not dropped into a smaller set.
+///
+/// @param saved the account
+/// @param[out] choice the revision and the ids that fit
+/// @param[out] unknown_id true when an id does not fit a feature set
+void choice_from_saved(
+    const persist::SavedEnhancedMode& saved,
+    oa::data::enhanced_mode::Choice& choice,
+    bool& unknown_id
+) {
+    namespace mode = oa::data::enhanced_mode;
+    choice = {};
+    choice.revision = saved.revision;
+    unknown_id = false;
+    for (const uint32_t id : saved.feature_ids) {
+        if (id == 0 || id >= 64) {
+            unknown_id = true;
+            continue;
+        }
+        choice.features = choice.features.with(static_cast<mode::Feature>(id));
+    }
+}
+
+/// Lists a choice's feature ids in id order.
+///
+/// @param features the features
+/// @return their ids, ascending
+std::vector<uint32_t> feature_ids_of(const oa::data::enhanced_mode::FeatureSet& features) {
+    namespace mode = oa::data::enhanced_mode;
+    std::vector<uint32_t> ids;
+    for (uint32_t id = 1; id < 64; ++id)
+        if (features.has(static_cast<mode::Feature>(id)))
+            ids.push_back(id);
+    return ids;
+}
+
 // World units along one side of a map cell.
 
 // Units a save/load run's transport ship starts with in its hold. A unit
@@ -777,10 +827,12 @@ std::optional<uint16_t>
 Runtime::SaveLoadState::buildable_unit_limit(Runtime& runtime, int32_t limit) {
     if (limit <= 0 || limit > std::numeric_limits<uint16_t>::max())
         return std::nullopt;
-    const uint32_t version = runtime.engine_settings_state().restored_enhanced_version.value_or(
-        enhanced_mode_version(runtime)
-    );
-    if (version != 0)
+    bool capacity = false;
+    if (const auto& held = runtime.engine_settings_state().restored_enhanced_choice)
+        capacity = held->features.has(oa::data::enhanced_mode::Feature::capacity);
+    else
+        capacity = enhanced_mode_version(runtime) != 0;
+    if (capacity)
         return limit <= oa::data::limits::highest_enhanced_units_per_player
                    ? std::optional<uint16_t>{static_cast<uint16_t>(limit)}
                    : std::nullopt;
@@ -1368,13 +1420,17 @@ bool Runtime::restore_saved_session(persist::Bank* bank) {
     auto& state = saveload_state();
     state.restore_failures = 0;
     oa::World& world = match_->state();
-    if (enhanced_mode_version(*this) != 0) {
-        uint32_t version{};
-        uint16_t mask{};
-        std::vector<uint8_t> order;
-        if (!persist::save_read_enhanced_mode(bank, version, &mask, &order) ||
-            version != enhanced_mode_version(*this) || mask != match_->unit_player_mask() ||
-            !sim::unit_spawn::restore_unit_player_order(world, order))
+    const oa::data::enhanced_mode::Choice running = enhanced_mode_choice(*this);
+    if (running.revision != 0) {
+        persist::SavedEnhancedMode saved;
+        oa::data::enhanced_mode::Choice stored;
+        bool unknown_id = false;
+        if (!persist::save_read_enhanced_mode(bank, saved))
+            throw std::runtime_error("the saved Enhanced Mode unit ranges cannot be restored");
+        choice_from_saved(saved, stored, unknown_id);
+        if (unknown_id || stored != running ||
+            saved.unit_player_mask != match_->unit_player_mask() ||
+            !sim::unit_spawn::restore_unit_player_order(world, saved.order))
             throw std::runtime_error("the saved Enhanced Mode unit ranges cannot be restored");
         match_->rebind_player_ranges();
     }
@@ -1419,8 +1475,9 @@ bool Runtime::restore_saved_session(persist::Bank* bank) {
 
 void Runtime::save_mod_profile(persist::Bank* bank) const {
     namespace profiles = oa::data::mod_profile;
+    const oa::data::enhanced_mode::Choice choice = enhanced_mode_choice(*this);
     std::vector<uint8_t> unit_order;
-    if (enhanced_mode_version(*this) != 0 && match_) {
+    if (choice.revision != 0 && match_) {
         const auto& world = match_->state();
         for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
             if (world.game.players[player].first_unit != 0)
@@ -1429,10 +1486,16 @@ void Runtime::save_mod_profile(persist::Bank* bank) const {
             return world.game.players[a].first_unit < world.game.players[b].first_unit;
         });
     }
-    if (!persist::save_write_enhanced_mode(
-            bank, enhanced_mode_version(*this), match_ ? match_->unit_player_mask() : 0, unit_order
-        ))
-        throw std::runtime_error("the Enhanced Mode rules version cannot be saved");
+    persist::SavedEnhancedMode enhanced_account;
+    enhanced_account.revision = choice.revision;
+    enhanced_account.feature_ids = feature_ids_of(choice.features);
+    if (const char* needed = oa::data::enhanced_mode::needed_engine_version(choice))
+        enhanced_account.needs_version = needed;
+    enhanced_account.unit_player_mask =
+        choice.revision != 0 && match_ ? match_->unit_player_mask() : 0;
+    enhanced_account.order = std::move(unit_order);
+    if (!persist::save_write_enhanced_mode(bank, enhanced_account))
+        throw std::runtime_error("the Enhanced Mode rules cannot be saved");
     const auto* profile = mod_profile();
     if (profile == nullptr)
         return;
@@ -1611,19 +1674,43 @@ bool Runtime::load_saved_game(const fs::path& path) {
         status_ = std::string("Invalid savegame file: ") + error.message;
         return false;
     }
-    uint32_t saved_enhanced_version{};
-    uint16_t saved_unit_player_mask{};
-    if (!persist::save_read_enhanced_mode(bank, saved_enhanced_version, &saved_unit_player_mask)) {
+    persist::SavedEnhancedMode saved_account;
+    if (!persist::save_read_enhanced_mode(bank, saved_account)) {
         status_ = "Invalid savegame file: Enhanced Mode rules cannot be read";
         return false;
     }
-    if (saved_enhanced_version != 0 && saved_unit_player_mask == 0) {
+    if (saved_account.revision != 0 && saved_account.unit_player_mask == 0) {
         status_ = "Invalid savegame file: Enhanced Mode unit allocation is missing";
         return false;
     }
-    if (!hold_enhanced_rules_once(saved_enhanced_version)) {
-        status_ = "Savegame Enhanced Mode rules version " + std::to_string(saved_enhanced_version) +
-                  " cannot be used";
+    namespace mode = oa::data::enhanced_mode;
+    mode::Choice saved_choice;
+    bool unknown_id = false;
+    choice_from_saved(saved_account, saved_choice, unknown_id);
+    if (unknown_id || mode::choice_lacks_support(saved_choice)) {
+        const char* pattern = mode::refusal_needs_version(saved_account.needs_version);
+        status_ = fill_version(pattern, saved_account.needs_version);
+        std::cerr << status_ << '\n';
+        // A headless check has no player to dismiss a notice, and the native
+        // check's window would block on the fallback message box.
+        if (!options_.headless_check) {
+            show_frontend_message(
+                fill_version(translate_ui(pattern), saved_account.needs_version),
+                ui::frontend::kInvalidSaveMessageWidth,
+                entry::message_show_ok,
+                entry::message_fit_width
+            );
+        }
+        return false;
+    }
+    if (const char* problem = mode::choice_problem(saved_choice)) {
+        status_ = std::string("Invalid savegame file: ") + problem;
+        std::cerr << status_ << '\n';
+        return false;
+    }
+    if (!hold_enhanced_rules_once(saved_choice)) {
+        status_ = "Savegame Enhanced Mode rules cannot be used";
+        std::cerr << status_ << '\n';
         return false;
     }
 
@@ -1775,7 +1862,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
             {.units_per_player = *units_per_player,
              .place_commanders = false,
              .seat_roster = true,
-             .unit_player_mask = saved_unit_player_mask}
+             .unit_player_mask = saved_account.unit_player_mask}
         );
     }
     if (!match_ || altitude_sight_blocked_) {

@@ -480,11 +480,32 @@ void test_recording_without_limits_sector() {
     );
 }
 
-/// Checks the version's byte order, full range and recording round trip.
+/// Checks the sector's byte order and a recording round trip.
 void test_enhanced_mode_sector_round_trips() {
-    constexpr uint32_t version = 0x78563412;
-    const auto body = tad::encode_enhanced_mode_sector(version);
-    require(body == std::array<uint8_t, 4>{0x12, 0x34, 0x56, 0x78}, "version byte order");
+    const tad::RecordedEnhancedMode recorded{0x78563412u, 0xEFCDAB8967452301ull, 0x00090300u};
+    const auto body = tad::encode_enhanced_mode_sector(recorded);
+    require(
+        body ==
+            std::array<uint8_t, 16>{
+                0x12,
+                0x34,
+                0x56,
+                0x78,
+                0x01,
+                0x23,
+                0x45,
+                0x67,
+                0x89,
+                0xAB,
+                0xCD,
+                0xEF,
+                0x00,
+                0x03,
+                0x09,
+                0x00
+            },
+        "Enhanced Mode sector byte order"
+    );
     Fixture fixture;
     fixture.demo.sectors.push_back({static_cast<uint32_t>(tad::SectorType::enhanced_mode), body});
     const Bytes bytes = encoded(fixture.demo);
@@ -493,40 +514,31 @@ void test_enhanced_mode_sector_round_trips() {
     const auto* sector = tad::find_sector(*result.demo, tad::SectorType::enhanced_mode);
     require(sector != nullptr, "Enhanced Mode sector present");
     const auto decoded = tad::decode_enhanced_mode_sector(*sector);
-    require(decoded && *decoded == version, "Enhanced Mode version");
+    require(decoded && *decoded == recorded, "Enhanced Mode sector");
     require(encoded(*result.demo) == bytes, "Enhanced Mode sector round trip");
-    for (const uint32_t one :
-         {uint32_t{1},
-          uint32_t{2},
-          uint32_t{3},
-          uint32_t{4},
-          uint32_t{5},
-          uint32_t{6},
-          uint32_t{7},
-          uint32_t{8},
-          uint32_t{10},
-          uint32_t{11},
-          uint32_t{13},
-          UINT32_MAX}) {
-        const auto encoded_version = tad::encode_enhanced_mode_sector(one);
+    for (const uint32_t revision : {uint32_t{1}, uint32_t{2}, UINT32_MAX}) {
+        const tad::RecordedEnhancedMode one{revision, uint64_t{1} << 63, 0};
+        const auto encoded_one = tad::encode_enhanced_mode_sector(one);
         const tad::Sector round_trip{
-            static_cast<uint32_t>(tad::SectorType::enhanced_mode), encoded_version
+            static_cast<uint32_t>(tad::SectorType::enhanced_mode), encoded_one
         };
-        require(tad::decode_enhanced_mode_sector(round_trip) == one, "nonzero version range");
+        require(
+            tad::decode_enhanced_mode_sector(round_trip) == one, "revision and high feature bit"
+        );
     }
 }
 
-/// Refuses empty, truncated, oversized, zero-version and wrongly typed sectors.
+/// Refuses empty, truncated, oversized, zero-revision and wrongly typed sectors.
 void test_enhanced_mode_sector_refuses() {
     const auto reject = [](Bytes body) {
         const tad::Sector sector{static_cast<uint32_t>(tad::SectorType::enhanced_mode), body};
         return !tad::decode_enhanced_mode_sector(sector).has_value();
     };
     require(reject({}), "empty Enhanced Mode sector");
-    require(reject({1, 0, 0}), "truncated Enhanced Mode sector");
-    require(reject({1, 0, 0, 0, 0}), "oversized Enhanced Mode sector");
-    require(reject({0, 0, 0, 0}), "zero version Enhanced Mode sector");
-    const auto body = tad::encode_enhanced_mode_sector(1);
+    require(reject(Bytes(15, 1)), "truncated Enhanced Mode sector");
+    require(reject(Bytes(17, 1)), "oversized Enhanced Mode sector");
+    require(reject(Bytes(16, 0)), "zero revision Enhanced Mode sector");
+    const auto body = tad::encode_enhanced_mode_sector(tad::RecordedEnhancedMode{1, 0, 0});
     const tad::Sector other{static_cast<uint32_t>(tad::SectorType::limits), body};
     require(!tad::decode_enhanced_mode_sector(other), "wrong Enhanced Mode sector type");
 }

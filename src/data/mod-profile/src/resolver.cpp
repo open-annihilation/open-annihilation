@@ -1654,10 +1654,28 @@ class Resolver {
         }
     }
 
-    /// Raises the unit ceiling when the resolved rules select Enhanced Mode.
+    /// Raises the unit ceiling when Enhanced Mode is on and names capacity.
     /// The capacity enters the canonical profile before clamps and hashing.
     void apply_enhanced_unit_capacity() {
         if (!present_.contains("setup.enhanced-mode"))
+            return;
+        const Entry* mode = registry::find_entry("setup.enhanced-mode");
+        const ResolvedEntry* mode_resolved = mode != nullptr ? find_resolved(mode) : nullptr;
+        if (mode_resolved == nullptr)
+            return;
+        bool names_capacity = false;
+        const auto mode_parameters = registry::parameters_of(*mode);
+        for (size_t index = 0; index < mode_parameters.size(); ++index) {
+            if (mode_parameters[index].name != "features")
+                continue;
+            const Value& listed = mode_resolved->values[index];
+            if (listed.kind != ValueKind::list)
+                return;
+            for (const Value& item : listed.items)
+                if (item.text == "capacity")
+                    names_capacity = true;
+        }
+        if (!names_capacity)
             return;
         const Entry* entry = registry::find_entry("limits.units-per-player");
         ResolvedEntry* resolved = find_resolved(entry);
@@ -2098,9 +2116,12 @@ class Resolver {
         // The registry's ranges and constraints keep every limit in the range
         // the engine's storage holds; a limit outside it would be a registry
         // that disagrees with the engine.
-        if (const limits::LimitsError limits_error = limits::check_limits(
-                resolution.profile.limits, resolution.profile.rules.setup.enhanced_mode.enabled
-            );
+        const auto& enhanced_mode = resolution.profile.rules.setup.enhanced_mode;
+        const bool enhanced_capacity =
+            enhanced_mode.enabled &&
+            enhanced_mode.features.contains(match_rules::SetupEnhancedModeFeatures::capacity);
+        if (const limits::LimitsError limits_error =
+                limits::check_limits(resolution.profile.limits, enhanced_capacity);
             limits_error != limits::LimitsError::none) {
             error(
                 {},

@@ -2180,7 +2180,7 @@ void Runtime::start_campaign_mission() {
         }
         // A loaded campaign keeps its recorded rules on a restart and the
         // next mission. Bootstrap's teardown belongs to the preceding world.
-        if (engine_settings_ && engine_settings_->restored_enhanced_version)
+        if (engine_settings_ && engine_settings_->restored_enhanced_choice)
             engine_settings_->restored_enhanced_started = false;
         bootstrap_match(
             {.units_per_player = static_cast<uint16_t>(state.file.units_per_player),
