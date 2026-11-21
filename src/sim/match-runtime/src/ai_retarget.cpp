@@ -249,9 +249,9 @@ void Match::EnhancedState::refresh_ai_cohort_targets(Match& match, uint8_t playe
         state.selection_cursor = static_cast<uint8_t>((index + 1) % state.targets.size());
         std::array<uint64_t, sim::ai::strike_refresh_mask_words> sources{};
         uint32_t count = 0;
-        uint32_t unit_count = 0;
-        const auto* units = oa::world_player_units(&match.state(), &record, &unit_count);
-        for (uint32_t at = 0; units != nullptr && at < unit_count; ++at) {
+        uint32_t player_unit_count = 0;
+        const auto* units = oa::world_player_units(&match.state(), &record, &player_unit_count);
+        for (uint32_t at = 0; units != nullptr && at < player_unit_count; ++at) {
             const auto& unit = units[at];
             if (unit.type_index == 0 || unit.owner_index != owner ||
                 unit.squad != static_cast<int32_t>(task.squad) ||
