@@ -17,9 +17,10 @@
 #include <optional>
 
 namespace oa::sim::match_runtime {
+using data::enhanced_mode::Feature;
+
 namespace {
 constexpr uint8_t ground_occupancy = 1;
-constexpr int32_t live_route_corner_version = 3;
 constexpr uint32_t local_throat_probe_period = 12;
 
 /// Identifies goal geometry without retaining order pointers or native padding.
@@ -116,8 +117,8 @@ void TickHost::movement_tick(oa::Unit& record) {
     // alone moves it: its missions hand their goals to the driver, never to
     // the ground navigator.
     const bool air_driven = driver.unit != nullptr;
-    const bool enhanced_flow = match.enhanced_ && match.rules().setup.enhanced_mode.enabled &&
-                               match.rules().setup.enhanced_mode.version >= 2;
+    const auto features = match.enhanced_features_;
+    const bool enhanced_flow = match.enhanced_ && features.has(Feature::local_flow);
     auto* flow_head = enhanced_flow && s.unit_index < match.enhanced_->unit_count
                           ? &match.enhanced_->local_flow_heads[s.unit_index]
                           : nullptr;
@@ -180,11 +181,7 @@ void TickHost::movement_tick(oa::Unit& record) {
             g.movement.flags |= collision;
         bool advanced_corner = false;
         const bool moving_corner =
-            flow_head &&
-            data::enhanced_mode::uses_distributed_battle_flow(
-                match.rules().setup.enhanced_mode.version
-            ) &&
-            g.movement.speed > 0 &&
+            flow_head && features.has(Feature::moving_corner_advance) && g.movement.speed > 0 &&
             live_route_corner_moving_due(
                 g.geometry, g.navigation, match.simulation_.tick, s.unit_index
             );
@@ -194,8 +191,8 @@ void TickHost::movement_tick(oa::Unit& record) {
         const bool head_joins_corner =
             !flow_head || !flow_head->active ||
             (flow_head->count == 3 && flow_head->points[2] == g.navigation.points[2]);
-        if (flow_head && match.rules().setup.enhanced_mode.version >= live_route_corner_version &&
-            !parent_index && head_joins_corner &&
+        if (flow_head && features.has(Feature::route_corner_advance) && !parent_index &&
+            head_joins_corner &&
             (g.movement.flags & sim::unit_movement::occupancy_mask) == ground_occupancy &&
             (blocked_corner || moving_corner)) {
             if (const auto* klass = match.movement_class_map(g.movement_class)) {
@@ -239,10 +236,7 @@ void TickHost::movement_tick(oa::Unit& record) {
         }
         auto effective_navigation = g.navigation;
         std::optional<sim::ground_orders::SteeringTargetCache> steering_cache;
-        const bool reuse_steering = match.rules().setup.enhanced_mode.enabled &&
-                                    data::enhanced_mode::uses_cohort_target_distribution(
-                                        match.rules().setup.enhanced_mode.version
-                                    );
+        const bool reuse_steering = features.has(Feature::steering_projection_reuse);
         if (match.enhanced_ && match.enhanced_->advisory)
             (void)match.advisory_navigation(s, g, flags, effective_navigation);
         const auto& advisory_navigation = effective_navigation;
@@ -290,16 +284,9 @@ void TickHost::movement_tick(oa::Unit& record) {
 
                     context.match = &match;
                     context.player = s.record.owner_index;
-                    context.follow_applied_heads = match.rules().setup.enhanced_mode.enabled &&
-                                                   data::enhanced_mode::uses_following_battle_flow(
-                                                       match.rules().setup.enhanced_mode.version
-                                                   );
+                    context.follow_applied_heads = features.has(Feature::local_following);
                     context.same_route_queue =
-                        (match.rules().setup.enhanced_mode.version ==
-                             static_cast<int32_t>(data::enhanced_mode::battle_flow_version) ||
-                         data::enhanced_mode::uses_distributed_battle_flow(
-                             match.rules().setup.enhanced_mode.version
-                         )) &&
+                        features.has(Feature::route_queue) &&
                         flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks &&
                         sim::simulation_state::locally_simulated(u);
                     if (const auto* klass = match.movement_class_map(g.movement_class)) {
@@ -308,9 +295,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                         context.have_movement = true;
                     }
                     bool guide_ready = false;
-                    if (data::enhanced_mode::uses_distributed_battle_flow(
-                            match.rules().setup.enhanced_mode.version
-                        ) &&
+                    if (features.has(Feature::local_throat_guide) &&
                         (uint64_t(match.simulation_.tick) + s.unit_index) %
                                 local_throat_probe_period ==
                             0 &&
@@ -386,9 +371,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                     probe.context = &context;
                     probe.allow_reverse = recover;
                     probe.mature_cell_escape =
-                        recover && data::enhanced_mode::uses_cardinal_queue_escape(
-                                       match.rules().setup.enhanced_mode.version
-                                   );
+                        recover && features.has(Feature::cardinal_queue_escape);
                     if (completed_head || recent_completion)
                         probe.previous_head = flow_head;
                     if (match.enhanced_->local_flow_progress_snapshot_valid &&
@@ -671,8 +654,7 @@ void TickHost::movement_tick(oa::Unit& record) {
         g.geometry.flags &= ~sim::unit_movement::position_dirty;
     } else {
         if (enhanced_flow && !air_driven && !g.mirrored_driver &&
-            match.rules().setup.enhanced_mode.version >=
-                static_cast<int32_t>(data::enhanced_mode::swept_ground_version))
+            features.has(Feature::swept_ground_steps))
             (void)sim::unit_movement::integrate_swept_local_flow(
                 g.geometry,
                 g.movement,
