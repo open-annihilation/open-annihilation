@@ -552,6 +552,7 @@ void test_mutator_match() {
                 "steering-projection-reuse",
                 "cohort-retention",
                 "cardinal-queue-escape",
+                "exact-indexed-searches",
             };
             OA_CHECK(listed.size() == std::size(feature_names));
             for (std::size_t name_index = 0;

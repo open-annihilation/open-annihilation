@@ -1274,8 +1274,7 @@ void TickHost::install_air_goal(
     }
     if (!goal)
         return;
-    if (match.enhanced_ &&
-        match.enhanced_features_.has(data::enhanced_mode::Feature::indexed_searches))
+    if (match.enhanced_ && indexes_searches(match.enhanced_features_))
         match.enhanced_->air_goal_cleanup_required = true;
     order.raised_events &= ~sim::ground_orders::goal_event_mask;
     stored = *goal;

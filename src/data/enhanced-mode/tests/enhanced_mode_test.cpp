@@ -726,13 +726,13 @@ void check_feature_table() {
     constexpr FeatureKind capacity = FeatureKind::capacity;
     constexpr FeatureKind simulation = FeatureKind::simulation;
     constexpr FeatureKind orders = FeatureKind::orders;
-    const std::array<Row, 27> expected{{
+    const std::array<Row, 28> expected{{
         {1, "capacity", capacity, {}, {}},
         {2, "local_flow", simulation, ids({1}), {}},
         {3, "routes_original", simulation, ids({1, 2}), ids({4, 5})},
         {4, "routes_large_regions", simulation, ids({1, 2}), ids({3, 5})},
         {5, "routes_fine_regions", simulation, ids({1, 2}), ids({3, 4})},
-        {6, "indexed_searches", capacity, ids({1}), {}},
+        {6, "indexed_searches", capacity, ids({1}), ids({28})},
         {7, "route_corner_advance", simulation, ids({2}), {}},
         {8, "swept_ground_steps", simulation, ids({1}), {}},
         {9, "corridor_lanes", simulation, ids({2}), {}},
@@ -754,6 +754,7 @@ void check_feature_table() {
         {25, "steering_projection_reuse", capacity, ids({2}), {}},
         {26, "cohort_retention", simulation, ids({24}), {}},
         {27, "cardinal_queue_escape", simulation, ids({2}), {}},
+        {28, "exact_indexed_searches", capacity, ids({1}), ids({6})},
     }};
     const auto table = enhanced::feature_table();
     OA_CHECK(table.size() == expected.size());
@@ -778,7 +779,7 @@ void check_feature_table() {
          {"", "Capacity", "capacity ", "local-flow", "routes", "enhanced_mode"})
         OA_CHECK(!enhanced::feature_by_name(unknown));
     OA_CHECK(enhanced::feature_name(static_cast<Feature>(0)).empty());
-    OA_CHECK(enhanced::feature_name(static_cast<Feature>(28)).empty());
+    OA_CHECK(enhanced::feature_name(static_cast<Feature>(29)).empty());
     OA_CHECK(enhanced::feature_name(static_cast<Feature>(255)).empty());
 }
 
@@ -803,11 +804,15 @@ void check_closing_features() {
     OA_CHECK(enhanced::close_features(ids({18})) == ids({1, 2, 5, 18}));
     OA_CHECK(enhanced::close_features(ids({15, 23})) == ids({1, 14, 15, 23}));
 
-    // The three route builders exclude each other, both ways, and nothing else excludes.
+    // The three route builders exclude each other, both ways, the two
+    // indexed searches exclude each other, and nothing else excludes.
     const FeatureSet builders = ids({3, 4, 5});
+    const FeatureSet searches = ids({6, 28});
     for (const enhanced::FeatureInfo& row : table) {
         if (builders.has(row.id)) {
             OA_CHECK(row.excludes == builders.without(row.id));
+        } else if (searches.has(row.id)) {
+            OA_CHECK(row.excludes == searches.without(row.id));
         } else {
             OA_CHECK(row.excludes.empty());
         }
@@ -869,6 +874,10 @@ void check_feature_set_problems() {
         reason(ids({1, 2, 4, 5})) ==
         "routes_large_regions cannot share a match with routes_fine_regions"
     );
+    OA_CHECK(
+        reason(ids({1, 6, 28})) ==
+        "indexed_searches cannot share a match with exact_indexed_searches"
+    );
     OA_CHECK(reason(ids({1, 26})) == "cohort_retention needs cohort_targets");
     OA_CHECK(reason(ids({1, 3})) == "routes_original needs local_flow");
     OA_CHECK(reason(ids({1, 2, 18})) == "credited_fallback_search needs routes_fine_regions");
@@ -881,7 +890,7 @@ void check_feature_set_problems() {
         reason(FeatureSet::from_bits(0b1)) == "the set holds a feature this build does not know"
     );
     OA_CHECK(
-        reason(ids({1}) | FeatureSet::from_bits(uint64_t{1} << 28)) ==
+        reason(ids({1}) | FeatureSet::from_bits(uint64_t{1} << 29)) ==
         "the set holds a feature this build does not know"
     );
 }

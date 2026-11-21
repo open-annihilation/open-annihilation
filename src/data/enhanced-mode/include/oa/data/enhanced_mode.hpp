@@ -212,6 +212,10 @@ enum class Feature : uint8_t {
     /// A long-blocked queue may step into a clear neighbouring cell in one of
     /// the four main directions.
     cardinal_queue_escape = 27,
+    /// Indexed searches as indexed_searches, whose nearby target search also
+    /// reaches a unit that has moved within its cell out of the bucket it was
+    /// filed in, so it finds exactly what a full scan finds.
+    exact_indexed_searches = 28,
 };
 
 /// What a feature changes. The machines of a match agree on every kind.

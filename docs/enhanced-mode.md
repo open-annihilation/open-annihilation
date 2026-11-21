@@ -75,8 +75,12 @@ resumes even if boundary jitter
 moves the unit slightly. A local passing attempt can also retry once every
 30 ticks, staggered by unit ID, without restarting that grace period.
 Target searches use nearby spatial buckets and a sightings membership index
-when that reduces work, retaining the legacy candidate order, target
-selection and random draws.
+when that reduces work, retaining the legacy candidate order. They can miss
+a unit at the edge of the range that has moved within its cell out of the
+bucket it is filed in, which changes the candidates and their random
+draws. The feature `exact_indexed_searches` (0.9.3) reaches one cell further
+and finds exactly what the full scan finds; the old versions keep the first
+searches.
 
 Version 5 adds advisory lanes for fully known narrow ground corridors. Units
 align with their directional lane before entering, preserve their original

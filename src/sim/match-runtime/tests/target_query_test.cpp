@@ -41,6 +41,7 @@ struct Fixture final : combat::IntelligenceHost, combat::TargetSearchHost {
     bool indexed{true};
     bool radar_fallback{true};
     int32_t radius{160};
+    int32_t filed_slack{};
 
     explicit Fixture(size_t count, uint32_t width = 32, uint32_t height = 40)
         : units(count + 1), projections(count + 1), scratch(2 * (count + 1)),
@@ -51,6 +52,14 @@ struct Fixture final : combat::IntelligenceHost, combat::TargetSearchHost {
         spatial.bucket_height = height;
         spatial.buckets.resize(static_cast<size_t>(width) * height);
         found.reserve(count);
+    }
+
+    /// Places a unit at x, z, filed in the bucket of filed_x, filed_z: where it
+    /// stood when it last changed cell.
+    void add_filed(uint16_t slot, uint32_t x, uint32_t z, uint32_t filed_x, uint32_t filed_z) {
+        add(slot, filed_x, filed_z);
+        units[slot].position.x = x;
+        units[slot].position.z = z;
     }
 
     void add(uint16_t slot, uint32_t x, uint32_t z, bool outside = false, bool carried = false) {
@@ -123,7 +132,8 @@ struct Fixture final : combat::IntelligenceHost, combat::TargetSearchHost {
                 reach,
                 scratch,
                 indexed ? std::span<const uint8_t>{membership} : std::span<const uint8_t>{},
-                radar_fallback
+                radar_fallback,
+                filed_slack
             );
             if (nearby.complete) {
                 ++accelerated_queries;
@@ -404,6 +414,68 @@ void keeps_broad_and_saturated_queries_on_the_linear_walk() {
     OA_CHECK(fixture.fallback_queries == 2);
 }
 
+// A unit is filed in the bucket of the position where it last changed cell and
+// moves on inside that cell, so it can stand up to a cell beyond its bucket.
+// The first indexed searches missed such a unit at the edge of a query's
+// rectangle (old versions keep that); a cell of slack finds it.
+void reaches_units_that_moved_out_of_their_filed_bucket() {
+    Fixture fixture(2, 81, 81);
+    // Filed at x = 5120, the first column of bucket 40; now at 5114, still in
+    // the same cell for a two-cell footprint, 176 units from the centre.
+    fixture.add_filed(1, 5114 * fixed_one, 2312 * fixed_one, 5120 * fixed_one, 2312 * fixed_one);
+    fixture.add(2, 4950 * fixed_one, 2312 * fixed_one);
+    const std::array<uint32_t, 3> center{4938 * fixed_one, 0, 2311 * fixed_one};
+    const auto full = fixture.identities(center, 180, false);
+    OA_CHECK((full == std::vector<combat::UnitIdentity>{1, 2}));
+    OA_CHECK((fixture.identities(center, 180, true) == std::vector<combat::UnitIdentity>{2}));
+    fixture.filed_slack = 16;
+    OA_CHECK(fixture.identities(center, 180, true) == full);
+    // A negative or overflowing slack takes the full walk.
+    for (const int32_t slack : {-1, 46341}) {
+        fixture.filed_slack = slack;
+        const auto fallbacks = fixture.fallback_queries;
+        OA_CHECK(fixture.identities(center, 180, true) == full);
+        OA_CHECK(fixture.fallback_queries == fallbacks + 1);
+    }
+}
+
+// With a cell of slack, units filed anywhere in their cell are found exactly as
+// the full walk finds them; without it, some are missed.
+void matches_full_walk_for_units_moved_within_their_cell() {
+    Fixture fixture(512, 32, 32);
+    uint32_t state = 4211;
+    const auto random = [&]() {
+        state = state * 1664525u + 1013904223u;
+        return state;
+    };
+    const auto cell_window = [&](uint32_t at) {
+        // Another position whose two-cell footprint has the same origin cell:
+        // the 16-unit window [16c + 8, 16c + 24) that holds it.
+        const uint32_t origin = (at - 8 * fixed_one) & ~(16 * fixed_one - 1);
+        return origin + 8 * fixed_one + random() % (16 * fixed_one);
+    };
+    for (uint16_t id = 1; id <= 512; ++id) {
+        const auto x = 64 * fixed_one + random() % (3900 * fixed_one);
+        const auto z = 64 * fixed_one + random() % (3900 * fixed_one);
+        fixture.add_filed(id, x, z, cell_window(x), cell_window(z));
+    }
+    size_t missed = 0;
+    for (size_t query = 0; query < 2000; ++query) {
+        const std::array<uint32_t, 3> center{
+            random() % (4000 * fixed_one), 0, random() % (4000 * fixed_one)
+        };
+        const auto radius = static_cast<int32_t>(random() % 400);
+        const auto full = fixture.identities(center, radius, false);
+        fixture.filed_slack = 0;
+        if (fixture.identities(center, radius, true) != full)
+            ++missed;
+        fixture.filed_slack = 16;
+        OA_CHECK(fixture.identities(center, radius, true) == full);
+    }
+    OA_CHECK(missed != 0);
+    OA_CHECK(fixture.accelerated_queries != 0);
+}
+
 void falls_back_on_insufficient_scratch_and_broken_bucket_chains() {
     Fixture fixture(2);
     fixture.add(1, 128 * fixed_one, 128 * fixed_one);
@@ -428,5 +500,7 @@ int main() {
     resolves_local_targets_without_projecting_twenty_thousand_sightings();
     keeps_broad_and_saturated_queries_on_the_linear_walk();
     falls_back_on_insufficient_scratch_and_broken_bucket_chains();
+    reaches_units_that_moved_out_of_their_filed_bucket();
+    matches_full_walk_for_units_moved_within_their_cell();
     return oa::test::check_exit_status();
 }

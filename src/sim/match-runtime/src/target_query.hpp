@@ -67,6 +67,9 @@ inline bool rebuild_target_sighting_membership(
 /// @param[out] scratch storage for the retained seen and radar slots
 /// @param membership current slot flags rebuilt with these sightings; empty uses list searches
 /// @param include_radar whether the target search may use radar sightings
+/// @param filed_slack whole world units a unit may stand beyond the bucket it
+///        is filed in; the rectangle reaches that much further, so a unit in
+///        range is visited although it has moved out of its filed bucket
 /// @return the retained sightings, or an incomplete result requiring a full walk
 /// @quirk Fractional distances are rounded down by the sightings walk, so
 ///        the bucket rectangle extends one whole world unit beyond the range.
@@ -80,7 +83,8 @@ inline NearbyTargetSightings nearby_target_sightings(
     int32_t radius,
     std::span<uint16_t> scratch,
     std::span<const uint8_t> membership = {},
-    bool include_radar = true
+    bool include_radar = true,
+    int32_t filed_slack = 0
 ) noexcept {
     constexpr int32_t largest_signed_square_root = 46340;
     constexpr int32_t fixed_to_bucket_shift = 23;
@@ -90,9 +94,9 @@ inline NearbyTargetSightings nearby_target_sightings(
     const size_t capacity = world.unit_slot_count;
     const int32_t center_x = std::bit_cast<int32_t>(center[0]);
     const int32_t center_z = std::bit_cast<int32_t>(center[2]);
-    if (radius < 0 || radius > largest_signed_square_root || center_x < 0 || center_z < 0 ||
-        capacity == 0 || scratch.size() / 2 < capacity || spatial.bucket_width == 0 ||
-        spatial.bucket_height == 0 ||
+    if (radius < 0 || radius > largest_signed_square_root || filed_slack < 0 ||
+        filed_slack > largest_signed_square_root || center_x < 0 || center_z < 0 || capacity == 0 ||
+        scratch.size() / 2 < capacity || spatial.bucket_width == 0 || spatial.bucket_height == 0 ||
         static_cast<uint64_t>(spatial.bucket_width) * spatial.bucket_height !=
             spatial.buckets.size())
         return {};
@@ -131,7 +135,7 @@ inline NearbyTargetSightings nearby_target_sightings(
         }
         return true;
     };
-    const int64_t reach = (static_cast<int64_t>(radius) + 1) * fixed_one;
+    const int64_t reach = (static_cast<int64_t>(radius) + 1 + filed_slack) * fixed_one;
     const auto bucket_edge = [](int64_t coordinate, uint32_t count) {
         const int64_t bucket = coordinate >> fixed_to_bucket_shift;
         return static_cast<uint32_t>(std::clamp(bucket, int64_t{0}, int64_t{count - 1}));
