@@ -5922,8 +5922,8 @@ double ModelRasterComparison::far_coverage_share() const noexcept {
 }
 
 double ModelRasterComparison::far_share() const noexcept {
-    const std::size_t both = same + phase + edge_colour + far;
-    return both == 0 ? 0.0 : static_cast<double>(far) / static_cast<double>(both);
+    const std::size_t both = same + phase + edge_colour + far_colours;
+    return both == 0 ? 0.0 : static_cast<double>(far_colours) / static_cast<double>(both);
 }
 
 ModelRasterComparison compare_model_rasters(
@@ -6035,7 +6035,7 @@ ModelRasterComparison compare_model_rasters(
                 else if (!processor_near_everywhere(x, y) || !card_near_everywhere(x, y))
                     ++result.edge_colour;
                 else
-                    ++result.far;
+                    ++result.far_colours;
                 continue;
             }
             const bool near = card_drawn ? processor_near(x, y, nullptr) : card_near(x, y, nullptr);

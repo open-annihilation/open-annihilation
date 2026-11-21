@@ -1250,7 +1250,7 @@ void print(const char* what, const full::ModelRasterComparison& c) {
         c.same,
         c.phase,
         c.edge_colour,
-        c.far,
+        c.far_colours,
         c.edge_coverage,
         c.far_coverage,
         c.shadowed
@@ -1262,7 +1262,7 @@ void print(const char* what, const full::ModelRasterComparison& c) {
 void check_exact(const char* what, const full::ModelRasterComparison& c, std::size_t edges = 0) {
     print(what, c);
     OA_CHECK(c.drawn > 0);
-    OA_CHECK(c.far == 0);
+    OA_CHECK(c.far_colours == 0);
     OA_CHECK(c.phase == 0);
     OA_CHECK(c.far_coverage == 0);
     OA_CHECK(c.edge_coverage <= edges);
@@ -1284,7 +1284,7 @@ bool card_samples_triangle_texels() {
 void check_textured(const char* what, const full::ModelRasterComparison& c, std::size_t edges = 0) {
     print(what, c);
     OA_CHECK(c.drawn > 0);
-    OA_CHECK(c.far == 0 || !card_samples_triangle_texels());
+    OA_CHECK(c.far_colours == 0 || !card_samples_triangle_texels());
     OA_CHECK(c.far_coverage == 0);
     OA_CHECK(c.edge_coverage <= edges);
 }
@@ -2479,7 +2479,7 @@ void test_no_order_shows() {
         const auto c = compare(drawn, processor, scene);
         print(tested.name, c);
         OA_CHECK(c.drawn > 0);
-        OA_CHECK(c.far == 0);
+        OA_CHECK(c.far_colours == 0);
         OA_CHECK(c.far_coverage == 0);
         const ShownFaces shown = shown_faces(card.frame, processor, scene);
         std::printf(
@@ -2524,8 +2524,8 @@ void test_lit_building() {
     // The rows scale the texels: the table snaps to the nearest gray, the
     // card multiplies, within the tolerance; the squares' row is a bright
     // one, so their frames went to the bright page.
-    OA_CHECK(lit.far == 0 || !card_samples_triangle_texels());
-    if (lit.far != 0)
+    OA_CHECK(lit.far_colours == 0 || !card_samples_triangle_texels());
+    if (lit.far_colours != 0)
         print_far(drawn, processor, scene);
     OA_CHECK(card.stage.bright_pages().memory().frames == 3);
     OA_CHECK(card.stage.pages().memory().frames == 1);
@@ -2728,7 +2728,7 @@ void test_mobile_nanoframe_once_built() {
         const CardPicture drawn = card.raster(scene);
         const auto c = compare(drawn, processor, scene);
         print(once_built ? "mobile nanoframe once built" : "mobile unit unfinished", c);
-        OA_CHECK(c.drawn > 0 && c.far_coverage == 0 && c.far == 0);
+        OA_CHECK(c.drawn > 0 && c.far_coverage == 0 && c.far_colours == 0);
         const uint8_t* inside = drawn.at(unit_x, unit_z);
         OA_CHECK(inside[3] == 255 && processor.at(unit_x, unit_z)[0] == inside[0]);
         const bool banded = inside[0] >= 0xa0 && inside[0] <= 0xaf;
@@ -3123,7 +3123,7 @@ void test_shadows() {
     const CardPicture drawn = card.raster(scene);
     const auto c = compare(drawn, processor, scene);
     print("vehicle shadow", c);
-    OA_CHECK(c.far == 0 && c.far_coverage == 0);
+    OA_CHECK(c.far_colours == 0 && c.far_coverage == 0);
     OA_CHECK(card.stage.shadows_through_target());
     OA_CHECK(card.stage.counts().shadows == 1);
     OA_CHECK(card.stage.counts().target_creations == 1);
@@ -3159,7 +3159,7 @@ void test_shadows() {
     const CardPicture sheared = card.raster(scene);
     const auto b = compare(sheared, processor, scene);
     print("building shadow", b);
-    OA_CHECK(b.far == 0 && b.far_coverage == 0);
+    OA_CHECK(b.far_colours == 0 && b.far_coverage == 0);
     OA_CHECK(card.stage.counts().shadows == 4);
     // Shadows off, none is cast.
     scene.begin_frame(processor, 0);
@@ -3185,7 +3185,7 @@ void test_shadows() {
     OA_CHECK(!limited.stage.error().empty());
     const auto d = compare(direct, wide_processor, wide);
     print("shadow without a target", d);
-    OA_CHECK(d.far == 0 && d.far_coverage == 0 && d.shadowed > 0);
+    OA_CHECK(d.far_colours == 0 && d.far_coverage == 0 && d.shadowed > 0);
 }
 
 // Aircraft shadows: low and high, over land, a plateau and water, the
@@ -3292,7 +3292,7 @@ void test_aircraft_shadows() {
     OA_CHECK(water.matched == high.matched && water.edge == high.edge);
     std::ignore = render(0, 0, 0);
     const auto grounded = compare(card.raster(scene), processor, scene);
-    OA_CHECK(grounded.far == 0 && grounded.far_coverage == 0);
+    OA_CHECK(grounded.far_colours == 0 && grounded.far_coverage == 0);
 }
 
 // New unit shadows off: each model casts the processor's own shadow with
@@ -3397,7 +3397,7 @@ void test_game_shadows() {
     OA_CHECK(ordered.stage.counts().frames_placed == placed + 1);
     const auto c = compare(own, by_processor, order);
     print("a shadow over the unit drawn before it", c);
-    OA_CHECK(c.far == 0 && c.far_coverage == 0 && c.phase == 0);
+    OA_CHECK(c.far_colours == 0 && c.far_coverage == 0 && c.phase == 0);
     const uint8_t* darkened = own.at(under_x, under_y);
     const uint8_t* expected = by_processor.at(under_x, under_y);
     OA_CHECK(darkened[3] == 255 && expected[0] < ink);
@@ -3426,7 +3426,7 @@ void test_unfinished_building_shadow() {
     const auto c = compare(drawn, processor, scene);
     print("unfinished building shadow", c);
     OA_CHECK(card.stage.shadows_through_target());
-    OA_CHECK(c.drawn > 0 && c.far == 0 && c.far_coverage == 0 && c.shadowed > 0);
+    OA_CHECK(c.drawn > 0 && c.far_colours == 0 && c.far_coverage == 0 && c.shadowed > 0);
     OA_CHECK(drawn.at(unit_x, unit_z)[3] == 0);
     OA_CHECK(!drawn_by_processor(processor.at(unit_x, unit_z), scene.key));
 }
@@ -3615,7 +3615,7 @@ void test_flat_objects() {
     const CardPicture drawn = card.raster(scene);
     const auto c = compare(drawn, processor, scene);
     print("flat objects", c);
-    OA_CHECK(c.drawn > 0 && c.far == 0 && c.far_coverage == 0);
+    OA_CHECK(c.drawn > 0 && c.far_colours == 0 && c.far_coverage == 0);
     OA_CHECK(c.edge_coverage <= 3 * edge_pixels_allowed);
     OA_CHECK(card.stage.counts().projectiles == 1);
     OA_CHECK(card.stage.counts().debris == 1);
@@ -3701,7 +3701,7 @@ void test_zoom() {
     print("zoom 2", c);
     // The enlarged raster steps two pixels along a sloped edge where the
     // card's edge runs straight.
-    OA_CHECK(c.drawn > 0 && c.far == 0 && c.far_coverage <= edge_pixels_allowed);
+    OA_CHECK(c.drawn > 0 && c.far_colours == 0 && c.far_coverage <= edge_pixels_allowed);
     OA_CHECK(drawn.at(2 * unit_x, 2 * unit_z)[0] == ink);
     Card between(scene, 1.5F);
     const CardPicture scaled = between.raster(scene, 1.5F);
@@ -3746,7 +3746,7 @@ void test_bounds() {
     OA_CHECK(!full::within_bounds(c, {}));
     c.drawn = 1000;
     c.same = 900;
-    c.far = 100;
+    c.far_colours = 100;
     OA_CHECK(c.far_share() == 0.1);
     OA_CHECK(full::within_bounds(c, {}));
     c.far_coverage = 3;
@@ -3755,7 +3755,7 @@ void test_bounds() {
     OA_CHECK(c.far_coverage_share() == 0.05);
     OA_CHECK(!full::within_bounds(c, {}));
     c.far_coverage = 0;
-    c.far = 400;
+    c.far_colours = 400;
     OA_CHECK(!full::within_bounds(c, {}));
 }
 
@@ -3845,7 +3845,7 @@ void add(ModeTotals& totals, const std::string& name, const full::ModelRasterCom
     totals.sum.same += c.same;
     totals.sum.phase += c.phase;
     totals.sum.edge_colour += c.edge_colour;
-    totals.sum.far += c.far;
+    totals.sum.far += c.far_colours;
     totals.sum.edge_coverage += c.edge_coverage;
     totals.sum.far_coverage += c.far_coverage;
     totals.sum.shadowed += c.shadowed;
@@ -3862,7 +3862,7 @@ void add(ModeTotals& totals, const std::string& name, const full::ModelRasterCom
 
 void print(const ModeTotals& totals) {
     const auto& c = totals.sum;
-    const double both = static_cast<double>(c.same + c.phase + c.edge_colour + c.far);
+    const double both = static_cast<double>(c.same + c.phase + c.edge_colour + c.far_colours);
     const double drawn = static_cast<double>(c.drawn);
     std::printf(
         "%s: %zu models, %zu outside the bounds; %zu pixels drawn; of the pixels both draw "
@@ -3980,7 +3980,7 @@ void test_installed_unit_models(oa::AssetStore& assets, const char* dumped) {
                     name.c_str(),
                     modes[mode].name,
                     c.drawn,
-                    c.far,
+                    c.far_colours,
                     100.0 * c.far_share(),
                     c.far_coverage,
                     100.0 * c.far_coverage_share()
