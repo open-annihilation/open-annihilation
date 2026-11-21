@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/sim/ai.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/match_rules/difficulty_names.hpp"
 #include "oa/sim/combat_state.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
@@ -1548,6 +1549,7 @@ struct RecruitRun {
         rules.setup.enhanced_mode.enabled = version != 0;
         rules.setup.enhanced_mode.version = version;
         state.rules.match = &rules;
+        state.features = oa::data::enhanced_mode::version_features(version);
         describe_catalog(state);
         host = fake.host();
         check(computer_players_configure(&state, "", kBuildLists), "recruit budget: configure");
@@ -1745,6 +1747,7 @@ void test_earlier_strikes_keep_one_target() {
     }
     CohortRun disabled;
     disabled.rules.setup.enhanced_mode.enabled = false;
+    disabled.state.features = {};
     const auto disabled_orders = disabled.assign(300);
     check(disabled_orders.size() == 32, "cohort targets: disabled mode orders the whole strike");
     for (const auto& [unit, target] : disabled_orders) {
@@ -2569,6 +2572,7 @@ void test_cohort_retention_preserves_earlier_presets_and_null_reader() {
     }
     RetentionRun disabled;
     disabled.rules.setup.enhanced_mode.enabled = false;
+    disabled.state.features = {};
     for (uint16_t source = RetentionRun::first; source < RetentionRun::first + 8; ++source)
         disabled.prior(source, 2);
     for (const auto& [source, target] : disabled.assign()) {
@@ -2695,8 +2699,8 @@ struct FullEnemyRun : RetentionRun {
             }
             const uint16_t prior =
                 fake.running[actor] == "attack" ? fake.owned_targets[actor] : uint16_t{0};
-            if (rules.setup.enhanced_mode.version == retention_version && prior != 0 &&
-                prior <= enemies && eligible(prior)) {
+            if (state.features.has(oa::data::enhanced_mode::Feature::cohort_retention) &&
+                prior != 0 && prior <= enemies && eligible(prior)) {
                 const auto prior_cost = (distance(actor, prior) + 1) * (assignments[prior] + 1);
                 if (8 * prior_cost <= 9 * best_cost)
                     best = prior;

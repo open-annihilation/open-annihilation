@@ -219,12 +219,8 @@ oa::Unit* nearest_enemy(
     relation[OA_PLAYER_COUNT] = 1;
     sim::simulation_state::CandidateFilter filter{};
     // A dying replacement would consume the strike's cooldown without a live target.
-    const auto& rules =
-        state != nullptr ? state->rules.rules() : data::match_rules::baseline_match_rules;
-    filter.skip_dying =
-        task.kind == TaskKind::strike && rules.setup.enhanced_mode.enabled &&
-        (rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
-         data::enhanced_mode::uses_distributed_battle_flow(rules.setup.enhanced_mode.version));
+    filter.skip_dying = task.kind == TaskKind::strike && state != nullptr &&
+                        state->features.has(data::enhanced_mode::Feature::ai_strike_retarget);
     if (ai_rules(state).nearest_enemy_filter.rules ==
         data::match_rules::AiNearestEnemyFilterRules::skip_submerged) {
         filter.widened_flags = true;
@@ -682,11 +678,8 @@ bool order_strike_cohorts(
         filter.skip_submerged = task.source_squad != Squad::navy;
     }
     std::array<CohortPrior, strike_cohort_count> priors{};
-    if (state != nullptr) {
-        const auto& enhanced = state->rules.rules().setup.enhanced_mode;
-        if (enhanced.enabled && data::enhanced_mode::uses_cohort_target_retention(enhanced.version))
-            priors = strike_cohort_priors(host, ai, task, {units, count}, extent);
-    }
+    if (state != nullptr && state->features.has(data::enhanced_mode::Feature::cohort_retention))
+        priors = strike_cohort_priors(host, ai, task, {units, count}, extent);
     std::array<uint16_t, strike_cohort_count> prior_targets{};
     for (uint32_t index = 0; index < cohorts.size(); ++index)
         if (priors[index].votes > cohorts[index].members / 2)
@@ -823,11 +816,8 @@ void run_strike(
     const ComputerPlayers* state, const ComputerHost& host, ComputerPlayer& ai, ComputerTask& task
 ) noexcept {
     task.next_tick = tick_of(host) + strike_interval_ticks;
-    const auto& rules =
-        state != nullptr ? state->rules.rules() : data::match_rules::baseline_match_rules;
-    const bool distributed =
-        rules.setup.enhanced_mode.enabled &&
-        data::enhanced_mode::uses_distributed_battle_flow(rules.setup.enhanced_mode.version);
+    const auto features = state != nullptr ? state->features : data::enhanced_mode::FeatureSet{};
+    const bool distributed = features.has(data::enhanced_mode::Feature::bounded_strike_recruits);
     recruit_squad(
         host,
         ai,
@@ -851,8 +841,7 @@ void run_strike(
         }
     }
     task.attacking = 1;
-    if (rules.setup.enhanced_mode.enabled &&
-        data::enhanced_mode::uses_cohort_target_distribution(rules.setup.enhanced_mode.version)) {
+    if (features.has(data::enhanced_mode::Feature::cohort_targets)) {
         (void)order_strike_cohorts(state, host, ai, task);
         return;
     }
@@ -1379,9 +1368,7 @@ bool computer_player_refresh_strike_targets(
         host.allied == nullptr || host.order_attack == nullptr ||
         std::none_of(sources.begin(), sources.end(), [](uint64_t bits) { return bits != 0; }))
         return false;
-    const auto& enhanced = state->rules.rules().setup.enhanced_mode;
-    if (!enhanced.enabled ||
-        !data::enhanced_mode::uses_cohort_target_distribution(enhanced.version))
+    if (!state->features.has(data::enhanced_mode::Feature::cohort_targets))
         return false;
     const auto index = static_cast<uint32_t>(squad);
     if (index >= squad_count)

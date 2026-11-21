@@ -341,6 +341,7 @@ ComputerPlayers* match_computer_players(Match& match) {
     }
     auto* state = static_cast<ComputerPlayers*>(slot.get());
     state->rules = match.rules_view();
+    state->features = match.enhanced_features();
     return state;
 }
 
