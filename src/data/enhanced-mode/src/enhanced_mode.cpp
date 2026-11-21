@@ -254,7 +254,8 @@ const char* pair_reason(const FeatureInfo& row, Feature other) noexcept {
     return pair_reasons[first_reason[static_cast<std::size_t>(row.id) - 1] + rank].data();
 }
 
-// The old numbered presets' features. Restructure only; removed in R09.
+// The old numbered presets' features. Restructure only; removed before the
+// version numbers leave the engine.
 
 /// Old version 1: capacity alone.
 constexpr FeatureSet version_1_features = set_of({capacity});
@@ -348,7 +349,7 @@ constexpr std::array<FeatureSet, cardinal_queue_escape_version + 1> version_feat
     version_13_features,
 }};
 
-/// Revision 1's features. Provisional until they are decided (V01): old
+/// Revision 1's features. Provisional until they are decided: old
 /// version 4's set, today's new-game preset.
 constexpr FeatureSet revision_1_features = version_4_features;
 

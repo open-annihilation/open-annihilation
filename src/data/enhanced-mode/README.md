@@ -108,12 +108,13 @@ Enhanced Mode state every other feature uses. `feature_by_name` and
 
 A revision is a frozen, numbered set of features; `highest_revision` is the
 highest this build plays, and `revision_features` gives each one's set.
-Revision 1 is provisional until its features are decided (V01): until then
+Revision 1 is provisional until its features are decided: until then
 it holds version 4's set, today's new-game preset.
 
 During the restructure, `version_features` maps each old numbered preset
 (Off, 1 to 8, 10, 11 and 13) to the features it switches on, and
 `features(rules)` reads the set resolved rules play. The aliases reproduce
-every check each old version made; they are removed in R09. The test proves
+every check each old version made; they go when the version numbers leave
+the engine. The test proves
 each alias set and each revision complete and conflict-free, and pins the
 whole feature table.

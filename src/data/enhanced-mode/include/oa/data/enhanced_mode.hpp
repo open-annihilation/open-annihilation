@@ -380,8 +380,8 @@ struct FeatureInfo {
 
 /// Returns the features an old numbered preset switches on.
 ///
-/// Restructure only; removed in R09, before the version numbers leave the
-/// engine. Each old version's set reproduces every check that version made.
+/// Restructure only; removed before the version numbers leave the engine.
+/// Each old version's set reproduces every check that version made.
 ///
 /// @param version the preset version, or off_version
 /// @return the version's features; the empty set for Off and for every
@@ -402,8 +402,8 @@ inline constexpr uint32_t highest_revision = 1;
 
 /// Returns the features of an Enhanced Mode revision.
 ///
-/// Revision 1 is provisional until its features are decided (V01): until
-/// then it holds old version 4's features, today's new-game preset.
+/// Revision 1 is provisional until its features are decided: until then
+/// it holds old version 4's features, today's new-game preset.
 ///
 /// @param revision the revision, from 1 to highest_revision
 /// @return its features; the empty set for 0 and for a revision this build
