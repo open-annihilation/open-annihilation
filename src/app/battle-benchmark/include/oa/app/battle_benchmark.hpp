@@ -326,6 +326,78 @@ void audit_ownership(
     std::vector<uint8_t>& scratch
 );
 
+/// The most footprint origins a ground step's path may pass for a staged
+/// battle to check it. No unit walks that far in one tick; a longer step is a
+/// jump, and is counted as unchecked.
+inline constexpr std::size_t swept_step_origin_limit = 128;
+
+/// A footprint origin: the map cell of a footprint's first column and row.
+using Cell = std::array<int32_t, 2>;
+
+/// One unit's ground step between two observations of a staged battle.
+struct GroundStep {
+    std::array<int32_t, 2> from{};      ///< signed 16.16 world X and Z before the tick
+    std::array<int32_t, 2> to{};        ///< signed 16.16 world X and Z after the tick
+    std::array<int32_t, 2> footprint{}; ///< footprint size in cells, X and Z
+    Cell from_cell{};                   ///< the footprint origin the map held before the tick
+    Cell to_cell{};                     ///< the footprint origin the map holds after it
+};
+
+/// Lists the footprint origins a ground step's path passes, at cell resolution.
+///
+/// A position's origin is the cell holding the position less the footprint's
+/// half-size plus half a cell, rounded down, as the game places a footprint.
+/// The path is the straight line from the step's start to its end, and lists
+/// the origin of every cell it enters, in order. Where it crosses a column and
+/// a row boundary at the same point, both origins beside that corner come
+/// before the diagonal one.
+///
+/// @param step the step
+/// @param[out] origins the origins in path order, the start's first; emptied first
+/// @return false, with `origins` empty, for a footprint of zero or less, a path
+///     past swept_step_origin_limit origins, or ends whose origins are not the
+///     step's `from_cell` and `to_cell`
+bool ground_step_origins(const GroundStep& step, std::vector<Cell>& origins);
+
+/// What blocks a footprint origin for a stepping unit through the whole tick.
+enum class OriginBlock : uint8_t {
+    clear,
+    ground, ///< the map edge, a blocking feature or ground the unit cannot stand on
+    unit    ///< a cell another unit holds
+};
+
+/// Tells what blocks a footprint origin for the stepping unit.
+using OriginReader = OriginBlock (*)(const void* context, Cell origin);
+
+/// The ground steps of a staged battle and those that passed through blocked
+/// ground: the collisions that swept ground steps prevent.
+struct SweptStepAudit {
+    uint64_t steps{};           ///< ground steps that changed the unit's footprint origin
+    uint64_t unchecked_steps{}; ///< of them, steps ground_step_origins could not follow
+    uint64_t misses{};          ///< steps whose path met a blocked origin after its start
+    uint64_t ground_misses{};   ///< misses whose first blocked origin is OriginBlock::ground
+    uint64_t unit_misses{};     ///< misses whose first blocked origin is OriginBlock::unit
+    std::optional<uint32_t> first_miss_tick{};
+};
+
+/// Checks one ground step: every origin of its path after the first is read,
+/// and the step is one miss when any of them is blocked.
+///
+/// @param[in,out] audit the findings so far
+/// @param tick the match tick the step ended on
+/// @param step the step
+/// @param context passed to `reader`
+/// @param reader tells what blocks an origin for the step's unit
+/// @param[in,out] scratch reused between steps
+void audit_ground_step(
+    SweptStepAudit& audit,
+    uint32_t tick,
+    const GroundStep& step,
+    const void* context,
+    OriginReader reader,
+    std::vector<Cell>& scratch
+);
+
 /// One player's results in a staged battle.
 struct StagedPlayer {
     uint8_t player{};
@@ -361,6 +433,8 @@ struct StagedBattle {
     uint32_t window_ticks{};
     std::vector<StagedPlayer> players{};
     OwnershipAudit audit{};
+    /// Every ground step after staging, warm-up and measured ticks alike.
+    SweptStepAudit swept_steps{};
 };
 
 /// Holds nearest-rank timings, cumulative nanoseconds and reference-budget counts.

@@ -256,8 +256,8 @@ constexpr int32_t kVersionRoomBottom = 22;
 }
 
 /// Follows a staged battle outside the timed simulation step: the units the
-/// stage left, births and deaths, strike targets and ground ownership. It
-/// only reads the match.
+/// stage left, births and deaths, strike targets, ground ownership and the
+/// path of every ground step. It only reads the match.
 class StagedObserver {
   public:
 
@@ -318,6 +318,7 @@ class StagedObserver {
                 )
             );
         }
+        keep_step_state(match);
     }
 
     /// Samples the match after one completed tick.
@@ -325,6 +326,7 @@ class StagedObserver {
     /// @param match the staged match
     /// @param in_window whether the tick is one of the final stationary ticks
     void observe(sim::match_runtime::Match& match, bool in_window) {
+        audit_steps(match);
         const auto& slots = match.world().slots;
         for (std::size_t index = 0; index < slots.size() && index < live_.size(); ++index) {
             const auto& slot = slots[index];
@@ -469,6 +471,178 @@ class StagedObserver {
                kind == mr::vtol_patrol_kind || kind == mr::vtol_repair_patrol_kind;
     }
 
+    /// What the swept-step check keeps of a unit slot from one observation to the next.
+    struct StepUnit {
+        bool live{};
+        /// Live, unattached and on the ground layer, with a movement object and
+        /// no air driver: a unit the ground movement step moves.
+        bool walking{};
+        uint32_t generation{};
+        std::array<int32_t, 2> position{}; ///< signed 16.16 world X and Z
+        std::array<int16_t, 2> cell{};     ///< footprint origin
+        std::array<int16_t, 2> footprint{};
+    };
+
+    /// What the swept-step check keeps of a map cell from one observation to the next.
+    struct StepPlot {
+        uint16_t ground{}; ///< the ground occupant word
+        uint8_t high_height{};
+        uint8_t low_height{};
+        bool blocking_feature{};
+    };
+
+    /// What read_origin reads for one stepping unit.
+    struct StepView {
+        const sim::spatial_state::World* world{};
+        const std::vector<StepPlot>* plots_before{};
+        const std::vector<StepUnit>* units_before{};
+        const std::vector<StepUnit>* units_now{};
+        const sim::spatial_state::Unit* unit{}; ///< the stepping unit's water depths and slopes
+        uint16_t id{};
+        std::array<int16_t, 2> footprint{};
+    };
+
+    /// Reads every unit slot for the swept-step check.
+    ///
+    /// @param match the staged match
+    /// @param[out] units one entry a slot
+    static void read_step_units(sim::match_runtime::Match& match, std::vector<StepUnit>& units) {
+        const auto& slots = match.world().slots;
+        units.assign(slots.size(), {});
+        for (std::size_t index = 0; index < slots.size(); ++index) {
+            const auto& slot = slots[index];
+            if (!live(slot))
+                continue;
+            const auto id = static_cast<uint16_t>(index);
+            const auto& record = slot.record;
+            auto& unit = units[index];
+            unit.live = true;
+            unit.generation = match.runtime_state(id).instance_generation;
+            unit.walking = record.attach_parent == 0 &&
+                           (record.flags & OA_UNIT_FLAG_OCCUPANCY_MASK) == ground_layer &&
+                           match.ground_runtime(id) != nullptr && match.air_driver(id) == nullptr;
+            unit.position = {record.position.x, record.position.z};
+            unit.cell = {record.cell_x, record.cell_z};
+            unit.footprint = {record.footprint_x, record.footprint_z};
+        }
+    }
+
+    /// Keeps the units and the map's cells as they stand, for the next tick's check.
+    ///
+    /// @param match the staged match
+    void keep_step_state(sim::match_runtime::Match& match) {
+        if (step_now_.empty())
+            read_step_units(match, step_before_);
+        else
+            std::swap(step_before_, step_now_);
+        const auto& plots = match.spatial().plots;
+        plots_before_.resize(plots.size());
+        for (std::size_t plot_index = 0; plot_index < plots.size(); ++plot_index) {
+            const auto& plot = plots[plot_index];
+            plots_before_[plot_index] = {
+                plot.ground, plot.high_height, plot.low_height, plot.blocking_feature
+            };
+        }
+    }
+
+    /// Tells whether a cell's heights refuse a unit, as the ground movement
+    /// step's footprint test does: below its deepest water, above its
+    /// shallowest, or steeper than its slope (or its water slope, under water).
+    [[nodiscard]] static bool ground_refuses(
+        const sim::spatial_state::Unit& unit,
+        int32_t sea_level,
+        uint8_t high_height,
+        uint8_t low_height
+    ) noexcept {
+        const int32_t high = high_height, low = low_height;
+        if (low < sea_level - unit.max_water_depth || sea_level - unit.min_water_depth < high)
+            return true;
+        const auto slope = high - low;
+        return int32_t{unit.max_slope} < slope &&
+               (sea_level <= low || int32_t{unit.max_water_slope} < slope);
+    }
+
+    /// Tells what blocked a footprint origin for a stepping unit through the
+    /// whole tick: a cell past the map's edge, a blocking feature or heights
+    /// that refuse the unit both before and after the tick, or a cell another
+    /// unit held both before and after it, the same live unit throughout.
+    [[nodiscard]] static battle_benchmark::OriginBlock
+    read_origin(const void* context, battle_benchmark::Cell origin) {
+        using battle_benchmark::OriginBlock;
+        const auto& view = *static_cast<const StepView*>(context);
+        const auto& world = *view.world;
+        const int64_t width = world.terrain_width, height = world.terrain_height;
+        if (origin[0] < 0 || origin[1] < 0 || origin[0] + view.footprint[0] >= width ||
+            origin[1] + view.footprint[1] >= height)
+            return OriginBlock::ground;
+        const int32_t sea_level = world.sea_level;
+        bool occupied = false;
+        for (int32_t row = 0; row < view.footprint[1]; ++row)
+            for (int32_t column = 0; column < view.footprint[0]; ++column) {
+                const auto plot_index =
+                    static_cast<std::size_t>(origin[1] + row) * world.terrain_width +
+                    static_cast<std::size_t>(origin[0] + column);
+                const auto& after = world.plots[plot_index];
+                const auto& before = (*view.plots_before)[plot_index];
+                if (after.blocking_feature && before.blocking_feature)
+                    return OriginBlock::ground;
+                if (ground_refuses(*view.unit, sea_level, after.high_height, after.low_height) &&
+                    ground_refuses(*view.unit, sea_level, before.high_height, before.low_height))
+                    return OriginBlock::ground;
+                const auto occupant = after.ground;
+                if (occupant == sim::spatial_state::no_unit || occupant == view.id ||
+                    occupant != before.ground || occupant >= view.units_now->size())
+                    continue;
+                const auto& then = (*view.units_before)[occupant];
+                const auto& now = (*view.units_now)[occupant];
+                if (then.live && now.live && then.generation == now.generation)
+                    occupied = true;
+            }
+        return occupied ? OriginBlock::unit : OriginBlock::clear;
+    }
+
+    /// Checks every ground step of the tick just played
+    /// (battle_benchmark::audit_ground_step), then keeps the units and the
+    /// map's cells for the next tick.
+    ///
+    /// A ground step is a unit that was walking at both observations, the same
+    /// unit with the same footprint, whose footprint origin changed.
+    ///
+    /// @param match the staged match
+    void audit_steps(sim::match_runtime::Match& match) {
+        read_step_units(match, step_now_);
+        const auto& spatial = match.spatial();
+        const uint32_t tick = match.simulation().tick;
+        StepView step_view{&spatial, &plots_before_, &step_before_, &step_now_};
+        const auto slot_count =
+            std::min(std::min(step_now_.size(), step_before_.size()), spatial.units.size());
+        for (std::size_t index = 0; index < slot_count; ++index) {
+            const auto& before = step_before_[index];
+            const auto& after = step_now_[index];
+            if (!before.walking || !after.walking || before.generation != after.generation ||
+                before.footprint != after.footprint || before.cell == after.cell)
+                continue;
+            // The movement step's footprint test fills the unit's projection.
+            const auto& projected = spatial.units[index];
+            if (projected.id != index || projected.bm_code == 0)
+                continue;
+            step_view.unit = &projected;
+            step_view.id = static_cast<uint16_t>(index);
+            step_view.footprint = after.footprint;
+            const battle_benchmark::GroundStep step{
+                before.position,
+                after.position,
+                {after.footprint[0], after.footprint[1]},
+                {before.cell[0], before.cell[1]},
+                {after.cell[0], after.cell[1]}
+            };
+            battle_benchmark::audit_ground_step(
+                result_.swept_steps, tick, step, &step_view, read_origin, step_scratch_
+            );
+        }
+        keep_step_state(match);
+    }
+
     battle_benchmark::StagedBattle result_{};
     std::vector<battle_benchmark::StagedUnit> units_{};
     std::vector<uint16_t> tracked_{};
@@ -483,6 +657,12 @@ class StagedObserver {
     std::array<std::vector<uint16_t>, OA_PLAYER_COUNT> targets_scratch_{};
     std::vector<battle_benchmark::AuditUnit> audited_{};
     std::vector<uint8_t> audit_scratch_{};
+    /// Every unit slot at the last observation, and at this one.
+    std::vector<StepUnit> step_before_{};
+    std::vector<StepUnit> step_now_{};
+    /// Every map cell at the last observation.
+    std::vector<StepPlot> plots_before_{};
+    std::vector<battle_benchmark::Cell> step_scratch_{};
 };
 
 } // namespace
@@ -2470,6 +2650,16 @@ void Runtime::run_battle_benchmark() {
                 static_cast<unsigned long long>(audit.audits),
                 static_cast<unsigned long long>(audit.ownership_errors),
                 static_cast<unsigned long long>(audit.overlap_cells)
+            );
+            const auto& swept = report.staged->swept_steps;
+            std::printf(
+                "battle benchmark swept steps: %llu ground steps, %llu through blocked ground "
+                "(%llu ground, %llu units), %llu unchecked\n",
+                static_cast<unsigned long long>(swept.steps),
+                static_cast<unsigned long long>(swept.misses),
+                static_cast<unsigned long long>(swept.ground_misses),
+                static_cast<unsigned long long>(swept.unit_misses),
+                static_cast<unsigned long long>(swept.unchecked_steps)
             );
         }
         std::fflush(stdout);

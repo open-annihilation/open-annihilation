@@ -29,6 +29,17 @@ constexpr std::size_t slow_percentile = 99;
 constexpr int double_decimal_digits = 17;
 constexpr int32_t map_cell_pixels = 16;
 constexpr int32_t half_map_cell_pixels = map_cell_pixels / 2;
+/// Fraction bits of a signed 16.16 world coordinate.
+constexpr int fixed_fraction_bits = 16;
+/// One map cell, and half of one, in signed 16.16 world units.
+constexpr int64_t fixed_cell = int64_t{map_cell_pixels} << fixed_fraction_bits;
+constexpr int64_t fixed_half_cell = fixed_cell / 2;
+
+/// Returns the footprint origin of a footprint-biased 16.16 coordinate, rounding down.
+int64_t origin_of(int64_t biased) noexcept {
+    const auto quotient = biased / fixed_cell;
+    return quotient - (biased % fixed_cell < 0 ? 1 : 0);
+}
 
 struct Grid {
     uint64_t front_left{};
@@ -191,7 +202,16 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
         out << *audit.first_error_tick;
     else
         out << "null";
-    out << "},\n    \"extra\": {}\n  }";
+    const auto& swept = staged.swept_steps;
+    out << "},\n    \"swept_steps\": {\"steps\": " << swept.steps
+        << ", \"unchecked_steps\": " << swept.unchecked_steps << ", \"misses\": " << swept.misses
+        << ", \"ground_misses\": " << swept.ground_misses
+        << ", \"unit_misses\": " << swept.unit_misses << ", \"first_miss_tick\": ";
+    if (swept.first_miss_tick)
+        out << *swept.first_miss_tick;
+    else
+        out << "null";
+    out << "},\n    \"extra\": {\"swept_misses\": " << swept.misses << "}\n  }";
 }
 
 } // namespace
@@ -597,6 +617,90 @@ void audit_ownership(
         error_seen = true;
     if (error_seen && !audit.first_error_tick)
         audit.first_error_tick = tick;
+}
+
+bool ground_step_origins(const GroundStep& step, std::vector<Cell>& origins) {
+    origins.clear();
+    if (step.footprint[0] <= 0 || step.footprint[1] <= 0)
+        return false;
+    std::array<int64_t, 2> from{}, to{}, first{}, last{};
+    for (std::size_t axis = 0; axis < 2; ++axis) {
+        const auto bias = fixed_half_cell - int64_t{step.footprint[axis]} * fixed_half_cell;
+        from[axis] = int64_t{step.from[axis]} + bias;
+        to[axis] = int64_t{step.to[axis]} + bias;
+        first[axis] = origin_of(from[axis]);
+        last[axis] = origin_of(to[axis]);
+        if (first[axis] != step.from_cell[axis] || last[axis] != step.to_cell[axis])
+            return false;
+    }
+    const auto span_x = last[0] > first[0] ? last[0] - first[0] : first[0] - last[0];
+    const auto span_z = last[1] > first[1] ? last[1] - first[1] : first[1] - last[1];
+    if (span_x + span_z + 1 > static_cast<int64_t>(swept_step_origin_limit))
+        return false;
+    // Each boundary distance is below the limit's cells plus one, and each
+    // span below that too, so their products fit in 64 bits.
+    const auto dx = to[0] - from[0], dz = to[1] - from[1];
+    const int64_t step_x = (dx > 0) - (dx < 0), step_z = (dz > 0) - (dz < 0);
+    const auto along_x = dx < 0 ? -dx : dx, along_z = dz < 0 ? -dz : dz;
+    auto x = first[0], z = first[1];
+    // How far the line runs on each axis before it crosses the next column or row.
+    auto next_x = step_x > 0 ? (x + 1) * fixed_cell - from[0] : from[0] - x * fixed_cell;
+    auto next_z = step_z > 0 ? (z + 1) * fixed_cell - from[1] : from[1] - z * fixed_cell;
+    const auto emit = [&](int64_t cell_x, int64_t cell_z) {
+        origins.push_back({static_cast<int32_t>(cell_x), static_cast<int32_t>(cell_z)});
+    };
+    emit(x, z);
+    while (x != last[0] || z != last[1]) {
+        if (x == last[0] || (z != last[1] && next_z * along_x < next_x * along_z)) {
+            z += step_z;
+            next_z += fixed_cell;
+        } else if (z == last[1] || next_x * along_z < next_z * along_x) {
+            x += step_x;
+            next_x += fixed_cell;
+        } else {
+            // The line passes exactly through a corner: both cells beside it.
+            emit(x + step_x, z);
+            emit(x, z + step_z);
+            x += step_x;
+            z += step_z;
+            next_x += fixed_cell;
+            next_z += fixed_cell;
+        }
+        emit(x, z);
+    }
+    if (origins.size() > swept_step_origin_limit) {
+        origins.clear();
+        return false;
+    }
+    return true;
+}
+
+void audit_ground_step(
+    SweptStepAudit& audit,
+    uint32_t tick,
+    const GroundStep& step,
+    const void* context,
+    OriginReader reader,
+    std::vector<Cell>& scratch
+) {
+    ++audit.steps;
+    if (!ground_step_origins(step, scratch)) {
+        ++audit.unchecked_steps;
+        return;
+    }
+    for (std::size_t index = 1; index < scratch.size(); ++index) {
+        const auto block = reader(context, scratch[index]);
+        if (block == OriginBlock::clear)
+            continue;
+        ++audit.misses;
+        if (block == OriginBlock::ground)
+            ++audit.ground_misses;
+        else
+            ++audit.unit_misses;
+        if (!audit.first_miss_tick)
+            audit.first_miss_tick = tick;
+        return;
+    }
 }
 
 std::vector<StagedPlayer>

@@ -568,6 +568,107 @@ void ownership_audits() {
     CHECK(audit.ownership_errors == 2);
 }
 
+/// Checks the footprint origins a ground step passes: within a cell, across a
+/// column, past a corner on either side, exactly through a corner, backwards,
+/// with a larger footprint, and the steps it refuses.
+void ground_step_paths() {
+    constexpr int32_t pixel = 65536;
+    const auto step = [&](std::array<int32_t, 4> pixels, int32_t size) {
+        benchmark::GroundStep made;
+        made.from = {pixels[0] * pixel, pixels[1] * pixel};
+        made.to = {pixels[2] * pixel, pixels[3] * pixel};
+        made.footprint = {size, size};
+        // The cell of a 16.16 position less the footprint's half-size plus half a cell.
+        const auto origin = [&](int32_t at) {
+            const int64_t cell = 16 * pixel;
+            const int64_t biased = int64_t{at} + 8 * pixel - int64_t{size} * 8 * pixel;
+            return static_cast<int32_t>(
+                biased >= 0 ? biased / cell : -((-biased + cell - 1) / cell)
+            );
+        };
+        made.from_cell = {origin(made.from[0]), origin(made.from[1])};
+        made.to_cell = {origin(made.to[0]), origin(made.to[1])};
+        return made;
+    };
+    using Cells = std::vector<benchmark::Cell>;
+    Cells origins;
+    CHECK(benchmark::ground_step_origins(step({2, 3, 12, 14}, 1), origins));
+    CHECK((origins == Cells{{0, 0}}));
+    CHECK(benchmark::ground_step_origins(step({8, 4, 20, 4}, 1), origins));
+    CHECK((origins == Cells{{0, 0}, {1, 0}}));
+    // Past the corner on the column side, then on the row side.
+    CHECK(benchmark::ground_step_origins(step({8, 4, 20, 18}, 1), origins));
+    CHECK((origins == Cells{{0, 0}, {1, 0}, {1, 1}}));
+    CHECK(benchmark::ground_step_origins(step({4, 8, 18, 20}, 1), origins));
+    CHECK((origins == Cells{{0, 0}, {0, 1}, {1, 1}}));
+    // Exactly through the corner: both cells beside it.
+    CHECK(benchmark::ground_step_origins(step({8, 8, 24, 24}, 1), origins));
+    CHECK((origins == Cells{{0, 0}, {1, 0}, {0, 1}, {1, 1}}));
+    CHECK(benchmark::ground_step_origins(step({20, 18, 8, 4}, 1), origins));
+    CHECK((origins == Cells{{1, 1}, {1, 0}, {0, 0}}));
+    CHECK(benchmark::ground_step_origins(step({-4, 8, -20, 8}, 1), origins));
+    CHECK((origins == Cells{{-1, 0}, {-2, 0}}));
+    // A two-cell footprint's origin is half a cell up and left of its centre's cell.
+    CHECK(benchmark::ground_step_origins(step({16, 16, 40, 16}, 2), origins));
+    CHECK((origins == Cells{{0, 0}, {1, 0}, {2, 0}}));
+    auto wrong = step({8, 4, 20, 4}, 1);
+    wrong.to_cell = {2, 0};
+    CHECK(!benchmark::ground_step_origins(wrong, origins) && origins.empty());
+    CHECK(!benchmark::ground_step_origins(step({8, 4, 8 + 16 * 128, 4}, 1), origins));
+    CHECK(benchmark::ground_step_origins(step({8, 4, 8 + 16 * 127, 4}, 1), origins));
+    CHECK(origins.size() == benchmark::swept_step_origin_limit);
+    CHECK(!benchmark::ground_step_origins(step({8, 4, 20, 4}, 0), origins));
+}
+
+/// Checks the swept-step audit: a corner cell only a diagonal passes, the
+/// exact corner, a unit's cell, a step's own start, and unchecked steps.
+void swept_step_audits() {
+    constexpr int32_t pixel = 65536;
+    const auto step = [](std::array<int32_t, 4> pixels, benchmark::Cell from, benchmark::Cell to) {
+        benchmark::GroundStep made;
+        made.from = {pixels[0] * pixel, pixels[1] * pixel};
+        made.to = {pixels[2] * pixel, pixels[3] * pixel};
+        made.footprint = {1, 1};
+        made.from_cell = from;
+        made.to_cell = to;
+        return made;
+    };
+    // Cell (1, 0) is a cliff and cell (0, 1) another unit; (0, 0) is blocked
+    // too, but a step's own start is never read.
+    const auto read = [](const void*, benchmark::Cell origin) {
+        if (origin == benchmark::Cell{1, 0} || origin == benchmark::Cell{0, 0})
+            return benchmark::OriginBlock::ground;
+        if (origin == benchmark::Cell{0, 1})
+            return benchmark::OriginBlock::unit;
+        return benchmark::OriginBlock::clear;
+    };
+    benchmark::SweptStepAudit audit;
+    std::vector<benchmark::Cell> scratch;
+    benchmark::audit_ground_step(
+        audit, 40, step({4, 30, 20, 30}, {0, 1}, {1, 1}), nullptr, read, scratch
+    );
+    CHECK(audit.steps == 1 && audit.misses == 0 && !audit.first_miss_tick);
+    benchmark::audit_ground_step(
+        audit, 41, step({8, 4, 20, 18}, {0, 0}, {1, 1}), nullptr, read, scratch
+    );
+    CHECK(audit.steps == 2 && audit.misses == 1 && audit.ground_misses == 1);
+    CHECK(audit.first_miss_tick == 41u);
+    benchmark::audit_ground_step(
+        audit, 42, step({4, 8, 18, 20}, {0, 0}, {1, 1}), nullptr, read, scratch
+    );
+    CHECK(audit.misses == 2 && audit.unit_misses == 1);
+    // The exact corner reads both sides; the first blocked one names the miss.
+    benchmark::audit_ground_step(
+        audit, 43, step({8, 8, 24, 24}, {0, 0}, {1, 1}), nullptr, read, scratch
+    );
+    CHECK(audit.misses == 3 && audit.ground_misses == 2 && audit.unit_misses == 1);
+    benchmark::audit_ground_step(
+        audit, 44, step({8, 4, 20, 4}, {0, 0}, {2, 0}), nullptr, read, scratch
+    );
+    CHECK(audit.steps == 5 && audit.unchecked_steps == 1 && audit.misses == 3);
+    CHECK(audit.first_miss_tick == 41u);
+}
+
 /// Checks the staged battle's report block and its absence for other scenarios.
 void staged_report() {
     benchmark::Report report;
@@ -590,6 +691,11 @@ void staged_report() {
     staged.players.push_back(player);
     staged.audit.audits = 61;
     staged.audit.first_error_tick = 450u;
+    staged.swept_steps.steps = 90;
+    staged.swept_steps.misses = 3;
+    staged.swept_steps.ground_misses = 1;
+    staged.swept_steps.unit_misses = 2;
+    staged.swept_steps.first_miss_tick = 17u;
     report.staged = staged;
     const auto json = benchmark::report_json(report);
     CHECK(json.find("\"stage\": \"aligned\\\\patrol.stage\"") != std::string::npos);
@@ -607,9 +713,19 @@ void staged_report() {
     CHECK(json.find("\"largest_share\": 0.75") != std::string::npos);
     CHECK(json.find("\"audits\": 61") != std::string::npos);
     CHECK(json.find("\"first_error_tick\": 450") != std::string::npos);
-    CHECK(json.find("\"extra\": {}") != std::string::npos);
+    CHECK(
+        json.find(
+            "\"swept_steps\": {\"steps\": 90, \"unchecked_steps\": 0, \"misses\": 3, "
+            "\"ground_misses\": 1, \"unit_misses\": 2, \"first_miss_tick\": 17}"
+        ) != std::string::npos
+    );
+    CHECK(json.find("\"extra\": {\"swept_misses\": 3}") != std::string::npos);
     report.staged->audit.first_error_tick.reset();
-    CHECK(benchmark::report_json(report).find("\"first_error_tick\": null") != std::string::npos);
+    report.staged->swept_steps = {};
+    const auto cleared = benchmark::report_json(report);
+    CHECK(cleared.find("\"first_error_tick\": null") != std::string::npos);
+    CHECK(cleared.find("\"first_miss_tick\": null") != std::string::npos);
+    CHECK(cleared.find("\"extra\": {\"swept_misses\": 0}") != std::string::npos);
 }
 
 } // namespace
@@ -624,6 +740,8 @@ int main() {
     staged_units();
     target_spread();
     ownership_audits();
+    ground_step_paths();
+    swept_step_audits();
     staged_report();
     return failures == 0 ? 0 : 1;
 }

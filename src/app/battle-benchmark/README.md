@@ -57,10 +57,38 @@ targets and the commonest target's share. `audit_ownership` checks that
 every footprint cell of the units it is given names the unit on its layer,
 counts cells inside two ground footprints, skips a footprint past the map's
 last row or column (the game leaves such a unit off the map's cells) and
-notes the first tick with an error. `report_json` writes these as the
-`staged_battle` object, or null for the other scenarios; the fields extend
-schema version 1. `staged_battle` also holds `extra`, an empty object a
-later measurement fills with a named number or one number a player.
+notes the first tick with an error. The audits run every 150 ticks and
+cannot see a unit that passes through something between two legal places,
+so every ground step is also checked. `ground_step_origins` lists the
+footprint origins a step's path passes from where the unit stood to where it
+stands, at cell resolution (a position's origin is its cell once the
+footprint's half-size less half a cell is taken off, rounded down), and both
+origins beside a corner the path crosses exactly. `audit_ground_step` reads
+every origin after the first and counts the step once as a miss when any is
+blocked; a path past `swept_step_origin_limit` (128) origins, or one whose
+ends are not the unit's cells, is counted as unchecked. The application
+reads the match after each tick, warm-up and measured alike, and hands it
+each ground step: a live, unattached unit on the ground layer with a
+movement object and no air driver at both observations, the same unit with
+the same footprint, whose footprint origin changed. An origin is blocked
+when one of its footprint cells lay past the map's edge, held a blocking
+feature or had heights the unit cannot stand on (deeper than its deepest
+water, shallower than its shallowest, steeper than its slope, or its water
+slope under water) both before and after the tick, or was held by another
+unit, the same live unit, both before and after it: blocked through the
+whole tick, so the step passed through it while it was blocked. A cell
+another unit took or left during the tick does not count, since the step
+may have passed before it came or after it went. With swept ground steps
+on, every such origin is refused before the step is taken, so the count is
+zero by construction; without them it counts the steps that slipped
+through a corner or another unit.
+`report_json` writes these as the `staged_battle` object, or null for the
+other scenarios; the fields extend schema version 1. Its `swept_steps`
+object holds the ground steps, the unchecked ones, the misses, the misses
+whose first blocked origin was ground and those whose first was another
+unit, and the match tick of the first miss. `staged_battle` also holds
+`extra`, the named numbers a gate compares (a number, or one number a
+player); `swept_misses` there is the misses.
 
 `summarize` copies elapsed-nanosecond samples, sorts the copy and returns the
 minimum, mean, maximum and nearest-rank p50, p95 and p99. Empty samples give
@@ -132,5 +160,9 @@ It checks crossing lines (reading and refusals, sides, steps across, past
 the end, onto and off a line), staged-unit tracking and summaries
 (crossings counted once and only away from the start side, the stationary
 window, retirement), target spread samples, ownership audits (a stolen
-cell, an overlap, an air unit, a footprint past the edge) and the
-`staged_battle` report block.
+cell, an overlap, an air unit, a footprint past the edge), ground step
+paths (within a cell, across a column, past a corner on either side,
+exactly through it, backwards, a two-cell footprint, a wrong cell, the
+origin limit), swept-step audits (a corner cell only a diagonal passes, the
+exact corner, another unit's cell, a step's own start, an unchecked step)
+and the `staged_battle` report block.
