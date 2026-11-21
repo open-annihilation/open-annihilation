@@ -34,6 +34,33 @@ longest stationary runs, goal distances, and near/middle/far initial-distance
 thirds. Best distance permits necessary detours without assuming monotonic
 progress. Stationary samples alone do not establish an occupancy blockage.
 
+A staged battle (the `stage` scenario) is followed by the helpers below,
+outside the timed step; the application reads the match and hands them
+plain positions, order targets and occupant words. `parse_crossing_line`
+reads a measure line written `NAME=X0,Z0,X1,Z1` in whole map pixels.
+`line_side` gives the sign of a point against the line extended without
+end, and `crosses_line` is true only for a step whose two ends lie strictly
+on opposite sides of the line and that passes within the segment, its ends
+included. `begin_staged_unit` and `sample_staged_unit` track one unit the
+stage left: its start, its last live position (a dead unit stays where it
+was last alive, and a later unit in its slot is not it), its destination
+when its first order is a move or patrol, the lines it has crossed away
+from its start side (once each), and its live and stationary ticks in the
+final `stationary_window_ticks` (300). Stationary means the caller saw no
+change of the exact position during the tick. `summarize_staged` totals them
+by player, in player order: mean progress toward the destination (start
+distance less final distance, straight-line pixels), units that gained
+`advance_distance_pixels` (16) or more, the stationary window counts and
+crossers per line. `add_target_sample` takes the targets of one player's
+attackers at a sample and adds the sample, the attackers, the distinct
+targets and the commonest target's share. `audit_ownership` checks that
+every footprint cell of the units it is given names the unit on its layer,
+counts cells inside two ground footprints, skips a footprint past the map's
+last row or column (the game leaves such a unit off the map's cells) and
+notes the first tick with an error. `report_json` writes these as the
+`staged_battle` object, or null for the other scenarios; the fields extend
+schema version 1.
+
 `summarize` copies elapsed-nanosecond samples, sorts the copy and returns the
 minimum, mean, maximum and nearest-rank p50, p95 and p99. Empty samples give
 zeroes. Timing dictionaries also hold `total`, the cumulative nanoseconds,
@@ -94,3 +121,9 @@ metadata, CPU availability and JSON escaping.
 It also checks grouped arrival geometry with 10,000 mixed-size footprints
 per side, skipped terrain candidates, cross-army reservations, malformed
 inputs, detours, jitter rejection and trip-distance fairness bins.
+It checks crossing lines (reading and refusals, sides, steps across, past
+the end, onto and off a line), staged-unit tracking and summaries
+(crossings counted once and only away from the start side, the stationary
+window, retirement), target spread samples, ownership audits (a stolen
+cell, an overlap, an air unit, a footprint past the edge) and the
+`staged_battle` report block.
