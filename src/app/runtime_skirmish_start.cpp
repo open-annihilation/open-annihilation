@@ -17,6 +17,7 @@
 #include "oa/data/defs/unit_def_loader.hpp"
 #include "oa/data/defs/unit_header.hpp"
 #include "oa/data/defs/unit_records.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/mission_types.hpp"
 #include "oa/sim/session.hpp"
 #include "oa/ui/console/game_fields.hpp"
@@ -1221,7 +1222,8 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
         );
         inputs.profile_sim_hash = profile->sim_hash;
     }
-    if (inputs.rules.setup.enhanced_mode.enabled) {
+    if (oa::data::enhanced_mode::features(inputs.rules)
+            .has(oa::data::enhanced_mode::Feature::capacity)) {
         // Campaign scripts may introduce players beyond the initial two.
         // Skirmishes reserve ranges only for players participating in the match.
         for (std::size_t player = 0; player < OA_PLAYER_COUNT; ++player) {

@@ -8,6 +8,7 @@
 #include "oa/netgame/player_slots.hpp"
 
 #include "oa/core/weapon_def.h"
+#include "oa/data/enhanced_mode.hpp"
 
 #include "oa/sim/air/host.hpp"
 #include "oa/sim/feature_runtime.hpp"
@@ -1114,7 +1115,7 @@ void match_binding_prepare(MatchBinding* b, sim::match_runtime::Match* match, Ne
 
 void match_binding_init(MatchBinding* b, sim::match_runtime::Match* match, NetMatch* net) {
     match_binding_prepare(b, match, net);
-    if (match->rules().setup.enhanced_mode.enabled) {
+    if (match->enhanced_features().has(data::enhanced_mode::Feature::capacity)) {
         if (!match_assign_enhanced_unit_ranges(&match->state(), match->unit_player_mask())) {
             match->note_fault("Enhanced Mode network participants do not match the unit pool");
             return;
