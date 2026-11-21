@@ -24,6 +24,8 @@ namespace {
 constexpr uint32_t strike_interval_ticks = 300;
 /// Counts every new strike member, including the seed of an empty squad.
 constexpr uint32_t distributed_recruits_per_dispatch = 256;
+/// The same count for wide_strike_recruits.
+constexpr uint32_t wide_recruits_per_dispatch = 1024;
 /// Spatial attack groups span four bands along their larger horizontal extent.
 constexpr uint32_t strike_cohort_bands = 4;
 constexpr uint32_t strike_cohort_depths = 2;
@@ -38,6 +40,10 @@ constexpr uint64_t strike_retention_cost_denominator = 8;
 constexpr uint64_t strike_retention_cost_numerator = 9;
 static_assert(
     distributed_recruits_per_dispatch > 0 && distributed_recruits_per_dispatch <= max_recruits
+);
+static_assert(
+    wide_recruits_per_dispatch > distributed_recruits_per_dispatch &&
+    wide_recruits_per_dispatch <= max_recruits
 );
 constexpr uint32_t rally_interval_ticks = 150;
 constexpr uint32_t construction_interval_ticks = 90;
@@ -817,15 +823,12 @@ void run_strike(
 ) noexcept {
     task.next_tick = tick_of(host) + strike_interval_ticks;
     const auto features = state != nullptr ? state->features : data::enhanced_mode::FeatureSet{};
-    const bool distributed = features.has(data::enhanced_mode::Feature::bounded_strike_recruits);
-    recruit_squad(
-        host,
-        ai,
-        task,
-        task.source_squad,
-        task.merge_radius,
-        distributed ? std::optional<uint32_t>{distributed_recruits_per_dispatch} : std::nullopt
-    );
+    std::optional<uint32_t> budget;
+    if (features.has(data::enhanced_mode::Feature::bounded_strike_recruits))
+        budget = distributed_recruits_per_dispatch;
+    else if (features.has(data::enhanced_mode::Feature::wide_strike_recruits))
+        budget = wide_recruits_per_dispatch;
+    recruit_squad(host, ai, task, task.source_squad, task.merge_radius, budget);
     if (squad_empty(host, ai, task.squad))
         return;
     const auto count = static_cast<int32_t>(squad_size(host, ai, task.squad));

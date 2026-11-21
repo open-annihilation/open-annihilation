@@ -2953,6 +2953,37 @@ void test_distributed_strike_recruitment_budget() {
     );
 }
 
+/// Admits at most 1,024 new members per dispatch with wide strike recruits.
+void test_wide_strike_recruitment_budget() {
+    namespace enhanced = oa::data::enhanced_mode;
+    const auto wide = enhanced::version_features(RecruitRun::distributed_version)
+                          .without(enhanced::Feature::bounded_strike_recruits)
+                          .with(enhanced::Feature::wide_strike_recruits);
+    check(enhanced::feature_set_problem(wide) == nullptr, "wide recruits: a playable set");
+    for (const bool naval : {false, true}) {
+        RecruitRun run(RecruitRun::distributed_version, 2500, 4, naval);
+        run.state.features = wide;
+        run.dispatch(300, 1024);
+        run.dispatch(600, 1024);
+        run.dispatch(900, 452);
+        check(
+            run.waiting().empty() && run.members().size() == 2504,
+            "wide recruits: all waiting members join over three dispatches"
+        );
+    }
+    RecruitRun empty(RecruitRun::distributed_version, 1500, 0);
+    empty.state.features = wide;
+    empty.dispatch(300, 1024);
+    empty.dispatch(600, 476);
+    RecruitRun existing(RecruitRun::distributed_version, 0, 1500);
+    existing.state.features = wide;
+    existing.dispatch(300, 0);
+    check(
+        existing.fake.orders.size() == 1500,
+        "wide recruits: the admission cap does not truncate existing strike orders"
+    );
+}
+
 /// Leaves the old 5000 recruits plus the separate empty-squad seed unchanged.
 void test_earlier_recruitment_keeps_its_seed_and_limit() {
     for (uint32_t version = 0; version < RecruitRun::distributed_version; ++version) {
@@ -3294,6 +3325,7 @@ int main(int argc, char** argv) {
     test_full_enemy_reference_keeps_filtered_candidate_domain();
     test_full_enemy_reference_keeps_wide_masked_decisions();
     test_distributed_strike_recruitment_budget();
+    test_wide_strike_recruitment_budget();
     test_earlier_recruitment_keeps_its_seed_and_limit();
     test_recruitment_rereads_reused_source_slots();
     test_recruitment_budget_does_not_limit_rally_callbacks();
