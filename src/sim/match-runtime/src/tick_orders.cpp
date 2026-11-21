@@ -168,9 +168,7 @@ Match::issue_ground_move(uint16_t index, const sim::ground_orders::Point& destin
         );
     if (!unit.record.type_index || !ground_runtime(index))
         return refused_order();
-    const auto& enhanced = rules().setup.enhanced_mode;
-    if (!queue && enhanced.enabled &&
-        data::enhanced_mode::uses_distributed_battle_flow(enhanced.version) &&
+    if (!queue && enhanced_features_.has(data::enhanced_mode::Feature::ai_rally_retention) &&
         enhanced_ != nullptr && enhanced_->ai_retarget.builtin_dispatch && unit.owner != nullptr &&
         unit.owner->record.index == enhanced_->ai_retarget.builtin_player &&
         (unit.record.squad == static_cast<int32_t>(sim::ai::Squad::land_army) ||

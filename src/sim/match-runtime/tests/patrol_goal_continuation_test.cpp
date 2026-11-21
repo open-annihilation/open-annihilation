@@ -261,7 +261,7 @@ void seed_navigation(Scene& scene) {
     navigation.count = 4;
     navigation.flags = ground::route_present_flag | ground::search_pending_flag;
     navigation.last_search_tick = 7;
-    if (scene.match().rules().setup.enhanced_mode.version >= 2) {
+    if (scene.match().enhanced_features().has(oa::data::enhanced_mode::Feature::local_flow)) {
         std::vector<movement::LocalFlowHead> heads(scene.match().state().unit_slot_count);
         heads[scene.actor].points = {{{64, 128}, {96, 144}, {128, 128}}};
         heads[scene.actor].goal_key = 123;
@@ -584,7 +584,10 @@ void a_real_pending_search_survives_only_the_continued_refresh() {
                               ground::goal_replaced_event | cancel_event)) == 0
         );
         const auto worker_budget = scene.match().path_search_worker().budget();
-        if (oa::data::enhanced_mode::uses_distributed_battle_flow(version)) {
+        const bool capped_seed = scene.match().enhanced_features().has(
+            oa::data::enhanced_mode::Feature::credited_fallback_search
+        );
+        if (capped_seed) {
             // This long route makes real heuristic progress before the cap.
             // Its partial guide must retain the Goal without inventing the
             // contact/unreachable observations of a complete legacy walk.
@@ -631,7 +634,7 @@ void a_real_pending_search_survives_only_the_continued_refresh() {
         }
         if (version >= battle_version)
             CHECK(published);
-        if (oa::data::enhanced_mode::uses_distributed_battle_flow(version) && published) {
+        if (capped_seed && published) {
             CHECK(scene.movement().navigation.goal == before.goal);
             CHECK(scene.unit().unit->primary == before.goal->order);
             CHECK(!ground::goal_contains_unit(*before.goal, scene.movement().geometry));

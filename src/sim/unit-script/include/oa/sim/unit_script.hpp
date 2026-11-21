@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "oa/core/world.h"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/data/match_rules.hpp"
 #include "oa/sim/script_vm.hpp"
@@ -351,6 +352,10 @@ struct UnitValueServices {
     /// The capacities the match was built with, such as the most units a
     /// player may have; null for 3.1c's.
     const data::limits::Limits* limits{};
+    /// The Enhanced Mode features the match plays; with capacity, unit ids
+    /// run over the participating players' allocated slots. Unset, none, as
+    /// in 3.1c.
+    data::enhanced_mode::FeatureSet features{};
 };
 
 /// Reads a GET unit value.

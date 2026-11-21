@@ -16,6 +16,8 @@
 #include <cstdint>
 
 namespace oa::sim::match_runtime {
+using data::enhanced_mode::Feature;
+
 namespace {
 // Ticks between a player slot's deadlines: the local slot's outcome checks,
 // the slot's economy settlement and the viewpoint's contact scan.
@@ -163,11 +165,7 @@ void Match::run_player_controller(uint8_t player) {
     if (computer) {
         const SeatHooks hooks = seat_hooks_[player];
         const bool played = hooks.play != nullptr && hooks.play(hooks.context, *this, player);
-        auto* retarget = enhanced_ != nullptr && (rules().setup.enhanced_mode.version ==
-                                                      data::enhanced_mode::battle_flow_version ||
-                                                  data::enhanced_mode::uses_distributed_battle_flow(
-                                                      rules().setup.enhanced_mode.version
-                                                  ))
+        auto* retarget = enhanced_ != nullptr && enhanced_features_.has(Feature::ai_strike_retarget)
                              ? &enhanced_->ai_retarget
                              : nullptr;
         if (retarget != nullptr) {
@@ -242,8 +240,7 @@ bool Match::prepare_search_job(
     begin.occupancy = occupancy_feed_;
     begin.world_width = spatial_.terrain_width;
     begin.world_height = spatial_.terrain_height;
-    if (rules().setup.enhanced_mode.enabled &&
-        data::enhanced_mode::uses_distributed_battle_flow(rules().setup.enhanced_mode.version))
+    if (enhanced_features_.has(Feature::credited_fallback_search))
         begin.seed_step_limit = distributed_seed_step_limit;
     map = &*klass->map;
     return true;
@@ -291,9 +288,8 @@ void Match::advance_path_search() {
             return value;
         }
     };
-    const bool shared_routes = rules().setup.enhanced_mode.enabled &&
-                               rules().setup.enhanced_mode.version >= 2 && enhanced_ &&
-                               enhanced_->shared_routes;
+    const bool shared_routes =
+        builds_shared_routes(enhanced_features_) && enhanced_ && enhanced_->shared_routes;
     if (shared_routes)
         enhanced_->shared_routes->advance(
             simulation_.tick, enhanced_->shared_static_revision, flow_sampler
@@ -322,6 +318,7 @@ void Match::advance_path_search() {
         const sim::ground_orders::FlowSampler* sampler;
         bool shared_routes;
         bool preferred_searches;
+        bool local_flow;
         bool collecting{};
         uint32_t polled_index{};
         std::array<PreferredCandidate, OA_PLAYER_COUNT> candidates{};
@@ -332,8 +329,8 @@ void Match::advance_path_search() {
         &find_slot,
         &flow_sampler,
         shared_routes,
-        shared_routes &&
-            data::enhanced_mode::uses_distributed_battle_flow(rules().setup.enhanced_mode.version)
+        shared_routes && enhanced_features_.has(Feature::credited_fallback_search),
+        enhanced_ && enhanced_features_.has(Feature::local_flow)
     };
 
     sim::ground_orders::SearchUnitAccess access;
@@ -494,7 +491,7 @@ void Match::advance_path_search() {
         const bool unreachable = sim::ground_orders::accept_path(view, route);
         // A replacement route supersedes the old traffic detour even when
         // the destination has not changed. Keep its collision retry clock.
-        if (ctx.shared_routes) {
+        if (ctx.local_flow) {
             ctx.match->enhanced_->local_flow_heads[slot->unit_index].active = false;
             ctx.match->enhanced_->local_flow_heads[slot->unit_index].count = 0;
         }

@@ -460,12 +460,10 @@ class TickHost::GroundMissions {
         constexpr uint32_t interrupted_goal_events =
             sim::ground_orders::arrived_event | sim::ground_orders::path_failed_event |
             sim::ground_orders::goal_replaced_event | ground::cancel_event;
-        const auto& enhanced = rules().setup.enhanced_mode;
         auto* movement = host.match.ground_runtime(s.unit_index);
-        if (enhanced.enabled &&
-            (enhanced.version == static_cast<int32_t>(data::enhanced_mode::battle_flow_version) ||
-             data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) &&
-            !can_fly() && movement && s.unit && sim::simulation_state::locally_simulated(*s.unit) &&
+        const auto features = host.match.enhanced_features();
+        if (features.has(data::enhanced_mode::Feature::patrol_goal_retention) && !can_fly() &&
+            movement && s.unit && sim::simulation_state::locally_simulated(*s.unit) &&
             !movement->mirrored_driver && s.record.attach_parent == 0 &&
             (movement->movement.flags & sim::unit_movement::occupancy_mask) ==
                 ground::occupancy_ground &&

@@ -259,7 +259,7 @@ int32_t unit_script_get_value(
                 rules.script_get.find(static_cast<uint16_t>(selector)),
                 argument,
                 rules.script_fidelity,
-                rules.setup.enhanced_mode.enabled
+                services.features.has(data::enhanced_mode::Feature::capacity)
             );
         break;
     }

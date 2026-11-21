@@ -8,6 +8,7 @@
 #pragma once
 
 #include "oa/core/world.h"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/data/match_rules.hpp"
 #include "oa/sim/detection.hpp"
@@ -154,6 +155,9 @@ struct ComputerPlayers {
     // them; set before computer_players_initialize and at every pass. Unset,
     // 3.1c's.
     data::match_rules::MatchRulesView rules{};
+    // The Enhanced Mode features the match plays (Match::enhanced_features),
+    // set with rules. Unset, none, as in 3.1c.
+    data::enhanced_mode::FeatureSet features{};
     ComputerPlayer players[OA_PLAYER_COUNT]{};
     uint8_t initialized{};
     uint8_t downloadables_restricted{}; // options state 1 skips downloadable types

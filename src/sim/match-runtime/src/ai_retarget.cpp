@@ -179,9 +179,7 @@ void Match::EnhancedState::prepare_ai_retarget(Match& match, uint8_t player) {
                 target.binding = AiStrikeBinding::lost;
         }
     }
-    const bool cohorts = data::enhanced_mode::uses_cohort_target_distribution(
-        match.rules().setup.enhanced_mode.version
-    );
+    const bool cohorts = match.enhanced_features_.has(data::enhanced_mode::Feature::cohort_targets);
     if (!cohorts && state.next_early_tick <= tick) {
         for (size_t step = 0; step < state.targets.size(); ++step) {
             const size_t index = (state.selection_cursor + step) % state.targets.size();
@@ -217,8 +215,7 @@ void Match::EnhancedState::prepare_ai_retarget(Match& match, uint8_t player) {
 }
 
 void Match::EnhancedState::refresh_ai_cohort_targets(Match& match, uint8_t player) {
-    const auto& mode = match.rules().setup.enhanced_mode;
-    if (!mode.enabled || !data::enhanced_mode::uses_cohort_target_distribution(mode.version))
+    if (!match.enhanced_features_.has(data::enhanced_mode::Feature::cohort_targets))
         return;
     auto* computers = static_cast<sim::ai::ComputerPlayers*>(match.computer_player_state().get());
     if (computers == nullptr || !computers->players[player].present)
@@ -252,9 +249,9 @@ void Match::EnhancedState::refresh_ai_cohort_targets(Match& match, uint8_t playe
         state.selection_cursor = static_cast<uint8_t>((index + 1) % state.targets.size());
         std::array<uint64_t, sim::ai::strike_refresh_mask_words> sources{};
         uint32_t count = 0;
-        uint32_t unit_count = 0;
-        const auto* units = oa::world_player_units(&match.state(), &record, &unit_count);
-        for (uint32_t at = 0; units != nullptr && at < unit_count; ++at) {
+        uint32_t player_unit_count = 0;
+        const auto* units = oa::world_player_units(&match.state(), &record, &player_unit_count);
+        for (uint32_t at = 0; units != nullptr && at < player_unit_count; ++at) {
             const auto& unit = units[at];
             if (unit.type_index == 0 || unit.owner_index != owner ||
                 unit.squad != static_cast<int32_t>(task.squad) ||

@@ -39,13 +39,20 @@ Options options_for(uint32_t version) {
     return options;
 }
 
-routes::FlowLimits fixture_route_limits(uint32_t version) {
+routes::FlowLimits fixture_route_limits(oa::data::enhanced_mode::FeatureSet features) {
     auto limits = routes::FlowLimits{};
-    if (oa::data::enhanced_mode::uses_distributed_battle_flow(version)) {
+    if (features.has(oa::data::enhanced_mode::Feature::routes_fine_regions)) {
         limits.fields = 80;
         limits.total_cells = 8 * 1024 * 1024;
     }
     return limits;
+}
+
+routes::FlowPreset fixture_route_preset(oa::data::enhanced_mode::FeatureSet features) {
+    using oa::data::enhanced_mode::Feature;
+    return features.has(Feature::routes_fine_regions)    ? routes::FlowPreset::fine_regions
+           : features.has(Feature::routes_large_regions) ? routes::FlowPreset::large_regions
+                                                         : routes::FlowPreset::original;
 }
 
 const runtime::RuleStateTable& table(runtime::Match& match, const char* name) {
@@ -76,13 +83,8 @@ void install_pending_field(runtime::Match& match) {
     routes::FlowCache cache(
         16,
         16,
-        fixture_route_limits(match.rules().setup.enhanced_mode.version),
-        oa::data::enhanced_mode::uses_distributed_battle_flow(
-            match.rules().setup.enhanced_mode.version
-        )
-            ? routes::FlowPreset::fine_regions
-        : match.rules().setup.enhanced_mode.version >= 3 ? routes::FlowPreset::large_regions
-                                                         : routes::FlowPreset::original
+        fixture_route_limits(match.enhanced_features()),
+        fixture_route_preset(match.enhanced_features())
     );
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
@@ -374,7 +376,12 @@ void following_restores_a_building_fine_frontier() {
         configure_movement_class(*fixture, 1, 1, version);
         fixture->match->simulation().tick = saved_tick;
     }
-    routes::FlowCache cache(side, side, fixture_route_limits(7), routes::FlowPreset::fine_regions);
+    routes::FlowCache cache(
+        side,
+        side,
+        fixture_route_limits(oa::data::enhanced_mode::version_features(7)),
+        routes::FlowPreset::fine_regions
+    );
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
             return x >= 0 && z >= 0 && x < int32_t(side) && z < int32_t(side) ? 1 : 0;
@@ -460,7 +467,8 @@ void shared_field_storage_is_bounded_per_preset() {
             return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 |
                    uint32_t(bytes[at + 2]) << 16 | uint32_t(bytes[at + 3]) << 24;
         };
-        const bool fine = oa::data::enhanced_mode::uses_distributed_battle_flow(c.version);
+        const bool fine =
+            match.enhanced_features().has(oa::data::enhanced_mode::Feature::routes_fine_regions);
         const uint32_t stride = fine ? 2 : 4;
         const uint32_t cells =
             ((c.width + stride - 1) / stride) * ((c.height + stride - 1) / stride);
@@ -482,13 +490,8 @@ void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, boo
     routes::FlowCache cache(
         16,
         16,
-        fixture_route_limits(match.rules().setup.enhanced_mode.version),
-        oa::data::enhanced_mode::uses_distributed_battle_flow(
-            match.rules().setup.enhanced_mode.version
-        )
-            ? routes::FlowPreset::fine_regions
-        : match.rules().setup.enhanced_mode.version >= 3 ? routes::FlowPreset::large_regions
-                                                         : routes::FlowPreset::original
+        fixture_route_limits(match.enhanced_features()),
+        fixture_route_preset(match.enhanced_features())
     );
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {

@@ -14,7 +14,7 @@ target_link_libraries(oa-sim-match-runtime PUBLIC oa-sim-unit-spawn oa-formats-c
 target_compile_features(oa-sim-match-runtime PUBLIC cxx_std_20)
 target_link_libraries(oa-sim-match-runtime PUBLIC oa-sim-air oa-data-persist oa-data-limits oa-data-match-rules oa-base-sha256)
 target_link_libraries(oa-sim-match-runtime PRIVATE oa-sim-selection)
-target_link_libraries(oa-sim-match-runtime PRIVATE oa-data-enhanced-mode)
+target_link_libraries(oa-sim-match-runtime PUBLIC oa-data-enhanced-mode)
 if(TARGET oa-options)
  target_link_libraries(oa-sim-match-runtime PUBLIC oa-options)
 endif()

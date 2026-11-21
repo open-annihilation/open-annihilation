@@ -14,6 +14,18 @@
 
 namespace oa::sim::match_runtime {
 
+/// Tells whether a feature set builds shared routes, with any of the three
+/// route builders.
+///
+/// @param features the match's Enhanced Mode features
+/// @return true when the set holds a route builder
+[[nodiscard]] constexpr bool
+builds_shared_routes(data::enhanced_mode::FeatureSet features) noexcept {
+    return features.has(data::enhanced_mode::Feature::routes_original) ||
+           features.has(data::enhanced_mode::Feature::routes_large_regions) ||
+           features.has(data::enhanced_mode::Feature::routes_fine_regions);
+}
+
 /// Preallocated v2 navigation and query storage, outside packed world records.
 struct Match::EnhancedState {
     /// Prepares shared bounded work once for the match's current simulation tick.

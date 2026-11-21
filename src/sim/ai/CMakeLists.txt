@@ -7,9 +7,8 @@ add_library(oa::sim::ai ALIAS oa-sim-ai)
 target_include_directories(oa-sim-ai PUBLIC include)
 target_compile_features(oa-sim-ai PUBLIC cxx_std_20)
 target_link_libraries(oa-sim-ai
-  PUBLIC oa-core-types oa-sim-detection oa-data-limits oa-data-match-rules
-  PRIVATE oa-sim-simulation-state oa-base-game-math oa-sim-unit-movement oa-sim-unit-health
-    oa-data-enhanced-mode)
+  PUBLIC oa-core-types oa-sim-detection oa-data-enhanced-mode oa-data-limits oa-data-match-rules
+  PRIVATE oa-sim-simulation-state oa-base-game-math oa-sim-unit-movement oa-sim-unit-health)
 if(TARGET oa-options)
   target_link_libraries(oa-sim-ai PRIVATE oa-options)
 endif()

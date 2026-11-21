@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/data/match_rules.hpp"
 #include "oa/sim/match_runtime/fault.hpp"
@@ -427,6 +428,8 @@ struct UnitValueHost {
     data::match_rules::MatchRulesView value_rules{};
     /// The capacities the match was built with (UnitValueServices::limits); null for 3.1c's.
     const data::limits::Limits* value_limits{};
+    /// The Enhanced Mode features the match plays (UnitValueServices::features); unset, none.
+    data::enhanced_mode::FeatureSet value_features{};
     /// Returns the world position of a script piece of the unit.
     ///
     /// @param slot Unit whose piece is asked for.

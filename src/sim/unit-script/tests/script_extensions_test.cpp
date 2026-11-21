@@ -7,6 +7,7 @@
 // reads them as 0; every SET still wakes the unit; and a script that walks
 // every unit id, as mod scripts do, sees the values through the interpreter.
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/test/check.hpp"
 #include "unit_script_fixture.hpp"
 
@@ -147,6 +148,8 @@ void enhanced_max_id_follows_allocated_ranges() {
     };
     OA_CHECK(highest() == limit * OA_PLAYER_COUNT);
     rules.setup.enhanced_mode.enabled = true;
+    services.features =
+        oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity);
     OA_CHECK(highest() == slots - 1);
     world->unit_slot_count = 0;
     OA_CHECK(highest() == 0);
