@@ -33,6 +33,7 @@
 #include "oa/sim/detection.hpp"
 #include "oa/sim/world_environment/wind.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/data/match_rules.hpp"
 #include "oa/sim/match_runtime/keyframe.hpp"
@@ -587,6 +588,14 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
 
     /// Returns cumulative Enhanced work counters; v1 reports its legacy searches.
     [[nodiscard]] EnhancedCounters enhanced_counters() const noexcept;
+
+    /// Returns the Enhanced Mode features the match plays, read from its
+    /// rules once when it is built.
+    ///
+    /// @return the features; the empty set when Enhanced Mode is off
+    [[nodiscard]] data::enhanced_mode::FeatureSet enhanced_features() const noexcept {
+        return enhanced_features_;
+    }
 
     /// Returns the effective local traffic route for network publication.
     ///
@@ -1297,7 +1306,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     ///
     /// @return player-slot mask fixed before the match starts; 0 in classic mode
     uint16_t unit_player_mask() const noexcept {
-        return input_.rules.setup.enhanced_mode.enabled ? input_.unit_player_mask : 0;
+        return enhanced_features_.has(data::enhanced_mode::Feature::capacity)
+                   ? input_.unit_player_mask
+                   : 0;
     }
 
     /// Runs the viewpoint player's contact scan: its own and radar-sharing
@@ -3848,6 +3859,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     uint16_t give_structure_batch(std::span<const StructureGift> batch);
 
     OfflineInputs input_;
+    // The Enhanced Mode features input_.rules play (enhanced_features), so
+    // that each check is one bit test.
+    data::enhanced_mode::FeatureSet enhanced_features_;
     OfflineServices& services_;
     // The unit types' and weapons' own rules (OfflineInputs::unit_type_rules,
     // weapon_rules), copied so the match keeps them.
@@ -3909,7 +3923,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         ///
         /// @param input Match inputs; inputs Match::input_error refuses
         ///     build the side tables without loading the types.
-        explicit State(const OfflineInputs& input);
+        /// @param features The Enhanced Mode features the inputs' rules play;
+        ///     capacity sizes the unit and shot pools.
+        explicit State(const OfflineInputs& input, data::enhanced_mode::FeatureSet features);
         /// Fills the UnitDef table from the FBI loader's records, or
         /// assembles each from the runtime type, and binds the category
         /// masks to this match's table.

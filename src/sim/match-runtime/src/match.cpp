@@ -19,11 +19,18 @@
 #include <memory>
 
 namespace oa::sim::match_runtime {
+using data::enhanced_mode::Feature;
+
 namespace {
 /// Bounds allocation before the constructor reports invalid match inputs.
-std::size_t projectile_pool_size(const OfflineInputs& input) noexcept {
-    if (!input.rules.setup.enhanced_mode.enabled ||
-        input.projectile_capacity < OA_PROJECTILE_CAPACITY ||
+///
+/// @param input the match inputs
+/// @param features the Enhanced Mode features their rules play
+/// @return the shot pool's size
+std::size_t projectile_pool_size(
+    const OfflineInputs& input, data::enhanced_mode::FeatureSet features
+) noexcept {
+    if (!features.has(Feature::capacity) || input.projectile_capacity < OA_PROJECTILE_CAPACITY ||
         input.projectile_capacity > sim::weapon_execution::maximum_projectile_capacity)
         return OA_PROJECTILE_CAPACITY;
     return input.projectile_capacity;
@@ -233,7 +240,7 @@ const char* Match::input_error(const OfflineInputs& input) noexcept {
         input.fields.size() != input.types.size() ||
         (!input.unit_defs.empty() && input.unit_defs.size() != input.types.size()))
         return "offline runtime type tables differ";
-    if (input.rules.setup.enhanced_mode.enabled) {
+    if (data::enhanced_mode::features(input.rules).has(Feature::capacity)) {
         if (sim::unit_spawn::unit_pool_size(input.per_player_limit, input.unit_player_mask) == 0)
             return "Enhanced Mode participants exceed the 15-bit unit id capacity";
         if (input.projectile_capacity < OA_PROJECTILE_CAPACITY ||
@@ -260,14 +267,14 @@ const char* Match::input_error(const OfflineInputs& input) noexcept {
     return nullptr;
 }
 
-Match::State::State(const OfflineInputs& input)
+Match::State::State(const OfflineInputs& input, data::enhanced_mode::FeatureSet features)
     : world(std::make_unique<oa::World>()),
       units(
-          input.rules.setup.enhanced_mode.enabled
+          features.has(Feature::capacity)
               ? sim::unit_spawn::unit_pool_size(input.per_player_limit, input.unit_player_mask)
               : sim::unit_spawn::unit_pool_size(input.per_player_limit)
       ),
-      unit_defs(input.types.size()), projectiles(projectile_pool_size(input)),
+      unit_defs(input.types.size()), projectiles(projectile_pool_size(input, features)),
       projectile_compaction_storage(
           projectiles.size() > OA_PROJECTILE_CAPACITY
               ? std::make_unique<int16_t[]>(projectiles.size())
@@ -317,7 +324,7 @@ Match::State::State(const OfflineInputs& input)
         player.energy_storage = 1000.0F;
         player.metal_storage = 1000.0F;
     }
-    if (input.rules.setup.enhanced_mode.enabled)
+    if (features.has(Feature::capacity))
         (void)sim::unit_spawn::init_unit_pool(
             *world, input.per_player_limit, input.unit_player_mask
         );
@@ -385,11 +392,13 @@ void Match::replace_unit_def(std::size_t type, const oa::UnitDef& record) {
 }
 
 Match::Match(const OfflineInputs& input, OfflineServices& services)
-    : input_(input), services_(services), state_(input), simulation_(state_.views->simulation()),
-      world_(state_.views->world()), slots_(state_.views->slots()), units_(state_.views->units()),
-      spatial_units_(slots_.size()), weapons_(slots_.size()), movement_(slots_.size()),
-      air_drivers_(slots_.size()), mirrored_air_goals_(slots_.size()), terrain_(input.map),
-      random_(input.random_seed), lcg_seed_(input.random_seed) {
+    : input_(input), enhanced_features_(data::enhanced_mode::features(input.rules)),
+      services_(services), state_(input, enhanced_features_),
+      simulation_(state_.views->simulation()), world_(state_.views->world()),
+      slots_(state_.views->slots()), units_(state_.views->units()), spatial_units_(slots_.size()),
+      weapons_(slots_.size()), movement_(slots_.size()), air_drivers_(slots_.size()),
+      mirrored_air_goals_(slots_.size()), terrain_(input.map), random_(input.random_seed),
+      lcg_seed_(input.random_seed) {
     target_observers_ = std::make_unique<RuntimeOrder*[]>(units_.size());
     if (const auto* refusal = input_error(input)) {
         fault_.note(refusal);
@@ -398,11 +407,22 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     keep_rules(input);
     keep_repair_remainders();
     keep_unit_rules();
-    if (input.rules.setup.enhanced_mode.enabled)
+    if (!enhanced_features_.empty())
         enhanced_ = std::make_unique<EnhancedState>();
-    if (enhanced_ && input.rules.setup.enhanced_mode.version >= 2) {
+    const bool local_flow = enhanced_ && enhanced_features_.has(Feature::local_flow);
+    const bool shared_routes = enhanced_ && builds_shared_routes(enhanced_features_);
+    if (local_flow) {
         enhanced_->unit_count = slots_.size();
+        enhanced_->local_flow_heads =
+            std::make_unique<sim::unit_movement::LocalFlowHead[]>(slots_.size());
+        enhanced_->local_flow_save_bytes =
+            std::make_unique<uint8_t[]>(slots_.size() * sim::unit_movement::local_flow_head_bytes);
+        enhanced_->local_flow_progress_bytes = std::make_unique<uint8_t[]>(slots_.size() * 4);
+        enhanced_->local_flow_progress_at_tick_start = std::make_unique<uint32_t[]>(slots_.size());
+    }
+    if (shared_routes)
         enhanced_->static_passability_memo = std::make_unique<StaticPassabilityMemo>();
+    if (enhanced_ && enhanced_features_.has(Feature::indexed_searches)) {
         enhanced_->order_ownership = std::make_unique<OrderOwnershipIndex>(slots_.size());
         constexpr size_t orders_per_unit = 4;
         orders_.reserve(slots_.size() * orders_per_unit);
@@ -410,12 +430,6 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         enhanced_->target_query_extras = std::make_unique<uint16_t[]>(slots_.size());
         enhanced_->target_sighting_membership =
             std::make_unique<uint8_t[]>(slots_.size() * OA_PLAYER_COUNT);
-        enhanced_->local_flow_heads =
-            std::make_unique<sim::unit_movement::LocalFlowHead[]>(slots_.size());
-        enhanced_->local_flow_save_bytes =
-            std::make_unique<uint8_t[]>(slots_.size() * sim::unit_movement::local_flow_head_bytes);
-        enhanced_->local_flow_progress_bytes = std::make_unique<uint8_t[]>(slots_.size() * 4);
-        enhanced_->local_flow_progress_at_tick_start = std::make_unique<uint32_t[]>(slots_.size());
         sighting_query_.reserve(slots_.size());
         for (size_t player = 0; player < seen_before_.size(); ++player) {
             seen_before_[player] = std::make_unique<sim::detection::SightedUnit[]>(slots_.size());
@@ -506,13 +520,10 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         static_cast<uint8_t>(input.visibility_flags & ~OA_VISIBILITY_FOG_MASK_CURRENT);
     spatial_.terrain_width = input.map.attribute_width;
     spatial_.terrain_height = input.map.attribute_height;
-    if (enhanced_ && input.rules.setup.enhanced_mode.version >= 2) {
-        constexpr int32_t regional_flow_version = 3;
+    if (shared_routes) {
         constexpr uint32_t fine_flow_field_limit = 80;
         constexpr uint32_t fine_flow_cell_limit = 8 * 1024 * 1024;
-        const bool fine_routes = data::enhanced_mode::uses_distributed_battle_flow(
-            input.rules.setup.enhanced_mode.version
-        );
+        const bool fine_routes = enhanced_features_.has(Feature::routes_fine_regions);
         auto flow_limits = sim::ground_orders::FlowLimits{};
         if (fine_routes) {
             flow_limits.fields = fine_flow_field_limit;
@@ -523,145 +534,143 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
             spatial_.terrain_height,
             flow_limits,
             fine_routes ? sim::ground_orders::FlowPreset::fine_regions
-            : input.rules.setup.enhanced_mode.version >= regional_flow_version
+            : enhanced_features_.has(Feature::routes_large_regions)
                 ? sim::ground_orders::FlowPreset::large_regions
                 : sim::ground_orders::FlowPreset::original
         );
-        const bool routes_added = add_rule_state(
-            rule_state_,
-            {"shared-routes",
-             enhanced_.get(),
-             [](void* context) {
-                 return static_cast<EnhancedState*>(context)->shared_routes->state_bytes();
-             },
-             [](void* context, std::span<const uint8_t> bytes) {
-                 auto& state = *static_cast<EnhancedState*>(context);
-                 if (!state.shared_routes->restore(bytes))
-                     return false;
-                 return true;
-             },
-             false}
-        );
-        const bool heads_added = add_rule_state(
-            rule_state_,
-            {"local-flow",
-             enhanced_.get(),
-             [](void* context) -> std::span<const uint8_t> {
-                 auto& state = *static_cast<EnhancedState*>(context);
-                 std::span<uint8_t> bytes{
-                     state.local_flow_save_bytes.get(),
-                     state.unit_count * sim::unit_movement::local_flow_head_bytes
-                 };
-                 if (!sim::unit_movement::write_local_flow_heads(
-                         {state.local_flow_heads.get(), state.unit_count}, bytes
-                     ))
-                     return {};
-                 return bytes;
-             },
-             [](void* context, std::span<const uint8_t> bytes) {
-                 auto& state = *static_cast<EnhancedState*>(context);
-                 return sim::unit_movement::read_local_flow_heads(
-                     {state.local_flow_heads.get(), state.unit_count}, bytes
-                 );
-             },
-             false}
-        );
-        const bool revision_added = add_rule_state(
-            rule_state_,
-            {"flow-map-version",
-             enhanced_.get(),
-             [](void* context) -> std::span<const uint8_t> {
-                 auto& state = *static_cast<EnhancedState*>(context);
-                 for (size_t byte = 0; byte < state.shared_static_revision_bytes.size(); ++byte)
-                     state.shared_static_revision_bytes[byte] =
-                         static_cast<uint8_t>(state.shared_static_revision >> (byte * 8));
-                 return state.shared_static_revision_bytes;
-             },
-             [](void* context, std::span<const uint8_t> bytes) {
-                 if (bytes.size() != 4)
-                     return false;
-                 auto& state = *static_cast<EnhancedState*>(context);
-                 state.shared_static_revision = 0;
-                 for (size_t byte = 0; byte < bytes.size(); ++byte)
-                     state.shared_static_revision |= static_cast<uint32_t>(bytes[byte])
-                                                     << (byte * 8);
-                 return true;
-             },
-             false}
-        );
-        const bool progress_added = add_rule_state(
-            rule_state_,
-            {"flow-progress",
-             this,
-             [](void* context) -> std::span<const uint8_t> {
-                 auto& match = *static_cast<Match*>(context);
-                 for (size_t id = 0; id < match.enhanced_->unit_count; ++id) {
-                     const auto* ground = match.ground_runtime(static_cast<uint16_t>(id));
-                     const auto tick = ground != nullptr ? ground->movement.last_motion_tick : 0;
-                     for (size_t byte = 0; byte < 4; ++byte)
-                         match.enhanced_->local_flow_progress_bytes[id * 4 + byte] =
-                             static_cast<uint8_t>(tick >> (byte * 8));
-                 }
-                 return {
-                     match.enhanced_->local_flow_progress_bytes.get(),
-                     match.enhanced_->unit_count * 4
-                 };
-             },
-             [](void* context, std::span<const uint8_t> bytes) {
-                 auto& match = *static_cast<Match*>(context);
-                 if (bytes.size() != match.enhanced_->unit_count * 4)
-                     return false;
-                 for (size_t id = 0; id < match.enhanced_->unit_count; ++id) {
-                     if (auto* ground = match.ground_runtime(static_cast<uint16_t>(id))) {
-                         uint32_t tick = 0;
-                         for (size_t byte = 0; byte < 4; ++byte)
-                             tick |= static_cast<uint32_t>(bytes[id * 4 + byte]) << (byte * 8);
-                         ground->movement.last_motion_tick = tick;
-                     }
-                 }
-                 return true;
-             },
-             false}
-        );
-        const bool scan_added = add_rule_state(
-            rule_state_,
-            {"shared-route-scan",
-             enhanced_.get(),
-             [](void* context) -> std::span<const uint8_t> {
-                 return static_cast<EnhancedState*>(context)->shared_route_scan_state;
-             },
-             [](void* context, std::span<const uint8_t> bytes) {
-                 auto& state = *static_cast<EnhancedState*>(context);
-                 if (bytes.size() != state.shared_route_scan_state.size() || bytes[0] > 1 ||
-                     (bytes[0] == 0 &&
-                      std::any_of(bytes.begin() + 1, bytes.end(), [](uint8_t byte) {
-                          return byte != 0;
-                      })))
-                     return false;
-                 std::copy(bytes.begin(), bytes.end(), state.shared_route_scan_state.begin());
-                 return true;
-             },
-             false}
-        );
-        if (!routes_added || !heads_added || !revision_added || !progress_added || !scan_added)
-            fault_.note("Enhanced navigation state could not be registered");
     }
-    if (enhanced_ &&
-        (input.rules.setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
-         data::enhanced_mode::uses_distributed_battle_flow(
-             input.rules.setup.enhanced_mode.version
-         ))) {
+    // A save restores these tables by name in the order they were added:
+    // keep this order.
+    const auto add_navigation_table = [this](bool used, const RuleStateTable& table) {
+        return !used || add_rule_state(rule_state_, table);
+    };
+    const bool routes_added = add_navigation_table(
+        shared_routes,
+        {"shared-routes",
+         enhanced_.get(),
+         [](void* context) {
+             return static_cast<EnhancedState*>(context)->shared_routes->state_bytes();
+         },
+         [](void* context, std::span<const uint8_t> bytes) {
+             auto& state = *static_cast<EnhancedState*>(context);
+             if (!state.shared_routes->restore(bytes))
+                 return false;
+             return true;
+         },
+         false}
+    );
+    const bool heads_added = add_navigation_table(
+        local_flow,
+        {"local-flow",
+         enhanced_.get(),
+         [](void* context) -> std::span<const uint8_t> {
+             auto& state = *static_cast<EnhancedState*>(context);
+             std::span<uint8_t> bytes{
+                 state.local_flow_save_bytes.get(),
+                 state.unit_count * sim::unit_movement::local_flow_head_bytes
+             };
+             if (!sim::unit_movement::write_local_flow_heads(
+                     {state.local_flow_heads.get(), state.unit_count}, bytes
+                 ))
+                 return {};
+             return bytes;
+         },
+         [](void* context, std::span<const uint8_t> bytes) {
+             auto& state = *static_cast<EnhancedState*>(context);
+             return sim::unit_movement::read_local_flow_heads(
+                 {state.local_flow_heads.get(), state.unit_count}, bytes
+             );
+         },
+         false}
+    );
+    const bool revision_added = add_navigation_table(
+        shared_routes,
+        {"flow-map-version",
+         enhanced_.get(),
+         [](void* context) -> std::span<const uint8_t> {
+             auto& state = *static_cast<EnhancedState*>(context);
+             for (size_t byte = 0; byte < state.shared_static_revision_bytes.size(); ++byte)
+                 state.shared_static_revision_bytes[byte] =
+                     static_cast<uint8_t>(state.shared_static_revision >> (byte * 8));
+             return state.shared_static_revision_bytes;
+         },
+         [](void* context, std::span<const uint8_t> bytes) {
+             if (bytes.size() != 4)
+                 return false;
+             auto& state = *static_cast<EnhancedState*>(context);
+             state.shared_static_revision = 0;
+             for (size_t byte = 0; byte < bytes.size(); ++byte)
+                 state.shared_static_revision |= static_cast<uint32_t>(bytes[byte]) << (byte * 8);
+             return true;
+         },
+         false}
+    );
+    const bool progress_added = add_navigation_table(
+        local_flow,
+        {"flow-progress",
+         this,
+         [](void* context) -> std::span<const uint8_t> {
+             auto& match = *static_cast<Match*>(context);
+             for (size_t id = 0; id < match.enhanced_->unit_count; ++id) {
+                 const auto* ground = match.ground_runtime(static_cast<uint16_t>(id));
+                 const auto tick = ground != nullptr ? ground->movement.last_motion_tick : 0;
+                 for (size_t byte = 0; byte < 4; ++byte)
+                     match.enhanced_->local_flow_progress_bytes[id * 4 + byte] =
+                         static_cast<uint8_t>(tick >> (byte * 8));
+             }
+             return {
+                 match.enhanced_->local_flow_progress_bytes.get(), match.enhanced_->unit_count * 4
+             };
+         },
+         [](void* context, std::span<const uint8_t> bytes) {
+             auto& match = *static_cast<Match*>(context);
+             if (bytes.size() != match.enhanced_->unit_count * 4)
+                 return false;
+             for (size_t id = 0; id < match.enhanced_->unit_count; ++id) {
+                 if (auto* ground = match.ground_runtime(static_cast<uint16_t>(id))) {
+                     uint32_t tick = 0;
+                     for (size_t byte = 0; byte < 4; ++byte)
+                         tick |= static_cast<uint32_t>(bytes[id * 4 + byte]) << (byte * 8);
+                     ground->movement.last_motion_tick = tick;
+                 }
+             }
+             return true;
+         },
+         false}
+    );
+    const bool scan_added = add_navigation_table(
+        shared_routes,
+        {"shared-route-scan",
+         enhanced_.get(),
+         [](void* context) -> std::span<const uint8_t> {
+             return static_cast<EnhancedState*>(context)->shared_route_scan_state;
+         },
+         [](void* context, std::span<const uint8_t> bytes) {
+             auto& state = *static_cast<EnhancedState*>(context);
+             if (bytes.size() != state.shared_route_scan_state.size() || bytes[0] > 1 ||
+                 (bytes[0] == 0 && std::any_of(bytes.begin() + 1, bytes.end(), [](uint8_t byte) {
+                      return byte != 0;
+                  })))
+                 return false;
+             std::copy(bytes.begin(), bytes.end(), state.shared_route_scan_state.begin());
+             return true;
+         },
+         false}
+    );
+    if (!routes_added || !heads_added || !revision_added || !progress_added || !scan_added)
+        fault_.note("Enhanced navigation state could not be registered");
+    if (enhanced_ && enhanced_features_.has(Feature::ai_strike_retarget)) {
         const bool retarget_added = add_rule_state(
             rule_state_,
             {"ai-retarget",
-             enhanced_.get(),
+             this,
              [](void* context) -> std::span<const uint8_t> {
-                 auto& state = *static_cast<EnhancedState*>(context);
-                 return state.ai_retarget.state_bytes(state.unit_count);
+                 auto& match = *static_cast<Match*>(context);
+                 return match.enhanced_->ai_retarget.state_bytes(match.slots_.size());
              },
              [](void* context, std::span<const uint8_t> bytes) {
-                 auto& state = *static_cast<EnhancedState*>(context);
-                 return state.ai_retarget.restore(bytes, state.unit_count);
+                 auto& match = *static_cast<Match*>(context);
+                 return match.enhanced_->ai_retarget.restore(bytes, match.slots_.size());
              },
              false}
         );
@@ -777,7 +786,7 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
 Match::~Match() = default;
 
 void Match::invalidate_target_query_extras() noexcept {
-    if (enhanced_)
+    if (enhanced_ && enhanced_features_.has(Feature::indexed_searches))
         enhanced_->target_query_extras_valid = false;
 }
 
@@ -805,10 +814,11 @@ EnhancedCounters Match::enhanced_counters() const noexcept {
 }
 
 const sim::unit_movement::LocalFlowHead* Match::local_flow_head(uint16_t unit) const noexcept {
-    if (!enhanced_ || unit >= enhanced_->unit_count)
+    if (!enhanced_ || !enhanced_features_.has(Feature::local_flow) || unit >= enhanced_->unit_count)
         return nullptr;
     const auto* head = &enhanced_->local_flow_heads[unit];
-    if (!head->active && enhanced_->advisory && enhanced_->advisory->published_guides[unit].active)
+    if (!head->active && enhanced_features_.has(Feature::corridor_lanes) && enhanced_->advisory &&
+        enhanced_->advisory->published_guides[unit].active)
         return &enhanced_->advisory->published_guides[unit];
     return head;
 }
@@ -1139,10 +1149,7 @@ void Match::assign_squad(sim::unit_spawn::Slot& slot, uint32_t group) {
         return;
     }
     auto& groups = groups_[owner];
-    bool indexed =
-        squad_positions_valid_ && rules().setup.enhanced_mode.enabled &&
-        (rules().setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
-         data::enhanced_mode::uses_distributed_battle_flow(rules().setup.enhanced_mode.version));
+    bool indexed = squad_positions_valid_ && enhanced_features_.has(Feature::squad_position_index);
     if (indexed && slot.record.squad == -1 && squad_positions_[slot.unit_index] != 0) {
         squad_positions_valid_ = false;
         indexed = false;
@@ -1254,7 +1261,7 @@ sim::unit_spawn::AssetHandle Match::create_movement(sim::unit_spawn::Slot& slot)
     driver = {};
     mirrored_air_goals_.at(slot.unit_index) = {};
     if (slot.unit->type && (slot.unit->type->flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0) {
-        if (enhanced_ && enhanced_->shared_routes)
+        if (enhanced_ && enhanced_features_.has(Feature::indexed_searches))
             enhanced_->air_goal_cleanup_required = true;
         if (runtime->mirrored_driver)
             sim::air::air_driver_init_mirrored(&driver, &slot.record);
