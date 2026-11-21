@@ -217,7 +217,8 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
         const auto& sightings = match.sightings_[owner];
         std::span<const uint16_t> seen{sightings.seen, sightings.seen_count};
         std::span<const uint16_t> radar{sightings.radar, sightings.radar_count};
-        if (match.enhanced_ && !match.enhanced_->shared_routes) {
+        if (match.enhanced_ &&
+            !match.enhanced_features_.has(data::enhanced_mode::Feature::indexed_searches)) {
             ++match.enhanced_->counters.target_queries;
             ++match.enhanced_->counters.target_full_scans;
         } else if (match.enhanced_) {
@@ -624,8 +625,7 @@ bool Match::issue_attack_command(
         host.resolve_order(sim::combat_state::attack_order_kind, request, aimed, nullptr);
     if (kind == 0)
         return false;
-    const auto& enhanced = rules().setup.enhanced_mode;
-    if (enhanced.enabled && data::enhanced_mode::uses_distributed_battle_flow(enhanced.version) &&
+    if (enhanced_features_.has(data::enhanced_mode::Feature::ai_attack_retention) &&
         enhanced_ != nullptr && enhanced_->ai_retarget.builtin_dispatch && !queue &&
         point == nullptr && kind == attack_chase_kind && from.unit->owner != nullptr &&
         from.unit->owner->record.index == enhanced_->ai_retarget.builtin_player &&
@@ -673,7 +673,8 @@ bool Match::issue_attack_command(
     // order on an allied unit fires at the point alone.
     const bool issued =
         !order_refused(issue_order(source_index, kind, queue, target_index, point, 0, 0));
-    if (issued && !queue && enhanced_ != nullptr)
+    if (issued && !queue && enhanced_ != nullptr &&
+        enhanced_features_.has(data::enhanced_mode::Feature::ai_strike_retarget))
         enhanced_->remember_ai_attack(*this, source_index, target_index);
     return issued;
 }

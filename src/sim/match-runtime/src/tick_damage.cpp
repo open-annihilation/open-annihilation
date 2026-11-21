@@ -538,8 +538,7 @@ void Match::record_death_statistics(
 
 void Match::release_target_observers(sim::simulation_state::Unit& target) {
     if (enhanced_ != nullptr &&
-        (rules().setup.enhanced_mode.version == data::enhanced_mode::battle_flow_version ||
-         data::enhanced_mode::uses_distributed_battle_flow(rules().setup.enhanced_mode.version)))
+        enhanced_features_.has(data::enhanced_mode::Feature::ai_strike_retarget))
         enhanced_->ai_retarget.lose_target(
             static_cast<uint16_t>(oa::world_unit_slot(&state(), &target.record))
         );
@@ -843,7 +842,8 @@ void Match::teardown_dead_unit(
     // A match that has never held an air goal has no air target pointers
     // to clear. Once a flying driver or air goal exists, keep every sweep:
     // an arrived copy can outlive the driver's current goal.
-    if (!enhanced_ || !enhanced_->shared_routes || enhanced_->air_goal_cleanup_required) {
+    if (!enhanced_ || !enhanced_features_.has(data::enhanced_mode::Feature::indexed_searches) ||
+        enhanced_->air_goal_cleanup_required) {
         for (auto& order : orders_)
             if (order)
                 sim::air::air_goal_unlink(&order->air_goal, &slot.record);

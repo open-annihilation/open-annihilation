@@ -218,7 +218,7 @@ void Match::scan_contacts_for(const oa::Player& viewer, bool scan_own_units) {
     // The bucket walk reads canonical positions and projected links only.
     // Stamp and jam visitors change flags, so Enhanced Mode can retain the
     // links throughout the pass without the bounded visited-list fallback.
-    const bool reuse_projections = rules().setup.enhanced_mode.enabled;
+    const bool reuse_projections = enhanced_features_.has(data::enhanced_mode::Feature::capacity);
     walk.match = this;
     const auto walk_radius = [&](const sim::ground_orders::Point& centre,
                                  int32_t radius,
@@ -473,7 +473,7 @@ void Match::scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool sc
     // positions or bucket links change during the pass, so Enhanced Mode
     // prepares the projections at its first query and reuses them for every
     // later scanner and jammer, in the same bucket order.
-    const bool reuse_projections = rules().setup.enhanced_mode.enabled;
+    const bool reuse_projections = enhanced_features_.has(data::enhanced_mode::Feature::capacity);
     bool projected = false;
     const auto scan_radius = [&](const sim::ground_orders::Point& centre,
                                  int32_t radius,

@@ -352,7 +352,7 @@ sim::simulation_state::Order& Match::restore_saved_order(
         break;
     }
     case data::persist::SavedGoalKind::air_target: {
-        if (enhanced_ && enhanced_->shared_routes)
+        if (enhanced_ && enhanced_features_.has(data::enhanced_mode::Feature::indexed_searches))
             enhanced_->air_goal_cleanup_required = true;
         auto& air_goal = entry->air_goal;
         const auto& from = goal.air_target;
@@ -372,7 +372,7 @@ sim::simulation_state::Order& Match::restore_saved_order(
         break;
     }
     case data::persist::SavedGoalKind::air_seek: {
-        if (enhanced_ && enhanced_->shared_routes)
+        if (enhanced_ && enhanced_features_.has(data::enhanced_mode::Feature::indexed_searches))
             enhanced_->air_goal_cleanup_required = true;
         auto& air_goal = entry->air_goal;
         const auto& from = goal.air_seek;
