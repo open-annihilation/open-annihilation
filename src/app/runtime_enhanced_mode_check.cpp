@@ -1121,7 +1121,6 @@ void Runtime::check_enhanced_mode() {
     const auto kept_version = options_.enhanced_mode_version;
     const auto kept_revision = options_.enhanced_revision;
     const auto kept_features = options_.enhanced_features;
-    const bool kept_features_alias = options_.enhanced_features_alias;
     const oa::data::mutators::MutatorHack feature_hack{
         "ridge", "setup.enhanced-mode.features", "[capacity]"
     };
@@ -1142,7 +1141,6 @@ void Runtime::check_enhanced_mode() {
     options_.enhanced_mode_version.reset();
     options_.enhanced_revision = mode::highest_revision;
     options_.enhanced_features.reset();
-    options_.enhanced_features_alias = false;
     {
         oa::ui::engine_settings::EngineSettings playing = engine_settings();
         playing.enhanced_mode = true;
@@ -1163,7 +1161,6 @@ void Runtime::check_enhanced_mode() {
     options_.enhanced_mode_version = kept_version;
     options_.enhanced_revision = kept_revision;
     options_.enhanced_features = kept_features;
-    options_.enhanced_features_alias = kept_features_alias;
     apply_hack_overrides();
     std::puts("Enhanced Mode: mutator checks keep Revision 1 and an alias set");
     std::puts(

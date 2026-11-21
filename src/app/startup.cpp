@@ -318,6 +318,7 @@ void check_game_files_options(Options& options) {
         {options.check_mutator_button, "--check-mutator-button"},
         {options.check_mutator_room, "--check-mutator-room"},
         {options.check_brain_room, "--check-brain-room"},
+        {options.check_enhanced_room, "--check-enhanced-room"},
         {options.check_map_pack_lists, "--check-map-pack-lists"},
         {options.check_mod_map_settings, "--check-mod-map-settings"},
         {options.check_mod_warning, "--check-mod-warning"},
@@ -817,6 +818,7 @@ void check_director_options(Options& options) {
         {options.check_mutator_button, "--check-mutator-button"},
         {options.check_mutator_room, "--check-mutator-room"},
         {options.check_brain_room, "--check-brain-room"},
+        {options.check_enhanced_room, "--check-enhanced-room"},
         {options.check_map_pack_lists, "--check-map-pack-lists"},
         {options.check_mod_map_settings, "--check-mod-map-settings"},
         {options.check_mod_warning, "--check-mod-warning"},
@@ -966,6 +968,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_mutator_button, "--check-mutator-button"},
             {options.check_mutator_room, "--check-mutator-room"},
             {options.check_brain_room, "--check-brain-room"},
+            {options.check_enhanced_room, "--check-enhanced-room"},
             {options.check_map_pack_lists, "--check-map-pack-lists"},
             {options.check_mod_map_settings, "--check-mod-map-settings"},
             {options.check_mod_warning, "--check-mod-warning"},
@@ -1137,6 +1140,8 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-mutator-button", &Options::check_mutator_button},
     {"--check-mutator-room", &Options::check_mutator_room},
     {"--check-brain-room", &Options::check_brain_room},
+    {"--check-enhanced-room", &Options::check_enhanced_room},
+    {"--presence-without-enhanced-mode", &Options::presence_without_enhanced_mode},
     {"--check-mutator-picker", &Options::check_mutator_picker},
     {"--check-brain-picker", &Options::check_brain_picker},
     {"--check-brain-seat-buttons", &Options::check_brain_seat_buttons},
@@ -1329,6 +1334,139 @@ take_folder_option(std::string_view argument, ArgumentCursor& cursor, Options& o
     return false;
 }
 
+/// Closes a --benchmark-features specification into the set the benchmark plays.
+///
+/// The text is comma-separated. Leading unsigned items are the base: one
+/// `v<N>` for an old alias version, or feature names. `+name` and `-name`
+/// then apply in order. The result is closed. A removal that closing puts
+/// back is refused, naming the member that needs it.
+///
+/// @param text the flag's text
+/// @param[in,out] options the options read so far
+void take_benchmark_features(std::string_view text, Options& options) {
+    using namespace oa::data::enhanced_mode;
+    options.benchmark_options_named = true;
+    if (text.empty())
+        throw std::runtime_error("--benchmark-features expects a feature set");
+    options.benchmark_features_spec = std::string(text);
+
+    std::vector<std::string_view> items;
+    for (std::size_t start = 0; start <= text.size();) {
+        const auto comma = text.find(',', start);
+        items.push_back(text.substr(
+            start, comma == std::string_view::npos ? text.size() - start : comma - start
+        ));
+        if (comma == std::string_view::npos)
+            break;
+        start = comma + 1;
+        if (start == text.size()) {
+            items.emplace_back();
+            break;
+        }
+    }
+
+    const auto known_names = [] {
+        std::string names;
+        for (const FeatureInfo& row : feature_table()) {
+            if (!names.empty())
+                names += ", ";
+            names += row.name;
+        }
+        return names;
+    };
+    const auto unknown_feature = [&](std::string_view name) {
+        throw std::runtime_error(
+            "--benchmark-features: unknown feature '" + std::string(name) +
+            "'; known features: " + known_names()
+        );
+    };
+
+    bool base_closed = false;
+    bool saw_version = false;
+    bool saw_name = false;
+    FeatureSet set;
+    FeatureSet removed;
+    for (const std::string_view item : items) {
+        if (item.empty())
+            throw std::runtime_error("--benchmark-features has an empty item");
+        const bool addition = item.front() == '+';
+        const bool removal = item.front() == '-';
+        if (addition || removal) {
+            if (!saw_version && !saw_name)
+                throw std::runtime_error(
+                    "--benchmark-features starts with a version or feature names"
+                );
+            base_closed = true;
+            const std::string_view name = item.substr(1);
+            const auto feature = feature_by_name(name);
+            if (!feature)
+                unknown_feature(name);
+            else if (addition) {
+                set = set.with(*feature);
+                removed = removed.without(*feature);
+            } else {
+                set = set.without(*feature);
+                removed = removed.with(*feature);
+            }
+            continue;
+        }
+        if (base_closed)
+            throw std::runtime_error("--benchmark-features applies additions after the base");
+        if (item.front() == 'v') {
+            if (saw_version || saw_name)
+                throw std::runtime_error(
+                    "--benchmark-features takes one version or a list of feature names"
+                );
+            uint32_t version = 0;
+            const auto* const begin = item.data() + 1;
+            const auto* const end = item.data() + item.size();
+            const auto parsed = std::from_chars(begin, end, version);
+            const auto named = version_features(version);
+            if (item.size() < 2 || parsed.ec != std::errc{} || parsed.ptr != end || named.empty())
+                throw std::runtime_error(
+                    "--benchmark-features: " + std::string(item) +
+                    " is not an old version with a feature set"
+                );
+            saw_version = true;
+            set = named;
+            continue;
+        }
+        if (saw_version)
+            throw std::runtime_error(
+                "--benchmark-features takes one version or a list of feature names"
+            );
+        const auto feature = feature_by_name(item);
+        if (!feature)
+            unknown_feature(item);
+        else {
+            saw_name = true;
+            set = set.with(*feature);
+        }
+    }
+
+    const FeatureSet closed = close_features(set);
+    const FeatureSet restored = (closed - set);
+    for (const FeatureInfo& row : feature_table()) {
+        if (!restored.has(row.id) || !removed.has(row.id))
+            continue;
+        std::string_view needer;
+        for (const FeatureInfo& member : feature_table()) {
+            if (member.id == row.id || !closed.has(member.id))
+                continue;
+            if (member.needs.has(row.id)) {
+                needer = member.name;
+                break;
+            }
+        }
+        throw std::runtime_error(
+            "--benchmark-features: " + std::string(needer) + " needs " + std::string(row.name)
+        );
+    }
+    if (const char* problem = feature_set_problem(closed))
+        throw std::runtime_error(std::string("--benchmark-features: ") + problem);
+    options.benchmark_features = closed;
+}
+
 /// Reads an option that sets how long a run lasts and how it draws: its
 /// frames, its frame rates, its window and the threads that draw.
 ///
@@ -1341,6 +1479,10 @@ take_folder_option(std::string_view argument, ArgumentCursor& cursor, Options& o
 take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& options) {
     if (argument == "--enhanced-mode" || argument == "--no-enhanced-mode") {
         options.enhanced_mode = argument == "--enhanced-mode";
+        if (argument == "--no-enhanced-mode")
+            options.enhanced_mode_off_switch = "--no-enhanced-mode";
+        else
+            options.enhanced_mode_off_switch.clear();
         return true;
     }
     constexpr std::string_view enhanced_prefix = "--enhanced-mode=";
@@ -1349,6 +1491,10 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         if (value != "on" && value != "off")
             throw std::runtime_error("--enhanced-mode takes on or off");
         options.enhanced_mode = value == "on";
+        if (value == "off")
+            options.enhanced_mode_off_switch = "--enhanced-mode=off";
+        else
+            options.enhanced_mode_off_switch.clear();
         return true;
     }
     if (argument == "--enhanced-mode-version") {
@@ -1377,20 +1523,10 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.enhanced_revision = revision;
         return true;
     }
-    if (argument == "--enhanced-features" || argument == "--benchmark-features") {
-        const bool alias = argument == "--benchmark-features";
+    if (argument == "--enhanced-features") {
         const std::string text(option_value(cursor));
-        if (options.enhanced_features && *options.enhanced_features != text) {
-            if (alias || options.enhanced_features_alias)
-                throw std::runtime_error(
-                    "--benchmark-features is another name for --enhanced-features"
-                );
+        if (options.enhanced_features && *options.enhanced_features != text)
             throw std::runtime_error("--enhanced-features cannot name different feature lists");
-        }
-        if (!options.enhanced_features)
-            options.enhanced_features_alias = alias;
-        else if (!alias)
-            options.enhanced_features_alias = false;
         options.enhanced_features = text;
         return true;
     }
@@ -1425,6 +1561,10 @@ take_frame_option(std::string_view argument, ArgumentCursor& cursor, Options& op
                 "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8, 10, 11 or 13"
             );
         options.benchmark_rules_version = version;
+        return true;
+    }
+    if (argument == "--benchmark-features") {
+        take_benchmark_features(option_value(cursor), options);
         return true;
     }
     if (argument == "--benchmark-scenario") {
@@ -2020,6 +2160,7 @@ void write_startup_line(std::string_view text) {
     // --host, --join and --net-loopback-check belong to the netgame extension.
     // Noting them here does not consume them.
     bool battle_room = false;
+    std::string network_launch;
     const auto take_acceleration = [&](std::string_view text, HardwareAcceleration level) {
         result.hardware_acceleration = level;
         if (!acceleration_first)
@@ -2029,6 +2170,9 @@ void write_startup_line(std::string_view text) {
     };
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
+        if (network_launch.empty() &&
+            (argument == "--host" || argument == "--join" || argument == "--net-loopback-check"))
+            network_launch = std::string(argument);
         ArgumentCursor cursor{argc, argv, &index, argument};
         // The engine's options come before an extension's. Each is matched
         // by its whole name, so no two of them can take the same argument.
@@ -2120,7 +2264,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-brain-seat-buttons] "
                      "[--check-brain-campaign] "
                      "[--check-mutator-prompts] [--check-mutator-dry-run] "
-                     "[--check-mutator-room] [--check-brain-room] [--check-mod-warning] "
+                     "[--check-mutator-room] [--check-brain-room] [--check-enhanced-room] "
+                     "[--presence-without-enhanced-mode] [--check-mod-warning] "
                      "[--check-mod-install] [--check-language-install] [--check-challenge] "
                      "[--check-registries] "
                      "[--check-library] [--check-library-install] "
@@ -2382,11 +2527,36 @@ void write_startup_line(std::string_view text) {
             throw std::runtime_error("--battle-benchmark needs at least one measured tick");
         if (!result.seed)
             result.seed = kFixedRandomSeed;
+        if (result.benchmark_features) {
+            if (result.benchmark_rules_version != 0)
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with --benchmark-rules-version"
+                );
+            if (result.enhanced_mode_version)
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with --enhanced-mode-version"
+                );
+            if (!result.enhanced_mode_off_switch.empty())
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with " + result.enhanced_mode_off_switch
+                );
+            if (!result.enhanced_mode || !*result.enhanced_mode)
+                throw std::runtime_error("--benchmark-features needs Enhanced Mode");
+            if (result.enhanced_revision || result.enhanced_features)
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with --enhanced-revision or "
+                    "--enhanced-features"
+                );
+            if (!network_launch.empty())
+                throw std::runtime_error(
+                    "--benchmark-features cannot be used with " + network_launch
+                );
+        }
     } else if (result.benchmark_options_named) {
         throw std::runtime_error(
             "--benchmark-units, --benchmark-warmup, --benchmark-rules-version, "
-            "--benchmark-scenario, --benchmark-map and --benchmark-crossing need "
-            "--battle-benchmark"
+            "--benchmark-scenario, --benchmark-map, --benchmark-crossing and "
+            "--benchmark-features need --battle-benchmark"
         );
     }
     if (result.campaign_mission.has_value() != !result.campaign.empty())
@@ -2591,13 +2761,14 @@ void write_startup_line(std::string_view text) {
         result.check_map_browser || result.check_key_editor || result.check_replay_viewer ||
         result.check_key_capture || result.check_key_share || result.check_key_views ||
         result.check_keys_overlay || result.check_mutator_button || result.check_mutator_room ||
-        result.check_brain_room || result.check_mutator_picker || result.check_brain_picker ||
-        result.check_picture_frames || result.check_brain_seat_buttons ||
-        result.check_brain_campaign || result.check_mutator_prompts ||
-        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
-        result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap ||
-        result.check_build_past_edge || result.check_selection_keys ||
-        result.check_factory_departure || result.check_build_page_fallback;
+        result.check_brain_room || result.check_enhanced_room || result.check_mutator_picker ||
+        result.check_brain_picker || result.check_picture_frames ||
+        result.check_brain_seat_buttons || result.check_brain_campaign ||
+        result.check_mutator_prompts || result.check_map_pack_lists ||
+        result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||
+        result.check_mod_limits || result.check_click_snap || result.check_build_past_edge ||
+        result.check_selection_keys || result.check_factory_departure ||
+        result.check_build_page_fallback;
     // The Library's Replays section, a replay opened into it, a replay that
     // fetches what it needs and Core Prime's replays are walked on the fixed
     // clock too.

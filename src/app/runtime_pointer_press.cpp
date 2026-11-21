@@ -324,8 +324,8 @@ std::string_view Runtime::issue_selection_orders(
     const auto count = input::selection_orders(
         world, command, order_cursor_hooks(), orders.data(), static_cast<uint32_t>(orders.size())
     );
-    if (ground && oa::data::enhanced_mode::features(match_->rules())
-                      .has(oa::data::enhanced_mode::Feature::group_destination_repair))
+    if (ground &&
+        match_->enhanced_features().has(oa::data::enhanced_mode::Feature::group_destination_repair))
         distribute_group_order_destinations({orders.data(), count}, *ground);
     std::optional<oa::sim::ground_orders::Point> target_point;
     if (bound != 0) {
@@ -587,7 +587,7 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
         return order_point(formation);
     const auto& world = match_->state();
     const auto position = fixed_point(point);
-    const auto features = oa::data::enhanced_mode::features(match_->rules());
+    const auto features = match_->enhanced_features();
     const bool ground_order = order == input::UnitOrder::move_ground ||
                               order == input::UnitOrder::patrol ||
                               order == input::UnitOrder::repair_patrol;
@@ -638,7 +638,7 @@ void Runtime::distribute_group_order_destinations(
 ) {
     if (!match_)
         return;
-    const auto features = oa::data::enhanced_mode::features(match_->rules());
+    const auto features = match_->enhanced_features();
     if (features.empty())
         return;
     if (!features.has(oa::data::enhanced_mode::Feature::distributed_arrivals)) {

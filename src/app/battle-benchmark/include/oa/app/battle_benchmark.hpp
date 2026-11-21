@@ -431,8 +431,15 @@ struct Report {
     uint32_t enhanced_version{};
     /// The Enhanced Mode revision the match played. Zero is Off.
     uint32_t enhanced_revision{};
-    /// Feature names in id order, snake_case, empty when the mode is off.
+    /// The features the match played, snake_case in id order; empty when the
+    /// mode is off.
     std::vector<std::string> enhanced_features{};
+    /// Text of --benchmark-features, or empty when that flag was not given.
+    std::string played_feature_spec{};
+    /// True when --benchmark-features chose the set the match played.
+    bool played_feature_override{};
+    /// Distinct data-fault lines reported by the end of the run.
+    uint64_t data_faults{};
     std::string simulation_hash{};
     std::string world_digest{};
     std::string renderer{"none"};

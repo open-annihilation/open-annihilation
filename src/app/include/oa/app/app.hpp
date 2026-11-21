@@ -5,6 +5,7 @@
 #pragma once
 
 #include "oa/app/command_line.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_state/game_entry.hpp"
@@ -413,8 +414,6 @@ struct Options {
     std::optional<uint32_t> enhanced_revision{};
     /// A feature list for this launch: names, or items that each start with + or -.
     std::optional<std::string> enhanced_features{};
-    /// The stored feature list was given with --benchmark-features, the alias.
-    bool enhanced_features_alias{};
     /// A deterministic, simulation-only benchmark writes its JSON report here.
     fs::path battle_benchmark_report{};
     /// Total initial units per side, including each side's commander.
@@ -423,6 +422,12 @@ struct Options {
     std::size_t benchmark_warmup{30};
     /// Explicit Enhanced rules version for a benchmark; zero uses the selected mode.
     uint32_t benchmark_rules_version{};
+    /// Text of --benchmark-features, or empty when that flag was not given.
+    std::string benchmark_features_spec{};
+    /// The closed set --benchmark-features names. Set only with the spec.
+    std::optional<oa::data::enhanced_mode::FeatureSet> benchmark_features{};
+    /// The switch that last turned Enhanced Mode off on this line, if one did.
+    std::string enhanced_mode_off_switch{};
     /// Workload: idle, march, group-march, combat or stage.
     std::string benchmark_scenario{"combat"};
     /// Map selected explicitly instead of the remembered skirmish choice.
@@ -970,6 +975,15 @@ struct Options {
     // button, the greyed difficulty, the picker, the card and the record
     // this machine sends, at 640x480 and 1280x720.
     bool check_brain_room = false;
+    // Hosts a battle room alone and requires the Enhanced Mode switch right
+    // of BATTLE ROOM at 640x480 and 1280x720: its place, words, lamp and
+    // states, a seated 3.1c Visitor and an Open Annihilation Visitor without
+    // a revision each turning the room Off with its line, and the lines in
+    // each language 3.1c ships with.
+    bool check_enhanced_room = false;
+    // Sends no Enhanced Mode revision in the battle room's presence record,
+    // as Open Annihilation 0.9.2 and older do. For the battle room's checks.
+    bool presence_without_enhanced_mode = false;
     // Installs one map pack from the check's own registry while both map
     // lists already exist. Requires the map whose stem has a space, an
     // apostrophe and parentheses in both lists, under its index title,

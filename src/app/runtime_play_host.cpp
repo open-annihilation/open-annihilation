@@ -1036,7 +1036,7 @@ struct PlayHostAccess {
             oa::sim::gameplay_input::GroupCentre centre{};
             const bool shaped =
                 request.kind == PlayOrderKind::move || request.kind == PlayOrderKind::patrol;
-            const auto features = oa::data::enhanced_mode::features(app.match_->rules());
+            const auto features = app.match_->enhanced_features();
             const bool repair_formation =
                 features.has(oa::data::enhanced_mode::Feature::group_destination_repair) &&
                 !features.has(oa::data::enhanced_mode::Feature::distributed_arrivals);

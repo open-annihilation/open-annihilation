@@ -240,7 +240,8 @@ const char* Match::input_error(const OfflineInputs& input) noexcept {
         input.fields.size() != input.types.size() ||
         (!input.unit_defs.empty() && input.unit_defs.size() != input.types.size()))
         return "offline runtime type tables differ";
-    if (data::enhanced_mode::features(input.rules).has(Feature::capacity)) {
+    if (input.enhanced_features_override.value_or(data::enhanced_mode::features(input.rules))
+            .has(Feature::capacity)) {
         if (sim::unit_spawn::unit_pool_size(input.per_player_limit, input.unit_player_mask) == 0)
             return "Enhanced Mode participants exceed the 15-bit unit id capacity";
         if (input.projectile_capacity < OA_PROJECTILE_CAPACITY ||
@@ -392,7 +393,10 @@ void Match::replace_unit_def(std::size_t type, const oa::UnitDef& record) {
 }
 
 Match::Match(const OfflineInputs& input, OfflineServices& services)
-    : input_(input), enhanced_features_(data::enhanced_mode::features(input.rules)),
+    : input_(input),
+      enhanced_features_(
+          input.enhanced_features_override.value_or(data::enhanced_mode::features(input.rules))
+      ),
       services_(services), state_(input, enhanced_features_),
       simulation_(state_.views->simulation()), world_(state_.views->world()),
       slots_(state_.views->slots()), units_(state_.views->units()), spatial_units_(slots_.size()),

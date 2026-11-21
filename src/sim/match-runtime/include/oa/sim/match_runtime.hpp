@@ -270,6 +270,8 @@ struct OfflineInputs {
     // The mutator digest of the match, folded into the state digest when
     // set. None when the match applied no mutator.
     std::optional<base::sha256::Digest> mutator_digest{};
+    /// The battle benchmark only; R05 replaces it.
+    std::optional<data::enhanced_mode::FeatureSet> enhanced_features_override{};
 };
 
 /// Returns a canonical 16.16 point as the raw words the legacy views use.
@@ -589,8 +591,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Returns cumulative Enhanced work counters; v1 reports its legacy searches.
     [[nodiscard]] EnhancedCounters enhanced_counters() const noexcept;
 
-    /// Returns the Enhanced Mode features the match plays, read from its
-    /// rules once when it is built.
+    /// Returns the Enhanced Mode features the match plays.
     ///
     /// @return the features; the empty set when Enhanced Mode is off
     [[nodiscard]] data::enhanced_mode::FeatureSet enhanced_features() const noexcept {
@@ -3859,8 +3860,8 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     uint16_t give_structure_batch(std::span<const StructureGift> batch);
 
     OfflineInputs input_;
-    // The Enhanced Mode features input_.rules play (enhanced_features), so
-    // that each check is one bit test.
+    // The Enhanced Mode features the match plays, so that each check is one
+    // bit test. A battle benchmark may name them apart from the rules.
     data::enhanced_mode::FeatureSet enhanced_features_;
     OfflineServices& services_;
     // The unit types' and weapons' own rules (OfflineInputs::unit_type_rules,

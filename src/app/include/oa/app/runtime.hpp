@@ -98,6 +98,7 @@
 #include "oa/app/replay_watch.hpp"
 #include "oa/app/seat_chat.hpp"
 #include "oa/ui/frontend_multiplayer/host_mutators.hpp"
+#include "oa/ui/frontend_multiplayer/room_enhanced.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/sim/messages.hpp"
@@ -7394,6 +7395,58 @@ class Runtime final : public menu::Host,
     /// mounted.
     void release_room_mutators() noexcept;
 
+    /// Follows the battle room's Enhanced Mode, once a frame.
+    ///
+    /// While a battle room shows, this machine resolves the room's revision
+    /// (resolve_enhanced_room): the host from its switch, the launch's lock
+    /// and every seated machine's highest revision; a guest from the
+    /// revision the host's record announces, Off until it arrives. Each
+    /// change of the revision holds that revision's rules for the room's
+    /// next match, never this machine's own Settings, and the room's lines
+    /// are posted in the chat and written to the log, once per change.
+    /// Leaving the room without a match releases the hold; a match that
+    /// starts keeps it until it ends. Keeps the switch on the OA layer.
+    void follow_room_enhanced();
+
+    /// The highest Enhanced Mode revision this machine announces in its
+    /// presence record (field 0x26), whatever its own Settings say.
+    ///
+    /// @return the highest revision this build plays; nothing under
+    ///     --presence-without-enhanced-mode, which stands in for an older build
+    [[nodiscard]] std::optional<uint32_t> announced_enhanced_revision() const noexcept;
+
+    /// The room's revision this machine announces as a host (field 0x27).
+    ///
+    /// @return the revision while this machine hosts a battle room that plays
+    ///     one; nothing otherwise, so an Off room's record is unchanged
+    [[nodiscard]] std::optional<uint32_t> room_enhanced_announcement() const noexcept;
+
+    /// The Enhanced Mode choice the battle room holds for its next match.
+    ///
+    /// @return revision 0 for Off, or a revision and its features; nothing
+    ///     outside a battle room, or while no choice could be held
+    [[nodiscard]] std::optional<oa::data::enhanced_mode::Choice> room_enhanced_choice() const;
+
+    /// The battle room's Enhanced Mode as this machine last resolved it.
+    ///
+    /// @return the room; nothing outside a battle room
+    [[nodiscard]] std::optional<oa::ui::frontend_multiplayer::EnhancedRoom>
+    room_enhanced_state() const;
+
+    /// Tells whether the host's Enhanced Mode switch is on.
+    ///
+    /// @return the switch; false outside a battle room and on a guest
+    [[nodiscard]] bool room_enhanced_switch() const noexcept;
+
+    /// Turns the host's Enhanced Mode switch on or off.
+    ///
+    /// Only the host's switch turns, and not while a launch locks the room's
+    /// options. The next follow resolves the room again.
+    ///
+    /// @param on the switch
+    /// @return true when the switch took the change
+    bool set_room_enhanced_switch(bool on);
+
     /// Mounts the layer the battle room would build for the run's chosen list.
     ///
     /// For a check that runs the battle room's unit sync without showing
@@ -9658,6 +9711,28 @@ class Runtime final : public menu::Host,
     /// Any Mission or the host's battle room shows: pushes it when the layer
     /// has none. OaLayer::tick calls it once a frame.
     void keep_mutator_button_screen();
+
+    /// The battle room's Enhanced Mode switch, a screen of the OA layer named
+    /// enhanced-room: a label "Enhanced Mode" over a switch drawn like the
+    /// settings column's options, with the OA stamp, reading the room's
+    /// revision or "Off", right of BATTLE ROOM; the reason that keeps the
+    /// room Off or lower beside it; and, on the host, the waiting line
+    /// beside START.
+    struct EnhancedRoomScreen;
+
+    /// Keeps the Enhanced Mode switch on the OA layer while a battle room
+    /// shows: pushes it when the layer has none. follow_room_enhanced calls it.
+    void keep_enhanced_room_screen();
+
+    /// Runs --check-enhanced-room: a battle room hosted alone at 640x480 and
+    /// 1280x720, the switch's place, words, lamp and states, a seated 3.1c
+    /// Visitor and an Open Annihilation Visitor without a revision each
+    /// turning the room Off with its line, and the lines in each language
+    /// 3.1c ships with. Writes enhanced-room-<state>-<w>x<h>.png in the
+    /// working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_enhanced_room();
 
     /// Runs --check-mutator-button: the button on SKIRMISH and NEWGAME at
     /// 640x480 and 1280x720, the focus hand-over, the remembered set, and
@@ -23698,6 +23773,23 @@ class Runtime final : public menu::Host,
     // The Mutators button, while that screen exists. The screen sets it as
     // it is made and clears it as it goes. Brain seats hand Tab through it.
     MutatorButtonScreen* mutator_button_screen_ = nullptr;
+
+    /// The battle room's Enhanced Mode, as follow_room_enhanced keeps it.
+    struct RoomEnhanced {
+        bool entered{};   ///< a battle room is being followed
+        bool hosting{};   ///< this machine hosts it
+        bool switch_on{}; ///< the host's switch
+        /// The room as last resolved; nothing before the first resolution.
+        std::optional<oa::ui::frontend_multiplayer::EnhancedRoom> room{};
+        bool held{};              ///< the room's choice is held
+        uint32_t held_revision{}; ///< the revision held; 0 is Off
+        bool hold_refused{};      ///< a hold failed and was reported once
+    };
+
+    RoomEnhanced room_enhanced_{};
+    // The Enhanced Mode switch, while that screen exists. The screen sets it
+    // as it is made and clears it as it goes.
+    EnhancedRoomScreen* enhanced_room_screen_ = nullptr;
     Screen briefing_parent_ = Screen::new_campaign;
     bool briefing_from_pause_ = false;
     std::string briefing_text_{};
@@ -24493,6 +24585,9 @@ class Runtime final : public menu::Host,
     /// The faults of the game data the run has logged, by their lines
     /// (report_data_fault).
     std::set<std::string> reported_data_faults_{};
+    /// The feature set a battle benchmark plays. Set only inside that run
+    /// and cleared on the way out. Empty for every other match.
+    std::optional<oa::data::enhanced_mode::FeatureSet> benchmark_feature_set_{};
     // The GUI context's cursor and pointer, with the picture the software
     // cursor shows and the cursor table index of the animation shown; the
     // runtime keeps them in place of the Game block's gui_context_block and

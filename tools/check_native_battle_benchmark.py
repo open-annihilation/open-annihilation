@@ -106,7 +106,7 @@ def valid_timing_report(report):
         valid_timing(timing, count, f"{phase} phase")
 
 
-def valid_report(process, report, scenario, enabled, ticks=12, version=None):
+def valid_report(process, report, scenario, enabled, ticks=12, version=None, feature_spec=""):
     """Check completion, population, rules metadata and ordered tick statistics."""
     require(process.returncode == 0 and report is not None, "benchmark failed", process)
     require(report["schema_version"] == 1 and report["completed"] and not report["error"],
@@ -134,6 +134,20 @@ def valid_report(process, report, scenario, enabled, ticks=12, version=None):
     if version is not None:
         require(report["enhanced_version"] == version, "benchmark selected the wrong rules version")
         require(revision == 1, "an alias benchmark did not record revision 1")
+    names = report.get("enhanced_features")
+    require(isinstance(names, list) and all(isinstance(name, str) for name in names),
+            "benchmark did not name the features it played")
+    require(report.get("enhanced_features_spec") == feature_spec,
+            "benchmark did not record the feature specification")
+    require(report.get("enhanced_features_" + "override") is (feature_spec != ""),
+            "benchmark did not record whether the feature flag chose the set")
+    require(type(report.get("data_faults")) is int and report["data_faults"] >= 0,
+            "benchmark did not count its data faults")
+    if not enabled and feature_spec == "":
+        require(names == [], "a match without Enhanced Mode named features")
+    staged = report.get("staged_battle")
+    if isinstance(staged, dict):
+        require(staged.get("extra") == {}, "staged battle did not leave its extra object empty")
     require(report["renderer"] == "none", "simulation-only benchmark named a drawn renderer")
     require(len(report["simulation_hash"]) == 64 and len(report["world_digest"]) == 16,
             "benchmark lacks its reproducibility digests")
@@ -364,6 +378,26 @@ def main():
                 report["completed"] is False and report["error"] and report["successful_ticks"] == 0,
                 "failed setup left a stale successful report", process)
         valid_timing_report(report)
+        # Version 13 without cardinal queue escape is version 10: 22 names, and the
+        # rules hold is version 1 because the feature flag chose the set.
+        version_10 = [
+            "capacity", "local_flow", "routes_fine_regions", "indexed_searches",
+            "route_corner_advance", "swept_ground_steps", "patrol_goal_retention",
+            "ai_strike_retarget", "squad_position_index", "route_queue",
+            "group_destination_repair", "distributed_arrivals", "moving_corner_advance",
+            "local_throat_guide", "credited_fallback_search", "bounded_strike_recruits",
+            "ai_attack_retention", "ai_rally_retention", "local_following",
+            "occupancy_free_planning", "cohort_targets", "steering_projection_reuse",
+        ]
+        spec = "v13,-cardinal_queue_escape"
+        process, report = play(native, game_dir, workdir, "features-v10",
+                               ("--enhanced-mode", "--benchmark-features", spec))
+        valid_report(process, report, "combat", True, version=1, feature_spec=spec)
+        require(report["enhanced_features"] == version_10,
+                "v13 without cardinal queue escape did not play version 10's features", process)
+        print("benchmark-features %s enhanced_features_override true enhanced_version %s names %d" % (
+            spec, report["enhanced_version"], len(report["enhanced_features"])))
+        print(" ".join(report["enhanced_features"]))
         staged_battles(native, game_dir, workdir)
     print("battle benchmark: seeded workloads, group flow, preset versions, graphics independence, "
           "staged battles and failures checked")

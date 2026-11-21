@@ -51,8 +51,15 @@
 //        its FBI UnitName, or a length 0 and the u32 key of a unit the host
 //        does not have. A value that breaks this rule is left out. Absent:
 //        every unit matches, or the sync has not finished.
-//   0x26 enhanced mode: u32 the selected Enhanced Mode version, at least 1.
-//        Absent: Enhanced Mode is off or this build predates it.
+//   0x26 enhanced mode: u32 the highest Enhanced Mode revision this machine
+//        plays, at least 1. Every machine from Open Annihilation 0.9.3 on
+//        sends it, whatever its own settings say. Absent, or a value that is
+//        not four bytes or is 0: the machine has no Enhanced Mode (3.1c's
+//        rules only, as Open Annihilation 0.9.2 and older).
+//   0x27 room's enhanced mode: u32 the room's Enhanced Mode revision, 0 for
+//        Off. Only a host sends it, and it leaves it out while its room is
+//        Off, so an Off room's record is the record it was. Absent, or a
+//        value that is not four bytes: the room is Off.
 //   0x30 content: u8 flags, bit 0 the machine can fetch content (it has a
 //        downloads folder and at least one enabled registry whose downloads
 //        are on); bits 1 to 7 sent as 0 and ignored when read. Absent: the
@@ -178,7 +185,8 @@ enum class PresenceTag : uint8_t {
     developer = 0x23,       ///< Developer Mode and its overrides
     limits = 0x24,          ///< the most weapon types and sides this build plays
     unit_sync = 0x25,       ///< the host's unit sync: the units that differ, by machine
-    enhanced_mode = 0x26,   ///< the selected Enhanced Mode version
+    enhanced_mode = 0x26,   ///< the highest Enhanced Mode revision this machine plays
+    enhanced_room = 0x27,   ///< the room's Enhanced Mode revision, from the host
     content = 0x30,         ///< whether the machine can fetch content
     bundles = 0x31,         ///< the base game and the rule-changing expansions
     language = 0x32,        ///< the language's name in English
@@ -460,8 +468,12 @@ struct PresenceRecord {
     /// from before these limits, and when the value named fewer than 256
     /// weapon types or five sides.
     std::optional<PresenceLimits> limits;
-    /// The selected Enhanced Mode version, at least 1; absent while it is off.
-    std::optional<uint32_t> enhanced_mode_version;
+    /// The highest Enhanced Mode revision this machine plays, at least 1;
+    /// absent on a build without Enhanced Mode.
+    std::optional<uint32_t> enhanced_highest_revision;
+    /// The room's Enhanced Mode revision, 0 for Off. Only a host sends it,
+    /// and only while its room plays a revision.
+    std::optional<uint32_t> enhanced_room_revision;
     std::optional<PresenceHacks> game_hacks;
     std::optional<PresenceHacks> view_hacks;
     std::optional<PresenceDeveloper> developer;
@@ -502,8 +514,9 @@ presence_record_length(const uint8_t* bytes, std::size_t available, uint16_t* le
 /// Writes a presence record.
 ///
 /// Fields that are present go out in the order engine, content, bundles,
-/// language, mod, mod origin, sim hash, limits, mutators, mutator modes, map pack,
-/// mutator part, developer, game hacks, view hacks. A list field carries its full count
+/// language, mod, mod origin, sim hash, limits, the highest Enhanced Mode
+/// revision, the room's Enhanced Mode revision, mutators, mutator modes, map
+/// pack, mutator part, developer, game hacks, view hacks. A list field carries its full count
 /// and as many entries, in order, as keep the record within min(capacity,
 /// 1024). Whole mutators are filled before developer overrides and hack
 /// ids. A mutator part is written whole. A string that does not fit its
@@ -576,16 +589,37 @@ presence_sim_hash(const uint8_t* record, std::size_t size) noexcept;
 [[nodiscard]] std::optional<PresenceLimits>
 presence_limits(const uint8_t* record, std::size_t size) noexcept;
 
-/// Reads the selected Enhanced Mode version, without allocating.
+/// Tells whether a record is well-framed: its type byte, a length word of
+/// `size`, a version of 1 or more, and fields that end where the record ends.
 ///
-/// The first 0x26 field is kept when it is four bytes and nonzero. Off is
-/// represented by no field, so older records remain unchanged.
+/// Nothing is checked against a field's own rule.
+///
+/// @param record the record, type byte first; null is not well-framed
+/// @param size its length in bytes
+/// @return true when the fields can be read
+[[nodiscard]] bool presence_well_framed(const uint8_t* record, std::size_t size) noexcept;
+
+/// Reads the highest Enhanced Mode revision a machine plays, without allocating.
+///
+/// The first 0x26 field is kept when it is four bytes and nonzero.
 ///
 /// @param record the record, type byte first; null is nothing
 /// @param size its length in bytes
-/// @return the version, or nothing when absent or malformed
+/// @return the revision, or nothing when the field is absent or malformed:
+///     the machine has no Enhanced Mode
 [[nodiscard]] std::optional<uint32_t>
-presence_enhanced_mode_version(const uint8_t* record, std::size_t size) noexcept;
+presence_enhanced_highest_revision(const uint8_t* record, std::size_t size) noexcept;
+
+/// Reads the room's Enhanced Mode revision from a host's record, without allocating.
+///
+/// The first 0x27 field is kept when it is four bytes; 0 is Off.
+///
+/// @param record the record, type byte first; null is nothing
+/// @param size its length in bytes
+/// @return the revision, or nothing when the field is absent or malformed:
+///     the room is Off
+[[nodiscard]] std::optional<uint32_t>
+presence_enhanced_room_revision(const uint8_t* record, std::size_t size) noexcept;
 
 /// One unit the unit-sync field lists: its FBI UnitName, or, when the host
 /// has no unit of that key, the key alone.

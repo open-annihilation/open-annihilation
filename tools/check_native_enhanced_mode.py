@@ -2,7 +2,11 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Check Enhanced Mode's opt-in rules and save lifetime in an isolated player folder."""
+"""Check Enhanced Mode's opt-in rules and save lifetime in an isolated player folder.
+
+A battle room plays revisions only, so the network recording here plays
+Revision 1, and the old presets 10, 11 and 13 are recorded from skirmishes.
+"""
 
 import argparse
 import os
@@ -131,6 +135,10 @@ def main():
         )
         if record.returncode or not recording.is_file():
             raise RuntimeError("enhanced network recording failed\n" + record.stdout + record.stderr)
+        # A network game plays a revision, never a preset of its own.
+        network = recording_enhanced(recording)
+        if network[0] != 1 or network[2] != NEEDED_ENGINE:
+            raise RuntimeError(f"{recording.name}: Enhanced Mode sector {network} is not Revision 1")
         playback = subprocess.run(
             base + ["--no-enhanced-mode", "--play-demo", str(recording), "--match-ticks",
                     "300", "--preferences-file", str(root / "playback.conf")],
@@ -138,16 +146,16 @@ def main():
         )
         if playback.returncode or "tick errors 0" not in playback.stdout:
             raise RuntimeError("enhanced replay failed\n" + playback.stdout + playback.stderr)
-        print("Enhanced Mode: network recording replays with the default set to Off")
+        print("Enhanced Mode: Revision 1 network recording replays with the default set to Off")
         cohort_recording = root / "enhanced-v10.tad"
         cohort_record = subprocess.run(
-            base + ["--enhanced-mode-version", "10", "--net-loopback-check", "300",
-                    "--net-record", str(cohort_recording), "--preferences-file",
-                    str(root / "cohort-record.conf")],
+            base + ["--enhanced-mode-version", "10", "--give-orders", "--seed", "7",
+                    "--match-ticks", "300", "--record-game", str(cohort_recording),
+                    "--preferences-file", str(root / "cohort-record.conf")],
             cwd=root, env=environment, capture_output=True, text=True, timeout=900,
         )
         if cohort_record.returncode or not cohort_recording.is_file():
-            raise RuntimeError("v10 network recording failed\n" +
+            raise RuntimeError("v10 skirmish recording failed\n" +
                                cohort_record.stdout + cohort_record.stderr)
         require_alias_sector(cohort_recording, 10)
         cohort_playback = subprocess.run(
@@ -162,13 +170,13 @@ def main():
         print("Enhanced Mode: CLI v10 recording keeps its rules under a CLI v8 selection")
         retained_recording = root / "enhanced-v11.tad"
         retained_record = subprocess.run(
-            base + ["--enhanced-mode-version", "11", "--net-loopback-check", "300",
-                    "--net-record", str(retained_recording), "--preferences-file",
-                    str(root / "retained-record.conf")],
+            base + ["--enhanced-mode-version", "11", "--give-orders", "--seed", "7",
+                    "--match-ticks", "300", "--record-game", str(retained_recording),
+                    "--preferences-file", str(root / "retained-record.conf")],
             cwd=root, env=environment, capture_output=True, text=True, timeout=900,
         )
         if retained_record.returncode or not retained_recording.is_file():
-            raise RuntimeError("v11 network recording failed\n" +
+            raise RuntimeError("v11 skirmish recording failed\n" +
                                retained_record.stdout + retained_record.stderr)
         require_alias_sector(retained_recording, 11)
         retained_playback = subprocess.run(
@@ -183,13 +191,13 @@ def main():
         print("Enhanced Mode: CLI v11 recording keeps its rules under a CLI v10 selection")
         cardinal_recording = root / "enhanced-v13.tad"
         cardinal_record = subprocess.run(
-            base + ["--enhanced-mode-version", "13", "--net-loopback-check", "300",
-                    "--net-record", str(cardinal_recording), "--preferences-file",
-                    str(root / "cardinal-record.conf")],
+            base + ["--enhanced-mode-version", "13", "--give-orders", "--seed", "7",
+                    "--match-ticks", "300", "--record-game", str(cardinal_recording),
+                    "--preferences-file", str(root / "cardinal-record.conf")],
             cwd=root, env=environment, capture_output=True, text=True, timeout=900,
         )
         if cardinal_record.returncode or not cardinal_recording.is_file():
-            raise RuntimeError("v13 network recording failed\n" +
+            raise RuntimeError("v13 skirmish recording failed\n" +
                                cardinal_record.stdout + cardinal_record.stderr)
         require_alias_sector(cardinal_recording, 13)
         cardinal_playback = subprocess.run(
