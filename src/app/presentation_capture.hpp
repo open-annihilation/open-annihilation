@@ -18,13 +18,12 @@ namespace oa::app {
 /// The presentation fields needed by a categorical global Dots frame or models.
 enum class UnitPoseCapture { full, root };
 
-/// Selects root-only capture for the explicitly enabled version-7 and version-8 presets' Dots.
-/// Other presets and rendered model frames keep complete rig history.
-/// @param rules the match's resolved rules
-/// @param global_dots the existing graphics policy draws every unit as a dot
-/// @return the fields this observation captures
-[[nodiscard]] UnitPoseCapture
-unit_pose_capture(const oa::data::match_rules::MatchRules& rules, bool global_dots) noexcept;
+/// Maps the presentation policy's root-capture choice onto the capture fields.
+/// @param root_only this frame captures roots only
+/// @return root fields when root_only, otherwise the complete rig
+[[nodiscard]] inline UnitPoseCapture unit_pose_capture(bool root_only) noexcept {
+    return root_only ? UnitPoseCapture::root : UnitPoseCapture::full;
+}
 
 /// One validated unit's canonical inputs and exclusive presentation history.
 /// Pointers are non-null except script, and each motion occurs at most once.

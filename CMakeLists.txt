@@ -1156,6 +1156,10 @@ if(BUILD_TESTING)
   target_link_libraries(oa-app-presentation-capture-test PRIVATE oa-app-headers
     oa-present-model oa-sim-match-runtime oa-platform-job-pool oa-base-float-precision oa-options)
   add_test(NAME app-presentation-capture COMMAND oa-app-presentation-capture-test)
+  # Drawing choices from Enhanced Mode, Graphics and the frame, with no revision.
+  add_executable(oa-app-presentation-policy-test src/app/presentation_policy_test.cpp)
+  target_link_libraries(oa-app-presentation-policy-test PRIVATE oa-app-headers oa-options)
+  add_test(NAME app-presentation-policy COMMAND oa-app-presentation-policy-test)
   # Exact shared model-space transforms, owner-local poses and bounded
   # fallback while planning animated unit draws.
   add_executable(oa-app-model-transform-cache-test src/app/model_transform_cache_test.cpp
