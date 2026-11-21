@@ -795,8 +795,9 @@ void configure_excluded_driver(Crossing& crossing, Driver driver) {
         crossing.match().simulation().players[0].status = ground::mirrored_player_status;
     if (driver == Driver::mirrored) {
         state.mirrored_driver = true;
-        state.mirrored_navigation.count =
-            std::min<uint32_t>(state.navigation.count, state.mirrored_navigation.points.size());
+        state.mirrored_navigation.count = std::min<uint32_t>(
+            state.navigation.count, static_cast<uint32_t>(state.mirrored_navigation.points.size())
+        );
         std::copy_n(
             state.navigation.points.begin(),
             state.mirrored_navigation.count,

@@ -1328,7 +1328,7 @@ bool segment_avoids_blocked_cells(const Grid& grid, RoutePoint from, RoutePoint 
 /// Carves one winding origin corridor with no shortcuts between its lanes.
 Grid winding_origin_grid(uint32_t row_step, uint32_t right, uint32_t last_row) {
     Grid grid(96, 96);
-    std::fill(grid.cells.begin(), grid.cells.end(), 0);
+    std::fill(grid.cells.begin(), grid.cells.end(), uint8_t{0});
     constexpr uint32_t first = 8;
     for (uint32_t z = first; z <= last_row; z += row_step) {
         for (uint32_t x = first; x <= right; ++x)

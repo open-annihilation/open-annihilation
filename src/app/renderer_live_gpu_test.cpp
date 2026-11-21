@@ -4120,9 +4120,9 @@ void compact_marker_readback() {
         std::vector<uint8_t> dry_plain;
         for (bool wet : {false, true}) {
             for (std::size_t vertex = 0; vertex < 6; ++vertex) {
-                ordinary[vertex].terrain_size = wet ? -2 : 0;
-                ordinary[vertex].terrain_x = wet ? 2 : 0;
-                ordinary[vertex].terrain_y = wet ? 1 : 0;
+                ordinary[vertex].terrain_size = wet ? -2.0F : 0.0F;
+                ordinary[vertex].terrain_x = wet ? 2.0F : 0.0F;
+                ordinary[vertex].terrain_y = wet ? 1.0F : 0.0F;
             }
             std::vector<uint8_t> plain;
             for (const Lights* illumination : {static_cast<const Lights*>(nullptr), &lights}) {

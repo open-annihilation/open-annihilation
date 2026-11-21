@@ -301,12 +301,12 @@ LocalFlowDecision choose_route_flow(
     const auto heading = oa::base::game_math::direction(-dx, -dz);
     std::array<int32_t, 2> previous_leg{};
     if (probe.previous_head != nullptr && !probe.allow_reverse) {
-        auto previous = *probe.previous_head;
-        previous.active = true;
-        if (local_flow_head_reached(unit, previous))
+        auto previous_head = *probe.previous_head;
+        previous_head.active = true;
+        if (local_flow_head_reached(unit, previous_head))
             previous_leg = {
-                int32_t(previous.points[1][0]) - previous.points[0][0],
-                int32_t(previous.points[1][1]) - previous.points[0][1]
+                int32_t(previous_head.points[1][0]) - previous_head.points[0][0],
+                int32_t(previous_head.points[1][1]) - previous_head.points[0][1]
             };
     }
     const auto reverses_leg = [&](const std::array<Fixed, 3>& candidate) {

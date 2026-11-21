@@ -276,7 +276,7 @@ void produced_scene_projection() {
     state.yaw_degrees = 20;
     std::string error;
     for (int frame = 0; frame < 10; ++frame) {
-        state.pitch_degrees = frame < 2 ? -53 : -32;
+        state.pitch_degrees = frame < 2 ? -53.0F : -32.0F;
         in.detail_scale = frame < 3 ? 0.25F : 0.6F;
         OA_CHECK(
             camera::projection(state, {128, 20, 128, 100, 75, in.detail_scale}, in.clip_projection)

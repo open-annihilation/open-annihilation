@@ -92,7 +92,7 @@ void shadow_index_procedural_scene_frames(uint32_t population, bool coarse) {
     building.shadow = oa::present::create_sprite(8, 8);
     building.image_unfinished = true;
     auto& battle = fixture.battle;
-    battle.inputs.unit_marker_pixels = coarse ? 5 : 0;
+    battle.inputs.unit_marker_pixels = coarse ? 5.0F : 0.0F;
     battle.inputs.pool = nullptr;
     std::vector<oa::Unit> units(population, fixture.unit);
     battle.draws.models.resize(population, battle.draws.models[0]);

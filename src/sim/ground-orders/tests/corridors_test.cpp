@@ -142,7 +142,9 @@ uint16_t body_id(const orders::CorridorCatalog& catalog, Cell origin) {
     const auto result = catalog.at_origin(origin, contacts, budget);
     OA_CHECK(result.complete);
     OA_CHECK(result.count <= contacts.size());
-    for (uint32_t i = 0; i < std::min<uint32_t>(result.count, contacts.size()); ++i)
+    for (uint32_t i = 0;
+         i < std::min<uint32_t>(result.count, static_cast<uint32_t>(contacts.size()));
+         ++i)
         if (contacts[i].region == Region::body)
             return contacts[i].id;
     OA_CHECK(false);
@@ -186,7 +188,8 @@ orders::Navigation route(orders::Goal& goal, std::initializer_list<Cell> origins
 
 const orders::CorridorApproach*
 approach(const std::array<orders::CorridorApproach, 8>& approaches, uint32_t count, uint16_t id) {
-    for (uint32_t i = 0; i < std::min<uint32_t>(count, approaches.size()); ++i)
+    for (uint32_t i = 0; i < std::min<uint32_t>(count, static_cast<uint32_t>(approaches.size()));
+         ++i)
         if (approaches[i].id == id)
             return &approaches[i];
     OA_CHECK(false);
@@ -328,7 +331,9 @@ void separate_corridors_and_overlapping_mouths_keep_every_identifier() {
     const auto result = shared.at_origin({23, 12}, contacts, budget);
     OA_CHECK(result.complete && result.count == 2);
     bool upper{}, lower{};
-    for (uint32_t i = 0; i < std::min<uint32_t>(result.count, contacts.size()); ++i) {
+    for (uint32_t i = 0;
+         i < std::min<uint32_t>(result.count, static_cast<uint32_t>(contacts.size()));
+         ++i) {
         upper |= contacts[i].id == first && contacts[i].region == Region::upper_mouth;
         lower |= contacts[i].id == second && contacts[i].region == Region::lower_mouth;
     }

@@ -149,7 +149,7 @@ void test_footprint_occupants() {
         spatial::classify_movement_footprint(movement, 2, 2, world) == 0,
         "a zero cutoff does not ignore a missing movement object"
     );
-    for (const auto occupant : {uint32_t{3}, std::numeric_limits<uint32_t>::max()}) {
+    for (const auto occupant : {spatial::UnitId{3}, std::numeric_limits<spatial::UnitId>::max()}) {
         plot.ground = occupant;
         compare_footprint(movement, 2, 2, world);
         require(

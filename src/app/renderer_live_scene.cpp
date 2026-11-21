@@ -6249,7 +6249,7 @@ bool plan_unit_details(
                 margin += std::abs(p[row * 4 + axis]);
             }
             detail.pixels = std::max(detail.pixels, extent);
-            const float edge = row == 0 ? in.clip_width : in.clip_height;
+            const float edge = static_cast<float>(row == 0 ? in.clip_width : in.clip_height);
             outside |=
                 center + extent * 0.5F + margin < 0 || center - extent * 0.5F - margin > edge;
         }
@@ -8070,7 +8070,7 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     }
                 }
                 const float remaining = std::clamp(unit->build_remaining, 0.0F, 1.0F);
-                const float detail = 1 - remaining;
+                const float built = 1 - remaining;
                 if (reflects && !back_facing(corners, reflected_view)) {
                     for (std::size_t corner = 1; corner + 1 < corners.size() &&
                                                  reflected_faces.size() + 3 <= reflection_budget;
@@ -8104,11 +8104,11 @@ void models(const Inputs& in, Pass& pass, std::size_t first, std::size_t last) {
                     vertex.emission_r = std::min(1.0F, visible_glow * 0.12F);
                     vertex.emission_g = std::min(1.0F, visible_glow);
                     vertex.emission_b = std::min(1.0F, visible_glow * 0.25F);
-                    vertex.opacity = detail * detail * (3 - 2 * detail);
+                    vertex.opacity = built * built * (3 - 2 * built);
                     if (translucent)
                         vertex.opacity *= translucent_opacity;
                 }
-                if (detail > 0)
+                if (built > 0)
                     polygon(pass, corners);
                 if (remaining > 0)
                     nanoframe(in, pass, corners, remaining, frame_material);
@@ -9288,16 +9288,20 @@ bool prepare_frame_effects(const Inputs& in, Scene& scene, bool find_surface_que
                 in.draws->flash_strength,
                 false
             );
-            if (const auto found = scene.materials.find(digest); found != scene.materials.end()) {
+            if (const auto scene_found = scene.materials.find(digest);
+                scene_found != scene.materials.end()) {
                 // Retain already cached art without moving its texels. New
                 // animation variants use the frame rows rather than growing it.
-                cached.rectangle = found->second;
+                cached.rectangle = scene_found->second;
             } else if (
-                const auto found = frame.materials.find(digest); found != frame.materials.end()
+                const auto frame_found = frame.materials.find(digest);
+                frame_found != frame.materials.end()
             ) {
-                cached.rectangle = found->second;
-            } else if (const auto found = digests.find(digest); found != digests.end()) {
-                cached.rectangle = found->second;
+                cached.rectangle = frame_found->second;
+            } else if (
+                const auto digest_found = digests.find(digest); digest_found != digests.end()
+            ) {
+                cached.rectangle = digest_found->second;
             } else {
                 frame.material_area += count;
                 frame.effect_area += count;

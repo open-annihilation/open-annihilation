@@ -202,7 +202,7 @@ void query_parity(const Catalog& first, const Catalog& second) {
         const auto rb = no_allocation([&] { return second.at_origin(cell, b, qb); });
         OA_CHECK(ra.count == rb.count && ra.complete == rb.complete);
         OA_CHECK(qa.remaining == qb.remaining && qa.used == qb.used);
-        for (uint32_t i = 0; i < std::min<uint32_t>(ra.count, a.size()); ++i)
+        for (uint32_t i = 0; i < std::min<uint32_t>(ra.count, static_cast<uint32_t>(a.size())); ++i)
             OA_CHECK(a[i].id == b[i].id && a[i].region == b[i].region);
     }
     oa::sim::unit_movement::Unit unit{};
@@ -222,7 +222,7 @@ void query_parity(const Catalog& first, const Catalog& second) {
     const auto rb = no_allocation([&] { return second.upcoming(unit, navigation, b, qb); });
     OA_CHECK(ra.count == rb.count && ra.complete == rb.complete);
     OA_CHECK(qa.used == qb.used && qa.remaining == qb.remaining);
-    for (uint32_t i = 0; i < std::min<uint32_t>(ra.count, a.size()); ++i)
+    for (uint32_t i = 0; i < std::min<uint32_t>(ra.count, static_cast<uint32_t>(a.size())); ++i)
         OA_CHECK(
             a[i].id == b[i].id && a[i].direction == b[i].direction &&
             a[i].entry_segment == b[i].entry_segment && a[i].exit_segment == b[i].exit_segment &&

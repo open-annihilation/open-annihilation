@@ -142,8 +142,8 @@ void shadow_index_template_piece_policy() {
         };
         compare();
         compare();
-        OA_CHECK(compact.body_lod_counts.body_lod_models == (scale < 1 ? 16 : 0));
-        OA_CHECK(compact.body_lod_counts.full_mesh_models == (scale < 1 ? 0 : 16));
+        OA_CHECK(compact.body_lod_counts.body_lod_models == (scale < 1 ? 16U : 0U));
+        OA_CHECK(compact.body_lod_counts.full_mesh_models == (scale < 1 ? 0U : 16U));
         OA_CHECK(compact.cards.shadow_indices.runs.size() == 1);
         OA_CHECK(!ordinary.cards.cast_indices.empty());
         OA_CHECK(ordinary.cards.cast_indices.size() % units.size() == 0);

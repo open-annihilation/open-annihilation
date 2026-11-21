@@ -40,7 +40,9 @@ void configure_ground(Fixture& fixture, uint32_t version, bool water, bool aircr
     fixture.match.reset();
     fixture.map.sea_level = sea_level;
     for (size_t index = 0; index < fixture.map.attributes.size(); ++index) {
-        const auto height = water && index == 5 * fixture.map.attribute_width + 5 ? 0 : land_height;
+        const auto height = static_cast<uint8_t>(
+            water && index == 5 * fixture.map.attribute_width + 5 ? 0 : land_height
+        );
         fixture.map.attributes[index].height = height;
         fixture.collision_plots[index].low_height = height;
         fixture.collision_plots[index].high_height = height;

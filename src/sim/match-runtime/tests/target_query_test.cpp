@@ -237,7 +237,7 @@ void preserves_outside_wrapped_distance_and_unusual_radius_fallback() {
     Fixture fixture(3);
     fixture.add(1, 100 * fixed_one, 100 * fixed_one);
     fixture.add(2, 100 * fixed_one + 0x80000000u, 100 * fixed_one + 0x80000000u, true);
-    fixture.add(3, static_cast<uint32_t>(-fixed_one), 100 * fixed_one, true);
+    fixture.add(3, 0U - fixed_one, 100 * fixed_one, true);
     const std::array<uint32_t, 3> center{100 * fixed_one, 0, 100 * fixed_one};
     OA_CHECK((fixture.identities(center, 0, true) == std::vector<combat::UnitIdentity>{1, 2}));
     for (const int32_t radius :
@@ -245,9 +245,7 @@ void preserves_outside_wrapped_distance_and_unusual_radius_fallback() {
         OA_CHECK(
             fixture.identities(center, radius, true) == fixture.identities(center, radius, false)
         );
-    const std::array<uint32_t, 3> negative_center{
-        static_cast<uint32_t>(-fixed_one), 0, 100 * fixed_one
-    };
+    const std::array<uint32_t, 3> negative_center{0U - fixed_one, 0, 100 * fixed_one};
     OA_CHECK(
         fixture.identities(negative_center, 1, true) ==
         fixture.identities(negative_center, 1, false)

@@ -426,7 +426,7 @@ NativeVisibility scan_native(
             center += p[row * 4 + axis] * world_center[axis];
             margin += std::abs(p[row * 4 + axis]);
         }
-        const float edge = row == 0 ? view.width : view.height;
+        const float edge = static_cast<float>(row == 0 ? view.width : view.height);
         reservation_outside |=
             center + extent * 0.5F + margin < 0 || center - extent * 0.5F - margin > edge;
     }

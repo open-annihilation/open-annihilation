@@ -2940,7 +2940,7 @@ void enhanced_recordings_keep_original_unit_ranges() {
             continue;
         }
         auto& world = replay.match->state();
-        CHECK(world.unit_slot_count == count * kUnitsPerPlayer + 1);
+        CHECK(world.unit_slot_count == static_cast<uint32_t>(count * kUnitsPerPlayer + 1));
         CHECK(world.game.players[0].first_unit == oa_ref_from_index(local.unit_index));
         CHECK(world.game.players[1].first_unit == oa_ref_from_index(1));
         for (uint8_t slot = 0; slot < count; ++slot)

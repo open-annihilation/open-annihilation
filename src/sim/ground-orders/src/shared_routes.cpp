@@ -672,13 +672,13 @@ FlowResult FlowCache::route(
             }
         }
         if (can_prune_corner && count >= 3) {
-            const int64_t dx = int64_t(points[2][0]) - points[0][0];
-            const int64_t dz = int64_t(points[2][1]) - points[0][1];
+            const int64_t delta_x = int64_t(points[2][0]) - points[0][0];
+            const int64_t delta_z = int64_t(points[2][1]) - points[0][1];
             const int64_t px = int64_t(points[1][0]) - points[0][0];
             const int64_t pz = int64_t(points[1][1]) - points[0][1];
-            const auto length = dx * dx + dz * dz;
-            const auto dot = px * dx + pz * dz;
-            const bool collinear_ahead = px * dz == pz * dx && dot >= 0 && dot <= length;
+            const auto length = delta_x * delta_x + delta_z * delta_z;
+            const auto dot = px * delta_x + pz * delta_z;
+            const bool collinear_ahead = px * delta_z == pz * delta_x && dot >= 0 && dot <= length;
             const int32_t to_x = (int32_t(points[2][0]) - int32_t(context.footprint_x) * 8) / 16;
             const int32_t to_z = (int32_t(points[2][1]) - int32_t(context.footprint_z) * 8) / 16;
             const auto width = static_cast<uint32_t>(std::abs(to_x - unit.cell_x));

@@ -597,7 +597,8 @@ uint32_t radar_compose_display(
                 owners[static_cast<std::size_t>(y) * target.width + x] & display_owner_bits;
             if (mask == 0 || (mask & (mask - 1)) == 0)
                 continue;
-            const auto core = display_owner(mask, static_cast<uint32_t>(x + y));
+            const auto core =
+                display_owner(static_cast<uint16_t>(mask), static_cast<uint32_t>(x + y));
             std::size_t next{};
             for (uint8_t owner = 0; owner < OA_PLAYER_COUNT; ++owner) {
                 if (owner == core || (mask & (uint16_t{1} << owner)) == 0)

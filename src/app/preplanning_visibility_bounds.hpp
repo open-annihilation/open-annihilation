@@ -680,7 +680,7 @@ struct RejectionCamera {
         if (!std::isfinite(first) || !std::isfinite(last) || !std::isfinite(extent) ||
             !std::isfinite(margin) || !std::isfinite(after) || !std::isfinite(before))
             return false;
-        const float edge = row == 0 ? view.width : view.height;
+        const float edge = static_cast<float>(row == 0 ? view.width : view.height);
         reservation_outside |= after < 0 || before > edge;
     }
     if (!reservation_outside)
@@ -701,7 +701,7 @@ struct RejectionCamera {
         if (!std::isfinite(first) || !std::isfinite(last) || !std::isfinite(before) ||
             !std::isfinite(after))
             return false;
-        const float edge = row == 0 ? view.width : view.height;
+        const float edge = static_cast<float>(row == 0 ? view.width : view.height);
         body_outside |= after < 0 || before > edge;
     }
     if (!body_outside)
@@ -735,7 +735,7 @@ struct RejectionCamera {
         if (!std::isfinite(first) || !std::isfinite(last) || !std::isfinite(before) ||
             !std::isfinite(after))
             return false;
-        const float edge = row == 0 ? view.width : view.height;
+        const float edge = static_cast<float>(row == 0 ? view.width : view.height);
         marker_outside |= after < 0 || before > edge;
     }
     if (!marker_outside)
@@ -784,8 +784,8 @@ template <typename Bounds>
     const auto camera = prepare_rejection(shown, view, gate);
     if (!camera)
         return false;
-    const auto fixed = bounds();
-    return fixed && rejection_proof_with_fixed_bound(shown, view, gate, *fixed, *camera);
+    const auto bound = bounds();
+    return bound && rejection_proof_with_fixed_bound(shown, view, gate, *bound, *camera);
 }
 
 } // namespace detail

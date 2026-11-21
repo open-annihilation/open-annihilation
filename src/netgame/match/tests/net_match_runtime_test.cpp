@@ -1215,7 +1215,7 @@ void restored_traffic_heads_publish_their_effective_route() {
         (void)bit_reader_read(&reader, 32);
         CHECK(
             bit_reader_read(&reader, unit_state_unit_index_bits) ==
-            index - world.game.players[0].base_unit_id
+            static_cast<uint32_t>(index - world.game.players[0].base_unit_id)
         );
         CHECK(bit_reader_read(&reader, world.game.unit_def_id_bits) == 1);
         WaypointDelta delta{};

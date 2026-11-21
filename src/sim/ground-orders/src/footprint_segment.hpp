@@ -90,9 +90,10 @@ visit_origins(const Segment& segment, uint32_t limit, Visit&& visit, uint32_t& c
     int32_t x = segment.first[0], z = segment.first[1];
     if (!emit(x, z))
         return false;
-    const auto dx = segment.to[0] - segment.from[0], dz = segment.to[1] - segment.from[1];
-    const int32_t step_x = (dx > 0) - (dx < 0), step_z = (dz > 0) - (dz < 0);
-    const auto absolute_x = dx < 0 ? -dx : dx, absolute_z = dz < 0 ? -dz : dz;
+    const auto delta_x = segment.to[0] - segment.from[0], delta_z = segment.to[1] - segment.from[1];
+    const int32_t step_x = (delta_x > 0) - (delta_x < 0), step_z = (delta_z > 0) - (delta_z < 0);
+    const auto absolute_x = delta_x < 0 ? -delta_x : delta_x,
+               absolute_z = delta_z < 0 ? -delta_z : delta_z;
     int64_t next_x = step_x > 0 ? int64_t(x + 1) * cell_step - segment.from[0]
                                 : segment.from[0] - int64_t(x) * cell_step;
     int64_t next_z = step_z > 0 ? int64_t(z + 1) * cell_step - segment.from[1]

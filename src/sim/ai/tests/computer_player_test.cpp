@@ -2288,8 +2288,10 @@ struct RetentionRun : RecruitRun {
 void test_cohort_retention_requires_a_verified_majority() {
     for (const uint32_t prior_count : {uint32_t{4}, uint32_t{5}, uint32_t{6}}) {
         RetentionRun run;
-        for (uint32_t index = 0; index < 8; ++index)
-            run.prior(RetentionRun::first + index, index < prior_count ? 2 : index == 7 ? 0 : 1);
+        for (uint32_t index = 0; index < 8; ++index) {
+            const auto slot = static_cast<uint16_t>(RetentionRun::first + index);
+            run.prior(slot, index < prior_count ? 2 : index == 7 ? 0 : 1);
+        }
         const auto orders = run.assign();
         for (const auto& [source, target] : orders) {
             (void)source;
@@ -2304,7 +2306,7 @@ void test_cohort_retention_requires_a_verified_majority() {
     }
     RetentionRun busy;
     for (uint32_t index = 0; index < 8; ++index)
-        busy.prior(RetentionRun::first + index, 2);
+        busy.prior(static_cast<uint16_t>(RetentionRun::first + index), 2);
     for (uint32_t index = 0; index < 4; ++index)
         busy.fake.running[RetentionRun::first + index] = "busy";
     for (const auto& [source, target] : busy.assign()) {
@@ -2317,7 +2319,7 @@ void test_cohort_retention_requires_a_verified_majority() {
 void test_cohort_retention_counts_new_recruits_without_priors() {
     RetentionRun run(RetentionRun::retention_version, 5, 3);
     for (uint32_t index = 0; index < 4; ++index)
-        run.prior(RetentionRun::first + index, 2);
+        run.prior(static_cast<uint16_t>(RetentionRun::first + index), 2);
     run.prior(RetentionRun::first + 4, 1);
     for (const auto& [source, target] : run.assign(300, 3)) {
         (void)source;
@@ -2335,7 +2337,7 @@ void test_cohort_retention_handles_more_than_eight_prior_targets() {
     run.enemy(1, 1002, 1002);
     run.enemy(8, 1003, 1000);
     for (uint32_t index = 0; index < 12; ++index)
-        run.prior(RetentionRun::first + index, 8);
+        run.prior(static_cast<uint16_t>(RetentionRun::first + index), 8);
     uint16_t actor = RetentionRun::first + 12;
     for (uint16_t target = 1; target <= 9; ++target)
         if (target != 8)
@@ -2784,7 +2786,7 @@ void test_full_enemy_reference_exhausts_small_layouts() {
                 for (uint16_t target = 1; target <= 4; ++target) {
                     const auto& point = points[digits % points.size()];
                     run.enemy(target, point[0], point[1]);
-                    digits /= points.size();
+                    digits = static_cast<uint32_t>(digits / points.size());
                 }
                 if (with_priors)
                     for (uint16_t group = 0; group < FullEnemyRun::groups; ++group)

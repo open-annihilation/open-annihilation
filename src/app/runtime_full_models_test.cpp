@@ -4862,8 +4862,8 @@ void test_body_lod_piece_bounds() {
         scene.plan_unit(actor);
         candidate.stage.begin_frame();
         std::ignore = candidate.raster(scene, zoom);
-        OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == (extended ? 0 : 1));
-        OA_CHECK(candidate.stage.body_lod_counts().full_mesh_models == (extended ? 1 : 0));
+        OA_CHECK(candidate.stage.body_lod_counts().body_lod_models == (extended ? 0U : 1U));
+        OA_CHECK(candidate.stage.body_lod_counts().full_mesh_models == (extended ? 1U : 0U));
         if (frame == 1)
             warm_bytes = candidate.stage.mesh_bytes();
         if (frame > 1)

@@ -737,7 +737,7 @@ void enhanced_dense_viewpoint_scans_reuse_projections() {
 /// Measures growing contact scans without a timing pass threshold: work
 /// counters prove the scaling change while timings describe this machine.
 void benchmark_enhanced_scans() {
-    for (const uint16_t scanners : {32U, 128U, 512U}) {
+    for (const uint16_t scanners : {uint16_t{32}, uint16_t{128}, uint16_t{512}}) {
         const auto classic = sample_scan(false, scanners, false, false);
         const auto enhanced = sample_scan(true, scanners, false, false);
         CHECK(classic.picture == enhanced.picture);

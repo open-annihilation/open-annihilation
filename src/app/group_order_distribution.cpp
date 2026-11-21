@@ -351,7 +351,8 @@ void rematch(
     for (uint32_t key = 0; key < report.classes; ++key) {
         size_t used = 0;
         for (uint32_t id = 1; id < maximum_units; ++id) {
-            if ((scratch.flags[id] & assigned_flag) == 0 || (scratch.flags[id] & key_mask) != key)
+            if ((scratch.flags[id] & assigned_flag) == 0 ||
+                static_cast<uint32_t>(scratch.flags[id] & key_mask) != key)
                 continue;
             actors[used] = static_cast<uint16_t>(id);
             sites[used] = static_cast<uint16_t>(scratch.slots[id] & index_mask);

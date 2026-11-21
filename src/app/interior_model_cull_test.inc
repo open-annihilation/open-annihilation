@@ -350,7 +350,8 @@ void interior_model_cull_tests() {
         oa::UnitDef definition{};
         definition.flags = OA_UNIT_DEF_FLAG_FLOATER;
         fixture.battle.draws.models[0].model.def = &definition;
-        fixture.battle.inputs.sea_level = fixture.battle.inputs.water.sea_level = 24;
+        fixture.battle.inputs.sea_level = 24;
+        fixture.battle.inputs.water.sea_level = 24;
         fixture.battle.inputs.water.detail = fixture.battle.inputs.water.reflections = 1;
         fixture.battle.inputs.view_direction = {0, -1, -1};
         fixture.unit.position.y = 24 * fixed;

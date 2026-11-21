@@ -6563,8 +6563,8 @@ void strategic_unit_marker_water_budget() {
             expected_vertices = logical;
         OA_CHECK(logical == expected_vertices);
         for (const bool ripples : {false, true}) {
-            in.water.coastal_waves = ripples ? 0 : 1;
-            in.water.ripples = ripples ? 1 : 0;
+            in.water.coastal_waves = ripples ? 0.0F : 1.0F;
+            in.water.ripples = ripples ? 1.0F : 0.0F;
             OA_CHECK(!live::build(in, battle.scene, battle.error));
             OA_CHECK(battle.scene.out_of_room);
             OA_CHECK(battle.error.find("geometry budget") != std::string::npos);
@@ -6961,10 +6961,10 @@ void indexed_model_vertex_projection() {
                         drawn,
                         scenes[1].cards.indices[drawn.first_index + corner]
                     );
-                    const std::array position{actual.x, actual.height, actual.z};
-                    for (std::size_t axis = 0; axis < position.size(); ++axis)
+                    const std::array corner_position{actual.x, actual.height, actual.z};
+                    for (std::size_t axis = 0; axis < corner_position.size(); ++axis)
                         OA_CHECK(
-                            std::bit_cast<uint32_t>(position[axis]) ==
+                            std::bit_cast<uint32_t>(corner_position[axis]) ==
                             std::bit_cast<uint32_t>(expected[corner][axis])
                         );
                 }
