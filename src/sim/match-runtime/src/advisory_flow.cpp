@@ -183,9 +183,7 @@ void rebuild_advisory_membership(AdvisoryFlowData& state) noexcept {
 }
 
 void Match::initialize_advisory_flow() {
-    if (!enhanced_ || !rules().setup.enhanced_mode.enabled ||
-        rules().setup.enhanced_mode.version !=
-            static_cast<int32_t>(data::enhanced_mode::corridor_flow_version))
+    if (!enhanced_ || !enhanced_features_.has(data::enhanced_mode::Feature::corridor_lanes))
         return;
     auto state = std::make_unique<AdvisoryFlowData>();
     state->unit_count = slots_.size();
