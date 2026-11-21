@@ -27,6 +27,11 @@ thread_local size_t failed_cache_allocations{};
 
 } // namespace
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 /// Fails one requested ordinary allocation while testing snapshot recovery.
 void* operator new(size_t bytes) {
     if (fail_next_cache_allocation) {
@@ -63,6 +68,10 @@ void operator delete(void* pointer, size_t) noexcept {
 void operator delete[](void* pointer, size_t) noexcept {
     std::free(pointer);
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace {
 

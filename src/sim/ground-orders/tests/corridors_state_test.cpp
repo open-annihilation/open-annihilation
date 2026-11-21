@@ -20,6 +20,11 @@ bool watch_allocations{};
 size_t allocation_count{};
 } // namespace
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 void* operator new(size_t size) {
     if (watch_allocations)
         ++allocation_count;
@@ -47,6 +52,10 @@ void operator delete(void* pointer, size_t) noexcept {
 void operator delete[](void* pointer, size_t) noexcept {
     std::free(pointer);
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace {
 namespace orders = oa::sim::ground_orders;
@@ -287,7 +296,10 @@ Snapshots snapshots() {
     result.duplicate_result = save(duplicate);
     OA_CHECK(read_le(result.duplicate_result, 36, 4) == 1);
     OA_CHECK(read_le(result.duplicate_result, builder_offset + 48, 2) == 1);
-    OA_CHECK(read_le(result.duplicate_result, builder_offset + 48 + 4, 2) == footprint[0]);
+    OA_CHECK(
+        read_le(result.duplicate_result, builder_offset + 48 + 4, 2) ==
+        static_cast<uint64_t>(footprint[0])
+    );
     return result;
 }
 

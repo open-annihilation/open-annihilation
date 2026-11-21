@@ -28,6 +28,11 @@ thread_local bool watch_transform_allocations{};
 thread_local size_t transform_allocations{};
 } // namespace
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 /// Counts ordinary allocations while a transform reuse is watched.
 void* operator new(size_t bytes) {
     if (watch_transform_allocations)
@@ -61,6 +66,10 @@ void operator delete(void* pointer, size_t) noexcept {
 void operator delete[](void* pointer, size_t) noexcept {
     std::free(pointer);
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace {
 void require(bool value, const char* message) {

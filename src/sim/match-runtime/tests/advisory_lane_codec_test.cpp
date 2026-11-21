@@ -18,6 +18,11 @@ bool watch_allocations{};
 size_t allocation_count{};
 } // namespace
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 /// Counts scalar allocations while codec operations are observed.
 void* operator new(size_t size) {
     if (watch_allocations)
@@ -51,6 +56,10 @@ void operator delete(void* pointer, size_t) noexcept {
 void operator delete[](void* pointer, size_t) noexcept {
     std::free(pointer);
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace {
 namespace runtime = oa::sim::match_runtime;

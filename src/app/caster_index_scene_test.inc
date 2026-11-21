@@ -302,7 +302,7 @@ void caster_index_coarse_equivalence() {
     namespace runtime = oa::sim::model_runtime;
     constexpr auto visible = static_cast<uint16_t>(runtime::PieceFlag::visible);
     constexpr auto cached = static_cast<uint16_t>(runtime::PieceFlag::cached);
-    for (const auto [scale, expected] :
+    for (const auto& [scale, expected] :
          std::array{std::pair{0.5F, uint8_t{1}}, std::pair{0.8F, uint8_t{2}}}) {
         BodyLodFixture fixture(8);
         auto& battle = fixture.battle;

@@ -543,8 +543,9 @@ bool Match::advisory_navigation(
         ground::route_present(navigation)) {
         // Resume after the last serviced slot, rather than starving the tail
         // when earlier units spend the shared allowance before the window ends.
-        state->enrollment_next =
-            unit.unit_index + 1 < state->unit_count ? uint32_t(unit.unit_index) + 1 : 1;
+        state->enrollment_next = static_cast<std::size_t>(unit.unit_index + 1) < state->unit_count
+                                     ? uint32_t(unit.unit_index) + 1
+                                     : 1;
         const auto& point = navigation.points[1];
         live_corner_detail::Segment segment{};
         bool valid = true;

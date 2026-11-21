@@ -31,6 +31,11 @@ thread_local bool refuse_allocation{};
 thread_local std::size_t refused_allocations{};
 } // namespace
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 /// Refuses a single allocation only inside the explicit recovery controls.
 void* operator new(std::size_t bytes) {
     if (refuse_allocation) {
@@ -67,6 +72,10 @@ void operator delete(void* pointer, std::size_t) noexcept {
 void operator delete[](void* pointer, std::size_t) noexcept {
     std::free(pointer);
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace {
 namespace proof = oa::app::preplanning_visibility;

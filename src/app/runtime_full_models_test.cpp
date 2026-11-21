@@ -77,6 +77,11 @@ thread_local size_t emission_allocation_count{};
 thread_local size_t emission_allocation_bytes{};
 } // namespace
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 /// Counts ordinary allocations while an emission case watches them.
 void* operator new(size_t size) {
     if (watch_emission_allocations) {
@@ -116,6 +121,10 @@ void operator delete(void* pointer, size_t) noexcept {
 void operator delete[](void* pointer, size_t) noexcept {
     std::free(pointer);
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace {
 

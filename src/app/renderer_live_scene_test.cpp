@@ -38,6 +38,11 @@ thread_local std::size_t ground_allocations{}, refused_ground_allocations{};
 thread_local std::size_t ground_allocation_to_refuse = std::numeric_limits<std::size_t>::max();
 } // namespace
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
 /// Refuses one selected ordinary allocation only during an explicit preparation check.
 void* operator new(std::size_t bytes) {
     if (watch_ground_allocations && ground_allocations++ == ground_allocation_to_refuse) {
@@ -73,6 +78,10 @@ void operator delete(void* pointer, std::size_t) noexcept {
 void operator delete[](void* pointer, std::size_t) noexcept {
     std::free(pointer);
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace {
 namespace live = oa::app::renderer_live_scene;
