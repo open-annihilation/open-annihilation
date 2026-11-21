@@ -15,11 +15,13 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <initializer_list>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace oa::netgame::match {
 namespace {
@@ -2237,6 +2239,246 @@ void apply_commander_sync(NetMatch* m, Player& from, const uint8_t* data, std::s
     ++m->commander_syncs_applied;
 }
 
+// ---- complete route batches
+
+/// Returns the slots of the players that must acknowledge this machine's
+/// route batches: every player simulated elsewhere that has not been
+/// rejected.
+///
+/// @param world Match world.
+/// @return Bit n set for player slot n.
+uint16_t route_batch_ackers(World* world) {
+    uint16_t ackers = 0;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const auto& p = world->game.players[slot];
+        if (is_remote(p) && p.reject_reason == 0)
+            ackers = static_cast<uint16_t>(ackers | (1u << slot));
+    }
+    return ackers;
+}
+
+/// Sends a record from a local player to one remote player past the
+/// record_seen hook: an acknowledgement, or a part sent again, which a
+/// recording does not keep.
+///
+/// @param[in,out] m Running match.
+/// @param from_id A local player that has not been rejected.
+/// @param to_id A remote player that has not been rejected.
+/// @param record Record bytes, type byte first.
+/// @param size Record length in bytes.
+/// @return True when the record was queued.
+bool send_unrecorded(
+    NetMatch* m, uint32_t from_id, uint32_t to_id, const uint8_t* record, std::size_t size
+) {
+    auto* world = m->world;
+    if ((world->game.session_flags & kNetFlagLive) == 0 || record == nullptr || size == 0)
+        return false;
+    const auto* from = player_of(world, from_id);
+    const auto* to = player_of(world, to_id);
+    if (from == nullptr || !is_local(*from) || from->reject_reason != 0 || to == nullptr ||
+        !is_remote(*to) || to->reject_reason != 0)
+        return false;
+    return packet_layer_send(m->connection->packets, from_id, to_id, record, size, now_time(m)) ==
+           WireError::ok;
+}
+
+/// Tells whether a local player sends as a player watching while seated
+/// (the recorder's fake watch), whose unit states carry nothing.
+///
+/// @param m Running match.
+/// @param player A local player.
+/// @return True while the fake watch holds for the player.
+bool fake_watching(const NetMatch* m, const Player& player) {
+    return m->recorder.fake_watch && player.status == OA_PLAYER_STATUS_LOCAL &&
+           static_cast<int32_t>(m->world->game.tick - m->recorder.fake_watch_tick) >= 0;
+}
+
+/// Sends a local player's tick as one complete route batch, its parts
+/// broadcast in order, and keeps the parts while another player has to
+/// acknowledge them.
+///
+/// @param[in,out] m Running match; a packing error is counted in record_errors.
+/// @param player Local player, slot below OA_PLAYER_COUNT.
+void send_route_batch(NetMatch* m, Player& player) {
+    auto* world = m->world;
+    auto& outbox = m->route_outboxes[player.index];
+
+    struct Parts {
+        std::vector<std::vector<uint8_t>> kept;
+        bool short_of_storage{};
+    } parts;
+
+    const RouteBatchSink sink{&parts, [](void* context, const uint8_t* bytes, std::size_t size) {
+                                  auto& taken = *static_cast<Parts*>(context);
+                                  try {
+                                      taken.kept.emplace_back(bytes, bytes + size);
+                                  } catch (const std::exception&) {
+                                      taken.short_of_storage = true;
+                                  }
+                              }};
+    RouteBatchPacked packed{};
+    if (replication_pack_route_batch(
+            world, &m->sim, player.index, outbox.last_tick, !fake_watching(m, player), sink, &packed
+        ) != WireError::ok ||
+        parts.short_of_storage) {
+        ++m->record_errors;
+        return;
+    }
+    for (const auto& part : parts.kept)
+        (void)net_match_send(
+            m, player.player_id, broadcast_destination_id, part.data(), part.size()
+        );
+    outbox.last_tick = packed.tick;
+    auto& stats = m->route_batches;
+    ++stats.batches_sent;
+    stats.parts_sent += packed.parts;
+    stats.bytes_sent += packed.bytes;
+    if (packed.changes >= stats.largest_changes) {
+        stats.largest_tick = packed.tick;
+        stats.largest_changes = packed.changes;
+        stats.largest_parts = packed.parts;
+        stats.largest_bytes = packed.bytes;
+    }
+    if (route_batch_ackers(world) != 0)
+        route_batch_outbox_keep(outbox, packed.tick, std::move(parts.kept));
+}
+
+/// Applies a sender's route batches that are ready, or held past the hold
+/// limit, counting each as an applied record and a failed one as an error.
+///
+/// @param[in,out] m Running match.
+/// @param sender_slot Player slot of the sender.
+void apply_route_batches(NetMatch* m, uint8_t sender_slot) {
+    auto& applied = m->route_batches.applied;
+    const auto batches = applied.batches;
+    const auto errors = applied.errors;
+    route_batch_inbox_apply(
+        m->route_inboxes[sender_slot], m->world, &m->sim, sender_slot, m->world->game.tick, &applied
+    );
+    m->records_applied += applied.batches - batches;
+    m->record_errors += applied.errors - errors;
+}
+
+/// Takes a route batch record from a remote player: a part goes into its
+/// sender's inbox, which applies what became whole; an acknowledgement
+/// notes what its sender holds of a local player's batches.
+///
+/// @param[in,out] m Running match.
+/// @param from The sender.
+/// @param packet The record.
+void handle_route_batch(NetMatch* m, Player& from, const Packet& packet) {
+    auto* world = m->world;
+    const auto* data = packet.data;
+    const auto size = static_cast<std::size_t>(packet.size);
+    auto& stats = m->route_batches;
+    if (from.index >= OA_PLAYER_COUNT) {
+        ++m->records_refused;
+        return;
+    }
+    if (data[0] == static_cast<uint8_t>(RouteBatchRecordType::part)) {
+        switch (route_batch_inbox_take(
+            m->route_inboxes[from.index], world, from.index, data, size, world->game.tick, nullptr
+        )) {
+        case RouteBatchTake::fresh:
+            ++stats.parts_received;
+            // A recording keeps each part once, as it first arrived.
+            if (m->hooks.record_seen != nullptr)
+                m->hooks.record_seen(m->hooks.context, packet.from_id, data, size);
+            break;
+        case RouteBatchTake::duplicate:
+            ++stats.duplicates;
+            break;
+        case RouteBatchTake::refused:
+            ++stats.refused;
+            ++m->record_errors;
+            return;
+        }
+        apply_route_batches(m, from.index);
+        return;
+    }
+    RouteBatchAck ack{};
+    if (decode_route_batch_ack(data, size, &ack) != WireError::ok) {
+        ++m->record_errors;
+        return;
+    }
+    const auto* owner = player_of(world, ack.owner_id);
+    if (owner == nullptr || !is_local(*owner) || owner->index >= OA_PLAYER_COUNT) {
+        ++m->records_refused;
+        return;
+    }
+    ++stats.acks_received;
+    route_batch_outbox_acknowledge(m->route_outboxes[owner->index], from.index, ack);
+}
+
+/// Applies, for every sender, the route batches held past the hold limit.
+///
+/// @param[in,out] m Running match.
+void apply_held_route_batches(NetMatch* m) {
+    if (m->phase != NetPhase::in_game)
+        return;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
+        if (!m->route_inboxes[slot].pending.empty())
+            apply_route_batches(m, slot);
+}
+
+/// Acknowledges the other players' route batches and sends again the parts
+/// of this machine's players' batches that another player lacks.
+///
+/// @param[in,out] m Running match.
+void route_batches_after_tick(NetMatch* m) {
+    if (!m->rules.route_batches || m->phase != NetPhase::in_game)
+        return;
+    auto* world = m->world;
+    const uint32_t now = world->game.tick;
+    const uint32_t interval = std::max<uint32_t>(1u, m->connection->packets->ticks_between_sends);
+    auto& stats = m->route_batches;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const auto& owner = world->game.players[slot];
+        auto& inbox = m->route_inboxes[slot];
+        if (!is_remote(owner) || owner.reject_reason != 0)
+            continue;
+        const uint32_t since = now - inbox.last_ack;
+        if (!(inbox.ack_due && since >= interval) &&
+            !(!inbox.pending.empty() && since >= route_batch_resend_ticks))
+            continue;
+        RouteBatchAck ack{};
+        route_batch_inbox_ack(inbox, owner.player_id, &ack);
+        uint8_t bytes[route_batch_record_max_bytes];
+        std::size_t written = 0;
+        if (encode_route_batch_ack(ack, bytes, sizeof bytes, &written) != WireError::ok)
+            continue;
+        for (const auto& p : world->game.players)
+            if (is_local(p) && p.reject_reason == 0 &&
+                send_unrecorded(m, p.player_id, owner.player_id, bytes, written))
+                ++stats.acks_sent;
+        inbox.ack_due = false;
+        inbox.last_ack = now;
+    }
+    const uint16_t ackers = route_batch_ackers(world);
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        auto& outbox = m->route_outboxes[slot];
+        const auto& owner = world->game.players[slot];
+        if (outbox.kept.empty() || !is_local(owner))
+            continue;
+
+        struct Resender {
+            NetMatch* m{};
+            uint32_t from_id{};
+        } resender{m, owner.player_id};
+
+        const RouteBatchResend resend{
+            &resender,
+            [](void* context, uint8_t acker_slot, const uint8_t* bytes, std::size_t size) {
+                const auto& r = *static_cast<Resender*>(context);
+                (void)send_unrecorded(
+                    r.m, r.from_id, r.m->world->game.players[acker_slot].player_id, bytes, size
+                );
+            }
+        };
+        stats.parts_resent += route_batch_outbox_service(outbox, ackers, now, resend);
+    }
+}
+
 /// Handles a chat record whose text starts with NUL under a private channel.
 ///
 /// @param[in,out] m Running match.
@@ -2266,6 +2508,10 @@ bool dispatch_record(NetMatch* m, Player& from, Player& to, const Packet& packet
     auto* world = m->world;
     const auto* data = packet.data;
     const auto size = static_cast<std::size_t>(packet.size);
+    if (size != 0 && is_route_batch_record_type(data[0])) {
+        handle_route_batch(m, from, packet);
+        return true;
+    }
     if (size != 0 && is_wide_record_type(data[0])) {
         bool handled = false;
         const auto error =
@@ -2339,6 +2585,10 @@ bool dispatch_record(NetMatch* m, Player& from, Player& to, const Packet& packet
     case RecordType::unit_state: {
         if (m->rules.commander_sync_tick != 0 && type == RecordType::unit_state)
             apply_commander_sync(m, from, data, size);
+        // Where route batches carry the unit states, a 0x2c only gives the
+        // commander start sync.
+        if (type == RecordType::unit_state && m->connection->packets->receiver.route_batches)
+            break;
         if (type == RecordType::unit_created &&
             m->rules.recorder_protocol != recorder_protocol_plain) {
             UnitCreatedRecord created{};
@@ -3168,7 +3418,11 @@ uint32_t net_match_pump(NetMatch* m) noexcept {
                                    (static_cast<uint8_t>(NetPhase::in_game) & phase_bit) != 0;
         const bool narrow_admitted = packet.size != 0 && is_record_type(packet.data[0]) &&
                                      (record_phase_table[packet.data[0]] & phase_bit) != 0;
-        if (!wide_admitted && !narrow_admitted) {
+        const bool batch_admitted = packet.size != 0 &&
+                                    is_route_batch_record_type(packet.data[0]) &&
+                                    m->connection->packets->receiver.route_batches &&
+                                    (static_cast<uint8_t>(NetPhase::in_game) & phase_bit) != 0;
+        if (!wide_admitted && !narrow_admitted && !batch_admitted) {
             ++m->records_refused;
             continue;
         }
@@ -3189,13 +3443,15 @@ uint32_t net_match_pump(NetMatch* m) noexcept {
         }
         bump_rx_count(*from);
         from->last_update_time = now_time(m);
-        if (m->hooks.record_seen != nullptr)
+        // A route batch part is seen once, as it first arrives (handle_route_batch).
+        if (m->hooks.record_seen != nullptr && !batch_admitted)
             m->hooks.record_seen(m->hooks.context, packet.from_id, packet.data, packet.size);
         if (m->rules.vote_reject)
             cancel_timeout_vote(m, from->player_id);
         if (!dispatch_record(m, *from, *to, packet))
             break;
     }
+    apply_held_route_batches(m);
     ui::frontend_multiplayer::note_shared_machines(world->game);
     m->timeout_player = net_match_check_timeouts(m);
     // Under the vote rule every machine opens a timeout vote of its own on
@@ -3223,7 +3479,8 @@ bool net_match_send(
     if (m->recorder.fake_watch && from->status == OA_PLAYER_STATUS_LOCAL &&
         static_cast<int32_t>(world->game.tick - m->recorder.fake_watch_tick) >= 0 &&
         record[0] != static_cast<uint8_t>(RecordType::chat) &&
-        record[0] != static_cast<uint8_t>(RecordType::resource_give) && !m->sending_copies) {
+        record[0] != static_cast<uint8_t>(RecordType::resource_give) &&
+        !is_route_batch_record_type(record[0]) && !m->sending_copies) {
         std::size_t length = 0;
         if (record[0] == static_cast<uint8_t>(RecordType::unit_state)) {
             BitWriter writer;
@@ -3286,6 +3543,10 @@ void net_match_send_player_state(NetMatch* m, Player* player) noexcept {
         return;
     if (m->rules.commander_sync_tick != 0 && world->game.tick == m->rules.commander_sync_tick)
         send_commander_sync(m, *player);
+    if (m->rules.route_batches) {
+        send_route_batch(m, *player);
+        return;
+    }
     uint8_t storage[unit_state_writer_words * bit_stream_word_bytes];
     BitWriter writer;
     bit_writer_init(&writer, storage, unit_state_writer_words);
@@ -3473,6 +3734,7 @@ void net_match_after_tick(NetMatch* m) noexcept {
         share_resources(m, local);
     net_match_rules_tick(m);
     send_moved_camera(m);
+    route_batches_after_tick(m);
     packet_layer_flush(m->connection->packets, now_time(m), false);
 }
 

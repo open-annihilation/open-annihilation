@@ -19,6 +19,7 @@
 #include "oa/netgame/match/vote_reject.hpp"
 #include "oa/netgame/recorder_session.hpp"
 #include "oa/netgame/replication.hpp"
+#include "oa/netgame/replication/route_batches.hpp"
 #include "oa/netgame/wire_rules.hpp"
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 
@@ -236,6 +237,24 @@ struct RecorderUnitView {
     uint16_t state{recorder_unit_state_empty};
 };
 
+/// What the complete route batches did in a match (WireRules::route_batches).
+struct RouteBatchStats {
+    uint32_t batches_sent{};     ///< batches this machine's players sent
+    uint32_t parts_sent{};       ///< their parts, as first sent
+    uint32_t parts_resent{};     ///< parts sent again to a player that lacked them
+    uint64_t bytes_sent{};       ///< the bytes of every part as first sent
+    uint32_t largest_tick{};     ///< the tick of the batch sent with the most changes
+    uint32_t largest_changes{};  ///< its changes
+    uint16_t largest_parts{};    ///< its parts
+    uint32_t largest_bytes{};    ///< its bytes
+    uint32_t parts_received{};   ///< parts received that were not held before
+    uint32_t duplicates{};       ///< parts received that were held or applied already
+    uint32_t refused{};          ///< parts refused as malformed, also counted in record_errors
+    uint32_t acks_sent{};        ///< acknowledgements sent, one per local player each
+    uint32_t acks_received{};    ///< acknowledgements of this machine's players' batches received
+    RouteBatchApplied applied{}; ///< the other players' batches applied here
+};
+
 struct NetMatch {
     NetConnection* connection{};
     World* world{};
@@ -291,6 +310,12 @@ struct NetMatch {
     std::vector<RecorderUnitView> recorder_units;
     uint32_t taken_units{};    ///< units a take handed over to this machine's player
     uint32_t base_buildings{}; ///< buildings of prebuilt bases this machine handed over
+    /// By local player slot, the route batches the player sent that some
+    /// other player does not hold yet (WireRules::route_batches).
+    std::array<RouteBatchOutbox, OA_PLAYER_COUNT> route_outboxes{};
+    /// By sending player slot, the route batches received and not yet applied.
+    std::array<RouteBatchInbox, OA_PLAYER_COUNT> route_inboxes{};
+    RouteBatchStats route_batches{}; ///< what the route batches did
 };
 
 /// Takes over the lobby's connection for the match.
@@ -573,6 +598,16 @@ void net_match_enter_game(NetMatch* match) noexcept;
 /// take goes before each packet read, and the drain goes on while steps
 /// hand units over.
 ///
+/// In the game a route batch part (0xe4) is admitted while the receiver
+/// splits route batch records, and the sender's batches that are whole and
+/// next in its order are applied as it arrives; after the drain, a sender
+/// whose batch has been held route_batch_hold_limit_ticks has it applied
+/// with the parts held. A route batch acknowledgement (0xe5) to a player of
+/// this machine notes what its sender holds of that player's batches. The
+/// record_seen hook sees a part only the first time it arrives, and never an
+/// acknowledgement. In a match of route batches a 0x2c only gives the
+/// commander start sync.
+///
 /// @param[in,out] match Running match.
 /// @return How many packets were read; 0 outside a live game.
 uint32_t net_match_pump(NetMatch* match) noexcept;
@@ -592,6 +627,11 @@ bool net_match_send(
 ) noexcept;
 
 /// Packs and broadcasts this tick's 0x2c record of a local player.
+///
+/// Under WireRules::route_batches the tick goes out as one complete route
+/// batch (replication_pack_route_batch) in its place, its parts broadcast in
+/// order; while another player still has to acknowledge them they are kept
+/// to be sent again (net_match_after_tick).
 ///
 /// @param[in,out] match Running match; a packing error is counted in record_errors.
 /// @param player Local player whose units are packed; others are ignored.
@@ -671,6 +711,14 @@ void net_match_send_damage(
 [[nodiscard]] uint32_t net_match_host_id(const NetMatch* match) noexcept;
 
 /// Ends one simulation tick: allied resource and sight sharing for the local player, then the paced flush.
+///
+/// Under WireRules::route_batches, before the flush, each local player
+/// acknowledges the route batches of every other player it received
+/// something of, at most once per send interval, or once per
+/// route_batch_resend_ticks while it holds a batch it cannot apply yet;
+/// and each local player's kept parts go again to the players that still
+/// lack them (route_batch_outbox_service). Neither the acknowledgements nor
+/// the parts sent again reach the record_seen hook.
 ///
 /// Every 60 ticks, with the player's share options on, the metal above
 /// Player.metal_share_threshold (a third of it) and the energy above

@@ -94,6 +94,11 @@ struct WireRules {
     uint32_t weapon_types{wire_base_weapon_types};
     /// The most sides this game plays.
     uint8_t sides{wire_base_sides};
+    /// Each player's tick of route changes travels as one complete route
+    /// batch (0xe4) in place of its 0x2c, and the machines acknowledge
+    /// (0xe5) and send again what is lost: an Enhanced Mode match, whose
+    /// machines are all Open Annihilation's.
+    bool route_batches{};
 
     /// Compares every field.
     bool operator==(const WireRules&) const = default;
