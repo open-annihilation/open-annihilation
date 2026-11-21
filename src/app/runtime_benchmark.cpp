@@ -1848,8 +1848,22 @@ void Runtime::run_battle_benchmark() {
     report.requested_units_per_side = options_.benchmark_units;
     report.warmup_ticks = options_.benchmark_warmup;
     report.measured_ticks = options_.match_ticks.value_or(300);
-    report.enhanced_version = enhanced_mode_version(*this);
-    report.enhanced_mode = report.enhanced_version != 0;
+    namespace mode = oa::data::enhanced_mode;
+    const auto note_choice = [&](const mode::Choice& choice, uint32_t alias) {
+        report.enhanced_revision = choice.revision;
+        report.enhanced_features.clear();
+        for (uint32_t id = 1; id < 64; ++id) {
+            const auto feature = static_cast<mode::Feature>(static_cast<uint8_t>(id));
+            if (!choice.features.has(feature))
+                continue;
+            const std::string_view name = mode::feature_name(feature);
+            if (!name.empty())
+                report.enhanced_features.emplace_back(name);
+        }
+        report.enhanced_version = alias;
+        report.enhanced_mode = choice.revision != 0;
+    };
+    note_choice(enhanced_mode_choice(*this), enhanced_mode_version(*this));
     report.engine_version = running_engine_version_line();
     report.error = "the benchmark did not complete";
     report.thread_cpu_clock = benchmark_timing::thread_cpu_clock_name();
@@ -1880,12 +1894,14 @@ void Runtime::run_battle_benchmark() {
     } restore{restore_setup};
 
     const auto write_report = [&] {
-        report.played_feature_names.clear();
+        // The features the match played, which a --benchmark-features set
+        // chooses in place of the held rules' set.
         if (match_) {
+            report.enhanced_features.clear();
             const auto played = match_->enhanced_features();
             for (const auto& row : oa::data::enhanced_mode::feature_table())
                 if (played.has(row.id))
-                    report.played_feature_names.emplace_back(row.name);
+                    report.enhanced_features.emplace_back(row.name);
         }
         report.played_feature_spec = options_.benchmark_features_spec;
         report.played_feature_override = benchmark_feature_set_.has_value();
@@ -1974,7 +1990,8 @@ void Runtime::run_battle_benchmark() {
             if (!hold_enhanced_rules_once(options_.benchmark_rules_version))
                 throw std::runtime_error("the benchmark Enhanced rules version is unsupported");
             held_rules_for_setup = true;
-            report.enhanced_version = options_.benchmark_rules_version;
+            const uint32_t requested = options_.benchmark_rules_version;
+            note_choice(mode::Choice{1, mode::version_features(requested)}, requested);
         }
         std::array<std::vector<uint16_t>, 2> armies;
         if (staged) {
@@ -1986,8 +2003,7 @@ void Runtime::run_battle_benchmark() {
             report.map = played_map_name();
             report.unit_limit = match_->state().game.units_per_player;
             report.simulation_hash = simulation_hash(*this);
-            report.enhanced_version = enhanced_mode_version(*this);
-            report.enhanced_mode = report.enhanced_version != 0;
+            note_choice(enhanced_mode_choice(*this), enhanced_mode_version(*this));
             apply_stage();
             observer->begin(*match_);
         } else {
@@ -2037,8 +2053,7 @@ void Runtime::run_battle_benchmark() {
                     "battle benchmark population exceeds the resolved match capacity"
                 );
             report.simulation_hash = simulation_hash(*this);
-            report.enhanced_version = enhanced_mode_version(*this);
-            report.enhanced_mode = report.enhanced_version != 0;
+            note_choice(enhanced_mode_choice(*this), enhanced_mode_version(*this));
             const auto dimensions = shown_map_size();
             const auto width = static_cast<uint32_t>(dimensions[0]);
             const auto height = static_cast<uint32_t>(dimensions[1]);

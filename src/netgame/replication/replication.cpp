@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/netgame/replication.hpp"
+#include "oa/netgame/replication/route_batches.hpp"
 
 #include <cstdint>
+#include <exception>
+#include <vector>
 
 namespace oa::netgame {
 namespace {
@@ -427,6 +430,276 @@ WireError replication_apply_unit_state(
     const auto slot = unit_state_full_record_slot(tick, world->game.units_per_player);
     if (slot < 0 || static_cast<uint32_t>(slot) >= count)
         return WireError::bad_argument;
+    return replication_apply_full_record(world, sim, &first[slot], &reader);
+}
+
+namespace {
+
+/// Bits of a route batch part's header, before its bit stream.
+constexpr std::size_t route_batch_header_bits = route_batch_part_header_bytes * 8u;
+/// Bits a byte's padding may leave after a part's bit stream.
+constexpr std::size_t padding_bits = 8;
+/// Bits of a full record's speed word.
+constexpr std::size_t speed_word_bits = 32;
+/// Words of the writer one route batch part is built in: the longest part and a spare word.
+constexpr std::size_t route_batch_writer_words =
+    route_batch_record_max_bytes / bit_stream_word_bytes + 2u;
+
+/// Tells whether a def index is within 1..16 bits, as a stream's def index field is.
+///
+/// @param bits the width
+/// @return true when 1..16
+bool def_bits_valid(unsigned bits) noexcept {
+    return bits >= 1 && bits <= unit_state_max_def_index_bits;
+}
+
+/// Starts a reader at a route batch part's bit stream.
+///
+/// @param[out] reader the reader
+/// @param bytes the part
+/// @param length its length
+void read_route_batch_body(BitReader* reader, const uint8_t* bytes, std::size_t length) noexcept {
+    bit_reader_init(reader, bytes, length);
+    (void)bit_reader_read(reader, 32);
+    (void)bit_reader_read(reader, 32);
+    (void)bit_reader_read(reader, 32);
+    (void)bit_reader_read(reader, static_cast<unsigned>(route_batch_header_bits - 96u));
+}
+
+} // namespace
+
+WireError replication_pack_route_batch(
+    World* world,
+    const ReplicationSim* sim,
+    uint8_t player_index,
+    uint32_t previous_tick,
+    bool changes,
+    const RouteBatchSink& sink,
+    RouteBatchPacked* packed
+) noexcept {
+    Player* player = world != nullptr ? world_player(world, player_index) : nullptr;
+    if (player == nullptr || sink.part == nullptr)
+        return WireError::bad_argument;
+    const auto def_bits = static_cast<unsigned>(world->game.unit_def_id_bits);
+    const auto tick = world->game.tick;
+    if (!def_bits_valid(def_bits) || tick == 0 || previous_tick >= tick)
+        return WireError::bad_argument;
+    // The parts are kept until the whole batch is packed: a batch that
+    // cannot be packed sends nothing, so no machine waits on its missing
+    // parts.
+    std::vector<std::vector<uint8_t>> parts;
+    uint8_t storage[route_batch_writer_words * bit_stream_word_bytes];
+    BitWriter writer;
+    const auto begin_part = [&] {
+        bit_writer_init(&writer, storage, route_batch_writer_words);
+        route_batch_part_begin(&writer, tick, previous_tick, static_cast<uint16_t>(parts.size()));
+    };
+    const auto close_part = [&](bool last) {
+        uint16_t length = 0;
+        const auto error = route_batch_part_finish(&writer, last, &length);
+        if (error != WireError::ok)
+            return error;
+        try {
+            parts.emplace_back(storage, storage + length);
+        } catch (const std::exception&) {
+            return WireError::overflow;
+        }
+        return WireError::ok;
+    };
+    player->last_sim_tick = static_cast<int32_t>(tick);
+    RouteBatchPacked result{};
+    result.tick = tick;
+    begin_part();
+    uint32_t count = 0;
+    Unit* first = world_player_units(world, player, &count);
+    for (uint32_t i = 0; changes && i < count; ++i) {
+        Unit* unit = &first[i];
+        if (!unit_live(unit) || unit->movement == 0)
+            continue;
+        MovementRecord* m = movement_of(world, sim, unit);
+        if (m == nullptr)
+            continue;
+        UnitDelta delta{};
+        delta.movement = m->driver;
+        if (m->driver == MovementClass::ground && ground_driver_has_delta(*m))
+            ground_driver_take_delta(m, &delta.ground);
+        else if (m->driver == MovementClass::air && air_driver_has_delta(*m))
+            air_driver_take_delta(m, &delta.air);
+        else
+            continue;
+        // A part that has reached its soft limit is closed and the change
+        // goes into the next one: the batch has no byte budget.
+        if (bit_writer_byte_length(&writer) >= route_batch_part_soft_limit_bytes) {
+            bit_writer_write(&writer, unit_state_list_terminator, unit_state_unit_index_bits);
+            const auto error = close_part(false);
+            if (error != WireError::ok)
+                return error;
+            if (parts.size() >= route_batch_max_parts)
+                return WireError::overflow;
+            begin_part();
+        }
+        const auto index = static_cast<uint16_t>(unit->id - player->base_unit_id);
+        unit_state_write_entry_header(&writer, index, unit->type_index, def_bits);
+        write_unit_delta(&writer, delta);
+        ++result.changes;
+    }
+    FullUnitRecord full{};
+    const auto slot = unit_state_full_record_slot(tick, world->game.units_per_player);
+    if (changes && first != nullptr && slot >= 0 && static_cast<uint32_t>(slot) < count)
+        full = pack_full_unit_record(world, sim, &first[slot]);
+    bit_writer_write(&writer, unit_state_list_terminator, unit_state_unit_index_bits);
+    bit_writer_write_bit(&writer, true);
+    write_full_unit_record(&writer, full, def_bits);
+    const auto error = close_part(true);
+    if (error != WireError::ok)
+        return error;
+    result.parts = static_cast<uint16_t>(parts.size());
+    for (const auto& part : parts) {
+        result.bytes += static_cast<uint32_t>(part.size());
+        sink.part(sink.context, part.data(), part.size());
+    }
+    if (packed != nullptr)
+        *packed = result;
+    return WireError::ok;
+}
+
+WireError replication_check_route_batch_part(
+    World* world,
+    uint8_t sender_index,
+    const uint8_t* bytes,
+    std::size_t size,
+    RouteBatchPartHeader* header,
+    uint32_t* changes
+) noexcept {
+    Player* sender = world != nullptr ? world_player(world, sender_index) : nullptr;
+    if (sender == nullptr || bytes == nullptr)
+        return WireError::bad_argument;
+    const auto def_bits = static_cast<unsigned>(world->game.unit_def_id_bits);
+    if (!def_bits_valid(def_bits))
+        return WireError::bad_argument;
+    RouteBatchPartHeader read_header{};
+    const auto decoded = decode_route_batch_part_header(bytes, size, &read_header);
+    if (decoded != WireError::ok)
+        return decoded;
+    uint32_t count = 0;
+    Unit* first = world_player_units(world, sender, &count);
+    BitReader reader;
+    read_route_batch_body(&reader, bytes, read_header.length);
+    uint32_t listed = 0;
+    auto index = static_cast<uint16_t>(bit_reader_read(&reader, unit_state_unit_index_bits));
+    while (index != no_unit_index) {
+        if (bit_reader_overrun(&reader))
+            return WireError::truncated;
+        if (first == nullptr || index >= count)
+            return WireError::bad_argument;
+        const auto def_index = static_cast<uint16_t>(bit_reader_read(&reader, def_bits));
+        const auto layout = delta_layout(world, nullptr, def_index);
+        if (layout == MovementClass::none)
+            return WireError::unsupported_delta_layout;
+        UnitDelta delta{};
+        const auto error = read_unit_delta(&reader, layout, &delta);
+        if (error != WireError::ok)
+            return error;
+        ++listed;
+        index = static_cast<uint16_t>(bit_reader_read(&reader, unit_state_unit_index_bits));
+    }
+    if (bit_reader_overrun(&reader))
+        return WireError::truncated;
+    if (read_header.last && bit_reader_read_bit(&reader)) {
+        const auto slot =
+            unit_state_full_record_slot(read_header.tick, world->game.units_per_player);
+        if (first == nullptr || slot < 0 || static_cast<uint32_t>(slot) >= count)
+            return WireError::bad_argument;
+        FullUnitRecord record{};
+        if (read_full_unit_record(&reader, def_bits, false, &record) != WireError::ok)
+            return WireError::truncated;
+    }
+    if (bit_reader_overrun(&reader))
+        return WireError::truncated;
+    // What follows is at most a full record's speed word, whose presence the
+    // receiving unit decides as it does for a 0x2c, and a byte's padding.
+    const std::size_t left =
+        std::size_t{read_header.length} * 8u - bit_reader_bits_consumed(&reader);
+    if (left >= padding_bits &&
+        !(read_header.last && left >= speed_word_bits && left < speed_word_bits + padding_bits))
+        return WireError::length_mismatch;
+    if (header != nullptr)
+        *header = read_header;
+    if (changes != nullptr)
+        *changes = listed;
+    return WireError::ok;
+}
+
+WireError replication_apply_route_batch(
+    World* world,
+    const ReplicationSim* sim,
+    uint8_t sender_index,
+    std::span<const RouteBatchPartView> parts
+) noexcept {
+    Player* sender = world != nullptr ? world_player(world, sender_index) : nullptr;
+    if (sender == nullptr || parts.empty())
+        return WireError::bad_argument;
+    // Every part is checked before any of it applies.
+    RouteBatchPartHeader first_header{};
+    const RouteBatchPartView* last_part = nullptr;
+    int32_t previous_index = -1;
+    for (const auto& part : parts) {
+        RouteBatchPartHeader header{};
+        const auto error = replication_check_route_batch_part(
+            world, sender_index, part.bytes, part.size, &header, nullptr
+        );
+        if (error != WireError::ok)
+            return error;
+        if (previous_index < 0)
+            first_header = header;
+        if (header.tick != first_header.tick ||
+            header.previous_tick != first_header.previous_tick ||
+            static_cast<int32_t>(header.part_index) <= previous_index || (last_part != nullptr))
+            return WireError::bad_argument;
+        previous_index = header.part_index;
+        if (header.last)
+            last_part = &part;
+    }
+    const auto def_bits = static_cast<unsigned>(world->game.unit_def_id_bits);
+    const auto tick = first_header.tick;
+    sender->last_sim_tick = static_cast<int32_t>(tick);
+    uint32_t count = 0;
+    Unit* first = world_player_units(world, sender, &count);
+    if (first == nullptr)
+        return WireError::ok;
+    BitReader reader;
+    for (const auto& part : parts) {
+        read_route_batch_body(&reader, part.bytes, part.size);
+        auto index = static_cast<uint16_t>(bit_reader_read(&reader, unit_state_unit_index_bits));
+        while (index != no_unit_index) {
+            Unit* unit = &first[index];
+            const auto def_index = static_cast<uint16_t>(bit_reader_read(&reader, def_bits));
+            if (unit->type_index != def_index)
+                create_from_stream(world, sim, unit, def_index);
+            MovementRecord* m = movement_of(world, sim, unit);
+            const auto layout = delta_layout(world, m, def_index);
+            UnitDelta delta{};
+            const auto error = read_unit_delta(&reader, layout, &delta);
+            if (error != WireError::ok)
+                return error;
+            movement_apply_delta(world, sim, unit, m, delta);
+            index = static_cast<uint16_t>(bit_reader_read(&reader, unit_state_unit_index_bits));
+        }
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        Unit* unit = &first[i];
+        if (!unit_live(unit) || unit->movement == 0 || sim == nullptr)
+            continue;
+        if (sim->movement_tick != nullptr)
+            sim->movement_tick(sim->context, world, unit);
+        if (sim->sight_update != nullptr)
+            sim->sight_update(sim->context, world, unit);
+    }
+    // The reader stands after the last part's terminator when the last part
+    // came last; a batch given up without its last part has no full record.
+    if (last_part == nullptr || !bit_reader_read_bit(&reader))
+        return WireError::ok;
+    const auto slot = unit_state_full_record_slot(tick, world->game.units_per_player);
     return replication_apply_full_record(world, sim, &first[slot], &reader);
 }
 

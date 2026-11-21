@@ -2331,8 +2331,8 @@ int Runtime::check_render_tiers() {
                 start_benchmark_skirmish();
                 if (!match_ || match_->rules().setup.enhanced_mode.enabled != enhanced)
                     fail("the classic overlay fixture did not start the requested real match");
-                if (enhanced && match_->rules().setup.enhanced_mode.version !=
-                                    static_cast<int32_t>(mode::following_flow_version))
+                if (enhanced && oa::data::enhanced_mode::rules_version(match_->rules()) !=
+                                    mode::following_flow_version)
                     fail("the classic overlay fixture upgraded or replaced its Enhanced preset");
                 spawn_combat_armies(1);
                 select_local_commander();
@@ -4822,7 +4822,7 @@ void Runtime::check_full_models(const fs::path& report_directory) {
               << counts.polygons << " polygons in " << frame.batches.size() << " batches; against "
               << "the processor's raster: " << comparison.drawn << " pixels drawn, "
               << comparison.same << " the same, " << comparison.phase << " a texel of phase, "
-              << comparison.edge_colour << " another colour at an edge, " << comparison.far
+              << comparison.edge_colour << " another colour at an edge, " << comparison.far_colours
               << " far, " << comparison.edge_coverage << " covered by one within a pixel of the "
               << "other, " << comparison.far_coverage << " covered by one alone, "
               << comparison.shadowed << " shadowed\n";

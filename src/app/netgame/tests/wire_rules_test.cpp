@@ -3,9 +3,9 @@
 
 // The network rules a profile gives network play: none and the baseline
 // profile give 3.1c's rules exactly, a profile with every network and
-// recorder hack on gives each its rule, and every reference profile in the
-// folder OA_MOD_PROFILES_DIR names (when set) gives rules that agree with
-// its hacks.
+// recorder hack on gives each its rule, Enhanced Mode gives the route
+// batches, and every reference profile in the folder OA_MOD_PROFILES_DIR
+// names (when set) gives rules that agree with its hacks.
 
 #include "wire_rules_binding.hpp"
 
@@ -199,6 +199,23 @@ void rules_need_their_channel() {
     CHECK(rules.version_rule == ng::VersionRule::at_least && rules.launch_version_bias);
 }
 
+/// Route batches follow Enhanced Mode: a profile with it on sends them and
+/// one without it does not, and nothing else of the rules changes.
+void route_batches_follow_enhanced_mode() {
+    auto profile = resolve(mp::baseline_profile_text());
+    CHECK(profile.has_value());
+    if (!profile)
+        return;
+    CHECK(!oa::app::netgame::wire_rules_of(&*profile).route_batches);
+    profile->rules.setup.enhanced_mode.enabled = true;
+    auto rules = oa::app::netgame::wire_rules_of(&*profile);
+    CHECK(rules.route_batches);
+    rules.route_batches = false;
+    CHECK(rules == ng::WireRules{});
+    profile->rules.setup.enhanced_mode.enabled = false;
+    CHECK(oa::app::netgame::wire_rules_of(&*profile) == ng::WireRules{});
+}
+
 /// Checks every reference profile's rules against its hacks.
 ///
 /// @return how many profiles were read
@@ -238,6 +255,7 @@ int reference_profiles() {
         CHECK(rules.lag_guard_ms == profile->network.lag_guard.gap_ms);
         const auto& speed = profile->rules.console.game_speed_range;
         CHECK(rules.speed_lock == (speed.enabled && speed.syncon));
+        CHECK(rules.route_batches == profile->rules.setup.enhanced_mode.enabled);
         std::printf(
             "%s: version %d.%d (%s), channel %d, check %d, votes %d, lag guard %d ms, start sync "
             "%d, recorder %d, ten players %d\n",
@@ -266,6 +284,7 @@ int main() {
     rules_need_their_channel();
     speed_lock_follows_syncon();
     profile_limits_choose_the_records();
+    route_batches_follow_enhanced_mode();
     reference_profiles();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);

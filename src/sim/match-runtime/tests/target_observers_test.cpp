@@ -4,6 +4,7 @@
 // An order that watches a unit and is then pointed at another unit, or at
 // no unit, leaves the first unit's list. Freeing that order and hitting the
 // first unit wakes only the orders that still watch it.
+#include "oa/data/enhanced_mode.hpp"
 #include "combat_fixture.hpp"
 #include "match_tick_access.hpp"
 #include "order_ownership.hpp"
@@ -24,8 +25,9 @@ constexpr uint32_t damage_wake = 0x10; // the damage reaction wakes watchers wit
 Options mode_options(uint32_t version) {
     Options options;
     options.per_player_limit = 32;
-    options.rules.setup.enhanced_mode.enabled = version != 0;
-    options.rules.setup.enhanced_mode.version = version;
+    oa::data::enhanced_mode::apply_alias(
+        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    );
     return options;
 }
 

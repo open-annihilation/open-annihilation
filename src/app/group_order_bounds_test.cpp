@@ -242,8 +242,9 @@ struct Scene {
             plots,
             oa::sim::visibility_state::AltitudeSightData{8, 8, altitude, altitude_patterns}
         };
-        inputs.rules.setup.enhanced_mode.enabled = version != 0;
-        inputs.rules.setup.enhanced_mode.version = version;
+        oa::data::enhanced_mode::apply_alias(
+            inputs.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        );
         inputs.unit_player_mask = 3;
         game = std::make_unique<runtime::Match>(inputs, services);
         match().configure_strategic_environment({0, 0.5F, 0});

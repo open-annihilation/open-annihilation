@@ -1176,7 +1176,7 @@ if(BUILD_TESTING)
   set_tests_properties(app-root-prefix-geometry PROPERTIES TIMEOUT 30)
   # Rendering-only prefix publication keeps canonical geometry debt until a
   # rejected draw obtains current native vectors and actual image pixels.
-  add_executable(oa-app-root-prefix-model-plan-test src/app/root_prefix_model_plan_test.cpp)
+  add_executable(oa-app-root-prefix-model-plan-test src/app/root_prefix_model_plan_test.cpp src/app/benchmark_thread_cpu.cpp)
   target_link_libraries(oa-app-root-prefix-model-plan-test PRIVATE oa-app-headers
     oa-present-model oa-present-world-renderer oa-sim-model-runtime oa-base-game-math
     oa-test-support oa-options)
@@ -1186,7 +1186,7 @@ if(BUILD_TESTING)
     oa-present-model oa-sim-model-runtime oa-test-support oa-options)
   add_test(NAME app-deferred-model-geometry COMMAND oa-app-deferred-model-geometry-test)
   find_package(Threads REQUIRED)
-  add_executable(oa-app-plan-work-counts-test src/app/plan_work_counts_test.cpp)
+  add_executable(oa-app-plan-work-counts-test src/app/plan_work_counts_test.cpp src/app/benchmark_thread_cpu.cpp)
   target_link_libraries(oa-app-plan-work-counts-test PRIVATE oa-test-support Threads::Threads
     oa-options)
   add_test(NAME app-plan-work-counts COMMAND oa-app-plan-work-counts-test)
@@ -1486,7 +1486,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_view_panels.cpp src/app/runtime_whiteboard.cpp src/app/runtime_commander_placement.cpp
   src/app/runtime_megamap.cpp
   src/app/runtime_skirmish_host.cpp
-  src/app/runtime_skirmish_start.cpp src/app/runtime_map_units.cpp src/app/runtime_world_draw.cpp src/app/world_draws.cpp src/app/runtime_benchmark.cpp src/app/runtime_music.cpp
+  src/app/runtime_skirmish_start.cpp src/app/runtime_map_units.cpp src/app/runtime_world_draw.cpp src/app/world_draws.cpp src/app/runtime_benchmark.cpp src/app/benchmark_thread_cpu.cpp src/app/runtime_music.cpp
   src/app/runtime_saveload.cpp src/app/runtime_brain_saves.cpp src/app/runtime_saves.cpp
   src/app/runtime_recordings.cpp
   src/app/runtime_recorded_mutators.cpp

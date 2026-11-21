@@ -101,9 +101,9 @@ enum class SectorType : uint32_t {
     /// Open Annihilation's own type, the bytes 1 L A O on disk. Other readers
     /// skip it.
     limits = 0x4f414c31,
-    /// The Enhanced Mode rules version, a nonzero little-endian count.
-    /// Open Annihilation's own type, the bytes 1 E A O on disk. A recording
-    /// without this sector plays with Enhanced Mode off.
+    /// The Enhanced Mode revision and feature set. Open Annihilation's own
+    /// type, the bytes 1 E A O on disk. A recording without this sector
+    /// plays with Enhanced Mode off.
     enhanced_mode = 0x4f414531,
 };
 
@@ -128,8 +128,21 @@ struct RecordedLimits {
 
 /// Bytes of a limits sector: weapon types, then sides, each a little-endian count.
 inline constexpr std::size_t limits_sector_bytes = 8;
-/// Bytes of an Enhanced Mode sector: one little-endian rules version.
-inline constexpr std::size_t enhanced_mode_sector_bytes = 4;
+
+/// The Enhanced Mode identity a recording stores. Feature bits use bit
+/// (id − 1). The needed version is major << 16 | minor << 8 | patch, or 0
+/// when the writer did not know one.
+struct RecordedEnhancedMode {
+    uint32_t revision{};       ///< at least 1; zero is not a sector
+    uint64_t feature_bits{};   ///< bit (id − 1) for each feature
+    uint32_t needed_version{}; ///< packed engine version, or 0 when unknown
+
+    /// Compares the revision, the bits and the needed version.
+    bool operator==(const RecordedEnhancedMode&) const = default;
+};
+
+/// Bytes of an Enhanced Mode sector: revision, feature bits, needed version.
+inline constexpr std::size_t enhanced_mode_sector_bytes = 16;
 
 /// Which record lengths a recording's packets are split with.
 ///
@@ -274,21 +287,22 @@ encode_limits_sector(const RecordedLimits& limits);
 /// @return The two limits, or nothing when the sector does not hold them.
 [[nodiscard]] std::optional<RecordedLimits> decode_limits_sector(const Sector& sector);
 
-/// Writes an Enhanced Mode sector's rules version in little-endian order.
+/// Writes an Enhanced Mode sector in little-endian order.
 ///
-/// @param version nonzero rules version; zero is represented by omitting the sector
-/// @return the four sector bytes
+/// @param recorded revision, feature bits and packed needed version
+/// @return the sixteen sector bytes
 [[nodiscard]] std::array<uint8_t, enhanced_mode_sector_bytes>
-encode_enhanced_mode_sector(uint32_t version);
+encode_enhanced_mode_sector(const RecordedEnhancedMode& recorded);
 
-/// Reads an Enhanced Mode sector's rules version.
+/// Reads an Enhanced Mode sector.
 ///
-/// Supported rules versions are checked by the application, so a newer
-/// nonzero version remains readable here.
+/// The sector must be exactly sixteen bytes and name a revision of at least
+/// 1. Which revisions and feature ids this build can play is checked by the
+/// application, so a newer recording remains readable here.
 ///
-/// @param sector sector with the Enhanced Mode type and exactly four bytes
-/// @return the nonzero version, or nothing when the type, length or version is invalid
-[[nodiscard]] std::optional<uint32_t> decode_enhanced_mode_sector(const Sector& sector);
+/// @param sector sector with the Enhanced Mode type and exactly sixteen bytes
+/// @return the recorded identity, or nothing when the type, length or revision is invalid
+[[nodiscard]] std::optional<RecordedEnhancedMode> decode_enhanced_mode_sector(const Sector& sector);
 
 /// Splits the unit-check chunk into its 14-byte 0x1a records.
 ///

@@ -765,7 +765,7 @@ struct ModelRasterComparison {
     std::size_t same{};        ///< pixels both draw within model_raster_tolerance a channel
     std::size_t phase{};       ///< pixels both draw, each colour found within a pixel in the other
     std::size_t edge_colour{}; ///< pixels both draw within a pixel of an edge, in other colours
-    std::size_t far{};         ///< pixels both draw in colours the other has nowhere within a pixel
+    std::size_t far_colours{}; ///< pixels both draw in colours the other has nowhere within a pixel
     std::size_t
         edge_coverage{}; ///< pixels one picture alone draws, the other drawing within a pixel
     std::size_t far_coverage{}; ///< pixels one picture alone draws, the other drawing nothing near
@@ -779,8 +779,8 @@ struct ModelRasterComparison {
 
     /// Returns the share of the pixels both draw whose colours are far apart.
     ///
-    /// @return far over same + phase + edge_colour + far; 0 when nothing is
-    ///     drawn by both
+    /// @return far_colours over same + phase + edge_colour + far_colours; 0
+    ///     when nothing is drawn by both
     [[nodiscard]] double far_share() const noexcept;
 };
 

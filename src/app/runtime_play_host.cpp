@@ -356,6 +356,11 @@ PlayStateRequest state_view(const HeldCommand& command) {
 // The runtime's side of the play host: the one friend through which its
 // entries change the match, by the paths the keys use.
 struct PlayHostAccess {
+    /// Holds a recorded choice through the application's existing access boundary.
+    static bool hold_mode(Runtime& runtime, const oa::data::enhanced_mode::Choice& choice) {
+        return runtime.hold_enhanced_rules_once(choice);
+    }
+
     /// Holds recorded mode rules through the application's existing access boundary.
     static bool hold_mode(Runtime& runtime, uint32_t version) {
         return runtime.hold_enhanced_rules_once(version);
@@ -1545,9 +1550,22 @@ PlayHost play_host(Runtime& runtime) {
     return host;
 }
 
+oa::data::enhanced_mode::Choice enhanced_mode_choice(const Runtime& runtime) noexcept {
+    const auto* profile = runtime.mod_profile();
+    if (profile == nullptr || !profile->rules.setup.enhanced_mode.enabled)
+        return {};
+    const auto& mode = profile->rules.setup.enhanced_mode;
+    return {static_cast<uint32_t>(mode.revision), oa::data::enhanced_mode::stored_features(mode)};
+}
+
 uint32_t enhanced_mode_version(const Runtime& runtime) noexcept {
+    // Restructure only; removed in R09.
     const auto* profile = runtime.mod_profile();
     return profile != nullptr ? oa::data::enhanced_mode::rules_version(profile->rules) : 0;
+}
+
+bool hold_enhanced_mode_once(Runtime& runtime, const oa::data::enhanced_mode::Choice& choice) {
+    return PlayHostAccess::hold_mode(runtime, choice);
 }
 
 bool hold_enhanced_mode_once(Runtime& runtime, uint32_t version) {

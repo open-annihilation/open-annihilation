@@ -1527,20 +1527,20 @@ const oa::data::mod_profile::ModProfile* Runtime::mod_profile() const noexcept {
     return options_.mod_profile.get();
 }
 
-bool Runtime::hold_enhanced_rules_once(uint32_t version) {
-    if (!oa::data::enhanced_mode::supported_version(version))
+bool Runtime::hold_enhanced_rules_once(const oa::data::enhanced_mode::Choice& choice) {
+    if (oa::data::enhanced_mode::choice_problem(choice) != nullptr)
         return false;
     auto& state = engine_settings_state();
-    const auto before = state.restored_enhanced_version;
+    const auto before = state.restored_enhanced_choice;
     const bool started = state.restored_enhanced_started;
     state.enhanced_mode_holds.push_back({before, started});
-    state.restored_enhanced_version = version;
+    state.restored_enhanced_choice = choice;
     state.restored_enhanced_started = false;
     try {
         apply_hack_overrides();
         return true;
     } catch (const std::exception& error) {
-        state.restored_enhanced_version = before;
+        state.restored_enhanced_choice = before;
         state.restored_enhanced_started = started;
         state.enhanced_mode_holds.pop_back();
         std::cerr << "open-annihilation: Enhanced Mode: " << error.what() << '\n';
@@ -1548,17 +1548,27 @@ bool Runtime::hold_enhanced_rules_once(uint32_t version) {
     }
 }
 
+bool Runtime::hold_enhanced_rules_once(uint32_t version) {
+    // Restructure only; removed in R09.
+    namespace mode = oa::data::enhanced_mode;
+    if (!mode::supported_version(version))
+        return false;
+    if (version == mode::off_version)
+        return hold_enhanced_rules_once(mode::Choice{});
+    return hold_enhanced_rules_once(mode::Choice{1, mode::version_features(version)});
+}
+
 void Runtime::release_enhanced_rules_once(bool restore_previous) noexcept {
-    if (!engine_settings_ || !engine_settings_->restored_enhanced_version)
+    if (!engine_settings_ || !engine_settings_->restored_enhanced_choice)
         return;
     auto& state = *engine_settings_;
     if (restore_previous && !state.enhanced_mode_holds.empty()) {
         const auto previous = state.enhanced_mode_holds.back();
         state.enhanced_mode_holds.pop_back();
-        state.restored_enhanced_version = previous.version;
+        state.restored_enhanced_choice = previous.choice;
         state.restored_enhanced_started = previous.started;
     } else {
-        state.restored_enhanced_version.reset();
+        state.restored_enhanced_choice.reset();
         state.restored_enhanced_started = false;
         state.enhanced_mode_holds.clear();
     }
@@ -1689,27 +1699,40 @@ void Runtime::apply_hack_overrides() {
     const auto& settings = state.current;
     std::shared_ptr<const profiles::ModProfile> latest = options_.mod_profile;
     std::vector<std::string> refused;
-    const uint32_t requested_version = options_.enhanced_mode_version.value_or(0);
-    const uint32_t new_game_version =
-        requested_version != 0 ? requested_version : oa::data::enhanced_mode::current_version;
-    const uint32_t enhanced_version =
-        state.restored_enhanced_version.value_or(settings.enhanced_mode ? new_game_version : 0);
-    if (enhanced_version == 0 && options_.mod_profile &&
-        oa::data::enhanced_mode::rules_version(options_.mod_profile->rules) != 0)
+    namespace mode = oa::data::enhanced_mode;
+    mode::Choice choice;
+    if (state.restored_enhanced_choice) {
+        choice = *state.restored_enhanced_choice;
+    } else if (!settings.enhanced_mode) {
+        choice = {};
+    } else if (options_.enhanced_mode_version && *options_.enhanced_mode_version != 0) {
+        // Restructure only; removed in R09.
+        const uint32_t requested = *options_.enhanced_mode_version;
+        if (!mode::supported_version(requested))
+            throw std::runtime_error(
+                "unsupported Enhanced Mode rules version " + std::to_string(requested)
+            );
+        choice = mode::Choice{1, mode::version_features(requested)};
+    } else {
+        choice =
+            mode::Choice{mode::highest_revision, mode::revision_features(mode::highest_revision)};
+    }
+    if (choice.revision == 0 && options_.mod_profile &&
+        options_.mod_profile->rules.setup.enhanced_mode.enabled)
         throw std::runtime_error("the profile's enhanced rules require Enhanced Mode");
-    if (enhanced_version != 0 || (settings.developer_mode && !settings.hack_overrides.empty())) {
+    if (choice.revision != 0 || (settings.developer_mode && !settings.hack_overrides.empty())) {
         if (!state.profile_source) {
-            if (enhanced_version != 0)
+            if (choice.revision != 0)
                 throw std::runtime_error("Enhanced Mode cannot resolve the game's rules");
             refused.emplace_back("the profile cannot be read again; no override applies");
         } else {
             auto options = state.profile_source->options;
             if (settings.developer_mode)
                 options.overrides = settings.hack_overrides;
-            auto result = oa::data::enhanced_mode::resolve_profile(
-                state.profile_source->text, state.profile_source->name, options, enhanced_version
+            auto result = mode::resolve_profile(
+                state.profile_source->text, state.profile_source->name, options, choice
             );
-            if (!result.resolution && (enhanced_version != 0 || result.errors.size() > 0))
+            if (!result.resolution && (choice.revision != 0 || result.errors.size() > 0))
                 throw std::runtime_error(
                     result.errors.empty() ? "Enhanced Mode cannot resolve the game's rules"
                                           : profiles::format_diagnostic(result.errors.front())

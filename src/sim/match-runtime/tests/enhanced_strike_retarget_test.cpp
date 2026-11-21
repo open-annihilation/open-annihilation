@@ -129,8 +129,9 @@ void restore_retarget(Fixture& fixture, std::span<const uint8_t> bytes) {
 /// Prepares durable units and one version of the match rules.
 Options options_for(uint32_t version) {
     Options options;
-    options.rules.setup.enhanced_mode.enabled = version != 0;
-    options.rules.setup.enhanced_mode.version = version;
+    oa::data::enhanced_mode::apply_alias(
+        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    );
     options.per_player_limit = slots_per_player;
     options.maximum_health = durable_health;
     options.gun_reload_time = "10";
@@ -1351,7 +1352,7 @@ void restore_and_compare_continuation(StrikeFixture& first, StrikeFixture& resto
     compare_continuation_state(first, restored);
     const auto saved = retarget_bytes(first.fixture);
     Fixture fresh(
-        options_for(static_cast<uint32_t>(first.fixture.match->rules().setup.enhanced_mode.version))
+        options_for(oa::data::enhanced_mode::rules_version(first.fixture.match->rules()))
     );
     const auto blank = retarget_bytes(fresh);
     CHECK(blank != saved);

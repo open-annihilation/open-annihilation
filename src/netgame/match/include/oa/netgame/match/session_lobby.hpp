@@ -110,7 +110,9 @@ bool net_connection_set_packet_rate(NetConnection* connection, int32_t sends_per
 /// Sets the network rules of the connection's sessions.
 ///
 /// The receiver splits the recorder's records out of every frame when the
-/// rules present the recorder; the match copies the rules as it begins. A
+/// rules present the recorder, the wide weapon records when they raise the
+/// weapon types and the route batch records when they say so
+/// (WireRules::route_batches); the match copies the rules as it begins. A
 /// published session's description keeps an empty password either way.
 ///
 /// @param[in,out] connection Connection whose rules change.

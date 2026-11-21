@@ -381,21 +381,35 @@ std::optional<RecordedLimits> decode_limits_sector(const Sector& sector) {
     return limits;
 }
 
-std::array<uint8_t, enhanced_mode_sector_bytes> encode_enhanced_mode_sector(uint32_t version) {
-    return {
-        static_cast<uint8_t>(version),
-        static_cast<uint8_t>(version >> 8),
-        static_cast<uint8_t>(version >> 16),
-        static_cast<uint8_t>(version >> 24)
+std::array<uint8_t, enhanced_mode_sector_bytes>
+encode_enhanced_mode_sector(const RecordedEnhancedMode& recorded) {
+    std::array<uint8_t, enhanced_mode_sector_bytes> out{};
+    const auto put32 = [](uint8_t* at, uint32_t value) {
+        at[0] = static_cast<uint8_t>(value);
+        at[1] = static_cast<uint8_t>(value >> 8);
+        at[2] = static_cast<uint8_t>(value >> 16);
+        at[3] = static_cast<uint8_t>(value >> 24);
     };
+    put32(out.data(), recorded.revision);
+    put32(out.data() + 4, static_cast<uint32_t>(recorded.feature_bits));
+    put32(out.data() + 8, static_cast<uint32_t>(recorded.feature_bits >> 32));
+    put32(out.data() + 12, recorded.needed_version);
+    return out;
 }
 
-std::optional<uint32_t> decode_enhanced_mode_sector(const Sector& sector) {
+std::optional<RecordedEnhancedMode> decode_enhanced_mode_sector(const Sector& sector) {
     if (sector.type != static_cast<uint32_t>(SectorType::enhanced_mode) ||
         sector.data.size() != enhanced_mode_sector_bytes)
         return std::nullopt;
-    const uint32_t version = base::bytes::load_le32(sector.data.data());
-    return version != 0 ? std::optional<uint32_t>{version} : std::nullopt;
+    RecordedEnhancedMode recorded;
+    recorded.revision = base::bytes::load_le32(sector.data.data());
+    const uint32_t low = base::bytes::load_le32(sector.data.data() + 4);
+    const uint32_t high = base::bytes::load_le32(sector.data.data() + 8);
+    recorded.feature_bits = static_cast<uint64_t>(low) | (static_cast<uint64_t>(high) << 32);
+    recorded.needed_version = base::bytes::load_le32(sector.data.data() + 12);
+    if (recorded.revision < 1)
+        return std::nullopt;
+    return recorded;
 }
 
 std::vector<std::span<const uint8_t>> unit_check_records(const Demo& demo) {

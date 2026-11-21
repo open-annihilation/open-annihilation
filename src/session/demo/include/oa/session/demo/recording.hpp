@@ -13,6 +13,7 @@
 // to a file as they are made (RecordingStream).
 
 #include "oa/core/player_setup.h"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/formats/tad.hpp"
 
 #include <array>
@@ -67,8 +68,11 @@ struct RecordingSetup {
     /// The two limits of a game played under a profile that raises either.
     /// Absent writes no sector.
     std::optional<formats::tad::RecordedLimits> limits;
-    /// The Enhanced Mode rules version; zero writes no sector.
-    uint32_t enhanced_mode_version{};
+    /// The Enhanced Mode revision and features. Revision 0 writes no sector.
+    data::enhanced_mode::Choice enhanced_mode{};
+    /// Packed first engine version (major << 16 | minor << 8 | patch), or 0
+    /// when the writer did not know one.
+    uint32_t needed_engine_version{};
     std::vector<RecordingPlayer> players; ///< the recording machine's player first; at most 10
     std::vector<std::array<uint8_t, formats::tad::layout::unit_check_record_bytes>> unit_checks;
     bool compress{}; ///< packets stored compressed (marker 4)

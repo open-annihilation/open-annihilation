@@ -6,6 +6,7 @@
 #include "combat_fixture.hpp"
 
 #include "oa/base/game_loop.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/match_runtime/match_trace.hpp"
 #include "oa/sim/state_hash.hpp"
 
@@ -522,7 +523,11 @@ struct Digests {
 /// @return each tick's total digest and the final state digest
 Digests fight(bool keep, bool enhanced = false) {
     Options options;
-    options.rules.setup.enhanced_mode.enabled = enhanced;
+    if (enhanced) {
+        oa::data::enhanced_mode::apply_alias(
+            options.rules.setup.enhanced_mode, oa::data::enhanced_mode::capacity_version
+        );
+    }
     Fixture f(options);
     if (keep) {
         f.match->keep_player_contacts(0, true);
@@ -592,7 +597,11 @@ ScanSample sample_scan(
     auto options = picture_options(allied_vision, allied_jammers);
     options.per_player_limit = units_per_side;
     options.unit_player_mask = allied_vision ? 7 : 3;
-    options.rules.setup.enhanced_mode.enabled = enhanced;
+    if (enhanced) {
+        oa::data::enhanced_mode::apply_alias(
+            options.rules.setup.enhanced_mode, oa::data::enhanced_mode::capacity_version
+        );
+    }
     Fixture f(options);
     if (dense)
         give_ranges(f, 400, 400, 400, 400);

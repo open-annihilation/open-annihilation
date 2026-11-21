@@ -153,8 +153,9 @@ struct Scene {
                 fixture.altitude_patterns
             }
         };
-        inputs.rules.setup.enhanced_mode.enabled = setup.version != 0;
-        inputs.rules.setup.enhanced_mode.version = setup.version;
+        oa::data::enhanced_mode::apply_alias(
+            inputs.rules.setup.enhanced_mode, static_cast<uint32_t>(setup.version)
+        );
         inputs.unit_player_mask = 3;
         fixture.match = std::make_unique<runtime::Match>(inputs, fixture.services);
         match().configure_strategic_environment({0, 0.5F, 0});

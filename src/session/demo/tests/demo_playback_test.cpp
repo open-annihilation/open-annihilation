@@ -8,6 +8,7 @@
 // match records its own datagrams, stored as the recorder stores them, as a
 // demo that a second match then replays.
 
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/session/demo.hpp"
 #include "oa/session/demo/recording.hpp"
 #include "oa/session/demo/recording_stream.hpp"
@@ -751,8 +752,10 @@ struct Machine {
             sim::visibility_state::AltitudeSightData{8, 8, altitude_cells, altitude_patterns}
         };
         if (enhanced_version != 0) {
-            input.rules.setup.enhanced_mode.enabled = true;
-            input.rules.setup.enhanced_mode.version = static_cast<int32_t>(enhanced_version);
+            oa::data::enhanced_mode::apply_alias(
+                input.rules.setup.enhanced_mode,
+                static_cast<uint32_t>(static_cast<int32_t>(enhanced_version))
+            );
             input.unit_player_mask = allocated_players;
         }
         match = std::make_unique<sim::match_runtime::Match>(input, services);
@@ -2871,7 +2874,12 @@ void enhanced_recordings_keep_original_unit_ranges() {
     for (const uint8_t count : {uint8_t{3}, uint8_t{OA_PLAYER_COUNT}}) {
         auto setup = live_setup(count, false);
         setup.unit_checks.resize(1);
-        setup.enhanced_mode_version = 13;
+        setup.enhanced_mode = {
+            1,
+            oa::data::enhanced_mode::version_features(
+                oa::data::enhanced_mode::cardinal_queue_escape_version
+            )
+        };
         // Slot 1 owns the first range, slot 0 the last: this is a restored
         // allocation order, independent of the record's player-list order.
         for (uint8_t slot = 0; slot < count; ++slot) {
@@ -2958,7 +2966,7 @@ void enhanced_recordings_keep_original_unit_ranges() {
     }
 }
 
-/// Records a nonzero Enhanced Mode version after the limits and omits version zero.
+/// Records a nonzero Enhanced Mode revision after the limits and omits revision zero.
 void recording_carries_enhanced_mode() {
     for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u, 13u}) {
         DemoRecording recorded;
@@ -2966,7 +2974,13 @@ void recording_carries_enhanced_mode() {
         const auto plain = recording_write(recorded);
         CHECK(plain.ok());
         recorded.setup.limits = formats::tad::RecordedLimits{1024, 10};
-        recorded.setup.enhanced_mode_version = version;
+        const oa::data::enhanced_mode::Choice choice{
+            1, oa::data::enhanced_mode::version_features(version)
+        };
+        recorded.setup.enhanced_mode = choice;
+        const char* needed = oa::data::enhanced_mode::needed_engine_version(choice);
+        recorded.setup.needed_engine_version =
+            needed != nullptr ? oa::data::enhanced_mode::packed_engine_version(needed) : 0;
         const auto written = recording_write(recorded);
         CHECK(written.ok());
         const auto header = recording_header(recorded.setup);
@@ -2977,8 +2991,14 @@ void recording_carries_enhanced_mode() {
             const auto* sector =
                 formats::tad::find_sector(*parsed.demo, formats::tad::SectorType::enhanced_mode);
             CHECK(sector != nullptr);
-            if (sector != nullptr)
-                CHECK(formats::tad::decode_enhanced_mode_sector(*sector) == version);
+            if (sector != nullptr) {
+                const formats::tad::RecordedEnhancedMode expected{
+                    choice.revision,
+                    oa::data::enhanced_mode::sector_feature_bits(choice.features),
+                    recorded.setup.needed_engine_version
+                };
+                CHECK(formats::tad::decode_enhanced_mode_sector(*sector) == expected);
+            }
             int limits_at = -1;
             int enhanced_at = -1;
             for (std::size_t at = 0; at < parsed.demo->sectors.size(); ++at) {
@@ -2995,7 +3015,8 @@ void recording_carries_enhanced_mode() {
             );
         }
         recorded.setup.limits.reset();
-        recorded.setup.enhanced_mode_version = 0;
+        recorded.setup.enhanced_mode = {};
+        recorded.setup.needed_engine_version = 0;
         const auto disabled = recording_write(recorded);
         CHECK(disabled.ok() && disabled.bytes == plain.bytes);
         const auto off = formats::tad::parse(disabled.bytes);

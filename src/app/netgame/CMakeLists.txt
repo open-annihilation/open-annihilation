@@ -239,6 +239,24 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
     --skip-intro --mute --headless-check --net-loopback-check 300 --net-loopback-watcher
     --preferences-file "${oa_netgame_checks}/net-loopback-watcher.conf")
   set_tests_properties(native-net-loopback-watcher PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+  # Enhanced Mode: the host's player is given 3,000 movers and sends them all
+  # south at tick 300. Every route change of that tick crosses as one
+  # complete route batch, which the joiner applies whole before the step it
+  # belongs to, and the worlds agree; the second check loses 10% of each
+  # machine's frames once the movers stand, and every lost part is sent
+  # again.
+  add_test(NAME native-net-loopback-route-burst COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+    --skip-intro --mute --headless-check --net-loopback-check 900 --enhanced-mode
+    --net-loopback-route-burst 3000
+    --preferences-file "${oa_netgame_checks}/net-loopback-route-burst.conf")
+  set_tests_properties(native-net-loopback-route-burst PROPERTIES
+    TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+  add_test(NAME native-net-loopback-route-burst-loss COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+    --skip-intro --mute --headless-check --net-loopback-check 900 --enhanced-mode
+    --net-loopback-route-burst 3000 --net-loopback-loss 10
+    --preferences-file "${oa_netgame_checks}/net-loopback-route-burst-loss.conf")
+  set_tests_properties(native-net-loopback-route-burst-loss PROPERTIES
+    TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
   # With Simplified Chinese shown, whose pack turns Unicode chat on, each
   # machine's setup block says it reads chat in UTF-8. The test fixture
   # pack installs first.

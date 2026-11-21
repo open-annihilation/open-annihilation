@@ -4465,7 +4465,8 @@ int Runtime::check_live_renderer() {
             require(match_ != nullptr, "the Enhanced ground-query match did not start");
             const auto& enhanced = match_->rules().setup.enhanced_mode;
             require(
-                enhanced.enabled && enhanced.version == static_cast<int32_t>(version),
+                enhanced.enabled &&
+                    oa::data::enhanced_mode::rules_version(match_->rules()) == version,
                 "the ground-query fixture did not start the requested real Enhanced match"
             );
             select_local_commander();

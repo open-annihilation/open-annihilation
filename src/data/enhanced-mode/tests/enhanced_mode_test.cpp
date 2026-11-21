@@ -6,14 +6,18 @@
 #include "oa/data/mod_profile/overrides.hpp"
 #include "oa/test/check.hpp"
 
+#include "oa/base/sha256.hpp"
+
 #include <array>
 #include <cstddef>
 #include <initializer_list>
+#include <iostream>
 #include <limits>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -25,49 +29,61 @@ constexpr std::string_view off_sim_hash =
     "1502111e3b1f69bd93be99405e3c61e0c6337698a7c8502f9f6320e80600094d";
 constexpr std::string_view off_canonical_hash =
     "56b8e36be0dc22beb516a81805d95cf71db2fe600db965a3ad3460baa681b246";
-// The version-1 base profile's simulation rules and complete canonical JSON.
-// Later presets retain these values so old saves and recordings keep their rules.
+// Alias version 1.
 constexpr std::string_view capacity_sim_hash =
-    "13cff985db3bf81ac26152dadf25e95ff0dfe788f009b78a6d7b278981990e1b";
+    "984103bf6f7144fe70a2da98cbcaa7aea16ba560f3f8db21181ddc2df7f553b9";
 constexpr std::string_view capacity_canonical_hash =
-    "274c2e562b1fb155ac2edf75a483218b1a28c7503f7b55ac8f4b5bda63d0493f";
-// The version-2 identity remains independent of the current preset.
+    "cc3c7b87ac002d41d9c7f14b15bc15cd9ddab833e05812aecff7c83f147ccded";
+// Alias version 2.
 constexpr std::string_view flow_sim_hash =
-    "2b7bb180e975630800fa1123c8dde85bd76952f644ec5ef74facc6cf4696bee3";
+    "6c9c8ff02806d858c5e718831b964797746ffb55c11f48b29ff13576d514fc0f";
 constexpr std::string_view flow_canonical_hash =
-    "4289710df599269b47eda5874eb5ae071d21a1097005d1df7e50a2fc93a8fec9";
-// Version 3 retains its routing, movement rules and canonical identity.
+    "b5fa6346061b9ff5388637440d290c7c57b36e0df624450ac7bca23a474be6af";
+// Alias version 3.
 constexpr std::string_view regional_sim_hash =
-    "1f2a8eb19c55aa46b2e620ac237a8d7f08e7307e0140f5b1b40bd8093cfaff69";
+    "b68fe61bb8fa9afd92a45fa610b76d53d6870c96e97d54a4cfee51f91d2dd93f";
 constexpr std::string_view regional_canonical_hash =
-    "d6e68fa3490dc43f3fcafb02027c9db9f111e54880b56b7275c7659da503bcd6";
-// Version 4 retains its swept-ground rules and canonical identity.
+    "1d35b1b69651ab0bc548f2d3b1ca08d75a3ddca217b446562e3d317437095dea";
+// Alias version 4 and Revision 1 (provisional).
 constexpr std::string_view swept_ground_sim_hash =
-    "eb720332ee25a3e289956f795835d02f5c5f48da5cae2a5855454f6a47120235";
+    "b32e84b1199bb1ed107045fa6dec7cd01ac18a04d840703aa80010cde04070c3";
 constexpr std::string_view swept_ground_canonical_hash =
-    "fb94f560a48e47523c670a225e479db1f5cfc6a8550423c784a852ed8c9b7e0c";
-// The explicit experimental identities retain their original canonical rules.
+    "583220b3b1bbfc5885c752d10d19a286e554e7275b0da883f1450cb53621f182";
+// Alias version 5.
 constexpr std::string_view corridor_sim_hash =
-    "1d44e799141fb751b4aa9cd8e73d4d01c358dc3eb617a32033e4649cd91ecadf";
+    "b9578976b6a185978cf2f4516c9a61291dadbf161fcac0aca40bd60c1291cc59";
 constexpr std::string_view corridor_canonical_hash =
-    "fe2c864887e71d367381b3e0a38553410f56fe76c6538d8f439af03822ec974b";
+    "26848ff342eb0c983eb434b18bbe42ecf00e77af7a3d1834480a4314c6543080";
+// Alias version 6.
 constexpr std::string_view battle_sim_hash =
-    "7fcd23aa103b68ef1f17fd5d51f038d546dbbd8c4beb361be16e2a52386668b7";
+    "4550a81d720330491f497f621ca99434ef42e3d5a2dd9857cbf786f761d58f25";
 constexpr std::string_view battle_canonical_hash =
-    "7b14c3bd16ba36480effbff1f8c494815d609578aaa9853ef5002036d2c6fd76";
+    "baef569fde900789fb7b0f2d36c56fc7cc29f1f124172d62267c8f4787372bdf";
+// Alias version 7.
 constexpr std::string_view distributed_sim_hash =
-    "afd8bfcd5bad8e5eb9ae9daee0df8cc007d65635d588c5e97f3bfb9f2b67d4dc";
+    "6aa585cdd1040fb9af5a15fe9e267a73650aff2172d916cf04d1b57a7f374e13";
 constexpr std::string_view distributed_canonical_hash =
-    "70ff3d27c4a6df5ddf94153fe59e6ecfd8d5fd1f4f9ed90534b4842fdca24ad7";
-// Versions 8 and 10 retain their original rules and complete canonical profiles.
+    "4e330a94107aaeacd5d8cc61ad844aeec0c4f521b3cfae62cc831a60a346e794";
+// Alias version 8.
 constexpr std::string_view following_sim_hash =
-    "713a68f3b5fe06431b65864aa0bf63ed0d9b87a14ced88b81df968f25c9c4ddc";
+    "acbdd64b83397820b921f0f1538bedabd4a65b32c30a4dce763e127648784200";
 constexpr std::string_view following_canonical_hash =
-    "0240ac7df34f56ff4361817488a11e957b3f3dba8b81ddd029b2084f5c080075";
+    "11fa9ccacec5129b8fd5587d1cb61f8d726230b344183009906d2968a501c1ff";
+// Alias version 10.
 constexpr std::string_view cohort_sim_hash =
-    "eb041e276e60a34b69b2bb442bb760ecedc20f7bac82a23df5b06854a398653c";
+    "30b03b2398acbe294b4db952f9ba23d96adeee84b7a41ee58546dc32177b1af2";
 constexpr std::string_view cohort_canonical_hash =
-    "149a37363be305c9cbc9d0d503b3aeed8a757ab95dfe1d09a23c54f2fb6f97f3";
+    "80c0be5b26abc3e7350a2eb780934ca61e13eadfc3c7093e9bc945a6b4fbd859";
+// Alias version 11.
+constexpr std::string_view retention_sim_hash =
+    "b7aef3438ac8de098441ce7da42da04f10c6fa8a60b724adfe755f78c8842f20";
+constexpr std::string_view retention_canonical_hash =
+    "e3a81e80d5519c5ed8ba3462242f807951b93db671a3df7c14a7b7a91ac23293";
+// Alias version 13.
+constexpr std::string_view cardinal_sim_hash =
+    "1603020c788b7b4d78d658f101dd5173cd71bb7de18d80ff1a0eb325640da265";
+constexpr std::string_view cardinal_canonical_hash =
+    "ec2a6e0304f11dd6fe2d18615273775ab731e63060e08544ac7e20caf1102ea4";
 
 /// A chosen mod with its own unit capacity and unrelated gameplay rule.
 constexpr std::string_view mod_text =
@@ -86,6 +102,62 @@ constexpr std::string_view mod_text =
 /// Views profile text as the bytes the resolver reads.
 std::span<const uint8_t> bytes(std::string_view text) {
     return {reinterpret_cast<const uint8_t*>(text.data()), text.size()};
+}
+
+/// Prints a digest that misses its pin, then checks it.
+///
+/// @param label the pin's name
+/// @param digest the digest the profile produced
+/// @param pinned the pinned hex text
+void expect_digest(
+    std::string_view label, const oa::base::sha256::Digest& digest, std::string_view pinned
+) {
+    const std::string text = profiles::digest_text(digest);
+    if (text != pinned)
+        std::cerr << label << ' ' << text << '\n';
+    OA_CHECK(text == pinned);
+}
+
+/// The `"setup.enhanced-mode":{...}` object, key and value.
+///
+/// @param canonical a resolved profile's canonical JSON
+/// @return that object, or empty when the profile leaves Enhanced Mode out
+std::string_view enhanced_mode_object(std::string_view canonical) {
+    constexpr std::string_view key = "\"setup.enhanced-mode\":";
+    const auto at = canonical.find(key);
+    if (at == std::string_view::npos)
+        return {};
+    const auto open = at + key.size();
+    if (open >= canonical.size() || canonical[open] != '{')
+        return {};
+    int depth = 0;
+    for (std::size_t index = open; index < canonical.size(); ++index) {
+        if (canonical[index] == '{')
+            ++depth;
+        else if (canonical[index] == '}') {
+            --depth;
+            if (depth == 0)
+                return canonical.substr(at, index + 1 - at);
+        }
+    }
+    return {};
+}
+
+/// Tells whether two canonical profiles differ only in the Enhanced Mode object.
+///
+/// @param later the profile whose object is replaced
+/// @param earlier the profile whose object is kept
+/// @return true when that replacement makes the profiles identical
+bool same_except_enhanced_mode(std::string later, std::string_view earlier) {
+    const std::string_view later_object = enhanced_mode_object(later);
+    const std::string_view earlier_object = enhanced_mode_object(earlier);
+    if (later_object.empty() || earlier_object.empty()) {
+        std::cerr << "enhanced-mode object missing\n";
+        return false;
+    }
+    const auto at = static_cast<std::size_t>(later_object.data() - later.data());
+    later.replace(at, later_object.size(), earlier_object);
+    return later == earlier;
 }
 
 /// Checks that Off preserves an existing profile, including both hashes.
@@ -126,31 +198,32 @@ void check_versioned_identity() {
     const auto& previous = *capacity.resolution;
     const auto& current = *flow.resolution;
     OA_CHECK(enhanced::rules_version(previous.profile.rules) == enhanced::capacity_version);
-    OA_CHECK(profiles::digest_text(previous.profile.sim_hash) == capacity_sim_hash);
-    OA_CHECK(profiles::digest_text(previous.profile.full_hash) == capacity_canonical_hash);
+    expect_digest("capacity_sim_hash", previous.profile.sim_hash, capacity_sim_hash);
+    expect_digest("capacity_canonical_hash", previous.profile.full_hash, capacity_canonical_hash);
     OA_CHECK(
         profiles::digest_text(oa::base::sha256::digest_of(bytes(previous.canonical))) ==
         capacity_canonical_hash
     );
     OA_CHECK(enhanced::rules_version(current.profile.rules) == enhanced::flow_version);
-    OA_CHECK(profiles::digest_text(current.profile.sim_hash) == flow_sim_hash);
-    OA_CHECK(profiles::digest_text(current.profile.full_hash) == flow_canonical_hash);
+    expect_digest("flow_sim_hash", current.profile.sim_hash, flow_sim_hash);
+    expect_digest("flow_canonical_hash", current.profile.full_hash, flow_canonical_hash);
     OA_CHECK(current.profile.sim_hash != previous.profile.sim_hash);
     OA_CHECK(current.profile.full_hash != previous.profile.full_hash);
     OA_CHECK(current.profile.limits == previous.profile.limits);
     auto earlier_rules = current.profile.rules;
-    earlier_rules.setup.enhanced_mode.version = previous.profile.rules.setup.enhanced_mode.version;
+    earlier_rules.setup.enhanced_mode.features =
+        previous.profile.rules.setup.enhanced_mode.features;
     OA_CHECK(earlier_rules == previous.profile.rules);
 
-    auto earlier_canonical = current.canonical;
-    constexpr std::string_view flow_rule = "\"setup.enhanced-mode\":{\"version\":2}";
-    constexpr std::string_view capacity_rule = "\"setup.enhanced-mode\":{\"version\":1}";
-    const auto version_at = earlier_canonical.find(flow_rule);
-    OA_CHECK(version_at != std::string::npos);
-    if (version_at != std::string::npos) {
-        earlier_canonical.replace(version_at, flow_rule.size(), capacity_rule);
-        OA_CHECK(earlier_canonical == previous.canonical);
-    }
+    OA_CHECK(same_except_enhanced_mode(current.canonical, previous.canonical));
+    const auto capacity_object = enhanced_mode_object(previous.canonical);
+    // Names, in registry order: the hash follows the names, not the indexes.
+    // Alias version 1.
+    constexpr std::string_view capacity_rule =
+        "\"setup.enhanced-mode\":{\"features\":[\"capacity\"],\"revision\":1}";
+    if (capacity_object != capacity_rule)
+        std::cerr << "capacity object " << capacity_object << '\n';
+    OA_CHECK(capacity_object == capacity_rule);
 }
 
 /// Gives regional routing a new identity without changing the earlier preset.
@@ -167,22 +240,15 @@ void check_regional_identity() {
         enhanced::regional_flow_version
     );
     OA_CHECK(regional.resolution->profile.sim_hash != flow.resolution->profile.sim_hash);
-    OA_CHECK(profiles::digest_text(regional.resolution->profile.sim_hash) == regional_sim_hash);
-    OA_CHECK(
-        profiles::digest_text(regional.resolution->profile.full_hash) == regional_canonical_hash
+    expect_digest("regional_sim_hash", regional.resolution->profile.sim_hash, regional_sim_hash);
+    expect_digest(
+        "regional_canonical_hash", regional.resolution->profile.full_hash, regional_canonical_hash
     );
     auto prior = regional.resolution->profile.rules;
-    prior.setup.enhanced_mode.version = enhanced::flow_version;
+    prior.setup.enhanced_mode.features =
+        flow.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(prior == flow.resolution->profile.rules);
-    auto canonical = regional.resolution->canonical;
-    constexpr std::string_view regional_rule = "\"setup.enhanced-mode\":{\"version\":3}";
-    constexpr std::string_view flow_rule = "\"setup.enhanced-mode\":{\"version\":2}";
-    const auto version_at = canonical.find(regional_rule);
-    OA_CHECK(version_at != std::string::npos);
-    if (version_at != std::string::npos) {
-        canonical.replace(version_at, regional_rule.size(), flow_rule);
-        OA_CHECK(canonical == flow.resolution->canonical);
-    }
+    OA_CHECK(same_except_enhanced_mode(regional.resolution->canonical, flow.resolution->canonical));
 }
 
 /// Assigns swept ground checks their own identity without upgrading older rules.
@@ -200,23 +266,22 @@ void check_swept_ground_identity() {
     );
     OA_CHECK(swept.resolution->profile.sim_hash != regional.resolution->profile.sim_hash);
     OA_CHECK(swept.resolution->profile.full_hash != regional.resolution->profile.full_hash);
-    OA_CHECK(profiles::digest_text(swept.resolution->profile.sim_hash) == swept_ground_sim_hash);
-    OA_CHECK(
-        profiles::digest_text(swept.resolution->profile.full_hash) == swept_ground_canonical_hash
+    expect_digest(
+        "swept_ground_sim_hash", swept.resolution->profile.sim_hash, swept_ground_sim_hash
+    );
+    expect_digest(
+        "swept_ground_canonical_hash",
+        swept.resolution->profile.full_hash,
+        swept_ground_canonical_hash
     );
     OA_CHECK(swept.resolution->profile.limits == regional.resolution->profile.limits);
     auto prior = swept.resolution->profile.rules;
-    prior.setup.enhanced_mode.version = enhanced::regional_flow_version;
+    prior.setup.enhanced_mode.features =
+        regional.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(prior == regional.resolution->profile.rules);
-    auto canonical = swept.resolution->canonical;
-    constexpr std::string_view swept_rule = "\"setup.enhanced-mode\":{\"version\":4}";
-    constexpr std::string_view regional_rule = "\"setup.enhanced-mode\":{\"version\":3}";
-    const auto version_at = canonical.find(swept_rule);
-    OA_CHECK(version_at != std::string::npos);
-    if (version_at != std::string::npos) {
-        canonical.replace(version_at, swept_rule.size(), regional_rule);
-        OA_CHECK(canonical == regional.resolution->canonical);
-    }
+    OA_CHECK(
+        same_except_enhanced_mode(swept.resolution->canonical, regional.resolution->canonical)
+    );
 }
 
 /// Reserves corridor flow's identity without upgrading earlier ground rules.
@@ -236,23 +301,18 @@ void check_corridor_identity() {
     );
     OA_CHECK(corridor.resolution->profile.sim_hash != swept.resolution->profile.sim_hash);
     OA_CHECK(corridor.resolution->profile.full_hash != swept.resolution->profile.full_hash);
-    OA_CHECK(profiles::digest_text(corridor.resolution->profile.sim_hash) == corridor_sim_hash);
-    OA_CHECK(
-        profiles::digest_text(corridor.resolution->profile.full_hash) == corridor_canonical_hash
+    expect_digest("corridor_sim_hash", corridor.resolution->profile.sim_hash, corridor_sim_hash);
+    expect_digest(
+        "corridor_canonical_hash", corridor.resolution->profile.full_hash, corridor_canonical_hash
     );
     OA_CHECK(corridor.resolution->profile.limits == swept.resolution->profile.limits);
     auto prior = corridor.resolution->profile.rules;
-    prior.setup.enhanced_mode.version = enhanced::swept_ground_version;
+    prior.setup.enhanced_mode.features =
+        swept.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(prior == swept.resolution->profile.rules);
-    auto canonical = corridor.resolution->canonical;
-    constexpr std::string_view corridor_rule = "\"setup.enhanced-mode\":{\"version\":5}";
-    constexpr std::string_view swept_rule = "\"setup.enhanced-mode\":{\"version\":4}";
-    const auto version_at = canonical.find(corridor_rule);
-    OA_CHECK(version_at != std::string::npos);
-    if (version_at != std::string::npos) {
-        canonical.replace(version_at, corridor_rule.size(), swept_rule);
-        OA_CHECK(canonical == swept.resolution->canonical);
-    }
+    OA_CHECK(
+        same_except_enhanced_mode(corridor.resolution->canonical, swept.resolution->canonical)
+    );
 }
 
 /// Keeps the battle-flow preset distinct without changing its predecessor's rules.
@@ -270,21 +330,16 @@ void check_battle_flow_identity() {
     );
     OA_CHECK(battle.resolution->profile.sim_hash != swept.resolution->profile.sim_hash);
     OA_CHECK(battle.resolution->profile.full_hash != swept.resolution->profile.full_hash);
-    OA_CHECK(profiles::digest_text(battle.resolution->profile.sim_hash) == battle_sim_hash);
-    OA_CHECK(profiles::digest_text(battle.resolution->profile.full_hash) == battle_canonical_hash);
+    expect_digest("battle_sim_hash", battle.resolution->profile.sim_hash, battle_sim_hash);
+    expect_digest(
+        "battle_canonical_hash", battle.resolution->profile.full_hash, battle_canonical_hash
+    );
     OA_CHECK(battle.resolution->profile.limits == swept.resolution->profile.limits);
     auto prior = battle.resolution->profile.rules;
-    prior.setup.enhanced_mode.version = enhanced::swept_ground_version;
+    prior.setup.enhanced_mode.features =
+        swept.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(prior == swept.resolution->profile.rules);
-    auto canonical = battle.resolution->canonical;
-    constexpr std::string_view battle_rule = "\"setup.enhanced-mode\":{\"version\":6}";
-    constexpr std::string_view swept_rule = "\"setup.enhanced-mode\":{\"version\":4}";
-    const auto version_at = canonical.find(battle_rule);
-    OA_CHECK(version_at != std::string::npos);
-    if (version_at != std::string::npos) {
-        canonical.replace(version_at, battle_rule.size(), swept_rule);
-        OA_CHECK(canonical == swept.resolution->canonical);
-    }
+    OA_CHECK(same_except_enhanced_mode(battle.resolution->canonical, swept.resolution->canonical));
 }
 
 /// Keeps repaired-destination distribution separate from retained battle-flow rules.
@@ -304,26 +359,22 @@ void check_distributed_battle_flow_identity() {
     );
     OA_CHECK(distributed.resolution->profile.sim_hash != battle.resolution->profile.sim_hash);
     OA_CHECK(distributed.resolution->profile.full_hash != battle.resolution->profile.full_hash);
-    OA_CHECK(
-        profiles::digest_text(distributed.resolution->profile.sim_hash) == distributed_sim_hash
+    expect_digest(
+        "distributed_sim_hash", distributed.resolution->profile.sim_hash, distributed_sim_hash
     );
-    OA_CHECK(
-        profiles::digest_text(distributed.resolution->profile.full_hash) ==
+    expect_digest(
+        "distributed_canonical_hash",
+        distributed.resolution->profile.full_hash,
         distributed_canonical_hash
     );
     OA_CHECK(distributed.resolution->profile.limits == battle.resolution->profile.limits);
     auto prior = distributed.resolution->profile.rules;
-    prior.setup.enhanced_mode.version = enhanced::battle_flow_version;
+    prior.setup.enhanced_mode.features =
+        battle.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(prior == battle.resolution->profile.rules);
-    auto canonical = distributed.resolution->canonical;
-    constexpr std::string_view distributed_rule = "\"setup.enhanced-mode\":{\"version\":7}";
-    constexpr std::string_view battle_rule = "\"setup.enhanced-mode\":{\"version\":6}";
-    const auto version_at = canonical.find(distributed_rule);
-    OA_CHECK(version_at != std::string::npos);
-    if (version_at != std::string::npos) {
-        canonical.replace(version_at, distributed_rule.size(), battle_rule);
-        OA_CHECK(canonical == battle.resolution->canonical);
-    }
+    OA_CHECK(
+        same_except_enhanced_mode(distributed.resolution->canonical, battle.resolution->canonical)
+    );
 }
 
 /// Following has a distinct identity and exactly the preceding static rules.
@@ -337,9 +388,11 @@ void check_following_flow_identity() {
     OA_CHECK(distributed.resolution && following.resolution);
     if (!distributed.resolution || !following.resolution)
         return;
-    OA_CHECK(profiles::digest_text(following.resolution->profile.sim_hash) == following_sim_hash);
-    OA_CHECK(
-        profiles::digest_text(following.resolution->profile.full_hash) == following_canonical_hash
+    expect_digest("following_sim_hash", following.resolution->profile.sim_hash, following_sim_hash);
+    expect_digest(
+        "following_canonical_hash",
+        following.resolution->profile.full_hash,
+        following_canonical_hash
     );
     OA_CHECK(
         enhanced::rules_version(following.resolution->profile.rules) ==
@@ -349,17 +402,12 @@ void check_following_flow_identity() {
     OA_CHECK(following.resolution->profile.full_hash != distributed.resolution->profile.full_hash);
     OA_CHECK(following.resolution->profile.limits == distributed.resolution->profile.limits);
     auto prior = following.resolution->profile.rules;
-    prior.setup.enhanced_mode.version = enhanced::distributed_battle_flow_version;
+    prior.setup.enhanced_mode.features =
+        distributed.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(prior == distributed.resolution->profile.rules);
-    auto canonical = following.resolution->canonical;
-    constexpr std::string_view following_rule = "\"setup.enhanced-mode\":{\"version\":8}";
-    constexpr std::string_view distributed_rule = "\"setup.enhanced-mode\":{\"version\":7}";
-    const auto at = canonical.find(following_rule);
-    OA_CHECK(at != std::string::npos);
-    if (at != std::string::npos) {
-        canonical.replace(at, following_rule.size(), distributed_rule);
-        OA_CHECK(canonical == distributed.resolution->canonical);
-    }
+    OA_CHECK(same_except_enhanced_mode(
+        following.resolution->canonical, distributed.resolution->canonical
+    ));
     OA_CHECK(enhanced::uses_distributed_battle_flow(enhanced::distributed_battle_flow_version));
     OA_CHECK(enhanced::uses_distributed_battle_flow(enhanced::following_flow_version));
     OA_CHECK(!enhanced::uses_distributed_battle_flow(enhanced::battle_flow_version));
@@ -378,8 +426,10 @@ void check_cohort_target_identity() {
     OA_CHECK(following.resolution && cohort.resolution);
     if (!following.resolution || !cohort.resolution)
         return;
-    OA_CHECK(profiles::digest_text(cohort.resolution->profile.sim_hash) == cohort_sim_hash);
-    OA_CHECK(profiles::digest_text(cohort.resolution->profile.full_hash) == cohort_canonical_hash);
+    expect_digest("cohort_sim_hash", cohort.resolution->profile.sim_hash, cohort_sim_hash);
+    expect_digest(
+        "cohort_canonical_hash", cohort.resolution->profile.full_hash, cohort_canonical_hash
+    );
     OA_CHECK(
         enhanced::rules_version(cohort.resolution->profile.rules) == enhanced::cohort_target_version
     );
@@ -387,17 +437,12 @@ void check_cohort_target_identity() {
     OA_CHECK(cohort.resolution->profile.full_hash != following.resolution->profile.full_hash);
     OA_CHECK(cohort.resolution->profile.limits == following.resolution->profile.limits);
     auto earlier_rules = cohort.resolution->profile.rules;
-    earlier_rules.setup.enhanced_mode.version = enhanced::following_flow_version;
+    earlier_rules.setup.enhanced_mode.features =
+        following.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(earlier_rules == following.resolution->profile.rules);
-    auto canonical = cohort.resolution->canonical;
-    constexpr std::string_view cohort_rule = "\"setup.enhanced-mode\":{\"version\":10}";
-    constexpr std::string_view following_rule = "\"setup.enhanced-mode\":{\"version\":8}";
-    const auto at = canonical.find(cohort_rule);
-    OA_CHECK(at != std::string::npos);
-    if (at != std::string::npos) {
-        canonical.replace(at, cohort_rule.size(), following_rule);
-        OA_CHECK(canonical == following.resolution->canonical);
-    }
+    OA_CHECK(
+        same_except_enhanced_mode(cohort.resolution->canonical, following.resolution->canonical)
+    );
     for (uint32_t version = 0; version <= enhanced::cardinal_queue_escape_version + 1; ++version) {
         OA_CHECK(
             enhanced::uses_distributed_battle_flow(version) ==
@@ -455,18 +500,25 @@ void check_cardinal_queue_escape_identity() {
     OA_CHECK(cardinal.resolution->canonical == repeated.resolution->canonical);
     OA_CHECK(cardinal.resolution->profile.sim_hash == repeated.resolution->profile.sim_hash);
     auto earlier_rules = cardinal.resolution->profile.rules;
-    earlier_rules.setup.enhanced_mode.version = enhanced::cohort_target_version;
+    earlier_rules.setup.enhanced_mode.features =
+        cohort.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(earlier_rules == cohort.resolution->profile.rules);
-    auto canonical = cardinal.resolution->canonical;
-    constexpr std::string_view cardinal_rule = "\"setup.enhanced-mode\":{\"version\":13}";
-    constexpr std::string_view cohort_rule = "\"setup.enhanced-mode\":{\"version\":10}";
-    const auto at = canonical.find(cardinal_rule);
-    OA_CHECK(at != std::string::npos);
-    if (at != std::string::npos) {
-        canonical.replace(at, cardinal_rule.size(), cohort_rule);
-        OA_CHECK(canonical == cohort.resolution->canonical);
-    }
-    const std::string profile = std::string{mod_text} + "  setup.enhanced-mode: 13\n";
+    expect_digest("cardinal_sim_hash", cardinal.resolution->profile.sim_hash, cardinal_sim_hash);
+    expect_digest(
+        "cardinal_canonical_hash", cardinal.resolution->profile.full_hash, cardinal_canonical_hash
+    );
+    OA_CHECK(
+        same_except_enhanced_mode(cardinal.resolution->canonical, cohort.resolution->canonical)
+    );
+    const std::string profile =
+        std::string{mod_text} +
+        "  setup.enhanced-mode: {revision: 1, features: [capacity, local-flow, "
+        "routes-fine-regions, indexed-searches, route-corner-advance, swept-ground-steps, "
+        "patrol-goal-retention, ai-strike-retarget, squad-position-index, route-queue, "
+        "group-destination-repair, distributed-arrivals, moving-corner-advance, "
+        "local-throat-guide, credited-fallback-search, bounded-strike-recruits, "
+        "ai-attack-retention, ai-rally-retention, local-following, occupancy-free-planning, "
+        "cohort-targets, steering-projection-reuse, cardinal-queue-escape]}\n";
     const auto raw = profiles::resolve_profile(bytes(profile), "cardinal", {});
     OA_CHECK(raw.resolution);
     if (raw.resolution)
@@ -491,17 +543,16 @@ void check_cohort_retention_identity() {
     OA_CHECK(retained.resolution->profile.full_hash != cohort.resolution->profile.full_hash);
     OA_CHECK(retained.resolution->profile.limits == cohort.resolution->profile.limits);
     auto earlier_rules = retained.resolution->profile.rules;
-    earlier_rules.setup.enhanced_mode.version = enhanced::cohort_target_version;
+    earlier_rules.setup.enhanced_mode.features =
+        cohort.resolution->profile.rules.setup.enhanced_mode.features;
     OA_CHECK(earlier_rules == cohort.resolution->profile.rules);
-    auto canonical = retained.resolution->canonical;
-    constexpr std::string_view retained_rule = "\"setup.enhanced-mode\":{\"version\":11}";
-    constexpr std::string_view cohort_rule = "\"setup.enhanced-mode\":{\"version\":10}";
-    const auto at = canonical.find(retained_rule);
-    OA_CHECK(at != std::string::npos);
-    if (at != std::string::npos) {
-        canonical.replace(at, retained_rule.size(), cohort_rule);
-        OA_CHECK(canonical == cohort.resolution->canonical);
-    }
+    expect_digest("retention_sim_hash", retained.resolution->profile.sim_hash, retention_sim_hash);
+    expect_digest(
+        "retention_canonical_hash", retained.resolution->profile.full_hash, retention_canonical_hash
+    );
+    OA_CHECK(
+        same_except_enhanced_mode(retained.resolution->canonical, cohort.resolution->canonical)
+    );
 }
 
 /// Preserves the original version selected by a bare profile switch.
@@ -686,7 +737,7 @@ void check_feature_table() {
         {8, "swept_ground_steps", simulation, ids({1}), {}},
         {9, "corridor_lanes", simulation, ids({2}), {}},
         {10, "patrol_goal_retention", simulation, ids({1}), {}},
-        {11, "ai_strike_retarget", simulation, ids({1, 2}), {}},
+        {11, "ai_strike_retarget", simulation, ids({1}), {}},
         {12, "squad_position_index", capacity, ids({1}), {}},
         {13, "route_queue", simulation, ids({2}), {}},
         {14, "group_destination_repair", orders, ids({1}), {}},
@@ -747,7 +798,7 @@ void check_closing_features() {
         OA_CHECK(enhanced::feature_set_problem(closed) == nullptr);
     }
     OA_CHECK(enhanced::close_features({}).empty());
-    OA_CHECK(enhanced::close_features(ids({26})) == ids({1, 2, 11, 24, 26}));
+    OA_CHECK(enhanced::close_features(ids({26})) == ids({1, 11, 24, 26}));
     OA_CHECK(enhanced::close_features(ids({16, 22})) == ids({1, 2, 7, 13, 16, 22}));
     OA_CHECK(enhanced::close_features(ids({18})) == ids({1, 2, 5, 18}));
     OA_CHECK(enhanced::close_features(ids({15, 23})) == ids({1, 14, 15, 23}));
@@ -849,10 +900,18 @@ void check_revision_features() {
     }
 }
 
-/// Checks that resolved rules play their version's features.
+/// Checks that resolved rules play their version's features, and that the hashes differ.
 void check_rules_features() {
     OA_CHECK(enhanced::features({}).empty());
     const auto text = profiles::base_game_profile_text();
+
+    struct Held {
+        uint32_t version;
+        oa::base::sha256::Digest sim;
+        oa::base::sha256::Digest canonical;
+    };
+
+    std::vector<Held> held;
     for (const uint32_t version : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u, 13u}) {
         const auto resolved = enhanced::resolve_profile(bytes(text), "base", {}, version);
         OA_CHECK(resolved.resolution.has_value());
@@ -862,6 +921,49 @@ void check_rules_features() {
             enhanced::features(resolved.resolution->profile.rules) ==
             enhanced::version_features(version)
         );
+        held.push_back(
+            Held{
+                version,
+                resolved.resolution->profile.sim_hash,
+                resolved.resolution->profile.full_hash
+            }
+        );
+    }
+    for (std::size_t left = 0; left < held.size(); ++left) {
+        for (std::size_t right = left + 1; right < held.size(); ++right) {
+            if (held[left].sim == held[right].sim)
+                std::cerr << "sim collision " << held[left].version << ' ' << held[right].version
+                          << '\n';
+            if (held[left].canonical == held[right].canonical)
+                std::cerr << "canonical collision " << held[left].version << ' '
+                          << held[right].version << '\n';
+            OA_CHECK(held[left].sim != held[right].sim);
+            OA_CHECK(held[left].canonical != held[right].canonical);
+        }
+    }
+    // Revision 1 (provisional) is alias 4's set, so the two hashes are the same.
+    const auto revision = enhanced::resolve_profile(
+        bytes(text), "base", {}, enhanced::Choice{1, enhanced::revision_features(1)}
+    );
+    OA_CHECK(revision.resolution.has_value());
+    const Held* alias_four = nullptr;
+    for (const Held& pin : held)
+        if (pin.version == enhanced::swept_ground_version)
+            alias_four = &pin;
+    OA_CHECK(alias_four != nullptr);
+    if (revision.resolution && alias_four != nullptr) {
+        const std::string revision_sim =
+            profiles::digest_text(revision.resolution->profile.sim_hash);
+        const std::string revision_canonical =
+            profiles::digest_text(revision.resolution->profile.full_hash);
+        const std::string alias_sim = profiles::digest_text(alias_four->sim);
+        const std::string alias_canonical = profiles::digest_text(alias_four->canonical);
+        if (revision_sim != alias_sim)
+            std::cerr << "revision 1 sim " << revision_sim << '\n';
+        if (revision_canonical != alias_canonical)
+            std::cerr << "revision 1 canonical " << revision_canonical << '\n';
+        OA_CHECK(revision_sim == alias_sim);
+        OA_CHECK(revision_canonical == alias_canonical);
     }
 }
 

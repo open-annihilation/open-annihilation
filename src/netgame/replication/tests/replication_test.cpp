@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/netgame/replication/deltas.hpp"
+#include "oa/netgame/replication/route_batches.hpp"
 #include "oa/netgame/replication.hpp"
 #include "oa/formats/tad.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -959,6 +961,400 @@ void short_body_recreates_nothing() {
 
 } // namespace
 
+// ---- complete route batches ----
+
+constexpr uint16_t burst_units = 5000;
+constexpr uint32_t burst_tick = 4321;
+constexpr uint32_t burst_previous_tick = 4320;
+
+/// A route burst between two worlds: the owner's player 0 has burst_units
+/// ground units, each of which takes a new three-point route head in one
+/// tick; the receiver has a copy of each. The receiver's movement step
+/// checks that every copy steers from its owner's head.
+struct Burst;
+
+/// The burst whose receiver's movement step runs; one at a time.
+Burst* stepping_burst = nullptr;
+
+struct Burst {
+    TestWorld owner{burst_units, small_def_bits, small_classes, nullptr, std::size(small_classes)};
+    TestWorld copy{burst_units, small_def_bits, small_classes, nullptr, std::size(small_classes)};
+    uint32_t steps{};
+    uint32_t stepped_with_another_head{};
+
+    Burst() {
+        stepping_burst = this;
+        owner.world->game.players[0].status = OA_PLAYER_STATUS_LOCAL;
+        copy.sim.movement_tick = [](void* context, World* world, Unit* unit) {
+            auto& self = *static_cast<TestWorld*>(context);
+            auto* burst = stepping_burst;
+            ++burst->steps;
+            const auto slot = world_unit_slot(world, unit);
+            const auto& mirrored = self.movement[slot].ground;
+            const auto& head = burst->owner.movement[slot].ground;
+            bool same_head = mirrored.path_count == std::min<int32_t>(head.path_count, 3);
+            for (int32_t p = 0; same_head && p < mirrored.path_count; ++p)
+                same_head = mirrored.path[p][0] == head.path[p][0] &&
+                            mirrored.path[p][1] == head.path[p][1];
+            if (!same_head)
+                ++burst->stepped_with_another_head;
+        };
+        for (uint16_t i = 0; i < burst_units; ++i) {
+            Unit* unit = owner.spawn(&owner.units[1u + i], 1, false);
+            unit->health = static_cast<int16_t>(100 + i % 50);
+            unit->position = {static_cast<int32_t>((i % 100) << 20), 0, (i / 100) << 20};
+            copy.spawn(&copy.units[1u + i], 1, true)->position = unit->position;
+        }
+    }
+
+    /// Turns every owner unit's route head, the same way every run.
+    void turn_heads() {
+        for (uint16_t i = 0; i < burst_units; ++i) {
+            auto& m = owner.movement[1u + i];
+            m.ground.flags = ground_driver_path_set | ground_driver_resend;
+            m.ground.path_count = 3;
+            for (int p = 0; p < 3; ++p) {
+                m.ground.path[p][0] = static_cast<int16_t>((i * 7 + p * 101) & 0x7fff);
+                m.ground.path[p][1] = static_cast<int16_t>((i * 3 + p * 57) & 0x7fff);
+            }
+            m.flags = (i % 7) == 0 ? movement_blocked : 0;
+        }
+    }
+
+    /// Packs the owner's tick and returns its parts.
+    std::vector<Bytes> pack_burst(RouteBatchPacked* packed) {
+        std::vector<Bytes> parts;
+        owner.world->game.tick = burst_tick;
+        const RouteBatchSink sink{
+            &parts, [](void* context, const uint8_t* bytes, std::size_t size) {
+                static_cast<std::vector<Bytes>*>(context)->emplace_back(bytes, bytes + size);
+            }
+        };
+        CHECK(
+            replication_pack_route_batch(
+                owner.world.get(), &owner.sim, 0, burst_previous_tick, true, sink, packed
+            ) == WireError::ok
+        );
+        return parts;
+    }
+};
+
+/// Five thousand head changes of one tick pack into parts of at most one
+/// send buffer each, every change once, the last part flagged, and every
+/// delta recorded as sent.
+void route_burst_packs_into_parts() {
+    auto burst = std::make_unique<Burst>();
+    burst->turn_heads();
+    RouteBatchPacked packed{};
+    const auto parts = burst->pack_burst(&packed);
+    std::printf(
+        "net-replication: %u head changes in one tick: %zu parts, %u bytes\n",
+        packed.changes,
+        parts.size(),
+        packed.bytes
+    );
+    CHECK(packed.tick == burst_tick && packed.changes == burst_units);
+    CHECK(packed.parts == parts.size() && parts.size() > 1);
+    uint32_t bytes = 0;
+    uint32_t listed = 0;
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        const auto& part = parts[i];
+        bytes += static_cast<uint32_t>(part.size());
+        CHECK(part.size() <= route_batch_record_max_bytes);
+        RouteBatchPartHeader header{};
+        uint32_t changes = 0;
+        CHECK(
+            replication_check_route_batch_part(
+                burst->copy.world.get(), 0, part.data(), part.size(), &header, &changes
+            ) == WireError::ok
+        );
+        CHECK(header.tick == burst_tick && header.previous_tick == burst_previous_tick);
+        CHECK(header.part_index == i && header.last == (i + 1 == parts.size()));
+        listed += changes;
+    }
+    CHECK(bytes == packed.bytes && listed == burst_units);
+    for (uint16_t i = 0; i < burst_units; ++i)
+        CHECK(!ground_driver_has_delta(burst->owner.movement[1u + i]));
+    CHECK(burst->owner.world->game.players[0].last_sim_tick == static_cast<int32_t>(burst_tick));
+}
+
+/// The parts of a burst, taken in any order, are held until the last one
+/// arrives: no copy steps before. Then every change applies before the one
+/// movement step, so each copy steers from its owner's head, and the full
+/// record rides last. A part taken twice, or a malformed one, changes
+/// nothing.
+void route_burst_applies_whole_before_the_step() {
+    auto burst = std::make_unique<Burst>();
+    burst->turn_heads();
+    RouteBatchPacked packed{};
+    auto parts = burst->pack_burst(&packed);
+    CHECK(parts.size() > 2);
+    if (parts.size() <= 2)
+        return;
+    // A fixed shuffle: the last part comes first, then every other part,
+    // then the rest.
+    std::vector<std::size_t> order{parts.size() - 1};
+    for (std::size_t i = 0; i + 1 < parts.size(); i += 2)
+        order.push_back(i);
+    for (std::size_t i = 1; i + 1 < parts.size(); i += 2)
+        order.push_back(i);
+    RouteBatchInbox inbox;
+    inbox.applied_through = burst_previous_tick;
+    auto* world = burst->copy.world.get();
+    RouteBatchApplied applied{};
+    const auto before = snapshot(burst->copy.units[1]);
+    for (std::size_t n = 0; n + 1 < order.size(); ++n) {
+        CHECK(
+            route_batch_inbox_take(
+                inbox, world, 0, parts[order[n]].data(), parts[order[n]].size(), 100, nullptr
+            ) == RouteBatchTake::fresh
+        );
+        route_batch_inbox_apply(inbox, world, &burst->copy.sim, 0, 100, &applied);
+        CHECK(burst->steps == 0 && applied.batches == 0);
+    }
+    // A missing part holds the step, however long, short of the hold limit.
+    route_batch_inbox_apply(
+        inbox, world, &burst->copy.sim, 0, 100 + route_batch_hold_limit_ticks - 1, &applied
+    );
+    CHECK(burst->steps == 0 && applied.batches == 0);
+    CHECK(same(snapshot(burst->copy.units[1]), before));
+    CHECK(world->game.players[0].last_sim_tick != static_cast<int32_t>(burst_tick));
+    // A duplicate changes nothing.
+    CHECK(
+        route_batch_inbox_take(
+            inbox, world, 0, parts[order[0]].data(), parts[order[0]].size(), 101, nullptr
+        ) == RouteBatchTake::duplicate
+    );
+    // A malformed part changes nothing: a change past the sender's units, a
+    // body cut short, and another batch's last part for the same tick.
+    const auto& missing = parts[order.back()];
+    Bytes outside = missing;
+    outside[route_batch_part_header_bytes] = 0xff;
+    outside[route_batch_part_header_bytes + 1] = 0x7f;
+    Bytes cut(missing.begin(), missing.end() - 4);
+    store_u16(cut.data() + 1, static_cast<uint16_t>(cut.size()));
+    Bytes other_previous = missing;
+    store_u32(other_previous.data() + 7, burst_previous_tick - 1);
+    Bytes second_last = missing;
+    second_last[13] = route_batch_part_last;
+    for (const auto* bad : {&outside, &cut, &other_previous, &second_last}) {
+        WireError why = WireError::ok;
+        CHECK(
+            route_batch_inbox_take(inbox, world, 0, bad->data(), bad->size(), 102, &why) ==
+            RouteBatchTake::refused
+        );
+        CHECK(why != WireError::ok);
+    }
+    route_batch_inbox_apply(inbox, world, &burst->copy.sim, 0, 102, &applied);
+    CHECK(burst->steps == 0 && same(snapshot(burst->copy.units[1]), before));
+    RouteBatchAck ack{};
+    route_batch_inbox_ack(inbox, 100, &ack);
+    CHECK(ack.applied_through == burst_previous_tick && ack.highest_held == burst_tick);
+    CHECK(ack.entry_count == 1 && ack.entries[0].tick == burst_tick && ack.entries[0].last_held);
+    CHECK(ack.entries[0].parts == parts.size());
+    const std::size_t lacking = order.back();
+    CHECK((ack.entries[0].held[lacking / 8] & (1u << (lacking % 8))) == 0);
+    CHECK((ack.entries[0].held[order[0] / 8] & (1u << (order[0] % 8))) != 0);
+
+    // The last missing part completes the batch.
+    CHECK(
+        route_batch_inbox_take(inbox, world, 0, missing.data(), missing.size(), 140, nullptr) ==
+        RouteBatchTake::fresh
+    );
+    route_batch_inbox_apply(inbox, world, &burst->copy.sim, 0, 140, &applied);
+    CHECK(applied.batches == 1 && applied.given_up == 0 && applied.errors == 0);
+    CHECK(applied.longest_hold == 40 && applied.largest_changes == burst_units);
+    CHECK(applied.largest_parts == parts.size() && applied.largest_tick == burst_tick);
+    CHECK(burst->steps == burst_units && burst->stepped_with_another_head == 0);
+    CHECK(inbox.pending.empty() && inbox.applied_through == burst_tick);
+    CHECK(world->game.players[0].last_sim_tick == static_cast<int32_t>(burst_tick));
+    // The full record of slot burst_tick % burst_units rode in the last part.
+    const auto full_slot = 1u + burst_tick % burst_units;
+    CHECK(burst->copy.units[full_slot].health == burst->owner.units[full_slot].health);
+    for (uint16_t i = 0; i < burst_units; ++i) {
+        const auto& sent = burst->owner.movement[1u + i];
+        const auto& held = burst->copy.movement[1u + i];
+        CHECK((held.flags & movement_blocked) == (sent.flags & movement_blocked));
+    }
+    // A part of a batch applied already is a duplicate.
+    CHECK(
+        route_batch_inbox_take(inbox, world, 0, missing.data(), missing.size(), 141, nullptr) ==
+        RouteBatchTake::duplicate
+    );
+    CHECK(burst->steps == burst_units);
+}
+
+/// A sender's batches apply in its order: a batch whose previous batch is
+/// missing waits, however whole, until it arrives; one held to the hold
+/// limit is applied with the parts there, and the step is taken.
+void route_batches_apply_in_order_and_give_up_at_the_limit() {
+    auto burst = std::make_unique<Burst>();
+    auto* world = burst->copy.world.get();
+    std::vector<std::vector<Bytes>> ticks;
+    for (uint32_t tick = 10; tick <= 12; ++tick) {
+        burst->owner.world->game.tick = tick;
+        std::vector<Bytes> parts;
+        const RouteBatchSink sink{
+            &parts, [](void* context, const uint8_t* bytes, std::size_t size) {
+                static_cast<std::vector<Bytes>*>(context)->emplace_back(bytes, bytes + size);
+            }
+        };
+        CHECK(
+            replication_pack_route_batch(
+                burst->owner.world.get(),
+                &burst->owner.sim,
+                0,
+                tick == 10 ? 0 : tick - 1,
+                true,
+                sink,
+                nullptr
+            ) == WireError::ok
+        );
+        CHECK(parts.size() == 1);
+        ticks.push_back(std::move(parts));
+    }
+    RouteBatchInbox inbox;
+    RouteBatchApplied applied{};
+    // Tick 11 and 12 arrive before 10: nothing steps.
+    for (const std::size_t at : {std::size_t{2}, std::size_t{1}})
+        CHECK(
+            route_batch_inbox_take(
+                inbox, world, 0, ticks[at][0].data(), ticks[at][0].size(), 50, nullptr
+            ) == RouteBatchTake::fresh
+        );
+    route_batch_inbox_apply(inbox, world, &burst->copy.sim, 0, 60, &applied);
+    CHECK(applied.batches == 0 && burst->steps == 0);
+    CHECK(
+        route_batch_inbox_take(
+            inbox, world, 0, ticks[0][0].data(), ticks[0][0].size(), 61, nullptr
+        ) == RouteBatchTake::fresh
+    );
+    route_batch_inbox_apply(inbox, world, &burst->copy.sim, 0, 61, &applied);
+    CHECK(applied.batches == 3 && applied.longest_hold == 11);
+    CHECK(burst->steps == 3u * burst_units && inbox.applied_through == 12);
+
+    // A batch whose second part never comes is given up at the limit.
+    burst->turn_heads();
+    RouteBatchPacked packed{};
+    burst->owner.world->game.tick = 13;
+    std::vector<Bytes> parts;
+    const RouteBatchSink sink{
+        &parts, [](void* context, const uint8_t* bytes, std::size_t size) {
+            static_cast<std::vector<Bytes>*>(context)->emplace_back(bytes, bytes + size);
+        }
+    };
+    CHECK(
+        replication_pack_route_batch(
+            burst->owner.world.get(), &burst->owner.sim, 0, 12, true, sink, &packed
+        ) == WireError::ok
+    );
+    CHECK(parts.size() > 2);
+    for (std::size_t i = 0; i < parts.size(); ++i)
+        if (i != 1)
+            CHECK(
+                route_batch_inbox_take(
+                    inbox, world, 0, parts[i].data(), parts[i].size(), 70, nullptr
+                ) == RouteBatchTake::fresh
+            );
+    const uint32_t stepped = burst->steps;
+    route_batch_inbox_apply(
+        inbox, world, &burst->copy.sim, 0, 70 + route_batch_hold_limit_ticks - 1, &applied
+    );
+    CHECK(burst->steps == stepped);
+    route_batch_inbox_apply(
+        inbox, world, &burst->copy.sim, 0, 70 + route_batch_hold_limit_ticks, &applied
+    );
+    CHECK(applied.given_up == 1 && applied.errors == 0 && inbox.applied_through == 13);
+    CHECK(applied.longest_hold == route_batch_hold_limit_ticks);
+    CHECK(burst->steps == stepped + burst_units);
+}
+
+/// A sender keeps a batch's parts until every other player holds them: a
+/// part one lacks goes again once route_batch_resend_ticks pass, or sooner
+/// once that player holds a later batch; an acknowledgement of the batch
+/// applied, or one past the hold limit, forgets it.
+void route_batch_outbox_sends_what_is_lacking() {
+    RouteBatchOutbox outbox;
+    const auto parts_of = [](uint32_t tick, std::size_t count) {
+        std::vector<std::vector<uint8_t>> parts;
+        for (std::size_t i = 0; i < count; ++i)
+            parts.push_back({0xe4, static_cast<uint8_t>(tick), static_cast<uint8_t>(i)});
+        return parts;
+    };
+    route_batch_outbox_keep(outbox, 100, parts_of(100, 3));
+
+    struct Sent {
+        std::vector<std::pair<uint8_t, std::vector<uint8_t>>> parts;
+    } sent;
+
+    const RouteBatchResend resend{
+        &sent, [](void* context, uint8_t slot, const uint8_t* bytes, std::size_t size) {
+            static_cast<Sent*>(context)->parts.emplace_back(
+                slot, std::vector<uint8_t>(bytes, bytes + size)
+            );
+        }
+    };
+    constexpr uint16_t two_players = (1u << 1) | (1u << 4);
+    CHECK(route_batch_outbox_service(outbox, two_players, 110, resend) == 0);
+    // Player 1 holds parts 0 and 2; player 4 holds nothing yet.
+    RouteBatchAck ack{};
+    ack.applied_through = 99;
+    ack.highest_held = 100;
+    ack.entry_count = 1;
+    ack.entries[0].tick = 100;
+    ack.entries[0].parts = 3;
+    ack.entries[0].last_held = true;
+    ack.entries[0].held[0] = 0x05;
+    route_batch_outbox_acknowledge(outbox, 1, ack);
+    CHECK(route_batch_outbox_service(outbox, two_players, 129, resend) == 0);
+    CHECK(route_batch_outbox_service(outbox, two_players, 130, resend) == 4);
+    CHECK(sent.parts.size() == 4 && sent.parts[0].first == 4 && sent.parts[0].second[2] == 0);
+    CHECK(sent.parts[1].first == 1 && sent.parts[1].second[2] == 1);
+    CHECK(sent.parts[2].first == 4 && sent.parts[3].first == 4 && sent.parts[3].second[2] == 2);
+    // Player 4 holds a later batch but not part 1: part 1 goes again to it
+    // after route_batch_fast_resend_ticks, not route_batch_resend_ticks.
+    // Player 1 holds nothing sent later, so waits for the resend time.
+    route_batch_outbox_keep(outbox, 131, parts_of(131, 1));
+    RouteBatchAck later{};
+    later.applied_through = 99;
+    later.highest_held = 131;
+    later.entry_count = 2;
+    later.entries[0].tick = 100;
+    later.entries[0].parts = 3;
+    later.entries[0].last_held = true;
+    later.entries[0].held[0] = 0x05;
+    later.entries[1].tick = 131;
+    later.entries[1].parts = 1;
+    later.entries[1].last_held = true;
+    later.entries[1].held[0] = 0x01;
+    route_batch_outbox_acknowledge(outbox, 4, later);
+    sent.parts.clear();
+    CHECK(route_batch_outbox_service(outbox, two_players, 135, resend) == 0);
+    CHECK(route_batch_outbox_service(outbox, two_players, 136, resend) == 1);
+    CHECK(sent.parts.size() == 1 && sent.parts[0].first == 4 && sent.parts[0].second[2] == 1);
+    // Both apply batch 100; player 1 holds batch 131 too: both are forgotten.
+    ack.applied_through = 131;
+    route_batch_outbox_acknowledge(outbox, 1, ack);
+    later.applied_through = 100;
+    route_batch_outbox_acknowledge(outbox, 4, later);
+    CHECK(route_batch_outbox_service(outbox, two_players, 137, resend) == 0);
+    CHECK(outbox.kept.empty());
+    // A batch nobody acknowledges is forgotten at the hold limit.
+    route_batch_outbox_keep(outbox, 200, parts_of(200, 1));
+    (void)route_batch_outbox_service(
+        outbox, two_players, 200 + route_batch_hold_limit_ticks - 1, resend
+    );
+    CHECK(outbox.kept.size() == 1);
+    (void)route_batch_outbox_service(
+        outbox, two_players, 200 + route_batch_hold_limit_ticks, resend
+    );
+    CHECK(outbox.kept.empty());
+    // Without players to acknowledge, nothing is sent again.
+    route_batch_outbox_keep(outbox, 300, parts_of(300, 2));
+    sent.parts.clear();
+    CHECK(route_batch_outbox_service(outbox, 0, 400, resend) == 0 && outbox.kept.empty());
+}
+
 int main() {
     struct Test {
         const char* name;
@@ -976,6 +1372,11 @@ int main() {
         {"wide_weapon_records_reach_the_hooks", wide_weapon_records_reach_the_hooks},
         {"malformed_unit_states_change_nothing", malformed_unit_states_change_nothing},
         {"short_body_recreates_nothing", short_body_recreates_nothing},
+        {"route_burst_packs_into_parts", route_burst_packs_into_parts},
+        {"route_burst_applies_whole_before_the_step", route_burst_applies_whole_before_the_step},
+        {"route_batches_apply_in_order_and_give_up_at_the_limit",
+         route_batches_apply_in_order_and_give_up_at_the_limit},
+        {"route_batch_outbox_sends_what_is_lacking", route_batch_outbox_sends_what_is_lacking},
     };
     for (const auto& test : tests) {
         current_test = test.name;

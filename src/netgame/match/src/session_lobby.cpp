@@ -559,6 +559,7 @@ void net_connection_set_rules(NetConnection* c, const WireRules& rules) noexcept
     if (c->packets != nullptr) {
         c->packets->receiver.recorder_records = rules.recorder_protocol != recorder_protocol_plain;
         c->packets->receiver.wide_records = wide_weapon_records(rules);
+        c->packets->receiver.route_batches = rules.route_batches;
     }
 }
 

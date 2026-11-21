@@ -495,16 +495,70 @@ void test_mutator_match() {
     good.path = "console.game-speed-range.min";
     good.value = "5";
     OA_CHECK(!match_option_problem(good).has_value());
-    MatchOption enhanced;
-    enhanced.path = "setup.enhanced-mode.version";
-    enhanced.turn_on = true;
-    for (const auto version : {"1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "13"}) {
-        enhanced.value = version;
-        OA_CHECK(!match_option_problem(enhanced).has_value());
+    MatchOption revision;
+    revision.path = "setup.enhanced-mode.revision";
+    revision.turn_on = true;
+    revision.value = "1";
+    OA_CHECK(!match_option_problem(revision).has_value());
+    for (const auto refused : {"0", "2"}) {
+        revision.value = refused;
+        OA_CHECK(match_option_problem(revision).has_value());
     }
-    for (const auto version : {"0", "9", "12", "14"}) {
-        enhanced.value = version;
-        OA_CHECK(match_option_problem(enhanced).has_value());
+    MatchOption features;
+    features.path = "setup.enhanced-mode.features";
+    features.turn_on = true;
+    features.value = "[capacity, local-flow]";
+    OA_CHECK(!match_option_problem(features).has_value());
+    features.value = "[no-such-feature]";
+    OA_CHECK(match_option_problem(features).has_value());
+    const registry::Entry* enhanced_entry = registry::find_entry("setup.enhanced-mode");
+    OA_CHECK(enhanced_entry != nullptr);
+    if (enhanced_entry != nullptr) {
+        const int feature_parameter = registry::find_parameter(*enhanced_entry, "features");
+        OA_CHECK(feature_parameter >= 0);
+        if (feature_parameter >= 0) {
+            const auto listed = registry::enum_values_of(
+                registry::parameters_of(
+                    *enhanced_entry
+                )[static_cast<std::size_t>(feature_parameter)]
+                    .value
+            );
+            // Value index + 1 is the feature id. A cut feature stays listed.
+            constexpr std::string_view feature_names[] = {
+                "capacity",
+                "local-flow",
+                "routes-original",
+                "routes-large-regions",
+                "routes-fine-regions",
+                "indexed-searches",
+                "route-corner-advance",
+                "swept-ground-steps",
+                "corridor-lanes",
+                "patrol-goal-retention",
+                "ai-strike-retarget",
+                "squad-position-index",
+                "route-queue",
+                "group-destination-repair",
+                "distributed-arrivals",
+                "moving-corner-advance",
+                "local-throat-guide",
+                "credited-fallback-search",
+                "bounded-strike-recruits",
+                "ai-attack-retention",
+                "ai-rally-retention",
+                "local-following",
+                "occupancy-free-planning",
+                "cohort-targets",
+                "steering-projection-reuse",
+                "cohort-retention",
+                "cardinal-queue-escape",
+            };
+            OA_CHECK(listed.size() == std::size(feature_names));
+            for (std::size_t name_index = 0;
+                 name_index < listed.size() && name_index < std::size(feature_names);
+                 ++name_index)
+                OA_CHECK(listed[name_index] == feature_names[name_index]);
+        }
     }
 
     std::set<std::string> marked;

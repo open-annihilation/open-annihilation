@@ -13,18 +13,20 @@
 namespace oa::data::enhanced_mode {
 namespace {
 
-/// The preset's required rule, which enters the canonical simulation hash.
-constexpr std::string_view version_path = "setup.enhanced-mode.version";
+/// The choice's revision, which enters the canonical simulation hash.
+constexpr std::string_view revision_path = "setup.enhanced-mode.revision";
+/// The choice's features, which enter the canonical simulation hash.
+constexpr std::string_view features_path = "setup.enhanced-mode.features";
 
-/// Refuses a preset without handing partially resolved rules to the caller.
+/// Refuses a choice without handing partially resolved rules to the caller.
 ///
 /// @param[in,out] result the result to refuse
 /// @param source the profile name
-/// @param message the reason the preset cannot be used
+/// @param message the reason the choice cannot be used
 void refuse(mod_profile::ResolveResult& result, std::string_view source, std::string message) {
     result.resolution.reset();
     result.errors.push_back(
-        {std::string{source}, {}, std::string{version_path}, std::move(message)}
+        {std::string{source}, {}, std::string{"setup.enhanced-mode"}, std::move(message)}
     );
 }
 
@@ -75,12 +77,8 @@ constexpr std::array<FeatureInfo, 27> feature_rows{{
      FeatureKind::simulation,
      set_of({capacity}),
      {}},
-    // Local traffic flow sizes the state the retarget table saves.
-    {ai_strike_retarget,
-     "ai_strike_retarget",
-     FeatureKind::simulation,
-     set_of({capacity, local_flow}),
-     {}},
+    // The retarget table keeps its own count, so it does not need local flow.
+    {ai_strike_retarget, "ai_strike_retarget", FeatureKind::simulation, set_of({capacity}), {}},
     {squad_position_index, "squad_position_index", FeatureKind::capacity, set_of({capacity}), {}},
     {route_queue, "route_queue", FeatureKind::simulation, set_of({local_flow}), {}},
     {group_destination_repair,
@@ -353,57 +351,106 @@ constexpr std::array<FeatureSet, cardinal_queue_escape_version + 1> version_feat
 /// version 4's set, today's new-game preset.
 constexpr FeatureSet revision_1_features = version_4_features;
 
+/// The first engine version of each feature, in id order. A new feature
+/// names its version here and nowhere else.
+constexpr std::array<const char*, feature_rows.size()> feature_engine_versions{{
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+}};
+
+/// The first engine version of each revision. Index 0 is Off and has none.
+constexpr std::array<const char*, highest_revision + 1> revision_engine_versions{{
+    nullptr,
+    "0.9.3",
+}};
+
+/// Packs major.minor.patch. A part past 255, or any other shape, is 0.
+///
+/// @param text the version text
+/// @return the packed version, or 0 when the text is not three byte-sized parts
+constexpr uint32_t pack_version(std::string_view text) noexcept {
+    uint32_t parts[3]{};
+    std::size_t part = 0;
+    uint32_t value = 0;
+    bool saw_digit = false;
+    for (std::size_t index = 0; index <= text.size(); ++index) {
+        const bool end = index == text.size();
+        const char letter = end ? '.' : text[index];
+        if (letter == '.') {
+            if (!saw_digit || part >= 3)
+                return 0;
+            parts[part++] = value;
+            value = 0;
+            saw_digit = false;
+            continue;
+        }
+        if (letter < '0' || letter > '9' || part >= 3)
+            return 0;
+        saw_digit = true;
+        const auto digit = static_cast<uint32_t>(letter - '0');
+        if (value > (255u - digit) / 10u)
+            return 0;
+        value = value * 10u + digit;
+    }
+    if (part != 3)
+        return 0;
+    return (parts[0] << 16) | (parts[1] << 8) | parts[2];
+}
+
+/// Writes a feature set as the registry's YAML list, names in id order.
+///
+/// @param features the features
+/// @return a profile value such as `[capacity, local-flow]`
+std::string features_text(FeatureSet features) {
+    std::string text = "[";
+    bool first = true;
+    for (const FeatureInfo& row : feature_rows) {
+        if (!features.has(row.id))
+            continue;
+        if (!first)
+            text += ", ";
+        first = false;
+        for (const char letter : row.name)
+            text += letter == '_' ? '-' : letter;
+    }
+    text += ']';
+    return text;
+}
+
+/// The registry enumeration, one value per feature, in id order.
+using FeatureEnum = match_rules::SetupEnhancedModeFeatures;
+
+static_assert(enum_size(FeatureEnum{}) == feature_rows.size());
+static_assert(static_cast<int>(FeatureEnum::capacity) == 0);
+static_assert(static_cast<int>(FeatureEnum::cardinal_queue_escape) == 26);
+
+/// Writes a feature set into the registry's enumeration set.
+///
+/// @param features the features; bit n is id n
+/// @return the same features, member n - 1 for id n
+match_rules::EnumSet<FeatureEnum, feature_rows.size()> to_enum(FeatureSet features) noexcept {
+    match_rules::EnumSet<FeatureEnum, feature_rows.size()> stored;
+    for (std::size_t index = 0; index < feature_rows.size(); ++index)
+        if (features.has(static_cast<Feature>(index + 1)))
+            stored.members[index] = true;
+    return stored;
+}
+
+/// Reads a registry enumeration set back into feature bits.
+///
+/// @param stored member n - 1 for id n
+/// @return bit n for id n
+FeatureSet
+from_enum(const match_rules::EnumSet<FeatureEnum, feature_rows.size()>& stored) noexcept {
+    FeatureSet features;
+    for (std::size_t index = 0; index < stored.members.size(); ++index)
+        if (stored.members[index])
+            features = features.with(static_cast<Feature>(index + 1));
+    return features;
+}
+
 } // namespace
-
-bool supported_version(uint32_t version) noexcept {
-    return version == off_version || version == capacity_version || version == flow_version ||
-           version == regional_flow_version || version == swept_ground_version ||
-           version == corridor_flow_version || version == battle_flow_version ||
-           uses_distributed_battle_flow(version);
-}
-
-uint32_t rules_version(const match_rules::MatchRules& rules) noexcept {
-    return rules.setup.enhanced_mode.enabled
-               ? static_cast<uint32_t>(rules.setup.enhanced_mode.version)
-               : off_version;
-}
-
-mod_profile::ResolveResult resolve_profile(
-    std::span<const uint8_t> text,
-    std::string_view source,
-    const mod_profile::ResolveOptions& options,
-    uint32_t version
-) {
-    mod_profile::ResolveResult result;
-    if (!supported_version(version)) {
-        refuse(
-            result, source, "unsupported Enhanced Mode rules version " + std::to_string(version)
-        );
-        return result;
-    }
-    if (version == off_version) {
-        result = mod_profile::resolve_profile(text, source, options);
-    } else {
-        mod_profile::ResolveOptions enhanced = options;
-        enhanced.match.push_back(
-            {std::string{version_path}, std::to_string(version), "Enhanced Mode", true}
-        );
-        result = mod_profile::resolve_profile(text, source, enhanced);
-    }
-    if (!result.resolution)
-        return result;
-    const uint32_t resolved_version = rules_version(result.resolution->profile.rules);
-    if (resolved_version != version) {
-        refuse(
-            result,
-            source,
-            version == off_version
-                ? "the profile's enhanced rules require Enhanced Mode"
-                : "the Enhanced Mode preset did not resolve at the required version"
-        );
-    }
-    return result;
-}
 
 std::span<const FeatureInfo> feature_table() noexcept {
     return feature_rows;
@@ -460,11 +507,163 @@ FeatureSet version_features(uint32_t version) noexcept {
 }
 
 FeatureSet features(const match_rules::MatchRules& rules) noexcept {
-    return version_features(rules_version(rules));
+    if (!rules.setup.enhanced_mode.enabled)
+        return {};
+    return stored_features(rules.setup.enhanced_mode);
 }
 
 FeatureSet revision_features(uint32_t revision) noexcept {
     return revision == 1 ? revision_1_features : FeatureSet{};
+}
+
+bool supported_version(uint32_t version) noexcept {
+    return version == off_version || version == capacity_version || version == flow_version ||
+           version == regional_flow_version || version == swept_ground_version ||
+           version == corridor_flow_version || version == battle_flow_version ||
+           uses_distributed_battle_flow(version);
+}
+
+uint32_t alias_version(FeatureSet set) noexcept {
+    // Restructure only; removed in R09.
+    if (set.empty())
+        return off_version;
+    for (uint32_t version = 1; version < version_feature_sets.size(); ++version)
+        if (supported_version(version) && version_feature_sets[version] == set)
+            return version;
+    return no_alias_version;
+}
+
+uint32_t rules_version(const match_rules::MatchRules& rules) noexcept {
+    // Restructure only; removed in R09.
+    if (!rules.setup.enhanced_mode.enabled)
+        return off_version;
+    return alias_version(stored_features(rules.setup.enhanced_mode));
+}
+
+FeatureSet stored_features(const match_rules::SetupEnhancedMode& mode) noexcept {
+    return from_enum(mode.features);
+}
+
+void apply_alias(match_rules::SetupEnhancedMode& mode, uint32_t version) noexcept {
+    // Restructure only; removed in R09.
+    mode = {};
+    if (version == off_version || !supported_version(version))
+        return;
+    mode.enabled = true;
+    mode.revision = 1;
+    mode.features = to_enum(version_features(version));
+}
+
+const char* choice_problem(const Choice& choice) noexcept {
+    if (choice.revision != 0 && revision_features(choice.revision).empty())
+        return "unknown Enhanced Mode revision";
+    if (choice.revision == 0 && !choice.features.empty())
+        return "Enhanced Mode is off and still names features";
+    return feature_set_problem(choice.features);
+}
+
+bool choice_lacks_support(const Choice& choice) noexcept {
+    if (choice.revision != 0 && revision_features(choice.revision).empty())
+        return true;
+    return !(choice.features - known_features).empty();
+}
+
+mod_profile::ResolveResult resolve_profile(
+    std::span<const uint8_t> text,
+    std::string_view source,
+    const mod_profile::ResolveOptions& options,
+    const Choice& choice
+) {
+    mod_profile::ResolveResult result;
+    if (const char* problem = choice_problem(choice)) {
+        refuse(result, source, problem);
+        return result;
+    }
+    if (choice.revision == 0) {
+        result = mod_profile::resolve_profile(text, source, options);
+        if (result.resolution && result.resolution->profile.rules.setup.enhanced_mode.enabled)
+            refuse(result, source, "the profile's enhanced rules require Enhanced Mode");
+        return result;
+    }
+    mod_profile::ResolveOptions enhanced = options;
+    enhanced.match.push_back(
+        {std::string{revision_path}, std::to_string(choice.revision), "Enhanced Mode", true}
+    );
+    enhanced.match.push_back(
+        {std::string{features_path}, features_text(choice.features), "Enhanced Mode", true}
+    );
+    result = mod_profile::resolve_profile(text, source, enhanced);
+    if (!result.resolution)
+        return result;
+    const auto& mode = result.resolution->profile.rules.setup.enhanced_mode;
+    if (!mode.enabled || static_cast<uint32_t>(mode.revision) != choice.revision ||
+        stored_features(mode) != choice.features)
+        refuse(result, source, "the Enhanced Mode preset did not resolve at the required revision");
+    return result;
+}
+
+mod_profile::ResolveResult resolve_profile(
+    std::span<const uint8_t> text,
+    std::string_view source,
+    const mod_profile::ResolveOptions& options,
+    uint32_t version
+) {
+    // Restructure only; removed in R09.
+    mod_profile::ResolveResult result;
+    if (!supported_version(version)) {
+        refuse(
+            result, source, "unsupported Enhanced Mode rules version " + std::to_string(version)
+        );
+        return result;
+    }
+    if (version == off_version)
+        return resolve_profile(text, source, options, Choice{});
+    return resolve_profile(text, source, options, Choice{1, version_features(version)});
+}
+
+const char* first_engine_version(uint32_t revision) noexcept {
+    if (revision >= revision_engine_versions.size())
+        return nullptr;
+    return revision_engine_versions[revision];
+}
+
+const char* first_engine_version(Feature feature) noexcept {
+    const auto id = static_cast<std::size_t>(feature);
+    if (id == 0 || id > feature_engine_versions.size())
+        return nullptr;
+    return feature_engine_versions[id - 1];
+}
+
+const char* needed_engine_version(const Choice& choice) noexcept {
+    if (choice.revision == 0 && choice.features.empty())
+        return nullptr;
+    const char* best = first_engine_version(choice.revision);
+    if (choice.revision != 0 && best == nullptr)
+        return nullptr;
+    uint32_t best_packed = best != nullptr ? pack_version(best) : 0;
+    for (const FeatureInfo& row : feature_table()) {
+        if (!choice.features.has(row.id))
+            continue;
+        const char* introduced = first_engine_version(row.id);
+        if (introduced == nullptr)
+            return nullptr;
+        const uint32_t packed = pack_version(introduced);
+        if (packed > best_packed) {
+            best = introduced;
+            best_packed = packed;
+        }
+    }
+    return best;
+}
+
+uint32_t packed_engine_version(std::string_view text) noexcept {
+    return pack_version(text);
+}
+
+const char* refusal_needs_version(std::string_view stored) noexcept {
+    if (stored.empty())
+        return "This game needs a later version of Open Annihilation.";
+    return "This game needs Open Annihilation {version} or later.";
 }
 
 } // namespace oa::data::enhanced_mode

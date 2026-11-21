@@ -4,6 +4,7 @@
 // Aircraft flight orders over the air driver: the take-off climb,
 // VTOL_LandIfCan, the idle VTOL_Standby and the off-map bucket test the
 // flight step and goals share.
+#include "oa/data/enhanced_mode.hpp"
 #include "match_tick_access.hpp"
 #include <cmath>
 #include <iostream>
@@ -116,8 +117,9 @@ struct Fixture {
             map, loaded, types, fields,    weapons, terrain_values,  masks, 16, 16, 16,   2,
             0,   30,     1,     &scenario, {},      collision_plots, {},    0,  0,  0.0F, {}
         };
-        input.rules.setup.enhanced_mode.enabled = enhanced_version != 0;
-        input.rules.setup.enhanced_mode.version = enhanced_version;
+        oa::data::enhanced_mode::apply_alias(
+            input.rules.setup.enhanced_mode, static_cast<uint32_t>(enhanced_version)
+        );
         input.unit_player_mask = 1;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
         CHECK(match->fault() == nullptr);

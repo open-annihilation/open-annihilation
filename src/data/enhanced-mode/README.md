@@ -16,8 +16,9 @@ all participants, and the projectile pool holds 32,767 shots. Scanner and
 jammer queries share a prepared spatial index within each contact-picture
 pass. `flow_version` is two. Version 2 retains those
 capacities and adds shared routing and local unit flow. Its version has a
-different simulation hash. Version 1 remains supported with its canonical
-profile and hashes unchanged. `regional_flow_version` is three. Version 3
+different simulation hash. Version 1 remains supported. Its stored identity
+is revision 1 plus its feature set, so the rules hash is that set's hash.
+`regional_flow_version` is three. Version 3
 selects regional shared-route construction; version 2 retains its original
 routing policy and identity. `swept_ground_version` is four. Version 4
 selects bounded obstacle checks along each ground step
@@ -28,7 +29,8 @@ Version 5 reserves a separate identity for
 advisory corridor lanes. That version requires
 the matching flow behavior to be integrated and validated before adoption;
 version metadata alone does not provide it. Versions 1, 2, 3 and 4 keep
-their original canonical profiles and hashes. `battle_flow_version` is six:
+their feature sets; the stored identity is the revision plus that set.
+`battle_flow_version` is six:
 its rules retain patrol goals, bounded early AI retargeting, and short-grace
 route queues. `distributed_battle_flow_version` is seven, retaining those
 features while distributing repaired group destinations. Versions 6 and 7
@@ -79,11 +81,12 @@ Resolve before allocating a match and retain its rules for the match's
 lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
-`data-enhanced-mode` checks pinned Off, version-1 through version-8 and
-version-10 canonical and simulation hashes, distinct version-11 and
-version-13 identities,
-preservation of selected mod rules and match choices, and refusals of
-unsupported versions or rules that require Enhanced Mode while Off.
+`data-enhanced-mode` pins Off and each alias's simulation and canonical
+hashes. Off's pins stay. Each enabled alias's pins are its revision and
+feature set, and Revision 1's hashes equal alias 4's. The aliases' hashes
+are distinct. It also checks preservation of selected mod rules and match
+choices, and refusals of unsupported versions or rules that require
+Enhanced Mode while Off.
 
 ## Features, sets and revisions
 
@@ -109,7 +112,13 @@ Enhanced Mode state every other feature uses. `feature_by_name` and
 A revision is a frozen, numbered set of features; `highest_revision` is the
 highest this build plays, and `revision_features` gives each one's set.
 Revision 1 is provisional until its features are decided: until then
-it holds version 4's set, today's new-game preset.
+it holds version 4's set, today's new-game preset. The match stores a
+`Choice`: the revision and the feature set. Off is revision 0 and an empty
+set. `rules_version` and `enhanced_mode_version` are aliases that name the
+old preset whose set equals the stored features; they are removed in R09.
+Revision 1 therefore reads as version 4. `ai_strike_retarget` needs only
+`capacity`. The retarget table keeps its own count, so it does not need
+local flow.
 
 During the restructure, `version_features` maps each old numbered preset
 (Off, 1 to 8, 10, 11 and 13) to the features it switches on, and

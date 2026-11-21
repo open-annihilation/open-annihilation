@@ -427,9 +427,13 @@ struct Report {
     bool activity_observed{};
     std::string activity_sampling_scope{"after_each_successful_warmup_and_measured_tick"};
     bool enhanced_mode{};
+    /// The old preset number whose feature set matches, until R09.
     uint32_t enhanced_version{};
-    /// The features the match played, in id order. Empty before a match exists.
-    std::vector<std::string> played_feature_names{};
+    /// The Enhanced Mode revision the match played. Zero is Off.
+    uint32_t enhanced_revision{};
+    /// The features the match played, snake_case in id order; empty when the
+    /// mode is off.
+    std::vector<std::string> enhanced_features{};
     /// Text of --benchmark-features, or empty when that flag was not given.
     std::string played_feature_spec{};
     /// True when --benchmark-features chose the set the match played.

@@ -13,6 +13,7 @@
 #include "oa/app/runtime.hpp"
 #include "oa/app/window_icon.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/data/enhanced_mode.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/platform/file_types.hpp"
 #include "oa/ui/engine_settings.hpp"
@@ -169,14 +170,15 @@ struct Runtime::EngineSettingsState {
     /// The plain 3.1c baseline's sim hash: a game without a mod whose
     /// overrides change only display rules plays by no profile.
     oa::base::sha256::Digest base_sim_hash{};
-    /// The mode recorded by a save or replay, held apart from the menu preference.
-    std::optional<uint32_t> restored_enhanced_version;
-    /// The held mode has reached its match's bootstrap, so teardown restores the preference.
+    /// The choice recorded by a save or replay, held apart from the menu preference.
+    /// Engaged for Off as well: a held Off is revision 0, not an empty optional.
+    std::optional<oa::data::enhanced_mode::Choice> restored_enhanced_choice;
+    /// The held choice has reached its match's bootstrap, so teardown restores the preference.
     bool restored_enhanced_started{};
 
-    /// A load attempt can temporarily replace the mode held by an already loaded match.
+    /// A load attempt can temporarily replace the choice held by an already loaded match.
     struct EnhancedModeHold {
-        std::optional<uint32_t> version;
+        std::optional<oa::data::enhanced_mode::Choice> choice;
         bool started{};
     };
 

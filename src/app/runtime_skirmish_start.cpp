@@ -525,7 +525,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // map selection, nor the last game's end screen.
     release_endgame();
     teardown_match();
-    if (engine_settings_ && engine_settings_->restored_enhanced_version) {
+    if (engine_settings_ && engine_settings_->restored_enhanced_choice) {
         engine_settings_->restored_enhanced_started = true;
         engine_settings_->enhanced_mode_holds.clear();
     }

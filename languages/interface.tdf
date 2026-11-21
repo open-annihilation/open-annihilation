@@ -12954,6 +12954,22 @@
 	it=Questo gioco non include mappe di schermaglia, quindi la schermaglia non è disponibile.;
 	}
 
+[This game needs Open Annihilation {version} or later.]
+	{
+	de=Dieses Spiel braucht Open Annihilation {version} oder neuer.;
+	fr=Cette partie requiert Open Annihilation {version} ou plus récent.;
+	es=Esta partida necesita Open Annihilation {version} o posterior.;
+	it=Questa partita richiede Open Annihilation {version} o successivo.;
+	}
+
+[This game needs a later version of Open Annihilation.]
+	{
+	de=Dieses Spiel braucht eine neuere Version von Open Annihilation.;
+	fr=Cette partie requiert une version plus récente d'Open Annihilation.;
+	es=Esta partida necesita una versión posterior de Open Annihilation.;
+	it=Questa partita richiede una versione successiva di Open Annihilation.;
+	}
+
 [This game was saved with {name} {version} playing seat {n}, which is not installed here.]
 	{
 	de=Dieses Spiel wurde mit {name} {version} auf Platz {n} gespeichert, und der ist hier nicht installiert.;

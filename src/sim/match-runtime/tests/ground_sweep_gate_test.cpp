@@ -3,6 +3,7 @@
 
 // Version four checks the actual ground step through the real Match collision
 // host. Earlier presets retain the destination-only integration behavior.
+#include "oa/data/enhanced_mode.hpp"
 #include "combat_fixture.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
 #include "oa/sim/match_runtime/rule_state.hpp"
@@ -118,8 +119,9 @@ void configure_ground(Fixture& fixture, const Case& input) {
             8, 8, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
-    inputs.rules.setup.enhanced_mode.enabled = input.version != 0;
-    inputs.rules.setup.enhanced_mode.version = input.version;
+    oa::data::enhanced_mode::apply_alias(
+        inputs.rules.setup.enhanced_mode, static_cast<uint32_t>(input.version)
+    );
     inputs.unit_player_mask = 3;
     fixture.match = std::make_unique<runtime::Match>(inputs, fixture.services);
     fixture.match->configure_strategic_environment({0, 0.5F, 0});
