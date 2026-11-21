@@ -3845,7 +3845,7 @@ void add(ModeTotals& totals, const std::string& name, const full::ModelRasterCom
     totals.sum.same += c.same;
     totals.sum.phase += c.phase;
     totals.sum.edge_colour += c.edge_colour;
-    totals.sum.far += c.far_colours;
+    totals.sum.far_colours += c.far_colours;
     totals.sum.edge_coverage += c.edge_coverage;
     totals.sum.far_coverage += c.far_coverage;
     totals.sum.shadowed += c.shadowed;

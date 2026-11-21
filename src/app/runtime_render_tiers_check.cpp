@@ -4822,7 +4822,7 @@ void Runtime::check_full_models(const fs::path& report_directory) {
               << counts.polygons << " polygons in " << frame.batches.size() << " batches; against "
               << "the processor's raster: " << comparison.drawn << " pixels drawn, "
               << comparison.same << " the same, " << comparison.phase << " a texel of phase, "
-              << comparison.edge_colour << " another colour at an edge, " << comparison.far
+              << comparison.edge_colour << " another colour at an edge, " << comparison.far_colours
               << " far, " << comparison.edge_coverage << " covered by one within a pixel of the "
               << "other, " << comparison.far_coverage << " covered by one alone, "
               << comparison.shadowed << " shadowed\n";
