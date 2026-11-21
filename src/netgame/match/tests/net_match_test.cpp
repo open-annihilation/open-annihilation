@@ -4962,6 +4962,235 @@ void commander_warp_follows_its_rule() {
 
 } // namespace
 
+// ---- the unit-state wire of two machines ----
+
+constexpr uint32_t kWireIds[2] = {0x41, 0x52};
+constexpr uint16_t kWireGroundDef = 1;
+constexpr uint16_t kWireAirDef = 2;
+constexpr uint32_t kWireDefCount = 3;
+
+// One of two machines over a Link, each player with a block of mobile units
+// (ground and aircraft by turns), whose own units' movement records the
+// test changes every tick. The replication hooks keep a record per slot and
+// count the movement steps the receiver runs.
+struct WireMachine {
+    World* world{};
+    NetConnection connection{};
+    Link link;
+    std::unique_ptr<NetMatch> match = std::make_unique<NetMatch>();
+    std::vector<MovementRecord> movement;
+    uint32_t steps{}; // movement steps run for the other player's units
+
+    WireMachine(uint8_t local_slot, const WireRules& rules, uint16_t units_per_player) {
+        world = world_create();
+        const WorldCapacity capacity{2u * units_per_player + 1u, kWireDefCount, 0};
+        const bool allocated = world != nullptr && world_alloc_tables(world, &capacity) != 0;
+        CHECK(allocated);
+        if (!allocated)
+            return;
+        world->unit_defs[kWireGroundDef].bm_code = 1;
+        world->unit_defs[kWireAirDef].bm_code = 1;
+        world->unit_defs[kWireAirDef].flags |= OA_UNIT_DEF_FLAG_CAN_FLY;
+        for (uint8_t i = 0; i < OA_PLAYER_COUNT; ++i) {
+            auto& p = world->game.players[i];
+            p.index = i;
+            p.player_id = no_player_id;
+            p.info = oa_ref_from_index(i);
+            if (i < 2) {
+                p.in_use = 1;
+                p.player_id = kWireIds[i];
+                p.status = i == local_slot ? OA_PLAYER_STATUS_LOCAL : OA_PLAYER_STATUS_MIRRORED;
+                p.machine_group = i + 1u;
+            }
+        }
+        world->game.local_player_index = local_slot;
+        world->game.session_flags = kNetFlagLive;
+        world->game.units_per_player = units_per_player;
+        world->game.unit_def_id_bits = unit_def_id_bits_for_count(kWireDefCount);
+        for (uint32_t slot = 0; slot < world->unit_slot_count; ++slot)
+            world->units[slot].id = static_cast<uint16_t>(slot);
+        match_assign_unit_ranges(world);
+        for (uint8_t owner = 0; owner < 2; ++owner) {
+            uint32_t count = 0;
+            Unit* first = world_player_units(world, &world->game.players[owner], &count);
+            for (uint32_t i = 0; i < count && first != nullptr; ++i) {
+                Unit& unit = first[i];
+                unit.type_index = (i % 2) == 0 ? kWireGroundDef : kWireAirDef;
+                unit.def = oa_ref_from_index(unit.type_index);
+                unit.position = {static_cast<int32_t>((64 + i) << 16), 0, (64 + owner) << 16};
+                unit.health = 100;
+                unit.movement = 1;
+                unit.flags |= OA_UNIT_FLAG_LIVE;
+            }
+        }
+        movement.assign(world->unit_slot_count, MovementRecord{});
+        connection.packets = new PacketLayer();
+        packet_layer_create(connection.packets);
+        packet_layer_start(connection.packets, NetTransport{&link, link_send, link_receive});
+        net_connection_set_rules(&connection, rules);
+        ReplicationSim sim{};
+        sim.context = this;
+        sim.movement = [](void* c, World* w, Unit* unit) -> MovementRecord* {
+            auto& self = *static_cast<WireMachine*>(c);
+            const auto slot = world_unit_slot(w, unit);
+            if (slot >= self.movement.size() || unit->type_index >= w->unit_def_count)
+                return nullptr;
+            auto& record = self.movement[slot];
+            if (record.driver == MovementClass::none)
+                record.driver = movement_class_for_def(w->unit_defs[unit->type_index]);
+            return &record;
+        };
+        sim.movement_tick = [](void* c, World*, Unit*) { ++static_cast<WireMachine*>(c)->steps; };
+        net_match_begin(match.get(), &connection, world, sim, NetMatchHooks{});
+        net_match_enter_game(match.get());
+    }
+
+    ~WireMachine() {
+        delete connection.packets;
+        world_destroy(world);
+    }
+
+    WireMachine(const WireMachine&) = delete;
+    WireMachine& operator=(const WireMachine&) = delete;
+
+    Player& local() { return world->game.players[world->game.local_player_index]; }
+};
+
+/// Changes the movement records of a machine's own units for a tick, the
+/// same way on every run: three of every four units take a new route head
+/// of one to three points, every fifth one flips its blocked bit, and the
+/// aircraft among them take a new target, seek or no goal.
+///
+/// @param m the machine
+/// @param tick the tick the changes belong to
+void turn_wire_units(WireMachine& m, uint32_t tick) {
+    uint32_t count = 0;
+    Unit* first = world_player_units(m.world, &m.local(), &count);
+    for (uint32_t i = 0; i < count && first != nullptr; ++i) {
+        if ((i * 7u + tick) % 4u == 0)
+            continue;
+        auto& record = m.movement[first[i].id];
+        if (record.driver == MovementClass::none)
+            record.driver = movement_class_for_def(m.world->unit_defs[first[i].type_index]);
+        if ((i + tick) % 5u == 0)
+            record.flags = static_cast<uint8_t>(record.flags ^ movement_blocked);
+        if (record.driver == MovementClass::ground) {
+            record.ground.path_count = static_cast<int32_t>(1u + (i + tick) % 3u);
+            for (int32_t point = 0; point < record.ground.path_count; ++point) {
+                record.ground.path[point][0] = static_cast<int16_t>(
+                    (i * 13u + tick * 3u + static_cast<uint32_t>(point)) & 0x7fffu
+                );
+                record.ground.path[point][1] =
+                    static_cast<int16_t>((i * 5u + tick * 11u) & 0x7fffu);
+            }
+            record.ground.flags = static_cast<uint8_t>(
+                record.ground.flags | ground_driver_path_set | ground_driver_resend
+            );
+            continue;
+        }
+        record.air.flags |= air_driver_resend;
+        switch ((i + tick) % 3u) {
+        case 0:
+            record.air.goal_kind = air_goal_kind_target;
+            record.air.target = AirTargetGoal{};
+            record.air.target.flags = air_target_has_position | air_target_has_altitude;
+            record.air.target.altitude = static_cast<int16_t>(tick);
+            record.air.target.position[0] = static_cast<int32_t>((i + tick) << 16);
+            record.air.target.position[2] = static_cast<int32_t>(i << 16);
+            break;
+        case 1:
+            record.air.goal_kind = air_goal_kind_seek;
+            record.air.seek = AirSeekGoal{};
+            record.air.seek.flag = (tick % 2u) != 0;
+            record.air.seek.point[0] = static_cast<int32_t>(i << 16);
+            record.air.seek.step[2] = static_cast<int32_t>(tick);
+            record.air.seek.heading = static_cast<uint16_t>(tick * 97u);
+            break;
+        default:
+            record.air.goal_kind = air_goal_kind_none;
+            break;
+        }
+    }
+}
+
+/// Runs one networked tick of a wire machine: the tick advances, the pump
+/// applies what arrived, the own units turn, the unit state goes out and
+/// every channel is flushed.
+///
+/// @param m the machine
+void wire_tick(WireMachine& m) {
+    auto& game = m.world->game;
+    ++game.tick;
+    (void)net_match_pump(m.match.get());
+    turn_wire_units(m, game.tick);
+    net_match_send_player_state(m.match.get(), &m.local());
+    net_match_after_tick(m.match.get());
+    packet_layer_flush(m.connection.packets, 0, true);
+}
+
+/// FNV-1a over every datagram a link sent: its addresses, its length and its bytes.
+///
+/// @param link the link
+/// @return the hash
+uint64_t sent_datagrams_hash(const Link& link) {
+    uint64_t hash = 0xcbf29ce484222325ull;
+    const auto mix = [&hash](uint8_t byte) {
+        hash ^= byte;
+        hash *= 0x100000001b3ull;
+    };
+    const auto mix_word = [&mix](uint32_t word) {
+        for (int shift = 0; shift < 32; shift += 8)
+            mix(static_cast<uint8_t>(word >> shift));
+    };
+    for (const auto& datagram : link.sent) {
+        mix_word(datagram.from);
+        mix_word(datagram.to);
+        mix_word(static_cast<uint32_t>(datagram.bytes.size()));
+        for (const auto byte : datagram.bytes)
+            mix(byte);
+    }
+    return hash;
+}
+
+// With Enhanced Mode off every byte two machines send each other stays as it
+// was before the complete route batches: their unit states, cut at 0x200
+// bytes as 3.1c cuts them, with the units past the cut put off to later
+// ticks. The hashes were recorded from the engine before the batches
+// existed.
+void off_match_frames_keep_their_bytes() {
+    start_case("off_match_frames_keep_their_bytes");
+    constexpr uint16_t kUnits = 96;
+    constexpr uint32_t kTicks = 48;
+    WireMachine a(0, WireRules{}, kUnits);
+    WireMachine b(1, WireRules{}, kUnits);
+    a.link.peer = &b.link;
+    b.link.peer = &a.link;
+    for (uint32_t t = 0; t < kTicks; ++t) {
+        wire_tick(a);
+        wire_tick(b);
+    }
+    std::size_t largest = 0;
+    for (const auto* m : {&a, &b})
+        for (const auto& record : records_sent(m->link, RecordType::unit_state))
+            largest = std::max(largest, record.bytes.size());
+    const uint64_t a_hash = sent_datagrams_hash(a.link);
+    const uint64_t b_hash = sent_datagrams_hash(b.link);
+    std::printf(
+        "net match: Off wire: %zu / %zu datagrams, hashes %016llx / %016llx, largest unit state "
+        "%zu\n",
+        a.link.sent.size(),
+        b.link.sent.size(),
+        static_cast<unsigned long long>(a_hash),
+        static_cast<unsigned long long>(b_hash),
+        largest
+    );
+    CHECK(a.link.sent.size() == kTicks && b.link.sent.size() == kTicks);
+    CHECK(a_hash == 0x27508ae11ab5babbull && b_hash == 0xe8fceb1477672a86ull);
+    CHECK(largest > unit_state_soft_limit_bytes && largest < 2 * unit_state_soft_limit_bytes);
+    CHECK(a.match->record_errors == 0 && b.match->record_errors == 0);
+    CHECK(a.steps != 0 && b.steps != 0);
+}
+
 int main() {
     packet_layer_over_memory();
     packet_layer_reads_game_send_options();
@@ -5023,6 +5252,7 @@ int main() {
     recorder_take_hands_a_silent_players_units_over();
     recorder_dobase_builds_the_offered_base();
     commander_warp_follows_its_rule();
+    off_match_frames_keep_their_bytes();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;
