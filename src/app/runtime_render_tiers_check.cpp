@@ -2247,6 +2247,14 @@ int Runtime::check_render_tiers() {
               << counts.textures_created << " textures made and " << counts.prescale_draws
               << " prescale draws; pictures in " << oa::platform::path_to_utf8(report_directory)
               << '\n';
+    // The cases below start skirmishes. A run that draws a campaign mission
+    // is over a game with no skirmish map, as the 1997 demo is.
+    if (options_.campaign_mission) {
+        std::cout << "render tiers check: a campaign mission was drawn; the classic overlay, "
+                     "Lighter far units and Dots switch-over cases need a skirmish and are "
+                     "skipped\n";
+        return 0;
+    }
     // A reference override selects the old classic overlay loop in the
     // same frozen match. Only Enhanced Dots may avoid position and label
     // preparation for units whose real self-destruct count is zero.

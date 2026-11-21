@@ -139,12 +139,12 @@ MAP_BROWSER = [
     "maps-filter-all", "maps-players", "maps-size", "maps-search", "maps-card-acid-foursome",
     "maps-cancel", "maps-close",
 ]
-# The host's row, the column, Select Map, Mutators, the sliders, then chat.
-# START is absent while nobody is ready.
+# The host's row, the column under its Enhanced Mode switch, Select Map,
+# Mutators, the sliders, then chat. START is absent while nobody is ready.
 ROOM = [
-    "prevmenu", "ready0", "side0", "logo0", "teamicons0", "commander", "fixedloc", "mapping",
-    "lostype", "cheating", "watching", "gameopen", "restrictions", "map", "mutators", "metal",
-    "energy", "maxunits", "output", "message",
+    "prevmenu", "ready0", "side0", "logo0", "teamicons0", "enhanced-mode", "commander",
+    "fixedloc", "mapping", "lostype", "cheating", "watching", "gameopen", "restrictions", "map",
+    "mutators", "metal", "energy", "maxunits", "output", "message",
 ]
 
 
