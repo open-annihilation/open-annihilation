@@ -7,6 +7,7 @@
 #include "oa/netgame/dplay.hpp"
 #include "oa/netgame/frame.hpp"
 #include "oa/netgame/records.hpp"
+#include "oa/netgame/route_batch.hpp"
 #include "oa/netgame/unit_state.hpp"
 #include "oa/netgame/network.hpp"
 #include "oa/formats/tad.hpp"
@@ -373,6 +374,260 @@ void wide_records_split_only_when_admitted() {
     CHECK(pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0xe0 && length == wide);
     CHECK(pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0x0b && length == damage);
     CHECK(!pop_due_record(admitted.get(), 0, &data, &length));
+}
+
+// ---- route batch records ----
+
+/// Builds one route batch part: its header, then `body` bits of a set pattern.
+///
+/// @param tick the part's tick
+/// @param previous the previous tick
+/// @param index the part's index
+/// @param last whether it is the last part
+/// @param body_bits bits after the header
+/// @return the part
+Bytes route_batch_part(
+    uint32_t tick, uint32_t previous, uint16_t index, bool last, std::size_t body_bits
+) {
+    uint8_t storage[route_batch_record_max_bytes + 8]{};
+    BitWriter writer;
+    bit_writer_init(&writer, storage, sizeof storage / bit_stream_word_bytes);
+    route_batch_part_begin(&writer, tick, previous, index);
+    for (std::size_t bit = 0; bit < body_bits; ++bit)
+        bit_writer_write_bit(&writer, (bit % 3) == 0);
+    uint16_t length = 0;
+    CHECK(route_batch_part_finish(&writer, last, &length) == WireError::ok);
+    return Bytes(storage, storage + length);
+}
+
+/// A part's header and an acknowledgement come back as written, and each
+/// record measures itself by the length it carries.
+void route_batch_records_round_trip() {
+    const Bytes part = route_batch_part(9000, 8999, 37, true, 21);
+    CHECK(part.size() == route_batch_part_header_bytes + 3);
+    CHECK(part[0] == 0xe4 && load_u16(part.data() + 1) == part.size());
+    CHECK(load_u32(part.data() + 3) == 9000 && load_u32(part.data() + 7) == 8999);
+    CHECK(load_u16(part.data() + 11) == 37 && part[13] == route_batch_part_last);
+    RouteBatchPartHeader header{};
+    CHECK(decode_route_batch_part_header(part.data(), part.size(), &header) == WireError::ok);
+    CHECK(header.length == part.size() && header.tick == 9000 && header.previous_tick == 8999);
+    CHECK(header.part_index == 37 && header.last);
+    uint16_t length = 0;
+    Bytes framed = part;
+    framed.push_back(0x0b);
+    CHECK(
+        route_batch_record_length(framed.data(), framed.size(), &length) == WireError::ok &&
+        length == part.size()
+    );
+    const Bytes first = route_batch_part(1, 0, 0, false, 16);
+    CHECK(decode_route_batch_part_header(first.data(), first.size(), &header) == WireError::ok);
+    CHECK(header.tick == 1 && header.previous_tick == 0 && !header.last);
+
+    RouteBatchAck ack{};
+    ack.owner_id = 0x2001;
+    ack.applied_through = 4410;
+    ack.highest_held = 4425;
+    ack.entry_count = 2;
+    ack.entries[0].tick = 4411;
+    ack.entries[0].parts = 11;
+    ack.entries[0].held[0] = 0xb5;
+    ack.entries[0].held[1] = 0x06;
+    ack.entries[1].tick = 4425;
+    ack.entries[1].parts = route_batch_max_parts;
+    ack.entries[1].last_held = true;
+    ack.entries[1].held.fill(0xff);
+    uint8_t bytes[route_batch_record_max_bytes]{};
+    std::size_t written = 0;
+    CHECK(encode_route_batch_ack(ack, bytes, sizeof bytes, &written) == WireError::ok);
+    CHECK(written == route_batch_ack_bytes(ack));
+    CHECK(
+        written == route_batch_ack_header_bytes + 2 * route_batch_ack_entry_header_bytes + 2 +
+                       route_batch_ack_map_bytes
+    );
+    CHECK(bytes[0] == 0xe5 && load_u16(bytes + 1) == written);
+    CHECK(route_batch_record_length(bytes, written, &length) == WireError::ok && length == written);
+    RouteBatchAck read{};
+    CHECK(decode_route_batch_ack(bytes, written, &read) == WireError::ok);
+    CHECK(read.owner_id == 0x2001 && read.applied_through == 4410 && read.highest_held == 4425);
+    CHECK(read.entry_count == 2 && read.entries[0].tick == 4411 && read.entries[0].parts == 11);
+    CHECK(!read.entries[0].last_held && read.entries[1].last_held);
+    // Bits past the parts mapped are written and read clear.
+    CHECK(read.entries[0].held[0] == 0xb5 && read.entries[0].held[1] == 0x06);
+    CHECK(read.entries[1].parts == route_batch_max_parts && read.entries[1].held[127] == 0xff);
+    ack.entries[0].held[1] = 0xff;
+    CHECK(encode_route_batch_ack(ack, bytes, sizeof bytes, &written) == WireError::ok);
+    CHECK(decode_route_batch_ack(bytes, written, &read) == WireError::ok);
+    CHECK(read.entries[0].held[1] == 0x07);
+}
+
+/// Route batch records are refused at their bounds: short or long lengths,
+/// headers that cannot be a batch's, too many entries, maps that do not fill
+/// the record, and storage too small.
+void route_batch_records_are_bounded() {
+    uint16_t length = 0;
+    const Bytes part = route_batch_part(12, 11, 0, true, 3);
+    CHECK(route_batch_record_length(part.data(), 2, &length) == WireError::truncated);
+    CHECK(route_batch_record_length(part.data(), part.size() - 1, &length) == WireError::truncated);
+    const uint8_t chat = 0x05;
+    CHECK(route_batch_record_length(&chat, 1, &length) == WireError::invalid_type);
+    CHECK(route_batch_record_length(nullptr, 4, &length) == WireError::bad_argument);
+    Bytes shortened = part;
+    store_u16(shortened.data() + 1, static_cast<uint16_t>(route_batch_part_header_bytes - 1));
+    CHECK(
+        route_batch_record_length(shortened.data(), shortened.size(), &length) ==
+        WireError::length_mismatch
+    );
+    Bytes long_one(route_batch_record_max_bytes + 1, 0);
+    long_one[0] = 0xe4;
+    store_u16(long_one.data() + 1, static_cast<uint16_t>(long_one.size()));
+    CHECK(
+        route_batch_record_length(long_one.data(), long_one.size(), &length) ==
+        WireError::length_mismatch
+    );
+
+    RouteBatchPartHeader header{};
+    CHECK(decode_route_batch_part_header(part.data(), part.size() + 0, &header) == WireError::ok);
+    Bytes longer = part;
+    longer.push_back(0);
+    CHECK(
+        decode_route_batch_part_header(longer.data(), longer.size(), &header) ==
+        WireError::length_mismatch
+    );
+    for (const auto& bad :
+         {route_batch_part(0, 0, 0, true, 3),
+          route_batch_part(7, 7, 0, true, 3),
+          route_batch_part(7, 8, 0, true, 3),
+          route_batch_part(7, 6, route_batch_max_parts, true, 3)})
+        CHECK(
+            decode_route_batch_part_header(bad.data(), bad.size(), &header) ==
+            WireError::bad_argument
+        );
+    Bytes flagged = part;
+    flagged[13] = 0x03;
+    CHECK(
+        decode_route_batch_part_header(flagged.data(), flagged.size(), &header) ==
+        WireError::bad_argument
+    );
+
+    RouteBatchAck ack{};
+    ack.entry_count = 1;
+    ack.entries[0].tick = 5;
+    ack.entries[0].parts = 9;
+    uint8_t bytes[route_batch_record_max_bytes]{};
+    std::size_t written = 0;
+    CHECK(encode_route_batch_ack(ack, bytes, sizeof bytes, &written) == WireError::ok);
+    RouteBatchAck read{};
+    CHECK(decode_route_batch_ack(part.data(), part.size(), &read) == WireError::invalid_type);
+    CHECK(decode_route_batch_ack(bytes, written - 1, &read) == WireError::truncated);
+    Bytes stretched(bytes, bytes + written);
+    stretched.push_back(0);
+    store_u16(stretched.data() + 1, static_cast<uint16_t>(stretched.size()));
+    CHECK(
+        decode_route_batch_ack(stretched.data(), stretched.size(), &read) ==
+        WireError::length_mismatch
+    );
+    Bytes counted(bytes, bytes + written);
+    counted[15] = route_batch_ack_max_entries + 1;
+    CHECK(decode_route_batch_ack(counted.data(), counted.size(), &read) == WireError::bad_argument);
+    counted[15] = 2;
+    CHECK(
+        decode_route_batch_ack(counted.data(), counted.size(), &read) == WireError::length_mismatch
+    );
+    Bytes wide_map(bytes, bytes + written);
+    store_u16(wide_map.data() + route_batch_ack_header_bytes + 4, route_batch_max_parts + 1);
+    CHECK(
+        decode_route_batch_ack(wide_map.data(), wide_map.size(), &read) == WireError::bad_argument
+    );
+    CHECK(encode_route_batch_ack(ack, bytes, written - 1, &written) == WireError::buffer_too_small);
+    ack.entry_count = route_batch_ack_max_entries;
+    for (auto& entry : ack.entries)
+        entry.parts = route_batch_max_parts;
+    CHECK(encode_route_batch_ack(ack, bytes, sizeof bytes, &written) == WireError::overflow);
+    ack.entries[0].parts = route_batch_max_parts + 1;
+    CHECK(encode_route_batch_ack(ack, bytes, sizeof bytes, &written) == WireError::bad_argument);
+    // A part one bit past its writer's room reports the writer's error.
+    uint8_t small[8]{};
+    BitWriter writer;
+    bit_writer_init(&writer, small, 2);
+    route_batch_part_begin(&writer, 3, 2, 0);
+    CHECK(route_batch_part_finish(&writer, true, &length) == WireError::overflow);
+}
+
+/// The frame split takes route batch records by the length each carries
+/// only when its ring is told to; otherwise they end the split, as on 3.1c.
+/// One that does not carry a whole header ends it either way.
+void route_batch_records_split_only_when_admitted() {
+    constexpr std::size_t damage = 9;
+    const Bytes part = route_batch_part(40, 39, 0, true, 30);
+    RouteBatchAck ack{};
+    ack.owner_id = 7;
+    uint8_t ack_bytes[route_batch_record_max_bytes]{};
+    std::size_t ack_size = 0;
+    CHECK(encode_route_batch_ack(ack, ack_bytes, sizeof ack_bytes, &ack_size) == WireError::ok);
+    Bytes frame(frame_header_bytes, 0);
+    frame.push_back(0x0b);
+    frame.resize(frame.size() + damage - 1, 0);
+    frame.insert(frame.end(), part.begin(), part.end());
+    frame.insert(frame.end(), ack_bytes, ack_bytes + ack_size);
+    frame.push_back(0x0b);
+    frame.resize(frame.size() + damage - 1, 0);
+
+    const uint8_t* data = nullptr;
+    uint16_t length = 0;
+    auto outcome = UnpackOutcome::unpacked;
+    auto without = std::make_unique<PeerRecords>();
+    peer_records_reset(without.get());
+    CHECK(
+        unpack_frame_records(without.get(), frame.data(), frame.size(), 0, 1, 0, false, &outcome) ==
+        WireError::ok
+    );
+    CHECK(pop_due_record(without.get(), 0, &data, &length) && data[0] == 0x0b && length == damage);
+    CHECK(!pop_due_record(without.get(), 0, &data, &length));
+
+    auto admitted = std::make_unique<PeerRecords>();
+    peer_records_reset(admitted.get());
+    admitted->route_batches = true;
+    CHECK(
+        unpack_frame_records(
+            admitted.get(), frame.data(), frame.size(), 0, 1, 0, false, &outcome
+        ) == WireError::ok
+    );
+    CHECK(pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0x0b);
+    CHECK(
+        pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0xe4 &&
+        length == part.size() && std::memcmp(data, part.data(), part.size()) == 0
+    );
+    CHECK(
+        pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0xe5 && length == ack_size
+    );
+    CHECK(pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0x0b);
+    CHECK(!pop_due_record(admitted.get(), 0, &data, &length));
+
+    // A part whose length is shorter than its header ends the split there.
+    Bytes cut = frame;
+    store_u16(cut.data() + frame_header_bytes + damage + 1, 5);
+    auto shortened = std::make_unique<PeerRecords>();
+    peer_records_reset(shortened.get());
+    shortened->route_batches = true;
+    CHECK(
+        unpack_frame_records(shortened.get(), cut.data(), cut.size(), 0, 1, 0, false, &outcome) ==
+        WireError::ok
+    );
+    CHECK(pop_due_record(shortened.get(), 0, &data, &length) && data[0] == 0x0b);
+    CHECK(!pop_due_record(shortened.get(), 0, &data, &length));
+    // A part at the frame's end whose length runs past it is dropped.
+    Bytes tail(
+        frame.begin(), frame.begin() + static_cast<std::ptrdiff_t>(frame_header_bytes + damage) + 10
+    );
+    auto truncated = std::make_unique<PeerRecords>();
+    peer_records_reset(truncated.get());
+    truncated->route_batches = true;
+    CHECK(
+        unpack_frame_records(truncated.get(), tail.data(), tail.size(), 0, 1, 0, false, &outcome) ==
+        WireError::ok
+    );
+    CHECK(pop_due_record(truncated.get(), 0, &data, &length) && data[0] == 0x0b);
+    CHECK(!pop_due_record(truncated.get(), 0, &data, &length));
 }
 
 void bit_writer_is_bounded() {
@@ -1123,6 +1378,10 @@ int main() {
         {"known_record_layouts", known_record_layouts},
         {"wide_records_round_trip", wide_records_round_trip},
         {"wide_records_split_only_when_admitted", wide_records_split_only_when_admitted},
+        {"route_batch_records_round_trip", route_batch_records_round_trip},
+        {"route_batch_records_are_bounded", route_batch_records_are_bounded},
+        {"route_batch_records_split_only_when_admitted",
+         route_batch_records_split_only_when_admitted},
         {"bit_writer_is_bounded", bit_writer_is_bounded},
         {"build_fraction_coding_is_asymmetric", build_fraction_coding_is_asymmetric},
         {"unit_state_stream_round_trip", unit_state_stream_round_trip},
