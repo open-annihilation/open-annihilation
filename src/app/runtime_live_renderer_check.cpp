@@ -4928,13 +4928,13 @@ int Runtime::check_live_renderer() {
             };
             try {
                 bool walked_and_animated{};
-                constexpr std::array<std::array<int32_t, 2>, 4> directions{
+                constexpr std::array<std::array<int32_t, 2>, 4> walk_directions{
                     {{256, 0}, {0, 256}, {-256, 0}, {0, -256}}
                 };
                 const int32_t map_width = static_cast<int32_t>(selected_tnt_->attribute_width) * 16;
                 const int32_t map_height =
                     static_cast<int32_t>(selected_tnt_->attribute_height) * 16;
-                for (const auto& direction : directions) {
+                for (const auto& direction : walk_directions) {
                     const auto here = match_->world().record.units[walker].position;
                     const int32_t x = here.x / fixed + direction[0];
                     const int32_t z = here.z / fixed + direction[1];
@@ -4946,7 +4946,8 @@ int Runtime::check_live_renderer() {
                     (void)match_->issue_ground_move(
                         walker, {x * fixed, destination_floor * fixed, z * fixed}, false
                     );
-                    for (unsigned tick = 0; tick < 120 && !walked_and_animated; ++tick) {
+                    for (unsigned walk_tick = 0; walk_tick < 120 && !walked_and_animated;
+                         ++walk_tick) {
                         const auto before = match_->world().record.units[walker].position;
                         step_match_simulation();
                         set_presentation_alpha(0.5F);
@@ -5013,13 +5014,13 @@ int Runtime::check_live_renderer() {
                         find_walker()->plan.linked.drawn,
                     "the ordinary pre-planning reference did not plan the real walker"
                 );
-                const auto ordinary = match_world_cpu_;
+                const auto ordinary_surface = match_world_cpu_;
                 const auto ordinary_picks = bounds_and_picks();
                 const auto ordinary_readback = match_draw_read_back();
                 visibility.force_ordinary = false;
                 render_match_surface();
                 require(
-                    walker_omitted() && match_world_cpu_.rgb == ordinary.rgb &&
+                    walker_omitted() && match_world_cpu_.rgb == ordinary_surface.rgb &&
                         bounds_and_picks() == ordinary_picks && !live_renderer_failed() &&
                         visibility.copy_preplan_omitted_count != 0 &&
                         visibility.whole_tick_postplan_omitted_count == 0 && visibility.view &&
@@ -5143,7 +5144,8 @@ int Runtime::check_live_renderer() {
                 );
                 visibility.force_ordinary = false;
                 bool visible_animation{};
-                for (unsigned tick = 0; tick < 12 && !visible_animation; ++tick) {
+                for (unsigned animation_tick = 0; animation_tick < 12 && !visible_animation;
+                     ++animation_tick) {
                     step_match_simulation();
                     set_presentation_alpha(0.5F);
                     render_match_surface();
@@ -5671,7 +5673,7 @@ int Runtime::check_live_renderer() {
                                 "the stock radius oracle materialized canonical renderer state"
                             );
                         }
-                        const auto tick = uint32_t{match_->simulation().tick};
+                        const auto batch_tick = uint32_t{match_->simulation().tick};
                         const auto random = match_->random_state();
                         UnitPose raw_before, raw_after;
                         capture_unit_pose(
@@ -5692,7 +5694,7 @@ int Runtime::check_live_renderer() {
                         const auto ordinary_bounds = bounds_and_picks();
                         const auto ordinary_instance = canonical;
                         const auto ordinary_lifecycle = lifecycle(canonical_state);
-                        const auto ordinary_readback = match_draw_read_back();
+                        const auto ordinary_batch_readback = match_draw_read_back();
                         if (deferred_geometry_preset) {
                             preplanning_visibility::FrameView far_view;
                             require(
@@ -5806,12 +5808,13 @@ int Runtime::check_live_renderer() {
                             );
                             require(
                                 std::memcmp(
-                                    ordinary_readback.game.get(),
+                                    ordinary_batch_readback.game.get(),
                                     postplan_readback.game.get(),
                                     sizeof(oa::Game)
                                 ) == 0 &&
-                                    ordinary_readback.on_screen == postplan_readback.on_screen &&
-                                    ordinary_readback.world == postplan_readback.world,
+                                    ordinary_batch_readback.on_screen ==
+                                        postplan_readback.on_screen &&
+                                    ordinary_batch_readback.world == postplan_readback.world,
                                 "lazy planning changed game state, on-screen order or world digest"
                             );
                         } else {
@@ -5820,8 +5823,9 @@ int Runtime::check_live_renderer() {
                                     lifecycle(canonical_state) == ordinary_lifecycle,
                                 "eager omission changed derived geometry or image/cache history"
                             );
-                            if (const char* difference =
-                                    draw_read_back_difference(ordinary_readback, postplan_readback))
+                            if (const char* difference = draw_read_back_difference(
+                                    ordinary_batch_readback, postplan_readback
+                                ))
                                 throw std::runtime_error(
                                     std::string("whole-tick post-plan draw changed ") + difference
                                 );
@@ -5831,7 +5835,7 @@ int Runtime::check_live_renderer() {
                         );
                         require(
                             poses_equal(raw_before, raw_after) &&
-                                match_->simulation().tick == tick &&
+                                match_->simulation().tick == batch_tick &&
                                 match_->random_state() == random && !match_->fault(),
                             "whole-tick frozen replay changed canonical pose, tick or RNG"
                         );
@@ -6066,7 +6070,7 @@ int Runtime::check_live_renderer() {
                         center_camera_on_unit(walker);
                         visibility.force_ordinary = true;
                         bool copy_moved{};
-                        for (const auto& direction : directions) {
+                        for (const auto& direction : walk_directions) {
                             const auto here = match_->world().record.units[walker].position;
                             const int32_t x = here.x / fixed + direction[0];
                             const int32_t z = here.z / fixed + direction[1];
@@ -6078,7 +6082,8 @@ int Runtime::check_live_renderer() {
                             (void)match_->issue_ground_move(
                                 walker, {x * fixed, ground * fixed, z * fixed}, false
                             );
-                            for (unsigned tick = 0; tick < 120 && !copy_moved; ++tick) {
+                            for (unsigned walk_tick = 0; walk_tick < 120 && !copy_moved;
+                                 ++walk_tick) {
                                 const auto before = match_->world().record.units[walker].position;
                                 step_match_simulation();
                                 set_presentation_alpha(0.5F);
@@ -6165,7 +6170,7 @@ int Runtime::check_live_renderer() {
                             const auto debt_before = pending;
                             const auto copy_before = motion.instance;
                             const auto copy_state_before = clone_state(motion.state);
-                            const auto tick = uint32_t{match_->simulation().tick};
+                            const auto attempt_tick = uint32_t{match_->simulation().tick};
                             const auto random = match_->random_state();
                             const auto save_state = match_world_digest();
                             UnitPose raw_before, raw_after;
@@ -6206,7 +6211,7 @@ int Runtime::check_live_renderer() {
                             require(
                                 poses_equal(raw_before, raw_after) &&
                                     match_world_digest() == save_state &&
-                                    match_->simulation().tick == tick &&
+                                    match_->simulation().tick == attempt_tick &&
                                     match_->random_state() == random,
                                 "visible original deferral changed canonical/save state or RNG"
                             );
@@ -6225,7 +6230,7 @@ int Runtime::check_live_renderer() {
                                     same_derived(motion.instance, optimized_copy) &&
                                     lifecycle(motion.state, true) == optimized_copy_images &&
                                     match_world_digest() == save_state &&
-                                    match_->simulation().tick == tick &&
+                                    match_->simulation().tick == attempt_tick &&
                                     match_->random_state() == random,
                                 "visible original deferral differs from its eager current-copy draw"
                             );
@@ -6375,16 +6380,16 @@ int Runtime::check_live_renderer() {
                             "the visible producer-loss fixture has no original debt"
                         );
                         const auto fallback_save = match_world_digest();
-                        const auto fallback_tick = uint32_t{match_->simulation().tick};
-                        const auto fallback_random = match_->random_state();
+                        const auto producer_loss_tick = uint32_t{match_->simulation().tick};
+                        const auto producer_loss_random = match_->random_state();
                         set_live_models_on_card(false);
                         render_match_surface();
                         require(
                             !pending.fresh_original_images && !pending.fresh_geometry &&
                                 !pending.fresh_copy_images && !match_world_cpu_.rgb.empty() &&
                                 match_world_digest() == fallback_save &&
-                                match_->simulation().tick == fallback_tick &&
-                                match_->random_state() == fallback_random && !match_->fault(),
+                                match_->simulation().tick == producer_loss_tick &&
+                                match_->random_state() == producer_loss_random && !match_->fault(),
                             "visible producer loss retained original debt or changed save state"
                         );
                         set_live_models_on_card(true);

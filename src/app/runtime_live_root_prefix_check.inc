@@ -164,10 +164,10 @@ if (root_prefix_requested) {
                     if (another_unit)
                         continue;
                     std::vector<std::array<int32_t, 2>> candidate;
-                    for (int32_t row = 0; row < prefix_rows; ++row) {
-                        for (int32_t column = 0; column < prefix_columns; ++column) {
-                            const int32_t sx = x + column * spacing_x;
-                            const int32_t sz = z + row * spacing_z;
+                    for (int32_t grid_row = 0; grid_row < prefix_rows; ++grid_row) {
+                        for (int32_t grid_column = 0; grid_column < prefix_columns; ++grid_column) {
+                            const int32_t sx = x + grid_column * spacing_x;
+                            const int32_t sz = z + grid_row * spacing_z;
                             if (std::all_of(
                                     prefix_types.begin(), prefix_types.end(), [&](const auto type) {
                                         return match_->site_clear_for(type, sx, sz, 0, 1) &&
@@ -193,15 +193,15 @@ if (root_prefix_requested) {
             sites.resize(prefix_actors);
             std::vector<uint16_t> actors;
             actors.reserve(prefix_actors);
-            for (const auto& site : sites) {
+            for (const auto& spawn_site : sites) {
                 const auto type = prefix_types[actors.size() % prefix_types.size()];
                 const auto& definition = spawn_types_[type];
                 require(
-                    match_->site_clear_for(type, site[0], site[1], 0, 1),
+                    match_->site_clear_for(type, spawn_site[0], spawn_site[1], 0, 1),
                     "a root-prefix stock spawn site became occupied"
                 );
-                const int32_t x = site[0] * 16 + definition.footprint_x * 8 - 8;
-                const int32_t z = site[1] * 16 + definition.footprint_z * 8 - 8;
+                const int32_t x = spawn_site[0] * 16 + definition.footprint_x * 8 - 8;
+                const int32_t z = spawn_site[1] * 16 + definition.footprint_z * 8 - 8;
                 const auto floor = match_->map_height(
                     static_cast<uint32_t>(x * prefix_fixed), static_cast<uint32_t>(z * prefix_fixed)
                 );
@@ -231,13 +231,13 @@ if (root_prefix_requested) {
             int64_t max_x = std::numeric_limits<int64_t>::min();
             int64_t min_z = min_x, max_z = max_x;
             for (const auto slot : actors) {
-                const auto position = match_->world().record.units[slot].position;
-                min_x = std::min(min_x, int64_t{position.x});
-                max_x = std::max(max_x, int64_t{position.x});
-                min_z = std::min(min_z, int64_t{position.z});
-                max_z = std::max(max_z, int64_t{position.z});
-                const int32_t x = position.x + prefix_move_cells_x * 16 * prefix_fixed;
-                const int32_t z = position.z + prefix_move_cells_z * 16 * prefix_fixed;
+                const auto actor_position = match_->world().record.units[slot].position;
+                min_x = std::min(min_x, int64_t{actor_position.x});
+                max_x = std::max(max_x, int64_t{actor_position.x});
+                min_z = std::min(min_z, int64_t{actor_position.z});
+                max_z = std::max(max_z, int64_t{actor_position.z});
+                const int32_t x = actor_position.x + prefix_move_cells_x * 16 * prefix_fixed;
+                const int32_t z = actor_position.z + prefix_move_cells_z * 16 * prefix_fixed;
                 const auto floor =
                     match_->map_height(static_cast<uint32_t>(x), static_cast<uint32_t>(z));
                 require(
@@ -250,9 +250,9 @@ if (root_prefix_requested) {
             auto anchor = actors.front();
             uint64_t nearest = std::numeric_limits<uint64_t>::max();
             for (const auto slot : actors) {
-                const auto position = match_->world().record.units[slot].position;
-                const int64_t dx = (position.x - (min_x + max_x) / 2) / prefix_fixed;
-                const int64_t dz = (position.z - (min_z + max_z) / 2) / prefix_fixed;
+                const auto actor_position = match_->world().record.units[slot].position;
+                const int64_t dx = (actor_position.x - (min_x + max_x) / 2) / prefix_fixed;
+                const int64_t dz = (actor_position.z - (min_z + max_z) / 2) / prefix_fixed;
                 const auto distance = static_cast<uint64_t>(dx * dx + dz * dz);
                 if (distance < nearest) {
                     nearest = distance;
@@ -277,9 +277,9 @@ if (root_prefix_requested) {
             uint32_t witness_moving{};
             uint64_t witness_frame{}, witness_publishes{};
             RootPrefixActivationCounts witness_counts{};
-            for (unsigned tick = 0;
-                 tick < prefix_walk_ticks && (animated_count < actors.size() || witness_frame == 0);
-                 ++tick) {
+            for (unsigned walk_tick = 0; walk_tick < prefix_walk_ticks &&
+                                         (animated_count < actors.size() || witness_frame == 0);
+                 ++walk_tick) {
                 for (std::size_t actor = 0; actor < actors.size(); ++actor)
                     before_positions[actor] = match_->world().record.units[actors[actor]].position;
                 step_match_simulation();
@@ -342,13 +342,14 @@ if (root_prefix_requested) {
                         );
                     if (slot >= presentation.size())
                         continue;
-                    const auto position = match_->world().record.units[slot].position;
+                    const auto actor_position = match_->world().record.units[slot].position;
                     const auto before = before_positions[actor];
                     const auto& motion = presentation[slot];
-                    const bool moving = (position.x != before.x || position.z != before.z) &&
-                                        motion.continued && motion.moved && motion.pieces_moved &&
-                                        motion.rig_valid && !motion.rig_primed;
-                    if (moving) {
+                    const bool actor_moving =
+                        (actor_position.x != before.x || actor_position.z != before.z) &&
+                        motion.continued && motion.moved && motion.pieces_moved &&
+                        motion.rig_valid && !motion.rig_primed;
+                    if (actor_moving) {
                         moving_actors[actor] = 1;
                         ++moving_now;
                         if (!animated[actor]) {

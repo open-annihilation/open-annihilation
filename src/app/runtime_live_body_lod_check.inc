@@ -36,8 +36,9 @@
         const auto first_body_picture = match_world_cpu_;
         bool moving_stock_frame{};
         constexpr unsigned maximum_body_animation_ticks = 12;
-        for (unsigned tick = 0; tick < maximum_body_animation_ticks && !moving_stock_frame;
-             ++tick) {
+        for (unsigned animation_tick = 0;
+             animation_tick < maximum_body_animation_ticks && !moving_stock_frame;
+             ++animation_tick) {
             const auto before = match_->world().record.units[walker].position;
             step_match_simulation();
             set_presentation_alpha(0.5F);

@@ -1819,12 +1819,12 @@ bool Runtime::render_live_match_surface() {
                     } else {
                         if (check != nullptr)
                             ++check->api_calls;
-                        const bool prepared = renderer_live_scene::prepare_ground_queries(
+                        const bool queries_prepared = renderer_live_scene::prepare_ground_queries(
                             live.scene, inputs.view_direction, inputs.pool
                         );
                         if (check != nullptr) {
-                            check->successes += prepared;
-                            check->failures += !prepared;
+                            check->successes += queries_prepared;
+                            check->failures += !queries_prepared;
                         }
                     }
                     if (check != nullptr) {

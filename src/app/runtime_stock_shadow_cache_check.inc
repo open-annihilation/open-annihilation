@@ -107,10 +107,11 @@
                         if (another_unit)
                             continue;
                         std::vector<std::array<int32_t, 2>> candidate;
-                        for (int32_t row = 0; row < stock_rows; ++row) {
-                            for (int32_t column = 0; column < stock_columns; ++column) {
-                                const int32_t sx = x + column * spacing_x;
-                                const int32_t sz = z + row * spacing_z;
+                        for (int32_t grid_row = 0; grid_row < stock_rows; ++grid_row) {
+                            for (int32_t grid_column = 0; grid_column < stock_columns;
+                                 ++grid_column) {
+                                const int32_t sx = x + grid_column * spacing_x;
+                                const int32_t sz = z + grid_row * spacing_z;
                                 if (std::all_of(
                                         stock_types.begin(),
                                         stock_types.end(),
@@ -134,16 +135,16 @@
                 std::vector<uint16_t> actors;
                 actors.reserve(stock_casters);
                 std::array<uint32_t, 2> family_counts{};
-                for (const auto& site : sites) {
+                for (const auto& spawn_site : sites) {
                     const auto family = actors.size() % stock_types.size();
                     const auto type = stock_types[family];
                     const auto& definition = spawn_types_[type];
                     require(
-                        match_->site_clear_for(type, site[0], site[1], 0, 1),
+                        match_->site_clear_for(type, spawn_site[0], spawn_site[1], 0, 1),
                         "a stock shadow-cache spawn site became occupied"
                     );
-                    const int32_t x = site[0] * 16 + definition.footprint_x * 8 - 8;
-                    const int32_t z = site[1] * 16 + definition.footprint_z * 8 - 8;
+                    const int32_t x = spawn_site[0] * 16 + definition.footprint_x * 8 - 8;
+                    const int32_t z = spawn_site[1] * 16 + definition.footprint_z * 8 - 8;
                     const auto floor = match_->map_height(
                         static_cast<uint32_t>(x * stock_fixed),
                         static_cast<uint32_t>(z * stock_fixed)
@@ -187,17 +188,17 @@
                 const auto low = match_->world().record.units[actors.front()].position;
                 int64_t min_x = low.x, max_x = low.x, min_z = low.z, max_z = low.z;
                 for (const auto slot : actors) {
-                    const auto position = match_->world().record.units[slot].position;
-                    min_x = std::min(min_x, int64_t{position.x});
-                    max_x = std::max(max_x, int64_t{position.x});
-                    min_z = std::min(min_z, int64_t{position.z});
-                    max_z = std::max(max_z, int64_t{position.z});
+                    const auto actor_position = match_->world().record.units[slot].position;
+                    min_x = std::min(min_x, int64_t{actor_position.x});
+                    max_x = std::max(max_x, int64_t{actor_position.x});
+                    min_z = std::min(min_z, int64_t{actor_position.z});
+                    max_z = std::max(max_z, int64_t{actor_position.z});
                 }
                 uint64_t nearest = std::numeric_limits<uint64_t>::max();
                 for (const auto slot : actors) {
-                    const auto position = match_->world().record.units[slot].position;
-                    const int64_t dx = (position.x - (min_x + max_x) / 2) / stock_fixed;
-                    const int64_t dz = (position.z - (min_z + max_z) / 2) / stock_fixed;
+                    const auto actor_position = match_->world().record.units[slot].position;
+                    const int64_t dx = (actor_position.x - (min_x + max_x) / 2) / stock_fixed;
+                    const int64_t dz = (actor_position.z - (min_z + max_z) / 2) / stock_fixed;
                     const auto distance = static_cast<uint64_t>(dx * dx + dz * dz);
                     if (distance < nearest) {
                         nearest = distance;
@@ -228,8 +229,9 @@
                 std::vector<uint8_t> animated(actors.size());
                 std::vector<FixedVec3> before_positions(actors.size());
                 uint32_t animated_count{};
-                for (unsigned tick = 0; tick < stock_walk_ticks && animated_count < actors.size();
-                     ++tick) {
+                for (unsigned walk_tick = 0;
+                     walk_tick < stock_walk_ticks && animated_count < actors.size();
+                     ++walk_tick) {
                     for (std::size_t actor = 0; actor < actors.size(); ++actor)
                         before_positions[actor] =
                             match_->world().record.units[actors[actor]].position;
@@ -245,9 +247,10 @@
                         const auto slot = actors[actor];
                         if (animated[actor] || slot >= presentation.size())
                             continue;
-                        const auto position = match_->world().record.units[slot].position;
+                        const auto actor_position = match_->world().record.units[slot].position;
                         const auto before = before_positions[actor];
-                        const bool translated = position.x != before.x || position.z != before.z;
+                        const bool translated =
+                            actor_position.x != before.x || actor_position.z != before.z;
                         const auto& motion = presentation[slot];
                         if (translated && motion.continued && motion.moved && motion.pieces_moved &&
                             motion.rig_valid && !motion.rig_primed) {
@@ -370,7 +373,7 @@
                         if (!non_caster || !reported_foreign_non_caster) {
                             const auto foreign_type =
                                 unit != nullptr ? uint32_t(unit->type_index) : 0;
-                            const auto position = draw.shown_position.value_or(
+                            const auto draw_position = draw.shown_position.value_or(
                                 unit != nullptr ? unit->position : oa::FixedVec3{}
                             );
                             std::cout << "stock shadow foreign draw: stock=" << stock_name
@@ -381,8 +384,9 @@
                                               : std::string_view{"<unknown>"})
                                       << " on_map=" << draw.on_map << " stand_in=" << draw.stand_in
                                       << " id=" << (unit != nullptr ? uint32_t(unit->id) : 0)
-                                      << " position=" << position.x << ',' << position.y << ','
-                                      << position.z << " omitted=" << draw.preplan_omitted
+                                      << " position=" << draw_position.x << ','
+                                      << draw_position.y << ',' << draw_position.z
+                                      << " omitted=" << draw.preplan_omitted
                                       << " linked=" << draw.plan.linked.drawn
                                       << " from_image=" << draw.plan.model.from_image
                                       << " no_shadow=" << no_shadow << " flags=" << flags
