@@ -1292,10 +1292,13 @@ struct NetworkPlay::NetHost {
             abort(play, "the battle room has no host");
             return;
         }
-        // A battle room plays the choice it holds, and nothing else: a
-        // machine that has not taken the room's revision yet does not start.
+        // A battle room plays the choice it holds, and nothing else, and
+        // only the revision the host's record has announced: a machine that
+        // has not taken the room's revision yet, or a host whose record does
+        // not carry it yet, does not start.
         if (const auto held = play.runtime_.room_enhanced_choice();
-            held && enhanced_mode_choice(play.runtime_) != *held) {
+            held && (enhanced_mode_choice(play.runtime_) != *held ||
+                     held->revision != mp::lobby_enhanced_room_revision(lobby))) {
             abort(play, "Enhanced Mode has not been announced to this battle room.");
             return;
         }
