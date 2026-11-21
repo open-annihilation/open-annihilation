@@ -96,6 +96,20 @@ bool same(FixedVector3 a, FixedVector3 b) {
     return a.x == b.x && a.y == b.y && a.z == b.z;
 }
 
+/// Puts back a rounding mode changed with std::fesetround, and the
+/// floating-point settings the build keeps.
+///
+/// restore_float_control alone does not: on x86-64 it keeps only the vector
+/// unit, while the C library's std::fesetround also sets the older unit's
+/// rounding mode, and its std::fegetround reports that one.
+///
+/// @param control settings from save_float_control before the change
+/// @param rounding std::fegetround before the change
+void restore_rounding(const oa::base::float_precision::FloatControl& control, int rounding) {
+    std::fesetround(rounding);
+    oa::base::float_precision::restore_float_control(control);
+}
+
 /// A branched hierarchy with an empty hidden parent, short pieces and a root sibling.
 std::shared_ptr<const Model> branched_model() {
     auto model = std::make_shared<Model>();
@@ -695,9 +709,10 @@ void ownership_topology_wrap_and_allocation_refusals() {
     OA_CHECK(!failed_bound);
     OA_CHECK(proof::bound_instance(geometry, instance, {}, cold).has_value());
     const auto saved_control = oa::base::float_precision::save_float_control();
+    const int saved_rounding = std::fegetround();
     if (std::fesetround(FE_DOWNWARD) == 0) {
         OA_CHECK(!proof::bound_instance(geometry, instance, {}, cold));
-        oa::base::float_precision::restore_float_control(saved_control);
+        restore_rounding(saved_control, saved_rounding);
     }
 }
 
@@ -1001,10 +1016,11 @@ void far_mapping_and_radius_reference_parity() {
         missing.model.reset();
         compare(missing, original);
         const auto control = oa::base::float_precision::save_float_control();
+        const int saved_rounding = std::fegetround();
         for (const int rounding : {FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO}) {
             if (std::fesetround(rounding) == 0)
                 compare(geometry, original);
-            oa::base::float_precision::restore_float_control(control);
+            restore_rounding(control, saved_rounding);
         }
     }
     const auto sibling = runtime::make_instance(branched_model(), 31, cob_order);
@@ -1440,10 +1456,11 @@ void combined_raw_policy_camera_and_shadow_refusals() {
     fixture.view = view;
     fixture.unit.position = {200 * fixed, 20 * fixed, 200 * fixed};
     const auto control = oa::base::float_precision::save_float_control();
+    const int saved_rounding = std::fegetround();
     for (const int rounding : {FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO}) {
         if (std::fesetround(rounding) == 0)
             OA_CHECK(!compare_raw_proofs(fixture));
-        oa::base::float_precision::restore_float_control(control);
+        restore_rounding(control, saved_rounding);
     }
 }
 
