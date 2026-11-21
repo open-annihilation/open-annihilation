@@ -1576,6 +1576,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mutator_prompts.cpp
   src/app/runtime_mutator_button.cpp
   src/app/runtime_mutator_room.cpp
+  src/app/runtime_enhanced_room_button.cpp
   src/app/runtime_engine_settings_app_menu.cpp
   src/app/runtime_view_rules.cpp src/app/runtime_game_text.cpp src/app/runtime_language.cpp
   src/app/runtime_language_notice.cpp
@@ -1685,6 +1686,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_brain_saves_check.cpp
   src/app/runtime_mutator_button_check.cpp
   src/app/runtime_mutator_room_check.cpp
+  src/app/runtime_enhanced_room_check.cpp
   src/app/runtime_brain_room_check.cpp
   src/app/runtime_mod_warning_check.cpp src/app/runtime_mod_install_check.cpp
   src/app/runtime_language_install_check.cpp src/app/runtime_challenge_check.cpp
@@ -3074,6 +3076,32 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_brain_room_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED brain-room-clean)
+      # The battle room's Enhanced Mode switch for the host of a room hosted
+      # alone, at 640x480 and 1280x720: the label "Enhanced Mode" over the
+      # switch right of BATTLE ROOM, its right edge the player list's,
+      # meeting no control; its words, lamp and states (Off, Revision 1,
+      # locked by a launch, a Boneyards room); a seated 3.1c Visitor and an
+      # Open Annihilation Visitor without a revision each turning the room
+      # Off with its line, and back to Revision 1 with one line as each
+      # leaves; the lines and the waiting line beside START in each language
+      # 3.1c ships with. It writes enhanced-room-<state>-<w>x<h>.png in its
+      # folder for review. Each run starts from a clean folder.
+      set(oa_enhanced_room_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/enhanced-room")
+      file(MAKE_DIRECTORY "${oa_enhanced_room_dir}")
+      add_test(NAME enhanced-room-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_enhanced_room_dir}/Open Annihilation" "${oa_enhanced_room_dir}/data"
+        "${oa_enhanced_room_dir}/enhanced-room.conf")
+      set_tests_properties(enhanced-room-clean PROPERTIES FIXTURES_SETUP enhanced-room-clean)
+      add_test(NAME native-enhanced-room COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-enhanced-room --dplay-port 0
+        --host --player-name Steve --game-name Ridge
+        --preferences-file "${oa_enhanced_room_dir}/enhanced-room.conf"
+        --user-folder "${oa_enhanced_room_dir}/Open Annihilation"
+        --data-dir "${oa_enhanced_room_dir}/data")
+      set_tests_properties(native-enhanced-room PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_enhanced_room_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED enhanced-room-clean)
       # A two-map pack installed from the check's own registry after the
       # skirmish list has been shown and the battle room's list has been
       # read. One stem has a space, an apostrophe and parentheses and the

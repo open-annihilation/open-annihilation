@@ -22,7 +22,8 @@ constexpr uint8_t content_fetches_flag = 0x01;
 constexpr std::size_t content_value_bytes = 1;
 /// The limits field's value: a u32 of weapon types and a u8 of sides.
 constexpr std::size_t limits_value_bytes = 5;
-/// The Enhanced Mode field holds its selected version as one u32.
+/// Each Enhanced Mode field holds one u32: the highest revision a machine
+/// plays (0x26), or the room's revision (0x27).
 constexpr std::size_t enhanced_mode_value_bytes = 4;
 /// Bit 0 of the bundles flags: a chosen bundle differs from a known hash.
 /// Bits 1 to 7 are sent as 0 and ignored when read.
@@ -1045,7 +1046,7 @@ WireError encode_presence(
         return WireError::bad_argument;
     if (record.mutator_part && !part_ok(*record.mutator_part))
         return WireError::bad_argument;
-    if (record.enhanced_mode_version && *record.enhanced_mode_version == 0)
+    if (record.enhanced_highest_revision && *record.enhanced_highest_revision == 0)
         return WireError::bad_argument;
     if (record.limits && !limits_ok(*record.limits))
         return WireError::bad_argument;
@@ -1068,7 +1069,9 @@ WireError encode_presence(
         fixed += presence_field_header_bytes + digest_bytes;
     if (record.limits)
         fixed += presence_field_header_bytes + limits_value_bytes;
-    if (record.enhanced_mode_version)
+    if (record.enhanced_highest_revision)
+        fixed += presence_field_header_bytes + enhanced_mode_value_bytes;
+    if (record.enhanced_room_revision)
         fixed += presence_field_header_bytes + enhanced_mode_value_bytes;
     if (record.mutators)
         fixed += presence_field_header_bytes + mutators_fixed_value_bytes;
@@ -1155,10 +1158,15 @@ WireError encode_presence(
         write_sim(local, &used, *record.sim_hash);
     if (record.limits)
         write_limits(local, &used, *record.limits);
-    if (record.enhanced_mode_version) {
+    if (record.enhanced_highest_revision) {
         put_u8(local, &used, static_cast<uint8_t>(PresenceTag::enhanced_mode));
         put_u16(local, &used, static_cast<uint16_t>(enhanced_mode_value_bytes));
-        put_u32(local, &used, *record.enhanced_mode_version);
+        put_u32(local, &used, *record.enhanced_highest_revision);
+    }
+    if (record.enhanced_room_revision) {
+        put_u8(local, &used, static_cast<uint8_t>(PresenceTag::enhanced_room));
+        put_u16(local, &used, static_cast<uint16_t>(enhanced_mode_value_bytes));
+        put_u32(local, &used, *record.enhanced_room_revision);
     }
     if (record.mutators)
         write_mutators(local, &used, *record.mutators, mutator_keep);
@@ -1231,6 +1239,7 @@ WireError decode_presence(const uint8_t* record, std::size_t size, PresenceRecor
     bool saw_modes = false;
     bool saw_limits = false;
     bool saw_enhanced_mode = false;
+    bool saw_enhanced_room = false;
     std::optional<uint32_t> pending_modes;
     std::size_t at = presence_record_header_bytes;
     while (at < size) {
@@ -1283,9 +1292,16 @@ WireError decode_presence(const uint8_t* record, std::size_t size, PresenceRecor
             if (saw_enhanced_mode)
                 continue;
             saw_enhanced_mode = true;
-            uint32_t version = 0;
-            if (value.size == enhanced_mode_value_bytes && value.u32(&version) && version != 0)
-                decoded.enhanced_mode_version = version;
+            uint32_t revision = 0;
+            if (value.size == enhanced_mode_value_bytes && value.u32(&revision) && revision != 0)
+                decoded.enhanced_highest_revision = revision;
+        } else if (tag == static_cast<uint8_t>(PresenceTag::enhanced_room)) {
+            if (saw_enhanced_room)
+                continue;
+            saw_enhanced_room = true;
+            uint32_t revision = 0;
+            if (value.size == enhanced_mode_value_bytes && value.u32(&revision))
+                decoded.enhanced_room_revision = revision;
         } else if (tag == static_cast<uint8_t>(PresenceTag::game_hacks)) {
             if (saw_game)
                 continue;
@@ -1655,14 +1671,27 @@ std::optional<PresenceLimits> presence_limits(const uint8_t* record, std::size_t
     return PresenceLimits{weapon_types, sides};
 }
 
+bool presence_well_framed(const uint8_t* record, std::size_t size) noexcept {
+    return record != nullptr && framed_record(record, size) == WireError::ok;
+}
+
 std::optional<uint32_t>
-presence_enhanced_mode_version(const uint8_t* record, std::size_t size) noexcept {
+presence_enhanced_highest_revision(const uint8_t* record, std::size_t size) noexcept {
     std::span<const uint8_t> value;
     if (!find_presence_field(record, size, PresenceTag::enhanced_mode, &value) ||
         value.size() != enhanced_mode_value_bytes)
         return std::nullopt;
-    const auto version = load_u32(value.data());
-    return version != 0 ? std::optional<uint32_t>{version} : std::nullopt;
+    const auto revision = load_u32(value.data());
+    return revision != 0 ? std::optional<uint32_t>{revision} : std::nullopt;
+}
+
+std::optional<uint32_t>
+presence_enhanced_room_revision(const uint8_t* record, std::size_t size) noexcept {
+    std::span<const uint8_t> value;
+    if (!find_presence_field(record, size, PresenceTag::enhanced_room, &value) ||
+        value.size() != enhanced_mode_value_bytes)
+        return std::nullopt;
+    return load_u32(value.data());
 }
 
 WireError encode_presence_map_pack(

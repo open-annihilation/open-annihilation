@@ -558,6 +558,10 @@ inline constexpr std::string_view interface_words[] = {
     "Applied in this order.",
     "Click to change.",
     "Click to read.",
+    // The battle room's Enhanced Mode switch: its label and automation text.
+    "Enhanced Mode",
+    "Enhanced Mode · Revision {n}",
+    "Enhanced Mode · off",
     // Spoken updates: chat, the lobby, a match and the consoles.
     "An option changed",
     "Commander under attack",

@@ -1692,52 +1692,168 @@ void a_record_with_computer_brains_keeps_the_other_fields() {
     CHECK(!decode_presence_brains(bad.bytes));
 }
 
-void enhanced_mode_version_round_trip() {
-    start_case("enhanced_mode_version_round_trip");
+void enhanced_revisions_round_trip() {
+    start_case("enhanced_revisions_round_trip");
+    // A guest's record: the highest revision it plays, and no room's revision.
     PresenceRecord record{};
-    record.enhanced_mode_version = 1;
+    record.enhanced_highest_revision = 1;
     uint8_t bytes[64]{};
     std::size_t written = 0;
     CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
-    const std::array<uint8_t, 11> expected{
+    const std::array<uint8_t, 11> guest{
         presence_record_type, 11, 0, presence_record_version, 0x26, 4, 0, 1, 0, 0, 0
     };
-    CHECK(written == expected.size() && std::memcmp(bytes, expected.data(), written) == 0);
+    CHECK(written == guest.size() && std::memcmp(bytes, guest.data(), written) == 0);
     PresenceRecord back{};
     CHECK(decode_presence(bytes, written, &back) == WireError::ok);
-    CHECK(back.enhanced_mode_version == record.enhanced_mode_version);
-    CHECK(presence_enhanced_mode_version(bytes, written) == 1);
-    for (const uint32_t version : {2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u, 13u}) {
-        record.enhanced_mode_version = version;
+    CHECK(back.enhanced_highest_revision == 1u);
+    CHECK(!back.enhanced_room_revision);
+    CHECK(presence_enhanced_highest_revision(bytes, written) == 1u);
+    CHECK(!presence_enhanced_room_revision(bytes, written));
+    CHECK(presence_well_framed(bytes, written));
+
+    // A host's record whose room plays Revision 1: 0x27 follows 0x26.
+    record.enhanced_room_revision = 1;
+    CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
+    const std::array<uint8_t, 18> host{
+        presence_record_type,
+        18,
+        0,
+        presence_record_version,
+        0x26,
+        4,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0x27,
+        4,
+        0,
+        1,
+        0,
+        0,
+        0
+    };
+    CHECK(written == host.size() && std::memcmp(bytes, host.data(), written) == 0);
+    CHECK(decode_presence(bytes, written, &back) == WireError::ok);
+    CHECK(back == record);
+    CHECK(presence_enhanced_room_revision(bytes, written) == 1u);
+    for (const uint32_t revision : {2u, 7u, 0xffffffffu}) {
+        record.enhanced_highest_revision = revision;
+        record.enhanced_room_revision = revision;
         CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
         CHECK(decode_presence(bytes, written, &back) == WireError::ok);
-        CHECK(back.enhanced_mode_version == version);
-        CHECK(presence_enhanced_mode_version(bytes, written) == version);
+        CHECK(back.enhanced_highest_revision == revision);
+        CHECK(back.enhanced_room_revision == revision);
+        CHECK(presence_enhanced_highest_revision(bytes, written) == revision);
+        CHECK(presence_enhanced_room_revision(bytes, written) == revision);
     }
 
-    record.enhanced_mode_version = 0;
+    // Zero: no machine plays revision 0, but a room's revision of 0 is Off.
+    record.enhanced_highest_revision = 0;
     CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::bad_argument);
-    record.enhanced_mode_version.reset();
+    record.enhanced_highest_revision = 1;
+    record.enhanced_room_revision = 0;
+    CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
+    CHECK(decode_presence(bytes, written, &back) == WireError::ok);
+    CHECK(back.enhanced_room_revision == 0u);
+    CHECK(presence_enhanced_room_revision(bytes, written) == 0u);
+
+    // Absent: a build without Enhanced Mode, and an Off room.
+    record = {};
     CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
     CHECK(written == presence_record_header_bytes);
-    CHECK(!presence_enhanced_mode_version(bytes, written));
+    CHECK(decode_presence(bytes, written, &back) == WireError::ok);
+    CHECK(!back.enhanced_highest_revision && !back.enhanced_room_revision);
+    CHECK(!presence_enhanced_highest_revision(bytes, written));
+    CHECK(!presence_enhanced_room_revision(bytes, written));
 
+    // Malformed values are left out; the rest of the record stands.
     for (const auto& value :
          std::vector<std::vector<uint8_t>>{{}, {1, 0, 0}, {1, 0, 0, 0, 0}, {0, 0, 0, 0}}) {
         Raw raw;
         raw.field(static_cast<uint8_t>(PresenceTag::enhanced_mode), value);
+        raw.field(static_cast<uint8_t>(PresenceTag::sim_hash), std::vector<uint8_t>(32, 0xcd));
         raw.finish();
         CHECK(decode_presence(raw.bytes.data(), raw.bytes.size(), &back) == WireError::ok);
-        CHECK(!back.enhanced_mode_version);
-        CHECK(!presence_enhanced_mode_version(raw.bytes.data(), raw.bytes.size()));
+        CHECK(!back.enhanced_highest_revision);
+        CHECK(back.sim_hash && (*back.sim_hash)[0] == 0xcd);
+        CHECK(!presence_enhanced_highest_revision(raw.bytes.data(), raw.bytes.size()));
     }
+    for (const auto& value : std::vector<std::vector<uint8_t>>{{}, {1, 0, 0}, {1, 0, 0, 0, 0}}) {
+        Raw raw;
+        raw.field(static_cast<uint8_t>(PresenceTag::enhanced_room), value);
+        raw.finish();
+        CHECK(decode_presence(raw.bytes.data(), raw.bytes.size(), &back) == WireError::ok);
+        CHECK(!back.enhanced_room_revision);
+        CHECK(!presence_enhanced_room_revision(raw.bytes.data(), raw.bytes.size()));
+    }
+    // A record whose last field runs past its end is not well-framed, and
+    // reads as nothing at all.
+    Raw cut;
+    cut.field(static_cast<uint8_t>(PresenceTag::enhanced_mode), {1, 0, 0, 0});
+    cut.finish();
+    cut.bytes[5] = 9;
+    CHECK(!presence_well_framed(cut.bytes.data(), cut.bytes.size()));
+    CHECK(!presence_well_framed(nullptr, 0));
+    CHECK(!presence_enhanced_highest_revision(cut.bytes.data(), cut.bytes.size()));
+
+    // Twice: the first of each is kept.
     Raw twice;
     twice.field(static_cast<uint8_t>(PresenceTag::enhanced_mode), {2, 0, 0, 0});
+    twice.field(static_cast<uint8_t>(PresenceTag::enhanced_room), {0, 0, 0, 0});
     twice.field(static_cast<uint8_t>(PresenceTag::enhanced_mode), {1, 0, 0, 0});
+    twice.field(static_cast<uint8_t>(PresenceTag::enhanced_room), {3, 0, 0, 0});
     twice.finish();
     CHECK(decode_presence(twice.bytes.data(), twice.bytes.size(), &back) == WireError::ok);
-    CHECK(back.enhanced_mode_version == 2);
-    CHECK(presence_enhanced_mode_version(twice.bytes.data(), twice.bytes.size()) == 2);
+    CHECK(back.enhanced_highest_revision == 2u);
+    CHECK(back.enhanced_room_revision == 0u);
+    CHECK(presence_enhanced_highest_revision(twice.bytes.data(), twice.bytes.size()) == 2u);
+    CHECK(presence_enhanced_room_revision(twice.bytes.data(), twice.bytes.size()) == 0u);
+    CHECK(static_cast<uint8_t>(PresenceTag::enhanced_room) == 0x27);
+}
+
+/// Both Enhanced Mode fields fit beside every other field: they are fixed
+/// fields, so only the lists after them are cut, and the record stays
+/// within presence_record_max_bytes.
+void enhanced_revisions_fit_beside_every_field() {
+    start_case("enhanced_revisions_fit_beside_every_field");
+    auto record = sample_record();
+    record.content = PresenceContent{true};
+    record.bundles = PresenceBundles{"total-annihilation", {"core-contingency"}, false};
+    record.language = std::string("English");
+    record.limits = PresenceLimits{256, 5};
+    record.enhanced_highest_revision = 1;
+    record.enhanced_room_revision = 1;
+    PresenceMutators mutators;
+    mutators.built = true;
+    mutators.digest = filled(0x31);
+    mutators.layer_digest = filled(0x32);
+    mutators.total = 32;
+    mutators.held = 32;
+    for (uint8_t position = 0; position < 32; ++position) {
+        PresenceMutator one;
+        one.id = "ridge-mutator-" + std::to_string(position);
+        one.version = "1.0";
+        mutators.mutators.push_back(std::move(one));
+    }
+    record.mutators = mutators;
+    record.mutator_modes = 0;
+    record.game_hacks = PresenceHacks{90, {}};
+    record.game_hacks->ids.assign(90, std::string(30, 'a'));
+    uint8_t out[presence_record_max_bytes + 64];
+    std::size_t written = 0;
+    CHECK(encode_presence(record, out, sizeof out, &written) == WireError::ok);
+    CHECK(written <= presence_record_max_bytes);
+    PresenceRecord decoded;
+    CHECK(decode_presence(out, written, &decoded) == WireError::ok);
+    CHECK(decoded.enhanced_highest_revision == 1u);
+    CHECK(decoded.enhanced_room_revision == 1u);
+    CHECK(decoded.map_pack == record.map_pack);
+    CHECK(decoded.mutators && decoded.mutators->total == 32);
+    CHECK(presence_enhanced_highest_revision(out, written) == 1u);
+    CHECK(presence_enhanced_room_revision(out, written) == 1u);
 }
 
 void limits_round_trip() {
@@ -1828,9 +1944,10 @@ void the_unit_sync_field() {
     CHECK(static_cast<uint8_t>(PresenceTag::unit_sync) == 0x25);
     CHECK(static_cast<uint8_t>(PresenceTag::enhanced_mode) == 0x26);
 
-    // A host can send both its preset and its unit-sync findings in one record.
+    // A host can send its Enhanced Mode revisions and its unit-sync findings in one record.
     PresenceRecord enhanced{};
-    enhanced.enhanced_mode_version = 13;
+    enhanced.enhanced_highest_revision = 1;
+    enhanced.enhanced_room_revision = 1;
     uint8_t combined[presence_record_max_bytes]{};
     std::size_t written = 0;
     CHECK(encode_presence(enhanced, combined, sizeof combined, &written) == WireError::ok);
@@ -1842,8 +1959,10 @@ void the_unit_sync_field() {
     );
     PresenceRecord decoded{};
     CHECK(decode_presence(combined, grown, &decoded) == WireError::ok);
-    CHECK(decoded.enhanced_mode_version == enhanced.enhanced_mode_version);
-    CHECK(presence_enhanced_mode_version(combined, grown) == 13);
+    CHECK(decoded.enhanced_highest_revision == enhanced.enhanced_highest_revision);
+    CHECK(decoded.enhanced_room_revision == enhanced.enhanced_room_revision);
+    CHECK(presence_enhanced_highest_revision(combined, grown) == 1u);
+    CHECK(presence_enhanced_room_revision(combined, grown) == 1u);
     CHECK(presence_unit_sync({combined, grown}) == std::optional<PresenceUnitSync>(sync));
 
     // A short room lists fewer units; each group keeps its count.
@@ -1934,7 +2053,8 @@ int main() {
     computer_brains_refuse_a_broken_value();
     a_record_with_computer_brains_keeps_the_other_fields();
     limits_round_trip();
-    enhanced_mode_version_round_trip();
+    enhanced_revisions_round_trip();
+    enhanced_revisions_fit_beside_every_field();
     the_unit_sync_field();
     the_files_flag();
     if (failures != 0) {
