@@ -324,10 +324,8 @@ std::string_view Runtime::issue_selection_orders(
     const auto count = input::selection_orders(
         world, command, order_cursor_hooks(), orders.data(), static_cast<uint32_t>(orders.size())
     );
-    const auto& enhanced = match_->rules().setup.enhanced_mode;
-    if (ground && enhanced.enabled &&
-        (enhanced.version == oa::data::enhanced_mode::battle_flow_version ||
-         oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)))
+    if (ground && oa::data::enhanced_mode::features(match_->rules())
+                      .has(oa::data::enhanced_mode::Feature::group_destination_repair))
         distribute_group_order_destinations({orders.data(), count}, *ground);
     std::optional<oa::sim::ground_orders::Point> target_point;
     if (bound != 0) {
@@ -589,14 +587,12 @@ oa::sim::ground_orders::Point Runtime::group_order_destination(
         return order_point(formation);
     const auto& world = match_->state();
     const auto position = fixed_point(point);
-    const auto& enhanced = match_->rules().setup.enhanced_mode;
+    const auto features = oa::data::enhanced_mode::features(match_->rules());
     const bool ground_order = order == input::UnitOrder::move_ground ||
                               order == input::UnitOrder::patrol ||
                               order == input::UnitOrder::repair_patrol;
     const bool bounded_ground =
-        ground_order && enhanced.enabled &&
-        (enhanced.version == oa::data::enhanced_mode::battle_flow_version ||
-         oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version));
+        ground_order && features.has(oa::data::enhanced_mode::Feature::group_destination_repair);
     if (!bounded_ground)
         return order_point(formation);
     const auto bounded = bounded_group_order_point(
@@ -642,11 +638,12 @@ void Runtime::distribute_group_order_destinations(
 ) {
     if (!match_)
         return;
-    const auto& enhanced = match_->rules().setup.enhanced_mode;
-    if (!enhanced.enabled)
+    const auto features = oa::data::enhanced_mode::features(match_->rules());
+    if (features.empty())
         return;
-    if (!oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) {
-        if (enhanced.version == oa::data::enhanced_mode::battle_flow_version)
+    if (!features.has(oa::data::enhanced_mode::Feature::distributed_arrivals)) {
+        if (features.has(oa::data::enhanced_mode::Feature::group_destination_repair) &&
+            !features.has(oa::data::enhanced_mode::Feature::distributed_arrivals))
             for (auto& order : orders)
                 order.position = fixed_point(
                     group_order_destination(*order.actor, order.order, order.position, point)

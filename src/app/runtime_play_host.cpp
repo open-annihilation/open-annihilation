@@ -1031,13 +1031,12 @@ struct PlayHostAccess {
             oa::sim::gameplay_input::GroupCentre centre{};
             const bool shaped =
                 request.kind == PlayOrderKind::move || request.kind == PlayOrderKind::patrol;
-            const auto& enhanced = app.match_->rules().setup.enhanced_mode;
+            const auto features = oa::data::enhanced_mode::features(app.match_->rules());
             const bool repair_formation =
-                enhanced.enabled &&
-                enhanced.version == oa::data::enhanced_mode::battle_flow_version;
+                features.has(oa::data::enhanced_mode::Feature::group_destination_repair) &&
+                !features.has(oa::data::enhanced_mode::Feature::distributed_arrivals);
             const bool distribute_formation =
-                shaped && enhanced.enabled &&
-                oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version);
+                shaped && features.has(oa::data::enhanced_mode::Feature::distributed_arrivals);
             const auto& spawned = app.match_->world();
             if (shaped) {
                 for (uint16_t id : ids)

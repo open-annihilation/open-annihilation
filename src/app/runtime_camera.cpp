@@ -1220,9 +1220,8 @@ void Runtime::issue_selection_move(
         const auto command = oa::sim::gameplay_input::OrderCommand::move;
         const auto bound = group_order_bound_unit(command, pointer_unit);
         const auto centre = local_selection_centre(bound);
-        const auto& enhanced = match_->rules().setup.enhanced_mode;
-        if (enhanced.enabled &&
-            oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) {
+        if (oa::data::enhanced_mode::features(match_->rules())
+                .has(oa::data::enhanced_mode::Feature::distributed_arrivals)) {
             std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
             const auto& world = match_->state();
             const oa::FixedVec3 click{point[0], point[1], point[2]};
@@ -1289,9 +1288,8 @@ bool Runtime::issue_selection_patrol(
         const auto* aimed = bound != 0 ? oa::world_unit_at(&world, bound) : nullptr;
         const oa::FixedVec3 position{point[0], point[1], point[2]};
         const auto hooks = order_cursor_hooks();
-        const auto& enhanced = match_->rules().setup.enhanced_mode;
-        if (enhanced.enabled &&
-            oa::data::enhanced_mode::uses_distributed_battle_flow(enhanced.version)) {
+        if (oa::data::enhanced_mode::features(match_->rules())
+                .has(oa::data::enhanced_mode::Feature::distributed_arrivals)) {
             std::vector<input::SelectionOrder> orders;
             for_each_selected([&](uint16_t id) {
                 const auto* actor = oa::world_unit_at(&world, id);
