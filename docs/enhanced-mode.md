@@ -208,11 +208,25 @@ actual-progress clocks and the shared-route scan clock. The scan clock
 prevents a load pass and a regular pass at the same tick from polling the
 unit ranges twice. These tables stay outside shared world and trace hashes.
 
-In multiplayer, every player must select the same mode before entering
-the battle room. Enhanced games require matching supported versions and
-simulation hashes before START. A guest does not automatically adopt the
-host's mode in this implementation. Enhanced matches cannot start with
-legacy clients.
+In a battle room the host decides. The host's Enhanced Mode switch, right
+of BATTLE ROOM, starts from the host's own setting, and Off in a Boneyards
+room; the host may turn it on there. A launch that locks the room's options
+keeps it Off and grayed. Every machine from Open Annihilation 0.9.3 on
+announces the highest revision it plays (presence field 0x26), whatever its
+own setting says. While the switch is on, the room plays the lowest of the
+highest revisions of every seated human and watcher; a computer player
+counts as the machine that runs it. A machine that announces none, 3.1c or
+Open Annihilation 0.9.2 and older, makes the room Off, and the room names
+it. A machine whose record has not arrived yet changes nothing and holds
+START. The host's record announces the room's revision (field 0x27), and
+leaves it out while the room is Off, so an Off room sends what it sent
+before. Every machine, the host included, plays the room's revision, never
+its own setting's choice, and START waits until every machine's simulation
+hash is the host's. Each change of the room's revision posts one line:
+"Enhanced Mode: Revision {n}.", "Enhanced Mode: Off.", "Enhanced Mode is
+off: {player}'s game doesn't have it." or "Enhanced Mode is Revision {n}:
+{player}'s game has no later revision." No battle room loads a saved game
+in this build; every load holds the choice its save stored.
 Unit movement travels between the machines of an Enhanced match as complete
 route batches ([Network transport](#network-transport)): a tick of route
 changes from thousands of movers reaches every machine whole.

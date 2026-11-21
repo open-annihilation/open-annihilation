@@ -1607,6 +1607,64 @@ another machine's player at the start worked out from the host's slot
 table under fixed starts (`net_match_fixed_start_positions`), and at none
 under shuffled ones, when a brain reads only its own.
 
+## The battle room's Enhanced Mode
+
+`runtime_enhanced_room_button.cpp`. The host decides whether a battle room
+plays Enhanced Mode. Once a frame, while a battle room shows,
+`follow_room_enhanced` (called by network play's `follow_presence`, before
+the presence record is written) resolves the room's revision with
+`resolve_enhanced_room`
+([src/ui/frontend-multiplayer](../ui/frontend-multiplayer/README.md)): the
+host from its switch, a launch's lock and every seated machine's highest
+revision; a guest from the revision the host's record announces, Off until
+it arrives. Each change holds that revision's rules
+(`hold_enhanced_rules_once`) for the room's next match, never this
+machine's own Settings, and posts the room's line in the chat, written
+whole to the log. Leaving the room without a match releases the hold; a
+match that starts from the room keeps it until it ends. The presence record
+announces `announced_enhanced_revision` (field 0x26, the highest revision
+this build plays; nothing with `--presence-without-enhanced-mode`) and, on
+the host, `room_enhanced_announcement` (field 0x27, only while the room
+plays a revision). A network start refuses a choice other than the one the
+room holds.
+
+- **The switch.** A screen of the OA layer named `enhanced-room`, drawn as
+  the room's settings column draws an option: a label "Enhanced Mode" over
+  a switch as large as the column's (120 by 20 frame pixels) with the OA
+  stamp, reading the room's revision ("Revision 1") or "Off", in the strip
+  right of BATTLE ROOM, its right edge the player list's. The player who
+  keeps the room Off ("{player}'s game doesn't have it.") or lower
+  ("{player}'s game has no later revision.") is named in up to three rows
+  left of it, right-aligned. Its lamp is green at a revision, red while
+  Off, blinking red while the host's switch is on and a machine keeps the
+  room Off, and dark while a launch locks it. It starts from the host's
+  Settings, Off in a Boneyards room (a launch that sets `stock_files`);
+  a launch that sets `lock_options` keeps it grayed and Off. A guest sees it
+  grayed, read-only, naming only a machine with no later revision.
+- **Keys and the pointer.** Tab reaches it after the host's own row and
+  leaves it for Dead Commander. A press, Return, Space and the pad's A turn
+  the host's switch; on a guest, or while a launch locks it, they show its
+  card instead. Resting on it shows the card: "Enhanced Mode", the room's
+  revision, the reason, and "Click to change.", "The launch keeps Enhanced
+  Mode off." or "Only the host can change Enhanced Mode.".
+- **Automation.** `oa.enhanced-mode`, a switch named "Enhanced Mode",
+  checked while the host's switch is on, its text "Enhanced Mode · Revision
+  1" or "Enhanced Mode · off", its description the reason or the lock
+  reason; `oa.enhanced-mode.label`, `oa.enhanced-mode.reason` and
+  `oa.enhanced-mode.waiting`.
+- **START.** While the room plays a revision the host's START waits until
+  every seated machine's record carries the host's sim hash, and the line
+  beside START, where Mutators' waiting line goes, reads "Waiting for
+  {player}: Revision {n}". Mutators' line wins when both would show.
+- **The check.** `--check-enhanced-room` (`native-enhanced-room`) hosts a
+  room alone at 640x480 and 1280x720 with Settings' Enhanced Mode on and
+  checks the switch's place, words, lamp and states, the lines a 3.1c and
+  an Open Annihilation Visitor without a revision post, the waiting line,
+  a locked launch, a Boneyards room, and the lines in each language 3.1c
+  ships with. It writes `enhanced-room-<state>-<w>x<h>.png`. A
+  FIXTURES_SETUP test (`enhanced-room-clean`) clears its folders before
+  each run.
+
 ## The mutator picker
 
 The mutator picker is one modal screen on the OA layer (`mutator-picker`),

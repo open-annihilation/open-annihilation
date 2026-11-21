@@ -2176,6 +2176,25 @@ Among the battle room's steps of
 runs a host and a joiner as two programs, the host's button reads
 "Mutators" and its automation text "Mutators · 1 on" for an installed copy
 named by its id, and the room's chat names it by its name.
+`native-enhanced-room` (`--check-enhanced-room`) hosts a battle room
+alone and checks its Enhanced Mode switch at 640x480 and 1280x720: the
+label "Enhanced Mode" over the switch right of BATTLE ROOM, its right edge
+the player list's, meeting no control of the room; its automation text
+"Enhanced Mode · Revision 1" or "Enhanced Mode · off" and its lamp read
+from each frame (green at a revision, red Off, blinking while a machine
+keeps the switch from playing, dark while a launch locks it); a seated 3.1c
+Visitor and an Open Annihilation Visitor without a revision each turning
+the room Off with its line; the line beside START while a record is on its
+way; a Boneyards room starting Off; and the lines in each language 3.1c
+ships with. It writes `enhanced-room-<state>-<w>x<h>.png`.
+`native-net-room-enhanced` (`tools/check_native_room_enhanced.py`) runs a
+host and two guests as three programs: whatever the guests' own settings,
+all three play Revision 1, START waits for every hash, and both guests'
+recordings carry Revision 1's sector; a guest started with
+`--presence-without-enhanced-mode` turns the room Off with a line naming
+it, its leaving brings Revision 1 back with one line, and a match it sits
+in plays Off. `ui-multiplayer-room-enhanced` tests the room's resolution
+and its lines without a game.
 `frontend-room-parts` draws the rooms' parts (a plate wider than its art,
 the notch, the OA stamp, a lamp, the bar and a list's rows) against a gray
 palette, steps a blinking lamp through its turns and reads lamps back from

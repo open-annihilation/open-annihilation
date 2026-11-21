@@ -10,6 +10,46 @@
 
 
 
+[*** Enhanced Mode is off: {player}'s game doesn't have it.]
+	{
+	de=*** Erweiterter Modus ist aus: {player} hat ihn nicht.;
+	fr=*** Le mode amélioré est désactivé : le jeu de {player} ne l'a pas.;
+	es=*** El modo mejorado está apagado: el juego de {player} no lo tiene.;
+	it=*** La modalità avanzata è spenta: il gioco di {player} non ce l'ha.;
+	}
+
+[*** Enhanced Mode is Revision {n}: {player}'s game has no later revision.]
+	{
+	de=*** Erweiterter Modus ist Revision {n}: {player} hat keine neuere Revision.;
+	fr=*** Le mode amélioré est en révision {n} : {player} n'a pas de révision plus récente.;
+	es=*** El modo mejorado está en la revisión {n}: {player} no tiene una revisión posterior.;
+	it=*** La modalità avanzata è alla revisione {n}: {player} non ha una revisione successiva.;
+	}
+
+[*** Enhanced Mode rules differ. Every player must use the same mod and match rules.]
+	{
+	de=*** Die Regeln des erweiterten Modus weichen ab. Alle Spieler müssen denselben Mod und dieselben Partieregeln verwenden.;
+	fr=*** Les règles du mode amélioré diffèrent. Tous les joueurs doivent utiliser le même mod et les mêmes règles de partie.;
+	es=*** Las reglas del modo mejorado no coinciden. Todos los jugadores deben usar el mismo mod y las mismas reglas de partida.;
+	it=*** Le regole della modalità avanzata sono diverse. Tutti i giocatori devono usare la stessa mod e le stesse regole di partita.;
+	}
+
+[*** Enhanced Mode: Off.]
+	{
+	de=*** Erweiterter Modus: aus.;
+	fr=*** Mode amélioré : désactivé.;
+	es=*** Modo mejorado: apagado.;
+	it=*** Modalità avanzata: spenta.;
+	}
+
+[*** Enhanced Mode: Revision {n}.]
+	{
+	de=*** Erweiterter Modus: Revision {n}.;
+	fr=*** Mode amélioré : révision {n}.;
+	es=*** Modo mejorado: revisión {n}.;
+	it=*** Modalità avanzata: revisione {n}.;
+	}
+
 [*** Press START again to start anyway. Those units stay unavailable in this battle.]
 	{
 	de=*** Drücke START noch einmal, um trotzdem zu beginnen. Diese Einheiten bleiben in dieser Schlacht nicht verfügbar.;
@@ -4560,6 +4600,22 @@
 	fr=Mode amélioré;
 	es=Modo mejorado;
 	it=Modalità avanzata;
+	}
+
+[Enhanced Mode · off]
+	{
+	de=Erweiterter Modus · aus;
+	fr=Mode amélioré · désactivé;
+	es=Modo mejorado · apagado;
+	it=Modalità avanzata · spenta;
+	}
+
+[Enhanced Mode · Revision {n}]
+	{
+	de=Erweiterter Modus · Revision {n};
+	fr=Mode amélioré · révision {n};
+	es=Modo mejorado · revisión {n};
+	it=Modalità avanzata · revisione {n};
 	}
 
 [Enhanced anti-aliasing]
@@ -9250,6 +9306,14 @@
 	it=Si può esportare solo un replay della Biblioteca;
 	}
 
+[Only the host can change Enhanced Mode.]
+	{
+	de=Nur der Gastgeber kann den erweiterten Modus ändern.;
+	fr=Seul l'hôte peut changer le mode amélioré.;
+	es=Solo el anfitrión puede cambiar el modo mejorado.;
+	it=Solo l'host può cambiare la modalità avanzata.;
+	}
+
 [Only when I ask]
 	{
 	de=Nur wenn ich frage;
@@ -12408,6 +12472,14 @@
 	fr=La dernière partie a planté avec {names}. Oublie l'ensemble et le bouton Mutateurs s'ouvrira vide la prochaine fois. Rien n'est désinstallé.;
 	es=La última partida se cerró de golpe con {names}. Olvida el conjunto y el botón Mutadores se abrirá vacío la próxima vez. No se desinstala nada.;
 	it=L'ultima partita si è chiusa di colpo con {names}. Dimentica il set e il pulsante Mutatori si aprirà vuoto la prossima volta. Non si disinstalla niente.;
+	}
+
+[The launch keeps Enhanced Mode off.]
+	{
+	de=Der Start lässt den erweiterten Modus aus.;
+	fr=Le lancement laisse le mode amélioré désactivé.;
+	es=El lanzamiento deja el modo mejorado apagado.;
+	it=L'avvio lascia spenta la modalità avanzata.;
 	}
 
 [The layout was not saved: {reason}]
@@ -17458,6 +17530,22 @@
 	it={player} ha provato a riprendere.;
 	}
 
+[{player}'s game doesn't have it.]
+	{
+	de={player} hat ihn nicht.;
+	fr=Le jeu de {player} ne l'a pas.;
+	es=El juego de {player} no lo tiene.;
+	it=Il gioco di {player} non ce l'ha.;
+	}
+
+[{player}'s game has no later revision.]
+	{
+	de={player} hat keine neuere Revision.;
+	fr={player} n'a pas de révision plus récente.;
+	es={player} no tiene una revisión posterior.;
+	it={player} non ha una revisione successiva.;
+	}
+
 [{player}'s mutators gave a different result from yours, so the game would play differently on each machine.]
 	{
 	de=Die Mutatoren von {player} haben ein anderes Ergebnis geliefert als deine, deshalb würde das Spiel auf jedem Rechner anders laufen.;
@@ -21792,6 +21880,14 @@
 	fr=La révision {installed} est gardée, et Restaurer dans la Bibliothèque la ramène.;
 	es=La revisión {installed} se conserva, y Revertir en la Biblioteca la trae de vuelta.;
 	it=La revisione {installed} viene tenuta, e Ripristina nella Biblioteca la riporta.;
+	}
+
+[Revision {n}]
+	{
+	de=Revision {n};
+	fr=Révision {n};
+	es=Revisión {n};
+	it=Revisione {n};
 	}
 
 [Roll back]

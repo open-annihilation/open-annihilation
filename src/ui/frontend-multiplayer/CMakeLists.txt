@@ -76,10 +76,12 @@ if(BUILD_TESTING)
     COMMAND oa-ui-frontend-multiplayer-stock-files-test boneyards)
   add_test(NAME ui-multiplayer-unit-sync COMMAND oa-ui-frontend-multiplayer-stock-files-test unit-sync)
   set_tests_properties(ui-multiplayer-room-limits PROPERTIES TIMEOUT 30)
-  # Every seated machine agrees on Enhanced Mode and its simulation rules before START.
+  # The battle room plays the lowest of every machine's highest Enhanced Mode
+  # revision while the host's switch is on, posts one line per change, and
+  # START waits until every machine plays the host's rules.
   add_executable(oa-ui-frontend-multiplayer-room-enhanced-test tests/room_enhanced_test.cpp)
   target_link_libraries(oa-ui-frontend-multiplayer-room-enhanced-test PRIVATE
-    oa-ui-frontend-multiplayer oa-netgame)
+    oa-ui-frontend-multiplayer oa-netgame oa-data-languages)
   add_test(NAME ui-multiplayer-room-enhanced COMMAND oa-ui-frontend-multiplayer-room-enhanced-test)
   set_tests_properties(ui-multiplayer-room-enhanced PROPERTIES TIMEOUT 30)
   # GET MAP: every state and line over hand-made records, packs and offers;

@@ -63,12 +63,12 @@ constexpr std::string_view kBaseLimits = "This recording was made with 256 weapo
 /// @param stored the version the sector stored, or empty
 /// @return the sentence, with `{version}` replaced when a version was stored
 std::string fill_recorded_refusal(std::string_view stored) {
-    std::string text = oa::data::enhanced_mode::refusal_needs_version(stored);
+    std::string sentence = oa::data::enhanced_mode::refusal_needs_version(stored);
     const std::string token = "{version}";
-    const auto at = text.find(token);
+    const auto at = sentence.find(token);
     if (at != std::string::npos)
-        text.replace(at, token.size(), stored);
-    return text;
+        sentence.replace(at, token.size(), stored);
+    return sentence;
 }
 
 /// The catalogue sentence with the sector's two counts in place of {n} and {m}.

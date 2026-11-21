@@ -833,10 +833,10 @@ class NetworkPlay {
     // from. They are not part of PresenceFacts. Read through Runtime's
     // public methods only.
     std::string presence_content_key_;
-    // The selected Enhanced Mode version announced in the room; zero is off.
-    uint32_t presence_enhanced_mode_version_{};
-    // The refusal already shown in the room; null while its modes agree.
-    const char* enhanced_room_problem_{};
+    // The Enhanced Mode revisions the bound record announces: the highest
+    // this machine plays (0x26) and, on a host, the room's (0x27).
+    std::optional<uint32_t> presence_enhanced_highest_{};
+    std::optional<uint32_t> presence_enhanced_room_{};
     // The mutator field the bound record was written from. The generation
     // skips the copy until that field changes. Both start at 0, so seen
     // tells a first read from a field that has never been sent.

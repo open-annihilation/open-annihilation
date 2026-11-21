@@ -447,6 +447,17 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
       --scratch-root "${oa_netgame_checks}"
       --source "${PROJECT_SOURCE_DIR}")
     set_tests_properties(native-net-room-mutators PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # The battle room's Enhanced Mode on three programs: a host with the
+    # switch on and two guests whose own settings differ all play Revision
+    # 1, START waits for every hash, and both guests' recordings carry
+    # Revision 1's sector. A guest that announces no revision turns the room
+    # Off with a line naming it, the next match plays Off, and its leaving
+    # brings Revision 1 back with one line.
+    add_test(NAME native-net-room-enhanced COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_room_enhanced.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-net-room-enhanced PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
     # A loopback recording carries the played loadout, and playback applies it
     # or refuses. ridge-art-a changes no units. ridge-tough rewrites the
     # commanders and ridge-add-unit adds one; the loopback reads both over
