@@ -147,7 +147,9 @@ def valid_report(process, report, scenario, enabled, ticks=12, version=None, fea
         require(names == [], "a match without Enhanced Mode named features")
     staged = report.get("staged_battle")
     if isinstance(staged, dict):
-        require(staged.get("extra") == {}, "staged battle did not leave its extra object empty")
+        swept = staged.get("swept_steps")
+        require(isinstance(swept, dict) and staged.get("extra") == {"swept_misses": swept["misses"]},
+                "staged battle's extra object does not hold its swept misses")
     require(report["renderer"] == "none", "simulation-only benchmark named a drawn renderer")
     require(len(report["simulation_hash"]) == 64 and len(report["world_digest"]) == 16,
             "benchmark lacks its reproducibility digests")
@@ -247,6 +249,11 @@ def staged_battles(native, game_dir, workdir):
                 audit["ownership_errors"] == 0 and audit["overlap_cells"] == 0 and
                 audit["first_error_tick"] is None,
                 "staged battle's ownership audits did not all run clean")
+        swept = staged["swept_steps"]
+        require(swept["steps"] > 0 and swept["unchecked_steps"] == 0 and swept["misses"] == 0 and
+                swept["ground_misses"] == 0 and swept["unit_misses"] == 0 and
+                swept["first_miss_tick"] is None,
+                "a staged battle with swept ground steps counted a step through blocked ground")
         reports.append(report)
     require(reports[0]["world_digest"] == reports[1]["world_digest"] and
             reports[0]["staged_battle"] == reports[1]["staged_battle"],

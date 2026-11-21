@@ -389,8 +389,11 @@ set sees only capacity, and the report's `enhanced_version` is 1.
 `enhanced_features` names the set the match played, in id order.
 `enhanced_features_spec` is the flag's text. `enhanced_features_override`
 is true when the flag chose the set. `data_faults` counts distinct data-fault
-lines. `staged_battle.extra` is an empty object until a later measurement
-fills it. `--benchmark-features` is a development flag: it cannot be combined with
+lines. `staged_battle.extra` holds the named numbers a gate compares:
+`swept_misses` counts the ground steps whose path passed through ground or a
+unit that blocked it through the whole tick, which swept ground steps refuse
+([battle benchmark](../src/app/battle-benchmark/README.md)).
+`--benchmark-features` is a development flag: it cannot be combined with
 `--enhanced-revision` or `--enhanced-features`, which put a set into the
 rules themselves, and it goes with the other development aliases before
 release.
