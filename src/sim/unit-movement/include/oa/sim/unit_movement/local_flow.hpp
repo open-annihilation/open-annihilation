@@ -54,6 +54,10 @@ struct LocalFlowProbe {
     /// Whether a mature retry may use a clear adjacent origin when ordinary passing
     /// leaves it in the current origin. The caller enables this only on its retry phase.
     bool mature_cell_escape{};
+    /// Whether that escape is taken only when the moving traffic the route probe
+    /// found heads a quarter turn or more away from the unit's heading, across its
+    /// way or against it. Behind traffic going its own way the unit keeps its place.
+    bool counterflow_cell_escape{};
 };
 
 /// A temporary steering target; the original mission and route remain unchanged.

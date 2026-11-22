@@ -5,11 +5,13 @@
 #include "oa/app/battle_benchmark.hpp"
 
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <locale>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -541,6 +543,77 @@ void staged_engagement() {
     CHECK(computer.stationary_throughout == 2 && computer.stationary_throughout_unengaged == 0);
 }
 
+/// Checks the rear cohort: its size, the farthest goal units at the end of
+/// staging with ties to the lower slot number, a dead unit counted where it
+/// was last alive, and the cohort's own progress and stationary share.
+void staged_rear() {
+    CHECK(benchmark::rear_cohort_size(9'999) == 798);
+    CHECK(benchmark::rear_cohort_size(10'000) == 798);
+    CHECK(benchmark::rear_cohort_size(20'000) == 1'596);
+    CHECK(benchmark::rear_cohort_size(13) == 1);
+    CHECK(benchmark::rear_cohort_size(12) == 0);
+    CHECK(benchmark::rear_cohort_size(0) == 0);
+    const std::array<benchmark::CrossingLine, 0> lines{};
+    std::vector<benchmark::StagedUnit> units;
+    // The computer's 26 goal units hold a cohort of two: three tie at 500
+    // pixels from their destination, and slots 5 and 7 are taken before 9.
+    for (int32_t offset = 0; offset < 23; ++offset) {
+        auto unit = benchmark::begin_staged_unit(
+            1, {0, 10 + offset}, benchmark::Point{0, 0}, lines, static_cast<uint16_t>(100 + offset)
+        );
+        benchmark::sample_staged_unit(unit, lines, {0, 10 + offset}, false, true, true);
+        units.push_back(unit);
+    }
+    auto behind = benchmark::begin_staged_unit(1, {0, 500}, benchmark::Point{0, 0}, lines, 9);
+    benchmark::sample_staged_unit(behind, lines, {0, 300}, true, true, false);
+    benchmark::sample_staged_unit(behind, lines, {0, 290}, true, true, true);
+    units.push_back(behind);
+    auto walker = benchmark::begin_staged_unit(1, {0, 500}, benchmark::Point{0, 0}, lines, 5);
+    benchmark::sample_staged_unit(walker, lines, {0, 400}, true, true, true);
+    benchmark::sample_staged_unit(walker, lines, {0, 400}, false, true, true);
+    units.push_back(walker);
+    auto stuck = benchmark::begin_staged_unit(1, {500, 0}, benchmark::Point{0, 0}, lines, 7);
+    benchmark::sample_staged_unit(stuck, lines, {500, 0}, false, true, true);
+    benchmark::sample_staged_unit(stuck, lines, {500, 0}, false, true, true);
+    units.push_back(stuck);
+    // A unit without a destination is not a goal unit, however far it stands.
+    units.push_back(benchmark::begin_staged_unit(1, {0, 9'000}, std::nullopt, lines, 1));
+    // The human player's 13 goal units hold a cohort of one: the farthest,
+    // which gains 40 pixels and dies, so it counts where it was last alive.
+    for (int32_t offset = 0; offset < 12; ++offset)
+        units.push_back(
+            benchmark::begin_staged_unit(
+                0,
+                {offset, 10},
+                benchmark::Point{offset, 0},
+                lines,
+                static_cast<uint16_t>(200 + offset)
+            )
+        );
+    auto fallen = benchmark::begin_staged_unit(0, {0, 1'000}, benchmark::Point{0, 0}, lines, 300);
+    benchmark::sample_staged_unit(fallen, lines, {0, 960}, true, true, true);
+    benchmark::sample_staged_unit(fallen, lines, {0, 900}, true, false, true);
+    units.push_back(fallen);
+    const auto players = benchmark::summarize_staged(units, 0, 2);
+    CHECK(players.size() == 2);
+    const auto& human = players[0];
+    const auto& computer = players[1];
+    CHECK(computer.goal_units == 26 && computer.rear_units == 2);
+    // Slot 5 gains 100 pixels and slot 7 none; slot 9's 210 are not counted.
+    CHECK(computer.rear_progress_pixels == 50.0);
+    CHECK(computer.rear_window_live_unit_ticks == 4);
+    CHECK(computer.rear_window_stationary_unit_ticks == 3);
+    CHECK(human.goal_units == 13 && human.rear_units == 1);
+    CHECK(human.rear_progress_pixels == 40.0);
+    CHECK(human.rear_window_live_unit_ticks == 1 && human.rear_window_stationary_unit_ticks == 0);
+    // Too few goal units for a cohort leave it empty.
+    const auto few = benchmark::summarize_staged(std::span(units).last(13), 0, 2);
+    CHECK(few.size() == 1 && few[0].rear_units == 1);
+    const auto none = benchmark::summarize_staged(std::span(units).last(12), 0, 2);
+    CHECK(none.size() == 1 && none[0].goal_units == 12 && none[0].rear_units == 0);
+    CHECK(none[0].rear_progress_pixels == 0 && none[0].rear_window_live_unit_ticks == 0);
+}
+
 /// Checks strike-target spread samples.
 void target_spread() {
     benchmark::TargetSpread spread;
@@ -795,6 +868,10 @@ void staged_report() {
     player.window_engaged_stationary_unit_ticks = 70;
     player.stationary_throughout = 5;
     player.stationary_throughout_unengaged = 3;
+    player.rear_units = 798;
+    player.rear_progress_pixels = 7.1328125;
+    player.rear_window_live_unit_ticks = 300;
+    player.rear_window_stationary_unit_ticks = 100;
     staged.players.push_back(player);
     staged.audit.audits = 61;
     staged.audit.first_error_tick = 450u;
@@ -835,7 +912,15 @@ void staged_report() {
             "\"extra\": {\"swept_misses\": 3, \"stationary_engaged_pct\": [0, 17.500], "
             "\"stationary_unengaged_pct\": [0, 12.500], \"stationary_unengaged_pct_all\": 12.500, "
             "\"stationary_throughout_unengaged\": [0, 3], "
-            "\"stationary_throughout_unengaged_all\": 3, \"strike_target_churn_pct\": [0, 37.500]}"
+            "\"stationary_throughout_unengaged_all\": 3, \"strike_target_churn_pct\": [0, 37.500], "
+            "\"rear_progress_px\": [0, 7.13], \"rear_stationary_pct\": [0, 33.333]}"
+        ) != std::string::npos
+    );
+    CHECK(
+        json.find(
+            "\"stationary_throughout_unengaged\": 3, \"rear_units\": 798, "
+            "\"rear_progress_pixels\": 7.1328125, \"rear_window_live_unit_ticks\": 300, "
+            "\"rear_window_stationary_unit_ticks\": 100, \"crossers\": [4]"
         ) != std::string::npos
     );
     CHECK(
@@ -849,6 +934,8 @@ void staged_report() {
     human.window_live_unit_ticks = 3;
     human.window_stationary_unit_ticks = 2;
     human.strike_churn = {3, 2};
+    // A loss rounds to two decimals; one that rounds to nothing is written as 0.00.
+    human.rear_progress_pixels = -12.3456;
     report.staged->players.insert(report.staged->players.begin(), human);
     const auto pooled = benchmark::report_json(report);
     CHECK(
@@ -857,7 +944,17 @@ void staged_report() {
             "[66.667, 12.500], \"stationary_unengaged_pct_all\": 12.903"
         ) != std::string::npos
     );
-    CHECK(pooled.find("\"strike_target_churn_pct\": [66.667, 37.500]}") != std::string::npos);
+    CHECK(
+        pooled.find(
+            "\"strike_target_churn_pct\": [66.667, 37.500], \"rear_progress_px\": [-12.35, 7.13], "
+            "\"rear_stationary_pct\": [0.000, 33.333]}"
+        ) != std::string::npos
+    );
+    report.staged->players.front().rear_progress_pixels = -0.004;
+    CHECK(
+        benchmark::report_json(report).find("\"rear_progress_px\": [0.00, 7.13]") !=
+        std::string::npos
+    );
     report.staged->players.clear();
     CHECK(
         benchmark::report_json(report).find(
@@ -866,13 +963,18 @@ void staged_report() {
         ) != std::string::npos
     );
     CHECK(
-        benchmark::report_json(report).find("\"strike_target_churn_pct\": []}") != std::string::npos
+        benchmark::report_json(report).find(
+            "\"strike_target_churn_pct\": [], \"rear_progress_px\": [], "
+            "\"rear_stationary_pct\": []}"
+        ) != std::string::npos
     );
-    // A player with no compared attacker has no churn.
+    // A player with no compared attacker has no churn, and an empty rear.
     report.staged->players.push_back({});
     CHECK(
-        benchmark::report_json(report).find("\"strike_target_churn_pct\": [0.000]}") !=
-        std::string::npos
+        benchmark::report_json(report).find(
+            "\"strike_target_churn_pct\": [0.000], \"rear_progress_px\": [0.00], "
+            "\"rear_stationary_pct\": [0.000]}"
+        ) != std::string::npos
     );
     report.staged->players.clear();
     report.staged->audit.first_error_tick.reset();
@@ -899,6 +1001,7 @@ int main() {
     ground_step_paths();
     swept_step_audits();
     staged_engagement();
+    staged_rear();
     staged_report();
     return failures == 0 ? 0 : 1;
 }

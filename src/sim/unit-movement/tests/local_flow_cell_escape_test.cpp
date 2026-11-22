@@ -123,19 +123,25 @@ struct Grid final : Host {
                     return {LocalFlowObstacle::stationary};
                 const auto claimant = occupants[at];
                 if (claimant != 0 && claimant != unit.id)
-                    result = {LocalFlowObstacle::moving, static_cast<uint16_t>(claimant), west, 5};
+                    result = {
+                        LocalFlowObstacle::moving,
+                        static_cast<uint16_t>(claimant),
+                        units.at(size_t(claimant) - 1).heading,
+                        5
+                    };
             }
         return result;
     }
 
     /// Supplies fresh occupancy classification and an explicit experimental gate.
-    LocalFlowProbe query(bool enabled) {
+    LocalFlowProbe query(bool enabled, bool counterflow = false) {
         LocalFlowProbe result{};
         result.context = this;
         result.at = [](
                         void* context, const Unit& unit, std::array<int16_t, 2> cell, uint8_t layer
                     ) { return static_cast<Grid*>(context)->probe(unit, cell, layer); };
         result.mature_cell_escape = enabled;
+        result.counterflow_cell_escape = counterflow;
         return result;
     }
 };
@@ -285,6 +291,96 @@ void test_full_footprint_feature_veto() {
     OA_CHECK(grid.overlaps == 0);
 }
 
+/// Places a two-cell unit at origin {4, 4}, heading east toward its goal, whose
+/// neighbour ahead is held by moving traffic with the given heading; every
+/// other neighbour is clear.
+Unit& east_blocked(Grid& grid, uint16_t traffic_heading) {
+    grid.add(6, 5, {1, 1}).heading = traffic_heading;
+    auto& unit = grid.add(4, 4, {2, 2});
+    unit.heading = east;
+    OA_CHECK(origin(unit.position) == unit.cell && grid.overlaps == 0);
+    return unit;
+}
+
+/// Chooses toward a goal due east for a unit that last moved long ago, so
+/// ordinary passing keeps its route and only the mature escape may move it.
+LocalFlowDecision choose_east(
+    Grid& grid, const Unit& unit, bool enabled, bool counterflow, LocalFlowCounters& counters
+) {
+    Movement motion{};
+    motion.flags = ground_layer | collision_blocked;
+    motion.last_motion_tick = decision_tick - 100;
+    const std::array<Fixed, 3> goal{1080 * fixed_one, 0, 80 * fixed_one};
+    const auto result = choose_local_flow(
+        unit, motion, goal, decision_tick, grid, grid.query(enabled, counterflow), counters
+    );
+    OA_CHECK(counters.probes <= maximum_queries);
+    return result;
+}
+
+/// Escapes oncoming traffic exactly as the cardinal escape does.
+void test_counterflow_escape_from_oncoming_traffic() {
+    Grid cardinal;
+    auto& unit = corner(cardinal);
+    Grid counterflow = cardinal;
+    LocalFlowCounters cardinal_counters{}, counterflow_counters{};
+    const auto stepped = choose(cardinal, unit, true, cardinal_counters);
+    Movement motion{};
+    motion.flags = ground_layer | collision_blocked;
+    motion.last_motion_tick = decision_tick - 1;
+    const std::array<Fixed, 3> goal{1087 * fixed_one, 0, 501 * fixed_one};
+    const auto current = choose_local_flow(
+        counterflow.units[3],
+        motion,
+        goal,
+        decision_tick,
+        counterflow,
+        counterflow.query(true, true),
+        counterflow_counters
+    );
+    // The unit heads east and the traffic west, against it.
+    OA_CHECK(origin(current.target) == (std::array<int16_t, 2>{4, 3}));
+    OA_CHECK(equal(stepped, current) && equal_outcomes(cardinal_counters, counterflow_counters));
+    OA_CHECK(cardinal_counters.probes == counterflow_counters.probes);
+    OA_CHECK(cardinal.queries == counterflow.queries && counterflow.overlaps == 0);
+}
+
+/// Keeps its place behind traffic going its own way, and escapes traffic that
+/// crosses its way a quarter turn or more from its heading.
+void test_counterflow_escape_waits_behind_same_way() {
+    // Within a quarter turn of the unit's heading the traffic goes its way.
+    for (const uint16_t heading : {east, uint16_t(east - 8192), uint16_t(east + 16383)}) {
+        Grid off;
+        auto& unit = east_blocked(off, heading);
+        Grid cardinal = off;
+        Grid counterflow = off;
+        LocalFlowCounters off_counters{}, cardinal_counters{}, counterflow_counters{};
+        const auto previous = choose_east(off, unit, false, false, off_counters);
+        const auto aside = choose_east(cardinal, cardinal.units[1], true, false, cardinal_counters);
+        const auto current =
+            choose_east(counterflow, counterflow.units[1], true, true, counterflow_counters);
+        OA_CHECK(previous.mobile_blocked && !previous.adjusted);
+        OA_CHECK(aside.adjusted && origin(aside.target) == (std::array<int16_t, 2>{4, 5}));
+        OA_CHECK(equal(previous, current) && equal_outcomes(off_counters, counterflow_counters));
+        OA_CHECK(off_counters.probes == counterflow_counters.probes);
+        OA_CHECK(off.queries == counterflow.queries && counterflow.overlaps == 0);
+    }
+    // A quarter turn or more away, across the unit's way or against it, it escapes.
+    for (const uint16_t heading : {uint16_t(east + 16384), uint16_t(east - 16384), west}) {
+        Grid cardinal;
+        auto& unit = east_blocked(cardinal, heading);
+        Grid counterflow = cardinal;
+        LocalFlowCounters cardinal_counters{}, counterflow_counters{};
+        const auto aside = choose_east(cardinal, unit, true, false, cardinal_counters);
+        const auto current =
+            choose_east(counterflow, counterflow.units[1], true, true, counterflow_counters);
+        OA_CHECK(current.adjusted && !current.reverse);
+        OA_CHECK(current.target == (std::array<Fixed, 3>{80 * fixed_one, 0, 96 * fixed_one}));
+        OA_CHECK(equal(aside, current) && equal_outcomes(cardinal_counters, counterflow_counters));
+        OA_CHECK(cardinal.queries == counterflow.queries && counterflow.overlaps == 0);
+    }
+}
+
 struct RangeHost final : Host {
     std::vector<std::array<int16_t, 2>> queries{};
 
@@ -339,5 +435,7 @@ int main() {
     test_surrounded_keeps_original();
     test_full_footprint_feature_veto();
     test_fixed_point_limit_does_not_wrap();
+    test_counterflow_escape_from_oncoming_traffic();
+    test_counterflow_escape_waits_behind_same_way();
     return oa::test::check_exit_status();
 }

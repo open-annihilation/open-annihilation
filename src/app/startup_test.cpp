@@ -1430,7 +1430,7 @@ void enhanced_benchmark_options() {
              "ai_rally_retention, local_following, occupancy_free_planning, cohort_targets, "
              "steering_projection_reuse, cohort_retention, cardinal_queue_escape, "
              "exact_indexed_searches, wide_strike_recruits, paced_cohort_targets, "
-             "dispatch_cohort_retention",
+             "dispatch_cohort_retention, counterflow_queue_escape",
         "an unknown feature names the known ones"
     );
     expect(

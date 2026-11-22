@@ -227,6 +227,10 @@ enum class Feature : uint8_t {
     /// while it costs within 12.5% of the best, and a refresh that orders
     /// members whose chase ended chooses fresh targets.
     dispatch_cohort_retention = 31,
+    /// Cardinal queue escape as cardinal_queue_escape, taken only when the
+    /// moving traffic in the unit's way crosses or comes against it, so a
+    /// unit behind traffic going its own way waits its turn.
+    counterflow_queue_escape = 32,
 };
 
 /// What a feature changes. The machines of a match agree on every kind.
