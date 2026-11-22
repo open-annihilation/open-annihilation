@@ -167,6 +167,20 @@ void json_percent(std::ostream& out, uint64_t part, uint64_t whole) {
     out << scaled / thousandths << '.' << fraction;
 }
 
+/// Writes a finite number rounded to exactly two decimals, or null.
+void json_hundredths(std::ostream& out, double value) {
+    if (!std::isfinite(value)) {
+        out << "null";
+        return;
+    }
+    constexpr int hundredths_digits = 2;
+    std::ostringstream text;
+    text.imbue(std::locale::classic());
+    text << std::fixed << std::setprecision(hundredths_digits) << value;
+    const auto written = text.str();
+    out << (written == "-0.00" ? "0.00" : written);
+}
+
 /// Writes an `extra` entry holding one number a player, indexed by player
 /// number: 0 for a player without an entry, and `write`'s number for the
 /// others.
@@ -245,6 +259,20 @@ void json_target_churn(std::ostream& out, const std::vector<StagedPlayer>& playe
     });
 }
 
+/// Writes each player's rear cohort as `extra` entries, one number a player:
+/// its mean progress in map pixels, two decimals, and its stationary share of
+/// the window.
+void json_rear(std::ostream& out, const std::vector<StagedPlayer>& players) {
+    json_player_list(out, players, "rear_progress_px", [&](const StagedPlayer& player) {
+        json_hundredths(out, player.rear_progress_pixels);
+    });
+    json_player_list(out, players, "rear_stationary_pct", [&](const StagedPlayer& player) {
+        json_percent(
+            out, player.rear_window_stationary_unit_ticks, player.rear_window_live_unit_ticks
+        );
+    });
+}
+
 /// Writes a staged battle's lines, players and ownership audits.
 void json_staged(std::ostream& out, const StagedBattle& staged) {
     out << "{\n    \"stage\": ";
@@ -276,7 +304,11 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
             << player.window_engaged_stationary_unit_ticks
             << ", \"stationary_throughout\": " << player.stationary_throughout
             << ", \"stationary_throughout_unengaged\": " << player.stationary_throughout_unengaged
-            << ", \"crossers\": [";
+            << ", \"rear_units\": " << player.rear_units << ", \"rear_progress_pixels\": ";
+        json_number(out, player.rear_progress_pixels);
+        out << ", \"rear_window_live_unit_ticks\": " << player.rear_window_live_unit_ticks
+            << ", \"rear_window_stationary_unit_ticks\": "
+            << player.rear_window_stationary_unit_ticks << ", \"crossers\": [";
         for (std::size_t line = 0; line < player.crossers.size(); ++line)
             out << (line == 0 ? "" : ", ") << player.crossers[line];
         out << "], \"strike_targets\": {\"samples\": " << targets.samples
@@ -310,6 +342,7 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
     out << "},\n    \"extra\": {\"swept_misses\": " << swept.misses;
     json_engagement(out, staged.players);
     json_target_churn(out, staged.players);
+    json_rear(out, staged.players);
     out << "}\n  }";
 }
 
@@ -611,10 +644,15 @@ bool crosses_line(const CrossingLine& line, Point before, Point after) noexcept 
 }
 
 StagedUnit begin_staged_unit(
-    uint8_t player, Point start, std::optional<Point> goal, std::span<const CrossingLine> lines
+    uint8_t player,
+    Point start,
+    std::optional<Point> goal,
+    std::span<const CrossingLine> lines,
+    uint16_t id
 ) {
     StagedUnit unit;
     unit.player = player;
+    unit.id = id;
     unit.start = unit.position = start;
     unit.goal = goal;
     for (std::size_t index = 0; index < lines.size() && index < maximum_crossing_lines; ++index)
@@ -835,6 +873,17 @@ std::vector<StagedPlayer>
 summarize_staged(std::span<const StagedUnit> units, std::size_t line_count, uint64_t window_ticks) {
     std::vector<StagedPlayer> players;
     std::vector<double> progress_sums;
+
+    // A goal unit's place in the running for its player's rear cohort.
+    struct RearCandidate {
+        uint8_t player{};
+        double start_distance{}; ///< straight-line pixels from its destination when staging ended
+        uint16_t id{};
+        std::size_t unit{}; ///< its place in `units`
+        double progress{};  ///< start distance less final distance
+    };
+
+    std::vector<RearCandidate> candidates;
     const auto entry = [&](uint8_t player) -> std::size_t {
         for (std::size_t index = 0; index < players.size(); ++index)
             if (players[index].player == player)
@@ -867,6 +916,13 @@ summarize_staged(std::span<const StagedUnit> units, std::size_t line_count, uint
             ++summary.goal_units;
             progress_sums[index] += before - after;
             summary.advanced_units += before - after >= advance_distance_pixels;
+            candidates.push_back(
+                {unit.player,
+                 before,
+                 unit.id,
+                 static_cast<std::size_t>(&unit - units.data()),
+                 before - after}
+            );
         }
         summary.window_live_unit_ticks += unit.window_live_ticks;
         summary.window_stationary_unit_ticks += unit.window_stationary_ticks;
@@ -882,6 +938,32 @@ summarize_staged(std::span<const StagedUnit> units, std::size_t line_count, uint
         if (players[index].goal_units != 0)
             players[index].mean_progress_pixels =
                 progress_sums[index] / static_cast<double>(players[index].goal_units);
+    // Each player's goal units, farthest first; the lower slot number, then the
+    // earlier place, first at an equal distance.
+    std::sort(
+        candidates.begin(), candidates.end(), [](const RearCandidate& a, const RearCandidate& b) {
+            return std::tie(a.player, b.start_distance, a.id, a.unit) <
+                   std::tie(b.player, a.start_distance, b.id, b.unit);
+        }
+    );
+    for (std::size_t first = 0; first < candidates.size();) {
+        auto& summary = players[entry(candidates[first].player)];
+        auto end = first;
+        while (end < candidates.size() && candidates[end].player == candidates[first].player)
+            ++end;
+        const auto cohort = std::min<uint64_t>(rear_cohort_size(summary.goal_units), end - first);
+        double progress = 0;
+        for (std::size_t at = first; at < first + cohort; ++at) {
+            const auto& unit = units[candidates[at].unit];
+            progress += candidates[at].progress;
+            summary.rear_window_live_unit_ticks += unit.window_live_ticks;
+            summary.rear_window_stationary_unit_ticks += unit.window_stationary_ticks;
+        }
+        summary.rear_units = cohort;
+        if (cohort != 0)
+            summary.rear_progress_pixels = progress / static_cast<double>(cohort);
+        first = end;
+    }
     return players;
 }
 

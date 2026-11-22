@@ -314,7 +314,7 @@ class StagedObserver {
             previous_.push_back(slot.record.position);
             units_.push_back(
                 benchmark::begin_staged_unit(
-                    slot.record.owner_index, pixels(slot.record.position), goal, result_.lines
+                    slot.record.owner_index, pixels(slot.record.position), goal, result_.lines, id
                 )
             );
         }

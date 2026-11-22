@@ -186,6 +186,19 @@ inline constexpr uint32_t target_sample_interval_ticks = 30;
 inline constexpr std::size_t maximum_crossing_lines = 8;
 /// The fewest pixels a unit must gain on its destination to count as advanced.
 inline constexpr double advance_distance_pixels = 16.0;
+/// The goal units a player's rear cohort holds of every rear_cohort_of, rounded
+/// down: about 8%, so 798 for an army of 9,999 or 10,000 goal units.
+inline constexpr uint64_t rear_cohort_units = 798;
+/// The goal units rear_cohort_units is counted against.
+inline constexpr uint64_t rear_cohort_of = 9'999;
+
+/// Tells how many goal units a player's rear cohort holds.
+///
+/// @param goal_units the player's goal units
+/// @return rear_cohort_units of every rear_cohort_of goal units, rounded down
+[[nodiscard]] constexpr uint64_t rear_cohort_size(uint64_t goal_units) noexcept {
+    return goal_units * rear_cohort_units / rear_cohort_of;
+}
 
 /// A named measure line a staged battle counts crossers of, in whole map
 /// pixels: a bridge, a choke or a river bank. It does nothing to the battle.
@@ -223,6 +236,7 @@ struct CrossingLine {
 /// Tracks one unit a stage placed, from the end of staging to the end of the run.
 struct StagedUnit {
     uint8_t player{};
+    uint16_t id{}; ///< the unit's slot number; orders units at an equal distance
     Point start{};
     Point position{}; ///< last live position
     /// The point of the first order the unit held when staging ended, when that
@@ -245,9 +259,14 @@ struct StagedUnit {
 /// @param start its position
 /// @param goal its destination, if its first order names one
 /// @param lines the battle's crossing lines, at most maximum_crossing_lines
+/// @param id the unit's slot number
 /// @return the tracking state
 [[nodiscard]] StagedUnit begin_staged_unit(
-    uint8_t player, Point start, std::optional<Point> goal, std::span<const CrossingLine> lines
+    uint8_t player,
+    Point start,
+    std::optional<Point> goal,
+    std::span<const CrossingLine> lines,
+    uint16_t id = 0
 );
 
 /// Samples a tracked unit after one completed tick.
@@ -465,6 +484,14 @@ struct StagedPlayer {
     std::vector<uint64_t> crossers{}; ///< one count a crossing line
     TargetSpread strike_targets{};
     TargetChurn strike_churn{};
+    /// The rear cohort: the rear_cohort_size(goal_units) goal units that stood
+    /// farthest from their destinations when staging ended, the lower slot
+    /// number first at an equal distance; dead ones count where they were last
+    /// alive.
+    uint64_t rear_units{};
+    double rear_progress_pixels{}; ///< mean over the rear cohort, as mean_progress_pixels
+    uint64_t rear_window_live_unit_ticks{};
+    uint64_t rear_window_stationary_unit_ticks{};
 };
 
 /// Summarizes the tracked units of each player that has any.
@@ -472,8 +499,9 @@ struct StagedPlayer {
 /// @param units every tracked unit
 /// @param line_count the battle's crossing lines
 /// @param window_ticks the stationary window's measured ticks
-/// @return one entry a player, by player index; births, deaths, computer,
-///     strike targets and strike churn left for the caller
+/// @return one entry a player, by player index, its rear cohort included;
+///     births, deaths, computer, strike targets and strike churn left for
+///     the caller
 [[nodiscard]] std::vector<StagedPlayer>
 summarize_staged(std::span<const StagedUnit> units, std::size_t line_count, uint64_t window_ticks);
 

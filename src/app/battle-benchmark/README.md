@@ -57,7 +57,15 @@ by player, in player order: mean progress toward the destination (start
 distance less final distance, straight-line pixels), units that gained
 `advance_distance_pixels` (16) or more, the stationary window counts (the
 engaged stationary unit-ticks among them, and the units stationary
-throughout that were never engaged in the window) and crossers per line. `add_target_sample` takes the targets of one player's
+throughout that were never engaged in the window), crossers per line and
+the player's rear cohort. The rear cohort is the player's goal units that
+stood farthest from their destinations when staging ended (straight-line
+pixels; the lower slot number first at an equal distance), 798 of every
+9,999 goal units rounded down (`rear_cohort_size`: about 8%, and 798 for
+an army of 9,999 or 10,000, the fixed rear cohort of the earlier
+aligned-patrol measurements). Its mean progress is counted as the
+player's (a dead unit where it was last alive), and its window counts are
+its units' live and stationary ticks. `add_target_sample` takes the targets of one player's
 attackers at a sample and adds the sample, the attackers, the distinct
 targets and the commonest target's share. `add_target_churn` compares two
 consecutive samples (`target_sample_interval_ticks`, 30 measured ticks,
@@ -118,6 +126,13 @@ of consecutive strike samples (0 for a player with no compared attacker).
 Each player's `strike_targets` object also holds `compared_attackers` and
 `switched_attackers`, the counts it is made of. The observer that reads them
 runs outside the timed step.
+`extra` also holds the rear cohort, one number a player: `rear_progress_px`, the
+cohort's mean progress toward its destinations in map pixels, rounded to
+two decimals, and `rear_stationary_pct`, the percentage of the cohort's
+live window unit-ticks in which a unit stood still (dead time does not
+count). Each player's object also gives `rear_units`,
+`rear_progress_pixels` (unrounded) and the cohort's
+`rear_window_live_unit_ticks` and `rear_window_stationary_unit_ticks`.
 Percentages are rounded half up and written with three decimals.
 
 `summarize` copies elapsed-nanosecond samples, sorts the copy and returns the
@@ -199,6 +214,8 @@ exactly through it, backwards, a two-cell footprint, a wrong cell, the
 origin limit), swept-step audits (a corner cell only a diagonal passes, the
 exact corner, another unit's cell, a step's own start, an unchecked step),
 the engaged split (standing while engaged, engaged once, engaged while
-moving, engagement outside the window or after death) and the
-`staged_battle` report block (the split's and the churn's entries and their
+moving, engagement outside the window or after death), the rear cohort
+(its size, ties at an equal distance, a unit without a destination, a dead
+unit, too few goal units for a cohort) and the `staged_battle` report
+block (the split's, the churn's and the rear cohort's entries and their
 rounding).
