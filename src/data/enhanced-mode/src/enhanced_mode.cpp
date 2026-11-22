@@ -46,7 +46,7 @@ using enum Feature;
 /// The feature table, in id order: entry n - 1 describes the feature with
 /// id n. Every feature needs Enhanced Mode on, and every chain of needs ends
 /// in capacity, the feature that sizes the Enhanced Mode state.
-constexpr std::array<FeatureInfo, 29> feature_rows{{
+constexpr std::array<FeatureInfo, 30> feature_rows{{
     {capacity, "capacity", FeatureKind::capacity, {}, {}},
     {local_flow, "local_flow", FeatureKind::simulation, set_of({capacity}), {}},
     {routes_original,
@@ -132,7 +132,11 @@ constexpr std::array<FeatureInfo, 29> feature_rows{{
      FeatureKind::simulation,
      set_of({capacity}),
      {}},
-    {cohort_targets, "cohort_targets", FeatureKind::simulation, set_of({ai_strike_retarget}), {}},
+    {cohort_targets,
+     "cohort_targets",
+     FeatureKind::simulation,
+     set_of({ai_strike_retarget}),
+     set_of({paced_cohort_targets})},
     {steering_projection_reuse,
      "steering_projection_reuse",
      FeatureKind::capacity,
@@ -158,6 +162,13 @@ constexpr std::array<FeatureInfo, 29> feature_rows{{
      FeatureKind::simulation,
      set_of({capacity}),
      set_of({bounded_strike_recruits})},
+    // Cohort targets whose new chases are spread over a few ticks; the old
+    // versions keep cohort_targets.
+    {paced_cohort_targets,
+     "paced_cohort_targets",
+     FeatureKind::simulation,
+     set_of({ai_strike_retarget}),
+     set_of({cohort_targets})},
 }};
 
 /// Every feature the table describes.
@@ -374,7 +385,7 @@ constexpr FeatureSet revision_1_features = version_4_features;
 constexpr std::array<const char*, feature_rows.size()> feature_engine_versions{{
     "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
     "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
 }};
 
 /// The first engine version of each revision. Index 0 is Off and has none.
@@ -441,7 +452,7 @@ using FeatureEnum = match_rules::SetupEnhancedModeFeatures;
 
 static_assert(enum_size(FeatureEnum{}) == feature_rows.size());
 static_assert(static_cast<int>(FeatureEnum::capacity) == 0);
-static_assert(static_cast<int>(FeatureEnum::wide_strike_recruits) == 28);
+static_assert(static_cast<int>(FeatureEnum::paced_cohort_targets) == 29);
 
 /// Writes a feature set into the registry's enumeration set.
 ///

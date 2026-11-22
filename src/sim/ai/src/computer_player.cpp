@@ -35,6 +35,9 @@ constexpr uint64_t strike_target_distance_floor = 1;
 /// Keeps a group's target until its squared distance exceeds the nearest by 25%.
 constexpr uint64_t strike_front_distance_denominator = 4;
 constexpr uint64_t strike_front_distance_numerator = 5;
+/// Under paced_cohort_targets, the most members without a chase that one strike
+/// dispatch or refresh orders; the rest wait for the next refresh.
+constexpr uint32_t paced_first_orders_per_call = 256;
 /// Retains a majority prior within 12.5% of the best weighted squared distance.
 constexpr uint64_t strike_retention_cost_denominator = 8;
 constexpr uint64_t strike_retention_cost_numerator = 9;
@@ -332,6 +335,15 @@ struct CohortCandidates {
 static_assert(strike_cohort_count == 8);
 static_assert(sizeof(std::array<CohortCandidates, strike_cohort_count>) <= 2048);
 
+/// Tells whether a feature set divides built-in strikes into spatial cohorts.
+///
+/// @param features the match's Enhanced Mode features
+/// @return true under cohort_targets or paced_cohort_targets
+bool uses_strike_cohorts(const data::enhanced_mode::FeatureSet& features) noexcept {
+    return features.has(data::enhanced_mode::Feature::cohort_targets) ||
+           features.has(data::enhanced_mode::Feature::paced_cohort_targets);
+}
+
 /// Tests whether a finished live member can receive a strike's attack command.
 bool strike_member(const oa::Unit& unit, uint8_t player, Squad squad) noexcept {
     return unit.type_index != 0 && unit.owner_index == player &&
@@ -624,7 +636,12 @@ uint16_t strike_member_target(
 /// Three unit-slot walks find the extent, form at most eight centroids and
 /// dispatch. Retention adds two owned-head walks before dispatch. Each occupied
 /// group searches enemy records once; a confirmed majority can retain a
-/// comparable prior. Order callbacks keep ordinary mission and same-target handling.
+/// comparable prior. Order callbacks keep ordinary mission and same-target
+/// handling. Under paced_cohort_targets at most paced_first_orders_per_call
+/// members without a compatible owned chase (new recruits, and members whose
+/// chase has ended) receive a callback, in unit-slot order; members already
+/// chasing an enemy are not limited. The match's cohort refresh orders the
+/// members left over a few ticks later.
 ///
 /// @param state computer players and AI exclusions
 /// @param host canonical records, alliances and ordinary order callbacks
@@ -712,6 +729,10 @@ bool order_strike_cohorts(
     }
     if (!targeted)
         return false;
+    const bool paced = state != nullptr &&
+                       state->features.has(data::enhanced_mode::Feature::paced_cohort_targets) &&
+                       host.owned_attack_target != nullptr;
+    uint32_t first_orders = 0;
     bool issued = false;
     for (uint32_t index = 0; index < count; ++index) {
         const auto& unit = units[index];
@@ -723,9 +744,16 @@ bool order_strike_cohorts(
             continue;
         const auto target =
             strike_member_target(unit, cohorts[strike_cohort(unit, extent)], cohorts);
-        if (target != 0) {
-            issued = host.order_attack(host.context, slot, target) || issued;
+        if (target == 0)
+            continue;
+        if (paced && host.owned_attack_target(host.context, ai.player, slot) == 0) {
+            // Starting a chase for a member that has none tears down its
+            // current order, which costs far more than keeping or switching one.
+            if (first_orders == paced_first_orders_per_call)
+                continue;
+            ++first_orders;
         }
+        issued = host.order_attack(host.context, slot, target) || issued;
     }
     return issued;
 }
@@ -844,7 +872,7 @@ void run_strike(
         }
     }
     task.attacking = 1;
-    if (features.has(data::enhanced_mode::Feature::cohort_targets)) {
+    if (uses_strike_cohorts(features)) {
         (void)order_strike_cohorts(state, host, ai, task);
         return;
     }
@@ -1371,7 +1399,7 @@ bool computer_player_refresh_strike_targets(
         host.allied == nullptr || host.order_attack == nullptr ||
         std::none_of(sources.begin(), sources.end(), [](uint64_t bits) { return bits != 0; }))
         return false;
-    if (!state->features.has(data::enhanced_mode::Feature::cohort_targets))
+    if (!uses_strike_cohorts(state->features))
         return false;
     const auto index = static_cast<uint32_t>(squad);
     if (index >= squad_count)

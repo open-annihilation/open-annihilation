@@ -910,7 +910,7 @@ entries:
     # feature stays listed, marked retired, so no index and no hash shifts.
     params:
       revision: {type: int, min: 1, max: 1, baseline: 1, default: 1, adjustable: match, scope: sim}
-      features: {type: set<enum>, values: [capacity, local-flow, routes-original, routes-large-regions, routes-fine-regions, indexed-searches, route-corner-advance, swept-ground-steps, corridor-lanes, patrol-goal-retention, ai-strike-retarget, squad-position-index, route-queue, group-destination-repair, distributed-arrivals, moving-corner-advance, local-throat-guide, credited-fallback-search, bounded-strike-recruits, ai-attack-retention, ai-rally-retention, local-following, occupancy-free-planning, cohort-targets, steering-projection-reuse, cohort-retention, cardinal-queue-escape, exact-indexed-searches, wide-strike-recruits], baseline: [], default: [capacity], adjustable: match, scope: sim}
+      features: {type: set<enum>, values: [capacity, local-flow, routes-original, routes-large-regions, routes-fine-regions, indexed-searches, route-corner-advance, swept-ground-steps, corridor-lanes, patrol-goal-retention, ai-strike-retarget, squad-position-index, route-queue, group-destination-repair, distributed-arrivals, moving-corner-advance, local-throat-guide, credited-fallback-search, bounded-strike-recruits, ai-attack-retention, ai-rally-retention, local-following, occupancy-free-planning, cohort-targets, steering-projection-reuse, cohort-retention, cardinal-queue-escape, exact-indexed-searches, wide-strike-recruits, paced-cohort-targets], baseline: [], default: [capacity], adjustable: match, scope: sim}
   setup.map-scripted-units:
     kind: hack
     title: Map Scripted Units
