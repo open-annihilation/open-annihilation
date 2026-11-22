@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <iostream>
@@ -37,6 +38,9 @@ constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_ba
 constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
 constexpr uint32_t cohort_version = 10;
 constexpr uint32_t retention_version = 11;
+/// Not a version: the test's key for version 10's features with
+/// paced_cohort_targets in place of cohort_targets.
+constexpr uint32_t paced_cohort_rules = 1000;
 constexpr uint32_t strike_refresh_ticks = 300;
 constexpr uint32_t retarget_interval_ticks = 6;
 constexpr uint32_t target_loss_tick = 55;
@@ -126,16 +130,30 @@ void restore_retarget(Fixture& fixture, std::span<const uint8_t> bytes) {
     CHECK(table.restore(table.context, bytes));
 }
 
-/// Prepares durable units and one version of the match rules.
+/// Prepares durable units and one version of the match rules, or version
+/// 10's features with paced_cohort_targets for paced_cohort_rules.
 Options options_for(uint32_t version) {
     Options options;
-    oa::data::enhanced_mode::apply_alias(
-        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
-    );
+    auto& mode = options.rules.setup.enhanced_mode;
+    if (version == paced_cohort_rules) {
+        using StoredFeature = oa::data::match_rules::SetupEnhancedModeFeatures;
+        oa::data::enhanced_mode::apply_alias(mode, cohort_version);
+        mode.features.members[static_cast<std::size_t>(StoredFeature::cohort_targets)] = false;
+        mode.features.insert(StoredFeature::paced_cohort_targets);
+    } else {
+        oa::data::enhanced_mode::apply_alias(mode, static_cast<uint32_t>(version));
+    }
     options.per_player_limit = slots_per_player;
     options.maximum_health = durable_health;
     options.gun_reload_time = "10";
     return options;
+}
+
+/// Tells whether a match divides computer strikes into spatial cohorts.
+bool uses_cohorts(const Fixture& fixture) {
+    const auto features = fixture.match->enhanced_features();
+    return features.has(oa::data::enhanced_mode::Feature::cohort_targets) ||
+           features.has(oa::data::enhanced_mode::Feature::paced_cohort_targets);
 }
 
 /// Keeps an idle unit from independently replacing the squad's target.
@@ -493,10 +511,7 @@ struct StrikeFixture {
         target = first.unit_index;
         // Keep an actual split when members may choose another selected front.
         // The short-range fixture retains separate targets at its shared Z.
-        const bool nearby_fronts =
-            !short_range_weapon && fixture.match->enhanced_features().has(
-                                       oa::data::enhanced_mode::Feature::cohort_targets
-                                   );
+        const bool nearby_fronts = !short_range_weapon && uses_cohorts(fixture);
         auto& second = fixture.spawn(
             enemy_player,
             nearby_fronts ? target_x : replacement_x,
@@ -528,9 +543,7 @@ struct StrikeFixture {
         initial_issue_tick = head_record(fixture, members.front()).issue_tick;
         regular_refresh_tick = initial_issue_tick + strike_refresh_ticks;
         CHECK(strike().next_tick == regular_refresh_tick);
-        if (fixture.match->enhanced_features().has(
-                oa::data::enhanced_mode::Feature::cohort_targets
-            )) {
+        if (uses_cohorts(fixture)) {
             std::size_t first_members = 0;
             std::size_t second_members = 0;
             for (const auto member : members) {
@@ -659,8 +672,10 @@ std::vector<uint16_t> cohort_target_members(StrikeFixture& battle, uint16_t targ
     return result;
 }
 
-/// Refreshes a lost non-last target while keeping busy orders and recruitment untouched.
+/// Refreshes a lost non-last target while keeping busy orders and recruitment untouched;
+/// under paced cohort targets a member with no chase at all is refreshed too.
 void cohort_loss_refreshes_only_lost_orders(uint32_t version) {
+    const bool paced = version == paced_cohort_rules;
     StrikeFixture battle(version);
     const auto lost_target = untracked_cohort_target(battle);
     const auto remaining_target = lost_target == battle.target ? battle.replacement : battle.target;
@@ -693,10 +708,13 @@ void cohort_loss_refreshes_only_lost_orders(uint32_t version) {
             battle.fixture.match->spawn_slot(waiting_slot).record.squad ==
             static_cast<int32_t>(ai::Squad::land_army)
         );
-        CHECK(battle.fixture.match->spawn_slot(busy).unit->primary == busy_head);
+        if (!paced)
+            CHECK(battle.fixture.match->spawn_slot(busy).unit->primary == busy_head);
         for (std::size_t at = 0; at < healthy.size(); ++at)
             CHECK(battle.fixture.match->spawn_slot(healthy[at]).unit->primary == healthy_heads[at]);
     }
+    if (paced)
+        affected.push_back(busy);
     for (const auto member : affected) {
         const auto record = head_record(battle.fixture, member);
         CHECK(record.kind == attack_chase_order && record.target == remaining_target);
@@ -1734,8 +1752,11 @@ int main() {
         "owned attack saved/index continuation",
         owned_attack_target_continues_after_saved_orders_and_index_fallback
     );
-    for (const auto version : {cohort_version, retention_version}) {
-        std::cout << "Enhanced cohort retarget: version=" << version << '\n';
+    for (const auto version : {cohort_version, retention_version, paced_cohort_rules}) {
+        if (version == paced_cohort_rules)
+            std::cout << "Enhanced cohort retarget: paced cohort targets\n";
+        else
+            std::cout << "Enhanced cohort retarget: version=" << version << '\n';
         failures += run_case("cohort non-last target loss", [version] {
             cohort_loss_refreshes_only_lost_orders(version);
         });

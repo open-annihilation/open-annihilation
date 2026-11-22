@@ -218,6 +218,10 @@ enum class Feature : uint8_t {
     exact_indexed_searches = 28,
     /// A computer strike recruits at most 1,024 new members at a time.
     wide_strike_recruits = 29,
+    /// Cohort targets as cohort_targets, where a strike dispatch or refresh
+    /// starts at most 256 chases for members that have none, and the refresh
+    /// also orders members that have no chase, a few ticks later.
+    paced_cohort_targets = 30,
 };
 
 /// What a feature changes. The machines of a match agree on every kind.

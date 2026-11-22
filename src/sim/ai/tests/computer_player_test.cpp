@@ -2628,6 +2628,84 @@ void test_cohort_retention_respects_mask_and_native_task_state() {
     );
 }
 
+/// Starts at most 256 chases a call under paced cohort targets, and only there.
+void test_paced_cohort_targets_limit_new_chases() {
+    namespace enhanced = oa::data::enhanced_mode;
+    const auto paced = enhanced::version_features(enhanced::cohort_target_version)
+                           .without(enhanced::Feature::cohort_targets)
+                           .with(enhanced::Feature::paced_cohort_targets);
+    check(enhanced::feature_set_problem(paced) == nullptr, "paced cohorts: a playable set");
+    constexpr uint16_t chasing = 100;
+    constexpr uint16_t members = 400;
+    constexpr uint16_t limit = 256;
+    const auto member = [](uint16_t index) {
+        return static_cast<uint16_t>(RetentionRun::first + index);
+    };
+    enum class Rules { cohort_targets, paced, paced_without_reader };
+    for (const auto rules : {Rules::cohort_targets, Rules::paced, Rules::paced_without_reader}) {
+        // Every member stands at (1000, 1000) and its group's target is enemy 1.
+        // The first hundred already chase it; the others have no chase.
+        RetentionRun run(enhanced::cohort_target_version, members);
+        if (rules != Rules::cohort_targets)
+            run.state.features = paced;
+        if (rules == Rules::paced_without_reader)
+            run.host.owned_attack_target = nullptr;
+        for (uint16_t index = 0; index < chasing; ++index)
+            run.prior(member(index), 1);
+        run.fake.orders.clear();
+        const auto random_before = run.fake.roll;
+        run.tick(RecruitRun::refresh);
+        std::vector<uint16_t> ordered;
+        for (const auto& order : run.fake.orders) {
+            check(
+                order.kind == "attack" && !order.queue && order.arg == 1,
+                "paced cohorts: ordinary unqueued attack callbacks on the group's target"
+            );
+            ordered.push_back(order.unit);
+        }
+        std::vector<uint16_t> expected;
+        const uint16_t reached = rules == Rules::paced ? chasing + limit : members;
+        for (uint16_t index = 0; index < reached; ++index)
+            expected.push_back(member(index));
+        check(
+            ordered == expected,
+            rules == Rules::paced
+                ? "paced cohorts: every chase and the first 256 new chases in slot order"
+                : "paced cohorts: without the feature or a reader every member is ordered"
+        );
+        check(run.fake.roll == random_before, "paced cohorts: no random draw");
+        check(
+            run.state.players[RetentionRun::player]
+                    .tasks[static_cast<uint32_t>(run.destination)]
+                    .next_tick == 2 * RecruitRun::refresh,
+            "paced cohorts: the native strike deadline advances as before"
+        );
+        if (rules != Rules::paced)
+            continue;
+        // The refresh orders the members the dispatch left, within the same limit.
+        std::array<uint64_t, strike_refresh_mask_words> sources{};
+        for (uint16_t index = reached; index < members; ++index) {
+            const auto slot = member(index);
+            sources[slot / strike_refresh_word_bits] |= uint64_t{1}
+                                                        << (slot % strike_refresh_word_bits);
+        }
+        run.fake.orders.clear();
+        run.fake.world.game.tick = RecruitRun::refresh + 6;
+        check(
+            computer_player_refresh_strike_targets(
+                &run.state, run.host, RetentionRun::player, run.destination, sources
+            ),
+            "paced cohorts: the refresh orders the members left"
+        );
+        check(
+            run.fake.orders.size() == members - reached &&
+                run.fake.orders.front().unit == member(reached) &&
+                run.fake.orders.back().unit == member(members - 1),
+            "paced cohorts: every member left receives its chase"
+        );
+    }
+}
+
 /// Compares public dispatch with a full enemy search for eight known spatial groups.
 struct FullEnemyRun : RetentionRun {
     static constexpr uint16_t enemies = 9;
@@ -3320,6 +3398,7 @@ int main(int argc, char** argv) {
     test_cohort_retention_is_repeatable();
     test_cohort_retention_preserves_earlier_presets_and_null_reader();
     test_cohort_retention_respects_mask_and_native_task_state();
+    test_paced_cohort_targets_limit_new_chases();
     test_full_enemy_reference_exhausts_small_layouts();
     test_full_enemy_reference_keeps_eighth_and_outside_prior();
     test_full_enemy_reference_keeps_filtered_candidate_domain();

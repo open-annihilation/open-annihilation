@@ -554,6 +554,7 @@ void test_mutator_match() {
                 "cardinal-queue-escape",
                 "exact-indexed-searches",
                 "wide-strike-recruits",
+                "paced-cohort-targets",
             };
             OA_CHECK(listed.size() == std::size(feature_names));
             for (std::size_t name_index = 0;
