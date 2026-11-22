@@ -500,6 +500,45 @@ void staged_units() {
     CHECK(first.crossers.size() == 2 && first.crossers[0] == 1 && first.crossers[1] == 0);
     CHECK(players[1].goal_units == 0 && players[1].mean_progress_pixels == 0);
     CHECK(players[1].crossers[0] == 1);
+    CHECK(first.window_engaged_stationary_unit_ticks == 0);
+    CHECK(first.stationary_throughout_unengaged == 1);
+}
+
+/// Checks the engaged split of the stationary window: a unit standing while
+/// engaged, one standing while engaged only once, an engaged moving unit, and
+/// engagement outside the window or after death, which do not count.
+void staged_engagement() {
+    const std::array<benchmark::CrossingLine, 0> lines{};
+    auto firing = benchmark::begin_staged_unit(1, {10, 10}, std::nullopt, lines);
+    benchmark::sample_staged_unit(firing, lines, {10, 10}, false, true, false, true);
+    benchmark::sample_staged_unit(firing, lines, {10, 10}, false, true, true, true);
+    benchmark::sample_staged_unit(firing, lines, {10, 10}, false, true, true, true);
+    CHECK(firing.window_engaged_ticks == 2 && firing.window_engaged_stationary_ticks == 2);
+    auto waiting = benchmark::begin_staged_unit(1, {20, 10}, std::nullopt, lines);
+    benchmark::sample_staged_unit(waiting, lines, {20, 10}, false, true, true, false);
+    benchmark::sample_staged_unit(waiting, lines, {20, 10}, false, true, true, true);
+    auto charging = benchmark::begin_staged_unit(1, {30, 10}, std::nullopt, lines);
+    benchmark::sample_staged_unit(charging, lines, {31, 10}, true, true, true, true);
+    benchmark::sample_staged_unit(charging, lines, {31, 10}, false, true, true, false);
+    CHECK(charging.window_engaged_ticks == 1 && charging.window_engaged_stationary_ticks == 0);
+    auto stuck = benchmark::begin_staged_unit(0, {40, 10}, std::nullopt, lines);
+    benchmark::sample_staged_unit(stuck, lines, {40, 10}, false, true, true, false);
+    benchmark::sample_staged_unit(stuck, lines, {40, 10}, false, true, true, false);
+    benchmark::sample_staged_unit(stuck, lines, {40, 10}, false, false, true, true);
+    CHECK(stuck.window_engaged_ticks == 0 && stuck.window_live_ticks == 2);
+    const std::array<benchmark::StagedUnit, 4> units{firing, waiting, charging, stuck};
+    const auto players = benchmark::summarize_staged(units, 0, 2);
+    CHECK(players.size() == 2);
+    const auto& human = players[0];
+    const auto& computer = players[1];
+    CHECK(human.window_live_unit_ticks == 2 && human.window_stationary_unit_ticks == 2);
+    CHECK(human.window_engaged_stationary_unit_ticks == 0);
+    CHECK(human.stationary_throughout == 1 && human.stationary_throughout_unengaged == 1);
+    CHECK(computer.window_live_unit_ticks == 6 && computer.window_stationary_unit_ticks == 5);
+    CHECK(computer.window_engaged_stationary_unit_ticks == 3);
+    // Firing and waiting stood through the window; only waiting was ever
+    // unengaged, and it was engaged once, so neither counts as unengaged.
+    CHECK(computer.stationary_throughout == 2 && computer.stationary_throughout_unengaged == 0);
 }
 
 /// Checks strike-target spread samples.
@@ -688,6 +727,11 @@ void staged_report() {
     player.crossers = {4};
     player.strike_targets.samples = 2;
     player.strike_targets.largest_share = 0.75;
+    player.window_live_unit_ticks = 400;
+    player.window_stationary_unit_ticks = 120;
+    player.window_engaged_stationary_unit_ticks = 70;
+    player.stationary_throughout = 5;
+    player.stationary_throughout_unengaged = 3;
     staged.players.push_back(player);
     staged.audit.audits = 61;
     staged.audit.first_error_tick = 450u;
@@ -719,13 +763,45 @@ void staged_report() {
             "\"ground_misses\": 1, \"unit_misses\": 2, \"first_miss_tick\": 17}"
         ) != std::string::npos
     );
-    CHECK(json.find("\"extra\": {\"swept_misses\": 3}") != std::string::npos);
+    CHECK(
+        json.find(
+            "\"extra\": {\"swept_misses\": 3, \"stationary_engaged_pct\": [0, 17.500], "
+            "\"stationary_unengaged_pct\": [0, 12.500], \"stationary_unengaged_pct_all\": 12.500, "
+            "\"stationary_throughout_unengaged\": [0, 3], "
+            "\"stationary_throughout_unengaged_all\": 3}"
+        ) != std::string::npos
+    );
+    CHECK(
+        json.find(
+            "\"window_engaged_stationary_unit_ticks\": 70, \"stationary_throughout\": 5, "
+            "\"stationary_throughout_unengaged\": 3"
+        ) != std::string::npos
+    );
+    // Two-thirds rounds up at the third decimal; the pooled share counts both players.
+    benchmark::StagedPlayer human;
+    human.window_live_unit_ticks = 3;
+    human.window_stationary_unit_ticks = 2;
+    report.staged->players.insert(report.staged->players.begin(), human);
+    const auto pooled = benchmark::report_json(report);
+    CHECK(
+        pooled.find(
+            "\"stationary_engaged_pct\": [0.000, 17.500], \"stationary_unengaged_pct\": "
+            "[66.667, 12.500], \"stationary_unengaged_pct_all\": 12.903"
+        ) != std::string::npos
+    );
+    report.staged->players.clear();
+    CHECK(
+        benchmark::report_json(report).find(
+            "\"stationary_engaged_pct\": [], \"stationary_unengaged_pct\": [], "
+            "\"stationary_unengaged_pct_all\": 0.000"
+        ) != std::string::npos
+    );
     report.staged->audit.first_error_tick.reset();
     report.staged->swept_steps = {};
     const auto cleared = benchmark::report_json(report);
     CHECK(cleared.find("\"first_error_tick\": null") != std::string::npos);
     CHECK(cleared.find("\"first_miss_tick\": null") != std::string::npos);
-    CHECK(cleared.find("\"extra\": {\"swept_misses\": 0}") != std::string::npos);
+    CHECK(cleared.find("\"extra\": {\"swept_misses\": 0, ") != std::string::npos);
 }
 
 } // namespace
@@ -742,6 +818,7 @@ int main() {
     ownership_audits();
     ground_step_paths();
     swept_step_audits();
+    staged_engagement();
     staged_report();
     return failures == 0 ? 0 : 1;
 }

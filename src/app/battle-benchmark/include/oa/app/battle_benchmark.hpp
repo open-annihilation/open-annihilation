@@ -233,6 +233,10 @@ struct StagedUnit {
     uint8_t crossed{}; ///< one bit a line: crossed away from its start side
     uint64_t window_live_ticks{};
     uint64_t window_stationary_ticks{};
+    /// Window ticks in which the unit was engaged (sample_staged_unit), and
+    /// of them the ones it stood still.
+    uint64_t window_engaged_ticks{};
+    uint64_t window_engaged_stationary_ticks{};
 };
 
 /// Begins tracking a unit where staging left it.
@@ -256,13 +260,16 @@ struct StagedUnit {
 /// @param moved whether its exact position changed during the tick
 /// @param live whether it is still the same live unit
 /// @param in_window whether the tick is one of the final stationary_window_ticks
+/// @param engaged whether the unit was engaged after the tick: one of its
+///     weapons held a target (a unit or a point) or was reloading after a shot
 void sample_staged_unit(
     StagedUnit& unit,
     std::span<const CrossingLine> lines,
     Point position,
     bool moved,
     bool live,
-    bool in_window
+    bool in_window,
+    bool engaged = false
 );
 
 /// Strike targets of one player's units, sampled every target_sample_interval_ticks.
@@ -411,7 +418,11 @@ struct StagedPlayer {
     uint64_t advanced_units{};     ///< goal units that gained advance_distance_pixels or more
     uint64_t window_live_unit_ticks{};
     uint64_t window_stationary_unit_ticks{};
+    /// Of the stationary window unit-ticks, those in which the unit was engaged.
+    uint64_t window_engaged_stationary_unit_ticks{};
     uint64_t stationary_throughout{}; ///< live through the window and never moved in it
+    /// Of those stationary throughout, the units never engaged in the window.
+    uint64_t stationary_throughout_unengaged{};
     std::vector<uint64_t> crossers{}; ///< one count a crossing line
     TargetSpread strike_targets{};
 };

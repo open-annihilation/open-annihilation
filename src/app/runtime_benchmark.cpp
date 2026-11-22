@@ -350,7 +350,13 @@ class StagedObserver {
             const bool moved = position.x != previous_[entry].x ||
                                position.y != previous_[entry].y || position.z != previous_[entry].z;
             battle_benchmark::sample_staged_unit(
-                units_[entry], result_.lines, pixels(position), moved, same, in_window
+                units_[entry],
+                result_.lines,
+                pixels(position),
+                moved,
+                same,
+                in_window,
+                same && engaged(slot.record)
             );
             if (same)
                 previous_[entry] = position;
@@ -459,6 +465,17 @@ class StagedObserver {
             position.x >> static_cast<int32_t>(kFixedShift),
             position.z >> static_cast<int32_t>(kFixedShift)
         };
+    }
+
+    /// Tells whether a unit is engaged: one of its weapons holds a target, a
+    /// unit or a point, or is reloading after a shot.
+    [[nodiscard]] static bool engaged(const oa::Unit& record) noexcept {
+        for (const auto& weapon : record.weapons) {
+            const bool targeted = weapon.target_a != 0 || weapon.target_b != OA_UNIT_TARGET_IS_UNIT;
+            if (targeted || weapon.reload != 0)
+                return true;
+        }
+        return false;
     }
 
     /// Tells whether an order kind sends its unit to a point: a move or a patrol.

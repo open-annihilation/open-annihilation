@@ -47,11 +47,17 @@ was last alive, and a later unit in its slot is not it), its destination
 when its first order is a move or patrol, the lines it has crossed away
 from its start side (once each), and its live and stationary ticks in the
 final `stationary_window_ticks` (300). Stationary means the caller saw no
-change of the exact position during the tick. `summarize_staged` totals them
+change of the exact position during the tick. The caller also says whether
+the unit was engaged after the tick: the application counts a unit engaged
+when one of its weapons holds a target (a unit or a point) or is reloading
+after a shot, so a unit standing to fire is told apart from one standing
+because it cannot move. The window counts its engaged ticks and its engaged
+stationary ticks. `summarize_staged` totals them
 by player, in player order: mean progress toward the destination (start
 distance less final distance, straight-line pixels), units that gained
-`advance_distance_pixels` (16) or more, the stationary window counts and
-crossers per line. `add_target_sample` takes the targets of one player's
+`advance_distance_pixels` (16) or more, the stationary window counts (the
+engaged stationary unit-ticks among them, and the units stationary
+throughout that were never engaged in the window) and crossers per line. `add_target_sample` takes the targets of one player's
 attackers at a sample and adds the sample, the attackers, the distinct
 targets and the commonest target's share. `audit_ownership` checks that
 every footprint cell of the units it is given names the unit on its layer,
@@ -88,7 +94,16 @@ object holds the ground steps, the unchecked ones, the misses, the misses
 whose first blocked origin was ground and those whose first was another
 unit, and the match tick of the first miss. `staged_battle` also holds
 `extra`, the named numbers a gate compares (a number, or one number a
-player); `swept_misses` there is the misses.
+player); `swept_misses` there is the misses. It also holds the stationary
+window split by engagement: `stationary_engaged_pct` and
+`stationary_unengaged_pct`, one number a player (indexed by player number,
+0 for a player with no tracked unit), the percentages of the player's live
+window unit-ticks in which a unit stood still engaged and not engaged (they
+add up to the stationary share); `stationary_unengaged_pct_all`, the
+unengaged share pooled over every player; `stationary_throughout_unengaged`,
+one number a player, the units stationary throughout the window that were
+never engaged in it, and `stationary_throughout_unengaged_all`, their sum.
+Percentages are rounded half up and written with three decimals.
 
 `summarize` copies elapsed-nanosecond samples, sorts the copy and returns the
 minimum, mean, maximum and nearest-rank p50, p95 and p99. Empty samples give
@@ -164,5 +179,7 @@ cell, an overlap, an air unit, a footprint past the edge), ground step
 paths (within a cell, across a column, past a corner on either side,
 exactly through it, backwards, a two-cell footprint, a wrong cell, the
 origin limit), swept-step audits (a corner cell only a diagonal passes, the
-exact corner, another unit's cell, a step's own start, an unchecked step)
-and the `staged_battle` report block.
+exact corner, another unit's cell, a step's own start, an unchecked step),
+the engaged split (standing while engaged, engaged once, engaged while
+moving, engagement outside the window or after death) and the
+`staged_battle` report block (the split's entries and their rounding).

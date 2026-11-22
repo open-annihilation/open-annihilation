@@ -13,6 +13,7 @@
 #include <limits>
 #include <numeric>
 #include <sstream>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <utility>
@@ -153,6 +154,69 @@ void json_number(std::ostream& out, double value) {
         out << "null";
 }
 
+/// Writes a count as a percentage of another, rounded half up to three
+/// decimals and written with exactly three, or 0.000 when the whole is 0.
+void json_percent(std::ostream& out, uint64_t part, uint64_t whole) {
+    constexpr uint64_t thousandths = 1'000;
+    constexpr uint64_t thousandths_of_percent = 100 * thousandths;
+    constexpr std::size_t thousandths_digits = 3;
+    const uint64_t scaled =
+        whole == 0 ? 0 : (part * thousandths_of_percent * 2 + whole) / (whole * 2);
+    std::string fraction = std::to_string(scaled % thousandths);
+    fraction.insert(0, thousandths_digits - fraction.size(), '0');
+    out << scaled / thousandths << '.' << fraction;
+}
+
+/// Writes the stationary window's engaged and unengaged shares as `extra`
+/// entries: one number a player, indexed by player number, and the players
+/// pooled.
+void json_engagement(std::ostream& out, const std::vector<StagedPlayer>& players) {
+    std::size_t count = 0;
+    for (const auto& player : players)
+        count = std::max<std::size_t>(count, std::size_t{player.player} + 1);
+    std::vector<const StagedPlayer*> by_player(count, nullptr);
+    for (const auto& player : players)
+        by_player[player.player] = &player;
+    const auto list = [&](std::string_view name, const auto& write) {
+        out << ", ";
+        json_string(out, name);
+        out << ": [";
+        for (std::size_t index = 0; index < count; ++index) {
+            out << (index == 0 ? "" : ", ");
+            if (by_player[index] == nullptr)
+                out << 0;
+            else
+                write(*by_player[index]);
+        }
+        out << ']';
+    };
+    list("stationary_engaged_pct", [&](const StagedPlayer& player) {
+        json_percent(
+            out, player.window_engaged_stationary_unit_ticks, player.window_live_unit_ticks
+        );
+    });
+    list("stationary_unengaged_pct", [&](const StagedPlayer& player) {
+        json_percent(
+            out,
+            player.window_stationary_unit_ticks - player.window_engaged_stationary_unit_ticks,
+            player.window_live_unit_ticks
+        );
+    });
+    uint64_t live = 0, unengaged = 0, still = 0;
+    for (const auto& player : players) {
+        live += player.window_live_unit_ticks;
+        unengaged +=
+            player.window_stationary_unit_ticks - player.window_engaged_stationary_unit_ticks;
+        still += player.stationary_throughout_unengaged;
+    }
+    out << ", \"stationary_unengaged_pct_all\": ";
+    json_percent(out, unengaged, live);
+    list("stationary_throughout_unengaged", [&](const StagedPlayer& player) {
+        out << player.stationary_throughout_unengaged;
+    });
+    out << ", \"stationary_throughout_unengaged_all\": " << still;
+}
+
 /// Writes a staged battle's lines, players and ownership audits.
 void json_staged(std::ostream& out, const StagedBattle& staged) {
     out << "{\n    \"stage\": ";
@@ -180,7 +244,10 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
         out << ", \"advanced_units\": " << player.advanced_units
             << ", \"window_live_unit_ticks\": " << player.window_live_unit_ticks
             << ", \"window_stationary_unit_ticks\": " << player.window_stationary_unit_ticks
+            << ", \"window_engaged_stationary_unit_ticks\": "
+            << player.window_engaged_stationary_unit_ticks
             << ", \"stationary_throughout\": " << player.stationary_throughout
+            << ", \"stationary_throughout_unengaged\": " << player.stationary_throughout_unengaged
             << ", \"crossers\": [";
         for (std::size_t line = 0; line < player.crossers.size(); ++line)
             out << (line == 0 ? "" : ", ") << player.crossers[line];
@@ -211,7 +278,9 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
         out << *swept.first_miss_tick;
     else
         out << "null";
-    out << "},\n    \"extra\": {\"swept_misses\": " << swept.misses << "}\n  }";
+    out << "},\n    \"extra\": {\"swept_misses\": " << swept.misses;
+    json_engagement(out, staged.players);
+    out << "}\n  }";
 }
 
 } // namespace
@@ -529,7 +598,8 @@ void sample_staged_unit(
     Point position,
     bool moved,
     bool live,
-    bool in_window
+    bool in_window,
+    bool engaged
 ) {
     if (!unit.live)
         return;
@@ -549,6 +619,10 @@ void sample_staged_unit(
         ++unit.window_live_ticks;
         if (!moved)
             ++unit.window_stationary_ticks;
+        if (engaged)
+            ++unit.window_engaged_ticks;
+        if (engaged && !moved)
+            ++unit.window_engaged_stationary_ticks;
     }
     unit.position = position;
 }
@@ -742,9 +816,11 @@ summarize_staged(std::span<const StagedUnit> units, std::size_t line_count, uint
         }
         summary.window_live_unit_ticks += unit.window_live_ticks;
         summary.window_stationary_unit_ticks += unit.window_stationary_ticks;
-        summary.stationary_throughout += window_ticks != 0 &&
-                                         unit.window_live_ticks == window_ticks &&
-                                         unit.window_stationary_ticks == window_ticks;
+        summary.window_engaged_stationary_unit_ticks += unit.window_engaged_stationary_ticks;
+        const bool throughout = window_ticks != 0 && unit.window_live_ticks == window_ticks &&
+                                unit.window_stationary_ticks == window_ticks;
+        summary.stationary_throughout += throughout;
+        summary.stationary_throughout_unengaged += throughout && unit.window_engaged_ticks == 0;
         for (std::size_t line = 0; line < summary.crossers.size(); ++line)
             summary.crossers[line] += (unit.crossed >> line) & 1U;
     }
