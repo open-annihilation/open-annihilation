@@ -328,21 +328,56 @@ For the suite's network case of Revision 1:
 
 - Machines: the Mac Studio hosts on macOS; its Windows and Linux guests
   join. Every machine plays Enhanced Mode, Revision 1.
-- Stage: each of the three players gets 3,000 movers from a fixed stage on
-  a large flat map, apart from the commanders, and a scripted group move of
-  all of a player's movers on every machine at the same tick, then the
-  match plays 1,800 ticks. Each machine writes a world digest every tick
-  (`--trace-digest`).
+- Starting each machine: the suite starts every engine from the command
+  line, as its other crossplay cases do, and readies and starts the battle
+  room as they do. The host runs `--host --map MAP --start-positions fixed
+  --enhanced-mode --net-route-burst 3000`, and each guest `--join ADDRESS
+  --side arm --net-route-burst 3000`: a host started with launch settings
+  such as `--map` admits only guests whose start is a launch too, which a
+  launch setting such as `--side` makes it. Each machine also writes
+  `--trace-units FILE` and `--net-record FILE`. A host in Enhanced Mode
+  opens its room with a unit limit that holds the movers beside the
+  commander.
+- Stage: nothing more is clicked. Once the match starts, each machine gives
+  its own player 3,000 movers, and at tick 300 sends them all one row south
+  in one group move ([`--net-route-burst`](command-line.md#network-play)).
+  Every machine lays out the same blocks: one for each player, by the order
+  of the players' unit ranges, clear of every start position of the map
+  and of the other players' blocks. In a block the movers stand loose, in
+  staggered rows, and a mover is made only where it can walk its march, so
+  that every mover can reach its goal and stand still there. The match then
+  plays on until every mover has stood still and a round of full unit
+  records has passed: about 3,200 ticks for 3,000 movers a player, and
+  1,200 for 1,000.
 - Runs: one with no loss, then one with 10% of the frames lost on one link
   (shaped by the suite; `-e 10` on one guest instead loses that share of
   every frame the guest sends).
+- Comparing the machines: on what the network shares, never on world
+  digests. Each machine simulates and orders only its own player's units
+  and follows the others' from their records a few ticks behind; it numbers
+  its own player first, its copies of other players' units hold no orders,
+  and a copy's health arrives only with its owner's round-robin full unit
+  record, one unit a tick. So two machines' `--trace-digest` streams are
+  never equal at any tick, and each is kept as that machine's own record.
 - Pass:
-  - the world digests are equal on all three machines at every 300th tick
-    and at the end;
+  - every 300th tick, each player's live units are the same on every
+    machine;
+  - at the end, once every mover has stood still on its owner for 300
+    ticks and a whole round of full records (the room's unit limit in
+    ticks) has passed since a unit last appeared on any machine, every
+    unit's owning player (by who plays it, not by slot), type, map cell and
+    health are the same on every machine; a mover still moving fails the
+    run and is named;
   - no machine holds a step longer than the bound above (150 ticks in the
-    lossy run, a few ticks in the lossless one), and none gives a step up;
-  - each machine's `route batches:` line, printed as it leaves the match,
-    is kept with the run.
+    lossy run, a few ticks in the lossless one), and each machine's
+    `route batches:` line, printed as it leaves the match, is kept with the
+    run;
+  - each machine's recording plays back with no record error, twice to the
+    same stream, and the units it settles to are the live machines'.
+- `native-net-route-burst` plays the same plan with two programs on one
+  machine, 1,000 movers each on Painted Desert, and
+  `native-net-route-burst-loss` with `-e 10` on the guest
+  ([testing](development/testing.md#network-play)).
 - Plus an Off run of the same stage, whose wire is byte for byte the base's
   (the capture compare of the crossplay cases), and a battle room with a
   3.1c machine, which plays Off with unchanged bytes.

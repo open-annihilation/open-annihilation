@@ -32,6 +32,19 @@ namespace oa::app {
 namespace fs = std::filesystem;
 
 constexpr std::size_t kDefaultDemoTicks = 600; // headless --play-demo without --match-ticks
+// A route burst's movers are made this many a tick, and its group move comes
+// at kRouteBurstTick unless --net-route-burst-tick names another tick.
+constexpr std::size_t kRouteBurstMadePerTick = 100;
+constexpr uint32_t kRouteBurstTick = 300;
+// In a network game, ticks the group move leaves after the last mover is
+// made, for the movers' copies to reach the other machines: a second.
+constexpr uint32_t kRouteBurstCopyMargin = 30;
+// The units a player's unit limit keeps beside a route burst's movers: the
+// commander among them.
+constexpr std::size_t kRouteBurstRoomBeside = 20;
+// The most movers --net-route-burst gives a player: the most units a room
+// holds a player, Enhanced Mode's 10,000, less the commander.
+constexpr std::size_t kRouteBurstMostMovers = 9'999;
 
 // When --check-opened-launch opens its file in the game, as the system opens one.
 enum class OpenedLaunchCheck : uint8_t {
@@ -68,6 +81,14 @@ struct NetOptions {
     // machine loses this share of the frames it sends, in percent, as -e
     // makes it. 0 loses none.
     int32_t net_loopback_loss = 0;
+    // --net-route-burst MOVERS, beside --host or --join: once the network
+    // match starts, this machine's player is given this many movers, placed
+    // by its place in the match, and they all move at once at
+    // net_route_burst_tick. 0: no burst.
+    std::size_t net_route_burst = 0;
+    // --net-route-burst-tick T: the tick of that group move. Unset:
+    // kRouteBurstTick.
+    std::optional<uint32_t> net_route_burst_tick;
     // A join whose host is not found, played through the main loop (with
     // --frames and "-n1:<address>" naming an address where no game is
     // hosted): a launch counts as active until the game list begins to wait

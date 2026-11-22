@@ -54,8 +54,10 @@
 #include "oa/base/text.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/netgame/sync/unit_checksum.hpp"
+#include "oa/platform/log_files.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/sim/ai.hpp"
+#include "oa/sim/feature_runtime.hpp"
 #include "oa/sim/match_runtime.hpp"
 #include "oa/sim/messages.hpp"
 #include "oa/ui/console/console.hpp"
@@ -105,12 +107,15 @@ namespace nm = oa::netgame::match;
 namespace {
 
 constexpr uint16_t kLoopbackUnitsPerPlayer = 20;
-// With --net-loopback-route-burst: the host's movers, a type of the base
-// game, stand in a block of rows this many wide and this far apart, in
-// world units, on a large flat map of the base game (an install without it
-// plays its first map), this far from its edge and at least
-// kRouteBurstClearance from either commander. At kRouteBurstTick of the
-// host's every mover is sent this far south at once.
+// A route burst (--net-loopback-route-burst, and --net-route-burst in a
+// network game): a player's movers, a type of the base game, stand in a
+// block of rows this many wide and this far apart, in world units, this far
+// from the map's edge and at least kRouteBurstClearance from every other
+// player's block and from the commanders: the loopback check's two, and in a
+// network game every start position of the map. The loopback check plays a
+// large flat map of the base game (an install without it plays its first
+// map). At the burst's tick every mover is sent this far south at once; in a
+// network game a little farther (kRouteBurstLooseMarch).
 constexpr const char* kRouteBurstMoverType = "ARMPW";
 constexpr const char* kRouteBurstMap = "Painted Desert";
 constexpr uint32_t kRouteBurstColumns = 60;
@@ -118,11 +123,30 @@ constexpr int32_t kRouteBurstSpacing = 32;
 constexpr int32_t kRouteBurstMargin = 256;
 constexpr int32_t kRouteBurstClearance = 1024;
 constexpr int32_t kRouteBurstMarch = 256;
-constexpr uint32_t kRouteBurstTick = 300;
-// Movers the host makes in one tick, and the ticks the joiner has for the
-// last copy to stand.
-constexpr std::size_t kRouteBurstMadePerTick = 100;
+// In a network game, where every mover must reach its goal and stand still,
+// the movers stand loose: in half as many columns twice as far apart, every
+// other row shifted half that east, so that each mover has the row after it
+// on either side and the next in its own line two rows on. Each marches one
+// row south, between the movers of the row after it, so that its path and
+// goal are clear whenever the others move. A mover is made only where it
+// can walk every map cell within this many world units of its centre and of
+// its path, its footprint and a cell around it (route_burst_path_clear).
+constexpr uint32_t kRouteBurstLooseColumns = kRouteBurstColumns / 2;
+constexpr int32_t kRouteBurstLooseSpacing = 2 * kRouteBurstSpacing;
+constexpr int32_t kRouteBurstLooseMarch = kRouteBurstLooseSpacing;
+constexpr int32_t kRouteBurstPathMargin = 32;
+static_assert(
+    kRouteBurstLooseColumns * kRouteBurstLooseSpacing == kRouteBurstColumns * kRouteBurstSpacing,
+    "a loose block is as wide as the loopback's"
+);
+static_assert(
+    kRouteBurstMostMovers + 1 == oa::data::limits::highest_enhanced_units_per_player,
+    "a route burst holds a room's most units less the commander"
+);
+// The ticks the loopback joiner has for the last copy of a mover to stand.
 constexpr uint32_t kRouteBurstCopyTicks = 600;
+// The map marker kind of a start position (StartMarker::kind).
+constexpr int32_t kStartPositionMarker = 1;
 // With --net-loopback-computer: room for the computer player's base and
 // army, on a small map of the base game whose bases lie close together; an
 // install without it plays its first map.
@@ -434,6 +458,265 @@ uint16_t make_unit(
     request.state = 1;
     auto* made = match.create(request);
     return made != nullptr && made->unit != nullptr ? static_cast<uint16_t>(made->unit_index) : 0;
+}
+
+/// Where one player's block of route-burst movers stands, and where in it
+/// each of the player's movers is made.
+struct RouteBurstBlock {
+    int32_t left{};   ///< the block's north-west corner, in world units
+    int32_t top{};    ///< the block's north-west corner, in world units
+    int32_t height{}; ///< its places' rows and the march south, in world units
+    int32_t march{};  ///< how far south each mover is sent, in world units
+    std::vector<std::array<int32_t, 2>> spots; ///< each mover's place: x and z, world units
+};
+
+/// A route burst's blocks of movers on a map, or why the map has none.
+struct RouteBurstLayout {
+    std::vector<RouteBurstBlock> blocks; ///< one a player, in the players' order
+    const char* refusal{};               ///< why there are none; null when there are
+};
+
+/// Tells whether a mover made at a place can walk its march south.
+///
+/// Every map cell within kRouteBurstPathMargin of the mover's centre, there
+/// and along its march, holds no part of a feature and no blocking marker or
+/// hidden edge of the map, is no steeper than the mover's type may climb,
+/// and lies no deeper under the sea than it may wade, as the game tests a
+/// unit's footprint.
+///
+/// @param world the match's world, whose map plots are read
+/// @param walker the movers' type
+/// @param x the place across, in world units
+/// @param z the place down, in world units
+/// @param march how far south the mover is sent, in world units
+/// @return true when the path is clear
+bool route_burst_path_clear(
+    const World& world, const UnitDef& walker, int32_t x, int32_t z, int32_t march
+) {
+    const int32_t deepest = static_cast<int32_t>(world.game.sea_level) - walker.max_water_depth;
+    constexpr int32_t cell = OA_MAP_CELL_PIXELS;
+    for (int32_t row = (z - kRouteBurstPathMargin) / cell;
+         row <= (z + march + kRouteBurstPathMargin - 1) / cell;
+         ++row)
+        for (int32_t column = (x - kRouteBurstPathMargin) / cell;
+             column <= (x + kRouteBurstPathMargin - 1) / cell;
+             ++column) {
+            const MapPlot* plot = world_plot(&world, column, row);
+            if (plot == nullptr || plot->feature != oa::sim::feature_runtime::no_feature ||
+                plot->high_height - plot->low_height > walker.max_slope ||
+                plot->low_height < deepest)
+                return false;
+        }
+    return true;
+}
+
+/// Fits a player's block of route-burst movers at one of the map's places.
+///
+/// The block's places run along rows from its west edge `left`, and it
+/// stands kRouteBurstMargin from the map's north edge, in its middle, or
+/// kRouteBurstMargin from its south edge, as `edge` says. The loopback
+/// check's block (no `walker`) holds just the rows its movers need,
+/// kRouteBurstColumns to a row and kRouteBurstSpacing apart, and each mover
+/// marches kRouteBurstMarch. In a network game every mover must reach its
+/// goal and stand still there: the rows hold kRouteBurstLooseColumns
+/// kRouteBurstLooseSpacing apart, every other row shifted half that east,
+/// each mover marches kRouteBurstLooseMarch, a place whose march is blocked
+/// (route_burst_path_clear) is skipped, and the block takes as many more
+/// rows as that needs, up to twice as many.
+///
+/// @param world the match's world, which gives the map's size and plots
+/// @param movers the player's movers
+/// @param left the block's west edge, in world units
+/// @param edge -1 at the north edge, 0 in the middle, 1 at the south edge
+/// @param walker in a network game the movers' type, whose every mover must
+///        reach its goal; null in the loopback check
+/// @return the block; with fewer spots than movers when none fits there
+RouteBurstBlock fit_route_burst_block(
+    const World& world, std::size_t movers, int32_t left, int32_t edge, const UnitDef* walker
+) {
+    const bool reach_goals = walker != nullptr;
+    const auto map_height = static_cast<int32_t>(world.game.map_pixel_height);
+    const uint32_t columns = reach_goals ? kRouteBurstLooseColumns : kRouteBurstColumns;
+    const int32_t spacing = reach_goals ? kRouteBurstLooseSpacing : kRouteBurstSpacing;
+    const auto needed = static_cast<int32_t>((movers + columns - 1) / columns);
+    RouteBurstBlock block;
+    block.march = reach_goals ? kRouteBurstLooseMarch : kRouteBurstMarch;
+    for (int32_t rows = needed; rows <= (reach_goals ? 2 * needed : needed); ++rows) {
+        block.height = rows * spacing + block.march;
+        block.left = left;
+        block.top = edge < 0   ? kRouteBurstMargin
+                    : edge > 0 ? map_height - kRouteBurstMargin - block.height
+                               : (map_height - block.height) / 2;
+        if (block.top < kRouteBurstMargin)
+            break;
+        block.spots.clear();
+        for (int32_t row = 0; row < rows && block.spots.size() < movers; ++row)
+            for (uint32_t column = 0; column < columns && block.spots.size() < movers; ++column) {
+                const int32_t x = left + static_cast<int32_t>(column) * spacing +
+                                  (reach_goals && row % 2 != 0 ? spacing / 2 : 0);
+                const int32_t z = block.top + row * spacing;
+                if (!reach_goals || route_burst_path_clear(world, *walker, x, z, block.march))
+                    block.spots.push_back({x, z});
+            }
+        if (block.spots.size() == movers)
+            break;
+    }
+    return block;
+}
+
+/// Lays out a route burst's blocks of movers on a match's map, one for each of its players.
+///
+/// The same map, movers and places to keep clear of give the same blocks on
+/// every machine. Each block (fit_route_burst_block) in turn takes the corner
+/// of the map farthest from every place to keep clear of and every block
+/// laid out before it, the first such corner in the order north-west,
+/// south-west, north-east, south-east. When no corner keeps
+/// kRouteBurstClearance from them all, the middles of the north, west, east
+/// and south edges and of the map are tried too, in that order. A place that
+/// cannot hold the movers is not taken.
+///
+/// @param world the match's world, which gives the map's size and plots
+/// @param movers each player's movers
+/// @param players the blocks to lay out
+/// @param keep_clear the places the blocks keep clear of, such as the commanders': x and z, world units
+/// @param walker in a network game the movers' type, whose every mover must
+///        reach its goal; null in the loopback check
+/// @return the blocks; none, with the refusal, when the map is too small or no place keeps clear
+RouteBurstLayout lay_out_route_burst(
+    const World& world,
+    std::size_t movers,
+    std::size_t players,
+    const std::vector<std::array<int32_t, 2>>& keep_clear,
+    const UnitDef* walker
+) {
+    const int32_t width = static_cast<int32_t>(kRouteBurstColumns) * kRouteBurstSpacing;
+    const auto map_width = static_cast<int32_t>(world.game.map_pixel_width);
+    const auto map_height = static_cast<int32_t>(world.game.map_pixel_height);
+    const int32_t least_height =
+        static_cast<int32_t>((movers + kRouteBurstColumns - 1) / kRouteBurstColumns) *
+            kRouteBurstSpacing +
+        kRouteBurstMarch;
+    if (2 * kRouteBurstMargin + width >= map_width ||
+        2 * kRouteBurstMargin + least_height >= map_height)
+        return {{}, "the map is too small for the route burst's movers"};
+    RouteBurstLayout laid;
+    // How far a block stands from the nearest place to keep clear of or earlier block.
+    const auto clearance = [&](const RouteBurstBlock& at) {
+        int32_t nearest = INT32_MAX;
+        for (const auto& [x, z] : keep_clear) {
+            const int32_t dx = std::max({at.left - x, x - at.left - width, 0});
+            const int32_t dz = std::max({at.top - z, z - at.top - at.height, 0});
+            nearest = std::min(nearest, std::max(dx, dz));
+        }
+        for (const auto& other : laid.blocks) {
+            const int32_t dx =
+                std::max({at.left - other.left - width, other.left - at.left - width, 0});
+            const int32_t dz =
+                std::max({at.top - other.top - other.height, other.top - at.top - at.height, 0});
+            nearest = std::min(nearest, std::max(dx, dz));
+        }
+        return nearest;
+    };
+    const int32_t west = kRouteBurstMargin;
+    const int32_t east = map_width - kRouteBurstMargin - width;
+    const int32_t middle = (map_width - width) / 2;
+    const auto fit = [&](int32_t left, int32_t edge) {
+        return fit_route_burst_block(world, movers, left, edge, walker);
+    };
+    const std::vector<RouteBurstBlock> corners = {
+        fit(west, -1), fit(west, 1), fit(east, -1), fit(east, 1)
+    };
+    const std::vector<RouteBurstBlock> middles = {
+        fit(middle, -1), fit(west, 0), fit(east, 0), fit(middle, 1), fit(middle, 0)
+    };
+    for (std::size_t player = 0; player < players; ++player) {
+        const RouteBurstBlock* best = nullptr;
+        const auto consider = [&](const std::vector<RouteBurstBlock>& candidates) {
+            for (const auto& candidate : candidates)
+                if (candidate.spots.size() == movers &&
+                    (best == nullptr || clearance(candidate) > clearance(*best)))
+                    best = &candidate;
+        };
+        consider(corners);
+        if (best == nullptr || clearance(*best) < kRouteBurstClearance)
+            consider(middles);
+        if (best == nullptr || clearance(*best) < kRouteBurstClearance)
+            return {
+                {},
+                "no place on the map keeps the movers clear of the start positions and the "
+                "other players' movers"
+            };
+        laid.blocks.push_back(*best);
+    }
+    return laid;
+}
+
+/// Makes up to kRouteBurstMadePerTick more of a player's route-burst movers, finished and standing at their places.
+///
+/// The match tells the other machines of each as it makes it.
+///
+/// @param match the match, on the machine that simulates the player
+/// @param owner the player's slot in that match
+/// @param type the movers' UnitDef index
+/// @param spots each mover's place, x and z in world units, in the order they are made
+/// @param[in,out] made the movers made so far, by unit slot; gains the new ones
+/// @return false when a mover could not be made
+bool make_route_burst_movers(
+    sim::match_runtime::Match& match,
+    uint8_t owner,
+    uint16_t type,
+    const std::vector<std::array<int32_t, 2>>& spots,
+    std::vector<uint16_t>& made
+) {
+    for (std::size_t n = 0; n < kRouteBurstMadePerTick && made.size() < spots.size(); ++n) {
+        const auto& [x, z] = spots[made.size()];
+        const auto fixed_x = static_cast<uint32_t>(x) << 16;
+        const auto fixed_z = static_cast<uint32_t>(z) << 16;
+        oa::sim::unit_spawn::Request request{};
+        request.player = owner;
+        request.type = type;
+        request.finished = true;
+        request.state = kGroundOccupancyState;
+        request.position = {
+            fixed_x, static_cast<uint32_t>(match.map_height(fixed_x, fixed_z)) << 16, fixed_z
+        };
+        const auto* placed = match.create(request);
+        if (placed == nullptr || placed->unit == nullptr)
+            return false;
+        made.push_back(static_cast<uint16_t>(placed->unit_index));
+    }
+    return true;
+}
+
+/// Sends every live route-burst mover of a player south at once, each the same distance from where it was made.
+///
+/// @param match the match, on the machine that simulates the player
+/// @param made the player's movers, by unit slot
+/// @param spots where each mover was made, x and z in world units
+/// @param march how far south each mover is sent, in world units
+/// @return the movers sent; a mover that died is not
+std::size_t order_route_burst(
+    sim::match_runtime::Match& match,
+    const std::vector<uint16_t>& made,
+    const std::vector<std::array<int32_t, 2>>& spots,
+    int32_t march
+) {
+    std::size_t moved = 0;
+    for (std::size_t i = 0; i < made.size(); ++i) {
+        if (!unit_live(match.state().units[made[i]]))
+            continue;
+        ++moved;
+        const auto fixed_x = static_cast<uint32_t>(spots[i][0]) << 16;
+        const auto fixed_z = static_cast<uint32_t>(spots[i][1] + march) << 16;
+        (void)match.issue_ground_move(
+            made[i],
+            {static_cast<int32_t>(fixed_x),
+             match.map_height(fixed_x, fixed_z) << 16,
+             static_cast<int32_t>(fixed_z)},
+            false
+        );
+    }
+    return moved;
 }
 
 /// Hashes which units a world holds: slot, type and owner by player id (FNV-1a).
@@ -1667,6 +1950,14 @@ struct NetworkPlay::NetHost {
             start_positions[slot] = start;
         const bool fixed_positions = (host->options & OA_SETUP_OPTION_FIXED_LOCATIONS) != 0;
         runtime.note_brain_map_starts();
+        // The map's start positions, where the commanders stand, which
+        // --net-route-burst keeps its movers clear of; its burst starts
+        // afresh in each match.
+        const auto& map_markers = runtime.selected_start_markers_;
+        play.route_burst_ = {};
+        for (const auto& marker : map_markers)
+            if (marker.kind == kStartPositionMarker)
+                play.route_burst_.starts.push_back({marker.x, marker.z});
         for (const auto& placed : starts) {
             const uint8_t slot = placed.first;
             // A position an earlier move swapped is read from the table.
@@ -1681,13 +1972,7 @@ struct NetworkPlay::NetHost {
                 info.side, info.color, host->metal_hundreds * 100, host->energy_hundreds * 100
             };
             const auto started = runtime.match_->start_player(
-                slot,
-                setup,
-                runtime.selected_start_markers_,
-                start,
-                kBattlefieldWidth,
-                kBattlefieldHeight,
-                runtime
+                slot, setup, map_markers, start, kBattlefieldWidth, kBattlefieldHeight, runtime
             );
             if (!started.position_found || started.unit == nullptr)
                 throw std::runtime_error("a local commander could not be placed");
@@ -2908,48 +3193,21 @@ struct NetworkPlay::NetHost {
         const auto mover_type = unit_type_named(host_world, kRouteBurstMoverType);
         require(mover_type != 0, "the route burst's mover type is not in the match");
         const auto owner = host_world.units[commander].owner_index;
-        const int32_t map_width = static_cast<int32_t>(host_world.game.map_pixel_width);
-        const int32_t map_height = static_cast<int32_t>(host_world.game.map_pixel_height);
         // The movers' block, their march south included, stands in the map
         // corner farthest from both commanders, out of the joiner's
         // commander's reach: its weapons would fire on the host's movers.
-        const auto rows =
-            static_cast<int32_t>((movers + kRouteBurstColumns - 1) / kRouteBurstColumns);
-        const int32_t block_width = static_cast<int32_t>(kRouteBurstColumns) * kRouteBurstSpacing;
-        const int32_t block_height = rows * kRouteBurstSpacing + kRouteBurstMarch;
-        require(
-            2 * kRouteBurstMargin + block_width < map_width &&
-                2 * kRouteBurstMargin + block_height < map_height,
-            "the map is too small for the route burst's movers"
-        );
-        const auto joiner_commander = local_commander(joiner);
-        const auto clearance = [&](int32_t left, int32_t top) {
-            int32_t nearest = INT32_MAX;
-            for (const auto slot : {commander, joiner_commander}) {
-                if (slot == 0)
-                    continue;
-                const auto& at = host_world.units[slot].position;
-                const int32_t dx =
-                    std::max({left - (at.x >> 16), (at.x >> 16) - left - block_width, 0});
-                const int32_t dz =
-                    std::max({top - (at.z >> 16), (at.z >> 16) - top - block_height, 0});
-                nearest = std::min(nearest, std::max(dx, dz));
-            }
-            return nearest;
-        };
-        int32_t corner_x = kRouteBurstMargin;
-        int32_t corner_z = kRouteBurstMargin;
-        for (const int32_t left : {kRouteBurstMargin, map_width - kRouteBurstMargin - block_width})
-            for (const int32_t top :
-                 {kRouteBurstMargin, map_height - kRouteBurstMargin - block_height})
-                if (clearance(left, top) > clearance(corner_x, corner_z)) {
-                    corner_x = left;
-                    corner_z = top;
-                }
-        require(
-            clearance(corner_x, corner_z) >= kRouteBurstClearance,
-            "no corner of the map keeps the movers clear of the commanders"
-        );
+        std::vector<std::array<int32_t, 2>> commanders;
+        for (const auto slot : {commander, local_commander(joiner)})
+            if (slot != 0)
+                commanders.push_back(
+                    {host_world.units[slot].position.x >> 16,
+                     host_world.units[slot].position.z >> 16}
+                );
+        const auto laid = lay_out_route_burst(host_world, movers, 1, commanders, nullptr);
+        if (laid.refusal != nullptr)
+            require(false, laid.refusal);
+        const auto& spots = laid.blocks.front().spots;
+        const int32_t march = laid.blocks.front().march;
         const auto play_tick = [&] {
             host.net_frame();
             joiner.net_frame();
@@ -2960,32 +3218,12 @@ struct NetworkPlay::NetHost {
         };
         // The movers, a hundred a tick, then until the joiner holds them all.
         std::vector<uint16_t> made;
-        std::vector<std::array<int32_t, 2>> places;
         made.reserve(movers);
         while (made.size() < movers) {
-            for (std::size_t n = 0; n < kRouteBurstMadePerTick && made.size() < movers; ++n) {
-                const auto index = static_cast<uint32_t>(made.size());
-                const int32_t x = corner_x + static_cast<int32_t>(index % kRouteBurstColumns) *
-                                                 kRouteBurstSpacing;
-                const int32_t z = corner_z + static_cast<int32_t>(index / kRouteBurstColumns) *
-                                                 kRouteBurstSpacing;
-                const auto fixed_x = static_cast<uint32_t>(x) << 16;
-                const auto fixed_z = static_cast<uint32_t>(z) << 16;
-                oa::sim::unit_spawn::Request request{};
-                request.player = owner;
-                request.type = mover_type;
-                request.finished = true;
-                request.state = kGroundOccupancyState;
-                request.position = {
-                    fixed_x,
-                    static_cast<uint32_t>(host_match.map_height(fixed_x, fixed_z)) << 16,
-                    fixed_z
-                };
-                const auto* placed = host_match.create(request);
-                require(placed != nullptr && placed->unit != nullptr, "a mover could not be made");
-                made.push_back(static_cast<uint16_t>(placed->unit_index));
-                places.push_back({x, z});
-            }
+            require(
+                make_route_burst_movers(host_match, owner, mover_type, spots, made),
+                "a mover could not be made"
+            );
             play_tick();
         }
         const auto copies_held = [&] {
@@ -3006,24 +3244,9 @@ struct NetworkPlay::NetHost {
         // A mover can die standing where it was made; only the live ones move.
         std::size_t moved = 0;
         while (host_world.game.tick < ticks) {
-            if (host_world.game.tick + 1 == kRouteBurstTick) {
-                // The group move: every mover heads south at the same tick.
-                for (std::size_t i = 0; i < made.size(); ++i) {
-                    if (!unit_live(host_world.units[made[i]]))
-                        continue;
-                    ++moved;
-                    const auto fixed_x = static_cast<uint32_t>(places[i][0]) << 16;
-                    const auto fixed_z = static_cast<uint32_t>(places[i][1] + kRouteBurstMarch)
-                                         << 16;
-                    (void)host_match.issue_ground_move(
-                        made[i],
-                        {static_cast<int32_t>(fixed_x),
-                         host_match.map_height(fixed_x, fixed_z) << 16,
-                         static_cast<int32_t>(fixed_z)},
-                        false
-                    );
-                }
-            }
+            // The group move: every mover heads south at the same tick.
+            if (host_world.game.tick + 1 == kRouteBurstTick)
+                moved = order_route_burst(host_match, made, spots, march);
             play_tick();
         }
         // Settle: a copy takes its health from its owner's full record, which
@@ -3093,6 +3316,148 @@ struct NetworkPlay::NetHost {
         host_world.game.send_error_percent = 0;
         client_world.game.send_error_percent = 0;
         joiner.net_leave();
+    }
+
+    /// Gives a host's battle room a unit limit that holds --net-route-burst's movers beside the commander.
+    ///
+    /// Runs every frame and acts once, in a run with --net-route-burst and
+    /// --host. A room whose limit a launch names keeps it (check_route_burst
+    /// refused one too small). In Enhanced Mode the room is to hold the
+    /// movers and kRouteBurstRoomBeside more units a player, at most Enhanced
+    /// Mode's 10,000: the run's unit limit, which the host's room opens at,
+    /// is raised to that, or the room's own limit if it is open already, and
+    /// the log says so. Off, the room keeps the limit it opens at, as in
+    /// 3.1c, and a burst it cannot hold is refused as the match starts.
+    ///
+    /// @param play network play's state for the runtime
+    static void route_burst_room(NetworkPlay& play) {
+        if (play.route_burst_room_set_)
+            return;
+        play.route_burst_room_set_ = true;
+        const auto& options = net_options();
+        if (options.net_route_burst == 0 ||
+            options.direct_game.kind != mp::DirectGame::Kind::host ||
+            net_launch_switches().block.max_units != 0)
+            return;
+        const auto* profile = play.runtime_.mod_profile();
+        if (profile == nullptr || !profile->rules.setup.enhanced_mode.enabled)
+            return;
+        const auto needed = static_cast<uint16_t>(std::min<std::size_t>(
+            options.net_route_burst + kRouteBurstRoomBeside,
+            oa::data::limits::highest_enhanced_units_per_player
+        ));
+        auto& lobby = mp::multiplayer_lobby();
+        auto& game = mp::multiplayer_game();
+        if (mp::multiplayer_direct_game_progress().reached == mp::DirectGameStep::battle_room &&
+            lobby.game != nullptr) {
+            if (mp::lobby_max_units(game) >= needed)
+                return;
+            mp::lobby_max_units(game) = needed;
+            mp::local_info(lobby).max_units = needed;
+            mp::lobby_send_player_info(lobby);
+        } else {
+            if (mp::lobby_max_units_default(game) >= needed)
+                return;
+            mp::lobby_max_units_default(game) = needed;
+        }
+        oa::platform::log_files::write_line(
+            "route burst: the room holds " + std::to_string(needed) +
+            " units a player, the movers and the commander among them"
+        );
+    }
+
+    /// Plays --net-route-burst's part of the network match's next tick, on the machine whose player it is.
+    ///
+    /// Runs before each tick the match steps, and does nothing once the burst
+    /// is done or while the match is paused. Before the first tick the burst
+    /// is laid out: each playing player of the match, in the order of their
+    /// unit ranges, which every machine numbers alike, has a block of the map
+    /// clear of every start position of the map's schema in play, where the
+    /// commanders stand (lay_out_route_burst), and the local player takes
+    /// the block of its place. A watcher, a room whose unit limit cannot
+    /// hold the movers beside the commander, and a map with no room for the
+    /// blocks make no movers, and a line says why. Then the local player's
+    /// movers are made, kRouteBurstMadePerTick before each tick, and before
+    /// the burst's tick every live one is sent south at once
+    /// (order_route_burst), with the line "route burst: player P movers M
+    /// tick T": P is the player's place, from 1, M the movers sent and T the
+    /// tick. A machine makes and moves only its own player's units; the
+    /// other machines' copies follow the records the match sends them.
+    ///
+    /// @param play network play's state for the runtime whose network match is about to tick
+    static void route_burst_step(NetworkPlay& play) {
+        auto& burst = play.route_burst_;
+        if (burst.done)
+            return;
+        auto& match = *play.net_->binding.match;
+        auto& world = match.state();
+        if ((world.game.sim_run_flags & nm::run_flag_paused) != 0)
+            return;
+        const std::size_t movers = net_options().net_route_burst;
+        const uint32_t move_tick = net_options().net_route_burst_tick.value_or(kRouteBurstTick);
+        const uint8_t local = play.net_->local_slot;
+        const auto refuse = [&burst](const std::string& why) {
+            burst.laid_out = true;
+            burst.done = true;
+            oa::platform::log_files::write_line("route burst: " + why + "; no movers are made");
+        };
+        const auto mover_type = unit_type_named(world, kRouteBurstMoverType);
+        if (!burst.laid_out) {
+            burst.laid_out = true;
+            if (nm::match_slot_watcher(&world, local))
+                return refuse("this machine's player watches");
+            const uint32_t room_limit = world.game.units_per_player;
+            if (movers + 1 > room_limit)
+                return refuse(
+                    "the room's unit limit, " + std::to_string(room_limit) +
+                    " units a player, holds " +
+                    std::to_string(room_limit == 0 ? 0 : room_limit - 1) +
+                    " movers beside the commander, not " + std::to_string(movers)
+                );
+            if (mover_type == 0)
+                return refuse(
+                    std::string("the movers' type, ") + kRouteBurstMoverType +
+                    ", is not in the match"
+                );
+            // Every playing player, in the order of their unit ranges.
+            std::vector<std::pair<uint32_t, uint8_t>> ranked;
+            for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+                const auto& player = world.game.players[slot];
+                if (player.in_use == 0 || player.first_unit == 0 ||
+                    nm::match_slot_watcher(&world, slot))
+                    continue;
+                ranked.emplace_back(player.first_unit, slot);
+            }
+            std::sort(ranked.begin(), ranked.end());
+            const auto mine =
+                std::find_if(ranked.begin(), ranked.end(), [local](const auto& entry) {
+                    return entry.second == local;
+                });
+            if (mine == ranked.end())
+                return refuse("this machine's player has no units");
+            burst.place = static_cast<uint32_t>(mine - ranked.begin());
+            // Clear of the start positions: another machine's commander
+            // may not be here yet.
+            const auto laid = lay_out_route_burst(
+                world, movers, burst.place + 1, burst.starts, &world.unit_defs[mover_type]
+            );
+            if (laid.refusal != nullptr)
+                return refuse(laid.refusal);
+            burst.spots = laid.blocks.back().spots;
+            burst.march = laid.blocks.back().march;
+        }
+        if (burst.movers.size() < movers &&
+            !make_route_burst_movers(match, local, mover_type, burst.spots, burst.movers))
+            return refuse("a mover could not be made");
+        if (world.game.tick + 1 < move_tick)
+            return;
+        // The group move: every mover heads south at the same tick.
+        const std::size_t moved = order_route_burst(match, burst.movers, burst.spots, burst.march);
+        burst.done = true;
+        oa::platform::log_files::write_line(
+            "route burst: player " + std::to_string(burst.place + 1) + " movers " +
+            std::to_string(moved) + " tick " + std::to_string(world.game.tick + 1)
+        );
     }
 };
 
@@ -4272,6 +4637,7 @@ void NetworkPlay::net_frame() {
         NetHost::reap_if_finished(*net_);
     if (net_)
         note_battle_recording(runtime_, net_->recording_path);
+    NetHost::route_burst_room(*this);
     if (!net_ || !net_->active)
         return;
     auto& state = *net_;
@@ -4381,6 +4747,8 @@ bool NetworkPlay::net_simulation_step() {
                     .c_str()
             );
     }
+    if (net_options().net_route_burst != 0)
+        NetHost::route_burst_step(*this);
     nm::match_binding_tick(&net_->binding);
     runtime_.match_timing_.tick = runtime_.match_->state().game.tick;
     return true;

@@ -681,6 +681,23 @@ names, these run the game headless:
   `--net-loopback-loss 10`: once the movers stand, each machine loses 10% of
   the frames it sends, and every lost part is sent again
   ([Enhanced Mode's network transport](../enhanced-mode.md#network-transport));
+- `native-net-route-burst` (`tools/check_native_net_route_burst.py`) plays
+  a route burst in a real network game: a host and a guest, each a program
+  of its own on the dummy drivers over 127.0.0.1, both with
+  `--enhanced-mode --net-route-burst 1000`, on Painted Desert with fixed
+  starts; the check readies both and presses START. Each machine gives its
+  own player 1,000 movers and at tick 300 sends them one row south, and
+  writes its units every tick (`--trace-units`, read through a pipe as they
+  come). The machines are compared on what the network shares, never on
+  world digests: every 300th tick each player's live units are the same on
+  both; once every mover has stood still on its owner for 300 ticks and a
+  round of full unit records has passed, every unit's owning player, type,
+  map cell and health are the same on both, and a mover still moving fails
+  the check and is named; both machines print their `route burst:` and
+  `route batches:` lines, with the other player's whole burst applied and
+  no step held longer than 30 ticks. `native-net-route-burst-loss` starts
+  the guest with `-e 10`, and holds steps to 150 ticks
+  ([three-machine test plan](../enhanced-mode.md#three-machine-test-plan));
 - `native-multiplayer-menu` (`--check-multiplayer-menu`) clicks MULTI and
   checks the multiplayer screens;
 - `native-recording-hook` (`--check-recording-hook`) checks that the game

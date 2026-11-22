@@ -251,6 +251,66 @@ int main() {
             "--net-loopback-loss takes a percentage, 0 to 100",
         "a loss above 100% is refused"
     );
+    // A network game's route burst goes with --host or --join; its group
+    // move comes at tick 300 unless --net-route-burst-tick names another.
+    const auto hosted_burst = parse({"--host", "--net-route-burst", "1000"});
+    expect(
+        hosted_burst.net.net_route_burst == 1000 && !hosted_burst.net.net_route_burst_tick &&
+            hosted_burst.net.net_loopback_route_burst == 0,
+        "--net-route-burst beside --host"
+    );
+    const auto joined_burst = parse(
+        {"--join", "192.0.2.10", "--net-route-burst", "3000", "--net-route-burst-tick", "600"}
+    );
+    expect(
+        joined_burst.net.net_route_burst == 3000 && joined_burst.net.net_route_burst_tick == 600u,
+        "--net-route-burst and --net-route-burst-tick beside --join"
+    );
+    expect(
+        plain.net.net_route_burst == 0 && !plain.net.net_route_burst_tick,
+        "no network route burst unless asked"
+    );
+    expect(
+        rejection({"--net-route-burst", "1000"}) == "--net-route-burst needs --host or --join" &&
+            rejection({"--host", "--net-route-burst-tick", "300"}) ==
+                "--net-route-burst-tick needs --net-route-burst",
+        "the route burst needs a network game, and its tick the burst"
+    );
+    expect(
+        rejection({"--net-loopback-check", "900", "--host", "--net-route-burst", "1000"}) ==
+            "--net-route-burst plays in a network game, not in the loopback check, whose burst "
+            "is --net-loopback-route-burst",
+        "the network route burst is refused with the loopback check"
+    );
+    expect(
+        rejection({"--host", "--net-route-burst", "0"}) ==
+                "--net-route-burst takes at least one mover" &&
+            rejection({"--host", "--net-route-burst", "10000"}) ==
+                "--net-route-burst takes at most 9999 movers: a room holds at most 10000 units a "
+                "player, the commander among them" &&
+            parse({"--host", "--net-route-burst", "9999"}).net.net_route_burst == 9999,
+        "a route burst of no movers, or of more than a room holds beside the commander, is refused"
+    );
+    expect(
+        rejection({"--host", "--net-route-burst", "3000", "--net-route-burst-tick", "59"}) ==
+                "--net-route-burst-tick 59 comes before 3000 movers stand on every machine: tick "
+                "60 or later" &&
+            parse({"--host", "--net-route-burst", "3000", "--net-route-burst-tick", "60"})
+                    .net.net_route_burst_tick == 60u &&
+            rejection({"--host", "--net-route-burst", "1", "--net-route-burst-tick", "0"}) ==
+                "--net-route-burst-tick takes a tick from 1",
+        "the group move comes once the movers are made and their copies have had a second"
+    );
+    expect(
+        rejection({"--host", "--unit-limit", "1000", "--net-route-burst", "1000"}) ==
+                "--net-route-burst 1000 needs a unit limit of 1001, the movers and the "
+                "commander; the launch names 1000" &&
+            parse({"--host", "--unit-limit", "1001", "--net-route-burst", "1000"})
+                    .net.net_route_burst == 1000 &&
+            parse({"--join", "192.0.2.10", "--unit-limit", "500", "--net-route-burst", "1000"})
+                    .net.net_route_burst == 1000,
+        "a host's launch that names the room's unit limit holds the movers beside the commander"
+    );
     // The host-not-found check plays through the main loop, unattended and
     // without the intro.
     const auto host_not_found = parse({"--check-host-not-found"});
@@ -424,6 +484,8 @@ int main() {
           "--net-loopback-watcher",
           "--net-loopback-route-burst",
           "--net-loopback-loss",
+          "--net-route-burst",
+          "--net-route-burst-tick",
           "--check-host-not-found",
           "--dplay-guid",
           "--host",
