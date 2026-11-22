@@ -136,6 +136,51 @@ std::string room_line(const EnhancedRoom& room) {
     return filled(kOffLine);
 }
 
+/// Adds the lines a guest's resolution posts, and keeps an Off line waiting
+/// for the seat to name.
+///
+/// @param[in,out] room the room as resolved now; its off_line_since is set
+///     while the Off line waits
+/// @param before the room as last resolved; nothing on entering it
+/// @param now_ms the time now, in milliseconds
+/// @param[in,out] lines the lines to post, added to in order
+void guest_lines(
+    EnhancedRoom& room,
+    const std::optional<EnhancedRoom>& before,
+    uint64_t now_ms,
+    std::vector<std::string>& lines
+) {
+    if (!before) {
+        // Entering the room posts only a revision it plays.
+        if (room.revision != 0)
+            lines.push_back(room_line(room));
+        return;
+    }
+    const std::optional<uint64_t> since = before->off_line_since;
+    if (room.revision != before->revision) {
+        // The host turned the room back before the Off line had a name: that
+        // change still posts its line, before this one.
+        if (since)
+            lines.push_back(room_line(EnhancedRoom{}));
+        if (room.revision == 0 && room.reason != EnhancedRoomReason::lacks) {
+            // No seat this machine sees announces none yet: its record may
+            // still be on its way.
+            room.off_line_since = now_ms;
+            return;
+        }
+        lines.push_back(room_line(room));
+        return;
+    }
+    if (!since)
+        return;
+    const bool waited = now_ms < *since || now_ms - *since >= enhanced_off_line_wait_ms;
+    if (room.reason == EnhancedRoomReason::lacks || waited) {
+        lines.push_back(room_line(room));
+        return;
+    }
+    room.off_line_since = since;
+}
+
 /// Tells whether a machine's seat counts: a seated human or a watcher.
 ///
 /// Local and remote computer seats are covered by the human who runs them.
@@ -239,16 +284,16 @@ resolve_enhanced_room(const EnhancedRoomInputs& inputs, const std::optional<Enha
                 room.cause_player = seen.cause_player;
             }
         }
+        guest_lines(room, before, inputs.now_ms, change.lines);
+        return change;
     }
 
     bool changed = false;
     if (!before) {
         changed = room.revision != 0;
-    } else if (inputs.hosting) {
+    } else {
         changed = room.revision != before->revision ||
                   switch_in_effect(room.reason) != switch_in_effect(before->reason);
-    } else {
-        changed = room.revision != before->revision;
     }
     if (changed)
         change.lines.push_back(room_line(room));

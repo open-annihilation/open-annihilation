@@ -78,12 +78,14 @@ mp::EnhancedRoomChange host_resolves(
 mp::EnhancedRoomChange guest_resolves(
     const std::vector<mp::EnhancedSeat>& seats,
     std::optional<uint32_t> announced,
-    const std::optional<mp::EnhancedRoom>& before
+    const std::optional<mp::EnhancedRoom>& before,
+    uint64_t now_ms = 0
 ) {
     mp::EnhancedRoomInputs inputs;
     inputs.hosting = false;
     inputs.announced = announced;
     inputs.seats = seats;
+    inputs.now_ms = now_ms;
     return mp::resolve_enhanced_room(inputs, before);
 }
 
@@ -251,9 +253,14 @@ void a_guest_follows_the_host() {
     expect(same.lines.empty(), "the same revision posts nothing");
     auto silent = guest_resolves(seats, std::nullopt, same.room);
     expect(silent.room.revision == 1 && silent.lines.empty(), "a record in flight keeps it");
-    // The host turns it off: no seat lacks it, so the line is the off line.
-    auto off = guest_resolves(seats, 0u, silent.room);
-    expect(one_line(off, "*** Enhanced Mode: Off."), "the guest reads the host's off");
+    // The host turns it off: the room is Off at once, and since no seat
+    // lacks it the line, after its wait, is the off line.
+    auto off = guest_resolves(seats, 0u, silent.room, 1000);
+    expect(off.room.revision == 0, "the guest reads the host's off at once");
+    expect(off.lines.empty(), "the off line waits for a seat to name");
+    off = guest_resolves(seats, 0u, off.room, 1000 + mp::enhanced_off_line_wait_ms);
+    expect(one_line(off, "*** Enhanced Mode: Off."), "the guest posts the host's off");
+    expect(!off.room.off_line_since, "and waits no more");
     // A 3.1c machine joins a Revision 1 room: the guest names it.
     const std::vector<mp::EnhancedSeat> joined{
         known(0, "Steve", 1), known(1, "Hoster", 1), without(2, "Visitor")
@@ -276,6 +283,151 @@ void a_guest_follows_the_host() {
         one_line(lower, "*** Enhanced Mode is Revision 1: Steve's game has no later revision."),
         "the guest names its own game when it has no later revision"
     );
+}
+
+/// A guest resolving its room frame after frame, keeping every line posted.
+struct GuestFrames {
+    std::optional<mp::EnhancedRoom> room{};
+    std::vector<std::string> posted{};
+
+    /// Resolves one frame and returns the lines it posted.
+    std::vector<std::string> frame(
+        const std::vector<mp::EnhancedSeat>& seats,
+        std::optional<uint32_t> announced,
+        uint64_t now_ms
+    ) {
+        auto change = guest_resolves(seats, announced, room, now_ms);
+        room = change.room;
+        posted.insert(posted.end(), change.lines.begin(), change.lines.end());
+        return change.lines;
+    }
+};
+
+constexpr const char* kOlderOff = "*** Enhanced Mode is off: Older's game doesn't have it.";
+
+void a_guest_names_the_seat_whichever_record_comes_first() {
+    const std::vector<mp::EnhancedSeat> before_older{known(0, "Steve", 1), known(1, "Hoster", 1)};
+    const std::vector<mp::EnhancedSeat> older_on_its_way{
+        known(0, "Steve", 1), known(1, "Hoster", 1), unknown(2, "Older")
+    };
+    const std::vector<mp::EnhancedSeat> older_arrived{
+        known(0, "Steve", 1), known(1, "Hoster", 1), without(2, "Older")
+    };
+
+    // Older's record first, then the host's Off: one line, naming Older.
+    {
+        GuestFrames guest;
+        guest.frame(before_older, 1u, 0);
+        guest.posted.clear();
+        expect(guest.frame(older_on_its_way, 1u, 100).empty(), "Older on its way posts nothing");
+        expect(guest.frame(older_arrived, 1u, 200).empty(), "Older's record alone posts nothing");
+        expect(guest.room->revision == 1, "the guest keeps the host's revision until it changes");
+        const auto lines = guest.frame(older_arrived, 0u, 300);
+        expect(lines.size() == 1 && lines.front() == kOlderOff, "the host's Off names Older");
+        expect(!guest.room->off_line_since, "a named Off waits for nothing");
+        for (uint64_t at = 400; at <= 300 + 2 * mp::enhanced_off_line_wait_ms; at += 100)
+            guest.frame(older_arrived, 0u, at);
+        expect(
+            guest.posted.size() == 1 && guest.posted.front() == kOlderOff,
+            "Older first, then the host's Off: exactly one line, the naming one"
+        );
+    }
+
+    // The host's Off first, then Older's record: one line, naming Older.
+    {
+        GuestFrames guest;
+        guest.frame(before_older, 1u, 0);
+        guest.posted.clear();
+        expect(guest.frame(older_on_its_way, 0u, 1000).empty(), "the host's Off waits for Older");
+        expect(guest.room->revision == 0, "the room is Off at once");
+        expect(guest.room->off_line_since == uint64_t{1000}, "the line waits from the host's Off");
+        expect(
+            guest.frame(older_on_its_way, 0u, 1000 + mp::enhanced_off_line_wait_ms - 1).empty(),
+            "the line waits until the bound"
+        );
+        const auto lines = guest.frame(older_arrived, 0u, 1000 + mp::enhanced_off_line_wait_ms - 1);
+        expect(lines.size() == 1 && lines.front() == kOlderOff, "Older's record names Older");
+        expect(
+            guest.room->reason == mp::EnhancedRoomReason::lacks && guest.room->cause == 2,
+            "the room says Older keeps it Off"
+        );
+        for (uint64_t at = 1000 + mp::enhanced_off_line_wait_ms;
+             at <= 1000 + 3 * mp::enhanced_off_line_wait_ms;
+             at += 100)
+            guest.frame(older_arrived, 0u, at);
+        expect(
+            guest.posted.size() == 1 && guest.posted.front() == kOlderOff,
+            "the host's Off, then Older: exactly one line, the naming one"
+        );
+    }
+
+    // The host's Off before this machine has seen Older at all.
+    {
+        GuestFrames guest;
+        guest.frame(before_older, 1u, 0);
+        guest.posted.clear();
+        guest.frame(before_older, 0u, 1000);
+        guest.frame(older_on_its_way, 0u, 1500);
+        guest.frame(older_arrived, 0u, 2000);
+        guest.frame(older_arrived, 0u, 9000);
+        expect(
+            guest.posted.size() == 1 && guest.posted.front() == kOlderOff,
+            "a seat first seen after the host's Off is named, once"
+        );
+    }
+}
+
+void a_guest_off_line_posts_after_its_wait() {
+    // The host's Off, and no seat this machine sees announces none within
+    // the bound: the generic line, once.
+    const std::vector<mp::EnhancedSeat> seats{known(0, "Steve", 1), known(1, "Hoster", 1)};
+    GuestFrames guest;
+    guest.frame(seats, 1u, 0);
+    guest.posted.clear();
+    for (uint64_t at = 5000; at < 5000 + mp::enhanced_off_line_wait_ms; at += 100)
+        expect(guest.frame(seats, 0u, at).empty(), "the off line waits for its bound");
+    const auto lines = guest.frame(seats, 0u, 5000 + mp::enhanced_off_line_wait_ms);
+    expect(
+        lines.size() == 1 && lines.front() == "*** Enhanced Mode: Off.",
+        "the bound passes: the generic off line"
+    );
+    expect(!guest.room->off_line_since, "nothing waits after it");
+    // A seat that announces none after the line has posted changes the
+    // reason the switch shows, but posts no second line for the same change.
+    const std::vector<mp::EnhancedSeat> late{
+        known(0, "Steve", 1), known(1, "Hoster", 1), without(2, "Older")
+    };
+    for (uint64_t at = 9000; at < 12000; at += 100)
+        guest.frame(late, 0u, at);
+    expect(guest.room->reason == mp::EnhancedRoomReason::lacks, "the late seat is the reason");
+    expect(
+        guest.posted.size() == 1 && guest.posted.front() == "*** Enhanced Mode: Off.",
+        "the generic off line posts once, and nothing names a seat after it"
+    );
+    // A record from the host on its way keeps the wait where it was.
+    GuestFrames flight;
+    flight.frame(seats, 1u, 0);
+    flight.posted.clear();
+    flight.frame(seats, 0u, 1000);
+    expect(flight.frame(seats, std::nullopt, 2000).empty(), "a record in flight posts nothing");
+    expect(flight.room->off_line_since == uint64_t{1000}, "and keeps the wait");
+    expect(
+        flight.frame(seats, 0u, 1000 + mp::enhanced_off_line_wait_ms).size() == 1,
+        "the wait ends at its bound all the same"
+    );
+    // The host turns the room back before the Off line had a name: both
+    // changes post, the Off first.
+    GuestFrames back;
+    back.frame(seats, 1u, 0);
+    back.posted.clear();
+    back.frame(seats, 0u, 1000);
+    const auto both = back.frame(seats, 1u, 1500);
+    expect(
+        both.size() == 2 && both[0] == "*** Enhanced Mode: Off." &&
+            both[1] == "*** Enhanced Mode: Revision 1.",
+        "an Off still waiting posts before the revision that follows it"
+    );
+    expect(!back.room->off_line_since, "the revision ends the wait");
 }
 
 void the_words() {
@@ -525,6 +677,8 @@ int main() {
     an_unknown_record_changes_nothing();
     boneyards_rooms_and_locked_launches();
     a_guest_follows_the_host();
+    a_guest_names_the_seat_whichever_record_comes_first();
+    a_guest_off_line_posts_after_its_wait();
     the_words();
     the_seats_the_room_reads();
     a_guest_reads_the_hosts_announcement();

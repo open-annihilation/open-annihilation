@@ -1617,7 +1617,9 @@ the presence record is written) resolves the room's revision with
 ([src/ui/frontend-multiplayer](../ui/frontend-multiplayer/README.md)): the
 host from its switch, a launch's lock and every seated machine's highest
 revision; a guest from the revision the host's record announces, Off until
-it arrives. Each change holds that revision's rules
+it arrives, and from the time (`SDL_GetTicks`), so that its Off line can
+wait up to three seconds for the record of the seat it names. Each change
+holds that revision's rules
 (`hold_enhanced_rules_once`) for the room's next match, never this
 machine's own Settings, and posts the room's line in the chat, written
 whole to the log. Leaving the room without a match releases the hold; a
