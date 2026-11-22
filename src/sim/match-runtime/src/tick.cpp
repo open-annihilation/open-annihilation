@@ -224,12 +224,31 @@ bool Match::prepare_search_job(
     // searching unit's own tick reads as the current one there. It walks
     // them only when its projection moves, on its class's first search of a
     // tick, so the tick's later searches of the class gather none.
+    // Planning that passes through moving units needs only the units whose
+    // refresh reaches the map's far edges, where the whole-map build pads
+    // past the edge and a refresh reads it as off the map; the footprint
+    // listener (movement_maps.cpp) keeps the same refreshes.
+    const bool skip_inside = enhanced_features_.has(Feature::static_interior_refresh_skip);
+    const auto& class_map = *klass->map;
+    const auto stays_inside = [&class_map](const oa::Unit& unit) {
+        // The refresh reaches anchors up to cell + footprint; each needs its
+        // footprint, its rim and one cell more inside the map.
+        constexpr int64_t edge_band = 2;
+        return unit.cell_x >= 0 && unit.cell_z >= 0 && unit.footprint_x > 0 &&
+               unit.footprint_z > 0 && class_map.footprint_x() > 0 && class_map.footprint_z() > 0 &&
+               int64_t{unit.cell_x} + unit.footprint_x + class_map.footprint_x() + edge_band <=
+                   class_map.width() &&
+               int64_t{unit.cell_z} + unit.footprint_z + class_map.footprint_z() + edge_band <=
+                   class_map.height();
+    };
     occupancy_feed_.clear();
     if (klass->map->projection_moves(begin.current_tick))
         for (std::size_t i = 1; i < slots_.size(); ++i) {
             if (i == slot.unit_index || !movement_[i])
                 continue;
             const auto& unit = state().units[i];
+            if (skip_inside && stays_inside(unit))
+                continue;
             occupancy_feed_.push_back(
                 {sim::ground_orders::occupancy_rectangle(unit),
                  spatial_units_[i].object_tick,

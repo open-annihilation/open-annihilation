@@ -6,6 +6,7 @@
 
 #include "oa/data/enhanced_mode.hpp"
 
+#include <array>
 #include <cstdint>
 
 namespace oa::sim::match_runtime {
@@ -17,6 +18,27 @@ rectangle_of(std::array<int16_t, 2> cell, std::array<int16_t, 2> footprint) {
                                                               << 16;
     };
     return {pack(cell), pack(footprint)};
+}
+
+// Whether refreshing a unit's rectangle reaches only anchors whose footprint
+// and one-cell rim end at least one cell before the map's far edges. The
+// whole-map build and a refresh classify such anchors alike, so when moving
+// units do not block planning, a moving unit's refresh there rewrites what
+// the map holds. Anchors nearer the far edges keep their refreshes: the
+// build pads past the edge, where a refresh reads the last row and column
+// as off the map. Match::prepare_search_job tests its feed the same way.
+bool refresh_stays_inside(
+    const sim::ground_orders::MovementMap& map,
+    std::array<int16_t, 2> cell,
+    std::array<int16_t, 2> footprint
+) {
+    // The refresh reaches anchors up to cell + footprint; each needs its
+    // footprint, its rim and one cell more inside the map.
+    constexpr int64_t edge_band = 2;
+    return cell[0] >= 0 && cell[1] >= 0 && footprint[0] > 0 && footprint[1] > 0 &&
+           map.footprint_x() > 0 && map.footprint_z() > 0 &&
+           int64_t{cell[0]} + footprint[0] + map.footprint_x() + edge_band <= map.width() &&
+           int64_t{cell[1]} + footprint[1] + map.footprint_z() + edge_band <= map.height();
 }
 } // namespace
 
@@ -115,10 +137,21 @@ void Match::MapListeners::notify_footprint_changed(
 void Match::MapListeners::notify_object_footprint_removed(
     sim::spatial_state::Unit& unit, uint32_t old_tick
 ) {
+    // Planning that passes through moving units reads a moving unit's
+    // cells the same before and after it leaves them, so only refreshes
+    // that reach the far edges are kept.
+    const bool skip_inside =
+        match.enhanced_features_.has(data::enhanced_mode::Feature::static_interior_refresh_skip);
     const auto rectangle = rectangle_of(unit.cell, unit.footprint);
     for (auto& klass : match.movement_classes_)
-        if (klass.map)
+        if (klass.map) {
+            // release_unit refreshes nothing for a unit whose change the
+            // projection has not reached; that test is the cheaper one.
+            if (skip_inside && (old_tick >= klass.map->projection_tick() ||
+                                refresh_stays_inside(*klass.map, unit.cell, unit.footprint)))
+                continue;
             klass.map->release_unit(rectangle, old_tick);
+        }
     match.services_.notify_object_footprint_removed(unit, old_tick);
 }
 

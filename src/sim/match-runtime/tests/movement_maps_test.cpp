@@ -76,6 +76,8 @@ struct Fixture {
     sim::combat_state::WeaponRegistry weapons;
     Services services;
     Scenario scenario;
+    // The features the match plays in place of the version's, when set.
+    std::optional<data::enhanced_mode::FeatureSet> features_override;
     std::unique_ptr<sim::match_runtime::Match> match;
 
     explicit Fixture(
@@ -167,6 +169,7 @@ struct Fixture {
         );
         if (!enabled)
             input.rules.setup.enhanced_mode.enabled = false;
+        input.enhanced_features_override = features_override;
         if (input.rules.setup.enhanced_mode.enabled)
             input.unit_player_mask = 3;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
@@ -494,6 +497,9 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
         begin.current_tick = now;
         ground::MovementMap* map{};
         CHECK(f.match->prepare_search_job(searcher, begin, map));
+        // No old version skips a moving unit's refresh: the three other
+        // moving units are all fed.
+        CHECK(begin.occupancy.size() == 3);
         map->prepare_search(
             ground::occupancy_rectangle(searcher.record),
             *begin.unit_changed_tick,
@@ -536,6 +542,7 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
     begin.current_tick = 200;
     ground::MovementMap* map{};
     CHECK(off.match->prepare_search_job(searcher, begin, map));
+    CHECK(begin.occupancy.size() == 1);
     map->prepare_search(
         ground::occupancy_rectangle(searcher.record),
         *begin.unit_changed_tick,
@@ -543,6 +550,362 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
         begin.current_tick
     );
     CHECK(map->cell(6, 8) == 0);
+}
+
+// The interior refresh skip on top of version 8's set, whose planning passes
+// through moving units.
+void skip_interior_refreshes(Fixture& f) {
+    f.features_override = data::enhanced_mode::version_features(following_version)
+                              .with(data::enhanced_mode::Feature::static_interior_refresh_skip);
+}
+
+void planning_inputs_skipping_interior_refreshes(Fixture& f) {
+    planning_inputs(f);
+    skip_interior_refreshes(f);
+}
+
+// The smallest set with the skip: capacity, planning through moving units
+// and the skip itself.
+void only_the_skip_and_its_needs(Fixture& f) {
+    planning_inputs(f);
+    f.features_override = data::enhanced_mode::close_features(
+        data::enhanced_mode::FeatureSet{}.with(
+            data::enhanced_mode::Feature::static_interior_refresh_skip
+        )
+    );
+}
+
+// With the skip, the search's feed leaves out every moving unit whose refresh
+// stays away from the far edges, and the class maps hold exactly what
+// version 8's hold, cell for cell, in both classes. The smallest set with the
+// skip plans through moving units the same way.
+void interior_refresh_skip_keeps_cached_planning() {
+    const auto run = [](void (*prepare)(Fixture&), std::size_t fed) {
+        auto f = std::make_unique<Fixture>(
+            std::vector<std::array<int32_t, 2>>{}, 0.0F, following_version, prepare
+        );
+        f->match->simulation().tick = 5;
+        f->spawn(tank, 6, 8);
+        f->spawn(kbot, 10, 8);
+        f->spawn(building, 18, 8);
+        f->place(rock, 22, 8);
+        f->match->simulation().tick = 195;
+        f->spawn(tank, 14, 8);
+        auto& searcher = f->spawn(tank, 4, 14);
+        constexpr uint32_t now = 200;
+        f->match->simulation().tick = now;
+        ground::SearchBegin begin{};
+        begin.current_tick = now;
+        ground::MovementMap* map{};
+        CHECK(f->match->prepare_search_job(searcher, begin, map));
+        CHECK(begin.occupancy.size() == fed);
+        map->prepare_search(
+            ground::occupancy_rectangle(searcher.record),
+            *begin.unit_changed_tick,
+            begin.occupancy,
+            now
+        );
+        CHECK(map->projection_tick() == now - native_occupancy_history);
+        CHECK(map->cell(6, 8) == 3 && map->cell(10, 8) == 3 && map->cell(18, 8) == 0);
+        return f;
+    };
+    const auto following = run(planning_inputs, 3);
+    const auto skipping = run(planning_inputs_skipping_interior_refreshes, 0);
+    const auto smallest = run(only_the_skip_and_its_needs, 0);
+    CHECK(!following->match->enhanced_features().has(
+        data::enhanced_mode::Feature::static_interior_refresh_skip
+    ));
+    for (const auto handle : {tank_class, kbot_class})
+        for (uint32_t z = 0; z < map_cells; ++z)
+            for (uint32_t x = 0; x < map_cells; ++x) {
+                const auto cell = following->class_map(handle).cell(x, z);
+                CHECK(skipping->class_map(handle).cell(x, z) == cell);
+                CHECK(smallest->class_map(handle).cell(x, z) == cell);
+            }
+}
+
+/// Reads a class's static terrain, feature and building classification, with
+/// every moving unit passable.
+PlotClassifier static_plot_classifier(const Fixture& f, uint16_t type) {
+    PlotClassifier classifier;
+    classifier.world = &f.match->spatial();
+    const auto& metadata = f.metadata[type];
+    classifier.movement.footprint_x = metadata.footprint_x;
+    classifier.movement.footprint_z = metadata.footprint_z;
+    classifier.movement.max_water_depth = metadata.max_water_depth;
+    classifier.movement.min_water_depth = metadata.min_water_depth;
+    classifier.movement.max_land_slope = metadata.max_slope;
+    classifier.movement.bad_land_slope = metadata.bad_slope;
+    classifier.movement.max_water_slope = metadata.max_water_slope;
+    classifier.movement.bad_water_slope = metadata.bad_water_slope;
+    return classifier;
+}
+
+/// Checks both classes' cached maps against fresh whole-map builds, and a
+/// tank route on the cached map against the same search on the fresh build.
+///
+/// @return the tank route
+std::vector<ground::RoutePoint> check_static_cached_maps(
+    Fixture& f, sim::unit_spawn::Slot& searcher, ground::Goal& goal, uint32_t now
+) {
+    f.match->simulation().tick = now;
+    std::vector<ground::RoutePoint> route;
+    for (const auto type : {tank, kbot}) {
+        const auto handle = *f.fields[type].movement_class;
+        auto classifier = static_plot_classifier(f, type);
+        const auto& metadata = f.metadata[type];
+        ground::MovementMap rebuilt(
+            map_cells, map_cells, metadata.footprint_x, metadata.footprint_z, classifier
+        );
+        rebuilt.rebuild();
+        if (type == tank) {
+            ground::SearchBegin begin{};
+            begin.current_tick = now;
+            ground::MovementMap* persistent{};
+            CHECK(f.match->prepare_search_job(searcher, begin, persistent));
+            CHECK(persistent == f.match->movement_map(handle));
+            CHECK(begin.occupancy.empty() && begin.unit_changed_tick != nullptr);
+            const auto changed_tick = *begin.unit_changed_tick;
+            route = search(*searcher.unit, *persistent, begin, goal);
+            CHECK(*begin.unit_changed_tick == changed_tick);
+            CHECK(persistent->projection_tick() == now - native_occupancy_history);
+            CHECK(search(*searcher.unit, rebuilt, begin, goal) == route);
+            CHECK(*begin.unit_changed_tick == changed_tick);
+        }
+        const auto& persistent = f.class_map(handle);
+        for (uint32_t z = 0; z < map_cells; ++z)
+            for (uint32_t x = 0; x < map_cells; ++x)
+                CHECK(persistent.cell(x, z) == rebuilt.cell(x, z));
+    }
+    return route;
+}
+
+// With the skip, a moving unit that moves or dies away from the far edges
+// refreshes no map, but still stamps its tick and still tells the
+// application; features and buildings still refresh every class. After each
+// change both classes' maps hold what a fresh build holds, and the tank's
+// route is the fresh build's.
+void interior_skip_keeps_refreshing_real_obstacles() {
+    Fixture f({}, 0, following_version, skip_interior_refreshes);
+    auto& searcher = f.spawn(tank, 3, 11);
+    f.match->simulation().tick = 5;
+    auto& parked = f.spawn(tank, 13, 10);
+    ground::Goal goal{};
+    goal.cell = {25, 11};
+    const auto clear_route = check_static_cached_maps(f, searcher, goal, 200);
+    CHECK(clear_route.size() >= 2);
+    CHECK(f.class_map(tank_class).cell(13, 10) == 3);
+    const auto removals = f.services.object_removals;
+    const auto changes = f.services.footprint_changes;
+
+    f.match->simulation().tick = 260;
+    f.match->place_unit_at(
+        parked.unit_index, 336 * pixel, ground_height * pixel, 176 * pixel, ground_layer
+    );
+    CHECK(f.match->fault() == nullptr);
+    CHECK(parked.record.cell_x == 20 && parked.record.cell_z == 10);
+    CHECK(f.match->spatial().units[parked.unit_index].object_tick == 260);
+    CHECK(f.services.object_removals == removals + 1);
+    CHECK(f.services.footprint_changes == changes);
+    CHECK(f.match->spatial().plots[Fixture::plot(13, 10)].ground == spatial::no_unit);
+    CHECK(f.match->spatial().plots[Fixture::plot(20, 10)].ground == parked.unit_index);
+    CHECK(check_static_cached_maps(f, searcher, goal, 260) == clear_route);
+
+    f.match->simulation().tick = 330;
+    parked.record.damage_kind = static_cast<uint8_t>(sim::match_runtime::DeathKind::weapon);
+    f.match->teardown_dead_unit(parked);
+    CHECK(f.match->fault() == nullptr);
+    CHECK(f.match->spatial().units[parked.unit_index].object_tick == 330);
+    CHECK(f.services.object_removals == removals + 2);
+    CHECK(f.services.footprint_changes == changes);
+    CHECK(check_static_cached_maps(f, searcher, goal, 330) == clear_route);
+
+    f.place(rock, 13, 10);
+    CHECK(f.services.footprint_changes == changes + 1);
+    CHECK(f.class_map(tank_class).cell(13, 10) == 0);
+    CHECK(f.class_map(kbot_class).cell(13, 10) == 0);
+    (void)check_static_cached_maps(f, searcher, goal, 331);
+    f.clear(13, 10);
+    CHECK(f.services.footprint_changes == changes + 2);
+    CHECK(check_static_cached_maps(f, searcher, goal, 332) == clear_route);
+
+    auto& site = f.spawn(building, 16, 10);
+    CHECK(f.services.footprint_changes == changes + 3);
+    CHECK(f.class_map(tank_class).cell(16, 10) == 0);
+    CHECK(f.class_map(kbot_class).cell(16, 10) == 0);
+    (void)check_static_cached_maps(f, searcher, goal, 333);
+    site.record.damage_kind = static_cast<uint8_t>(sim::match_runtime::DeathKind::weapon);
+    f.match->teardown_dead_unit(site);
+    CHECK(f.services.footprint_changes == changes + 4);
+    CHECK(f.services.object_removals == removals + 2);
+    CHECK(check_static_cached_maps(f, searcher, goal, 334) == clear_route);
+}
+
+// With the skip, a moving unit whose refresh reaches the far edges still
+// refreshes, whether its last move ages into the projection, it dies, or it
+// searches itself, on each axis, in each class. Each match map is compared
+// with a reference map given the operations without the skip (the whole
+// feed, the release and the searcher's own refresh), built over the terrain
+// the match starts with.
+void interior_skip_keeps_edge_refreshes() {
+    enum class Refresh { age, removal, active_search };
+    for (const auto type : {tank, kbot})
+        for (const unsigned axis : {0u, 1u})
+            for (const auto refresh : {Refresh::age, Refresh::removal, Refresh::active_search}) {
+                Fixture f({}, 0, following_version, skip_interior_refreshes);
+                auto& searcher = f.spawn(type, 3, 11);
+                const auto* map = f.match->movement_map(*f.fields[type].movement_class);
+                CHECK(map != nullptr);
+                auto classifier = static_plot_classifier(f, type);
+                ground::MovementMap reference(
+                    map_cells,
+                    map_cells,
+                    f.metadata[type].footprint_x,
+                    f.metadata[type].footprint_z,
+                    classifier
+                );
+                reference.rebuild();
+                const auto check_maps = [&] {
+                    for (uint32_t z = 0; z < map_cells; ++z)
+                        for (uint32_t x = 0; x < map_cells; ++x)
+                            CHECK(map->cell(x, z) == reference.cell(x, z));
+                };
+                check_maps();
+                std::array<int32_t, 2> parked_cell{10, 10};
+                parked_cell[axis] =
+                    int32_t(map_cells) -
+                    (refresh == Refresh::active_search ? f.metadata[type].footprint_x : 2) - 1;
+                const auto project = [&](std::span<const ground::OccupancyChange> complete) {
+                    f.match->simulation().tick = 200;
+                    ground::SearchBegin begin{};
+                    begin.current_tick = 200;
+                    ground::MovementMap* prepared{};
+                    CHECK(f.match->prepare_search_job(searcher, begin, prepared));
+                    CHECK(prepared == map && begin.unit_changed_tick != nullptr);
+                    CHECK(begin.occupancy.size() == complete.size());
+                    if (!complete.empty()) {
+                        const auto& actual = begin.occupancy.front();
+                        const auto& expected = complete.front();
+                        CHECK(actual.rectangle.origin == expected.rectangle.origin);
+                        CHECK(actual.rectangle.extent == expected.rectangle.extent);
+                        CHECK(actual.changed_tick == expected.changed_tick && actual.live);
+                    }
+                    const auto changed_tick = *begin.unit_changed_tick;
+                    auto reference_tick = changed_tick;
+                    prepared->prepare_search(
+                        ground::occupancy_rectangle(searcher.record),
+                        *begin.unit_changed_tick,
+                        begin.occupancy,
+                        begin.current_tick
+                    );
+                    reference.prepare_search(
+                        ground::occupancy_rectangle(searcher.record),
+                        reference_tick,
+                        complete,
+                        begin.current_tick
+                    );
+                    CHECK(*begin.unit_changed_tick == changed_tick);
+                    CHECK(reference_tick == changed_tick);
+                    CHECK(map->projection_tick() == 200 - native_occupancy_history);
+                    CHECK(reference.projection_tick() == map->projection_tick());
+                    check_maps();
+                };
+                if (refresh != Refresh::age) {
+                    project({});
+                    auto& parked = f.spawn(
+                        refresh == Refresh::active_search ? type : tank,
+                        parked_cell[0],
+                        parked_cell[1]
+                    );
+                    auto* runtime = f.match->ground_runtime(parked.unit_index);
+                    CHECK(runtime != nullptr);
+                    auto block = runtime->save_mobility();
+                    // The occupancy tick is the block's little-endian word
+                    // at 30: the unit last moved at tick 5.
+                    block[30] = 5;
+                    block[31] = block[32] = block[33] = 0;
+                    CHECK(f.match->restore_mobility(parked.unit_index, block));
+                    CHECK(f.match->spatial().units[parked.unit_index].object_tick == 5);
+                    const auto rectangle = ground::occupancy_rectangle(parked.record);
+                    const auto removals = f.services.object_removals;
+                    if (refresh == Refresh::removal) {
+                        f.match->simulation().tick = 201;
+                        parked.record.damage_kind =
+                            static_cast<uint8_t>(sim::match_runtime::DeathKind::weapon);
+                        f.match->teardown_dead_unit(parked);
+                        reference.release_unit(rectangle, 5);
+                        CHECK(f.services.object_removals == removals + 1);
+                        CHECK(f.match->spatial().units[parked.unit_index].object_tick == 201);
+                    } else {
+                        // A second search in the tick gathers no feed; the
+                        // searcher's own refresh still runs, and its restored
+                        // tick survives the search's stamp.
+                        ground::SearchBegin begin{};
+                        begin.current_tick = 200;
+                        ground::MovementMap* prepared{};
+                        CHECK(f.match->prepare_search_job(parked, begin, prepared));
+                        CHECK(
+                            prepared == map && begin.occupancy.empty() &&
+                            begin.unit_changed_tick != nullptr
+                        );
+                        uint32_t reference_tick = 5;
+                        prepared->prepare_search(
+                            rectangle, *begin.unit_changed_tick, begin.occupancy, begin.current_tick
+                        );
+                        reference.prepare_search(rectangle, reference_tick, {}, begin.current_tick);
+                        CHECK(reference_tick == 5);
+                        CHECK(map->projection_tick() == reference.projection_tick());
+                        CHECK(f.match->spatial().units[parked.unit_index].object_tick == 5);
+                        CHECK(f.services.object_removals == removals);
+                    }
+                } else {
+                    f.match->simulation().tick = 5;
+                    auto& parked = f.spawn(tank, parked_cell[0], parked_cell[1]);
+                    const std::array whole_feed{ground::OccupancyChange{
+                        ground::occupancy_rectangle(parked.record),
+                        f.match->spatial().units[parked.unit_index].object_tick,
+                        true
+                    }};
+                    project(whole_feed);
+                    CHECK(f.match->spatial().units[parked.unit_index].object_tick == 5);
+                }
+                CHECK(f.match->fault() == nullptr);
+                check_maps();
+            }
+}
+
+// With the skip, a rock and a building placed and removed beside the far
+// edge band refresh every class there as they do without it: each anchor of
+// the band holds what the classifier gives it now.
+void interior_skip_keeps_static_edge_refreshes() {
+    Fixture f({}, 0, following_version, skip_interior_refreshes);
+    const auto check_edge_patch = [&] {
+        for (const auto type : {tank, kbot}) {
+            auto classifier = static_plot_classifier(f, type);
+            const auto& map = f.class_map(*f.fields[type].movement_class);
+            for (int32_t z = 7; z <= 15; ++z)
+                for (int32_t x = 24; x < int32_t(map_cells); ++x)
+                    CHECK(map.cell(uint32_t(x), uint32_t(z)) == classifier.classify_cell(x, z));
+        }
+    };
+    const auto changes = f.services.footprint_changes;
+    f.place(rock, 27, 10);
+    CHECK(f.services.footprint_changes == changes + 1);
+    CHECK(f.class_map(tank_class).cell(27, 10) == 0);
+    check_edge_patch();
+    f.clear(27, 10);
+    CHECK(f.services.footprint_changes == changes + 2);
+    check_edge_patch();
+    auto& site = f.spawn(building, 26, 10);
+    CHECK(f.services.footprint_changes == changes + 3);
+    CHECK(f.class_map(tank_class).cell(26, 10) == 0);
+    check_edge_patch();
+    site.record.damage_kind = static_cast<uint8_t>(sim::match_runtime::DeathKind::weapon);
+    f.match->teardown_dead_unit(site);
+    CHECK(f.services.footprint_changes == changes + 4);
+    CHECK(f.services.object_removals == 0);
+    CHECK(f.match->fault() == nullptr);
+    check_edge_patch();
 }
 
 struct PhysicalHost final : movement::Host {
@@ -912,6 +1275,10 @@ int main() {
     features_refresh_every_class();
     persistent_search_matches_the_job_build();
     cached_planning_excludes_movement_objects_only_for_following_presets();
+    interior_refresh_skip_keeps_cached_planning();
+    interior_skip_keeps_refreshing_real_obstacles();
+    interior_skip_keeps_edge_refreshes();
+    interior_skip_keeps_static_edge_refreshes();
     static_following_planning_does_not_weaken_physical_traffic();
     restored_mobility_keeps_the_occupancy_tick();
     outcome_checks_follow_the_slot_deadline();
