@@ -457,7 +457,11 @@ void matches_full_walk_for_units_moved_within_their_cell() {
     for (uint16_t id = 1; id <= 512; ++id) {
         const auto x = 64 * fixed_one + random() % (3900 * fixed_one);
         const auto z = 64 * fixed_one + random() % (3900 * fixed_one);
-        fixture.add_filed(id, x, z, cell_window(x), cell_window(z));
+        // One statement each: argument order differs between compilers, and
+        // every compiler must lay out the same units.
+        const auto filed_x = cell_window(x);
+        const auto filed_z = cell_window(z);
+        fixture.add_filed(id, x, z, filed_x, filed_z);
     }
     size_t missed = 0;
     for (size_t query = 0; query < 2000; ++query) {
