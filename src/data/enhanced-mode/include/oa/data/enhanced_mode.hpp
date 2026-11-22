@@ -231,6 +231,9 @@ enum class Feature : uint8_t {
     /// moving traffic in the unit's way crosses or comes against it, so a
     /// unit behind traffic going its own way waits its turn.
     counterflow_queue_escape = 32,
+    /// A ground unit long blocked behind traffic, waiting for its next
+    /// recovery, does not read its goal again until then.
+    idle_goal_skip = 33,
 };
 
 /// What a feature changes. The machines of a match agree on every kind.

@@ -666,9 +666,10 @@ enum class SetupEnhancedModeFeatures : uint8_t {
     paced_cohort_targets, ///< paced-cohort-targets
     dispatch_cohort_retention, ///< dispatch-cohort-retention
     counterflow_queue_escape, ///< counterflow-queue-escape
+    idle_goal_skip, ///< idle-goal-skip
 };
 /// @return the number of SetupEnhancedModeFeatures values
-[[nodiscard]] constexpr size_t enum_size(SetupEnhancedModeFeatures) noexcept { return 32; }
+[[nodiscard]] constexpr size_t enum_size(SetupEnhancedModeFeatures) noexcept { return 33; }
 
 /// setup.enhanced-mode: Records the Enhanced Mode revision and the features a match plays. Revision
 /// 1 is the set new games play when Enhanced Mode is on. Graphics settings remain independent.
@@ -677,7 +678,7 @@ struct SetupEnhancedMode {
     /// revision; 3.1c: 1
     int32_t revision{1};
     /// features; 3.1c: []
-    EnumSet<SetupEnhancedModeFeatures, 32> features{};
+    EnumSet<SetupEnhancedModeFeatures, 33> features{};
     /// Compares every field.
     bool operator==(const SetupEnhancedMode&) const = default;
 };
