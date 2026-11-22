@@ -21,10 +21,14 @@ drivers, over 127.0.0.1, at a DirectPlay port of the check's own
    A guest started with --presence-without-enhanced-mode, which sends no
    revision as Open Annihilation 0.9.2 does, joins: the room goes Off and
    both machines post "*** Enhanced Mode is off: Older's game doesn't have
-   it." once. It leaves, and the room returns to Revision 1 with one line.
-   It joins again, and START plays Off: the match passes the integrity
-   report on all three and the guest's recording has no Enhanced Mode
-   sector.
+   it." once, whichever of the host's record and Older's reaches the guest
+   first, and neither posts "*** Enhanced Mode: Off." besides. It leaves,
+   and the room returns to Revision 1 with one line. It joins again, and
+   START plays Off: the match passes the integrity report on all three and
+   the guest's recording has no Enhanced Mode sector.
+
+A game's automation endpoint answers a new client busy until it has seen the
+check's last one go, so hello is tried again for a few seconds.
 
 The scratch folder is removed whatever happens, so a second run starts as the
 first did.
@@ -53,6 +57,9 @@ ADDRESS = "127.0.0.1"
 HOST_BIND_ADDRESS = "0.0.0.0"
 # Seconds a game may take to print a line the check waits for, or to end.
 LINE_TIMEOUT = 120
+# Seconds a game's automation endpoint may take to see the check's last
+# client go: until it does, hello is answered busy.
+BUSY_TIMEOUT = 5
 # Seconds a driven match may take to pass the integrity report.
 MATCH_TIMEOUT = 300
 # The tick at which a disagreement would be reported. The match plays past it.
@@ -61,6 +68,8 @@ INTEGRITY = re.compile(r"multiplayer: integrity game data ([0-9a-f]{16})")
 PLAYS = "multiplayer: Enhanced Mode: the room plays "
 REVISION_LINE = "*** Enhanced Mode: Revision 1."
 OFF_LINE = "*** Enhanced Mode is off: Older's game doesn't have it."
+# The line for an Off no seat explains. A room Older turns Off never posts it.
+PLAIN_OFF_LINE = "*** Enhanced Mode: Off."
 ROOM = 'multiplayer: in the battle room of "Open Room" as '
 # The recording sector that holds Enhanced Mode: its type word.
 ENHANCED_SECTOR = 0x4F414531
@@ -215,11 +224,18 @@ def open_client(game):
     else:
         raise RoomEnhancedFailure(f"{game.name} wrote no automation file")
     endpoint = json.loads(game.fark_file.read_text(encoding="utf-8"))
-    client = automation.Client(endpoint["address"])
-    hello = client.request("hello", versions=[1], client="room-enhanced", token=endpoint["token"])
-    if not hello.get("ok"):
-        raise RoomEnhancedFailure(f"{game.name} answered hello with {hello}")
-    return client
+    # Until the endpoint has seen the check's last client go, a new one is busy.
+    busy_deadline = time.monotonic() + BUSY_TIMEOUT
+    while True:
+        client = automation.Client(endpoint["address"])
+        hello = client.request("hello", versions=[1], client="room-enhanced",
+                               token=endpoint["token"])
+        if hello.get("ok"):
+            return client
+        client.close()
+        if not automation.refused(hello, "busy") or time.monotonic() > busy_deadline:
+            raise RoomEnhancedFailure(f"{game.name} answered hello with {hello}")
+        time.sleep(0.1)
 
 
 def control_named(client, name):
@@ -536,6 +552,14 @@ def check(native, game_dir, workdir):
         for game in (host, guest, older):
             if game.plays() != "Off":
                 raise RoomEnhancedFailure(f"{game.name} played {game.plays()}, not Off")
+        # Each time Older turned the room Off, the line named Older and no
+        # other line said so, whichever record reached the guest first.
+        for game in (host, guest):
+            if game.count(PLAIN_OFF_LINE) != 0:
+                raise RoomEnhancedFailure(
+                    f"{game.name} wrote {PLAIN_OFF_LINE!r} {game.count(PLAIN_OFF_LINE)} times "
+                    f"besides naming Older")
+        evidence.append(f"second-host and second-guest: never {PLAIN_OFF_LINE}")
         wait_file(guest, recording)
         sectors = enhanced_sectors(recording)
         if sectors:
