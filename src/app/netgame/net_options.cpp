@@ -257,6 +257,21 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
         if (percent > 100)
             throw std::runtime_error("--net-loopback-loss takes a percentage, 0 to 100");
         result.net_loopback_loss = static_cast<int32_t>(percent);
+    } else if (argument == "--net-route-burst") {
+        result.net_route_burst = parse_count(value());
+        if (result.net_route_burst == 0)
+            throw std::runtime_error("--net-route-burst takes at least one mover");
+        if (result.net_route_burst > kRouteBurstMostMovers)
+            throw std::runtime_error(
+                "--net-route-burst takes at most " + std::to_string(kRouteBurstMostMovers) +
+                " movers: a room holds at most " + std::to_string(kRouteBurstMostMovers + 1) +
+                " units a player, the commander among them"
+            );
+    } else if (argument == "--net-route-burst-tick") {
+        const std::size_t tick = parse_count(value());
+        if (tick == 0 || tick > UINT32_MAX)
+            throw std::runtime_error("--net-route-burst-tick takes a tick from 1");
+        result.net_route_burst_tick = static_cast<uint32_t>(tick);
     } else if (argument == "--check-host-not-found") {
         result.check_host_not_found = true;
         effects |= option_effect::unattended | option_effect::skip_intro;
@@ -630,6 +645,53 @@ void note_missing_transport(const NetgameContext& netgame) {
     );
 }
 
+/// Refuses a network game's route burst that the command line cannot play.
+///
+/// --net-route-burst and --net-route-burst-tick need --host or --join, and
+/// the tick needs the burst. The burst does not go with the loopback check,
+/// whose own is --net-loopback-route-burst. The group move comes once the
+/// movers are made, kRouteBurstMadePerTick a tick from the match's first,
+/// and their copies have had kRouteBurstCopyMargin ticks to reach the other
+/// machines. A host whose launch names the room's unit limit needs room in
+/// it for the movers beside the commander. A refusal throws
+/// std::runtime_error.
+///
+/// @param netgame the context the command line filled, its launch applied
+void check_route_burst(const NetgameContext& netgame) {
+    const auto& options = netgame.options;
+    const std::size_t movers = options.net_route_burst;
+    if (movers == 0) {
+        if (options.net_route_burst_tick)
+            throw std::runtime_error("--net-route-burst-tick needs --net-route-burst");
+        return;
+    }
+    if (options.net_loopback_ticks)
+        throw std::runtime_error(
+            "--net-route-burst plays in a network game, not in the loopback check, whose burst is "
+            "--net-loopback-route-burst"
+        );
+    using Kind = oa::ui::frontend_multiplayer::DirectGame::Kind;
+    const Kind kind = options.direct_game.kind;
+    if (kind == Kind::none)
+        throw std::runtime_error("--net-route-burst needs --host or --join");
+    const std::size_t earliest =
+        (movers + kRouteBurstMadePerTick - 1) / kRouteBurstMadePerTick + kRouteBurstCopyMargin;
+    const uint32_t move_tick = options.net_route_burst_tick.value_or(kRouteBurstTick);
+    if (move_tick < earliest)
+        throw std::runtime_error(
+            "--net-route-burst-tick " + std::to_string(move_tick) + " comes before " +
+            std::to_string(movers) + " movers stand on every machine: tick " +
+            std::to_string(earliest) + " or later"
+        );
+    const int32_t room_limit = netgame.launch.block.max_units;
+    if (kind == Kind::host && room_limit > 0 && movers > static_cast<std::size_t>(room_limit) - 1)
+        throw std::runtime_error(
+            "--net-route-burst " + std::to_string(movers) + " needs a unit limit of " +
+            std::to_string(movers + 1) + ", the movers and the commander; the launch names " +
+            std::to_string(room_limit)
+        );
+}
+
 /// Checks the network game options as a whole (Extension::check_options).
 ///
 /// A launch is read here, after the long options and the game switches, and
@@ -638,7 +700,8 @@ void note_missing_transport(const NetgameContext& netgame) {
 /// are refused when longer than the game keeps. A
 /// game to host or join has the frontend open multiplayer over TCP/IP at
 /// once, whatever connection "-n" named. --list-content needs --json, and
-/// --json needs --list-content. A refused combination throws
+/// --json needs --list-content. A network game's route burst is checked
+/// as check_route_burst says. A refused combination throws
 /// std::runtime_error. A launch that cannot be used is kept, and
 /// raise_launch_refusal raises it after the hook returns. The notes of the
 /// switches and the launch are kept for the log (keep_start_note), and a
@@ -665,6 +728,7 @@ void check_options(void* context) {
             throw std::runtime_error("--replay-seek needs --play-demo");
         if (std::optional<LaunchPlan> plan = read_named_launch(netgame))
             (void)apply_launch_plan(netgame, std::move(*plan));
+        check_route_burst(netgame);
         const auto& game = options.direct_game;
         if (game.kind == oa::ui::frontend_multiplayer::DirectGame::Kind::none) {
             note_missing_transport(netgame);
@@ -720,6 +784,7 @@ const std::string& usage_runs() {
                   "[--net-loopback-computer] [--net-loopback-each-ai] "
                   "[--net-loopback-fixed-starts] [--net-loopback-shooter TYPE] "
                   "[--net-loopback-route-burst MOVERS [--net-loopback-loss PERCENT]] "
+                  "[--net-route-burst MOVERS [--net-route-burst-tick TICK]] "
                   "[--check-host-not-found] "
                   "[--check-opened-launch start|menu FILE] "
                   "[--play-demo FILE.tad [--replay-keyframe-check TICK] "

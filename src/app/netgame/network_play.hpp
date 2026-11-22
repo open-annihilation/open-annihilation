@@ -19,6 +19,7 @@
 #include "oa/session/demo/clock.hpp"
 #include "oa/sim/match_runtime.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -795,8 +796,24 @@ class NetworkPlay {
     /// @return the sentence
     std::string replay_player_line(const char* english, uint32_t tick) const;
 
+    /// --net-route-burst's progress in the running network match (runtime_net.cpp).
+    struct RouteBurst {
+        std::vector<uint16_t> movers;               ///< the local player's movers, by unit slot
+        std::vector<std::array<int32_t, 2>> spots;  ///< each mover's place: x and z, world units
+        std::vector<std::array<int32_t, 2>> starts; ///< the map's start positions, likewise
+        int32_t march{};  ///< how far south each mover is sent, world units
+        uint32_t place{}; ///< the player's place in the match's order of unit ranges, from 0
+        bool laid_out{};  ///< the burst was laid out, or refused
+        bool done{};      ///< the group move was given, or the burst refused
+    };
+
     Runtime& runtime_;
     std::unique_ptr<NetState, void (*)(NetState*) noexcept> net_{nullptr, destroy_net_state};
+    /// --net-route-burst in the running network match; reset as each one starts.
+    RouteBurst route_burst_{};
+    /// A host's --net-route-burst gave its battle room the unit limit the
+    /// movers need, or found it needed no change.
+    bool route_burst_room_set_ = false;
     /// A skirmish kept as a recording. Null when this run is not recording one.
     std::unique_ptr<SkirmishRecord, void (*)(SkirmishRecord*) noexcept> skirmish_{
         nullptr, destroy_skirmish_record
