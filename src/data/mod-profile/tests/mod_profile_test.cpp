@@ -556,6 +556,7 @@ void test_mutator_match() {
                 "wide-strike-recruits",
                 "paced-cohort-targets",
                 "dispatch-cohort-retention",
+                "counterflow-queue-escape",
             };
             OA_CHECK(listed.size() == std::size(feature_names));
             for (std::size_t name_index = 0;

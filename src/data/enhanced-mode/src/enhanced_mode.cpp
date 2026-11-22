@@ -46,7 +46,7 @@ using enum Feature;
 /// The feature table, in id order: entry n - 1 describes the feature with
 /// id n. Every feature needs Enhanced Mode on, and every chain of needs ends
 /// in capacity, the feature that sizes the Enhanced Mode state.
-constexpr std::array<FeatureInfo, 31> feature_rows{{
+constexpr std::array<FeatureInfo, 32> feature_rows{{
     {capacity, "capacity", FeatureKind::capacity, {}, {}},
     {local_flow, "local_flow", FeatureKind::simulation, set_of({capacity}), {}},
     {routes_original,
@@ -151,7 +151,7 @@ constexpr std::array<FeatureInfo, 31> feature_rows{{
      "cardinal_queue_escape",
      FeatureKind::simulation,
      set_of({local_flow}),
-     {}},
+     set_of({counterflow_queue_escape})},
     // Indexed searches whose target search finds what a full scan finds; the
     // old versions keep indexed_searches.
     {exact_indexed_searches,
@@ -180,6 +180,13 @@ constexpr std::array<FeatureInfo, 31> feature_rows{{
      FeatureKind::simulation,
      set_of({paced_cohort_targets}),
      set_of({cohort_retention})},
+    // Cardinal queue escape only from crossing or oncoming traffic; version 13
+    // keeps cardinal_queue_escape.
+    {counterflow_queue_escape,
+     "counterflow_queue_escape",
+     FeatureKind::simulation,
+     set_of({local_flow}),
+     set_of({cardinal_queue_escape})},
 }};
 
 /// Every feature the table describes.
@@ -397,7 +404,7 @@ constexpr std::array<const char*, feature_rows.size()> feature_engine_versions{{
     "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
     "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
     "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
 }};
 
 /// The first engine version of each revision. Index 0 is Off and has none.
@@ -464,7 +471,7 @@ using FeatureEnum = match_rules::SetupEnhancedModeFeatures;
 
 static_assert(enum_size(FeatureEnum{}) == feature_rows.size());
 static_assert(static_cast<int>(FeatureEnum::capacity) == 0);
-static_assert(static_cast<int>(FeatureEnum::dispatch_cohort_retention) == 30);
+static_assert(static_cast<int>(FeatureEnum::counterflow_queue_escape) == 31);
 
 /// Writes a feature set into the registry's enumeration set.
 ///

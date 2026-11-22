@@ -207,6 +207,9 @@ LocalFlowDecision choose_local_flow(
 namespace {
 
 /// Chooses the ordinary traffic leg before optional mature recovery.
+///
+/// @param[out] found the moving traffic the route probe found; left unchanged
+///     when it found none
 LocalFlowDecision choose_route_flow(
     const Unit& unit,
     const Movement& movement,
@@ -216,7 +219,8 @@ LocalFlowDecision choose_route_flow(
     Host& host,
     LocalFlowProbe probe,
     LocalFlowCounters& counters,
-    Fixed target_distance
+    Fixed target_distance,
+    LocalFlowBlocker& found
 ) {
     LocalFlowDecision result{target};
     const auto occupancy = uint8_t(movement.flags & occupancy_mask);
@@ -280,6 +284,7 @@ LocalFlowDecision choose_route_flow(
     }
     if (blocker.obstacle != LocalFlowObstacle::moving)
         return result;
+    found = blocker;
     ++counters.moving_blockers;
     result.mobile_blocked = true;
     if (!probe.recovery_yield && blocker.same_route_queue)
@@ -421,11 +426,16 @@ LocalFlowDecision choose_local_flow(
     Fixed target_distance
 ) {
     const auto yielded = counters.yielded_ticks;
+    LocalFlowBlocker blocker;
     auto result = choose_route_flow(
-        unit, movement, target, probe_target, tick, host, probe, counters, target_distance
+        unit, movement, target, probe_target, tick, host, probe, counters, target_distance, blocker
     );
     if (!probe.mature_cell_escape || !result.mobile_blocked ||
         (result.adjusted && cell_at(unit, result.target) != unit.cell))
+        return result;
+    // Traffic within a quarter turn of the unit's heading goes its way.
+    const int turn = std::bit_cast<int16_t>(uint16_t(unit.heading - blocker.heading));
+    if (probe.counterflow_cell_escape && std::abs(turn) < quarter_turn)
         return result;
     result = choose_cell_escape(unit, movement, target, host, result, counters);
     if (result.adjusted && cell_at(unit, result.target) != unit.cell &&

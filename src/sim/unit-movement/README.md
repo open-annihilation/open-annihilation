@@ -67,6 +67,17 @@ and retains its completion tick; a new route clears that marker. Active
 heads retain the current tick for replication, with no change to the
 27-byte saved representation.
 
+A mature retry may also step into a clear neighbouring cell
+(`LocalFlowProbe::mature_cell_escape`, the `cardinal_queue_escape` and
+`counterflow_queue_escape` features): when moving traffic blocks the route
+and ordinary passing leaves the unit in its own footprint origin, the four
+neighbouring origins are tried in goal-facing order through the same
+clearance checks, and the first clear one becomes a short leg. With
+`LocalFlowProbe::counterflow_cell_escape` the step is taken only when the
+traffic the route probe found heads a quarter turn or more away from the
+unit's heading, across its way or against it; behind traffic going its own
+way the unit keeps its place. `unit-local-flow-cell-escape` checks both.
+
 `unit-local-flow` checks clearance, priorities, coherent turns, bounded retries
 and canonical saved heads. `unit-local-flow-steering` runs the actual ground
 steering and integration through sustained opposing traffic, checking arrival,
