@@ -234,6 +234,10 @@ enum class Feature : uint8_t {
     /// A ground unit long blocked behind traffic, waiting for its next
     /// recovery, does not read its goal again until then.
     idle_goal_skip = 33,
+    /// Route planning that passes through moving units leaves its maps
+    /// alone when a moving unit clear of the map's right and bottom edges
+    /// moves, settles or dies: those cells would come out the same.
+    static_interior_refresh_skip = 34,
 };
 
 /// What a feature changes. The machines of a match agree on every kind.
