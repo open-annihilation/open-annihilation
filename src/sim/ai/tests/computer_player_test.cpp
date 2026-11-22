@@ -2698,7 +2698,7 @@ void test_paced_cohort_targets_limit_new_chases() {
             "paced cohorts: the refresh orders the members left"
         );
         check(
-            run.fake.orders.size() == members - reached &&
+            run.fake.orders.size() == static_cast<std::size_t>(members - reached) &&
                 run.fake.orders.front().unit == member(reached) &&
                 run.fake.orders.back().unit == member(members - 1),
             "paced cohorts: every member left receives its chase"

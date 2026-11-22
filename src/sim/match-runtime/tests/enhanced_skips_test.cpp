@@ -266,7 +266,9 @@ March march(FeatureSet features) {
     fixture.run(60);
     // The whole map is known, so traffic probes classify every cell.
     std::fill(
-        match.sight_mutable().player_bits.begin(), match.sight_mutable().player_bits.end(), 3
+        match.sight_mutable().player_bits.begin(),
+        match.sight_mutable().player_bits.end(),
+        uint16_t{3}
     );
     for (uint32_t i = 0; i < unit_count; ++i)
         CHECK(!match.order_refused(match.issue_ground_move(

@@ -366,7 +366,8 @@ void test_counterflow_escape_waits_behind_same_way() {
         OA_CHECK(off.queries == counterflow.queries && counterflow.overlaps == 0);
     }
     // A quarter turn or more away, across the unit's way or against it, it escapes.
-    for (const uint16_t heading : {uint16_t(east + 16384), uint16_t(east - 16384), west}) {
+    for (const uint16_t heading :
+         {uint16_t((east + 16384) & 0xffff), uint16_t(east - 16384), west}) {
         Grid cardinal;
         auto& unit = east_blocked(cardinal, heading);
         Grid counterflow = cardinal;
