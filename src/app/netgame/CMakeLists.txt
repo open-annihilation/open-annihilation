@@ -458,6 +458,24 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
       --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
       --scratch-root "${oa_netgame_checks}")
     set_tests_properties(native-net-room-enhanced PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # A route burst in a real network game, on two programs with Enhanced
+    # Mode: each machine gives its own player 1,000 movers and sends them
+    # south at tick 300. Every 300 ticks each player's live units, and once
+    # every mover stands, each unit's player, type, cell and health, are the
+    # same on both machines, and both print their route batches. The second
+    # check starts the guest with -e 10.
+    add_test(NAME native-net-route-burst COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_net_route_burst.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-net-route-burst PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      SKIP_RETURN_CODE 77)
+    add_test(NAME native-net-route-burst-loss COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_net_route_burst.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}" --guest-loss 10)
+    set_tests_properties(native-net-route-burst-loss PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} SKIP_RETURN_CODE 77)
     # A loopback recording carries the played loadout, and playback applies it
     # or refuses. ridge-art-a changes no units. ridge-tough rewrites the
     # commanders and ridge-add-unit adds one; the loopback reads both over
