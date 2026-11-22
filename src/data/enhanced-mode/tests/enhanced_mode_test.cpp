@@ -726,7 +726,7 @@ void check_feature_table() {
     constexpr FeatureKind capacity = FeatureKind::capacity;
     constexpr FeatureKind simulation = FeatureKind::simulation;
     constexpr FeatureKind orders = FeatureKind::orders;
-    const std::array<Row, 30> expected{{
+    const std::array<Row, 31> expected{{
         {1, "capacity", capacity, {}, {}},
         {2, "local_flow", simulation, ids({1}), {}},
         {3, "routes_original", simulation, ids({1, 2}), ids({4, 5})},
@@ -752,11 +752,12 @@ void check_feature_table() {
         {23, "occupancy_free_planning", simulation, ids({1}), {}},
         {24, "cohort_targets", simulation, ids({11}), ids({30})},
         {25, "steering_projection_reuse", capacity, ids({2}), {}},
-        {26, "cohort_retention", simulation, ids({24}), {}},
+        {26, "cohort_retention", simulation, ids({24}), ids({31})},
         {27, "cardinal_queue_escape", simulation, ids({2}), {}},
         {28, "exact_indexed_searches", capacity, ids({1}), ids({6})},
         {29, "wide_strike_recruits", simulation, ids({1}), ids({19})},
         {30, "paced_cohort_targets", simulation, ids({11}), ids({24})},
+        {31, "dispatch_cohort_retention", simulation, ids({30}), ids({26})},
     }};
     const auto table = enhanced::feature_table();
     OA_CHECK(table.size() == expected.size());
@@ -781,7 +782,7 @@ void check_feature_table() {
          {"", "Capacity", "capacity ", "local-flow", "routes", "enhanced_mode"})
         OA_CHECK(!enhanced::feature_by_name(unknown));
     OA_CHECK(enhanced::feature_name(static_cast<Feature>(0)).empty());
-    OA_CHECK(enhanced::feature_name(static_cast<Feature>(31)).empty());
+    OA_CHECK(enhanced::feature_name(static_cast<Feature>(32)).empty());
     OA_CHECK(enhanced::feature_name(static_cast<Feature>(255)).empty());
 }
 
@@ -803,17 +804,20 @@ void check_closing_features() {
     OA_CHECK(enhanced::close_features({}).empty());
     OA_CHECK(enhanced::close_features(ids({26})) == ids({1, 11, 24, 26}));
     OA_CHECK(enhanced::close_features(ids({30})) == ids({1, 11, 30}));
+    OA_CHECK(enhanced::close_features(ids({31})) == ids({1, 11, 30, 31}));
     OA_CHECK(enhanced::close_features(ids({16, 22})) == ids({1, 2, 7, 13, 16, 22}));
     OA_CHECK(enhanced::close_features(ids({18})) == ids({1, 2, 5, 18}));
     OA_CHECK(enhanced::close_features(ids({15, 23})) == ids({1, 14, 15, 23}));
 
     // The three route builders exclude each other, both ways, the two
     // indexed searches exclude each other, so do the two strike recruit
-    // bounds and the two kinds of cohort targets, and nothing else excludes.
+    // bounds, the two kinds of cohort targets and the two kinds of cohort
+    // retention, and nothing else excludes.
     const FeatureSet builders = ids({3, 4, 5});
     const FeatureSet searches = ids({6, 28});
     const FeatureSet recruits = ids({19, 29});
     const FeatureSet cohorts = ids({24, 30});
+    const FeatureSet retention = ids({26, 31});
     for (const enhanced::FeatureInfo& row : table) {
         if (builders.has(row.id)) {
             OA_CHECK(row.excludes == builders.without(row.id));
@@ -823,6 +827,8 @@ void check_closing_features() {
             OA_CHECK(row.excludes == recruits.without(row.id));
         } else if (cohorts.has(row.id)) {
             OA_CHECK(row.excludes == cohorts.without(row.id));
+        } else if (retention.has(row.id)) {
+            OA_CHECK(row.excludes == retention.without(row.id));
         } else {
             OA_CHECK(row.excludes.empty());
         }
@@ -898,6 +904,12 @@ void check_feature_set_problems() {
     );
     OA_CHECK(reason(ids({1, 30})) == "paced_cohort_targets needs ai_strike_retarget");
     OA_CHECK(reason(ids({1, 26})) == "cohort_retention needs cohort_targets");
+    OA_CHECK(
+        reason(ids({1, 26, 31})) ==
+        "cohort_retention cannot share a match with dispatch_cohort_retention"
+    );
+    OA_CHECK(reason(ids({1, 11, 31})) == "dispatch_cohort_retention needs paced_cohort_targets");
+    OA_CHECK(reason(ids({1, 11, 30, 31})) == "");
     OA_CHECK(reason(ids({1, 3})) == "routes_original needs local_flow");
     OA_CHECK(reason(ids({1, 2, 18})) == "credited_fallback_search needs routes_fine_regions");
     OA_CHECK(reason(ids({2})) == "a set with any feature needs capacity");
@@ -909,7 +921,7 @@ void check_feature_set_problems() {
         reason(FeatureSet::from_bits(0b1)) == "the set holds a feature this build does not know"
     );
     OA_CHECK(
-        reason(ids({1}) | FeatureSet::from_bits(uint64_t{1} << 31)) ==
+        reason(ids({1}) | FeatureSet::from_bits(uint64_t{1} << 32)) ==
         "the set holds a feature this build does not know"
     );
 }

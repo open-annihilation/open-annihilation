@@ -222,6 +222,11 @@ enum class Feature : uint8_t {
     /// starts at most 256 chases for members that have none, and the refresh
     /// also orders members that have no chase, a few ticks later.
     paced_cohort_targets = 30,
+    /// Cohort retention for the cohorts of paced_cohort_targets at the
+    /// strike's periodic dispatch only: a cohort keeps its verified target
+    /// while it costs within 12.5% of the best, and a refresh that orders
+    /// members whose chase ended chooses fresh targets.
+    dispatch_cohort_retention = 31,
 };
 
 /// What a feature changes. The machines of a match agree on every kind.
