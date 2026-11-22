@@ -53,10 +53,27 @@ struct EnhancedRoom {
     /// A seated machine's announce has not arrived. It changes nothing until
     /// it does, and holds START meanwhile.
     bool waiting{};
+    /// On a guest, while the room's Off line waits for a seat to name: the
+    /// time (EnhancedRoomInputs::now_ms) the host's record turned the room
+    /// Off with no seat this machine sees announcing none. Nothing once the
+    /// line has posted, and always nothing on the host.
+    std::optional<uint64_t> off_line_since{};
 
     /// Compares two resolutions.
     friend bool operator==(const EnhancedRoom&, const EnhancedRoom&) = default;
 };
+
+/// How long a guest's Off line waits for the seat that turned the room Off,
+/// in milliseconds: three seconds.
+///
+/// A joiner sends its record to a guest only once the guest's own block has
+/// reached it, and the battle room sends its block about every two seconds,
+/// so the joiner's record can reach a guest up to two seconds after the
+/// host's, plus the frames and the trip between. A second more covers them.
+/// After it the guest posts "*** Enhanced Mode: Off.", which is also the
+/// line for a host that turned its switch off, or a seat the guest never
+/// learns of.
+inline constexpr uint64_t enhanced_off_line_wait_ms = 3000;
 
 /// What a machine knows when it resolves the room.
 struct EnhancedRoomInputs {
@@ -69,6 +86,10 @@ struct EnhancedRoomInputs {
     std::optional<uint32_t> announced{};
     /// Every seated human and watcher, this machine's own included, in slot order.
     std::span<const EnhancedSeat> seats{};
+    /// The time now, in milliseconds of a clock that never goes back. Read
+    /// on a guest only, to end the wait of an Off line
+    /// (enhanced_off_line_wait_ms).
+    uint64_t now_ms{};
 };
 
 /// A resolution and the room lines it posts.
@@ -100,7 +121,15 @@ struct EnhancedRoomChange {
 /// later revision." Off posts "*** Enhanced Mode is off: {player}'s game
 /// doesn't have it." for `lacks`, and "*** Enhanced Mode: Off." otherwise.
 ///
-/// @param inputs the switch, the lock, the host's announcement and the seats
+/// The host's record and the record of the seat that turned the room Off
+/// reach a guest in either order. When the host's comes first, the guest's
+/// room is Off at once and its line waits (EnhancedRoom::off_line_since):
+/// it names the first seat that announces none as soon as one does, or,
+/// once enhanced_off_line_wait_ms has passed, posts "*** Enhanced Mode:
+/// Off.". Either way the change posts one line. A revision the host
+/// announces before then posts the waiting Off line first, then its own.
+///
+/// @param inputs the switch, the lock, the host's announcement, the seats and the time
 /// @param before the room as last resolved in this battle room; nothing on entering it
 /// @return the room now and the lines to post
 [[nodiscard]] EnhancedRoomChange

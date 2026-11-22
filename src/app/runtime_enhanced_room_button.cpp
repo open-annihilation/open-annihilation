@@ -334,6 +334,8 @@ void Runtime::follow_room_enhanced() {
     if (!hosting)
         inputs.announced = mp::lobby_enhanced_announced(lobby);
     inputs.seats = seats;
+    // A guest's Off line waits a bounded time for the seat to name.
+    inputs.now_ms = static_cast<uint64_t>(SDL_GetTicks());
     mp::EnhancedRoomChange change = mp::resolve_enhanced_room(inputs, state.room);
     state.room = change.room;
     for (const std::string& line : change.lines)
