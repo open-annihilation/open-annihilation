@@ -363,28 +363,42 @@ class StagedObserver {
         }
     }
 
-    /// Samples the unit each attacker of every player is ordered to attack.
+    /// Samples the unit each attacker of every player is ordered to attack,
+    /// and counts the attackers that switched targets since the last sample.
     ///
     /// @param match the staged match
     void sample_targets(sim::match_runtime::Match& match) {
         for (auto& targets : targets_scratch_)
             targets.clear();
         const auto& slots = match.world().slots;
+        strike_now_.assign(slots.size(), {});
         for (std::size_t index = 0; index < slots.size(); ++index) {
             if (!live(slots[index]))
                 continue;
+            const auto id = static_cast<uint16_t>(index);
+            auto& strike = strike_now_[index];
+            strike.live = true;
+            strike.player = slots[index].record.owner_index;
+            strike.generation = match.runtime_state(id).instance_generation;
             sim::match_runtime::Match::OrderRecordView head{};
-            if (match.queue_records(static_cast<uint16_t>(index), false, &head, 1) != 1 ||
-                head.target == 0 ||
+            if (match.queue_records(id, false, &head, 1) != 1 || head.target == 0 ||
                 (head.kind != sim::match_runtime::attack_chase_kind &&
                  head.kind != sim::match_runtime::attack_no_move_kind))
                 continue;
             targets_scratch_[slots[index].record.owner_index % targets_scratch_.size()].push_back(
                 head.target
             );
+            if (head.target < slots.size() && live(slots[head.target])) {
+                strike.target = head.target;
+                strike.target_generation = match.runtime_state(head.target).instance_generation;
+            }
         }
         for (std::size_t player = 0; player < targets_.size(); ++player)
             battle_benchmark::add_target_sample(targets_[player], targets_scratch_[player]);
+        if (strike_sampled_)
+            battle_benchmark::add_target_churn(churn_, strike_before_, strike_now_);
+        strike_sampled_ = true;
+        std::swap(strike_before_, strike_now_);
     }
 
     /// Audits the ground and air ownership of every live, finished,
@@ -445,6 +459,7 @@ class StagedObserver {
             player.births = births_[index];
             player.deaths = deaths_[index];
             player.strike_targets = targets_[index];
+            player.strike_churn = churn_[index];
             player.computer = match.state().game.players[index].status == OA_PLAYER_STATUS_COMPUTER;
         }
         return result_;
@@ -672,6 +687,11 @@ class StagedObserver {
     std::array<uint64_t, OA_PLAYER_COUNT> deaths_{};
     std::array<battle_benchmark::TargetSpread, OA_PLAYER_COUNT> targets_{};
     std::array<std::vector<uint16_t>, OA_PLAYER_COUNT> targets_scratch_{};
+    std::array<battle_benchmark::TargetChurn, OA_PLAYER_COUNT> churn_{};
+    /// Every unit slot at the last strike sample, and at this one.
+    std::vector<battle_benchmark::StrikeSlot> strike_before_{};
+    std::vector<battle_benchmark::StrikeSlot> strike_now_{};
+    bool strike_sampled_{};
     std::vector<battle_benchmark::AuditUnit> audited_{};
     std::vector<uint8_t> audit_scratch_{};
     /// Every unit slot at the last observation, and at this one.

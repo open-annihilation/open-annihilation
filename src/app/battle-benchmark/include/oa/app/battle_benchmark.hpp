@@ -286,6 +286,45 @@ struct TargetSpread {
 /// @param targets one entry an attacker; sorted in place
 void add_target_sample(TargetSpread& spread, std::span<uint16_t> targets);
 
+/// What a strike sample keeps of one unit slot, for the next sample's
+/// target churn.
+struct StrikeSlot {
+    bool live{};           ///< a unit holds the slot
+    uint8_t player{};      ///< the unit's owner
+    uint32_t generation{}; ///< the unit's instance; a later unit in the slot has another
+    /// The live unit the unit's first order attacks, or 0 when that order is
+    /// not an attack on a live unit.
+    uint16_t target{};
+    uint32_t target_generation{}; ///< that unit's instance
+};
+
+/// How often one player's attackers switch targets between consecutive
+/// strike samples.
+struct TargetChurn {
+    /// Attackers that attacked a unit in both samples of a pair while the
+    /// unit they attacked in the earlier one was still alive, summed over pairs.
+    uint64_t compared_attackers{};
+    /// Of them, those attacking another unit in the later sample.
+    uint64_t switched_attackers{};
+};
+
+/// Adds two consecutive strike samples to each player's target churn.
+///
+/// An attacker counts when its slot holds the same unit in both samples, it
+/// attacks a unit in both, and the unit it attacked in the earlier sample
+/// still holds its slot, the same unit, in the later one. It switched when it
+/// now attacks another unit. It counts for its owner in the later sample.
+///
+/// @param[in,out] churn one entry a player, by player number; an owner past
+///     the end is not counted
+/// @param earlier the earlier sample, one entry a unit slot
+/// @param later the later sample, one entry a unit slot
+void add_target_churn(
+    std::span<TargetChurn> churn,
+    std::span<const StrikeSlot> earlier,
+    std::span<const StrikeSlot> later
+) noexcept;
+
 /// A mobile unit whose footprint an ownership audit checks.
 struct AuditUnit {
     uint16_t id{};
@@ -425,6 +464,7 @@ struct StagedPlayer {
     uint64_t stationary_throughout_unengaged{};
     std::vector<uint64_t> crossers{}; ///< one count a crossing line
     TargetSpread strike_targets{};
+    TargetChurn strike_churn{};
 };
 
 /// Summarizes the tracked units of each player that has any.
@@ -432,8 +472,8 @@ struct StagedPlayer {
 /// @param units every tracked unit
 /// @param line_count the battle's crossing lines
 /// @param window_ticks the stationary window's measured ticks
-/// @return one entry a player, by player index; births, deaths, computer and
-///     strike targets left for the caller
+/// @return one entry a player, by player index; births, deaths, computer,
+///     strike targets and strike churn left for the caller
 [[nodiscard]] std::vector<StagedPlayer>
 summarize_staged(std::span<const StagedUnit> units, std::size_t line_count, uint64_t window_ticks);
 

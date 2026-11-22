@@ -167,28 +167,46 @@ void json_percent(std::ostream& out, uint64_t part, uint64_t whole) {
     out << scaled / thousandths << '.' << fraction;
 }
 
-/// Writes the stationary window's engaged and unengaged shares as `extra`
-/// entries: one number a player, indexed by player number, and the players
-/// pooled.
-void json_engagement(std::ostream& out, const std::vector<StagedPlayer>& players) {
+/// Writes an `extra` entry holding one number a player, indexed by player
+/// number: 0 for a player without an entry, and `write`'s number for the
+/// others.
+///
+/// @param out the report
+/// @param players the staged battle's players
+/// @param name the entry's name
+/// @param write writes one player's number
+template <typename Write>
+void json_player_list(
+    std::ostream& out,
+    const std::vector<StagedPlayer>& players,
+    std::string_view name,
+    const Write& write
+) {
     std::size_t count = 0;
     for (const auto& player : players)
         count = std::max<std::size_t>(count, std::size_t{player.player} + 1);
     std::vector<const StagedPlayer*> by_player(count, nullptr);
     for (const auto& player : players)
         by_player[player.player] = &player;
+    out << ", ";
+    json_string(out, name);
+    out << ": [";
+    for (std::size_t index = 0; index < count; ++index) {
+        out << (index == 0 ? "" : ", ");
+        if (by_player[index] == nullptr)
+            out << 0;
+        else
+            write(*by_player[index]);
+    }
+    out << ']';
+}
+
+/// Writes the stationary window's engaged and unengaged shares as `extra`
+/// entries: one number a player, indexed by player number, and the players
+/// pooled.
+void json_engagement(std::ostream& out, const std::vector<StagedPlayer>& players) {
     const auto list = [&](std::string_view name, const auto& write) {
-        out << ", ";
-        json_string(out, name);
-        out << ": [";
-        for (std::size_t index = 0; index < count; ++index) {
-            out << (index == 0 ? "" : ", ");
-            if (by_player[index] == nullptr)
-                out << 0;
-            else
-                write(*by_player[index]);
-        }
-        out << ']';
+        json_player_list(out, players, name, write);
     };
     list("stationary_engaged_pct", [&](const StagedPlayer& player) {
         json_percent(
@@ -215,6 +233,16 @@ void json_engagement(std::ostream& out, const std::vector<StagedPlayer>& players
         out << player.stationary_throughout_unengaged;
     });
     out << ", \"stationary_throughout_unengaged_all\": " << still;
+}
+
+/// Writes each player's strike target churn as an `extra` entry: the
+/// percentage of its compared attackers that switched targets.
+void json_target_churn(std::ostream& out, const std::vector<StagedPlayer>& players) {
+    json_player_list(out, players, "strike_target_churn_pct", [&](const StagedPlayer& player) {
+        json_percent(
+            out, player.strike_churn.switched_attackers, player.strike_churn.compared_attackers
+        );
+    });
 }
 
 /// Writes a staged battle's lines, players and ownership audits.
@@ -255,7 +283,8 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
             << ", \"attackers\": " << targets.attackers
             << ", \"distinct_targets\": " << targets.distinct_targets << ", \"largest_share\": ";
         json_number(out, targets.largest_share);
-        out << "}}";
+        out << ", \"compared_attackers\": " << player.strike_churn.compared_attackers
+            << ", \"switched_attackers\": " << player.strike_churn.switched_attackers << "}}";
     }
     const auto& audit = staged.audit;
     out << (staged.players.empty() ? "]" : "\n    ]")
@@ -280,6 +309,7 @@ void json_staged(std::ostream& out, const StagedBattle& staged) {
         out << "null";
     out << "},\n    \"extra\": {\"swept_misses\": " << swept.misses;
     json_engagement(out, staged.players);
+    json_target_churn(out, staged.players);
     out << "}\n  }";
 }
 
@@ -645,6 +675,30 @@ void add_target_sample(TargetSpread& spread, std::span<uint16_t> targets) {
     spread.attackers += targets.size();
     spread.distinct_targets += distinct;
     spread.largest_share += static_cast<double>(largest) / static_cast<double>(targets.size());
+}
+
+void add_target_churn(
+    std::span<TargetChurn> churn,
+    std::span<const StrikeSlot> earlier,
+    std::span<const StrikeSlot> later
+) noexcept {
+    const auto slots = std::min(earlier.size(), later.size());
+    for (std::size_t index = 0; index < slots; ++index) {
+        const auto& before = earlier[index];
+        const auto& now = later[index];
+        if (!before.live || !now.live || before.generation != now.generation ||
+            before.target == 0 || now.target == 0 || now.player >= churn.size())
+            continue;
+        if (before.target >= later.size())
+            continue;
+        const auto& earlier_target = later[before.target];
+        if (!earlier_target.live || earlier_target.generation != before.target_generation)
+            continue;
+        auto& player = churn[now.player];
+        ++player.compared_attackers;
+        if (now.target != before.target || now.target_generation != before.target_generation)
+            ++player.switched_attackers;
+    }
 }
 
 void audit_ownership(
