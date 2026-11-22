@@ -726,7 +726,7 @@ void check_feature_table() {
     constexpr FeatureKind capacity = FeatureKind::capacity;
     constexpr FeatureKind simulation = FeatureKind::simulation;
     constexpr FeatureKind orders = FeatureKind::orders;
-    const std::array<Row, 32> expected{{
+    const std::array<Row, 33> expected{{
         {1, "capacity", capacity, {}, {}},
         {2, "local_flow", simulation, ids({1}), {}},
         {3, "routes_original", simulation, ids({1, 2}), ids({4, 5})},
@@ -759,6 +759,7 @@ void check_feature_table() {
         {30, "paced_cohort_targets", simulation, ids({11}), ids({24})},
         {31, "dispatch_cohort_retention", simulation, ids({30}), ids({26})},
         {32, "counterflow_queue_escape", simulation, ids({2}), ids({27})},
+        {33, "idle_goal_skip", capacity, ids({2}), {}},
     }};
     const auto table = enhanced::feature_table();
     OA_CHECK(table.size() == expected.size());
@@ -783,7 +784,7 @@ void check_feature_table() {
          {"", "Capacity", "capacity ", "local-flow", "routes", "enhanced_mode"})
         OA_CHECK(!enhanced::feature_by_name(unknown));
     OA_CHECK(enhanced::feature_name(static_cast<Feature>(0)).empty());
-    OA_CHECK(enhanced::feature_name(static_cast<Feature>(33)).empty());
+    OA_CHECK(enhanced::feature_name(static_cast<Feature>(34)).empty());
     OA_CHECK(enhanced::feature_name(static_cast<Feature>(255)).empty());
 }
 
@@ -807,6 +808,10 @@ void check_closing_features() {
     OA_CHECK(enhanced::close_features(ids({30})) == ids({1, 11, 30}));
     OA_CHECK(enhanced::close_features(ids({31})) == ids({1, 11, 30, 31}));
     OA_CHECK(enhanced::close_features(ids({32})) == ids({1, 2, 32}));
+    OA_CHECK(
+        enhanced::close_features(FeatureSet{}.with(Feature::idle_goal_skip)) ==
+        ids({1, 2}).with(Feature::idle_goal_skip)
+    );
     OA_CHECK(enhanced::close_features(ids({16, 22})) == ids({1, 2, 7, 13, 16, 22}));
     OA_CHECK(enhanced::close_features(ids({18})) == ids({1, 2, 5, 18}));
     OA_CHECK(enhanced::close_features(ids({15, 23})) == ids({1, 14, 15, 23}));
@@ -931,7 +936,7 @@ void check_feature_set_problems() {
         reason(FeatureSet::from_bits(0b1)) == "the set holds a feature this build does not know"
     );
     OA_CHECK(
-        reason(ids({1}) | FeatureSet::from_bits(uint64_t{1} << 33)) ==
+        reason(ids({1}) | FeatureSet::from_bits(uint64_t{1} << 34)) ==
         "the set holds a feature this build does not know"
     );
 }

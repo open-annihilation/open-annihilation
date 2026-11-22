@@ -249,7 +249,16 @@ void TickHost::movement_tick(oa::Unit& record) {
                 flow_head->active = false;
                 flow_head->count = 0;
                 flow_head->mobile_blocked = false;
-            } else {
+            } else if (
+                !features.has(Feature::idle_goal_skip) || flow_head->active ||
+                flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks ||
+                sim::unit_movement::local_flow_recovery_due(
+                    *flow_head, match.simulation_.tick, s.unit_index
+                )
+            ) {
+                // Only an active head, a recent block or a due recovery can
+                // change the head below; idle_goal_skip leaves every other
+                // head without reading its goal.
                 const auto goal_key = local_flow_goal_key(*g.navigation.goal);
                 const bool recover = sim::unit_movement::local_flow_recovery_due(
                     *flow_head, match.simulation_.tick, s.unit_index

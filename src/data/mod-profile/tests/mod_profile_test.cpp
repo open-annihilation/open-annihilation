@@ -557,6 +557,7 @@ void test_mutator_match() {
                 "paced-cohort-targets",
                 "dispatch-cohort-retention",
                 "counterflow-queue-escape",
+                "idle-goal-skip",
             };
             OA_CHECK(listed.size() == std::size(feature_names));
             for (std::size_t name_index = 0;
