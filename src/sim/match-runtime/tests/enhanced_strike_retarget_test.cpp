@@ -1156,9 +1156,9 @@ void all_pending_targets_keep_retries_bounded_without_new_attacks(uint32_t versi
     battle.run_until(target_loss_tick - 1);
     mark_unhealthy_target(battle, battle.target, UnhealthyTarget::zero_health_pending);
     mark_unhealthy_target(battle, battle.replacement, UnhealthyTarget::zero_health_pending);
-    std::array<sim::simulation_state::Order*, strike_members> original_heads{};
+    std::array<sim::simulation_state::Order*, strike_members> heads_before{};
     for (std::size_t i = 0; i < battle.members.size(); ++i)
-        original_heads[i] = battle.fixture.match->spawn_slot(battle.members[i]).unit->primary;
+        heads_before[i] = battle.fixture.match->spawn_slot(battle.members[i]).unit->primary;
     uint32_t previous_deadline = battle.strike().next_tick;
     std::optional<uint32_t> previous_attempt;
     uint32_t attempts = 0;
@@ -1178,8 +1178,7 @@ void all_pending_targets_keep_retries_bounded_without_new_attacks(uint32_t versi
         battle.check_attack(battle.target, battle.initial_issue_tick);
         for (std::size_t i = 0; i < battle.members.size(); ++i)
             CHECK(
-                battle.fixture.match->spawn_slot(battle.members[i]).unit->primary ==
-                original_heads[i]
+                battle.fixture.match->spawn_slot(battle.members[i]).unit->primary == heads_before[i]
             );
         const auto bytes = retarget_bytes(battle.fixture);
         CHECK(bytes.size() == state_byte_count);
