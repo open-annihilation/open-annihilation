@@ -59,7 +59,16 @@ distance less final distance, straight-line pixels), units that gained
 engaged stationary unit-ticks among them, and the units stationary
 throughout that were never engaged in the window) and crossers per line. `add_target_sample` takes the targets of one player's
 attackers at a sample and adds the sample, the attackers, the distinct
-targets and the commonest target's share. `audit_ownership` checks that
+targets and the commonest target's share. `add_target_churn` compares two
+consecutive samples (`target_sample_interval_ticks`, 30 measured ticks,
+apart), each one `StrikeSlot` a unit slot: whether a unit holds it, its
+owner and instance, and the live unit its first order attacks with that
+unit's instance (none when the order is not an attack on a live unit). An
+attacker is compared when its slot holds the same unit in both samples, it
+attacks a unit in both, and the unit it attacked in the earlier sample
+still holds its slot, the same unit, in the later one; it switched when it
+now attacks another unit. Each player's compared and switched attackers are
+summed over the battle's pairs. `audit_ownership` checks that
 every footprint cell of the units it is given names the unit on its layer,
 counts cells inside two ground footprints, skips a footprint past the map's
 last row or column (the game leaves such a unit off the map's cells) and
@@ -102,7 +111,13 @@ window unit-ticks in which a unit stood still engaged and not engaged (they
 add up to the stationary share); `stationary_unengaged_pct_all`, the
 unengaged share pooled over every player; `stationary_throughout_unengaged`,
 one number a player, the units stationary throughout the window that were
-never engaged in it, and `stationary_throughout_unengaged_all`, their sum.
+never engaged in it, and `stationary_throughout_unengaged_all`, their sum;
+and `strike_target_churn_pct`, one number a player, the percentage of the
+player's compared attackers that switched targets, pooled over every pair
+of consecutive strike samples (0 for a player with no compared attacker).
+Each player's `strike_targets` object also holds `compared_attackers` and
+`switched_attackers`, the counts it is made of. The observer that reads them
+runs outside the timed step.
 Percentages are rounded half up and written with three decimals.
 
 `summarize` copies elapsed-nanosecond samples, sorts the copy and returns the
@@ -174,7 +189,10 @@ inputs, detours, jitter rejection and trip-distance fairness bins.
 It checks crossing lines (reading and refusals, sides, steps across, past
 the end, onto and off a line), staged-unit tracking and summaries
 (crossings counted once and only away from the start side, the stationary
-window, retirement), target spread samples, ownership audits (a stolen
+window, retirement), target spread samples, target churn (a kept and a
+switched target, a target that died or whose slot holds another unit, a
+replaced attacker, no attack in one sample, owners past the counted
+players), ownership audits (a stolen
 cell, an overlap, an air unit, a footprint past the edge), ground step
 paths (within a cell, across a column, past a corner on either side,
 exactly through it, backwards, a two-cell footprint, a wrong cell, the
@@ -182,4 +200,5 @@ origin limit), swept-step audits (a corner cell only a diagonal passes, the
 exact corner, another unit's cell, a step's own start, an unchecked step),
 the engaged split (standing while engaged, engaged once, engaged while
 moving, engagement outside the window or after death) and the
-`staged_battle` report block (the split's entries and their rounding).
+`staged_battle` report block (the split's and the churn's entries and their
+rounding).

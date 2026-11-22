@@ -557,6 +557,68 @@ void target_spread() {
     CHECK(spread.largest_share > 1.599 && spread.largest_share < 1.601);
 }
 
+/// Checks strike target churn between two samples: kept and switched
+/// targets, a target that died or whose slot holds another unit, a replaced
+/// attacker, attackers without a target in either sample and owners past the
+/// counted players.
+void target_churn() {
+    constexpr uint8_t human = 0;
+    constexpr uint8_t computer = 1;
+    constexpr uint8_t uncounted = 2;
+    std::vector<benchmark::StrikeSlot> earlier(16);
+    std::vector<benchmark::StrikeSlot> later(16);
+    const auto unit =
+        [](
+            uint8_t player, uint32_t generation, uint16_t target = 0, uint32_t target_generation = 0
+        ) { return benchmark::StrikeSlot{true, player, generation, target, target_generation}; };
+    // Targets: 5 and 6 live through both samples, 7's unit is replaced, 8 dies.
+    earlier[5] = later[5] = unit(human, 3);
+    earlier[6] = later[6] = unit(human, 4);
+    earlier[7] = unit(human, 2);
+    later[7] = unit(human, 9);
+    earlier[8] = unit(human, 5);
+    // Keeps its target, and switches it.
+    earlier[1] = later[1] = unit(computer, 10, 5, 3);
+    earlier[2] = unit(computer, 11, 5, 3);
+    later[2] = unit(computer, 11, 6, 4);
+    // Its target's slot holds another unit now, which it attacks.
+    earlier[3] = unit(computer, 12, 7, 2);
+    later[3] = unit(computer, 12, 7, 9);
+    // Its target died.
+    earlier[4] = unit(computer, 13, 8, 5);
+    later[4] = unit(computer, 13, 5, 3);
+    // A later unit in the attacker's slot is not it.
+    earlier[9] = unit(computer, 14, 5, 3);
+    later[9] = unit(computer, 15, 6, 4);
+    // No attack in one of the samples.
+    earlier[10] = unit(computer, 16);
+    later[10] = unit(computer, 16, 5, 3);
+    earlier[11] = unit(computer, 17, 5, 3);
+    later[11] = unit(computer, 17);
+    // Another player's attacker that switched, and an owner past the counted players.
+    earlier[12] = unit(human, 18, 5, 3);
+    later[12] = unit(human, 18, 6, 4);
+    earlier[13] = later[13] = unit(uncounted, 19, 5, 3);
+    later[13].target = 6;
+    later[13].target_generation = 4;
+    // The earlier target lies past the later sample's slots.
+    earlier[14] = unit(computer, 20, 15, 1);
+    later[14] = unit(computer, 20, 5, 3);
+    later.resize(15);
+    std::array<benchmark::TargetChurn, 2> churn{};
+    benchmark::add_target_churn(churn, earlier, later);
+    CHECK(churn[computer].compared_attackers == 2 && churn[computer].switched_attackers == 1);
+    CHECK(churn[human].compared_attackers == 1 && churn[human].switched_attackers == 1);
+    // Pairs add up: a sample against itself compares every attacker of a live
+    // unit and switches none. An empty sample compares nothing.
+    benchmark::add_target_churn(churn, later, later);
+    CHECK(churn[computer].compared_attackers == 9 && churn[computer].switched_attackers == 1);
+    CHECK(churn[human].compared_attackers == 2 && churn[human].switched_attackers == 1);
+    benchmark::add_target_churn(churn, {}, later);
+    benchmark::add_target_churn({}, earlier, later);
+    CHECK(churn[computer].compared_attackers == 9 && churn[human].compared_attackers == 2);
+}
+
 /// Checks ownership audits: owned cells, a stolen cell, an overlap, an air
 /// unit and a footprint past the map's edge.
 void ownership_audits() {
@@ -727,6 +789,7 @@ void staged_report() {
     player.crossers = {4};
     player.strike_targets.samples = 2;
     player.strike_targets.largest_share = 0.75;
+    player.strike_churn = {8, 3};
     player.window_live_unit_ticks = 400;
     player.window_stationary_unit_ticks = 120;
     player.window_engaged_stationary_unit_ticks = 70;
@@ -754,7 +817,11 @@ void staged_report() {
     CHECK(json.find("\"deaths\": 2") != std::string::npos);
     CHECK(json.find("\"mean_progress_pixels\": 12.5") != std::string::npos);
     CHECK(json.find("\"crossers\": [4]") != std::string::npos);
-    CHECK(json.find("\"largest_share\": 0.75") != std::string::npos);
+    CHECK(
+        json.find(
+            "\"largest_share\": 0.75, \"compared_attackers\": 8, \"switched_attackers\": 3}"
+        ) != std::string::npos
+    );
     CHECK(json.find("\"audits\": 61") != std::string::npos);
     CHECK(json.find("\"first_error_tick\": 450") != std::string::npos);
     CHECK(
@@ -768,7 +835,7 @@ void staged_report() {
             "\"extra\": {\"swept_misses\": 3, \"stationary_engaged_pct\": [0, 17.500], "
             "\"stationary_unengaged_pct\": [0, 12.500], \"stationary_unengaged_pct_all\": 12.500, "
             "\"stationary_throughout_unengaged\": [0, 3], "
-            "\"stationary_throughout_unengaged_all\": 3}"
+            "\"stationary_throughout_unengaged_all\": 3, \"strike_target_churn_pct\": [0, 37.500]}"
         ) != std::string::npos
     );
     CHECK(
@@ -781,6 +848,7 @@ void staged_report() {
     benchmark::StagedPlayer human;
     human.window_live_unit_ticks = 3;
     human.window_stationary_unit_ticks = 2;
+    human.strike_churn = {3, 2};
     report.staged->players.insert(report.staged->players.begin(), human);
     const auto pooled = benchmark::report_json(report);
     CHECK(
@@ -789,6 +857,7 @@ void staged_report() {
             "[66.667, 12.500], \"stationary_unengaged_pct_all\": 12.903"
         ) != std::string::npos
     );
+    CHECK(pooled.find("\"strike_target_churn_pct\": [66.667, 37.500]}") != std::string::npos);
     report.staged->players.clear();
     CHECK(
         benchmark::report_json(report).find(
@@ -796,6 +865,16 @@ void staged_report() {
             "\"stationary_unengaged_pct_all\": 0.000"
         ) != std::string::npos
     );
+    CHECK(
+        benchmark::report_json(report).find("\"strike_target_churn_pct\": []}") != std::string::npos
+    );
+    // A player with no compared attacker has no churn.
+    report.staged->players.push_back({});
+    CHECK(
+        benchmark::report_json(report).find("\"strike_target_churn_pct\": [0.000]}") !=
+        std::string::npos
+    );
+    report.staged->players.clear();
     report.staged->audit.first_error_tick.reset();
     report.staged->swept_steps = {};
     const auto cleared = benchmark::report_json(report);
@@ -815,6 +894,7 @@ int main() {
     crossing_lines();
     staged_units();
     target_spread();
+    target_churn();
     ownership_audits();
     ground_step_paths();
     swept_step_audits();

@@ -41,6 +41,10 @@ constexpr uint32_t retention_version = 11;
 /// Not a version: the test's key for version 10's features with
 /// paced_cohort_targets in place of cohort_targets.
 constexpr uint32_t paced_cohort_rules = 1000;
+/// Not a version: the test's key for version 11's features with
+/// paced_cohort_targets and dispatch_cohort_retention in place of
+/// cohort_targets and cohort_retention.
+constexpr uint32_t dispatch_retention_rules = 1001;
 constexpr uint32_t strike_refresh_ticks = 300;
 constexpr uint32_t retarget_interval_ticks = 6;
 constexpr uint32_t target_loss_tick = 55;
@@ -130,16 +134,29 @@ void restore_retarget(Fixture& fixture, std::span<const uint8_t> bytes) {
     CHECK(table.restore(table.context, bytes));
 }
 
-/// Prepares durable units and one version of the match rules, or version
-/// 10's features with paced_cohort_targets for paced_cohort_rules.
+/// Tells whether a test key plays paced_cohort_targets.
+bool paced_rules(uint32_t version) {
+    return version == paced_cohort_rules || version == dispatch_retention_rules;
+}
+
+/// Prepares durable units and one version of the match rules, version 10's
+/// features with paced_cohort_targets for paced_cohort_rules, or version 11's
+/// with paced cohort targets and dispatch retention for
+/// dispatch_retention_rules.
 Options options_for(uint32_t version) {
     Options options;
     auto& mode = options.rules.setup.enhanced_mode;
-    if (version == paced_cohort_rules) {
+    if (paced_rules(version)) {
         using StoredFeature = oa::data::match_rules::SetupEnhancedModeFeatures;
-        oa::data::enhanced_mode::apply_alias(mode, cohort_version);
+        const bool retention = version == dispatch_retention_rules;
+        oa::data::enhanced_mode::apply_alias(mode, retention ? retention_version : cohort_version);
         mode.features.members[static_cast<std::size_t>(StoredFeature::cohort_targets)] = false;
         mode.features.insert(StoredFeature::paced_cohort_targets);
+        if (retention) {
+            mode.features.members[static_cast<std::size_t>(StoredFeature::cohort_retention)] =
+                false;
+            mode.features.insert(StoredFeature::dispatch_cohort_retention);
+        }
     } else {
         oa::data::enhanced_mode::apply_alias(mode, static_cast<uint32_t>(version));
     }
@@ -675,7 +692,7 @@ std::vector<uint16_t> cohort_target_members(StrikeFixture& battle, uint16_t targ
 /// Refreshes a lost non-last target while keeping busy orders and recruitment untouched;
 /// under paced cohort targets a member with no chase at all is refreshed too.
 void cohort_loss_refreshes_only_lost_orders(uint32_t version) {
-    const bool paced = version == paced_cohort_rules;
+    const bool paced = paced_rules(version);
     StrikeFixture battle(version);
     const auto lost_target = untracked_cohort_target(battle);
     const auto remaining_target = lost_target == battle.target ? battle.replacement : battle.target;
@@ -1156,9 +1173,9 @@ void all_pending_targets_keep_retries_bounded_without_new_attacks(uint32_t versi
     battle.run_until(target_loss_tick - 1);
     mark_unhealthy_target(battle, battle.target, UnhealthyTarget::zero_health_pending);
     mark_unhealthy_target(battle, battle.replacement, UnhealthyTarget::zero_health_pending);
-    std::array<sim::simulation_state::Order*, strike_members> original_heads{};
+    std::array<sim::simulation_state::Order*, strike_members> heads_before{};
     for (std::size_t i = 0; i < battle.members.size(); ++i)
-        original_heads[i] = battle.fixture.match->spawn_slot(battle.members[i]).unit->primary;
+        heads_before[i] = battle.fixture.match->spawn_slot(battle.members[i]).unit->primary;
     uint32_t previous_deadline = battle.strike().next_tick;
     std::optional<uint32_t> previous_attempt;
     uint32_t attempts = 0;
@@ -1178,8 +1195,7 @@ void all_pending_targets_keep_retries_bounded_without_new_attacks(uint32_t versi
         battle.check_attack(battle.target, battle.initial_issue_tick);
         for (std::size_t i = 0; i < battle.members.size(); ++i)
             CHECK(
-                battle.fixture.match->spawn_slot(battle.members[i]).unit->primary ==
-                original_heads[i]
+                battle.fixture.match->spawn_slot(battle.members[i]).unit->primary == heads_before[i]
             );
         const auto bytes = retarget_bytes(battle.fixture);
         CHECK(bytes.size() == state_byte_count);
@@ -1752,9 +1768,12 @@ int main() {
         "owned attack saved/index continuation",
         owned_attack_target_continues_after_saved_orders_and_index_fallback
     );
-    for (const auto version : {cohort_version, retention_version, paced_cohort_rules}) {
+    for (const auto version :
+         {cohort_version, retention_version, paced_cohort_rules, dispatch_retention_rules}) {
         if (version == paced_cohort_rules)
             std::cout << "Enhanced cohort retarget: paced cohort targets\n";
+        else if (version == dispatch_retention_rules)
+            std::cout << "Enhanced cohort retarget: paced cohort targets, dispatch retention\n";
         else
             std::cout << "Enhanced cohort retarget: version=" << version << '\n';
         failures += run_case("cohort non-last target loss", [version] {

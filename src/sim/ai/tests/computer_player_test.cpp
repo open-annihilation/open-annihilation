@@ -2706,6 +2706,148 @@ void test_paced_cohort_targets_limit_new_chases() {
     }
 }
 
+/// Keeps a verified majority prior under paced cohort targets at the
+/// periodic dispatch exactly as cohort_retention does under cohort targets,
+/// and chooses fresh at a refresh, as paced cohort targets alone do.
+void test_dispatch_cohort_retention_matches_cohort_retention() {
+    namespace enhanced = oa::data::enhanced_mode;
+    const auto paced = enhanced::version_features(RetentionRun::retention_version)
+                           .without(enhanced::Feature::cohort_retention)
+                           .without(enhanced::Feature::cohort_targets)
+                           .with(enhanced::Feature::paced_cohort_targets);
+    const auto dispatch_retention = paced.with(enhanced::Feature::dispatch_cohort_retention);
+    check(
+        enhanced::feature_set_problem(paced) == nullptr &&
+            enhanced::feature_set_problem(dispatch_retention) == nullptr,
+        "dispatch retention: playable sets"
+    );
+    enum class Rules { cohort_retention, dispatch_retention, paced_only };
+    using Orders = std::vector<std::pair<uint16_t, uint16_t>>;
+    const auto use = [&](RetentionRun& run, Rules rules) {
+        if (rules == Rules::dispatch_retention)
+            run.state.features = dispatch_retention;
+        else if (rules == Rules::paced_only)
+            run.state.features = paced;
+    };
+    // One periodic dispatch: every member's attack callback, in slot order.
+    const auto dispatch = [&](Rules rules, const auto& setup) {
+        RetentionRun run;
+        use(run, rules);
+        setup(run);
+        run.fake.orders.clear();
+        const auto random_before = run.fake.roll;
+        run.tick(RecruitRun::refresh);
+        check(run.fake.roll == random_before, "dispatch retention: no random draw");
+        Orders orders;
+        for (const auto& order : run.fake.orders) {
+            check(
+                order.kind == "attack" && !order.queue,
+                "dispatch retention: ordinary unqueued attack callbacks"
+            );
+            orders.emplace_back(order.unit, order.arg);
+        }
+        std::sort(orders.begin(), orders.end());
+        return orders;
+    };
+    const auto all_on = [](const Orders& orders, uint16_t target) {
+        return orders.size() == 8 &&
+               std::all_of(orders.begin(), orders.end(), [target](const auto& order) {
+                   return order.second == target;
+               });
+    };
+    // A majority of more than half keeps target 2 over the fresh optimum 1.
+    for (const uint32_t prior_count : {uint32_t{4}, uint32_t{5}, uint32_t{6}}) {
+        const auto majority = [prior_count](RetentionRun& run) {
+            for (uint32_t index = 0; index < 8; ++index)
+                run.prior(
+                    static_cast<uint16_t>(RetentionRun::first + index),
+                    index < prior_count ? 2
+                    : index == 7        ? 0
+                                        : 1
+                );
+        };
+        const auto retained = dispatch(Rules::cohort_retention, majority);
+        check(
+            dispatch(Rules::dispatch_retention, majority) == retained,
+            "dispatch retention: the same targets as cohort_retention"
+        );
+        check(
+            all_on(retained, prior_count > 4 ? 2 : 1),
+            "dispatch retention: more than half of all members must support the prior"
+        );
+        check(
+            all_on(dispatch(Rules::paced_only, majority), 1),
+            "dispatch retention: paced cohort targets alone choose the fresh optimum"
+        );
+    }
+    // The 12.5% weighted-cost boundary: costs 45 and 40 retain, 50 and 44 replace.
+    for (const bool just_over : {false, true}) {
+        const auto margin = [just_over](RetentionRun& run) {
+            constexpr std::array<std::array<int32_t, 2>, 8> positions{
+                {{-100, -300},
+                 {0, -300},
+                 {-100, -200},
+                 {0, -200},
+                 {-100, -100},
+                 {0, -100},
+                 {-100, 0},
+                 {0, 0}}
+            };
+            for (uint16_t index = 0; index < positions.size(); ++index)
+                run.place(
+                    RetentionRun::first + index,
+                    1000 + positions[index][0],
+                    1000 + positions[index][1]
+                );
+            if (just_over)
+                run.place(RetentionRun::first + 6, 900, 930);
+            run.enemy(1, just_over ? 1001 : 1003, just_over ? 1003 : 1000);
+            run.enemy(2, just_over ? 1003 : 1002, just_over ? 1000 : 1002);
+            run.prior(RetentionRun::first + 7, 2);
+        };
+        const auto retained = dispatch(Rules::cohort_retention, margin);
+        check(
+            dispatch(Rules::dispatch_retention, margin) == retained,
+            "dispatch retention: the same margin as cohort_retention"
+        );
+        check(
+            FrontRun::target(retained, RetentionRun::first + 7) == (just_over ? 1 : 2),
+            "dispatch retention: equality retains and a larger cost replaces"
+        );
+        check(
+            FrontRun::target(dispatch(Rules::paced_only, margin), RetentionRun::first + 7) == 1,
+            "dispatch retention: without retention the fresh optimum wins"
+        );
+    }
+    // A strike refresh keeps the majority's target for the member it orders
+    // under cohort_retention; under dispatch_cohort_retention it chooses
+    // fresh, as paced cohort targets alone do.
+    for (const auto rules :
+         {Rules::cohort_retention, Rules::dispatch_retention, Rules::paced_only}) {
+        RetentionRun run;
+        use(run, rules);
+        for (uint16_t source = RetentionRun::first; source < RetentionRun::first + 7; ++source)
+            run.prior(source, 2);
+        const auto selected = static_cast<uint16_t>(RetentionRun::first + 7);
+        std::array<uint64_t, strike_refresh_mask_words> sources{};
+        sources[selected / strike_refresh_word_bits] |= uint64_t{1}
+                                                        << (selected % strike_refresh_word_bits);
+        run.fake.orders.clear();
+        run.fake.world.game.tick = 55;
+        check(
+            computer_player_refresh_strike_targets(
+                &run.state, run.host, RetentionRun::player, run.destination, sources
+            ),
+            "dispatch retention: the refresh orders the selected member"
+        );
+        check(
+            run.fake.orders.size() == 1 && run.fake.orders.front().unit == selected &&
+                run.fake.orders.front().arg == (rules == Rules::cohort_retention ? 2 : 1),
+            "dispatch retention: a refresh keeps the majority's target only under cohort_retention"
+        );
+    }
+}
+
 /// Compares public dispatch with a full enemy search for eight known spatial groups.
 struct FullEnemyRun : RetentionRun {
     static constexpr uint16_t enemies = 9;
@@ -3399,6 +3541,7 @@ int main(int argc, char** argv) {
     test_cohort_retention_preserves_earlier_presets_and_null_reader();
     test_cohort_retention_respects_mask_and_native_task_state();
     test_paced_cohort_targets_limit_new_chases();
+    test_dispatch_cohort_retention_matches_cohort_retention();
     test_full_enemy_reference_exhausts_small_layouts();
     test_full_enemy_reference_keeps_eighth_and_outside_prior();
     test_full_enemy_reference_keeps_filtered_candidate_domain();

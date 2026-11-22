@@ -46,7 +46,7 @@ using enum Feature;
 /// The feature table, in id order: entry n - 1 describes the feature with
 /// id n. Every feature needs Enhanced Mode on, and every chain of needs ends
 /// in capacity, the feature that sizes the Enhanced Mode state.
-constexpr std::array<FeatureInfo, 30> feature_rows{{
+constexpr std::array<FeatureInfo, 31> feature_rows{{
     {capacity, "capacity", FeatureKind::capacity, {}, {}},
     {local_flow, "local_flow", FeatureKind::simulation, set_of({capacity}), {}},
     {routes_original,
@@ -142,7 +142,11 @@ constexpr std::array<FeatureInfo, 30> feature_rows{{
      FeatureKind::capacity,
      set_of({local_flow}),
      {}},
-    {cohort_retention, "cohort_retention", FeatureKind::simulation, set_of({cohort_targets}), {}},
+    {cohort_retention,
+     "cohort_retention",
+     FeatureKind::simulation,
+     set_of({cohort_targets}),
+     set_of({dispatch_cohort_retention})},
     {cardinal_queue_escape,
      "cardinal_queue_escape",
      FeatureKind::simulation,
@@ -169,6 +173,13 @@ constexpr std::array<FeatureInfo, 30> feature_rows{{
      FeatureKind::simulation,
      set_of({ai_strike_retarget}),
      set_of({cohort_targets})},
+    // Cohort retention for paced cohort targets at the periodic dispatch
+    // only; the old versions keep cohort_retention.
+    {dispatch_cohort_retention,
+     "dispatch_cohort_retention",
+     FeatureKind::simulation,
+     set_of({paced_cohort_targets}),
+     set_of({cohort_retention})},
 }};
 
 /// Every feature the table describes.
@@ -383,9 +394,10 @@ constexpr FeatureSet revision_1_features = version_4_features;
 /// The first engine version of each feature, in id order. A new feature
 /// names its version here and nowhere else.
 constexpr std::array<const char*, feature_rows.size()> feature_engine_versions{{
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
-    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
+    "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3", "0.9.3",
 }};
 
 /// The first engine version of each revision. Index 0 is Off and has none.
@@ -452,7 +464,7 @@ using FeatureEnum = match_rules::SetupEnhancedModeFeatures;
 
 static_assert(enum_size(FeatureEnum{}) == feature_rows.size());
 static_assert(static_cast<int>(FeatureEnum::capacity) == 0);
-static_assert(static_cast<int>(FeatureEnum::paced_cohort_targets) == 29);
+static_assert(static_cast<int>(FeatureEnum::dispatch_cohort_retention) == 30);
 
 /// Writes a feature set into the registry's enumeration set.
 ///
