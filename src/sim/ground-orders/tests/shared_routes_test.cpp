@@ -96,7 +96,7 @@ void finish(FlowCache& cache, Grid& grid, uint32_t revision = 0, uint32_t first_
 }
 
 // The ordered per-plot implementation before footprint coalescing. Keep this
-// independent of the new rectangle classifier so it remains a useful oracle.
+// independent of the new rectangle classifier so it remains a useful reference.
 bool ordered_static_flow_passable(
     const oa::sim::spatial_state::CellClassifier& movement,
     int32_t x,
@@ -680,21 +680,21 @@ void periodic_refresh_discovers_a_new_bridge() {
     (void)query(cache, grid, unit_at(32, 64), circle(96, 64));
     (void)query(cache, grid, unit_at(32, 64), circle(96, 64));
     finish(cache, grid);
-    const auto original_length = route_length(cache, grid, context());
+    const auto prior_length = route_length(cache, grid, context());
     for (uint32_t z = 80; z < 88; ++z)
         grid.cells[z * 128 + 64] = 1;
     cache.advance(40, 1, grid.sampler());
     const auto retained_length = route_length(cache, grid, context(0, 1));
-    CHECK(retained_length == original_length);
+    CHECK(retained_length == prior_length);
     // The refresh at tick 90 restarts the field; its 4,096 nodes take a
     // second tick of 2,048 expansions.
     for (uint32_t tick = 41; tick <= 91; ++tick)
         cache.advance(tick, 1, grid.sampler());
     const auto refreshed_length = route_length(cache, grid, context(0, 1));
-    CHECK(refreshed_length + 500 < original_length);
+    CHECK(refreshed_length + 500 < prior_length);
     CHECK(cache.counters().fields_started == 2);
     CHECK(cache.counters().invalidations == 1);
-    std::printf("opened-bridge: %.1f -> %.1f world units\n", original_length, refreshed_length);
+    std::printf("opened-bridge: %.1f -> %.1f world units\n", prior_length, refreshed_length);
 }
 
 /// Preserves pending work, refresh policy and tick budgets across a saved state.
@@ -1763,7 +1763,7 @@ void maximum_fine_fields_restore_active_wide_frontiers() {
 }
 
 /// Delivers a legal nearby prefix while a stale connection farther away waits for repair.
-void regional_prefixes_continue_to_the_original_goal_after_restore() {
+void regional_prefixes_continue_to_the_saved_goal_after_restore() {
     Grid grid(512, 128);
     for (uint32_t x = 0; x <= 256; ++x)
         grid.cells[48 * 512 + x] = 0;
@@ -1848,7 +1848,7 @@ void regional_prefixes_continue_to_the_original_goal_after_restore() {
 }
 
 /// Prunes one visible BFS bend while retaining the origin, goal and later guide.
-void one_known_visible_bend_is_pruned_after_the_original_anchor() {
+void one_known_visible_bend_is_pruned_after_the_saved_anchor() {
     Grid grid(64, 64);
     for (uint32_t z = 16; z <= 48; ++z)
         grid.cells[z * 64 + 32] = 0;
@@ -2292,7 +2292,7 @@ void malformed_frontiers_are_rejected() {
 int main() {
     exact_footprint_segments_cover_boundary_events();
     visible_shortcuts_keep_off_centre_footprints_clear();
-    one_known_visible_bend_is_pruned_after_the_original_anchor();
+    one_known_visible_bend_is_pruned_after_the_saved_anchor();
     optional_visible_chords_fall_back_without_invalidating_the_field();
     optional_visible_chords_obey_the_per_request_cap();
     fine_routes_follow_the_requested_goal_branch_after_restore();
@@ -2308,7 +2308,7 @@ int main() {
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
-    regional_prefixes_continue_to_the_original_goal_after_restore();
+    regional_prefixes_continue_to_the_saved_goal_after_restore();
     visible_first_corner_does_not_require_a_short_anchor_turn();
     a_blocked_first_corner_keeps_the_start_anchor();
     unrelated_revisions_keep_complete_routes_and_admissions();
