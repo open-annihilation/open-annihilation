@@ -392,7 +392,9 @@ struct UnitTableDigest {
 /// entry and its line, one recording entry, the 4 or 5 entries in order and
 /// their methods, and the size a deflated recording names. The timeline is
 /// not read. Bytes `read` refuses for their recording or their timeline read
-/// here.
+/// here. A file larger than a whole archive may be is read through the zip
+/// reader that takes one in pieces, as `RecordingReader` reads it, so a
+/// replay of any length has its details.
 ///
 /// @param bytes the whole file
 /// @return the description and the manifest, or the sentence from
@@ -412,6 +414,45 @@ struct UnitTableDigest {
 /// @param options the zstd level, or deflate
 /// @return the archive, or a sentence when the replay cannot be written
 [[nodiscard]] WriteResult write(const Replay& replay, WriteOptions options = {});
+
+/// Where a `.oademo`'s bytes go when it is written a piece at a time: a
+/// positioned write, as to a file. The zip's local headers are completed in
+/// place once each entry ends, so the output is written at earlier offsets too.
+struct ArchiveOutput {
+    /// Passed to `write_at`.
+    void* context{};
+    /// Writes `bytes` at `offset` in the replay, replacing what is there.
+    /// False when they cannot all be written. Null writes nothing, so every write fails.
+    bool (*write_at)(void* context, uint64_t offset, std::span<const uint8_t> bytes){};
+};
+
+/// Where the zstd frame of a recording comes from when `write_framed` stores it.
+struct FrameSource {
+    /// Passed to `read`.
+    void* context{};
+    /// Fills `into` with the frame's next bytes, in order. False when they
+    /// cannot be read. Null reads nothing, so every write fails.
+    bool (*read)(void* context, std::span<uint8_t> into){};
+    /// The frame's size in bytes.
+    uint64_t bytes{};
+};
+
+/// Writes a `.oademo` whose recording is a zstd frame already made, a piece at a time.
+///
+/// The archive is the one `write` makes for the same description and frame:
+/// `write` compresses the recording and stores it through this same path.
+/// `replay.recording` is not read, and the description's recording identity
+/// (`meta.recording`) is written as given, so the caller sets it from the
+/// recording the frame holds. The frame is copied through one fixed piece:
+/// nothing held grows with it.
+///
+/// @param replay the description, the manifest and the timeline to write
+/// @param frame the recording's zstd frame
+/// @param out where the archive's bytes go
+/// @return empty, or a sentence when the replay cannot be written
+///         (timeline_unwritable, replay_unwritable)
+[[nodiscard]] std::string
+write_framed(const Replay& replay, const FrameSource& frame, const ArchiveOutput& out);
 
 /// Sets `recording.sha256` and `recording.bytes` from `replay.recording`.
 ///
