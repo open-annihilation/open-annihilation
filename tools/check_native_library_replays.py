@@ -25,13 +25,17 @@ import json
 import os
 from pathlib import Path
 import re
-import resource
 import shlex
 import shutil
 import subprocess
 import sys
 import time
 import native_offline
+
+try:
+    import resource
+except ImportError:  # Windows has no resource module: no peak memory is taken there.
+    resource = None
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -58,7 +62,10 @@ def environment():
 
 
 def peak_of_children():
-    """The largest peak memory of the children waited for so far, in bytes."""
+    """The largest peak memory of the children waited for so far, in bytes; 0 where the
+    system does not say."""
+    if resource is None:
+        return 0
     peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
     return peak if sys.platform == "darwin" else peak * 1024
 
