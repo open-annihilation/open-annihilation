@@ -3135,44 +3135,6 @@ void test_selected_front_fallback_respects_refresh_source_mask() {
     );
 }
 
-/// Admits at most 256 new members per ordinary land or naval dispatch.
-void test_distributed_strike_recruitment_budget() {
-    constexpr uint32_t version = RecruitRun::distributed_version;
-    for (const bool naval : {false, true}) {
-        RecruitRun run(version, 600, 4, naval);
-        run.dispatch(300, 256);
-        const auto waiting = run.waiting();
-        const auto members = run.members();
-        run.fake.orders.clear();
-        run.fake.joined.clear();
-        run.tick(599);
-        check(
-            run.fake.joined.empty() && run.fake.orders.empty(),
-            "recruit budget: nothing joins before the next native deadline"
-        );
-        check(
-            run.waiting() == waiting && run.members() == members,
-            "recruit budget: membership waits for the next dispatch"
-        );
-        run.dispatch(600, 256);
-        run.dispatch(900, 88);
-        check(
-            run.waiting().empty() && run.members().size() == 604,
-            "recruit budget: all waiting members eventually join"
-        );
-    }
-    RecruitRun empty(version, 600, 0);
-    empty.dispatch(300, 256);
-    empty.dispatch(600, 256);
-    empty.dispatch(900, 88);
-    RecruitRun existing(version, 0, 600);
-    existing.dispatch(300, 0);
-    check(
-        existing.fake.orders.size() == 600,
-        "recruit budget: the admission cap does not truncate existing strike orders"
-    );
-}
-
 /// Admits at most 1,024 new members per dispatch with wide strike recruits.
 void test_wide_strike_recruitment_budget() {
     namespace enhanced = oa::data::enhanced_mode;
@@ -3546,7 +3508,6 @@ int main(int argc, char** argv) {
     test_full_enemy_reference_keeps_eighth_and_outside_prior();
     test_full_enemy_reference_keeps_filtered_candidate_domain();
     test_full_enemy_reference_keeps_wide_masked_decisions();
-    test_distributed_strike_recruitment_budget();
     test_wide_strike_recruitment_budget();
     test_earlier_recruitment_keeps_its_seed_and_limit();
     test_recruitment_rereads_reused_source_slots();

@@ -62,13 +62,13 @@ pass to the next.
   a builder. An id that is 0 or not below the type count is skipped. The
   list keeps `build_list_kept` plus one entries.
 - Downloadable types are skipped when the campaign flag is set.
-- Experimental Enhanced preset 7 admits at most 256 new members to one
-  strike task per dispatch, including the first member of an empty squad.
-  The remaining source members keep their squads and existing orders until
-  a later dispatch recruits them. Existing strike members and the native
-  straggler-shedding order are unchanged. Earlier presets retain the limit
-  of 5,000 recruits plus an optional first member. This uses canonical
-  membership and keeps no pending queue or extra saved state.
+- With the Enhanced Mode feature `wide_strike_recruits`, a strike task
+  admits at most 1,024 new members per dispatch, including the first member
+  of an empty squad. The remaining source members keep their squads and
+  existing orders until a later dispatch recruits them. Existing strike
+  members and the native straggler-shedding order are unchanged. Without it
+  the limit of 5,000 recruits plus an optional first member stays. This uses
+  canonical membership and keeps no pending queue or extra saved state.
 - Enhanced preset 10 divides each attacking land or naval strike into at
   most eight spatial groups: four bands along the squad's larger horizontal
   extent and two along the smaller. Each group chooses from the current
@@ -105,8 +105,8 @@ downloadable type's own lines. The built-in player does both. The strategic
 strengths belong to the match: this module reads them and does not refresh
 them.
 
-The distributed recruitment bound can take more strike dispatches to gather
-a large army. It does not cap the existing squad's attack commands when a
+The wide recruitment bound can take more strike dispatches to gather a very
+large army. It does not cap the existing squad's attack commands when a
 target changes, or the cost of examining and shedding its stragglers.
 
 Spatial attack groups do not test ground reachability or line of fire, and
