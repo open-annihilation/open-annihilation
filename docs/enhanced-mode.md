@@ -454,6 +454,24 @@ overlap and that two runs agree. It writes `report.json` and `report.md`.
 Against a stored run it prints each metric's change and whether the change
 exceeds the recorded run-to-run noise.
 
+## Large battles
+
+Measured on a Mac Studio (Apple M2 Ultra), at Revision 1:
+
+- In the battle benchmark (combat on Core Prime Industrial Area, seed 7,
+  no computer player, nothing drawn), the slowest 1% of ticks take 3.4 ms
+  at 2,000 units, 5.5 ms at 5,000, 9.3 ms at 10,000 and 17.2 ms at
+  20,000, inside the 33.3 ms a tick has at 30 ticks a second. With
+  Enhanced Mode off they take 2.4, 5.5 and 10.4 ms for the first three,
+  and the benchmark cannot field 20,000.
+- In the three 20,000-unit gate battles (10,000 units a side, one side the
+  built-in computer player, seed 7, 9,000 ticks), the slowest 1% of ticks
+  take 21 to 27 ms, and 1 to 9 ticks in 9,000 take longer than 33.3 ms.
+- Drawn on the same machine in Full at 1920x1080, those battles keep 30
+  ticks a second but draw 9 to 14 frames a second. The game ticks and
+  draws on one thread (see Remaining work), so a battle this large plays
+  at full speed but moves less smoothly on screen than a small one.
+
 ## Tried and left out
 
 These were tried and left out of the revision this release ships. A match
