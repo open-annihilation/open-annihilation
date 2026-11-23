@@ -495,17 +495,7 @@ void TickHost::movement_tick(oa::Unit& record) {
         }
         g.geometry.flags &= ~sim::unit_movement::position_dirty;
     } else {
-        if (enhanced_flow && !air_driven && !g.mirrored_driver &&
-            features.has(Feature::swept_ground_steps))
-            (void)sim::unit_movement::integrate_swept_local_flow(
-                g.geometry,
-                g.movement,
-                match.simulation_.tick,
-                sim::simulation_state::locally_simulated(u),
-                *this,
-                match.enhanced_->local_flow_counters
-            );
-        else if (enhanced_flow && !air_driven)
+        if (enhanced_flow && !air_driven)
             sim::unit_movement::integrate_local_flow(
                 g.geometry,
                 g.movement,

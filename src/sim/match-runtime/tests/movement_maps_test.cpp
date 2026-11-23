@@ -1069,12 +1069,12 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
     copied_movement.speed = f.defs[tank].max_velocity_fixed;
     copied_movement.flags = ground_layer;
     movement::LocalFlowCounters counters{};
-    const auto sweep = movement::integrate_swept_local_flow(
+    movement::integrate_local_flow(
         copied_unit, copied_movement, f.match->simulation().tick, true, host, counters
     );
     PatrolResult result;
-    result.fresh_refusal = sweep.status == movement::GroundSweepStatus::blocked;
-    CHECK(result.fresh_refusal && sweep.origin_queries > 0 && sweep.refused_origin_valid);
+    result.fresh_refusal = (copied_movement.flags & movement::collision_blocked) != 0;
+    CHECK(result.fresh_refusal && counters.blocked_ticks == 1);
     CHECK(copied_unit.position == body.geometry.position && copied_unit.cell == body.geometry.cell);
     ground::SearchBegin begin{};
     begin.current_tick = f.match->simulation().tick;

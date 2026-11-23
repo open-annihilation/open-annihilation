@@ -101,10 +101,8 @@ slope under water) both before and after the tick, or was held by another
 unit, the same live unit, both before and after it: blocked through the
 whole tick, so the step passed through it while it was blocked. A cell
 another unit took or left during the tick does not count, since the step
-may have passed before it came or after it went. With swept ground steps
-on, every such origin is refused before the step is taken, so the count is
-zero by construction; without them it counts the steps that slipped
-through a corner or another unit.
+may have passed before it came or after it went. The count is the steps
+that slipped through a corner or another unit.
 `report_json` writes these as the `staged_battle` object, or null for the
 other scenarios; the fields extend schema version 1. Its `swept_steps`
 object holds the ground steps, the unchecked ones, the misses, the misses

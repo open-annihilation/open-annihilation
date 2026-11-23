@@ -213,8 +213,8 @@ void test_legal_cell_escape_and_repeat() {
     for (uint32_t tick = decision_tick + 1; tick < decision_tick + 40; ++tick) {
         if (local_flow_head_reached(unit, head))
             break;
-        const auto result = integrate_swept_local_flow(unit, motion, tick, true, grid, counters);
-        OA_CHECK(result.status == GroundSweepStatus::clear);
+        integrate_local_flow(unit, motion, tick, true, grid, counters);
+        OA_CHECK((motion.flags & collision_blocked) == 0);
         OA_CHECK(grid.overlaps == 0);
     }
     OA_CHECK(local_flow_head_reached(unit, head));
