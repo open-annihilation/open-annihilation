@@ -252,94 +252,91 @@ void spatial_sampler_coalescing_preserves_cache_and_resume() {
             CHECK(sampler->static_calls == 0 && sampler->unknown_calls == 1);
             sampler->clear_observations();
         }
-        for (const auto preset :
-             {FlowPreset::original, FlowPreset::large_regions, FlowPreset::fine_regions}) {
-            constexpr uint32_t quota = 4096;
-            FlowCache before(64, 64, {1, 1024, 256, quota}, preset);
-            FlowCache after(64, 64, {1, 1024, 256, quota}, preset);
-            FlowCache loaded(64, 64, {1, 1024, 256, quota}, preset);
-            const auto ctx = FlowContext{0, 0, 0, 0, uint32_t(footprint), uint32_t(footprint)};
-            const auto unit = unit_at(8, 8, footprint);
-            const auto goal = circle(48, 48);
-            bool has_load = false, ready = false, exhausted = false;
-            uint64_t route_probes = 0;
-            const auto equal_state = [&] {
+        constexpr uint32_t quota = 4096;
+        FlowCache before(64, 64, {1, 1024, 256, quota});
+        FlowCache after(64, 64, {1, 1024, 256, quota});
+        FlowCache loaded(64, 64, {1, 1024, 256, quota});
+        const auto ctx = FlowContext{0, 0, 0, 0, uint32_t(footprint), uint32_t(footprint)};
+        const auto unit = unit_at(8, 8, footprint);
+        const auto goal = circle(48, 48);
+        bool has_load = false, ready = false, exhausted = false;
+        uint64_t route_probes = 0;
+        const auto equal_state = [&] {
+            CHECK(
+                std::equal(
+                    before.state_bytes().begin(),
+                    before.state_bytes().end(),
+                    after.state_bytes().begin()
+                )
+            );
+            if (has_load)
                 CHECK(
                     std::equal(
-                        before.state_bytes().begin(),
-                        before.state_bytes().end(),
-                        after.state_bytes().begin()
+                        after.state_bytes().begin(),
+                        after.state_bytes().end(),
+                        loaded.state_bytes().begin()
                     )
                 );
-                if (has_load)
-                    CHECK(
-                        std::equal(
-                            after.state_bytes().begin(),
-                            after.state_bytes().end(),
-                            loaded.state_bytes().begin()
-                        )
-                    );
-                CHECK(old.trace == fresh.trace);
-                CHECK(old.static_calls == fresh.static_calls);
-                CHECK(old.unknown_calls == fresh.unknown_calls);
-                if (has_load) {
-                    CHECK(fresh.trace == resumed.trace);
-                    CHECK(fresh.static_calls == resumed.static_calls);
-                    CHECK(fresh.unknown_calls == resumed.unknown_calls);
-                }
-                old.clear_observations();
-                fresh.clear_observations();
-                resumed.clear_observations();
-            };
-            const auto route = [&] {
-                std::array<RoutePoint, navigation_capacity> a{}, b{}, c{};
-                uint32_t ac{}, bc{}, cc{};
-                const auto ar = before.route(ctx, unit, goal, a, ac, old.sampler());
-                const auto br = after.route(ctx, unit, goal, b, bc, fresh.sampler());
-                CHECK(ar == br && ac == bc && a == b);
-                if (has_load) {
-                    const auto cr = loaded.route(ctx, unit, goal, c, cc, resumed.sampler());
-                    CHECK(br == cr && bc == cc && b == c);
-                }
-                ready |= br == FlowResult::ready;
-                route_probes += fresh.trace.size();
-                equal_state();
-                return br;
-            };
-            (void)route();
-            (void)route();
-            for (uint32_t tick = 1; tick <= 40; ++tick) {
-                before.advance(tick, 0, old.sampler());
-                after.advance(tick, 0, fresh.sampler());
-                if (has_load)
-                    loaded.advance(tick, 0, resumed.sampler());
-                equal_state();
-                (void)route();
-                if (tick == 1) {
-                    CHECK(loaded.restore(after.state_bytes()));
-                    has_load = true;
-                    equal_state();
-                }
+            CHECK(old.trace == fresh.trace);
+            CHECK(old.static_calls == fresh.static_calls);
+            CHECK(old.unknown_calls == fresh.unknown_calls);
+            if (has_load) {
+                CHECK(fresh.trace == resumed.trace);
+                CHECK(fresh.static_calls == resumed.static_calls);
+                CHECK(fresh.unknown_calls == resumed.unknown_calls);
             }
-            CHECK(ready);
-            // Repeated extraction spends the same finite sampler quota. Parent
-            // traversal credits may consume quota without invoking the sampler.
-            route_probes = 0;
-            for (uint32_t i = 0; i < 256; ++i) {
-                const auto prior = after.counters();
-                // route() compares full saved counters and every query origin.
-                const auto result = route();
-                exhausted |= result == FlowResult::pending;
-                CHECK(after.counters().requests == prior.requests + 1);
+            old.clear_observations();
+            fresh.clear_observations();
+            resumed.clear_observations();
+        };
+        const auto route = [&] {
+            std::array<RoutePoint, navigation_capacity> a{}, b{}, c{};
+            uint32_t ac{}, bc{}, cc{};
+            const auto ar = before.route(ctx, unit, goal, a, ac, old.sampler());
+            const auto br = after.route(ctx, unit, goal, b, bc, fresh.sampler());
+            CHECK(ar == br && ac == bc && a == b);
+            if (has_load) {
+                const auto cr = loaded.route(ctx, unit, goal, c, cc, resumed.sampler());
+                CHECK(br == cr && bc == cc && b == c);
             }
-            CHECK(route_probes <= quota);
-            CHECK(exhausted);
-            before.advance(41, 0, old.sampler());
-            after.advance(41, 0, fresh.sampler());
-            loaded.advance(41, 0, resumed.sampler());
+            ready |= br == FlowResult::ready;
+            route_probes += fresh.trace.size();
             equal_state();
-            CHECK(route() == FlowResult::ready);
+            return br;
+        };
+        (void)route();
+        (void)route();
+        for (uint32_t tick = 1; tick <= 40; ++tick) {
+            before.advance(tick, 0, old.sampler());
+            after.advance(tick, 0, fresh.sampler());
+            if (has_load)
+                loaded.advance(tick, 0, resumed.sampler());
+            equal_state();
+            (void)route();
+            if (tick == 1) {
+                CHECK(loaded.restore(after.state_bytes()));
+                has_load = true;
+                equal_state();
+            }
         }
+        CHECK(ready);
+        // Repeated extraction spends the same finite sampler quota. Parent
+        // traversal credits may consume quota without invoking the sampler.
+        route_probes = 0;
+        for (uint32_t i = 0; i < 256; ++i) {
+            const auto prior = after.counters();
+            // route() compares full saved counters and every query origin.
+            const auto result = route();
+            exhausted |= result == FlowResult::pending;
+            CHECK(after.counters().requests == prior.requests + 1);
+        }
+        CHECK(route_probes <= quota);
+        CHECK(exhausted);
+        before.advance(41, 0, old.sampler());
+        after.advance(41, 0, fresh.sampler());
+        loaded.advance(41, 0, resumed.sampler());
+        equal_state();
+        CHECK(route() == FlowResult::ready);
     }
 }
 
@@ -372,7 +369,7 @@ void shared_cohort_and_budget() {
     }
     const auto stats = cache.counters();
     CHECK(stats.fields_started == 1 && stats.hits == 1000);
-    CHECK(stats.cells_expanded == 1024 && stats.cells_cleared == 1024);
+    CHECK(stats.cells_expanded == 4096 && stats.cells_cleared == 4096);
     // One reverse traversal replaces 1,000 independent traversals of the
     // same 16,384-cell map. Also bound actual edge-classifier calls.
     CHECK(grid.queries < 500000);
@@ -385,7 +382,7 @@ void shared_cohort_and_budget() {
 
 void open_routes_keep_heading_and_individual_destinations() {
     Grid grid(400, 400);
-    FlowCache cache(400, 400, {2, 20'000, 2048});
+    FlowCache cache(400, 400, {2, 80'000, 2048});
     const auto seed = circle(200, 200);
     (void)query(cache, grid, unit_at(40, 200), seed);
     (void)query(cache, grid, unit_at(41, 200), seed);
@@ -421,7 +418,7 @@ void blocked_lane_detours_are_symmetric_and_bounded() {
     const auto measure = [](int16_t from_x, int16_t to_x) {
         Grid grid(128, 128);
         for (uint32_t z = 48; z <= 80; ++z)
-            grid.cells[z * 128 + 64] = 0;
+            grid.cells[z * 128 + 48] = 0;
         FlowCache cache(128, 128);
         const auto start = unit_at(from_x, 64);
         const auto goal = circle(to_x, 64);
@@ -433,6 +430,7 @@ void blocked_lane_detours_are_symmetric_and_bounded() {
         CHECK(
             cache.route(context(), start, goal, points, count, grid.sampler()) == FlowResult::ready
         );
+        CHECK(count >= 2 && points[count - 1] == (RoutePoint{int16_t(to_x * 16 + 8), 1032}));
         double length = 0;
         for (uint32_t i = 0; i < count; ++i) {
             CHECK(std::abs(int32_t{points[i][1]} - 1032) <= 320);
@@ -446,7 +444,9 @@ void blocked_lane_detours_are_symmetric_and_bounded() {
     };
     // Direct visibility is blocked in both directions. A region's BFS tie
     // order must not send only the west bank far south before the choke.
-    const auto eastbound = measure(16, 112), westbound = measure(112, 16);
+    // Both banks lie in one 96-cell region, so each direction tests the
+    // goal's visibility from every node and returns its whole route.
+    const auto eastbound = measure(8, 88), westbound = measure(88, 8);
     CHECK(std::abs(eastbound - westbound) < 1.0);
     std::printf(
         "wall-route: east %.3f, west %.3f footprint cells\n", eastbound / 16, westbound / 16
@@ -462,7 +462,7 @@ void own_destination_can_cross_a_region_split() {
     (void)query(cache, grid, unit_at(52, 8), seed);
     (void)query(cache, grid, unit_at(53, 8), seed);
     finish(cache, grid);
-    // Both goals key the same32x32region, but lie in disconnected rooms.
+    // Both goals key the same 96-cell region, but lie in disconnected rooms.
     // A directly reachable own goal still has a valid route.
     std::array<RoutePoint, navigation_capacity> points{};
     uint32_t count{};
@@ -475,18 +475,20 @@ void own_destination_can_cross_a_region_split() {
 }
 
 void multiple_fields_clear_with_a_separate_byte_budget() {
-    Grid grid(336, 336);
-    FlowCache cache(336, 336);
+    Grid grid(1056, 192);
+    FlowCache cache(1056, 192);
     const auto unit = unit_at(8, 8);
+    // Each destination lies in its own 96-cell region and starts its own field.
     for (int16_t i = 0; i < 22; ++i) {
         const auto goal = circle(
-            static_cast<int16_t>(16 + (i % 10) * 32), static_cast<int16_t>(16 + (i / 10) * 32)
+            static_cast<int16_t>(16 + (i % 11) * 96), static_cast<int16_t>(16 + (i / 11) * 96)
         );
         CHECK(query(cache, grid, unit, goal) == FlowResult::fallback);
         CHECK(query(cache, grid, unit, goal) == FlowResult::pending);
     }
     CHECK(cache.counters().fields_started == 22);
-    for (uint32_t tick = 1; tick <= 3; ++tick) {
+    // Twenty-two fields of 528x96 nodes need 18 ticks of 65,536 bytes.
+    for (uint32_t tick = 1; tick <= 18; ++tick) {
         const auto before = cache.counters();
         cache.advance(tick, 0, grid.sampler());
         const auto after = cache.counters();
@@ -495,14 +497,15 @@ void multiple_fields_clear_with_a_separate_byte_budget() {
         cache.advance(tick, 0, grid.sampler());
         CHECK(cache.counters().cells_cleared == after.cells_cleared);
     }
-    CHECK(cache.counters().cells_cleared == 22 * 84 * 84);
+    CHECK(cache.counters().cells_cleared == 22 * 528 * 96);
     CHECK(cache.counters().cells_expanded > 0);
 }
 
 void narrow_choke_and_mixed_footprints() {
     Grid grid(64, 64);
-    // A one-cell passage at z=29 has no stride-four connection. Full search
-    // remains available instead of silently returning an invalid corridor.
+    // A one-cell passage at z=29 lies between the two-cell rows and has no
+    // coarse connection. Full search remains available instead of silently
+    // returning an invalid corridor.
     for (uint32_t z = 0; z < 64; ++z)
         if (z != 29)
             grid.cells[z * 64 + 30] = 0;
@@ -527,12 +530,13 @@ void narrow_choke_and_mixed_footprints() {
 
 void revisions_and_restore_pending() {
     Grid grid(64, 64);
-    FlowCache first(64, 64, {2, 1024, 32}), resumed(64, 64, {2, 1024, 32});
+    FlowCache first(64, 64, {2, 2048, 128}), resumed(64, 64, {2, 2048, 128});
     const auto unit = unit_at(8, 8);
     const auto goal = circle(52, 52);
     (void)query(first, grid, unit, goal);
     (void)query(first, grid, unit, goal);
     first.advance(1, 0, grid.sampler());
+    // The 1,024-node frontier is still building when it is saved.
     CHECK(resumed.restore(first.state_bytes()));
     for (uint32_t tick = 2; tick < 30; ++tick) {
         first.advance(tick, 0, grid.sampler());
@@ -548,14 +552,24 @@ void revisions_and_restore_pending() {
     CHECK(resumed.restore(first.state_bytes()));
     CHECK(query(first, grid, unit, goal) == FlowResult::ready);
     // A new visible obstacle is rejected even without a knowledge revision.
+    // The field is kept and marked for the bounded refresh.
     for (uint32_t z = 0; z < 64; ++z)
         grid.cells[z * 64 + 30] = 0;
     CHECK(query(first, grid, unit, goal) == FlowResult::fallback);
-    CHECK(first.counters().invalidations == 1);
+    CHECK(first.counters().invalidations == 0);
+    constexpr size_t first_dirty = 128 + 64 * 48 + 68;
+    CHECK(first.state_bytes()[first_dirty] == 1);
     first.advance(30, 1, grid.sampler());
-    // The repeated destination's admission survives an unrelated revision.
+    // The repeated destination keeps its field across the revision. The
+    // retained tree refuses the wall until the refresh at tick 90 rebuilds
+    // the field without a new admission.
+    CHECK(query(first, grid, unit, goal, context(0, 1)) == FlowResult::fallback);
+    CHECK(first.counters().fields_started == 1);
+    for (uint32_t tick = 31; tick <= 90; ++tick)
+        first.advance(tick, 1, grid.sampler());
+    CHECK(first.counters().fields_started == 2 && first.counters().invalidations == 1);
     CHECK(query(first, grid, unit, goal, context(0, 1)) == FlowResult::pending);
-    finish(first, grid, 1, 31);
+    finish(first, grid, 1, 91);
     CHECK(query(first, grid, unit, goal, context(0, 1)) == FlowResult::fallback);
     std::vector<uint8_t> broken(first.state_bytes().begin(), first.state_bytes().end());
     broken[0] ^= 1;
@@ -566,9 +580,10 @@ void revisions_and_restore_pending() {
 
 /// Keeps useful trees and repeated-goal admission after unrelated map changes.
 void unrelated_revisions_keep_complete_routes_and_admissions() {
-    Grid grid(64, 64);
-    FlowCache cache(64, 64);
-    const auto first_goal = circle(52, 52), second_goal = circle(52, 12);
+    Grid grid(128, 128);
+    FlowCache cache(128, 128);
+    // The two destinations lie in different 96-cell regions.
+    const auto first_goal = circle(52, 52), second_goal = circle(112, 12);
     const auto first_unit = unit_at(8, 8), second_unit = unit_at(8, 12);
     (void)query(cache, grid, first_unit, first_goal);
     (void)query(cache, grid, first_unit, first_goal);
@@ -576,7 +591,7 @@ void unrelated_revisions_keep_complete_routes_and_admissions() {
     CHECK(query(cache, grid, second_unit, second_goal) == FlowResult::fallback);
     finish(cache, grid);
     const auto before = cache.counters();
-    grid.cells[63 * 64] = 0;
+    grid.cells[127 * 128] = 0;
     cache.advance(40, 1, grid.sampler());
     CHECK(query(cache, grid, first_unit, first_goal, context(0, 1)) == FlowResult::ready);
     CHECK(cache.counters().invalidations == before.invalidations);
@@ -585,14 +600,18 @@ void unrelated_revisions_keep_complete_routes_and_admissions() {
     finish(cache, grid, 1, 41);
     CHECK(query(cache, grid, second_unit, second_goal, context(0, 1)) == FlowResult::ready);
 
-    // A real new barrier invalidates the touched tree, not every destination.
-    grid.cells[30 * 64 + 30] = 0;
+    // A real new barrier rejects the touched tree's route, not every
+    // destination. Neither field is discarded: the touched one waits for the
+    // bounded refresh.
+    grid.cells[30 * 128 + 30] = 0;
     cache.advance(80, 2, grid.sampler());
     const auto invalidations = cache.counters().invalidations;
+    const auto started = cache.counters().fields_started;
     CHECK(query(cache, grid, first_unit, first_goal, context(0, 2)) == FlowResult::fallback);
-    CHECK(cache.counters().invalidations == invalidations + 1);
+    CHECK(cache.counters().invalidations == invalidations);
     CHECK(query(cache, grid, second_unit, second_goal, context(0, 2)) == FlowResult::ready);
-    CHECK(cache.counters().invalidations == invalidations + 1);
+    CHECK(cache.counters().invalidations == invalidations);
+    CHECK(cache.counters().fields_started == started);
 }
 
 /// Completes a frontier despite a different map revision on every tick.
@@ -600,7 +619,7 @@ void changing_revisions_cannot_restart_building_frontiers() {
     Grid grid(128, 128);
     for (uint32_t z = 48; z <= 80; ++z)
         grid.cells[z * 128 + 64] = 0;
-    FlowCache cache(128, 128, {1, 1024, 32});
+    FlowCache cache(128, 128, {1, 4096, 128});
     const auto unit = unit_at(16, 64);
     const auto goal = circle(112, 64);
     (void)query(cache, grid, unit, goal);
@@ -611,29 +630,43 @@ void changing_revisions_cannot_restart_building_frontiers() {
         cache.advance(tick, tick, grid.sampler());
         const auto after = cache.counters();
         CHECK(after.cells_cleared - before.cells_cleared <= 65'536);
-        CHECK(after.cells_expanded - before.cells_expanded <= 32);
+        CHECK(after.cells_expanded - before.cells_expanded <= 128);
         if (query(cache, grid, unit, goal, context(0, tick)) == FlowResult::ready && !first_ready)
             first_ready = tick;
     }
     CHECK(first_ready != 0 && first_ready <= 60);
     CHECK(cache.counters().fields_started == 1);
     CHECK(cache.counters().invalidations == 0);
-    CHECK(cache.counters().cells_expanded > 500);
+    CHECK(cache.counters().cells_expanded > 2000);
 }
 
 /// Measures the currently returned route around the fixture's wall.
+///
+/// A route holds at most 32 coarse edges, so each prefix is followed from
+/// its last point until the route reaches the destination.
 double route_length(FlowCache& cache, Grid& grid, FlowContext ctx) {
-    std::array<RoutePoint, navigation_capacity> points{};
-    uint32_t count{};
-    CHECK(
-        cache.route(ctx, unit_at(32, 64), circle(96, 64), points, count, grid.sampler()) ==
-        FlowResult::ready
-    );
+    auto unit = unit_at(32, 64);
+    const auto goal = circle(96, 64);
     double length = 0;
-    for (uint32_t i = 1; i < count; ++i)
-        length += std::hypot(
-            double(points[i][0] - points[i - 1][0]), double(points[i][1] - points[i - 1][1])
+    bool arrived = false;
+    for (uint32_t prefix = 0; prefix < 8 && !arrived; ++prefix) {
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        const auto result = cache.route(ctx, unit, goal, points, count, grid.sampler());
+        CHECK(result == FlowResult::ready);
+        if (result != FlowResult::ready)
+            break;
+        for (uint32_t i = 1; i < count; ++i)
+            length += std::hypot(
+                double(points[i][0] - points[i - 1][0]), double(points[i][1] - points[i - 1][1])
+            );
+        unit = unit_at(
+            static_cast<int16_t>((points[count - 1][0] - 8) / 16),
+            static_cast<int16_t>((points[count - 1][1] - 8) / 16)
         );
+        arrived = unit.cell_x == goal.cell[0] && unit.cell_z == goal.cell[1];
+    }
+    CHECK(arrived);
     return length;
 }
 
@@ -643,7 +676,7 @@ void periodic_refresh_discovers_a_new_bridge() {
     for (uint32_t z = 0; z < 128; ++z)
         if (z < 8 || z >= 16)
             grid.cells[z * 128 + 64] = 0;
-    FlowCache cache(128, 128, {1, 1024, 2048});
+    FlowCache cache(128, 128, {1, 4096, 2048});
     (void)query(cache, grid, unit_at(32, 64), circle(96, 64));
     (void)query(cache, grid, unit_at(32, 64), circle(96, 64));
     finish(cache, grid);
@@ -653,7 +686,9 @@ void periodic_refresh_discovers_a_new_bridge() {
     cache.advance(40, 1, grid.sampler());
     const auto retained_length = route_length(cache, grid, context(0, 1));
     CHECK(retained_length == original_length);
-    for (uint32_t tick = 41; tick <= 90; ++tick)
+    // The refresh at tick 90 restarts the field; its 4,096 nodes take a
+    // second tick of 2,048 expansions.
+    for (uint32_t tick = 41; tick <= 91; ++tick)
         cache.advance(tick, 1, grid.sampler());
     const auto refreshed_length = route_length(cache, grid, context(0, 1));
     CHECK(refreshed_length + 500 < original_length);
@@ -667,7 +702,7 @@ void dirty_pending_state_resumes_with_the_same_budget_and_refresh_order() {
     Grid grid(128, 128);
     for (uint32_t z = 48; z <= 80; ++z)
         grid.cells[z * 128 + 64] = 0;
-    FlowCache first(128, 128, {2, 2048, 32}), resumed(128, 128, {2, 2048, 32});
+    FlowCache first(128, 128, {2, 8192, 128}), resumed(128, 128, {2, 8192, 128});
     const auto unit = unit_at(16, 64);
     const auto goal = circle(112, 64);
     (void)query(first, grid, unit, goal);
@@ -681,7 +716,7 @@ void dirty_pending_state_resumes_with_the_same_budget_and_refresh_order() {
         resumed.advance(tick, tick, grid.sampler());
         const auto after = first.counters();
         CHECK(after.cells_cleared - before.cells_cleared <= 65'536);
-        CHECK(after.cells_expanded - before.cells_expanded <= 32);
+        CHECK(after.cells_expanded - before.cells_expanded <= 128);
         CHECK(
             query(first, grid, unit, goal, context(0, tick)) ==
             query(resumed, grid, unit, goal, context(0, tick))
@@ -747,7 +782,7 @@ void periodic_refresh_keeps_older_destinations_ahead_of_recent_refreshes() {
     Grid grid(64, 64);
     for (uint32_t z = 16; z <= 48; ++z)
         grid.cells[z * 64 + 32] = 0;
-    FlowCache cache(64, 64, {4, 1024, 32});
+    FlowCache cache(64, 64, {4, 4096, 128});
     const auto unit = unit_at(8, 32);
     const auto goal = circle(56, 32);
     for (uint32_t player = 0; player < 4; ++player) {
@@ -761,7 +796,7 @@ void periodic_refresh_keeps_older_destinations_ahead_of_recent_refreshes() {
     for (uint32_t tick = 40; tick <= 210; ++tick) {
         const auto before = cache.counters();
         cache.advance(tick, tick, grid.sampler());
-        CHECK(cache.counters().cells_expanded - before.cells_expanded <= 32);
+        CHECK(cache.counters().cells_expanded - before.cells_expanded <= 128);
         if (tick == 120 || tick == 150 || tick == 180 || tick == 210) {
             const uint32_t selected_player = (tick - 120) / 30;
             for (uint32_t player = 0; player < 4; ++player) {
@@ -784,10 +819,11 @@ void periodic_refresh_keeps_older_destinations_ahead_of_recent_refreshes() {
 
 void singletons_do_not_starve_building_fields() {
     Grid grid(256, 256);
-    FlowCache cache(256, 256, {1, 4096, 512});
+    FlowCache cache(256, 256, {1, 16'384, 512});
     (void)query(cache, grid, unit_at(8, 8), circle(220, 220));
     CHECK(query(cache, grid, unit_at(9, 8), circle(220, 220)) == FlowResult::pending);
-    for (int16_t x = 4; x < 220; x += 32)
+    // Each singleton lies in its own 96-cell region.
+    for (int16_t x = 4; x < 220; x += 96)
         CHECK(query(cache, grid, unit_at(8, 8), circle(x, 4)) == FlowResult::fallback);
     CHECK(cache.counters().fields_started == 1);
     finish(cache, grid);
@@ -824,7 +860,7 @@ void small_output_and_extraction_budget_are_bounded() {
 
 void long_shortcut_cannot_starve_a_small_budget_prefix() {
     Grid grid(400, 400);
-    FlowCache cache(400, 400, {1, 10'000, 2048, 128});
+    FlowCache cache(400, 400, {1, 40'000, 2048, 128});
     auto unit = unit_at(8, 8);
     const auto goal = circle(360, 360);
     (void)query(cache, grid, unit, goal);
@@ -990,22 +1026,24 @@ void visible_first_corner_does_not_require_a_short_anchor_turn() {
             cache.state_bytes().begin(), cache.state_bytes().end(), loaded.state_bytes().begin()
         )
     );
-    CHECK(count == 5);
+    // The anchor and the next visible bend both go: the first corner is the
+    // wall's northern end.
+    CHECK(count == 3);
     CHECK(points[0] == (RoutePoint{263, 263}));
-    CHECK(points[1] == (RoutePoint{336, 208}));
+    CHECK(points[1] == (RoutePoint{560, 240}));
 
-    // The previous extractor required a turn toward(272,272), then a sharp
+    // The previous extractor required a turn toward (272,272), then a sharp
     // turn back toward the visible corner. Keep it as a physical control.
     std::vector<RoutePoint> anchor_control(points.begin(), points.begin() + count);
     anchor_control.insert(anchor_control.begin() + 1, RoutePoint{272, 272});
-    const auto original = steer_to_corner(grid, anchor_control, RoutePoint{336, 208});
-    const auto direct = steer_to_corner(grid, std::span(points).first(count), RoutePoint{336, 208});
+    const auto original = steer_to_corner(grid, anchor_control, RoutePoint{560, 240});
+    const auto direct = steer_to_corner(grid, std::span(points).first(count), RoutePoint{560, 240});
     CHECK(original.tick != 0 && direct.tick != 0);
     CHECK(direct.tick + 5 < original.tick);
     CHECK(direct.distance < original.distance);
     CHECK(direct.turn * 2 < original.turn);
     CHECK(direct.blocked == 0 && original.blocked == 0);
-    CHECK(direct == steer_to_corner(grid, std::span(points).first(count), RoutePoint{336, 208}));
+    CHECK(direct == steer_to_corner(grid, std::span(points).first(count), RoutePoint{560, 240}));
     std::printf(
         "start-anchor: corner arrival%u ->%u ticks, turn%.1f ->%.1f degrees\n",
         original.tick,
@@ -1015,7 +1053,7 @@ void visible_first_corner_does_not_require_a_short_anchor_turn() {
     );
 
     // The optional ray must not turn a valid route into an unbounded query.
-    FlowCache limited(64, 64, {1, 256, 2048, 512});
+    FlowCache limited(64, 64, {1, 1024, 2048, 512});
     (void)query(limited, grid, unit, goal, context(1));
     (void)query(limited, grid, unit, goal, context(1));
     finish(limited, grid);
@@ -1038,7 +1076,11 @@ void a_blocked_first_corner_keeps_the_start_anchor() {
             if ((x * 17 + z * 23) % 43 == 0)
                 grid.cells[z * 32 + x] = 0;
     FlowCache cache(32, 32);
-    auto unit = unit_at(2, 4, 2);
+    // Cell (3,9) blocks the unit's nearest node (2,8) and the rays to the
+    // first four nodes tried round it, so the unit anchors at (0,8).
+    // Skipping that anchor toward the next corner (0,10) would cut the
+    // blocked cell on the first diagonal step.
+    auto unit = unit_at(2, 7, 2);
     unit.position.x += 7 << 16;
     unit.position.z += 7 << 16;
     const auto goal = circle(28, 28);
@@ -1049,151 +1091,9 @@ void a_blocked_first_corner_keeps_the_start_anchor() {
     uint32_t count{};
     CHECK(cache.route(context(1), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
     CHECK(count == 7);
-    CHECK(points[0] == (RoutePoint{55, 87}));
-    CHECK(points[1] == (RoutePoint{80, 80}));
-    CHECK(points[2] == (RoutePoint{272, 272}));
-}
-
-/// Pins the original guides and saved frontier bytes across revisions and a load pass.
-uint64_t legacy_flow_hash() {
-    constexpr uint64_t basis = 14695981039346656037ull, prime = 1099511628211ull;
-    uint64_t hash = basis;
-    const auto byte = [&](uint8_t value) { hash = (hash ^ value) * prime; };
-    const auto number = [&](uint32_t value) {
-        for (unsigned shift = 0; shift < 32; shift += 8)
-            byte(static_cast<uint8_t>(value >> shift));
-    };
-    Grid grid(192, 128);
-    for (uint32_t z = 24; z <= 100; ++z)
-        grid.cells[z * grid.width + 96] = 0;
-    FlowCache cache(192, 128, {8, 12288, 64, 1024});
-    FlowCache loaded(192, 128, {8, 12288, 64, 1024});
-    uint32_t revision = 0;
-    for (uint32_t tick = 1; tick <= 160; ++tick) {
-        if (tick == 60)
-            for (uint32_t z = 0; z < 24; ++z)
-                grid.cells[z * grid.width + 96] = 0;
-        if (tick == 70 || tick == 125)
-            ++revision;
-        if (tick == 125)
-            grid.cells[64 * grid.width + 96] = 1;
-        cache.advance(tick, revision, grid.sampler());
-        if (tick > 50)
-            loaded.advance(tick, revision, grid.sampler());
-        for (uint32_t actor = 0; actor < 8; ++actor) {
-            const auto unit = unit_at(
-                static_cast<int16_t>(12 + actor * 2), static_cast<int16_t>(16 + actor * 12)
-            );
-            const auto goal =
-                circle(static_cast<int16_t>(160 + actor), static_cast<int16_t>(16 + actor * 12));
-            std::array<RoutePoint, navigation_capacity> points{}, resumed{};
-            uint32_t count{}, resumed_count{};
-            const auto ctx = context(0, revision);
-            const auto result = cache.route(ctx, unit, goal, points, count, grid.sampler());
-            number(static_cast<uint32_t>(result));
-            number(count);
-            for (uint32_t i = 0; i < count; ++i) {
-                number(static_cast<uint16_t>(points[i][0]));
-                number(static_cast<uint16_t>(points[i][1]));
-            }
-            if (tick > 50) {
-                CHECK(
-                    loaded.route(ctx, unit, goal, resumed, resumed_count, grid.sampler()) == result
-                );
-                CHECK(count == resumed_count && points == resumed);
-            }
-        }
-        if (tick == 50) {
-            CHECK(loaded.restore(cache.state_bytes()));
-            loaded.advance(tick, revision, grid.sampler());
-        }
-        if (tick >= 50)
-            CHECK(
-                std::equal(
-                    cache.state_bytes().begin(),
-                    cache.state_bytes().end(),
-                    loaded.state_bytes().begin()
-                )
-            );
-        for (const auto value : cache.state_bytes())
-            byte(value);
-    }
-    return hash;
-}
-
-void original_preset_keeps_its_state_and_guides() {
-    constexpr uint64_t expected = 0xaa4f8ef12e56dfc2ull;
-    CHECK(legacy_flow_hash() == expected);
-}
-
-/// Keeps old constructor bytes and refuses cross-preset or inconsistent state atomically.
-void route_presets_keep_distinct_formats_and_goal_regions() {
-    Grid grid(128, 128);
-    const FlowLimits limits{4, 4096, 64, 256};
-    FlowCache original(128, 128, limits);
-    FlowCache explicit_original(128, 128, limits, FlowPreset::original);
-    FlowCache regional(128, 128, limits, FlowPreset::large_regions);
-    FlowCache loaded(128, 128, limits, FlowPreset::large_regions);
-    CHECK(
-        std::equal(
-            original.state_bytes().begin(),
-            original.state_bytes().end(),
-            explicit_original.state_bytes().begin()
-        )
-    );
-    CHECK(original.state_bytes().size() == regional.state_bytes().size());
-    CHECK(original.state_bytes()[4] == 1 && regional.state_bytes()[4] == 2);
-    const auto unit = unit_at(4, 4);
-    const auto first = circle(40, 40), second = circle(80, 80);
-    CHECK(query(original, grid, unit, first) == FlowResult::fallback);
-    CHECK(query(original, grid, unit, second) == FlowResult::fallback);
-    CHECK(query(regional, grid, unit, first) == FlowResult::fallback);
-    CHECK(query(regional, grid, unit, second) == FlowResult::pending);
-    CHECK(regional.counters().fields_started == 1);
-    CHECK(original.counters().fields_started == 0);
-    CHECK(query(original, grid, unit, first) == FlowResult::pending);
-    CHECK(query(original, grid, unit, second) == FlowResult::pending);
-    CHECK(original.counters().fields_started == 2);
-    const std::vector<uint8_t> old_bytes(
-        original.state_bytes().begin(), original.state_bytes().end()
-    );
-    const std::vector<uint8_t> new_bytes(
-        regional.state_bytes().begin(), regional.state_bytes().end()
-    );
-    CHECK(!original.restore(new_bytes));
-    CHECK(!regional.restore(old_bytes));
-    CHECK(std::equal(old_bytes.begin(), old_bytes.end(), original.state_bytes().begin()));
-    CHECK(std::equal(new_bytes.begin(), new_bytes.end(), regional.state_bytes().begin()));
-    auto forged = old_bytes;
-    forged[4] = 2;
-    CHECK(!regional.restore(forged));
-    forged = new_bytes;
-    constexpr size_t admission_region_x = 128 + 28;
-    forged[admission_region_x] = 255;
-    CHECK(!regional.restore(forged));
-    CHECK(std::equal(new_bytes.begin(), new_bytes.end(), regional.state_bytes().begin()));
-    CHECK(loaded.restore(new_bytes));
-    for (uint32_t tick = 1; tick <= 40; ++tick) {
-        regional.advance(tick, 0, grid.sampler());
-        loaded.advance(tick, 0, grid.sampler());
-        CHECK(query(regional, grid, unit, second) == query(loaded, grid, unit, second));
-        CHECK(
-            std::equal(
-                regional.state_bytes().begin(),
-                regional.state_bytes().end(),
-                loaded.state_bytes().begin()
-            )
-        );
-    }
-    std::array<RoutePoint, navigation_capacity> points{};
-    uint32_t count{};
-    regional.advance(41, 0, grid.sampler());
-    CHECK(
-        regional.route(context(), unit, second, points, count, grid.sampler()) == FlowResult::ready
-    );
-    CHECK(count >= 2);
-    if (count >= 2)
-        CHECK(points[count - 1] == (RoutePoint{1288, 1288}));
+    CHECK(points[0] == (RoutePoint{55, 135}));
+    CHECK(points[1] == (RoutePoint{16, 144}));
+    CHECK(points[2] == (RoutePoint{16, 176}));
 }
 
 /// A newly learned wall must not discard a useful branch of the same field.
@@ -1201,7 +1101,7 @@ void regional_blocked_edge_keeps_an_unaffected_branch_ready() {
     Grid grid(128, 128);
     for (uint32_t z = 48; z <= 80; ++z)
         grid.cells[z * 128 + 64] = 0;
-    FlowCache cache(128, 128, {1, 1024, 2048}, FlowPreset::large_regions);
+    FlowCache cache(128, 128, {1, 4096, 2048});
     const auto goal = circle(112, 64);
     const auto north = unit_at(32, 40), south = unit_at(32, 88);
     (void)query(cache, grid, north, goal);
@@ -1233,8 +1133,8 @@ void regional_blocked_edge_keeps_an_unaffected_branch_ready() {
 /// Lets a dirty frontier finish, then repairs its blocked branch after restore.
 void regional_blocked_building_edge_resumes_and_refreshes() {
     Grid grid(128, 128);
-    FlowCache original(128, 128, {1, 1024, 32}, FlowPreset::large_regions);
-    FlowCache restored(128, 128, {1, 1024, 32}, FlowPreset::large_regions);
+    FlowCache original(128, 128, {1, 4096, 128});
+    FlowCache restored(128, 128, {1, 4096, 128});
     const auto goal = circle(112, 64);
     const auto affected = unit_at(108, 68), unaffected = unit_at(112, 72);
     (void)query(original, grid, affected, goal);
@@ -1259,7 +1159,7 @@ void regional_blocked_building_edge_resumes_and_refreshes() {
         original.advance(tick, 0, grid.sampler());
         restored.advance(tick, 0, grid.sampler());
         const auto after = original.counters();
-        CHECK(after.cells_expanded - before.cells_expanded <= 32);
+        CHECK(after.cells_expanded - before.cells_expanded <= 128);
         CHECK(after.cells_cleared - before.cells_cleared <= 65'536);
         const auto probes = grid.queries;
         const auto result = query(original, grid, affected, goal);
@@ -1268,7 +1168,7 @@ void regional_blocked_building_edge_resumes_and_refreshes() {
         repaired |= result == FlowResult::ready;
         CHECK(query(original, grid, unaffected, goal) == query(restored, grid, unaffected, goal));
         if (tick == 80) {
-            CHECK(original.counters().cells_expanded == 1024);
+            CHECK(original.counters().cells_expanded == 4096);
             CHECK(original.counters().fields_started == 1);
             CHECK(original.counters().invalidations == 0);
             CHECK(!repaired);
@@ -1349,35 +1249,8 @@ void fine_routes_follow_the_requested_goal_branch_after_restore() {
     const auto seed = circle(8, 8), goal = circle(80, 72);
     const auto saved_goal = goal.cell;
     const auto start = unit_at(40, 24);
-    FlowCache legacy(96, 96, limits, FlowPreset::large_regions);
-    CHECK(query(legacy, grid, start, seed) == FlowResult::fallback);
-    CHECK(query(legacy, grid, start, seed) == FlowResult::pending);
-    legacy.advance(1, 0, grid.sampler());
-    auto old_unit = start;
-    bool old_fallback = false, old_arrived = false;
-    for (uint32_t tick = 2; tick < 12; ++tick) {
-        legacy.advance(tick, 0, grid.sampler());
-        std::array<RoutePoint, navigation_capacity> points{};
-        uint32_t count{};
-        const auto result = legacy.route(context(), old_unit, goal, points, count, grid.sampler());
-        if (result == FlowResult::fallback) {
-            old_fallback = true;
-            break;
-        }
-        CHECK(result == FlowResult::ready && count >= 2);
-        if (result != FlowResult::ready || count < 2)
-            return;
-        old_unit = unit_at(
-            static_cast<int16_t>((points[count - 1][0] - 8) / 16),
-            static_cast<int16_t>((points[count - 1][1] - 8) / 16)
-        );
-        old_arrived = old_unit.cell_x == goal.cell[0] && old_unit.cell_z == goal.cell[1];
-        if (old_arrived)
-            break;
-    }
-    CHECK(old_fallback && !old_arrived);
-    FlowCache fine(96, 96, limits, FlowPreset::fine_regions);
-    FlowCache loaded(96, 96, limits, FlowPreset::fine_regions);
+    FlowCache fine(96, 96, limits);
+    FlowCache loaded(96, 96, limits);
     CHECK(query(fine, grid, start, seed) == FlowResult::fallback);
     CHECK(query(fine, grid, start, seed) == FlowResult::pending);
     fine.advance(1, 0, grid.sampler());
@@ -1442,7 +1315,7 @@ void fine_routes_follow_the_requested_goal_branch_after_restore() {
 void fine_goal_branch_traversal_spends_the_global_quota() {
     auto grid = winding_origin_grid(16, 80, 72);
     const FlowLimits limits{1, 2304, 2048, 16'384};
-    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    FlowCache cache(96, 96, limits);
     const auto unit = unit_at(40, 24);
     const auto goal = circle(80, 72);
     (void)query(cache, grid, unit, circle(8, 8));
@@ -1491,7 +1364,7 @@ void fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines() {
     const auto root = unit_at(8, 8);
     const auto seed = circle(8, 8), isolated = circle(40, 32);
     const FlowLimits limits{1, 2304, 2048, 65'536};
-    FlowCache cache(96, 96, limits, FlowPreset::fine_regions);
+    FlowCache cache(96, 96, limits);
     (void)query(cache, grid, unit, seed);
     (void)query(cache, grid, unit, seed);
     cache.advance(1, 0, grid.sampler());
@@ -1512,7 +1385,7 @@ void fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines() {
     CHECK(query(cache, grid, root, isolated) == FlowResult::fallback);
     CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
     auto deep_grid = winding_origin_grid(4, 88, 88);
-    FlowCache deep(96, 96, limits, FlowPreset::fine_regions);
+    FlowCache deep(96, 96, limits);
     (void)query(deep, deep_grid, root, seed);
     (void)query(deep, deep_grid, root, seed);
     deep.advance(1, 0, deep_grid.sampler());
@@ -1526,7 +1399,7 @@ void fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes() {
     for (uint32_t z = 0; z <= 80; ++z)
         grid.cells[z * grid.width + 240] = 0;
     const FlowLimits limits{1, 10'240, 2048, 128};
-    FlowCache cache(320, 128, limits, FlowPreset::fine_regions);
+    FlowCache cache(320, 128, limits);
     const auto unit = unit_at(250, 80);
     const auto seed = circle(8, 80), goal = circle(80, 8);
     CHECK(query(cache, grid, unit, seed) == FlowResult::fallback);
@@ -1561,7 +1434,7 @@ void fine_goal_spines_larger_than_the_quota_keep_local_prefixes() {
     for (uint32_t z = 0; z < 192; ++z)
         grid.cells[z * grid.width + 20] = 0;
     const FlowLimits limits{1, 10'752, 2048, 128};
-    FlowCache cache(192, 224, limits, FlowPreset::fine_regions);
+    FlowCache cache(192, 224, limits);
     const auto unit = unit_at(100, 192);
     const auto seed = circle(16, 16), goal = circle(24, 16);
     CHECK(query(cache, grid, unit, seed) == FlowResult::fallback);
@@ -1596,7 +1469,7 @@ void fine_clear_root_chords_keep_prefixes_with_partly_spent_quota() {
     for (uint32_t z = 0; z <= 80; ++z)
         grid.cells[z * grid.width + 240] = 0;
     const FlowLimits limits{1, 10'240, 2048, 16'384};
-    FlowCache cache(320, 128, limits, FlowPreset::fine_regions);
+    FlowCache cache(320, 128, limits);
     const auto unit = unit_at(250, 80);
     const auto goal = circle(8, 80);
     CHECK(query(cache, grid, unit, goal) == FlowResult::fallback);
@@ -1627,7 +1500,7 @@ void fine_clear_root_chords_keep_prefixes_with_partly_spent_quota() {
     CHECK(cache.counters().fields_started == 1 && cache.counters().invalidations == 0);
 }
 
-/// Keeps a bridge passable around static blockers between stride-four rows.
+/// Keeps a one-cell bridge on a two-cell node row passable around static blockers.
 void fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes() {
     Grid grid(160, 64);
     constexpr uint32_t bridge_column = 80, bridge_row = 26;
@@ -1635,21 +1508,17 @@ void fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes() {
         if (z != bridge_row)
             grid.cells[z * grid.width + bridge_column] = 0;
     const FlowLimits limits{1, 2560, 64, 256};
-    FlowCache coarse(160, 64, limits, FlowPreset::large_regions);
-    FlowCache fine(160, 64, limits, FlowPreset::fine_regions);
-    FlowCache loaded(160, 64, limits, FlowPreset::fine_regions);
+    FlowCache fine(160, 64, limits);
+    FlowCache loaded(160, 64, limits);
     auto unit = unit_at(8, 16);
     const auto goal = circle(144, 16);
     const auto saved_goal = goal.cell;
-    for (auto* cache : {&coarse, &fine}) {
-        CHECK(query(*cache, grid, unit, goal) == FlowResult::fallback);
-        CHECK(query(*cache, grid, unit, goal) == FlowResult::pending);
-        cache->advance(1, 0, grid.sampler());
-    }
+    CHECK(query(fine, grid, unit, goal) == FlowResult::fallback);
+    CHECK(query(fine, grid, unit, goal) == FlowResult::pending);
+    fine.advance(1, 0, grid.sampler());
     CHECK(loaded.restore(fine.state_bytes()));
     for (uint32_t tick = 2; tick < 100; ++tick) {
         const auto before = fine.counters();
-        coarse.advance(tick, 0, grid.sampler());
         fine.advance(tick, 0, grid.sampler());
         loaded.advance(tick, 0, grid.sampler());
         CHECK(fine.counters().cells_expanded - before.cells_expanded <= limits.work_per_tick);
@@ -1660,7 +1529,6 @@ void fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes() {
             )
         );
     }
-    CHECK(query(coarse, grid, unit, goal) == FlowResult::fallback);
     bool arrived = false;
     uint32_t consumed = 0;
     for (uint32_t tick = 100; tick < 112; ++tick) {
@@ -1707,43 +1575,38 @@ void fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes() {
     CHECK(fine.counters().fields_started == 1 && fine.counters().invalidations == 0);
 }
 
-/// Refuses incompatible grid formats without changing the destination cache.
-void fine_route_grid_formats_are_distinct_and_restore_atomically() {
+/// Refuses other grid formats and foreign regions without changing the destination cache.
+void fine_route_restore_refuses_other_formats_atomically() {
     Grid grid(128, 128);
     const FlowLimits limits{2, 8192, 64, 256};
-    FlowCache original(128, 128, limits);
-    FlowCache regional(128, 128, limits, FlowPreset::large_regions);
-    FlowCache fine(128, 128, limits, FlowPreset::fine_regions);
+    FlowCache fine(128, 128, limits);
     constexpr size_t format_offset = 4, stride_offset = 28;
-    CHECK(original.state_bytes()[format_offset] == 1);
-    CHECK(regional.state_bytes()[format_offset] == 2);
     CHECK(fine.state_bytes()[format_offset] == 3);
-    CHECK(original.state_bytes()[stride_offset] == 4);
-    CHECK(regional.state_bytes()[stride_offset] == 4);
     CHECK(fine.state_bytes()[stride_offset] == 2);
+    // Both destinations share one 96-cell region and its field.
     CHECK(query(fine, grid, unit_at(4, 4), circle(40, 40)) == FlowResult::fallback);
     CHECK(query(fine, grid, unit_at(4, 4), circle(80, 80)) == FlowResult::pending);
     CHECK(fine.counters().fields_started == 1);
     const std::vector<uint8_t> saved(fine.state_bytes().begin(), fine.state_bytes().end());
-    const std::vector<uint8_t> old_bytes(
-        original.state_bytes().begin(), original.state_bytes().end()
-    );
-    const std::vector<uint8_t> regional_bytes(
-        regional.state_bytes().begin(), regional.state_bytes().end()
-    );
-    CHECK(!fine.restore(old_bytes) && !fine.restore(regional_bytes));
-    CHECK(!original.restore(saved) && !regional.restore(saved));
-    CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
-    CHECK(std::equal(old_bytes.begin(), old_bytes.end(), original.state_bytes().begin()));
-    CHECK(std::equal(regional_bytes.begin(), regional_bytes.end(), regional.state_bytes().begin()));
     auto forged = saved;
     forged[stride_offset] = 4;
     CHECK(!fine.restore(forged));
     CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
+    // The format word is bytes 4 to 7; every other format is refused.
+    for (const uint32_t format : {1u, 2u, 4u, 0x100u + 3u}) {
+        forged = saved;
+        for (size_t i = 0; i < 4; ++i)
+            forged[format_offset + i] = static_cast<uint8_t>(format >> (i * 8));
+        CHECK(!fine.restore(forged));
+        CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
+    }
+    // An admitted region must lie on the map.
     forged = saved;
-    forged[format_offset] = 2;
+    constexpr size_t admission_region_x = 128 + 28;
+    forged[admission_region_x] = 255;
     CHECK(!fine.restore(forged));
     CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
+    CHECK(fine.restore(saved));
 }
 
 /// Gives delayed cohorts a full polling window before a new destination can evict their tree.
@@ -1751,8 +1614,8 @@ void fine_completed_fields_keep_a_polling_window_after_restore() {
     const auto check_window = [](uint32_t completed_tick) {
         Grid grid(128, 32);
         const FlowLimits limits{1, 1024, 2048, 1024};
-        FlowCache fine(128, 32, limits, FlowPreset::fine_regions);
-        FlowCache loaded(128, 32, limits, FlowPreset::fine_regions);
+        FlowCache fine(128, 32, limits);
+        FlowCache loaded(128, 32, limits);
         const auto unit = unit_at(8, 16);
         const auto hot = circle(40, 16), cold = circle(112, 16);
         CHECK(query(fine, grid, unit, hot) == FlowResult::fallback);
@@ -1805,28 +1668,16 @@ void fine_completed_fields_keep_a_polling_window_after_restore() {
     check_window(std::numeric_limits<uint32_t>::max() - 20);
 }
 
-/// Preserves immediate legacy replacement and does not reserve failed fine fields.
-void old_presets_and_failed_fields_keep_immediate_replacement() {
+/// Does not reserve a failed field's storage for the polling window.
+void failed_fields_keep_immediate_replacement() {
     const FlowLimits limits{1, 1024, 2048, 1024};
     const auto unit = unit_at(8, 16);
     const auto first = circle(40, 16), second = circle(112, 16);
-    for (const auto preset : {FlowPreset::original, FlowPreset::large_regions}) {
-        Grid grid(128, 32);
-        FlowCache cache(128, 32, limits, preset);
-        CHECK(query(cache, grid, unit, first) == FlowResult::fallback);
-        CHECK(query(cache, grid, unit, first) == FlowResult::pending);
-        cache.advance(1, 0, grid.sampler());
-        CHECK(query(cache, grid, unit, first) == FlowResult::ready);
-        CHECK(query(cache, grid, unit, second) == FlowResult::fallback);
-        CHECK(query(cache, grid, unit, second) == FlowResult::pending);
-        CHECK(cache.counters().fields_started == 2);
-        CHECK(query(cache, grid, unit, first) == FlowResult::fallback);
-    }
     Grid grid(128, 32);
     for (uint32_t z = 0; z < grid.height; ++z)
         for (uint32_t x = 104; x < grid.width; ++x)
             grid.cells[z * grid.width + x] = 0;
-    FlowCache failed(128, 32, limits, FlowPreset::fine_regions);
+    FlowCache failed(128, 32, limits);
     CHECK(query(failed, grid, unit, second) == FlowResult::fallback);
     CHECK(query(failed, grid, unit, second) == FlowResult::pending);
     failed.advance(1, 0, grid.sampler());
@@ -1843,8 +1694,8 @@ void maximum_fine_fields_restore_active_wide_frontiers() {
     Grid grid(1024, 512);
     grid.cells[488 * grid.width + 774] = 0;
     const FlowLimits limits{64, 8'388'608, 2048, 65'536};
-    FlowCache original(grid.width, grid.height, limits, FlowPreset::fine_regions);
-    FlowCache restored(grid.width, grid.height, limits, FlowPreset::fine_regions);
+    FlowCache original(grid.width, grid.height, limits);
+    FlowCache restored(grid.width, grid.height, limits);
     constexpr size_t maximum_state_bytes = 41'951'360;
     CHECK(original.state_bytes().size() == maximum_state_bytes);
     const auto read32 = [](std::span<const uint8_t> bytes, size_t at) {
@@ -1918,15 +1769,15 @@ void regional_prefixes_continue_to_the_original_goal_after_restore() {
         grid.cells[48 * 512 + x] = 0;
     for (uint32_t z = 48; z <= 80; ++z)
         grid.cells[z * 512 + 256] = 0;
-    FlowCache original(512, 128, {1, 4096, 4096, 256}, FlowPreset::large_regions);
-    FlowCache restored(512, 128, {1, 4096, 4096, 256}, FlowPreset::large_regions);
+    FlowCache original(512, 128, {1, 16'384, 4096, 256});
+    FlowCache restored(512, 128, {1, 16'384, 4096, 256});
     auto unit = unit_at(32, 64);
     const auto goal = circle(480, 64);
     const auto saved_goal = goal.cell;
     (void)query(original, grid, unit, goal);
     (void)query(original, grid, unit, goal);
     finish(original, grid);
-    // The old tree crossed row84. A longer guide would encounter this new
+    // The old tree crossed row 82. A longer guide would encounter this new
     // barrier before delivering any of the still useful western approach.
     for (uint32_t z = 81; z < 88; ++z)
         grid.cells[z * 512 + 256] = 0;
@@ -2001,8 +1852,8 @@ void one_known_visible_bend_is_pruned_after_the_original_anchor() {
     Grid grid(64, 64);
     for (uint32_t z = 16; z <= 48; ++z)
         grid.cells[z * 64 + 32] = 0;
-    FlowCache cache(64, 64, {1, 256, 2048}, FlowPreset::large_regions);
-    FlowCache loaded(64, 64, {1, 256, 2048}, FlowPreset::large_regions);
+    FlowCache cache(64, 64, {1, 1024, 2048});
+    FlowCache loaded(64, 64, {1, 1024, 2048});
     auto unit = unit_at(15, 15, 2);
     unit.position.x += 7 << 16;
     unit.position.z += 7 << 16;
@@ -2018,7 +1869,7 @@ void one_known_visible_bend_is_pruned_after_the_original_anchor() {
     CHECK(cache.route(context(1), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
     const auto known_probes = grid.queries - before;
     CHECK(count >= 2);
-    CHECK(points[1] != (RoutePoint{336, 208}));
+    CHECK(points[1] != (RoutePoint{304, 240}));
     CHECK(points[0] == (RoutePoint{263, 263}));
     CHECK(points[count - 1] == (RoutePoint{912, 528}));
     CHECK(
@@ -2051,7 +1902,7 @@ void one_known_visible_bend_is_pruned_after_the_original_anchor() {
     );
     const auto unknown_probes = grid.queries - before_unknown;
     CHECK(resumed_count == count + 1);
-    CHECK(resumed[1] == (RoutePoint{336, 208}));
+    CHECK(resumed[1] == (RoutePoint{304, 240}));
     CHECK(points[0] == resumed[0]);
     CHECK(std::equal(points.begin() + 1, points.begin() + count, resumed.begin() + 2));
     // The unknown start passes the ordinary planner but rejects the one
@@ -2067,10 +1918,10 @@ void one_known_visible_bend_is_pruned_after_the_original_anchor() {
     CHECK(goal.cell == (std::array<int16_t, 2>{56, 32}));
 
     // The unknown-only first probe separates mandatory work from the extra
-    // visible chord. Give the ordinary guide exactly that work plus one spare.
-    FlowCache limited(
-        64, 64, {1, 256, 2048, static_cast<uint32_t>(unknown_probes)}, FlowPreset::large_regions
-    );
+    // visible chord. The root's one-probe goal chord is also optional: a
+    // quota too small for a whole goal branch skips it. Give the ordinary
+    // guide exactly the remaining work plus one spare.
+    FlowCache limited(64, 64, {1, 1024, 2048, static_cast<uint32_t>(unknown_probes - 1)});
     (void)query(limited, grid, unit, goal, context(1));
     (void)query(limited, grid, unit, goal, context(1));
     finish(limited, grid);
@@ -2079,7 +1930,7 @@ void one_known_visible_bend_is_pruned_after_the_original_anchor() {
         limited.route(context(1), unit, goal, resumed, resumed_count, grid.sampler()) ==
         FlowResult::ready
     );
-    CHECK(grid.queries - before_limited + 1 == unknown_probes);
+    CHECK(grid.queries - before_limited + 2 == unknown_probes);
     CHECK(resumed_count == count + 1);
     const auto limited_bytes = limited.state_bytes();
     CHECK(
@@ -2093,7 +1944,7 @@ void optional_visible_chords_fall_back_without_invalidating_the_field() {
     Grid grid(64, 64);
     for (uint32_t z = 16; z <= 48; ++z)
         grid.cells[z * 64 + 32] = 0;
-    FlowCache cache(64, 64, {1, 256, 2048}, FlowPreset::large_regions);
+    FlowCache cache(64, 64, {1, 1024, 2048});
     auto unit = unit_at(15, 15, 2);
     unit.position.x += 7 << 16;
     unit.position.z += 7 << 16;
@@ -2110,16 +1961,18 @@ void optional_visible_chords_fall_back_without_invalidating_the_field() {
         &fog, [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) -> uint8_t {
             const auto& sampler = static_cast<Fog*>(p)->physical;
             const auto value = sampler.cell(sampler.context, klass, player, x, z);
-            return x == 24 && z == 14 ? 2 : value;
+            return x == 24 && z == 15 ? 2 : value;
         }
     };
     std::array<RoutePoint, navigation_capacity> points{};
     uint32_t count{};
     CHECK(cache.route(context(1), unit, goal, points, count, unseen) == FlowResult::ready);
-    CHECK(count >= 3 && points[1] == (RoutePoint{336, 208}));
+    CHECK(count >= 3 && points[1] == (RoutePoint{304, 240}));
     const auto unknown_count = count;
     const auto unknown_points = points;
-    grid.cells[14 * 64 + 24] = 0;
+    // Cell (24,16) blocks the chord's origins on row 15, but no origin of the
+    // guide along row 14.
+    grid.cells[16 * 64 + 24] = 0;
     CHECK(cache.route(context(1), unit, goal, points, count, grid.sampler()) == FlowResult::ready);
     CHECK(count == unknown_count && points == unknown_points);
     CHECK(cache.counters().fields_started == 1);
@@ -2131,8 +1984,8 @@ void optional_visible_chords_obey_the_per_request_cap() {
     Grid grid(128, 128);
     for (uint32_t z = 80; z < 128; ++z)
         grid.cells[z * 128 + 100] = 0;
-    FlowCache cache(128, 128, {1, 1024, 2048}, FlowPreset::large_regions);
-    const auto unit = unit_at(4, 44, 2);
+    FlowCache cache(128, 128, {1, 4096, 2048});
+    const auto unit = unit_at(4, 46, 2);
     const auto goal = circle(112, 84);
     (void)query(cache, grid, unit, goal, context(1));
     (void)query(cache, grid, unit, goal, context(1));
@@ -2146,7 +1999,7 @@ void optional_visible_chords_obey_the_per_request_cap() {
     const auto dx = static_cast<uint32_t>(std::abs(target_x - unit.cell_x));
     const auto dz = static_cast<uint32_t>(std::abs(target_z - unit.cell_z));
     CHECK(1 + std::max(dx, dz) + 2 * std::min(dx, dz) == 129);
-    CHECK(points[0] == (RoutePoint{80, 720}));
+    CHECK(points[0] == (RoutePoint{80, 752}));
     CHECK(points[count - 1] != (RoutePoint{1808, 1360}));
 }
 
@@ -2160,7 +2013,7 @@ void visible_shortcuts_keep_off_centre_footprints_clear() {
             };
             grid.cells[plot(0, static_cast<uint32_t>(footprint))] = 0;
             grid.cells[plot(12, 3)] = 0;
-            FlowCache cache(32, 32, {1, 64, 2048}, FlowPreset::large_regions);
+            FlowCache cache(32, 32, {1, 256, 2048});
             auto unit = unit_at(0, 0, footprint);
             if (transpose)
                 unit.position.x += 7 << 16;
@@ -2175,8 +2028,8 @@ void visible_shortcuts_keep_off_centre_footprints_clear() {
             uint32_t count{};
             CHECK(cache.route(ctx, unit, goal, points, count, grid.sampler()) == FlowResult::ready);
             const auto centre = static_cast<int16_t>(footprint * 8);
-            const RoutePoint required = transpose ? RoutePoint{centre, int16_t(64 + centre)}
-                                                  : RoutePoint{int16_t(64 + centre), centre};
+            const RoutePoint required = transpose ? RoutePoint{centre, int16_t(32 + centre)}
+                                                  : RoutePoint{int16_t(32 + centre), centre};
             CHECK(count == 4);
             CHECK(points[1] == required);
             CHECK(
@@ -2402,7 +2255,7 @@ void exact_footprint_segments_cover_boundary_events() {
 
 void malformed_frontiers_are_rejected() {
     Grid grid(32, 32);
-    FlowCache cache(32, 32, {1, 64, 1}), restored(32, 32, {1, 64, 1});
+    FlowCache cache(32, 32, {1, 256, 1}), restored(32, 32, {1, 256, 1});
     const auto unit = unit_at(4, 4);
     const auto goal = circle(24, 24);
     (void)query(cache, grid, unit, goal);
@@ -2413,13 +2266,14 @@ void malformed_frontiers_are_rejected() {
     };
     constexpr size_t field = 128 + 64 * 48;
     std::vector<uint8_t> broken(cache.state_bytes().begin(), cache.state_bytes().end());
-    write32(broken, field + 52, 64); // clearing cannot resume beyond its last cell
+    write32(broken, field + 52, 256); // clearing cannot resume beyond its last cell
     CHECK(!restored.restore(broken));
-    for (uint32_t tick = 1; tick < 130; ++tick)
+    // One expansion a tick discovers all 16x16 nodes.
+    for (uint32_t tick = 1; tick < 260; ++tick)
         cache.advance(tick, 0, grid.sampler());
     CHECK(restored.restore(cache.state_bytes()));
     broken.assign(cache.state_bytes().begin(), cache.state_bytes().end());
-    constexpr size_t directions = field + 80, queue = directions + 64;
+    constexpr size_t directions = field + 80, queue = directions + 256;
     write32(broken, queue + 4, broken[queue]); // duplicate seed queue entry
     CHECK(!restored.restore(broken));
     broken.assign(cache.state_bytes().begin(), cache.state_bytes().end());
@@ -2441,18 +2295,16 @@ int main() {
     one_known_visible_bend_is_pruned_after_the_original_anchor();
     optional_visible_chords_fall_back_without_invalidating_the_field();
     optional_visible_chords_obey_the_per_request_cap();
-    original_preset_keeps_its_state_and_guides();
-    route_presets_keep_distinct_formats_and_goal_regions();
     fine_routes_follow_the_requested_goal_branch_after_restore();
     fine_goal_branch_traversal_spends_the_global_quota();
     fine_goal_branches_preserve_prefixes_and_bound_unavailable_spines();
     fine_goal_branch_chords_larger_than_the_quota_keep_local_prefixes();
     fine_goal_spines_larger_than_the_quota_keep_local_prefixes();
     fine_clear_root_chords_keep_prefixes_with_partly_spent_quota();
-    fine_route_grid_formats_are_distinct_and_restore_atomically();
+    fine_route_restore_refuses_other_formats_atomically();
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     fine_completed_fields_keep_a_polling_window_after_restore();
-    old_presets_and_failed_fields_keep_immediate_replacement();
+    failed_fields_keep_immediate_replacement();
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
