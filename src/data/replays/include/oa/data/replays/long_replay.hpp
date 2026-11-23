@@ -68,7 +68,20 @@ class ReplayFile {
 
   private:
 
+    /// Fills `into` with the file's bytes from `offset` on (ArchiveSource::read_at).
+    ///
+    /// @param context the file
+    /// @param offset where the bytes start
+    /// @param into room for them
+    /// @return false when they cannot all be read
     static bool read_at(void* context, uint64_t offset, std::span<uint8_t> into);
+
+    /// Reads the file's next bytes in order (RecordingSource::read).
+    ///
+    /// @param context the file
+    /// @param into room for them
+    /// @param[out] got how many were read; fewer only at the end
+    /// @return false when the file cannot be read
     static bool read_on(void* context, std::span<uint8_t> into, std::size_t& got);
 
     std::ifstream in_{};
@@ -111,6 +124,12 @@ class ReplayOutput {
 
   private:
 
+    /// Writes `bytes` at `offset`, or counts them (ArchiveOutput::write_at).
+    ///
+    /// @param context the output
+    /// @param offset where they go
+    /// @param bytes the bytes
+    /// @return false when they cannot all be written
     static bool write_at(void* context, uint64_t offset, std::span<const uint8_t> bytes);
 
     std::fstream out_{};
