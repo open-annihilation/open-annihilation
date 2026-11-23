@@ -144,7 +144,7 @@ std::shared_ptr<const Model> branched_model() {
 }
 
 /// Reconstructs only raw pose inputs in the same COB order, then uses native rebuild.
-Instance native_oracle(
+Instance native_reference(
     const Instance& posed, RotationWords root, std::span<const std::string_view> names = {}
 ) {
     auto fresh = runtime::make_instance(posed.model_handle(), posed.owner_token(), names);
@@ -159,7 +159,7 @@ Instance native_oracle(
     return fresh;
 }
 
-/// Makes stale/reset geometry unusable as an accidental oracle or proof input.
+/// Makes stale/reset geometry unusable as an accidental reference or proof input.
 void poison(Instance& instance) {
     for (std::size_t index = 0; index < instance.pieces().size(); ++index) {
         auto& piece = instance.pieces()[index];
@@ -225,7 +225,7 @@ bool check_pose(
     proof::Scratch scratch;
     const auto box = proof::bound_instance(geometry, posed, root, scratch);
     unchanged(posed, saved);
-    const auto native = native_oracle(posed, root, names);
+    const auto native = native_reference(posed, root, names);
     const auto completed = proof::bound_completed_instance(native, scratch);
     OA_CHECK(completed.has_value());
     if (completed)
@@ -491,7 +491,7 @@ struct FrameFixture {
     bool reject() { return proof::rejection_proof(geometry, ref(), root, view, gate, scratch); }
 };
 
-void exact_native_body_and_shadow_oracle() {
+void exact_native_body_and_shadow_reference() {
     FrameFixture fixture;
     std::size_t accepted{};
     for (const bool translated : {false, true})
@@ -523,7 +523,7 @@ void exact_native_body_and_shadow_oracle() {
                             const bool rejected = fixture.reject();
                             unchanged(fixture.instance, saved);
                             const auto native =
-                                native_oracle(fixture.instance, fixture.root, cob_order);
+                                native_reference(fixture.instance, fixture.root, cob_order);
                             const auto actual =
                                 scan_native(native, fixture.unit, fixture.view, ground);
                             if (rejected) {
@@ -545,14 +545,14 @@ void exact_native_body_and_shadow_oracle() {
     // Both native body and laid shadow are outside, but the largest
     // supported budget marker still reaches the viewport from the left.
     fixture.unit.position = {-20 * fixed, 20 * fixed, 32 * fixed};
-    const auto marker_native = native_oracle(fixture.instance, {}, cob_order);
+    const auto marker_native = native_reference(fixture.instance, {}, cob_order);
     const auto marker_visibility = scan_native(marker_native, fixture.unit, fixture.view, 0);
     OA_CHECK(marker_visibility.body_outside && marker_visibility.shadow_outside);
     OA_CHECK(!marker_visibility.markers_outside);
     OA_CHECK(!fixture.reject());
     // A body above the viewport still casts directly onto visible ground.
     fixture.unit.position = {32 * fixed, 400 * fixed, 32 * fixed};
-    const auto native = native_oracle(fixture.instance, {}, cob_order);
+    const auto native = native_reference(fixture.instance, {}, cob_order);
     const auto visibility = scan_native(native, fixture.unit, fixture.view, 0);
     OA_CHECK(visibility.body_outside && !visibility.shadow_outside);
     OA_CHECK(!fixture.reject());
@@ -562,7 +562,7 @@ void exact_native_body_and_shadow_oracle() {
     OA_CHECK(!fixture.reject());
 }
 
-void interpolated_native_projection_oracle() {
+void interpolated_native_projection_reference() {
     FrameFixture fixture;
     auto first = runtime::make_instance(fixture.model, fixture.instance.owner_token(), cob_order);
     auto last = runtime::make_instance(fixture.model, fixture.instance.owner_token(), cob_order);
@@ -594,7 +594,7 @@ void interpolated_native_projection_oracle() {
         };
         poison(fixture.instance);
         const bool result = fixture.reject();
-        const auto native = native_oracle(fixture.instance, fixture.root, cob_order);
+        const auto native = native_reference(fixture.instance, fixture.root, cob_order);
         const auto actual =
             scan_native(native, fixture.unit, fixture.view, fixture.gate.ground_height);
         if (result) {
@@ -1108,7 +1108,7 @@ void far_hierarchy_and_wrap_domains() {
             unchanged(posed, before);
             OA_CHECK(box.has_value());
             if (box)
-                OA_CHECK(encloses(*box, native_oracle(posed, root, names)));
+                OA_CHECK(encloses(*box, native_reference(posed, root, names)));
         }
     }
     auto sibling = runtime::make_instance(branched_model(), 0, cob_order);
@@ -1158,7 +1158,7 @@ void far_projection_and_translation_signs() {
     const auto box = proof::bound_far_instance(proof::prepare_geometry(source), posed, scratch);
     OA_CHECK(box && box->low.x <= -20 * fixed);
     if (box)
-        OA_CHECK(encloses(*box, native_oracle(posed, {})));
+        OA_CHECK(encloses(*box, native_reference(posed, {})));
     source->objects[0].vertices[0].x = std::numeric_limits<int32_t>::min();
     OA_CHECK(!proof::bound_far_instance(
         proof::prepare_geometry(source), runtime::make_instance(source), scratch
@@ -1176,7 +1176,7 @@ void far_projection_and_translation_signs() {
             if (proof::far_rejection_proof(
                     fixture.geometry, fixture.ref(), fixture.view, fixture.gate, fixture.scratch
                 )) {
-                const auto native = native_oracle(fixture.instance, fixture.root, cob_order);
+                const auto native = native_reference(fixture.instance, fixture.root, cob_order);
                 const auto visible_native =
                     scan_native(native, fixture.unit, fixture.view, fixture.gate.ground_height);
                 OA_CHECK(
@@ -1283,7 +1283,7 @@ void combined_raw_far_and_exact_fallbacks() {
         )
     );
     OA_CHECK(compare_raw_proofs(fixture));
-    const auto native = native_oracle(fixture.instance, fixture.root);
+    const auto native = native_reference(fixture.instance, fixture.root);
     const auto actual = scan_native(native, fixture.unit, fixture.view, fixture.gate.ground_height);
     OA_CHECK(
         actual.body_outside && actual.shadow_outside && actual.markers_outside &&
@@ -1322,27 +1322,27 @@ void combined_raw_scratch_progression_and_poses() {
     use_model(fixture, far_model());
     proof::Scratch combined, separate;
     OA_CHECK(compare_raw_proofs(fixture, combined, separate));
-    const auto original_instance = fixture.instance;
-    const auto original_geometry = fixture.geometry;
+    const auto saved_instance = fixture.instance;
+    const auto saved_geometry = fixture.geometry;
     ++fixture.gate.owner_token;
     OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
     --fixture.gate.owner_token;
     const std::shared_ptr<const Model> foreign(fixture.model.get(), [](const Model*) {});
     fixture.geometry = proof::prepare_geometry(foreign);
     OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
-    fixture.geometry = original_geometry;
+    fixture.geometry = saved_geometry;
     fixture.instance.pieces()[0].object_index = fixture.instance.pieces()[1].object_index;
     OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
-    fixture.instance = original_instance;
+    fixture.instance = saved_instance;
     fixture.instance.pieces()[0].parent = 99999;
     OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
-    fixture.instance = original_instance;
+    fixture.instance = saved_instance;
     fixture.instance.pieces()[0].next_sibling = 0;
     OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
-    fixture.instance = original_instance;
+    fixture.instance = saved_instance;
     fixture.geometry.objects.pop_back();
     OA_CHECK(!compare_raw_proofs(fixture, combined, separate));
-    fixture.geometry = original_geometry;
+    fixture.geometry = saved_geometry;
     OA_CHECK(compare_raw_proofs(fixture, combined, separate));
 
     uint32_t words = 0x73a4c19U;
@@ -1568,8 +1568,8 @@ void combined_raw_allocation_refusal_progression() {
 int main() {
     native_hierarchy_and_pose_corpus();
     interpolated_raw_poses_use_the_existing_helpers();
-    exact_native_body_and_shadow_oracle();
-    interpolated_native_projection_oracle();
+    exact_native_body_and_shadow_reference();
+    interpolated_native_projection_reference();
     unknown_policy_and_identity_keep_the_normal_path();
     ownership_topology_wrap_and_allocation_refusals();
     completed_native_geometry_and_refusals();

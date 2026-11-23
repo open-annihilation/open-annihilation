@@ -172,13 +172,13 @@ void hold_unit_draw_states(MatchModels& models, bool deferred_geometry) {
         auto& kept = deferred.units[slot];
         if (slot >= slots) {
             kept.pending = false;
-            kept.fresh_geometry = kept.fresh_original_images = kept.fresh_copy_images = false;
+            kept.fresh_geometry = kept.fresh_source_images = kept.fresh_copy_images = false;
             continue;
         }
         auto& runtime = models.offline->runtime_state(static_cast<uint16_t>(slot));
         if (!runtime.instance) {
             kept.pending = false;
-            kept.fresh_geometry = kept.fresh_original_images = kept.fresh_copy_images = false;
+            kept.fresh_geometry = kept.fresh_source_images = kept.fresh_copy_images = false;
             continue;
         }
         auto& instance = runtime.instance->model();
@@ -195,9 +195,9 @@ void hold_unit_draw_states(MatchModels& models, bool deferred_geometry) {
         // A carrier can reach children before their own plan is visited.
         if (unit.attach_parent != 0 || unit.attach_first_child != 0) {
             const auto model = unit_model(models, static_cast<uint16_t>(slot));
-            if (kept.fresh_original_images) {
+            if (kept.fresh_source_images) {
                 invalidate_model_images(*model.state);
-                kept.fresh_original_images = false;
+                kept.fresh_source_images = false;
             }
             if (kept.fresh_geometry)
                 model.state->transforms_dirty = true;
@@ -673,7 +673,7 @@ warm_owned_model_copy(const MatchModels& models, const UnitPlan& plan) noexcept 
         return std::nullopt;
     const auto& motion = models.presentation.units[plan.unit_index];
     const auto& state = motion.state;
-    const auto& original_model = plan.model.instance->model_handle();
+    const auto& source_model = plan.model.instance->model_handle();
     const auto& copy_model = motion.instance.model_handle();
     const auto revision = motion.instance.materialization_revision();
     if (!motion.seen || !motion.rig_valid || motion.rig_primed || motion.blended_draw == 0 ||
@@ -684,9 +684,9 @@ warm_owned_model_copy(const MatchModels& models, const UnitPlan& plan) noexcept 
         (state.image.sprite.data == nullptr && !state.deferred_image) || state.finer ||
         state.build_bands || state.image_unfinished || plan.preplanning_owner == 0 ||
         plan.model.instance->owner_token() != plan.preplanning_owner ||
-        motion.instance.owner_token() != plan.preplanning_owner || !original_model || !copy_model ||
-        original_model.get() != copy_model.get() || original_model.owner_before(copy_model) ||
-        copy_model.owner_before(original_model) ||
+        motion.instance.owner_token() != plan.preplanning_owner || !source_model || !copy_model ||
+        source_model.get() != copy_model.get() || source_model.owner_before(copy_model) ||
+        copy_model.owner_before(source_model) ||
         plan.model.instance->root_piece() != motion.instance.root_piece())
         return std::nullopt;
     return revision;
@@ -1159,11 +1159,11 @@ void plan_unit_model(
     const auto update = [&](const model_render::ModelRef& shown) {
         const bool original = shown.instance == model.instance;
         const plan_work::Span work_span(
-            original ? plan_work::Phase::original_update : plan_work::Phase::copy_update
+            original ? plan_work::Phase::source_update : plan_work::Phase::copy_update
         );
         if (shown.state->transforms_dirty || shown.instance->transforms_dirty())
             plan_work::count(
-                original ? plan_work::Work::original_updates_dirty
+                original ? plan_work::Work::source_updates_dirty
                          : plan_work::Work::copy_updates_dirty
             );
         if (plan.linked || transforms == nullptr) {
@@ -1204,7 +1204,7 @@ void plan_unit_model(
     };
     const auto note = [&](const model_render::ModelRef& shown) {
         const plan_work::Span work_span(
-            shown.instance == model.instance ? plan_work::Phase::original_note
+            shown.instance == model.instance ? plan_work::Phase::source_note
                                              : plan_work::Phase::copy_note
         );
         model_render::note_piece_changes(shown);
@@ -1214,10 +1214,10 @@ void plan_unit_model(
     const auto consume_original = [&] {
         if (!deferred)
             return;
-        const bool fresh = deferred->fresh_geometry || deferred->fresh_original_images;
-        if (deferred->fresh_original_images) {
+        const bool fresh = deferred->fresh_geometry || deferred->fresh_source_images;
+        if (deferred->fresh_source_images) {
             invalidate_model_images(*model.state);
-            deferred->fresh_original_images = false;
+            deferred->fresh_source_images = false;
         }
         if (deferred->fresh_geometry)
             model.state->transforms_dirty = true;

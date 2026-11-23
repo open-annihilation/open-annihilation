@@ -140,9 +140,9 @@ void body_lod_card_tests() {
         const auto& original = source->objects[object].primitives[polygon.primitive].vertex_indices;
         const auto start = medium.piece_vertices[polygon.piece];
         for (std::size_t corner = 0; corner < polygon.body_vertices.size(); ++corner) {
-            const auto original_vertex =
+            const auto listed_vertex =
                 medium.source_vertices[start + polygon.body_vertices[corner]];
-            const auto source_corner = std::find(original.begin(), original.end(), original_vertex);
+            const auto source_corner = std::find(original.begin(), original.end(), listed_vertex);
             OA_CHECK(source_corner != original.end());
             const auto record = (medium.first_record + polygon.record + corner) * 2;
             const auto actual =

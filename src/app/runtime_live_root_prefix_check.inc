@@ -110,7 +110,7 @@ if (root_prefix_requested) {
                 sim::unit_spawn::find_type_index(spawn_type_names_, "ARMCOM");
             const auto core_commander =
                 sim::unit_spawn::find_type_index(spawn_type_names_, "CORCOM");
-            uint32_t original_commanders{};
+            uint32_t commander_count{};
             for (const auto& slot : match_->world().slots) {
                 if (!slot.unit || slot.record.type_index == 0)
                     continue;
@@ -119,10 +119,10 @@ if (root_prefix_requested) {
                         slot.record.type_index == core_commander,
                     "a non-commander preceded the root-prefix actors"
                 );
-                ++original_commanders;
+                ++commander_count;
             }
             require(
-                original_commanders == prefix_commander_count,
+                commander_count == prefix_commander_count,
                 "the root-prefix world did not start with exactly two commanders"
             );
             int32_t footprint_x{}, footprint_z{};

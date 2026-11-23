@@ -957,7 +957,7 @@ void local_traffic_heads_keep_their_copies() {
         const std::array<uint16_t, 2> indices{southbound->unit_index, northbound->unit_index};
         std::array<Divergence, 2> divergence;
         bool saw_head = false;
-        bool saw_original_route = false;
+        bool saw_saved_route = false;
         bool resumed = false;
         for (uint32_t t = 0; t < 320; ++t) {
             if (t == 30) {
@@ -997,9 +997,9 @@ void local_traffic_heads_keep_their_copies() {
                     continue;
                 active = true;
                 saw_head = true;
-                saw_original_route =
-                    saw_original_route || (owner->navigation.count > 1 && head->count > 1 &&
-                                           owner->navigation.points[1] != head->points[1]);
+                saw_saved_route =
+                    saw_saved_route || (owner->navigation.count > 1 && head->count > 1 &&
+                                        owner->navigation.points[1] != head->points[1]);
                 if (copy != nullptr && joiner.match->state().game.players[0].last_sim_tick ==
                                            static_cast<int32_t>(host.match->state().game.tick)) {
                     CHECK(copy->mirrored_navigation.count == head->count);
@@ -1016,20 +1016,20 @@ void local_traffic_heads_keep_their_copies() {
         }
         CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
         if (features.has(oa::data::enhanced_mode::Feature::local_flow)) {
-            if (!saw_head || !saw_original_route || !resumed)
+            if (!saw_head || !saw_saved_route || !resumed)
                 std::fprintf(
                     stderr,
                     "Enhanced traffic: head %d, original route %d, resumed %d; units at %d,%d / "
                     "%d,%d\n",
                     saw_head,
-                    saw_original_route,
+                    saw_saved_route,
                     resumed,
                     host.match->state().units[indices[0]].position.x >> 16,
                     host.match->state().units[indices[0]].position.z >> 16,
                     host.match->state().units[indices[1]].position.x >> 16,
                     host.match->state().units[indices[1]].position.z >> 16
                 );
-            CHECK(saw_head && saw_original_route && resumed);
+            CHECK(saw_head && saw_saved_route && resumed);
         } else
             CHECK(!saw_head);
     }
@@ -1185,10 +1185,10 @@ void restored_traffic_heads_publish_their_effective_route() {
     std::vector<uint8_t> bytes(heads.size() * sim::unit_movement::local_flow_head_bytes);
     // A saved active head can brake, steer, or relinquish its temporary
     // target. Each published delta must describe that effective route.
-    constexpr uint8_t braking = 0, steering = 1, original_route = 2;
-    for (const auto state : {braking, steering, original_route}) {
+    constexpr uint8_t braking = 0, steering = 1, saved_route = 2;
+    for (const auto state : {braking, steering, saved_route}) {
         auto& head = heads[index];
-        head.active = state != original_route;
+        head.active = state != saved_route;
         head.tick = world.game.tick;
         head.count = state == braking ? 0 : 3;
         head.points = {{{48, 48}, {64, 96}, {48, 176}}};

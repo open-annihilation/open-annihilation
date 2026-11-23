@@ -233,7 +233,7 @@ def shadow_index_record(frame, legacy=False, **changes):
 
 PLAN_PHASES = (
     "pose_capture", "list_prepare", "unit_sites", "battlefield_sort", "run_prepare", "run_wait",
-    "worker_plan", "copy_place", "original_note", "original_update", "copy_note", "copy_update",
+    "worker_plan", "copy_place", "source_note", "source_update", "copy_note", "copy_update",
     "omission_proof", "model_plan_metadata", "model_plan_pixels",
 )
 PLAN_SAMPLE_FIELDS = ("calls", "samples", "wall_ns", "cpu_ns", "cpu_samples")
@@ -242,7 +242,7 @@ PLAN_SAMPLE_FIELDS = ("calls", "samples", "wall_ns", "cpu_ns", "cpu_samples")
 def plan_work_record(frame, phase_changes=None, legacy=False, **changes):
     """Return source planning counts and raw phase samples, including overlapping CPU time."""
     values = dict(source_frame=100 + frame, completed=1, sampling_stride=64, unit_plans=400,
-                  copy_plans=20, linked_plans=380, omitted_plans=4, original_updates_dirty=3,
+                  copy_plans=20, linked_plans=380, omitted_plans=4, source_updates_dirty=3,
                   copy_updates_dirty=2, transform_cache_hits=90, root_prefix_hits=8,
                   transform_rebuilds=5, metadata_image_builds=2, pixel_image_builds=1)
     if not legacy:
@@ -398,7 +398,7 @@ class NativeBenchReceiptTest(unittest.TestCase):
                     text = text.replace(shadow_index_record(frame), shadow_index_record(frame, **changes))
                 self.assert_work_accepted(text)
 
-    def test_legacy_shadow_lookup_counts_keep_their_original_constraints(self):
+    def test_legacy_shadow_lookup_counts_keep_their_existing_constraints(self):
         """Legacy admissions remain bounded by missed runs and legacy hits by reused runs."""
         for changes in (dict(cache_hits=4, cache_misses=0),
                         dict(admitted_patterns=2, cache_misses=1, requested_runs=3, fallback_runs=0),

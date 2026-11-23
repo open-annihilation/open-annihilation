@@ -1059,7 +1059,7 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(const enhanced::Fea
     body.movement.speed = f.defs[tank].max_velocity_fixed;
     body.movement.velocity = movement::aim_velocity(east, 0, body.movement.speed);
     body.movement.flags = ground_layer;
-    const auto original_pose = body.geometry;
+    const auto saved_pose = body.geometry;
     const auto start_cell = body.geometry.cell;
     // This real step still refuses the aged mobile's actual footprint.
     ++f.match->simulation().tick;
@@ -1072,7 +1072,7 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(const enhanced::Fea
     CHECK(body.geometry.cell == start_cell);
     CHECK((body.movement.flags & movement::collision_blocked) != 0);
     PhysicalHost host(f);
-    auto copied_unit = original_pose;
+    auto copied_unit = saved_pose;
     movement::Movement copied_movement{};
     copied_movement.velocity = body.movement.velocity;
     copied_movement.speed = f.defs[tank].max_velocity_fixed;

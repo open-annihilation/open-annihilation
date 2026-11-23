@@ -227,7 +227,7 @@ void current_pose_obligations() {
     const auto revision = instance.materialization_revision();
     host.set_piece_angle(0, 1, 0x4567);
     kept.freeze_current(instance, true, true);
-    OA_CHECK(kept.fresh_geometry && kept.fresh_original_images && kept.fresh_copy_images);
+    OA_CHECK(kept.fresh_geometry && kept.fresh_source_images && kept.fresh_copy_images);
     OA_CHECK(!kept.pending && kept.poses.empty());
     OA_CHECK(instance.materialization_revision() == revision && same_geometry(instance, old));
     // Later raw state is authoritative when a visible consumer actually rebuilds.
@@ -237,17 +237,17 @@ void current_pose_obligations() {
     expected.rebuild_transforms(root);
     instance.rebuild_transforms(root, true);
     kept.observe_fresh(instance);
-    OA_CHECK(!kept.fresh_geometry && kept.fresh_original_images && kept.fresh_copy_images);
+    OA_CHECK(!kept.fresh_geometry && kept.fresh_source_images && kept.fresh_copy_images);
     OA_CHECK(same_geometry(instance, expected));
     // Fresh SFX geometry does not make an old image current.
     kept.freeze_current(instance, false, false);
-    OA_CHECK(!kept.fresh_geometry && kept.fresh_original_images && kept.fresh_copy_images);
+    OA_CHECK(!kept.fresh_geometry && kept.fresh_source_images && kept.fresh_copy_images);
     table.prepare(1, 4, instance, false);
-    OA_CHECK(!kept.fresh_geometry && !kept.fresh_original_images && !kept.fresh_copy_images);
+    OA_CHECK(!kept.fresh_geometry && !kept.fresh_source_images && !kept.fresh_copy_images);
 }
 
-/// Checks that visible copies leave original image and geometry obligations separate.
-void original_only_obligations() {
+/// Checks that visible copies leave the source image and geometry obligations separate.
+void source_only_obligations() {
     auto instance = runtime::make_instance(model(), 23, order);
     Host host(instance);
     instance.rebuild_transforms();
@@ -259,21 +259,21 @@ void original_only_obligations() {
     const auto revision = instance.materialization_revision();
     host.set_piece_angle(0, 1, 0x3210);
     kept.freeze_original(instance, true);
-    OA_CHECK(kept.fresh_geometry && kept.fresh_original_images && !kept.fresh_copy_images);
+    OA_CHECK(kept.fresh_geometry && kept.fresh_source_images && !kept.fresh_copy_images);
     OA_CHECK(instance.transforms_dirty() && instance.materialization_revision() == revision);
     OA_CHECK(same_geometry(instance, old));
     // An effect rebuild satisfies geometry alone; the original still needs image ingress.
     instance.rebuild_transforms({13, -2111, 42});
     kept.observe_fresh(instance);
-    OA_CHECK(!kept.fresh_geometry && kept.fresh_original_images && !kept.fresh_copy_images);
+    OA_CHECK(!kept.fresh_geometry && kept.fresh_source_images && !kept.fresh_copy_images);
     kept.freeze_original(instance, false);
-    OA_CHECK(!kept.fresh_geometry && kept.fresh_original_images && !kept.fresh_copy_images);
+    OA_CHECK(!kept.fresh_geometry && kept.fresh_source_images && !kept.fresh_copy_images);
     // Existing copy obligations are never cancelled by another original-only draw.
     kept.fresh_copy_images = true;
     kept.freeze_original(instance, false);
-    OA_CHECK(kept.fresh_original_images && kept.fresh_copy_images);
+    OA_CHECK(kept.fresh_source_images && kept.fresh_copy_images);
     table.prepare(1, 8, instance, false);
-    OA_CHECK(!kept.fresh_geometry && !kept.fresh_original_images && !kept.fresh_copy_images);
+    OA_CHECK(!kept.fresh_geometry && !kept.fresh_source_images && !kept.fresh_copy_images);
 }
 
 /// Checks the copy revision distinguishes compatible raw poses from layout replacement.
@@ -370,7 +370,7 @@ int main() {
     root_only_and_refusal();
     image_metadata_gate();
     current_pose_obligations();
-    original_only_obligations();
+    source_only_obligations();
     compatible_copy_revision();
     fresh_image_invalidation();
     snapshot_warm_budget();

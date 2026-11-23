@@ -593,7 +593,7 @@ void parallel_model_card_batch_join() {
         OA_CHECK(joined_card_records(candidate) == before);
     }
     ground_allocation_to_refuse = std::numeric_limits<size_t>::max();
-    const int original_mode = std::fegetround();
+    const int saved_rounding = std::fegetround();
     for (const int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
         OA_CHECK(std::fesetround(mode) == 0);
         const auto rounded_prefix = joined_marker_prefix();
@@ -612,7 +612,7 @@ void parallel_model_card_batch_join() {
         );
         OA_CHECK(std::fegetround() == mode);
     }
-    OA_CHECK(std::fesetround(original_mode) == 0);
+    OA_CHECK(std::fesetround(saved_rounding) == 0);
 }
 
 /// Makes one exact three-corner pattern for all relative cast names.
@@ -800,7 +800,7 @@ void parallel_model_card_join() {
     expected_shadow.insert(expected_shadow.end(), following_shadow.begin(), following_shadow.end());
     const auto source_instances = source.instances.size();
     const auto source_indices = source.indices;
-    const auto original_mark = destination.mark;
+    const auto saved_mark = destination.mark;
     destination.draw_instance = 5;
     OA_CHECK(joined_cards::can_append_parallel_model_cards(destination, source, vertex_offset));
     OA_CHECK(joined_cards::append_parallel_model_cards(destination, source, vertex_offset));
@@ -811,7 +811,7 @@ void parallel_model_card_join() {
     OA_CHECK(joined_shadow_triangles(source) == source_shadow);
     OA_CHECK(destination.instances.size() == 517 && destination.cast_depths == 517);
     OA_CHECK(
-        destination.draw_instance == -1 && destination.mark.instances == original_mark.instances
+        destination.draw_instance == -1 && destination.mark.instances == saved_mark.instances
     );
     OA_CHECK(destination.runs.size() == 4 && destination.cast_runs.size() == 5);
     for (std::size_t index = 0; index < source.units.size(); ++index) {
@@ -896,7 +896,7 @@ void parallel_model_card_join() {
     OA_CHECK(!joined_cards::append_parallel_model_cards(checked, invalid, 0));
 
     // A worker and its join use the same mode, including directed rounding.
-    const int original_mode = std::fegetround();
+    const int saved_rounding = std::fegetround();
     for (const int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
         OA_CHECK(std::fesetround(mode) == 0);
         auto prior = joined_card_fixture(3, 1, false);
@@ -908,7 +908,7 @@ void parallel_model_card_join() {
             OA_CHECK(cast.depth == expected);
         }
     }
-    OA_CHECK(std::fesetround(original_mode) == 0);
+    OA_CHECK(std::fesetround(saved_rounding) == 0);
     parallel_model_card_batch_join();
     parallel_model_card_compact_join();
 }

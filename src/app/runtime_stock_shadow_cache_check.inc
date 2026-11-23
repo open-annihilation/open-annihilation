@@ -53,7 +53,7 @@
                     sim::unit_spawn::find_type_index(spawn_type_names_, "ARMCOM");
                 const auto core_commander =
                     sim::unit_spawn::find_type_index(spawn_type_names_, "CORCOM");
-                std::vector<std::pair<uint16_t, uint16_t>> original_commanders;
+                std::vector<std::pair<uint16_t, uint16_t>> commander_records;
                 for (const auto& slot : match_->world().slots) {
                     if (!slot.unit || slot.record.type_index == 0)
                         continue;
@@ -63,10 +63,10 @@
                         "a non-commander unit preceded the stock shadow-cache actors"
                     );
                     const uint16_t commander_id = slot.record.id;
-                    original_commanders.emplace_back(commander_id, commander_type);
+                    commander_records.emplace_back(commander_id, commander_type);
                 }
                 require(
-                    original_commanders.size() == stock_foreign_draw_limit,
+                    commander_records.size() == stock_foreign_draw_limit,
                     "the stock shadow-cache world did not start with exactly two commanders"
                 );
                 int32_t footprint_x{}, footprint_z{};
@@ -399,8 +399,8 @@
                         require(
                             unit != nullptr && draw.stand_in < 0 &&
                                 std::any_of(
-                                    original_commanders.begin(),
-                                    original_commanders.end(),
+                                    commander_records.begin(),
+                                    commander_records.end(),
                                     [&](const auto& commander) {
                                         return unit->id == commander.first &&
                                                unit->type_index == commander.second;

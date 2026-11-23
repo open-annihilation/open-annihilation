@@ -23,8 +23,8 @@ constexpr uint64_t shape_test_start = 0xcbf29ce484222325ULL;
 constexpr uint64_t shape_test_multiplier = 0x100000001b3ULL;
 constexpr unsigned shape_test_fold_shift = 32;
 
-/// Retains the original push-back algorithm as an independent exact-key and digest oracle.
-uint64_t original_shape_words(
+/// Retains the original push-back algorithm as an independent exact-key and digest reference.
+uint64_t reference_shape_words(
     std::span<const ShapeCorner> corners,
     std::span<const ShapePolygon> polygons,
     std::vector<int64_t>& shape
@@ -59,7 +59,7 @@ uint64_t check_shape_words(
 ) {
     namespace shapes = oa::app::full::polygon_shapes;
     std::vector<int64_t> expected;
-    const auto expected_digest = original_shape_words(corners, polygons, expected);
+    const auto expected_digest = reference_shape_words(corners, polygons, expected);
     const auto actual_digest = shapes::write(
         corners, polygons, actual, shape_test_start, shape_test_multiplier, shape_test_fold_shift
     );

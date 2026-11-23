@@ -76,7 +76,7 @@ struct BodyDetailPoseFixture : BodyLodFixture {
 };
 
 /// Each independent one-unit build has no earlier pose summary to reuse.
-void body_detail_pose_single_oracles(const BodyDetailPoseFixture& fixture) {
+void body_detail_pose_single_references(const BodyDetailPoseFixture& fixture) {
     const auto decision = [](const live::UnitDetail& detail) {
         return std::tuple{
             detail.surface,
@@ -127,7 +127,7 @@ void body_detail_pose_changes() {
     OA_CHECK(geometry.measured && geometry.valid);
     OA_CHECK(geometry.low_piece_mask == 0x9f && geometry.medium_piece_mask == 0xff);
     OA_CHECK(geometry.low_surface != 0 && geometry.medium_surface > geometry.low_surface);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
 
     auto& changed = battle.draws.models.back();
     for (const auto& piece : fixture.instance.pieces())
@@ -135,7 +135,7 @@ void body_detail_pose_changes() {
     changed.shown_vertices[7][0].x += 2 * 65536;
     OA_CHECK(fixture.build("changed-local-point"));
     OA_CHECK(battle.scene.detail_poses.size() == 2);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
     changed.shown_vertices.clear();
     auto alternate = fixture.instance;
     alternate.pieces()[7].flags |= cached;
@@ -144,11 +144,11 @@ void body_detail_pose_changes() {
     OA_CHECK(battle.scene.detail_poses.size() == 2);
     OA_CHECK(battle.scene.unit_detail.front().body_piece_mask == 0x9f);
     OA_CHECK(battle.scene.unit_detail.back().body_piece_mask == 0x3f);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
     alternate.pieces()[7].flags = 0;
     OA_CHECK(fixture.build("changed-visibility"));
     OA_CHECK(battle.scene.unit_detail.back().body_medium_piece_mask == 0x7f);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
     auto reordered = fixture.instance;
     std::swap(reordered.pieces()[0].object_index, reordered.pieces()[1].object_index);
     changed.model.instance = &reordered;
@@ -158,13 +158,13 @@ void body_detail_pose_changes() {
         battle.scene.card_types.body_draw_types_low.front() !=
         battle.scene.card_types.body_draw_types_low.back()
     );
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
     auto alternate_prepared = fixture.prepared;
     changed.model.instance = &fixture.instance;
     changed.model.prepared = &alternate_prepared;
     OA_CHECK(fixture.build("changed-prepared-identity"));
     OA_CHECK(battle.scene.detail_poses.size() == 2);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
     BodyLodFixture other(8);
     for (auto& piece : other.instance.pieces())
         piece.flags = visible | cached;
@@ -174,7 +174,7 @@ void body_detail_pose_changes() {
     OA_CHECK(fixture.build("changed-model-identity"));
     OA_CHECK(battle.scene.detail_poses.size() == 2);
     OA_CHECK(battle.scene.unit_detail.back().body_piece_mask == 0x3f);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
     changed.model.instance = &fixture.instance;
     changed.model.prepared = &fixture.prepared;
     changed.model.state = &fixture.state;
@@ -186,7 +186,7 @@ void body_detail_pose_changes() {
     fixture.projection(0.5F);
     OA_CHECK(fixture.build("restored-projection"));
     OA_CHECK(battle.scene.unit_detail.front().body_piece_mask == 0x9f);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
 }
 
 /// Hidden point counts are checked per draw even when the exact visible pose matches.
@@ -208,7 +208,7 @@ void body_detail_pose_hidden_sizes() {
     );
     OA_CHECK(battle.scene.body_lod_counts.body_lod_models == 2);
     OA_CHECK(battle.scene.body_lod_counts.full_mesh_models == 1);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
 }
 
 /// Geometry sharing never shares per-unit history or nearby construction lighting.
@@ -223,7 +223,7 @@ void body_detail_pose_unit_gates() {
     OA_CHECK(battle.scene.detail_poses.size() == 1 && battle.scene.detail_pose_hits == 1);
     OA_CHECK(battle.scene.unit_detail[0].body_lod == 1);
     OA_CHECK(battle.scene.unit_detail[1].body_lod == 2);
-    body_detail_pose_single_oracles(fixture);
+    body_detail_pose_single_references(fixture);
     fixture.projection(0.5F);
     fixture.units[1].position.x = 96 * 65536;
     battle.inputs.nanolathe_lighting = true;

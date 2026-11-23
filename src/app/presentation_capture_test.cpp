@@ -281,7 +281,7 @@ void test_parallel_history() {
          {2, 2},
          {3, 2}}
     };
-    const auto original_control = fp::save_float_control();
+    const auto outer_control = fp::save_float_control();
     for (std::size_t step = 0; step < steps.size(); ++step) {
         const auto [tick, generation] = steps[step];
         for (auto& batch : batches)
@@ -396,19 +396,19 @@ void test_parallel_history() {
     jobs::run_bands(&four, 2, [&](uint32_t band) {
         if (band != 0)
             return;
-        const auto original_entry_control = fp::save_float_control();
+        const auto band_entry_control = fp::save_float_control();
         set_flush_to_zero(true);
         const auto entry_control = fp::save_float_control();
         actual_nested = app::capture_unit_poses(batches[4], 4, scratch[3], &four);
         entry_control_preserved = fp::float_control_matches(entry_control);
-        fp::restore_float_control(original_entry_control);
+        fp::restore_float_control(band_entry_control);
     });
     CHECK(same_totals(expected_nested, actual_nested));
     CHECK(entry_control_preserved && fp::float_control_matches(nested_caller_control));
     for (const auto& actor : actors)
         CHECK(same_history(actor->histories[0], actor->histories[4]));
-    fp::restore_float_control(original_control);
-    CHECK(fp::float_control_matches(original_control));
+    fp::restore_float_control(outer_control);
+    CHECK(fp::float_control_matches(outer_control));
     app::UnitCaptureScratch empty_scratch;
     CHECK(same_totals({}, app::capture_unit_poses({}, 1, empty_scratch, &four)));
 }

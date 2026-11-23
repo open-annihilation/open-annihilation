@@ -23,8 +23,8 @@ enum class Phase : uint8_t {
     run_wait,
     worker_plan,
     copy_place,
-    original_note,
-    original_update,
+    source_note,
+    source_update,
     copy_note,
     copy_update,
     omission_proof,
@@ -45,8 +45,8 @@ inline constexpr std::array<std::string_view, phase_count> phase_names{
     "run_wait",
     "worker_plan",
     "copy_place",
-    "original_note",
-    "original_update",
+    "source_note",
+    "source_update",
     "copy_note",
     "copy_update",
     "omission_proof",
@@ -60,11 +60,11 @@ enum class Work : uint8_t {
     copy_plans,
     linked_plans,
     omitted_plans,
-    original_updates_dirty, ///< original dirty on update entry, before applying the root threshold
-    copy_updates_dirty,     ///< copy dirty on update entry, before applying the root threshold
-    transform_cache_hits,   ///< whole-pose hits in the direct cached-update branch
-    root_prefix_hits,       ///< root-prefix hits in the direct cached-update branch
-    transform_rebuilds,     ///< direct rebuild calls; linked native updates remain opaque
+    source_updates_dirty, ///< source dirty on update entry, before applying the root threshold
+    copy_updates_dirty,   ///< copy dirty on update entry, before applying the root threshold
+    transform_cache_hits, ///< whole-pose hits in the direct cached-update branch
+    root_prefix_hits,     ///< root-prefix hits in the direct cached-update branch
+    transform_rebuilds,   ///< direct rebuild calls; linked native updates remain opaque
     metadata_image_builds,
     pixel_image_builds,
     root_prefix_recipe_publishes,
@@ -79,7 +79,7 @@ inline constexpr std::array<std::string_view, work_count> work_names{
     "copy_plans",
     "linked_plans",
     "omitted_plans",
-    "original_updates_dirty",
+    "source_updates_dirty",
     "copy_updates_dirty",
     "transform_cache_hits",
     "root_prefix_hits",

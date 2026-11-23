@@ -53,7 +53,7 @@ void clear_plots(spatial::World& world, uint8_t height = 20) {
     }
 }
 
-/// Checks the full class and its boolean against the ordered plot oracle.
+/// Checks the full class and its boolean against the ordered plot reference.
 void compare_footprint(
     const spatial::CellClassifier& movement, int32_t x, int32_t z, const spatial::World& world
 ) {

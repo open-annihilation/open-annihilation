@@ -302,28 +302,28 @@ run_queue(bool renew_local_attempts, bool filter_previous = true, bool controlle
 
 /// Checks that a mature queue can use a newly opened passing place.
 void test_mature_queue_recovers_without_renewing_replan_grace() {
-    const auto recovered = run_queue(true);
+    const auto with_flow = run_queue(true);
     const auto old_gate = run_queue(false);
-    OA_CHECK(recovered == run_queue(true));
-    OA_CHECK(recovered.mature_when_lane_opens && old_gate.mature_when_lane_opens);
-    OA_CHECK(!recovered.replan_deferred_after_maturity);
+    OA_CHECK(with_flow == run_queue(true));
+    OA_CHECK(with_flow.mature_when_lane_opens && old_gate.mature_when_lane_opens);
+    OA_CHECK(!with_flow.replan_deferred_after_maturity);
     OA_CHECK(!old_gate.replan_deferred_after_maturity);
-    OA_CHECK(recovered.overlaps == 0 && old_gate.overlaps == 0);
-    OA_CHECK(recovered.arrival_tick != 0 && recovered.arrival_tick < tick_limit / 2);
+    OA_CHECK(with_flow.overlaps == 0 && old_gate.overlaps == 0);
+    OA_CHECK(with_flow.arrival_tick != 0 && with_flow.arrival_tick < tick_limit / 2);
     OA_CHECK(old_gate.arrival_tick == 0);
-    OA_CHECK(recovered.adjustments != 0 && old_gate.adjustments == 0);
-    OA_CHECK(recovered.blocked_ticks < old_gate.blocked_ticks / 2);
-    OA_CHECK(recovered.first_attempt_after_opening >= lane_opens_at);
+    OA_CHECK(with_flow.adjustments != 0 && old_gate.adjustments == 0);
+    OA_CHECK(with_flow.blocked_ticks < old_gate.blocked_ticks / 2);
+    OA_CHECK(with_flow.first_attempt_after_opening >= lane_opens_at);
     OA_CHECK(
-        recovered.first_attempt_after_opening < lane_opens_at + movement::local_flow_retry_ticks
+        with_flow.first_attempt_after_opening < lane_opens_at + movement::local_flow_retry_ticks
     );
     std::printf(
         "queue recovery: arrival %u, old gate %u; blocked %llu / %llu; overlaps %u / %u\n",
-        recovered.arrival_tick,
+        with_flow.arrival_tick,
         old_gate.arrival_tick,
-        static_cast<unsigned long long>(recovered.blocked_ticks),
+        static_cast<unsigned long long>(with_flow.blocked_ticks),
         static_cast<unsigned long long>(old_gate.blocked_ticks),
-        recovered.overlaps,
+        with_flow.overlaps,
         old_gate.overlaps
     );
 }
@@ -520,27 +520,27 @@ TrainResult run_train(
 
 /// Checks sustained progress for every mover at the back of a mature queue.
 void test_whole_mature_train_recovers() {
-    const auto recovered = run_train(true);
+    const auto with_flow = run_train(true);
     const auto old_gate = run_train(false);
-    OA_CHECK(recovered == run_train(true));
-    OA_CHECK(recovered.arrived == maximum_movers);
-    OA_CHECK(recovered.last_arrival < tick_limit / 2);
-    OA_CHECK(recovered.overlaps == 0 && old_gate.overlaps == 0);
-    OA_CHECK(recovered.arrived > old_gate.arrived);
-    OA_CHECK(recovered.blocked_ticks < old_gate.blocked_ticks / 2);
-    OA_CHECK(recovered.orbit_windows < movement::local_flow_retry_ticks * 2);
+    OA_CHECK(with_flow == run_train(true));
+    OA_CHECK(with_flow.arrived == maximum_movers);
+    OA_CHECK(with_flow.last_arrival < tick_limit / 2);
+    OA_CHECK(with_flow.overlaps == 0 && old_gate.overlaps == 0);
+    OA_CHECK(with_flow.arrived > old_gate.arrived);
+    OA_CHECK(with_flow.blocked_ticks < old_gate.blocked_ticks / 2);
+    OA_CHECK(with_flow.orbit_windows < movement::local_flow_retry_ticks * 2);
     std::printf(
         "train recovery: arrivals %u / %u, last %u / %u, blocked %llu / %llu, orbits %llu / %llu, "
         "turn %llu / %llu\n",
-        recovered.arrived,
+        with_flow.arrived,
         old_gate.arrived,
-        recovered.last_arrival,
+        with_flow.last_arrival,
         old_gate.last_arrival,
-        static_cast<unsigned long long>(recovered.blocked_ticks),
+        static_cast<unsigned long long>(with_flow.blocked_ticks),
         static_cast<unsigned long long>(old_gate.blocked_ticks),
-        static_cast<unsigned long long>(recovered.orbit_windows),
+        static_cast<unsigned long long>(with_flow.orbit_windows),
         static_cast<unsigned long long>(old_gate.orbit_windows),
-        static_cast<unsigned long long>(recovered.turn),
+        static_cast<unsigned long long>(with_flow.turn),
         static_cast<unsigned long long>(old_gate.turn)
     );
 }
@@ -1270,7 +1270,7 @@ ProjectedRouteResult run_projected_route(bool project_probe) {
 }
 
 /// Checks that traffic detection follows the direction the controller actually drives.
-void test_projected_probe_rejoins_the_original_route() {
+void test_projected_probe_rejoins_the_driven_route() {
     constexpr uint32_t maximum_queries = 128;
     const auto projected = run_projected_route(true);
     const auto raw_waypoint = run_projected_route(false);
@@ -1306,7 +1306,7 @@ int main() {
     test_completed_local_legs_keep_the_north_passing_lane();
     test_history_does_not_block_forward_or_recovery_legs();
     test_one_tick_priority_gap_keeps_the_completed_passing_leg();
-    test_projected_probe_rejoins_the_original_route();
+    test_projected_probe_rejoins_the_driven_route();
     test_controller_probe_preserves_queue_completion();
     return oa::test::check_exit_status();
 }

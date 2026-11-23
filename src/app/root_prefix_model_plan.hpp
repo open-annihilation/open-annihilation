@@ -115,7 +115,7 @@ namespace oa::app {
     if (deferred) {
         if (model.instance == deferred->instance) {
             deferred->fresh_geometry = false;
-            deferred->fresh_original_images = false;
+            deferred->fresh_source_images = false;
             deferred->revision = model.instance->materialization_revision();
         } else
             deferred->fresh_copy_images = false;

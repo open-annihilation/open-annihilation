@@ -7952,7 +7952,7 @@ void unit_detail_on_threads() {
     const auto before_picks = scenes[0].cards.units;
     const auto before_atlas = scenes[0].texture_rgba;
     auto& broken_index = source->objects[0].primitives[0].vertex_indices[1];
-    const auto original_index = broken_index;
+    const auto saved_index = broken_index;
     broken_index = std::numeric_limits<uint16_t>::max();
     std::array<std::string, 3> errors;
     for (std::size_t scene = 0; scene < scenes.size(); ++scene) {
@@ -7960,7 +7960,7 @@ void unit_detail_on_threads() {
         OA_CHECK(!live::build(in, scenes[scene], errors[scene]));
     }
     OA_CHECK(!errors[0].empty() && errors[1] == errors[0] && errors[2] == errors[0]);
-    broken_index = original_index;
+    broken_index = saved_index;
     const auto same_details = [](const auto& actual, const auto& expected) {
         return std::equal(
             actual.begin(),
@@ -8000,16 +8000,16 @@ void unit_detail_on_threads() {
         OA_CHECK(same_details(scenes[scene].unit_detail, before_details));
         OA_CHECK(same_picks(scenes[scene].cards.units, before_picks));
         OA_CHECK(scenes[scene].texture_rgba == before_atlas);
-        const auto recovered = card_frame(scenes[scene]);
-        OA_CHECK(recovered.units == before_failure.units);
-        OA_CHECK(recovered.vertices.size() == before_failure.vertices.size());
-        if (!recovered.vertices.empty() &&
-            recovered.vertices.size() == before_failure.vertices.size())
+        const auto restored = card_frame(scenes[scene]);
+        OA_CHECK(restored.units == before_failure.units);
+        OA_CHECK(restored.vertices.size() == before_failure.vertices.size());
+        if (!restored.vertices.empty() &&
+            restored.vertices.size() == before_failure.vertices.size())
             OA_CHECK(
                 std::memcmp(
-                    recovered.vertices.data(),
+                    restored.vertices.data(),
                     before_failure.vertices.data(),
-                    recovered.vertices.size() * sizeof(recovered.vertices[0])
+                    restored.vertices.size() * sizeof(restored.vertices[0])
                 ) == 0
             );
         if (scene != 0)
@@ -8923,10 +8923,10 @@ void shadows_on_card() {
     auto reordered = runtime::make_instance(source);
     std::swap(reordered.pieces()[0].object_index, reordered.pieces()[1].object_index);
     const auto& retained = pixels_shadow.card_types;
-    const auto original_records = retained.records;
-    const auto original_models = retained.by_model;
-    const auto original_types = retained.types.size();
-    const auto original_revision = retained.revision;
+    const auto saved_records = retained.records;
+    const auto saved_by_model = retained.by_model;
+    const auto saved_type_count = retained.types.size();
+    const auto saved_revision = retained.revision;
     const auto unsupported_records = unsupported_types.records;
     const auto unsupported_models = unsupported_types.by_model;
     const auto unsupported_type_count = unsupported_types.types.size();
@@ -8946,8 +8946,8 @@ void shadows_on_card() {
     OA_CHECK((supported == std::array<bool, 6>{false, true, false, false, false, false}));
     OA_CHECK(cold_types.types.empty() && cold_types.records.empty() && cold_types.by_model.empty());
     OA_CHECK(cold_types.revision == 0);
-    OA_CHECK(retained.records == original_records && retained.by_model == original_models);
-    OA_CHECK(retained.types.size() == original_types && retained.revision == original_revision);
+    OA_CHECK(retained.records == saved_records && retained.by_model == saved_by_model);
+    OA_CHECK(retained.types.size() == saved_type_count && retained.revision == saved_revision);
     OA_CHECK(unsupported_types.records == unsupported_records);
     OA_CHECK(unsupported_types.by_model == unsupported_models);
     OA_CHECK(unsupported_types.types.size() == unsupported_type_count);
@@ -10918,7 +10918,7 @@ void root_prefix_scene_multiple_ranges(bool ordered_packing) {
     accepted();
     // Only the serial middle draw requests this cold material. Enhanced
     // ordered packing retains the joined packets; the false gate keeps
-    // the original complete serial retry and the same geometry oracle.
+    // the original complete serial retry and the same geometry reference.
     battle.draws.models[MultipleModelRangeFixture::first_gap].model.prepared =
         &fixture.unique_material;
     compare();
@@ -10949,7 +10949,7 @@ void root_prefix_scene_multiple_ranges(bool ordered_packing) {
     }
 }
 
-/// The same owned-geometry oracle covers ordered packing and the old false gate.
+/// The same owned-geometry reference covers ordered packing and the old false gate.
 void root_prefix_scene_multiple_ranges() {
     root_prefix_scene_multiple_ranges(false);
     root_prefix_scene_multiple_ranges(true);
