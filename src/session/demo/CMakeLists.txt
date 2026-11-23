@@ -17,8 +17,8 @@ target_link_libraries(oa-session-demo
 
 if(BUILD_TESTING)
   add_executable(oa-session-demo-test tests/demo_playback_test.cpp)
-  target_link_libraries(oa-session-demo-test PRIVATE oa-session-demo oa-formats-oademo oa-formats-zip oa-options
-    oa-test-match oa-test-support)
+  target_link_libraries(oa-session-demo-test PRIVATE oa-session-demo oa-base-sha256 oa-formats-oademo
+    oa-formats-zip oa-options oa-test-match oa-test-support)
   add_test(NAME demo-playback COMMAND oa-session-demo-test)
   set_tests_properties(demo-playback PROPERTIES TIMEOUT 120)
   add_executable(oa-session-demo-clock tests/demo_clock_test.cpp)

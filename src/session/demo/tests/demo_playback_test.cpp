@@ -8,6 +8,7 @@
 // match records its own datagrams, stored as the recorder stores them, as a
 // demo that a second match then replays.
 
+#include "oa/base/sha256.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/session/demo.hpp"
 #include "oa/session/demo/recording.hpp"
@@ -1920,6 +1921,81 @@ void a_partial_recording_is_finished_into_a_file_that_loads() {
     std::filesystem::remove_all(scratch, removed);
 }
 
+// The hex SHA-256 of a file's bytes.
+std::string sha256_of(std::span<const uint8_t> bytes) {
+    const auto hex = oa::base::sha256::to_hex(oa::base::sha256::digest_of(bytes));
+    return std::string(hex.data(), hex.size());
+}
+
+// A recording that finishes today finishes to the bytes it always gave. Two streams, one small
+// and one of a few megabytes (past the size at which a zstd frame made in pieces would differ
+// from one made whole), finish into replays whose size and SHA-256 are pinned to what the game
+// wrote before a stream could be finished in pieces. The recorder hack's file is the stream.
+void a_finished_recording_keeps_its_bytes() {
+    struct Pinned {
+        uint32_t records{};
+        uint64_t stream_bytes{};
+        uint64_t replay_bytes{};
+        std::string_view sha256{};
+    };
+
+    constexpr std::array<Pinned, 2> pinned{{
+        {60, 2254, 1729, "24c921ba24b531628893561765e2c5a063e9a52958c6278094b4cd40e48f22a6"},
+        {90000, 2430634, 77180, "ead7691baadc7137ec3746b72c0cedef17499757ee845b3bd790cb83bc00bc9d"},
+    }};
+    const auto scratch = oa::test::make_scratch_directory("demo-pinned");
+    ReplayFacts facts;
+    facts.recorded_at = "2026-11-06T01:02:03Z";
+    facts.recorded_by = "open-annihilation 0.9.1";
+    facts.platform = "macos-arm64";
+    facts.engine_version = "0.9.1";
+    facts.map_name = "Test Map";
+    facts.players = {{"Ada", "human", true}, {"Bo", "computer", false}};
+    for (const Pinned& pin : pinned) {
+        DemoRecording recording;
+        recording_begin(&recording, live_setup(2, false));
+        const auto stream_file = scratch / "pinned.oademo.part";
+        std::string error;
+        CHECK(recording_stream_to(&recording, stream_file, &error));
+        add_sample_records(&recording, pin.records);
+        CHECK(recording.stream->close(&error));
+        const auto stream_bytes = file_bytes(stream_file);
+        const auto destination = scratch / "pinned.oademo";
+        const auto result = finish_as_replay(
+            stream_file,
+            replay_begin(recording.setup, facts),
+            ReplayEnd{"finished", uint64_t{1234}, false},
+            destination
+        );
+        CHECK(result.ok);
+        const auto bytes = file_bytes(destination);
+        const std::string digest = sha256_of(bytes);
+        if (stream_bytes.size() != pin.stream_bytes || bytes.size() != pin.replay_bytes ||
+            digest != pin.sha256)
+            std::fprintf(
+                stderr,
+                "pinned replay of %u records: stream %zu bytes, replay %zu bytes, sha256 %s\n",
+                pin.records,
+                stream_bytes.size(),
+                bytes.size(),
+                digest.c_str()
+            );
+        CHECK(stream_bytes.size() == pin.stream_bytes);
+        CHECK(bytes.size() == pin.replay_bytes && digest == pin.sha256);
+        // The recorder hack's file is the stream, byte for byte.
+        const auto tad_stream = scratch / "pinned.tad.part";
+        write_bytes(tad_stream, stream_bytes);
+        const auto tad_destination = scratch / "pinned.tad";
+        CHECK(finish_as_tad(tad_stream, tad_destination, true).ok);
+        CHECK(file_bytes(tad_destination) == stream_bytes);
+        std::error_code removed;
+        std::filesystem::remove(destination, removed);
+        std::filesystem::remove(tad_destination, removed);
+    }
+    std::error_code removed;
+    std::filesystem::remove_all(scratch, removed);
+}
+
 // A finished file never replaces another unless it is asked to: it takes the next free name, and says
 // which, for a recording and for a replay alike.
 void a_finished_file_replaces_another_only_when_asked() {
@@ -3401,6 +3477,7 @@ int main() {
     no_written_recording_holds_a_player_address();
     a_partial_recording_is_finished_into_a_file_that_loads();
     a_finished_file_replaces_another_only_when_asked();
+    a_finished_recording_keeps_its_bytes();
     a_replay_describes_the_game_it_was_made_from();
     ten_players_watch_without_a_slot();
     recording_carries_loadout_text();
