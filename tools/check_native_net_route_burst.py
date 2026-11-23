@@ -54,6 +54,7 @@ import threading
 import time
 
 import check_native_automation as automation
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
