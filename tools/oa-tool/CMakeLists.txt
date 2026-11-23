@@ -48,7 +48,8 @@ target_link_libraries(oa-tool-commands
     oa-data-key-library oa-ui-key-bindings oa-ui-kit
     oa-data-neural
     oa-formats-soft-mutator oa-formats-json oa-formats-ota oa-formats-tnt
-    oa-formats-zip oa-formats-oademo oa-formats-tad oa-base-sha256 oa-base-text oa-platform-shims
+    oa-formats-zip oa-formats-oademo oa-formats-tad oa-data-replays oa-base-sha256 oa-base-text
+    oa-platform-shims
     oa-core-types oa-data-brain-library oa-present oa-session-demo
     oa-base-signing oa-data-catalogue
     oa-data-engine-feed oa-data-registry oa-platform-random oa-app-content oa-netgame-http
@@ -214,13 +215,14 @@ if(BUILD_TESTING)
   add_test(NAME tools-oa-tool-expansion COMMAND oa-tool-expansion-test)
   set_tests_properties(tools-oa-tool-expansion PROPERTIES TIMEOUT 30)
 
-  # replay: pack a recording, read it back, and unpack the plain stream.
+  # replay: pack a recording, read it back, and unpack the plain stream; and
+  # read, pack, unpack and export files past the 512 MiB a whole read takes.
   add_executable(oa-tool-replay-test tests/replay_test.cpp)
   target_link_libraries(oa-tool-replay-test PRIVATE oa-tool-commands oa-formats-oademo
-    oa-formats-tad oa-formats-zip oa-netgame oa-core-types oa-test-support
-    oa-options)
+    oa-formats-tad oa-formats-zip oa-netgame oa-core-types oa-base-sha256 oa-base-zstd
+    oa-test-support oa-options)
   add_test(NAME tools-oa-tool-replay COMMAND oa-tool-replay-test)
-  set_tests_properties(tools-oa-tool-replay PROPERTIES TIMEOUT 60)
+  set_tests_properties(tools-oa-tool-replay PROPERTIES TIMEOUT 600)
   if(WIN32)
     add_custom_command(TARGET oa-tool-registry-test POST_BUILD
       COMMAND ${CMAKE_COMMAND} "-DDLLS=$<TARGET_RUNTIME_DLLS:oa-tool-registry-test>"
