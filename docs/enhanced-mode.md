@@ -205,8 +205,8 @@ is refused as unusable. A malformed account or sector is refused.
 Enhanced saves retain both the original participants and their physical
 unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
-The old numbered presets remain playable as revision 1 plus that preset's
-feature set. Versions 2, 3 and 4 save five owner-local navigation tables:
+A match with local traffic flow over shared routes, such as Revision 1,
+saves five owner-local navigation tables:
 shared fields, the current static-map revision, temporary traffic heads,
 actual-progress clocks and the shared-route scan clock. The scan clock
 prevents a load pass and a regular pass at the same tick from polling the
@@ -411,42 +411,31 @@ unsupported populations and maps without enough clear placement sites.
 See [the command-line reference](command-line.md) for all options and
 [the benchmark module](../src/app/battle-benchmark/README.md) for report
 fields and workload limits.
-Use `--benchmark-rules-version 1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `10`,
-`11` or experimental `13` with Enhanced Mode to compare the presets
-on the same seed. The report includes simulation phase timings and
-cumulative route, local-flow and targeting work; percentiles of individual
+Use `--enhanced-revision 1` or `--enhanced-features LIST` with Enhanced Mode
+to compare Revision 1 with a feature set on the same seed; LIST is feature
+names, or every item `+name` or `-name` applied to the revision, and the
+match records the set it plays. The report includes simulation phase timings
+and cumulative route, local-flow and targeting work; percentiles of individual
 phases are not additive.
 
-`--benchmark-features SPEC` is a development flag for the battle benchmark
-only. SPEC is a comma-separated base (`v<N>` for an old alias version, or
-feature names) followed by `+name` and `-name` items; the engine closes the
-set and plays it in that benchmark, including the `stage` scenario. It is
-refused everywhere else, and it is refused beside a rules version, an
-Enhanced Mode version, Enhanced Mode off, or a network game. While it is
-set the rules are held at version 1, so anything that still reads the rules'
-set sees only capacity, and the report's `enhanced_version` is 1.
+`enhanced_revision` is the revision the match played, 0 for Off.
 `enhanced_features` names the set the match played, in id order.
-`enhanced_features_spec` is the flag's text. `enhanced_features_override`
-is true when the flag chose the set. `data_faults` counts distinct data-fault
-lines. `staged_battle.extra` holds the named numbers a gate compares:
-`swept_misses` counts the ground steps whose path passed through ground or a
-unit that blocked it through the whole tick, which swept ground steps refuse
-([battle benchmark](../src/app/battle-benchmark/README.md)).
-`--benchmark-features` is a development flag: it cannot be combined with
-`--enhanced-revision` or `--enhanced-features`, which put a set into the
-rules themselves, and it goes with the other development aliases before
-release.
+`enhanced_features_spec` is the text of `--enhanced-features`, empty without
+it. `data_faults` counts distinct data-fault lines. `staged_battle.extra`
+holds the named numbers a gate compares: `swept_misses` counts the ground
+steps whose path passed through ground or a unit that blocked it through the
+whole tick ([battle benchmark](../src/app/battle-benchmark/README.md)).
 
-`oa-enh-gate` takes `--features SPEC` (it passes `--enhanced-mode
---benchmark-features SPEC` and refuses `--version` beside it), `--noise
-PATH` (the noise file, default `baseline/gate/noise.json`), `--noise-out
-PATH` (where `--noise-from` writes) and `--keep-trace` (gzip each battle's
-per-tick stream into `--out`). Its report adds `.all` totals over both
-players, `attackers.pN`, `faults`, `work.NAME` and `extra.NAME`.
-`oa-enh-reference --features SPEC` compares that set with `--against
-VERSION`, `--against-features SPEC2`, or `--twice`, and plays `ai-patrol`
-through the benchmark's `stage` scenario. Without `--features` both tools
-keep their previous options and output.
+`oa-enh-gate` takes `--revision N` (it passes `--enhanced-mode
+--enhanced-revision N`), `--features LIST` (it passes `--enhanced-features
+LIST`), `--noise PATH` (the noise file, default `baseline/gate/noise.json`),
+`--noise-out PATH` (where `--noise-from` writes) and `--keep-trace` (gzip each
+battle's per-tick stream into `--out`). Its report adds `.all` totals over
+both players, `attackers.pN`, `faults`, `work.NAME` and `extra.NAME`.
+`oa-enh-reference` plays Off and Revision 1 (`--version off` or `r1`);
+`--features LIST` compares that set with `--against off` or `rN`,
+`--against-features LIST2`, or `--twice`, and plays `ai-patrol` through the
+benchmark's `stage` scenario.
 
 ### Staged battles
 

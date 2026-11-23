@@ -697,7 +697,7 @@ stream, and for the siege task a player's sight of a point, its sightings, a
 unit's first-weapon reach and the order the Attack command gives over open
 ground.
 
-Experimental Enhanced preset 7 keeps a ground army's active march when its
+The Enhanced Mode feature `ai_rally_retention` keeps a ground army's active march when its
 built-in rally task refreshes the squad's centroid. The current owned Move,
 Patrol or RepairPatrol must still own its nonterminal ground goal and any
 active search. Its complete owned primary queue, including a patrol's
@@ -705,8 +705,8 @@ cloned return leg, stays in place. Idle units, arrived or interrupted goals,
 other mission kinds, queued commands and other controllers take the normal
 move-command path. Only rally tasks send built-in moves to the land-army
 and navy squads; the owner and built-in dispatch scope are also checked.
-This changes no saved table or random draw in command dispatch. Earlier
-presets retain their centroid replacement behavior. The checks
+This changes no saved table or random draw in command dispatch. Without the
+feature the rally keeps its centroid replacement behavior. The checks
 `match-enhanced-rally-retention` and `match-enhanced-attack-retention` cover
 continued native goals, route work and ordinary replacement boundaries.
 
@@ -717,7 +717,8 @@ for the next player with a waiting unit, expands it and publishes a finished
 route through `accept_path`. Each movement class keeps a persistent map that
 footprint, occupancy and feature changes refresh.
 
-Enhanced preset v2 keeps bounded shared reverse fields in `EnhancedState`.
+The Enhanced Mode feature `routes_fine_regions` keeps bounded shared reverse
+fields in `EnhancedState`.
 The fields classify static obstacles without mobile occupancy, retain player
 knowledge, and validate returned edges before publishing through `accept_path`.
 Static-map revisions retain useful fields and mark them dirty; a failed field
@@ -728,18 +729,15 @@ and player knowledge.
 A clear, budgeted connection to the next corner can omit the first coarse
 anchor without changing the field or the ordinary navigator.
 
-Experimental preset 7 uses a distinct shared-field format with nodes every
-two terrain cells. A wreck can block every four-cell anchor across a bridge
-while leaving a ground unit enough room to pass between them; the finer
-graph retains those lanes. Its 32-edge prefix covers the same terrain
-distance as the earlier 16-edge prefix. Preset 7 allows at most 80 fields
-and 8,388,608 stored nodes, about 40 MiB of raw field state at the
-largest allocation. The per-tick expansion and extraction budgets stay
-unchanged. A completed field gets 60 ticks of residence before a new key can
-evict it, providing a bounded opportunity for pending clients to receive
-its routes. Recorded presets 0 through 6 keep their existing formats and
-routing behavior. Save restore
-rejects a shared-field grid or format that does not match the selected preset.
+The shared fields use format 3, with nodes every two terrain cells. A wreck
+can block every four-cell anchor across a bridge while leaving a ground unit
+enough room to pass between them; the two-cell graph retains those lanes. A
+route prefix holds at most 32 coarse edges. The match allows at most 80
+fields and 8,388,608 stored nodes, about 40 MiB of raw field state at the
+largest allocation. A completed field gets 60 ticks of residence before a
+new key can evict it, providing a bounded opportunity for pending clients to
+receive its routes. Save restore rejects a shared-field grid or format that
+does not match.
 
 An independent scan polls at most 1,024 unit slots per simulation tick,
 divided among active players, using tick-derived ranges. It does not spend
@@ -753,16 +751,6 @@ The first active player rotates each tick, including sparse player slots,
 so the shared probe budget does not always favour the first army. A mature
 replacement that only follows a geometric prefix of the live guide leaves
 its local passing head and ordinary dynamic search available.
-
-Preset 7 also checks a nearby reverse anchor while its unit is moving. A
-short step back toward a shared-field anchor can otherwise make a unit
-circle outside the native waypoint capture radius, even at full speed.
-Only incoming and outgoing legs with a negative dot product qualify;
-ordinary forward corners keep their existing behavior. Checks are staggered
-every 31 ticks, require the actual pose within 32 pixels of the anchor, and
-spend at most 64 full-footprint plot queries. The next leg must be entirely
-known and statically clear before one anchor is removed. Goal ownership,
-search state and the ordinary occupancy veto stay in place.
 
 Local traffic heads temporarily steer around mobile ground units, including
 idle units, while preserving the original navigator and final occupancy veto.
@@ -818,19 +806,19 @@ is separate from the cache's last processed revision so a pending
 invalidation survives a load. The actual-progress clock is separate from
 the legacy mobility record's occupancy-change clock. Tick-start priorities
 are derived from those clocks before unit updates, so earlier movers cannot
-erase their waiting priority. Off and preset v1 allocate none of this v2
-storage.
+erase their waiting priority. Off and a set without local traffic flow
+allocate none of this storage.
 
-V2 also keeps a sticky flag for air-target cleanup. A flying driver or an
+`exact_indexed_searches` also keeps a sticky flag for air-target cleanup. A flying driver or an
 installed or restored air goal sets it permanently. Deaths can skip the
 order, mirrored-goal and arrived-goal sweeps only before that flag is set;
-Off and v1 keep their unconditional sweeps. The flag and target membership
+Without the indexed searches the sweeps stay unconditional. The flag and target membership
 index are private derived state, outside the saved navigation tables and
 shared hashes. Isolated 20,000-unit CPU measurements and the remaining
 installed-map congestion are described in
 [Enhanced Mode](../../../docs/enhanced-mode.md#congestion-and-cpu-checkpoint).
 
-V2 also preallocates `OrderOwnershipIndex` for order lookup, ownership slots
+`exact_indexed_searches` also preallocates `OrderOwnershipIndex` for order lookup, ownership slots
 and observer-list certificates. Deletion destroys an order immediately and
 leaves an empty ownership slot; later compaction preserves creation order,
 including the order of nano effects. Capacity pressure keeps a linear
@@ -838,8 +826,8 @@ storage-reuse fallback. Observer certificates track their preceding order,
 verify the actual list edge before unlinking and update the successor on
 every mutation. Overflow and uncertified entries retain legacy lookup and
 checks. Explicit full graph audits and corruption controls cover these
-derived certificates. None of this storage is saved or hashed; Off and v1
-retain their original ownership and observer operations.
+derived certificates. None of this storage is saved or hashed; without the
+indexed searches the original ownership and observer operations stay.
 
 ## Verification
 
