@@ -1037,12 +1037,12 @@ void enhanced_revision_options() {
         "an absolute feature list turns Enhanced Mode on"
     );
     const auto added =
-        parse({"--enhanced-revision", "1", "--enhanced-features", "+cardinal_queue_escape"});
+        parse({"--enhanced-revision", "1", "--enhanced-features", "+swept_ground_steps"});
     expect(
-        added.enhanced_revision == 1u && added.enhanced_features == "+cardinal_queue_escape",
+        added.enhanced_revision == 1u && added.enhanced_features == "+swept_ground_steps",
         "a plus adds a feature to the revision"
     );
-    const auto removed = parse({"--enhanced-features", "-swept_ground_steps"});
+    const auto removed = parse({"--enhanced-features", "-counterflow_queue_escape"});
     expect(removed.enhanced_mode == true, "removing a feature the revision holds is accepted");
     const auto absent = parse({"--enhanced-features", "-cardinal_queue_escape"});
     expect(
@@ -1140,7 +1140,7 @@ void enhanced_revision_options() {
     );
     expect(
         rejection({"--enhanced-features", "-local_flow"}) ==
-            "--enhanced-features cannot remove local_flow: routes_large_regions needs it",
+            "--enhanced-features cannot remove local_flow: routes_fine_regions needs it",
         "a removal that closing would undo names the feature that needs it"
     );
     expect(

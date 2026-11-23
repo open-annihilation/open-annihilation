@@ -211,7 +211,7 @@ void view_refuses_invalid_rules_versions() {
     );
     OA_CHECK(
         refusal("enhanced_features -local_flow") ==
-        "line 1: enhanced_features cannot remove local_flow: routes_large_regions needs it"
+        "line 1: enhanced_features cannot remove local_flow: routes_fine_regions needs it"
     );
     OA_CHECK(
         refusal("enhanced_features not_a_feature").find("unknown feature not_a_feature") !=
@@ -223,7 +223,7 @@ void view_refuses_invalid_rules_versions() {
     );
     bench::View added;
     std::string error;
-    OA_CHECK(bench::parse_view("enhanced_features -swept_ground_steps", added, error));
+    OA_CHECK(bench::parse_view("enhanced_features -counterflow_queue_escape", added, error));
     OA_CHECK(added.enhanced_features_named);
 }
 

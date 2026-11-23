@@ -44,7 +44,7 @@ constexpr std::string_view regional_sim_hash =
     "b68fe61bb8fa9afd92a45fa610b76d53d6870c96e97d54a4cfee51f91d2dd93f";
 constexpr std::string_view regional_canonical_hash =
     "1d35b1b69651ab0bc548f2d3b1ca08d75a3ddca217b446562e3d317437095dea";
-// Alias version 4 and Revision 1 (provisional).
+// Alias version 4.
 constexpr std::string_view swept_ground_sim_hash =
     "b32e84b1199bb1ed107045fa6dec7cd01ac18a04d840703aa80010cde04070c3";
 constexpr std::string_view swept_ground_canonical_hash =
@@ -84,6 +84,11 @@ constexpr std::string_view cardinal_sim_hash =
     "1603020c788b7b4d78d658f101dd5173cd71bb7de18d80ff1a0eb325640da265";
 constexpr std::string_view cardinal_canonical_hash =
     "ec2a6e0304f11dd6fe2d18615273775ab731e63060e08544ac7e20caf1102ea4";
+// Revision 1, which matches no alias.
+constexpr std::string_view revision_1_sim_hash =
+    "d0b69d572afc0bd51d0861f4ab133e9a70091eff872a038eba3474a080f92a4d";
+constexpr std::string_view revision_1_canonical_hash =
+    "dc07011ec1a623545c22759b3d53a26886cdbe0fd7f7afa56b2666ab3e4602bd";
 
 /// A chosen mod with its own unit capacity and unrelated gameplay rule.
 constexpr std::string_view mod_text =
@@ -946,10 +951,32 @@ void check_feature_set_problems() {
     );
 }
 
-/// Checks the revisions: Revision 1 is provisionally version 4's set.
+/// Checks the revisions: Revision 1 is the approved set of seventeen
+/// features, and no old version's.
 void check_revision_features() {
     OA_CHECK(enhanced::highest_revision == 1);
-    OA_CHECK(enhanced::revision_features(1) == enhanced::version_features(4));
+    const FeatureSet revision_1 = FeatureSet{}
+                                      .with(Feature::capacity)
+                                      .with(Feature::local_flow)
+                                      .with(Feature::routes_fine_regions)
+                                      .with(Feature::route_corner_advance)
+                                      .with(Feature::ai_strike_retarget)
+                                      .with(Feature::credited_fallback_search)
+                                      .with(Feature::ai_attack_retention)
+                                      .with(Feature::ai_rally_retention)
+                                      .with(Feature::occupancy_free_planning)
+                                      .with(Feature::steering_projection_reuse)
+                                      .with(Feature::exact_indexed_searches)
+                                      .with(Feature::wide_strike_recruits)
+                                      .with(Feature::paced_cohort_targets)
+                                      .with(Feature::dispatch_cohort_retention)
+                                      .with(Feature::counterflow_queue_escape)
+                                      .with(Feature::idle_goal_skip)
+                                      .with(Feature::static_interior_refresh_skip);
+    OA_CHECK(revision_1 == ids({1, 2, 5, 7, 11, 18, 20, 21, 23, 25, 28, 29, 30, 31, 32, 33, 34}));
+    OA_CHECK(enhanced::revision_features(1) == revision_1);
+    OA_CHECK(enhanced::close_features(revision_1) == revision_1);
+    OA_CHECK(enhanced::alias_version(revision_1) == enhanced::no_alias_version);
     OA_CHECK(enhanced::revision_features(0).empty());
     OA_CHECK(enhanced::revision_features(2).empty());
     OA_CHECK(enhanced::revision_features(enhanced::highest_revision + 1).empty());
@@ -1001,30 +1028,39 @@ void check_rules_features() {
             OA_CHECK(held[left].canonical != held[right].canonical);
         }
     }
-    // Revision 1 (provisional) is alias 4's set, so the two hashes are the same.
+    // Revision 1 has its own pins, distinct from every alias's.
     const auto revision = enhanced::resolve_profile(
         bytes(text), "base", {}, enhanced::Choice{1, enhanced::revision_features(1)}
     );
     OA_CHECK(revision.resolution.has_value());
-    const Held* alias_four = nullptr;
-    for (const Held& pin : held)
-        if (pin.version == enhanced::swept_ground_version)
-            alias_four = &pin;
-    OA_CHECK(alias_four != nullptr);
-    if (revision.resolution && alias_four != nullptr) {
-        const std::string revision_sim =
-            profiles::digest_text(revision.resolution->profile.sim_hash);
-        const std::string revision_canonical =
-            profiles::digest_text(revision.resolution->profile.full_hash);
-        const std::string alias_sim = profiles::digest_text(alias_four->sim);
-        const std::string alias_canonical = profiles::digest_text(alias_four->canonical);
-        if (revision_sim != alias_sim)
-            std::cerr << "revision 1 sim " << revision_sim << '\n';
-        if (revision_canonical != alias_canonical)
-            std::cerr << "revision 1 canonical " << revision_canonical << '\n';
-        OA_CHECK(revision_sim == alias_sim);
-        OA_CHECK(revision_canonical == alias_canonical);
+    if (!revision.resolution)
+        return;
+    const auto& profile = revision.resolution->profile;
+    OA_CHECK(enhanced::features(profile.rules) == enhanced::revision_features(1));
+    OA_CHECK(enhanced::rules_version(profile.rules) == enhanced::no_alias_version);
+    expect_digest("revision_1_sim_hash", profile.sim_hash, revision_1_sim_hash);
+    expect_digest("revision_1_canonical_hash", profile.full_hash, revision_1_canonical_hash);
+    OA_CHECK(
+        profiles::digest_text(oa::base::sha256::digest_of(bytes(revision.resolution->canonical))) ==
+        revision_1_canonical_hash
+    );
+    for (const Held& pin : held) {
+        OA_CHECK(profile.sim_hash != pin.sim);
+        OA_CHECK(profile.full_hash != pin.canonical);
     }
+    // Names, in registry order: the hash follows the names, not the indexes.
+    constexpr std::string_view revision_1_rule =
+        "\"setup.enhanced-mode\":{\"features\":[\"capacity\",\"local-flow\","
+        "\"routes-fine-regions\",\"route-corner-advance\",\"ai-strike-retarget\","
+        "\"credited-fallback-search\",\"ai-attack-retention\",\"ai-rally-retention\","
+        "\"occupancy-free-planning\",\"steering-projection-reuse\","
+        "\"exact-indexed-searches\",\"wide-strike-recruits\",\"paced-cohort-targets\","
+        "\"dispatch-cohort-retention\",\"counterflow-queue-escape\",\"idle-goal-skip\","
+        "\"static-interior-refresh-skip\"],\"revision\":1}";
+    const std::string_view revision_1_object = enhanced_mode_object(revision.resolution->canonical);
+    if (revision_1_object != revision_1_rule)
+        std::cerr << "revision 1 object " << revision_1_object << '\n';
+    OA_CHECK(revision_1_object == revision_1_rule);
 }
 
 } // namespace

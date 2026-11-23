@@ -45,14 +45,22 @@ BENCH = Path(__file__).resolve().parent / "bench"
 RUN_TIMEOUT = 300
 WARMUP_TICKS = 30
 MEASURE_SECONDS = 3
-# Revision 1's features, in feature-id order. Old version 4 asked for this set.
+# Revision 1's features, in feature-id order.
 REVISION_1 = (
+    "capacity,local_flow,routes_fine_regions,route_corner_advance,ai_strike_retarget,"
+    "credited_fallback_search,ai_attack_retention,ai_rally_retention,occupancy_free_planning,"
+    "steering_projection_reuse,exact_indexed_searches,wide_strike_recruits,paced_cohort_targets,"
+    "dispatch_cohort_retention,counterflow_queue_escape,idle_goal_skip,"
+    "static_interior_refresh_skip")
+# Old version 4's features, which Revision 1 no longer holds.
+VERSION_4 = (
     "capacity,local_flow,routes_large_regions,indexed_searches,"
     "route_corner_advance,swept_ground_steps")
 # Feature lists the paused loop still asks for, written as revision 1 plus an
-# absolute list. Old version 4 is revision 1 itself, so that run names no list.
+# absolute list, one for each old version.
 OLD_PRESET_FEATURES = {
-    6: REVISION_1 + ",patrol_goal_retention,ai_strike_retarget,squad_position_index,"
+    4: VERSION_4,
+    6: VERSION_4 + ",patrol_goal_retention,ai_strike_retarget,squad_position_index,"
        "route_queue,group_destination_repair",
     7: "capacity,local_flow,routes_fine_regions,indexed_searches,route_corner_advance,"
        "swept_ground_steps,patrol_goal_retention,ai_strike_retarget,squad_position_index,"
@@ -1150,9 +1158,11 @@ def main():
                     "bench: FAILED the live unit roster differs from expected_live_units" \
                     not in wrong_population.stdout:
                 fail(wrong_population, "a wrong rendering population was not refused")
-            for version in (0, 4, 6, 7, 8, 10, 11, 13):
+            # 0 turns Enhanced Mode on and names nothing, "revision" names
+            # revision 1 alone, and each old version names its list.
+            for version in (0, "revision", 4, 6, 7, 8, 10, 11, 13):
                 rules_view = paused_view
-                if version == 4:
+                if version == "revision":
                     rules_view += "enhanced_revision 1\n"
                 elif version:
                     rules_view += (
@@ -1169,7 +1179,7 @@ def main():
                     fail(selected, "the Enhanced paused span did not finish")
                 if version == 0:
                     check_initial(selected, 1, REVISION_1)
-                elif version == 4:
+                elif version == "revision":
                     check_initial(selected, 1, REVISION_1, 1, "-")
                 else:
                     names = OLD_PRESET_FEATURES[version]

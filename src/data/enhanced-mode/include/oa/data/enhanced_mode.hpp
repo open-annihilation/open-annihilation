@@ -429,8 +429,9 @@ inline constexpr uint32_t highest_revision = 1;
 
 /// Returns the features of an Enhanced Mode revision.
 ///
-/// Revision 1 is provisional until its features are decided: until then
-/// it holds old version 4's features, today's new-game preset.
+/// Revision 1 is the set a new game plays with Enhanced Mode on. Its
+/// seventeen features hold no old preset's set exactly, so it has no alias
+/// version.
 ///
 /// @param revision the revision, from 1 to highest_revision
 /// @return its features; the empty set for 0 and for a revision this build

@@ -38,8 +38,8 @@ remain explicit experimental choices. `following_flow_version` is eight:
 it inherits version 7's static `fine_regions` routes, format-3 saved fields,
 80-field and 8 Mi-cell limits, and native movement. Its separate identity
 reserves an experimental local-following policy; metadata alone does not
-implement that policy or establish better large-battle flow. The new-game
-default remains 4. `uses_distributed_battle_flow` selects only the known
+implement that policy or establish better large-battle flow.
+`uses_distributed_battle_flow` selects only the known
 versions 7, 8, 10, 11 and 13, so an unsupported future version does not inherit them.
 `cohort_target_version` is ten: it inherits version 8's movement and adds
 AI strike-target distribution among spatial cohorts. Versions 9, 12 and 14
@@ -60,15 +60,14 @@ A matched 20,000-unit comparison reduced aggregate stationary time and
 increased mean progress, with mixed ARM rear progress; see the
 [measured limits](../../../docs/enhanced-mode.md#experimental-cardinal-queue-escape-version-13).
 `uses_enhanced_unit_rendering` selects versions 10, 11 and 13 for their shared
-animated body detail and deferred geometry policies. The new-game default
-remains version 4 while the explicit experiment is validated.
-Graphics settings are
+animated body detail and deferred geometry policies. A new game plays
+Revision 1, not an old version. Graphics settings are
 independent and never enter this module.
 
 A profile that writes `setup.enhanced-mode: true` still resolves to version
 1 before match choices apply. The application's Enhanced Mode switch asks
-for `current_version` explicitly for a new game; a save or recording asks
-for the version it holds. Older profiles retain their canonical meaning,
+for Revision 1 explicitly for a new game; a save or recording asks for the
+revision and features it holds. Older profiles retain their canonical meaning,
 and recorded matches retain their original movement rules.
 
 `resolve_profile` keeps existing settings, overrides and match choices,
@@ -81,10 +80,10 @@ Resolve before allocating a match and retain its rules for the match's
 lifetime. Save, replay and multiplayer callers must supply the version
 recorded for that match rather than the player's default for a new game.
 
-`data-enhanced-mode` pins Off and each alias's simulation and canonical
-hashes. Off's pins stay. Each enabled alias's pins are its revision and
-feature set, and Revision 1's hashes equal alias 4's. The aliases' hashes
-are distinct. It also checks preservation of selected mod rules and match
+`data-enhanced-mode` pins Off, Revision 1 and each alias's simulation and
+canonical hashes. Off's pins stay. Each enabled alias's pins are its
+revision and feature set. Revision 1's pins and its canonical object are
+its own, and the aliases' hashes are distinct. It also checks preservation of selected mod rules and match
 choices, and refusals of unsupported versions or rules that require
 Enhanced Mode while Off.
 
@@ -111,12 +110,19 @@ Enhanced Mode state every other feature uses. `feature_by_name` and
 
 A revision is a frozen, numbered set of features; `highest_revision` is the
 highest this build plays, and `revision_features` gives each one's set.
-Revision 1 is provisional until its features are decided: until then
-it holds version 4's set, today's new-game preset. The match stores a
+Revision 1 holds seventeen features: `capacity`, `local_flow`,
+`routes_fine_regions`, `route_corner_advance`, `ai_strike_retarget`,
+`credited_fallback_search`, `ai_attack_retention`, `ai_rally_retention`,
+`occupancy_free_planning`, `steering_projection_reuse`,
+`exact_indexed_searches`, `wide_strike_recruits`, `paced_cohort_targets`,
+`dispatch_cohort_retention`, `counterflow_queue_escape`, `idle_goal_skip`
+and `static_interior_refresh_skip`. A new game with Enhanced Mode on plays
+it. The match stores a
 `Choice`: the revision and the feature set. Off is revision 0 and an empty
 set. `rules_version` and `enhanced_mode_version` are aliases that name the
 old preset whose set equals the stored features; they are removed in R09.
-Revision 1 therefore reads as version 4. `ai_strike_retarget` needs only
+Revision 1's set equals no old preset's, so it reads as
+`no_alias_version`. `ai_strike_retarget` needs only
 `capacity`. The retarget table keeps its own count, so it does not need
 local flow.
 
