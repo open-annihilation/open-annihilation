@@ -433,7 +433,7 @@ LocalFlowDecision choose_local_flow(
         return result;
     // Traffic within a quarter turn of the unit's heading goes its way.
     const int turn = std::bit_cast<int16_t>(uint16_t(unit.heading - blocker.heading));
-    if (probe.counterflow_cell_escape && std::abs(turn) < quarter_turn)
+    if (std::abs(turn) < quarter_turn)
         return result;
     result = choose_cell_escape(unit, movement, target, host, result, counters);
     if (result.adjusted && cell_at(unit, result.target) != unit.cell &&
