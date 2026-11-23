@@ -839,11 +839,9 @@ void append_recorded_state(
     payload->insert(payload->end(), body.begin(), body.end());
 }
 
-// paused_while_recording: the recording machine pauses the game for a few
-// ticks while the unit moves; playback runs through the pause.
 // The verdict of an unbound session, whose spacing is the recording's unit
 // limit: each count that makes a replay unclean, the two a different unit
-// table forgives, and the edges of the full records' spacing.
+// table forgives, and the full records' spacing on their sender's ticks.
 void verdict_judges_errors_and_spacing() {
     constexpr uint16_t period = 100;
     DemoSession session;
@@ -866,17 +864,28 @@ void verdict_judges_errors_and_spacing() {
     CHECK(!demo_session_verdict(session, true).clean);
     session.binding.refused_creates = 0;
 
-    // Gaps of the period, then of the period give or take the slack.
-    constexpr auto slack = static_cast<uint32_t>(full_record_slack_ticks);
-    for (const uint32_t tick : {10u, 10u + period, 10u + 2 * period + slack, 10u + 3 * period})
-        session.tracked.push_back({tick, {}, {}});
+    // A guest's recording: the full records are a period of their sender's ticks apart, while
+    // the replay applied them as the guest heard them, behind a machine that ran ahead by a lead
+    // that grew, then shrank. Paced.
+    constexpr std::array<std::array<uint32_t, 2>, 4> drifting{{
+        {{500, 10}},
+        {{700, 10 + period}},
+        {{760, 10 + 2 * period}},
+        {{1500, 10 + 3 * period}},
+    }};
+    for (const auto& [replay_tick, sender_tick] : drifting)
+        session.tracked.push_back({replay_tick, sender_tick, {}, {}});
     verdict = demo_session_verdict(session, false);
     CHECK(verdict.clean && verdict.paced);
-    session.tracked.push_back({session.tracked.back().tick + period + slack + 1, {}, {}});
-    CHECK(!demo_session_verdict(session, false).paced);
-    session.tracked.back().tick -= 2 * slack + 2; // period - slack - 1
-    CHECK(!demo_session_verdict(session, false).paced);
-    ++session.tracked.back().tick; // period - slack
+    // A full record missing, one a sender tick early or late, and one applied twice.
+    const uint32_t last = session.tracked.back().sender_tick;
+    for (const uint32_t unpaced : {last + 2 * period, last + period - 1, last + period + 1, last}) {
+        session.tracked.push_back({session.tracked.back().tick + period, unpaced, {}, {}});
+        CHECK(!demo_session_verdict(session, false).paced);
+        session.tracked.pop_back();
+    }
+    // The next record on its sender's tick, applied at any replay tick.
+    session.tracked.push_back({session.tracked.back().tick + 1, last + period, {}, {}});
     CHECK(demo_session_verdict(session, false).paced);
 }
 
@@ -888,6 +897,98 @@ struct RecordedGame {
     uint16_t index{};
     uint32_t ticks{};
 };
+
+// How the recorder's datagrams go into a recording. Left as they are, they are the recording
+// of the recorder alone. A second player may run ahead of the recorder: its unit states, empty,
+// are then recorded just before each of the recorder's packets, as a machine hears them in a
+// game where one machine runs further and further ahead of the other.
+struct Packing {
+    uint32_t
+        ahead_pace{}; ///< how many times as fast as the recorder the second player runs; 0 for none
+    std::optional<uint32_t> missing_tick{}; ///< a tick of the recorder whose unit state is left out
+};
+
+// The recorder's datagrams as the .tad keeps them, six sender ticks per packet as the game
+// sends: marker, records, unit states behind a tick base.
+Recording pack_recording(const Recorder& recorder, const Packing& packing) {
+    constexpr std::size_t ticks_per_packet = 6;
+    constexpr uint32_t milliseconds_per_tick = 33;
+    constexpr uint8_t recorder_number = 1;
+    constexpr uint8_t ahead_number = 2;
+    const auto def_bits =
+        static_cast<unsigned>(recorder.machine.match->state().game.unit_def_id_bits);
+    auto recording = make_recording(kUnitsPerPlayer, packing.ahead_pace != 0 ? 2 : 1);
+    if (packing.ahead_pace != 0) {
+        // Unit ranges follow ids: the second player's id is above the recorder's, so the
+        // recorder keeps the first range, whose unit indices its creates carry.
+        PlayerSetupInfo ahead{};
+        ahead.player_id = recorded_id(0) + 0x1000u;
+        ahead.side = recording.demo.players[1].side;
+        ahead.color = recorded_color(1);
+        recording.status_datagrams[1] = status_datagram(ahead);
+    }
+    std::vector<uint8_t> payload{formats::tad::payload_marker};
+    std::size_t in_packet = 0;
+    uint32_t packet_tick = 0;
+    uint32_t previous_packet_tick = 0;
+    uint32_t next_state_tick = 0;
+    bool based = false;
+    const auto end_packet = [&] {
+        if (payload.size() > 1)
+            recording.add(
+                recorder_number,
+                static_cast<uint16_t>((packet_tick - previous_packet_tick) * milliseconds_per_tick),
+                payload
+            );
+        previous_packet_tick = packet_tick;
+        payload.assign(1, formats::tad::payload_marker);
+        in_packet = 0;
+        based = false;
+    };
+    const auto ahead_packet = [&] {
+        std::vector<uint8_t> ahead{formats::tad::payload_marker};
+        ahead.push_back(static_cast<uint8_t>(formats::tad::RecordType::tick_base));
+        append32(&ahead, packet_tick * packing.ahead_pace);
+        for (std::size_t tick = 0; tick < ticks_per_packet; ++tick)
+            ahead.push_back(static_cast<uint8_t>(formats::tad::RecordType::empty_tick));
+        recording.add(ahead_number, 0, ahead);
+    };
+    for (const auto& captured : recorder.capture.datagrams) {
+        const auto frame = oa::netgame::network::decode_frame(captured.datagram);
+        if (in_packet == 0) {
+            packet_tick = captured.tick;
+            if (packing.ahead_pace != 0)
+                ahead_packet();
+        }
+        for (std::size_t offset = frame_header_bytes; offset < frame.size();) {
+            const auto length =
+                formats::tad::record_length({frame.data() + offset, frame.size() - offset});
+            CHECK(length != 0);
+            if (length == 0)
+                break;
+            const std::span<const uint8_t> record(frame.data() + offset, length);
+            offset += length;
+            if (record[0] != static_cast<uint8_t>(RecordType::unit_state)) {
+                payload.insert(payload.end(), record.begin(), record.end());
+                continue;
+            }
+            const auto tick = load_u32(record.data() + unit_state_prefix_bytes);
+            if (packing.missing_tick == tick)
+                continue;
+            if (!based || tick != next_state_tick) {
+                payload.push_back(static_cast<uint8_t>(formats::tad::RecordType::tick_base));
+                append32(&payload, tick);
+                based = true;
+            }
+            append_recorded_state(record, def_bits, &payload);
+            next_state_tick = tick + 1;
+        }
+        if (++in_packet == ticks_per_packet)
+            end_packet();
+    }
+    end_packet();
+    return recording;
+}
 
 // paused_while_recording: the recording machine pauses the game for a few ticks while the unit
 // moves; playback runs through the pause.
@@ -923,63 +1024,7 @@ RecordedGame record_a_walking_unit(bool paused_while_recording) {
     const auto& recorded_unit = recorder->machine.match->state().units[index];
     CHECK(recorded_unit.position.z != 48 * kFixedOne);
     CHECK(recorder->capture.datagrams.size() > recorded_ticks / 2);
-
-    // The recorder's datagrams as the .tad keeps them, six sender ticks per
-    // packet as the game sends: marker, records, unit states behind a
-    // tick base.
-    constexpr std::size_t ticks_per_packet = 6;
-    constexpr uint32_t milliseconds_per_tick = 33;
-    const auto def_bits =
-        static_cast<unsigned>(recorder->machine.match->state().game.unit_def_id_bits);
-    auto recording = make_recording(kUnitsPerPlayer, 1);
-    std::vector<uint8_t> payload{formats::tad::payload_marker};
-    std::size_t in_packet = 0;
-    uint32_t packet_tick = 0;
-    uint32_t previous_packet_tick = 0;
-    uint32_t next_state_tick = 0;
-    bool based = false;
-    const auto end_packet = [&] {
-        if (payload.size() > 1)
-            recording.add(
-                1,
-                static_cast<uint16_t>((packet_tick - previous_packet_tick) * milliseconds_per_tick),
-                payload
-            );
-        previous_packet_tick = packet_tick;
-        payload.assign(1, formats::tad::payload_marker);
-        in_packet = 0;
-        based = false;
-    };
-    for (const auto& captured : recorder->capture.datagrams) {
-        const auto frame = oa::netgame::network::decode_frame(captured.datagram);
-        if (in_packet == 0)
-            packet_tick = captured.tick;
-        for (std::size_t offset = frame_header_bytes; offset < frame.size();) {
-            const auto length =
-                formats::tad::record_length({frame.data() + offset, frame.size() - offset});
-            CHECK(length != 0);
-            if (length == 0)
-                break;
-            const std::span<const uint8_t> record(frame.data() + offset, length);
-            offset += length;
-            if (record[0] != static_cast<uint8_t>(RecordType::unit_state)) {
-                payload.insert(payload.end(), record.begin(), record.end());
-                continue;
-            }
-            const auto tick = load_u32(record.data() + unit_state_prefix_bytes);
-            if (!based || tick != next_state_tick) {
-                payload.push_back(static_cast<uint8_t>(formats::tad::RecordType::tick_base));
-                append32(&payload, tick);
-                based = true;
-            }
-            append_recorded_state(record, def_bits, &payload);
-            next_state_tick = tick + 1;
-        }
-        if (++in_packet == ticks_per_packet)
-            end_packet();
-    }
-    end_packet();
-    game.recording = std::move(recording);
+    game.recording = pack_recording(*recorder, {});
     game.index = index;
     game.ticks = recorded_ticks;
     return game;
@@ -1468,6 +1513,86 @@ void a_session_with_a_unit_of_its_own_is_refused() {
     std::string refusal;
     CHECK(!demo_keyframe_take(r.session.get(), &key, &refusal));
     CHECK(!refusal.empty());
+}
+
+// What a replay of a packed recording of the walking unit gave.
+struct PacedReplay {
+    DemoVerdict verdict{};
+    std::vector<FullRecordSample> tracked;
+    uint32_t record_errors{};
+    uint32_t tick_errors{};
+    bool finished{};
+};
+
+// Plays a packed recording of the walking unit to its end, the watcher in the slot after the
+// recorded players.
+PacedReplay replay_packed(const Recorder& recorder, const Packing& packing) {
+    PacedReplay result;
+    auto recording = pack_recording(recorder, packing);
+    const uint8_t watcher = packing.ahead_pace != 0 ? 2 : 1;
+    Machine replay;
+    replay.build(watcher);
+    std::array<uint8_t, OA_PLAYER_COUNT> watcher_allies{};
+    watcher_allies[watcher] = 1;
+    replay.match->configure_outcomes(watcher, watcher_allies, false);
+    std::unique_ptr<DemoSession, void (*)(DemoSession*)> session{
+        new DemoSession(), release_session
+    };
+    std::string error;
+    CHECK(demo_load(&session->playback, recording.bytes(), &error));
+    CHECK(demo_session_begin(session.get(), replay.match.get(), &error));
+    if (session->match == nullptr)
+        return result;
+    CHECK(session->watcher_slot == watcher);
+    constexpr uint32_t most_frames = 2000;
+    for (uint32_t frame = 0; frame < most_frames && !demo_session_finished(*session); ++frame)
+        demo_session_frame(session.get());
+    result.verdict = demo_session_verdict(*session, false);
+    result.tracked = session->tracked;
+    result.record_errors = session->net.record_errors;
+    result.tick_errors = session->tick_errors;
+    result.finished = demo_session_finished(*session);
+    return result;
+}
+
+// A recording of a game in which one machine ran further and further ahead
+// of the machine that owns the followed unit, as a host ran ahead of a guest.
+// Whichever of the two recorded it, the replay meets the owner's packets
+// behind the other's it heard before them, each once the replay reaches the
+// other machine's tick, so it applies the owner's full records late by that
+// machine's lead, at uneven ticks of its own. They are still a round of the
+// owner's own ticks apart, and the check passes. Without one of the owner's
+// unit states that carried a full record of the unit, the same recording
+// fails it.
+void a_drifting_games_recording_keeps_its_pace() {
+    auto game = record_a_walking_unit(false);
+    if (game.recorder == nullptr)
+        return;
+    constexpr uint32_t period = kUnitsPerPlayer;
+    constexpr uint32_t ahead_pace = 10;
+    const auto drifted = replay_packed(*game.recorder, {ahead_pace});
+    CHECK(drifted.finished && drifted.record_errors == 0 && drifted.tick_errors == 0);
+    CHECK(drifted.tracked.size() >= 10);
+    uint32_t widest_replay_gap = 0;
+    bool sender_paced = true;
+    for (std::size_t i = 1; i < drifted.tracked.size(); ++i) {
+        const auto& before = drifted.tracked[i - 1];
+        const auto& after = drifted.tracked[i];
+        widest_replay_gap = std::max(widest_replay_gap, after.tick - before.tick);
+        sender_paced = sender_paced && after.sender_tick - before.sender_tick == period;
+    }
+    // The replay's own ticks stray from the period by far more than delivery spreads records.
+    CHECK(widest_replay_gap > ahead_pace * period);
+    CHECK(sender_paced);
+    CHECK(drifted.verdict.clean && drifted.verdict.paced);
+
+    // The unit's full records ride on the recorder's ticks that are multiples of the period.
+    const uint32_t missing = drifted.tracked[drifted.tracked.size() / 2].sender_tick;
+    CHECK(missing % period == 0);
+    const auto missed = replay_packed(*game.recorder, {ahead_pace, missing});
+    CHECK(missed.finished && missed.record_errors == 0 && missed.tick_errors == 0);
+    CHECK(missed.tracked.size() + 1 == drifted.tracked.size());
+    CHECK(missed.verdict.clean && !missed.verdict.paced);
 }
 
 // Records that reach the match's own hooks (an economy record asking for an
@@ -3602,6 +3727,7 @@ int main() {
     a_keyframe_restores_the_replay();
     a_field_left_out_is_a_keyframe_fault();
     a_session_with_a_unit_of_its_own_is_refused();
+    a_drifting_games_recording_keeps_its_pace();
     a_jump_gives_the_viewer_its_picture_back();
     recorded_records_reach_the_binding();
     live_recording_round_trips(false);

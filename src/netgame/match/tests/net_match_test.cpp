@@ -30,6 +30,7 @@
 #include <cstring>
 #include <deque>
 #include <initializer_list>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -5461,6 +5462,44 @@ void route_batches_are_admitted_in_game_only() {
     CHECK(b.steps == b.match->route_batches.applied.batches * kUnits);
 }
 
+// The route batches line reads two machines' clocks. A machine that runs
+// behind the sender applies its batches before its own clock reaches their
+// ticks, and its line reads a negative count, never one wrapped past
+// 4,294,967,295; the machine ahead reads how far ahead it is, plus the tick
+// the batch took to arrive.
+void route_batch_line_reads_a_machine_behind() {
+    start_case("route_batch_line_reads_a_machine_behind");
+    constexpr uint16_t kUnits = 24;
+    constexpr uint32_t kAhead = 50;
+    constexpr uint32_t kTicks = 12;
+    WireRules rules{};
+    rules.route_batches = true;
+    WireMachine a(0, rules, kUnits);
+    WireMachine b(1, rules, kUnits);
+    a.link.peer = &b.link;
+    b.link.peer = &a.link;
+    a.world->game.tick = kAhead;
+    for (uint32_t t = 0; t < kTicks; ++t) {
+        wire_tick(a);
+        wire_tick(b);
+    }
+    const auto& behind = b.match->route_batches.applied;
+    CHECK(behind.batches == kTicks && a.match->route_batches.applied.batches != 0);
+    CHECK(behind.largest_applied_at < behind.largest_tick);
+    const auto ticks_of = [](const std::string& line) {
+        const std::string_view prefix = "route batches: ticks ";
+        if (line.rfind(prefix, 0) != 0)
+            return std::numeric_limits<long long>::min();
+        return std::strtoll(line.c_str() + prefix.size(), nullptr, 10);
+    };
+    const auto behind_line = net_match_route_batch_line(b.match.get());
+    const auto ahead_line = net_match_route_batch_line(a.match.get());
+    std::printf("net match: behind: %s; ahead: %s\n", behind_line.c_str(), ahead_line.c_str());
+    CHECK(ticks_of(behind_line) == -static_cast<long long>(kAhead));
+    CHECK(ticks_of(ahead_line) == static_cast<long long>(kAhead) + 1);
+    CHECK(a.match->record_errors == 0 && b.match->record_errors == 0);
+}
+
 int main() {
     packet_layer_over_memory();
     packet_layer_reads_game_send_options();
@@ -5527,6 +5566,7 @@ int main() {
     route_batches_recover_lost_frames();
     plain_peers_never_see_route_batches();
     route_batches_are_admitted_in_game_only();
+    route_batch_line_reads_a_machine_behind();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

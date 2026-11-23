@@ -739,9 +739,11 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
     print_feature_cells("demo features", world);
     for (const auto& sample : demo_->tracked)
         std::printf(
-            "unit %u full record at tick %u: recorded (%d, %d, %d), replay before (%d, %d, %d)\n",
+            "unit %u full record at tick %u, sender tick %u: recorded (%d, %d, %d), replay before "
+            "(%d, %d, %d)\n",
             demo_->tracked_unit,
             sample.tick,
+            sample.sender_tick,
             whole(sample.recorded.x),
             whole(sample.recorded.y),
             whole(sample.recorded.z),
@@ -769,8 +771,10 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
     if (drawing)
         write_ppm(options.snapshot, *host.surface(host.context));
     // The followed unit's full records ride on every units_per_player-th
-    // sender tick. Over a different unit table, record errors and creates
-    // past the table are only reported (demo_session_verdict).
+    // tick of its sender, counted on the sender's clock, so a recording of a
+    // machine that ran behind or ahead of the others is judged as the
+    // records were sent. Over a different unit table, record errors and
+    // creates past the table are only reported (demo_session_verdict).
     const auto period = static_cast<int64_t>(runtime_.match_->state().game.units_per_player);
     const auto verdict = demo::demo_session_verdict(*demo_, demo_unit_table_differs_);
     const bool clean = verdict.clean;
@@ -781,7 +785,7 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
         std::printf("demo check failed: the replay was not clean\n");
     if (!paced)
         std::printf(
-            "demo check failed: unit %u's full records were not %lld ticks apart\n",
+            "demo check failed: unit %u's full records were not %lld sender ticks apart\n",
             demo_->tracked_unit,
             static_cast<long long>(period)
         );
