@@ -374,6 +374,26 @@ uint32_t horizontal_distance(const FixedVec3& a, const FixedVec3& b) {
     return static_cast<uint32_t>(std::sqrt(dx * dx + dz * dz));
 }
 
+/// Returns the tick of the record that carries a full record being applied.
+///
+/// A unit state and a route batch set their sender's last_sim_tick to the
+/// tick they carry before their full record applies; the sender is the
+/// player whose range of units holds the slot.
+///
+/// @param world the replay's world
+/// @param slot the unit slot the full record is for
+/// @return the sender's tick, or 0 when no player's range holds the slot
+uint32_t sender_tick_of(const World& world, uint32_t slot) {
+    for (const auto& player : world.game.players) {
+        if (player.in_use == 0 || player.first_unit == 0 || player.last_unit == 0)
+            continue;
+        if (slot >= oa_unit_slot_from_ref(player.first_unit) &&
+            slot <= oa_unit_slot_from_ref(player.last_unit))
+            return static_cast<uint32_t>(player.last_sim_tick);
+    }
+    return 0;
+}
+
 void note_full_record(
     void* context, const Unit& unit, const FixedVec3& before, const FixedVec3& to
 ) {
@@ -399,7 +419,7 @@ void note_full_record(
     session->placed_type[slot] = unit.type_index;
     session->placed_at[slot] = to;
     if (slot == session->tracked_unit)
-        session->tracked.push_back({world->game.tick, before, to});
+        session->tracked.push_back({world->game.tick, sender_tick_of(*world, slot), before, to});
 }
 
 // A slot emptied since its last full record starts a new unit.
@@ -1413,17 +1433,16 @@ DemoVerdict demo_session_verdict(const DemoSession& session, bool unit_table_dif
                     (session.binding.creates_past_table == 0 || unit_table_differs) &&
                     session.tick_errors == 0 && session.binding.refused_creates == 0;
     // The tracked unit's full records ride on every units_per_player-th
-    // sender tick.
+    // sender tick, counted on the sender's clock.
     const auto period = static_cast<int64_t>(
         session.match != nullptr ? session.match->state().game.units_per_player
                                  : session.playback.demo.max_units
     );
     verdict.paced = true;
     for (std::size_t i = 1; i < session.tracked.size(); ++i) {
-        const auto spacing =
-            static_cast<int64_t>(session.tracked[i].tick) - session.tracked[i - 1].tick;
-        const auto stray = spacing > period ? spacing - period : period - spacing;
-        verdict.paced = verdict.paced && stray <= full_record_slack_ticks;
+        const auto spacing = static_cast<int64_t>(session.tracked[i].sender_tick) -
+                             session.tracked[i - 1].sender_tick;
+        verdict.paced = verdict.paced && spacing == period;
     }
     return verdict;
 }

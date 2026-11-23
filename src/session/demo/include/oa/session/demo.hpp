@@ -410,8 +410,10 @@ struct FullRecordStats {
     FullRecordDrift air{};
 };
 
+/// One full record of the tracked unit, as the replay applied it.
 struct FullRecordSample {
-    uint32_t tick{};
+    uint32_t tick{};        ///< the replay's tick when the record was applied
+    uint32_t sender_tick{}; ///< the tick its sender's record carried, on the sender's clock
     FixedVec3 before{};
     FixedVec3 recorded{};
 };
@@ -610,11 +612,6 @@ struct DemoSummary {
 /// @return Its counts, including the file's own.
 [[nodiscard]] DemoSummary demo_summary_of(const DemoSession& session);
 
-// How far a gap between two of the tracked unit's full records may stray
-// from units_per_player ticks: delivery spreads a frame's records over up to
-// 30 ticks after a send interval of 6.
-inline constexpr int64_t full_record_slack_ticks = 36;
-
 // A replay's verdict so far.
 struct DemoVerdict {
     // No record failed (forgiven when the unit table differs), no unit was
@@ -622,7 +619,7 @@ struct DemoVerdict {
     // create was refused.
     bool clean{};
     // Every gap between the tracked unit's consecutive full records is
-    // units_per_player ticks, give or take full_record_slack_ticks.
+    // units_per_player of its sender's ticks.
     bool paced{};
 };
 
@@ -633,6 +630,16 @@ struct DemoVerdict {
 /// reliably and record errors do not count, nor do creates of indices a
 /// larger recorded table reached. The spacing is the bound match's
 /// units_per_player, or the recording's unit limit while unbound.
+///
+/// The spacing is counted on the sender's ticks, which the records carry. The
+/// record a sender sends for its tick T carries the full record of the unit
+/// at place T mod units_per_player of its range, so one unit's full records
+/// are exactly units_per_player sender ticks apart unless one is missing.
+/// The replay's own tick is not used: a replay delivers the recorded packets
+/// in the order the recording machine kept them, each once the replay
+/// reaches the highest sender tick it or a packet before it carries, so the
+/// records of a machine that ran behind another reach the replay late by
+/// that machine's lag, which changes as the machines drift apart.
 ///
 /// @param session Session to judge, bound or not.
 /// @param unit_table_differs Whether the match's unit table differs from the recording's.
