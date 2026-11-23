@@ -268,6 +268,12 @@ struct ReplayShelf {
         /// A held `.tad` kept Open Annihilation's own sectors.
         bool held_sectors{true};
         std::vector<uint8_t> bytes{};
+        /// The replay is too long to hold (replay_data::long_replay): its
+        /// sizes were measured a piece at a time, `bytes` stays empty, and
+        /// Export has the worker write it from `long_file` a piece at a time.
+        bool long_replay{};
+        /// The long replay's file.
+        fs::path long_file{};
     };
 
     /// What the export worker is asked to measure.
@@ -281,12 +287,20 @@ struct ReplayShelf {
         /// One timeline for each path, copied on the main thread. Empty when
         /// the index has none the export should carry.
         std::vector<std::string> timelines{};
+        /// Write the first path's long replay to `partial`, a piece at a time,
+        /// as a `.oademo` or a `.tad` (with Open Annihilation's sectors or not).
+        bool write_long{};
+        fs::path partial{};
+        bool as_oademo{true};
+        bool sectors{true};
     };
 
     /// A measurement the worker finished, for the main thread.
     struct ExportResult {
         uint64_t generation{};
         bool rebuild{};
+        /// A long replay's write: `held` holds its one file, written or not.
+        bool write_long{};
         std::vector<HeldExport> held{};
     };
 
@@ -307,6 +321,10 @@ struct ReplayShelf {
         bool as_oademo{true};
         bool sectors{true};
         std::string extension{};
+        /// The worker was asked to write a long replay's file to `partial`.
+        bool long_asked{};
+        /// The worker has written it; it waits to be renamed into place.
+        bool long_written{};
     };
 
     /// Guards the export worker's request and its result. Never held together
@@ -1722,6 +1740,8 @@ void close_export_output(ReplayShelf::ExportJob& job) {
     job.destination.clear();
     job.opened = false;
     job.offset = 0;
+    job.long_asked = false;
+    job.long_written = false;
 }
 
 /// Drops a job's stream and its fields without assigning the job.
@@ -1819,6 +1839,25 @@ std::error_code write_export_chunk(ReplayShelf::ExportJob& job, const std::vecto
     job.opened = false;
     job.destination.clear();
     return {};
+}
+
+/// Moves a long replay's file, which the worker wrote to the job's `.part`,
+/// into place. A failure removes the `.part`.
+///
+/// @param[in,out] job the job; `partial` and `destination` are set
+/// @return the error; empty when the file is in place
+std::error_code place_long_export(ReplayShelf::ExportJob& job) {
+    std::error_code renamed;
+    fs::rename(job.partial, job.destination, renamed);
+    if (renamed)
+        remove_partial(job.partial);
+    job.partial.clear();
+    job.destination.clear();
+    job.opened = false;
+    job.offset = 0;
+    job.long_asked = false;
+    job.long_written = false;
+    return renamed;
 }
 
 /// The folder as the dialog shows it.
@@ -2036,6 +2075,32 @@ bool export_stopped(const ReplayShelf& shelf, uint64_t generation) {
     return shelf.export_cancel.load() || shelf.export_generation.load() != generation;
 }
 
+/// Records the warnings a `.tad` export gives.
+///
+/// @param notices the export's notices
+/// @param[in,out] held where the warnings go
+void note_export_notices(
+    std::span<const tad::ExportNotice> notices, ReplayShelf::HeldExport& held
+) {
+    for (const tad::ExportNotice& notice : notices) {
+        switch (notice.kind) {
+        case tad::ExportNoticeKind::names_cut:
+            held.names_cut = true;
+            break;
+        case tad::ExportNoticeKind::status_cut:
+            held.status_cut = true;
+            break;
+        case tad::ExportNoticeKind::wide_records:
+            held.wide_records = true;
+            break;
+        case tad::ExportNoticeKind::mutators:
+            held.mutators = true;
+            held.mutator_ids = notice.mutators;
+            break;
+        }
+    }
+}
+
 /// Records both `.tad` sizes and the warnings, and keeps none of those bytes.
 ///
 /// @param recording the recording
@@ -2054,23 +2119,7 @@ bool measure_tad_sizes(
         return false;
     }
     held.tad_bytes = kept.bytes.size();
-    for (const tad::ExportNotice& notice : kept.notices) {
-        switch (notice.kind) {
-        case tad::ExportNoticeKind::names_cut:
-            held.names_cut = true;
-            break;
-        case tad::ExportNoticeKind::status_cut:
-            held.status_cut = true;
-            break;
-        case tad::ExportNoticeKind::wide_records:
-            held.wide_records = true;
-            break;
-        case tad::ExportNoticeKind::mutators:
-            held.mutators = true;
-            held.mutator_ids = notice.mutators;
-            break;
-        }
-    }
+    note_export_notices(kept.notices, held);
     kept.bytes.clear();
     kept.bytes.shrink_to_fit();
     tad::ExportOptions drop_options = keep_options;
@@ -2315,6 +2364,255 @@ struct MeasuredExport {
     ReplayShelf::HeldExport held{};
 };
 
+/// Passed to a long replay's export, read or written a piece at a time.
+struct LongWatch {
+    ReplayShelf* shelf{};
+    uint64_t generation{};
+};
+
+/// Shows how much of a long replay's recording an export has taken.
+///
+/// @param context a `LongWatch`
+/// @param taken recording bytes taken
+/// @param whole recording bytes in all
+void long_export_report(void* context, uint64_t taken, uint64_t whole) {
+    const auto& watch = *static_cast<const LongWatch*>(context);
+    export_note_bytes(*watch.shelf, watch.generation, taken, whole);
+}
+
+/// Tells a long replay's export to stop once it was cancelled.
+///
+/// @param context a `LongWatch`
+/// @return true when it should stop
+bool long_export_stop(void* context) {
+    const auto& watch = *static_cast<const LongWatch*>(context);
+    return export_stopped(*watch.shelf, watch.generation);
+}
+
+/// The scratch file a long export compresses a recording into, when its own
+/// frame cannot be kept.
+///
+/// @param recordings the Recordings folder
+/// @param generation the measurement or the write
+/// @return the file, in Recordings/.replays
+fs::path long_frame_file(const fs::path& recordings, uint64_t generation) {
+    return recordings / std::string(replay_data::replays_folder_name) /
+           ("export-" + std::to_string(generation) + ".frame");
+}
+
+/// Writes a long replay's `.oademo` export, a piece at a time.
+///
+/// A `.oademo` keeps a timeline already in the file; a missing or empty one
+/// is replaced by the index's, as an export of a replay held whole does. Its
+/// recording keeps its own frame when it is plain and holds no address
+/// (replay_data::export_long_replay). A `.tad` is described from the part
+/// before its packets and the note beside it, as one held whole is, and
+/// compressed a piece at a time at the level a game ends at: gigabytes of
+/// recording take far too long at the export's level.
+///
+/// @param file the long replay
+/// @param recordings the Recordings folder
+/// @param timeline the index's timeline; empty for none
+/// @param[in,out] held the warning names a `.tad`'s note gives
+/// @param frame a scratch file for a frame compressed again
+/// @param out where the archive goes
+/// @param progress progress and a way to stop
+/// @return empty, or why the export was not written
+std::string write_long_oademo(
+    const fs::path& file,
+    const fs::path& recordings,
+    const std::string& timeline,
+    ReplayShelf::HeldExport& held,
+    const fs::path& frame,
+    const oademo::ArchiveOutput& out,
+    const replay_data::ExportProgress& progress
+) {
+    replay_data::ReplayFile opened;
+    if (!opened.open(file))
+        return "the file could not be read";
+    if (oademo::recognised(opened.first_bytes(replay_first_bytes))) {
+        oademo::RecordingReader reader;
+        if (std::string why_not = reader.open(opened.archive()); !why_not.empty())
+            return why_not;
+        std::optional<std::string> own;
+        if (std::string why_not = reader.read_timeline(own); !why_not.empty())
+            return why_not;
+        std::optional<std::string> replacing;
+        if (!timeline.empty() && (!own.has_value() || own->empty()))
+            replacing = timeline;
+        return replay_data::export_long_replay(file, replacing, frame, out, &progress);
+    }
+    oademo::RecordingWalk walk;
+    if (!walk.open_tad(opened.recording()))
+        return walk.failure().parse.has_value() ? walk.failure().parse->message
+                                                : std::string("the file could not be read");
+    demo::ImportedRecording described =
+        demo::describe_imported_recording(walk.head_bytes(), OA_ENGINE_VERSION);
+    if (!described.ok())
+        return described.error;
+    overlay_tad_note(described.replay, content_note_beside(file), held, recordings.parent_path());
+    if (!timeline.empty())
+        described.replay.timeline = timeline;
+    return replay_data::write_replay_in_pieces(
+        file, std::move(described.replay), oademo::level_when_a_game_ends, frame, out, &progress
+    );
+}
+
+/// Measures a long replay's three exports a piece at a time, and keeps none
+/// of their bytes: Export writes the chosen one from the file.
+///
+/// @param shelf the shelf
+/// @param generation the measurement
+/// @param recordings the Recordings folder
+/// @param file the long replay
+/// @param measured the path, title and timeline, filled in here
+/// @return the measurement
+MeasuredExport measure_long_export(
+    ReplayShelf& shelf,
+    uint64_t generation,
+    const fs::path& recordings,
+    const fs::path& file,
+    MeasuredExport measured
+) {
+    ReplayShelf::HeldExport& held = measured.held;
+    held.long_replay = true;
+    held.long_file = file;
+    LongWatch watch{&shelf, generation};
+    const replay_data::ExportProgress progress{&watch, long_export_report, long_export_stop};
+    const auto fail_read = [&](std::string why) {
+        if (export_stopped(shelf, generation)) {
+            measured.cancelled = true;
+            return;
+        }
+        held.unreadable = true;
+        held.ready = false;
+        held.why = why.empty() ? std::string("the file could not be read") : std::move(why);
+    };
+    tad::ExportOptions keep;
+    keep.keep_oa_sectors = true;
+    keep.fit_tadr_sizes = true;
+    const replay_data::CleanedRecording kept =
+        replay_data::write_cleaned_recording(file, keep, replay_data::ExportSink{}, &progress);
+    if (!kept.ok()) {
+        fail_read(kept.error);
+        return measured;
+    }
+    held.tad_bytes = kept.bytes;
+    note_export_notices(kept.notices, held);
+    // Without Open Annihilation's sectors only the part before the packets differs.
+    {
+        replay_data::ReplayFile opened;
+        oademo::RecordingWalk walk;
+        if (!opened.open(file) || !(oademo::recognised(opened.first_bytes(replay_first_bytes))
+                                        ? walk.open_replay(opened.archive())
+                                        : walk.open_tad(opened.recording()))) {
+            fail_read({});
+            return measured;
+        }
+        tad::ExportOptions drop = keep;
+        drop.keep_oa_sectors = false;
+        const tad::ExportResult kept_head = tad::export_recording(walk.head_bytes(), keep);
+        const tad::ExportResult dropped_head = tad::export_recording(walk.head_bytes(), drop);
+        if (!kept_head.ok() || !dropped_head.ok()) {
+            fail_read({});
+            return measured;
+        }
+        held.tad_without_bytes =
+            held.tad_bytes - kept_head.bytes.size() + dropped_head.bytes.size();
+    }
+    replay_data::ReplayOutput counted;
+    counted.count_only();
+    const std::string why_not = write_long_oademo(
+        file,
+        recordings,
+        held.timeline,
+        held,
+        long_frame_file(recordings, generation),
+        counted.archive(),
+        progress
+    );
+    if (!why_not.empty() || export_stopped(shelf, generation)) {
+        fail_read(why_not);
+        return measured;
+    }
+    held.oademo_bytes = counted.bytes();
+    held.ready = held.oademo_bytes > 0 && held.tad_bytes > 0 && held.tad_without_bytes > 0;
+    return measured;
+}
+
+/// Writes a long replay's export, in the format the job chose, to the job's
+/// `.part`, a piece at a time. The main thread moves it into place.
+///
+/// @param shelf the shelf
+/// @param generation the write
+/// @param ask what to write and where
+/// @return the file's record: `written` when the `.part` is whole
+ReplayShelf::HeldExport
+write_long_export(ReplayShelf& shelf, uint64_t generation, const ReplayShelf::ExportAsk& ask) {
+    ReplayShelf::HeldExport held;
+    held.path = ask.paths.empty() ? std::string{} : ask.paths.front();
+    held.title = ask.titles.empty() ? held.path : ask.titles.front();
+    held.timeline = ask.timelines.empty() ? std::string{} : ask.timelines.front();
+    held.long_replay = true;
+    const std::optional<fs::path> file = replay_file(ask.recordings, held.path);
+    LongWatch watch{&shelf, generation};
+    const replay_data::ExportProgress progress{&watch, long_export_report, long_export_stop};
+    std::string why;
+    if (!file) {
+        why = "the file could not be read";
+    } else if (ask.as_oademo) {
+        replay_data::ReplayOutput out;
+        if (!out.open(ask.partial)) {
+            why = "the file could not be written";
+        } else {
+            why = write_long_oademo(
+                *file,
+                ask.recordings,
+                held.timeline,
+                held,
+                long_frame_file(ask.recordings, generation),
+                out.archive(),
+                progress
+            );
+            if (!out.close() && why.empty())
+                why = "the file could not be written";
+        }
+    } else {
+        std::ofstream out(ask.partial, std::ios::binary | std::ios::trunc);
+        tad::ExportOptions options;
+        options.keep_oa_sectors = ask.sectors;
+        options.fit_tadr_sizes = true;
+        const replay_data::ExportSink sink{&out, [](void* context, std::span<const uint8_t> bytes) {
+                                               auto& to = *static_cast<std::ofstream*>(context);
+                                               to.write(
+                                                   reinterpret_cast<const char*>(bytes.data()),
+                                                   static_cast<std::streamsize>(bytes.size())
+                                               );
+                                               return static_cast<bool>(to);
+                                           }};
+        if (!out) {
+            why = "the file could not be written";
+        } else {
+            const replay_data::CleanedRecording written =
+                replay_data::write_cleaned_recording(*file, options, sink, &progress);
+            out.close();
+            if (!written.ok())
+                why = written.error;
+            else if (out.fail())
+                why = "the file could not be written";
+        }
+    }
+    if (!why.empty() || export_stopped(shelf, generation)) {
+        remove_partial(ask.partial);
+        held.unreadable = true;
+        held.why = why.empty() ? std::string("the export was stopped") : std::move(why);
+        return held;
+    }
+    held.ready = true;
+    held.written = true;
+    return held;
+}
+
 /// Measures one replay and keeps only the format the dialog is showing.
 ///
 /// A file that cannot be read is marked, and the dialog stays open. Cancel
@@ -2346,6 +2644,8 @@ MeasuredExport measure_export_file(
         return measured;
     }
     std::optional<fs::path> file = replay_file(recordings, path);
+    if (file && replay_data::long_replay(*file))
+        return measure_long_export(shelf, generation, recordings, *file, std::move(measured));
     std::vector<uint8_t> bytes;
     if (!file || !read_replay_bytes(*file, bytes)) {
         held.unreadable = true;
@@ -2521,6 +2821,8 @@ MeasuredExport rebuild_export_file(
         return measured;
     }
     std::optional<fs::path> file = replay_file(recordings, path);
+    if (file && replay_data::long_replay(*file))
+        return measure_long_export(shelf, generation, recordings, *file, std::move(measured));
     std::vector<uint8_t> bytes;
     if (!file || !read_replay_bytes(*file, bytes)) {
         held.unreadable = true;
@@ -2660,8 +2962,13 @@ void export_worker(void* argument) {
         ReplayShelf::ExportResult result;
         result.generation = ask.generation;
         result.rebuild = ask.rebuild;
+        result.write_long = ask.write_long;
         bool cancelled = false;
-        for (std::size_t at = 0; at < ask.paths.size(); ++at) {
+        if (ask.write_long) {
+            result.held.push_back(write_long_export(shelf, ask.generation, ask));
+            cancelled = export_stopped(shelf, ask.generation);
+        }
+        for (std::size_t at = 0; at < ask.paths.size() && !ask.write_long; ++at) {
             if (export_stopped(shelf, ask.generation)) {
                 cancelled = true;
                 break;
@@ -2730,6 +3037,9 @@ bool post_export(ReplayShelf& shelf, ReplayShelf::ExportAsk ask) {
 /// @param sectors a `.tad` keeps Open Annihilation's own sectors
 /// @return true when `held.bytes` is that file
 bool held_matches(const ReplayShelf::HeldExport& held, bool as_oademo, bool sectors) {
+    // A long replay is written from its file in whichever format is chosen.
+    if (held.long_replay)
+        return held.ready && !held.unreadable;
     if (!held.ready || held.unreadable || held.bytes.empty())
         return false;
     if (as_oademo)
@@ -4844,6 +5154,24 @@ bool Runtime::LibraryHost::step_replay_export(Runtime& runtime) {
             result = std::move(*shelf.export_result);
         shelf.export_result.reset();
     }
+    if (result && result->write_long) {
+        // A long replay's file is whole in its `.part`, or could not be written.
+        const bool whole = !result->held.empty() && result->held.front().written;
+        if (whole && shelf.job.active && shelf.job.long_asked) {
+            shelf.job.long_written = true;
+        } else if (shelf.job.active) {
+            const std::string why = result->held.empty() ? std::string{} : result->held.front().why;
+            replays_log(
+                "cannot export " +
+                (result->held.empty() ? std::string{} : result->held.front().title) + ": " + why
+            );
+            reset_export_job(shelf.job);
+            library::fail_export(model, export_failed_sentence(model));
+        }
+        result.reset();
+        ++model_revision;
+        changed = true;
+    }
     if (result) {
         if (result->rebuild) {
             for (ReplayShelf::HeldExport& published : result->held) {
@@ -4979,6 +5307,12 @@ bool Runtime::LibraryHost::step_replay_export(Runtime& runtime) {
         shelf.job.destination = destination;
         shelf.job.piece = place;
         shelf.job.offset = 0;
+        if (held.long_replay) {
+            // The worker writes a long replay's file beside its place, a piece at a time.
+            const std::string part_name = platform::path_to_utf8(destination.filename()) + ".part";
+            shelf.job.partial = destination.parent_path() / platform::path_from_utf8(part_name);
+            shelf.job.opened = true;
+        }
     }
     const std::size_t place = shelf.job.piece;
     if (place >= shelf.held.size()) {
@@ -4988,7 +5322,40 @@ bool Runtime::LibraryHost::step_replay_export(Runtime& runtime) {
         return true;
     }
     const std::string title = shelf.held[place].title;
-    const std::error_code failed = write_export_chunk(shelf.job, shelf.held[place].bytes);
+    std::error_code failed;
+    bool whole_file = false;
+    if (shelf.held[place].long_replay) {
+        if (!shelf.job.long_written) {
+            if (!shelf.job.long_asked) {
+                ReplayShelf::ExportAsk ask;
+                ask.write_long = true;
+                ask.recordings = runtime.user_folder_ / std::string(recordings_folder_name);
+                ask.paths.push_back(shelf.held[place].path);
+                ask.titles.push_back(title);
+                std::string timeline = indexed_timeline(shelf, shelf.held[place].path);
+                if (timeline.empty())
+                    timeline = shelf.held[place].timeline;
+                ask.timelines.push_back(std::move(timeline));
+                ask.partial = shelf.job.partial;
+                ask.as_oademo = shelf.job.as_oademo;
+                ask.sectors = shelf.job.sectors;
+                shelf.job.long_asked = true;
+                if (!post_export(shelf, std::move(ask))) {
+                    reset_export_job(shelf.job);
+                    replays_log("the export's worker could not start");
+                    library::fail_export(model, export_failed_sentence(model));
+                    ++model_revision;
+                    return true;
+                }
+            }
+            return changed;
+        }
+        failed = place_long_export(shelf.job);
+        whole_file = !failed;
+    } else {
+        failed = write_export_chunk(shelf.job, shelf.held[place].bytes);
+        whole_file = !failed && shelf.job.offset >= shelf.held[place].bytes.size();
+    }
     if (failed) {
         const uint32_t done = exports_written(shelf.held);
         const uint32_t total = shelf.job.files_total;
@@ -4998,7 +5365,7 @@ bool Runtime::LibraryHost::step_replay_export(Runtime& runtime) {
         ++model_revision;
         return true;
     }
-    if (shelf.job.offset < shelf.held[place].bytes.size()) {
+    if (!whole_file) {
         library::set_export_byte_progress(
             model, shelf.job.offset, shelf.held[place].bytes.size(), false
         );
@@ -5070,8 +5437,14 @@ void Runtime::LibraryHost::start_export_job() {
         for (const ReplayShelf::HeldExport& held : shelf.held) {
             if (held.path != dialog.files.front().path)
                 continue;
-            if (held_matches(held, as_oademo, dialog.keep_oa_sectors))
-                library::set_export_byte_progress(model, 0, held.bytes.size(), false);
+            if (held_matches(held, as_oademo, dialog.keep_oa_sectors)) {
+                // A long replay's file is the size measured for the format chosen.
+                const uint64_t size = !held.long_replay        ? held.bytes.size()
+                                      : as_oademo              ? held.oademo_bytes
+                                      : dialog.keep_oa_sectors ? held.tad_bytes
+                                                               : held.tad_without_bytes;
+                library::set_export_byte_progress(model, 0, size, false);
+            }
             break;
         }
     }

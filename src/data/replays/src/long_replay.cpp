@@ -165,6 +165,8 @@ std::string compress_and_store(
     std::error_code removed;
     std::string problem;
     {
+        if (frame_file.has_parent_path())
+            fs::create_directories(frame_file.parent_path(), removed);
         FrameOut frame;
         frame.out.open(frame_file, std::ios::binary | std::ios::trunc);
         if (!frame.out)
