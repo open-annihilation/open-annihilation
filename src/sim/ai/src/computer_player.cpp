@@ -37,8 +37,8 @@ constexpr uint64_t strike_front_distance_numerator = 5;
 /// Under paced_cohort_targets, the most members without a chase that one strike
 /// dispatch or refresh orders; the rest wait for the next refresh.
 constexpr uint32_t paced_first_orders_per_call = 256;
-/// Under cohort_retention, or dispatch_cohort_retention at a periodic dispatch,
-/// retains a majority prior within 12.5% of the best weighted squared distance.
+/// Under dispatch_cohort_retention at a periodic dispatch, retains a majority
+/// prior within 12.5% of the best weighted squared distance.
 constexpr uint64_t strike_retention_cost_denominator = 8;
 constexpr uint64_t strike_retention_cost_numerator = 9;
 static_assert(wide_recruits_per_dispatch > 0 && wide_recruits_per_dispatch <= max_recruits);
@@ -332,10 +332,9 @@ static_assert(sizeof(std::array<CohortCandidates, strike_cohort_count>) <= 2048)
 /// Tells whether a feature set divides built-in strikes into spatial cohorts.
 ///
 /// @param features the match's Enhanced Mode features
-/// @return true under cohort_targets or paced_cohort_targets
+/// @return true under paced_cohort_targets
 bool uses_strike_cohorts(const data::enhanced_mode::FeatureSet& features) noexcept {
-    return features.has(data::enhanced_mode::Feature::cohort_targets) ||
-           features.has(data::enhanced_mode::Feature::paced_cohort_targets);
+    return features.has(data::enhanced_mode::Feature::paced_cohort_targets);
 }
 
 /// Tells whether a strike call keeps each cohort's verified prior target.
@@ -343,13 +342,9 @@ bool uses_strike_cohorts(const data::enhanced_mode::FeatureSet& features) noexce
 /// @param features the match's Enhanced Mode features
 /// @param dispatch whether the call is the strike's periodic dispatch, which
 ///     orders every member, rather than a refresh of some members
-/// @return true under cohort_retention, and under dispatch_cohort_retention
-///     at a periodic dispatch
-bool uses_cohort_retention(
-    const data::enhanced_mode::FeatureSet& features, bool dispatch
-) noexcept {
-    return features.has(data::enhanced_mode::Feature::cohort_retention) ||
-           (dispatch && features.has(data::enhanced_mode::Feature::dispatch_cohort_retention));
+/// @return true under dispatch_cohort_retention at a periodic dispatch
+bool keeps_cohort_priors(const data::enhanced_mode::FeatureSet& features, bool dispatch) noexcept {
+    return dispatch && features.has(data::enhanced_mode::Feature::dispatch_cohort_retention);
 }
 
 /// Tests whether a finished live member can receive a strike's attack command.
@@ -642,9 +637,8 @@ uint16_t strike_member_target(
 /// Orders live strike members toward nearby targets shared by spatial groups.
 ///
 /// Three unit-slot walks find the extent, form at most eight centroids and
-/// dispatch. Retention (cohort_retention, or dispatch_cohort_retention with
-/// paced cohort targets at a periodic dispatch only) adds two owned-head walks
-/// before dispatch. Each occupied
+/// dispatch. Retention (dispatch_cohort_retention, at a periodic dispatch
+/// only) adds two owned-head walks before dispatch. Each occupied
 /// group searches enemy records once; a confirmed majority can retain a
 /// comparable prior. Order callbacks keep ordinary mission and same-target
 /// handling. Under paced_cohort_targets at most paced_first_orders_per_call
@@ -711,7 +705,7 @@ bool order_strike_cohorts(
         filter.skip_submerged = task.source_squad != Squad::navy;
     }
     std::array<CohortPrior, strike_cohort_count> priors{};
-    if (state != nullptr && uses_cohort_retention(state->features, sources.empty()))
+    if (state != nullptr && keeps_cohort_priors(state->features, sources.empty()))
         priors = strike_cohort_priors(host, ai, task, {units, count}, extent);
     std::array<uint16_t, strike_cohort_count> prior_targets{};
     for (uint32_t index = 0; index < cohorts.size(); ++index)

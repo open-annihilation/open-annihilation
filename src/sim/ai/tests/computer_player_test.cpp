@@ -1472,7 +1472,39 @@ struct RecruitFake : Fake {
     std::vector<uint16_t> joined;
     std::vector<uint16_t> owned_targets;
     std::vector<uint16_t> prior_reads;
-    bool prior_read_after_callback{};
+    /// For each read in prior_reads, the number of orders given before it.
+    std::vector<std::size_t> read_orders;
+
+    /// The head reads since prior_reads was cleared, by what made them.
+    struct HeadReads {
+        std::size_t retention{};         ///< the two retention walks' reads
+        std::size_t pacing{};            ///< reads just before the same member's order
+        bool retention_after_callback{}; ///< a retention read came after an order
+    };
+
+    /// Splits the head reads since prior_reads was cleared.
+    ///
+    /// Under paced_cohort_targets the dispatch reads a member's head just
+    /// before it orders that member, to tell whether the order starts a new
+    /// chase. Every other read belongs to the retention walks.
+    ///
+    /// @return the counts
+    HeadReads head_reads() const {
+        HeadReads result;
+        for (std::size_t index = 0; index < prior_reads.size(); ++index) {
+            const std::size_t before = read_orders[index];
+            const bool last_before_order =
+                index + 1 == prior_reads.size() || read_orders[index + 1] > before;
+            if (last_before_order && before < orders.size() &&
+                orders[before].unit == prior_reads[index]) {
+                ++result.pacing;
+            } else {
+                ++result.retention;
+                result.retention_after_callback |= before != 0;
+            }
+        }
+        return result;
+    }
 
     /// Rebinds the canonical world after growing its owned unit vector.
     explicit RecruitFake(uint32_t count) : running(count, "idle"), owned_targets(count) {
@@ -1527,9 +1559,23 @@ struct RecruitFake : Fake {
     }
 };
 
+namespace enhanced = oa::data::enhanced_mode;
+
+/// Revision 1, whose strikes recruit up to 1,024 members a dispatch, divide
+/// into paced spatial cohorts and keep a cohort's verified target at the
+/// periodic dispatch.
+const enhanced::FeatureSet revision_1 = enhanced::revision_features(1);
+/// Revision 1 without retention: paced spatial cohorts alone.
+const enhanced::FeatureSet paced_cohorts =
+    revision_1.without(enhanced::Feature::dispatch_cohort_retention);
+/// Revision 1 without spatial cohorts: the whole strike takes one target.
+const enhanced::FeatureSet whole_strike =
+    paced_cohorts.without(enhanced::Feature::paced_cohort_targets);
+/// Capacity alone, which leaves the built-in player as it is with Enhanced Mode off.
+const enhanced::FeatureSet capacity_only = enhanced::FeatureSet{}.with(enhanced::Feature::capacity);
+
 /// Holds a real built-in strike tick over hundreds of waiting canonical units.
 struct RecruitRun {
-    static constexpr uint32_t distributed_version = 7;
     static constexpr uint8_t player = 1;
     static constexpr uint16_t first = 10;
     static constexpr uint32_t refresh = 300;
@@ -1540,17 +1586,20 @@ struct RecruitRun {
     Squad destination{}, source{};
 
     /// Clumps every candidate at the existing squad's centre, within safe integer ranges.
-    RecruitRun(uint32_t version, uint32_t sources, uint32_t existing, bool naval = false)
+    RecruitRun(
+        enhanced::FeatureSet features, uint32_t sources, uint32_t existing, bool naval = false
+    )
         : fake(first + sources + existing + 2),
           destination(naval ? Squad::naval_strike : Squad::land_strike),
           source(naval ? Squad::navy : Squad::land_army) {
         fake.player(0, OA_PLAYER_STATUS_LOCAL, 1, first - 1);
         fake.player(player, OA_PLAYER_STATUS_COMPUTER, first, first + sources + existing);
-        oa::data::enhanced_mode::apply_alias(
-            rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        enhanced::store_choice(
+            rules.setup.enhanced_mode,
+            features.empty() ? enhanced::Choice{} : enhanced::Choice{1, features}
         );
         state.rules.match = &rules;
-        state.features = oa::data::enhanced_mode::version_features(version);
+        state.features = features;
         describe_catalog(state);
         host = fake.host();
         check(computer_players_configure(&state, "", kBuildLists), "recruit budget: configure");
@@ -1659,14 +1708,13 @@ struct RecruitRun {
 
 /// Places eight compact strike groups opposite their own nearby enemy.
 struct CohortRun : RecruitRun {
-    static constexpr uint32_t cohort_version = 10;
     static constexpr uint32_t groups = 8;
     static constexpr uint32_t members_per_group = 4;
     static constexpr int32_t fixed_one = 65536;
 
     /// Keeps the whole existing force while isolating target assignment from recruitment.
-    explicit CohortRun(uint32_t version = cohort_version, bool long_x = false)
-        : RecruitRun(version, 0, groups * members_per_group) {
+    explicit CohortRun(enhanced::FeatureSet features = paced_cohorts, bool long_x = false)
+        : RecruitRun(features, 0, groups * members_per_group) {
         host.map_cells_x = host.map_cells_z = 1024;
         state.players[player].tasks[static_cast<uint32_t>(destination)].merge_radius = 1000000;
         constexpr std::array<int32_t, members_per_group> offset{-3, -1, 1, 3};
@@ -1733,17 +1781,17 @@ struct CohortRun : RecruitRun {
     }
 };
 
-/// Preserves each earlier preset's single nearest-enemy assignment.
+/// Keeps the single nearest-enemy assignment without spatial cohorts.
 void test_earlier_strikes_keep_one_target() {
-    for (uint32_t version = 0; version <= 8; ++version) {
-        CohortRun run(version);
+    for (const auto& features : {enhanced::FeatureSet{}, capacity_only, whole_strike}) {
+        CohortRun run(features);
         const auto orders = run.assign(300);
-        check(orders.size() == 32, "cohort targets: earlier presets order the whole strike");
+        check(orders.size() == 32, "cohort targets: without cohorts the whole strike is ordered");
         for (const auto& [unit, target] : orders) {
             (void)unit;
             // Slots 3 and 5 are equally close to the whole-force centroid;
             // the native first strict minimum is slot 3.
-            check(target == 3, "cohort targets: earlier presets keep their centroid target");
+            check(target == 3, "cohort targets: without cohorts the centroid target stays");
         }
     }
     CohortRun disabled;
@@ -1760,7 +1808,7 @@ void test_earlier_strikes_keep_one_target() {
 /// Keeps nearby members together while different fronts receive their nearby enemies.
 void test_spatial_strikes_use_local_targets() {
     for (const bool long_x : {false, true}) {
-        CohortRun run(CohortRun::cohort_version, long_x);
+        CohortRun run(paced_cohorts, long_x);
         const auto orders = run.assign(300);
         check(orders.size() == 32, "cohort targets: every strike member is assigned");
         for (const auto& [unit, target] : orders) {
@@ -1834,7 +1882,7 @@ void test_cohort_pressure_keeps_wide_costs() {
 /// Keeps the existing widened and submerged filters in land and naval cohort searches.
 void test_cohort_targets_keep_water_filter() {
     for (const bool naval : {false, true}) {
-        RecruitRun run(CohortRun::cohort_version, 0, 8, naval);
+        RecruitRun run(paced_cohorts, 0, 8, naval);
         run.rules.ai.nearest_enemy_filter.enabled = true;
         run.rules.ai.nearest_enemy_filter.rules =
             oa::data::match_rules::AiNearestEnemyFilterRules::skip_submerged;
@@ -1889,7 +1937,7 @@ void test_cohort_target_filtering_and_empty_search() {
     }
     run.fake.units[7].health = 0;
     check(run.assign(600).empty(), "cohort filters: no attack order without a valid enemy");
-    RecruitRun empty(CohortRun::cohort_version, 0, 0);
+    RecruitRun empty(paced_cohorts, 0, 0);
     const auto random_before = empty.fake.roll;
     empty.tick(300);
     check(empty.fake.orders.empty(), "cohort filters: an empty strike issues no orders");
@@ -1967,8 +2015,8 @@ void test_cohort_targets_break_ties_by_slot() {
 
 /// Refreshes only selected members without disturbing ordinary task clocks or recruitment.
 void test_masked_cohort_refresh_keeps_task_state() {
-    for (const uint32_t version : {uint32_t{8}, CohortRun::cohort_version}) {
-        CohortRun run(version);
+    for (const auto& features : {whole_strike, paced_cohorts}) {
+        CohortRun run(features);
         run.fake.world.game.tick = 100;
         const auto members = run.members();
         const auto random_before = run.fake.roll;
@@ -1994,10 +2042,10 @@ void test_masked_cohort_refresh_keeps_task_state() {
             "cohort refresh: a truncated mask is refused"
         );
         check(
-            refresh(sources) == (version == CohortRun::cohort_version),
-            "cohort refresh: only the cohort preset accepts early attack callbacks"
+            refresh(sources) == (features == paced_cohorts),
+            "cohort refresh: only cohort targets accept early attack callbacks"
         );
-        if (version == CohortRun::cohort_version) {
+        if (features == paced_cohorts) {
             check(run.fake.orders.size() == 2, "cohort refresh: only two selected members ordered");
             if (run.fake.orders.size() == 2)
                 check(
@@ -2006,7 +2054,7 @@ void test_masked_cohort_refresh_keeps_task_state() {
                     "cohort refresh: selected fronts keep their ordinary spatial targets"
                 );
         } else {
-            check(run.fake.orders.empty(), "cohort refresh: earlier presets issue no orders");
+            check(run.fake.orders.empty(), "cohort refresh: without cohorts no orders are issued");
         }
         check(
             task.next_tick == deadline && task.attacking == attacking && run.members() == members &&
@@ -2023,8 +2071,8 @@ struct FrontRun : RecruitRun {
     static constexpr int32_t fixed_one = 65536;
 
     /// Keeps the nearby anchors in one group and distant anchors in separate groups.
-    explicit FrontRun(uint32_t version = CohortRun::cohort_version)
-        : RecruitRun(version, 0, members_count) {
+    explicit FrontRun(enhanced::FeatureSet features = paced_cohorts)
+        : RecruitRun(features, 0, members_count) {
         host.map_cells_x = host.map_cells_z = 1024;
         state.players[player].tasks[static_cast<uint32_t>(destination)].merge_radius = 1000000;
         for (uint16_t slot = first; slot < boundary; ++slot)
@@ -2176,32 +2224,31 @@ void test_selected_front_fallback_keeps_candidate_filter_and_tie() {
     );
 }
 
-/// Leaves earlier presets on their single whole-strike target and random stream.
+/// Leaves strikes without cohorts on their single whole-strike target and random stream.
 void test_selected_front_fallback_preserves_earlier_presets() {
-    for (uint32_t version = 0; version <= 8; ++version) {
-        FrontRun run(version);
+    for (const auto& features : {enhanced::FeatureSet{}, capacity_only, whole_strike}) {
+        FrontRun run(features);
         run.enemy(1, 1002, 1002);
         const auto orders = run.assign(300);
         for (const auto& [unit, target] : orders) {
             (void)unit;
-            check(target == 1, "selected fronts: earlier presets keep one centroid target");
+            check(target == 1, "selected fronts: without cohorts one centroid target stays");
         }
     }
 }
 
 /// Keeps existing source-owned targets while exercising the actual cohort policy.
 struct RetentionRun : RecruitRun {
-    static constexpr uint32_t retention_version = 11;
     static constexpr int32_t fixed_one = 65536;
 
     /// Starts coincident members with a fresh optimum and a comparable prior front.
     explicit RetentionRun(
-        uint32_t version = retention_version,
+        enhanced::FeatureSet features = revision_1,
         uint32_t existing = 8,
         uint32_t sources = 0,
         bool naval = false
     )
-        : RecruitRun(version, sources, existing, naval) {
+        : RecruitRun(features, sources, existing, naval) {
         host.map_cells_x = host.map_cells_z = 2048;
         state.players[player].tasks[static_cast<uint32_t>(destination)].merge_radius = 1000000;
         for (uint32_t index = 0; index < existing + sources; ++index)
@@ -2215,7 +2262,7 @@ struct RetentionRun : RecruitRun {
     static uint16_t read_owned_target(void* context, uint8_t owner, uint16_t slot) {
         auto& fake = RecruitFake::self(context);
         fake.prior_reads.push_back(slot);
-        fake.prior_read_after_callback |= !fake.orders.empty();
+        fake.read_orders.push_back(fake.orders.size());
         if (slot >= fake.units.size() || fake.units[slot].owner_index != owner ||
             fake.running[slot] != "attack")
             return 0;
@@ -2244,18 +2291,23 @@ struct RetentionRun : RecruitRun {
         fake.orders.clear();
         fake.joined.clear();
         fake.prior_reads.clear();
-        fake.prior_read_after_callback = false;
+        fake.read_orders.clear();
         const auto random_before = fake.roll;
         tick(at);
         check(fake.roll == random_before, "cohort retention: no random draw");
         check(fake.joined.size() == admitted, "cohort retention: ordinary recruitment only");
+        const auto reads = fake.head_reads();
         check(
-            !fake.prior_read_after_callback,
+            !reads.retention_after_callback,
             "cohort retention: every prior is read before any attack callback"
         );
         check(
-            fake.prior_reads.size() <= 2 * members().size(),
+            reads.retention <= 2 * members().size(),
             "cohort retention: at most two head reads per current member"
+        );
+        check(
+            reads.pacing <= members().size(),
+            "paced cohorts: at most one head read per ordered member"
         );
         check(
             state.players[player].tasks[static_cast<uint32_t>(destination)].next_tick ==
@@ -2301,7 +2353,8 @@ void test_cohort_retention_requires_a_verified_majority() {
             );
         }
         check(
-            run.fake.prior_reads.size() == 16, "cohort retention: candidate and confirming walks"
+            run.fake.head_reads().retention == 16,
+            "cohort retention: candidate and confirming walks"
         );
     }
     RetentionRun busy;
@@ -2317,7 +2370,7 @@ void test_cohort_retention_requires_a_verified_majority() {
 
 /// Newly admitted members do not inherit a small established subgroup's prior.
 void test_cohort_retention_counts_new_recruits_without_priors() {
-    RetentionRun run(RetentionRun::retention_version, 5, 3);
+    RetentionRun run(revision_1, 5, 3);
     for (uint32_t index = 0; index < 4; ++index)
         run.prior(static_cast<uint16_t>(RetentionRun::first + index), 2);
     run.prior(RetentionRun::first + 4, 1);
@@ -2331,7 +2384,7 @@ void test_cohort_retention_counts_new_recruits_without_priors() {
 
 /// Uses all current head targets without truncating their distinct-target history.
 void test_cohort_retention_handles_more_than_eight_prior_targets() {
-    RetentionRun run(RetentionRun::retention_version, 20);
+    RetentionRun run(revision_1, 20);
     for (uint16_t target = 1; target <= 9; ++target)
         run.enemy(target, 1100 + target * 8, 1200);
     run.enemy(1, 1002, 1002);
@@ -2381,7 +2434,7 @@ void test_cohort_retention_keeps_exact_weighted_margin_and_pressure() {
             "cohort retention: costs45/40 retain at equality while50/44 replace"
         );
     }
-    RetentionRun loaded(RetentionRun::retention_version, 3);
+    RetentionRun loaded(revision_1, 3);
     loaded.place(RetentionRun::first, 900, 980);
     loaded.place(RetentionRun::first + 1, 1000, 1000);
     loaded.place(RetentionRun::first + 2, 1000, 1000);
@@ -2394,7 +2447,7 @@ void test_cohort_retention_keeps_exact_weighted_margin_and_pressure() {
         FrontRun::target(orders, RetentionRun::first + 1) == 1,
         "cohort retention: earlier finalized pressure can reject a nearer prior"
     );
-    RetentionRun finalized(RetentionRun::retention_version, 2);
+    RetentionRun finalized(revision_1, 2);
     finalized.place(RetentionRun::first + 1, 1001, 1000);
     finalized.prior(RetentionRun::first, 2);
     const auto charged = finalized.assign();
@@ -2451,7 +2504,7 @@ void test_cohort_retention_rechecks_prior_eligibility() {
 /// Keeps the ordinary land and naval prior filters and wide integer costs.
 void test_cohort_retention_keeps_water_rules_and_wide_costs() {
     for (const bool naval : {false, true}) {
-        RetentionRun run(RetentionRun::retention_version, 8, 0, naval);
+        RetentionRun run(revision_1, 8, 0, naval);
         run.rules.ai.nearest_enemy_filter.rules =
             oa::data::match_rules::AiNearestEnemyFilterRules::skip_submerged;
         const uint32_t submerged = 3;
@@ -2486,7 +2539,7 @@ void test_cohort_retention_keeps_water_rules_and_wide_costs() {
 
 /// Retains a comparable higher-slot prior before applying the unchanged member fallback.
 void test_cohort_retention_precedes_member_front_fallback() {
-    FrontRun run(RetentionRun::retention_version);
+    FrontRun run(revision_1);
     run.host.owned_attack_target = RetentionRun::read_owned_target;
     for (uint16_t source = FrontRun::first; source < FrontRun::boundary; ++source)
         run.place(source, 1000, 1000);
@@ -2543,27 +2596,21 @@ void test_cohort_retention_is_repeatable() {
     );
 }
 
-/// Keeps legacy behavior and nullable callback fallback independent of current heads.
+/// Keeps fresh choices without retention, and with retention but no head reader.
 void test_cohort_retention_preserves_earlier_presets_and_null_reader() {
-    for (const uint32_t version :
-         {uint32_t{0},
-          uint32_t{1},
-          uint32_t{2},
-          uint32_t{3},
-          uint32_t{4},
-          uint32_t{5},
-          uint32_t{6},
-          uint32_t{7},
-          uint32_t{8},
-          uint32_t{10}}) {
-        RetentionRun run(version);
+    for (const auto& features :
+         {enhanced::FeatureSet{}, capacity_only, whole_strike, paced_cohorts}) {
+        RetentionRun run(features);
         for (uint16_t source = RetentionRun::first; source < RetentionRun::first + 8; ++source)
             run.prior(source, 2);
         for (const auto& [source, target] : run.assign()) {
             (void)source;
-            check(target == 1, "cohort retention: versions0–10 keep their previous fresh target");
+            check(target == 1, "cohort retention: without retention the fresh target stays");
         }
-        check(run.fake.prior_reads.empty(), "cohort retention: versions0–10 never query priors");
+        check(
+            run.fake.head_reads().retention == 0,
+            "cohort retention: without retention no prior is read"
+        );
     }
     RetentionRun missing;
     missing.host.owned_attack_target = nullptr;
@@ -2589,65 +2636,20 @@ void test_cohort_retention_preserves_earlier_presets_and_null_reader() {
     );
 }
 
-/// Keeps all healthy current heads outside an early source mask untouched.
-void test_cohort_retention_respects_mask_and_native_task_state() {
-    RetentionRun run;
-    for (uint16_t source = RetentionRun::first; source < RetentionRun::first + 7; ++source)
-        run.prior(source, 2);
-    const auto selected = static_cast<uint16_t>(RetentionRun::first + 7);
-    const auto previous = run.fake.owned_targets;
-    const auto task =
-        run.state.players[RetentionRun::player].tasks[static_cast<uint32_t>(run.destination)];
-    const auto random_before = run.fake.roll;
-    std::array<uint64_t, strike_refresh_mask_words> sources{};
-    sources[selected / strike_refresh_word_bits] |= uint64_t{1}
-                                                    << (selected % strike_refresh_word_bits);
-    run.fake.world.game.tick = 55;
-    check(
-        computer_player_refresh_strike_targets(
-            &run.state, run.host, RetentionRun::player, run.destination, sources
-        ),
-        "cohort retention: an empty selected source receives a majority front"
-    );
-    check(
-        run.fake.orders.size() == 1 && run.fake.orders.front().unit == selected &&
-            run.fake.orders.front().arg == 2,
-        "cohort retention: only selected source receives retained front"
-    );
-    for (uint16_t source = RetentionRun::first; source < selected; ++source)
-        check(
-            run.fake.owned_targets[source] == previous[source],
-            "cohort retention: healthy unmasked target state stays unchanged"
-        );
-    const auto& after =
-        run.state.players[RetentionRun::player].tasks[static_cast<uint32_t>(run.destination)];
-    check(
-        after.next_tick == task.next_tick && after.attacking == task.attacking &&
-            run.fake.joined.empty() && run.fake.roll == random_before,
-        "cohort retention: early mask preserves deadline, attack state, membership and RNG"
-    );
-}
-
-/// Starts at most 256 chases a call under paced cohort targets, and only there.
+/// Starts at most 256 chases a call under paced cohort targets with a head reader.
 void test_paced_cohort_targets_limit_new_chases() {
-    namespace enhanced = oa::data::enhanced_mode;
-    const auto paced = enhanced::version_features(enhanced::cohort_target_version)
-                           .without(enhanced::Feature::cohort_targets)
-                           .with(enhanced::Feature::paced_cohort_targets);
-    check(enhanced::feature_set_problem(paced) == nullptr, "paced cohorts: a playable set");
+    check(enhanced::feature_set_problem(paced_cohorts) == nullptr, "paced cohorts: a playable set");
     constexpr uint16_t chasing = 100;
     constexpr uint16_t members = 400;
     constexpr uint16_t limit = 256;
     const auto member = [](uint16_t index) {
         return static_cast<uint16_t>(RetentionRun::first + index);
     };
-    enum class Rules { cohort_targets, paced, paced_without_reader };
-    for (const auto rules : {Rules::cohort_targets, Rules::paced, Rules::paced_without_reader}) {
+    enum class Rules { paced, paced_without_reader };
+    for (const auto rules : {Rules::paced, Rules::paced_without_reader}) {
         // Every member stands at (1000, 1000) and its group's target is enemy 1.
         // The first hundred already chase it; the others have no chase.
-        RetentionRun run(enhanced::cohort_target_version, members);
-        if (rules != Rules::cohort_targets)
-            run.state.features = paced;
+        RetentionRun run(paced_cohorts, members);
         if (rules == Rules::paced_without_reader)
             run.host.owned_attack_target = nullptr;
         for (uint16_t index = 0; index < chasing; ++index)
@@ -2671,7 +2673,7 @@ void test_paced_cohort_targets_limit_new_chases() {
             ordered == expected,
             rules == Rules::paced
                 ? "paced cohorts: every chase and the first 256 new chases in slot order"
-                : "paced cohorts: without the feature or a reader every member is ordered"
+                : "paced cohorts: without a reader every member is ordered"
         );
         check(run.fake.roll == random_before, "paced cohorts: no random draw");
         check(
@@ -2707,27 +2709,18 @@ void test_paced_cohort_targets_limit_new_chases() {
 }
 
 /// Keeps a verified majority prior under paced cohort targets at the
-/// periodic dispatch exactly as cohort_retention does under cohort targets,
-/// and chooses fresh at a refresh, as paced cohort targets alone do.
-void test_dispatch_cohort_retention_matches_cohort_retention() {
-    namespace enhanced = oa::data::enhanced_mode;
-    const auto paced = enhanced::version_features(RetentionRun::retention_version)
-                           .without(enhanced::Feature::cohort_retention)
-                           .without(enhanced::Feature::cohort_targets)
-                           .with(enhanced::Feature::paced_cohort_targets);
-    const auto dispatch_retention = paced.with(enhanced::Feature::dispatch_cohort_retention);
+/// periodic dispatch, and chooses fresh at a refresh, as paced cohort targets
+/// alone do.
+void test_dispatch_cohort_retention_keeps_majority_priors() {
     check(
-        enhanced::feature_set_problem(paced) == nullptr &&
-            enhanced::feature_set_problem(dispatch_retention) == nullptr,
+        enhanced::feature_set_problem(paced_cohorts) == nullptr &&
+            enhanced::feature_set_problem(revision_1) == nullptr,
         "dispatch retention: playable sets"
     );
-    enum class Rules { cohort_retention, dispatch_retention, paced_only };
+    enum class Rules { dispatch_retention, paced_only };
     using Orders = std::vector<std::pair<uint16_t, uint16_t>>;
     const auto use = [&](RetentionRun& run, Rules rules) {
-        if (rules == Rules::dispatch_retention)
-            run.state.features = dispatch_retention;
-        else if (rules == Rules::paced_only)
-            run.state.features = paced;
+        run.state.features = rules == Rules::dispatch_retention ? revision_1 : paced_cohorts;
     };
     // One periodic dispatch: every member's attack callback, in slot order.
     const auto dispatch = [&](Rules rules, const auto& setup) {
@@ -2766,11 +2759,7 @@ void test_dispatch_cohort_retention_matches_cohort_retention() {
                                         : 1
                 );
         };
-        const auto retained = dispatch(Rules::cohort_retention, majority);
-        check(
-            dispatch(Rules::dispatch_retention, majority) == retained,
-            "dispatch retention: the same targets as cohort_retention"
-        );
+        const auto retained = dispatch(Rules::dispatch_retention, majority);
         check(
             all_on(retained, prior_count > 4 ? 2 : 1),
             "dispatch retention: more than half of all members must support the prior"
@@ -2805,11 +2794,7 @@ void test_dispatch_cohort_retention_matches_cohort_retention() {
             run.enemy(2, just_over ? 1003 : 1002, just_over ? 1000 : 1002);
             run.prior(RetentionRun::first + 7, 2);
         };
-        const auto retained = dispatch(Rules::cohort_retention, margin);
-        check(
-            dispatch(Rules::dispatch_retention, margin) == retained,
-            "dispatch retention: the same margin as cohort_retention"
-        );
+        const auto retained = dispatch(Rules::dispatch_retention, margin);
         check(
             FrontRun::target(retained, RetentionRun::first + 7) == (just_over ? 1 : 2),
             "dispatch retention: equality retains and a larger cost replaces"
@@ -2819,11 +2804,9 @@ void test_dispatch_cohort_retention_matches_cohort_retention() {
             "dispatch retention: without retention the fresh optimum wins"
         );
     }
-    // A strike refresh keeps the majority's target for the member it orders
-    // under cohort_retention; under dispatch_cohort_retention it chooses
-    // fresh, as paced cohort targets alone do.
-    for (const auto rules :
-         {Rules::cohort_retention, Rules::dispatch_retention, Rules::paced_only}) {
+    // A strike refresh chooses fresh for the member it orders under
+    // dispatch_cohort_retention, as paced cohort targets alone do.
+    for (const auto rules : {Rules::dispatch_retention, Rules::paced_only}) {
         RetentionRun run;
         use(run, rules);
         for (uint16_t source = RetentionRun::first; source < RetentionRun::first + 7; ++source)
@@ -2842,8 +2825,8 @@ void test_dispatch_cohort_retention_matches_cohort_retention() {
         );
         check(
             run.fake.orders.size() == 1 && run.fake.orders.front().unit == selected &&
-                run.fake.orders.front().arg == (rules == Rules::cohort_retention ? 2 : 1),
-            "dispatch retention: a refresh keeps the majority's target only under cohort_retention"
+                run.fake.orders.front().arg == 1,
+            "dispatch retention: a refresh chooses the fresh optimum"
         );
     }
 }
@@ -2862,8 +2845,8 @@ struct FullEnemyRun : RetentionRun {
     };
 
     /// Gives each group one source, with nine enemies sharing an exactly tied position.
-    explicit FullEnemyRun(uint32_t version, bool naval = false)
-        : RetentionRun(version, groups, 0, naval) {
+    explicit FullEnemyRun(enhanced::FeatureSet features, bool naval = false)
+        : RetentionRun(features, groups, 0, naval) {
         for (uint16_t group = 0; group < groups; ++group)
             place(first + group, 1000 + 200 * (group % 2), 1000 + 200 * (group / 2));
         for (uint16_t slot = 1; slot <= enemies; ++slot)
@@ -2904,7 +2887,12 @@ struct FullEnemyRun : RetentionRun {
     }
 
     /// Exhaustively selects all fronts before applying the independent member fallback.
-    Reference reference(uint8_t selected = 0xffu) const {
+    ///
+    /// @param selected the groups whose member is ordered
+    /// @param periodic whether the call is the periodic dispatch, where
+    ///     dispatch_cohort_retention keeps a verified prior
+    /// @return the fronts and the orders
+    Reference reference(uint8_t selected = 0xffu, bool periodic = true) const {
         Reference result;
         std::array<uint32_t, enemies + 1> assignments{};
         for (uint16_t group = 0; group < groups; ++group) {
@@ -2922,7 +2910,7 @@ struct FullEnemyRun : RetentionRun {
             }
             const uint16_t prior =
                 fake.running[actor] == "attack" ? fake.owned_targets[actor] : uint16_t{0};
-            if (state.features.has(oa::data::enhanced_mode::Feature::cohort_retention) &&
+            if (periodic && state.features.has(enhanced::Feature::dispatch_cohort_retention) &&
                 prior != 0 && prior <= enemies && eligible(prior)) {
                 const auto prior_cost = (distance(actor, prior) + 1) * (assignments[prior] + 1);
                 if (8 * prior_cost <= 9 * best_cost)
@@ -2951,7 +2939,7 @@ struct FullEnemyRun : RetentionRun {
 
     /// Checks periodic or masked public commands against the unbounded reference search.
     void compare(bool periodic = true, uint8_t selected = 0xffu, uint32_t at = 300) {
-        const auto expected = reference(selected);
+        const auto expected = reference(selected, periodic);
         if (periodic) {
             check(
                 assign(at, 0, !expected.orders.empty()) == expected.orders,
@@ -2964,7 +2952,7 @@ struct FullEnemyRun : RetentionRun {
         const auto membership = members();
         fake.orders.clear();
         fake.prior_reads.clear();
-        fake.prior_read_after_callback = false;
+        fake.read_orders.clear();
         fake.world.game.tick = at;
         std::array<uint64_t, strike_refresh_mask_words> mask{};
         for (uint16_t group = 0; group < groups; ++group)
@@ -2983,10 +2971,12 @@ struct FullEnemyRun : RetentionRun {
         }
         check(actual == expected.orders, "full enemy reference: masked target arguments agree");
         const auto& after = state.players[player].tasks[static_cast<uint32_t>(destination)];
+        const auto reads = fake.head_reads();
         check(
             after.next_tick == before.next_tick && after.attacking == before.attacking &&
                 members() == membership && fake.joined.empty() && fake.roll == random_before &&
-                !fake.prior_read_after_callback && fake.prior_reads.size() <= 2 * groups,
+                !reads.retention_after_callback && reads.retention <= 2 * groups &&
+                reads.pacing <= groups,
             "full enemy reference: refresh preserves clocks, membership, RNG and read order"
         );
     }
@@ -2998,10 +2988,10 @@ void test_full_enemy_reference_exhausts_small_layouts() {
         {{1100, 1100}, {1200, 1300}, {1300, 1100}}
     };
     constexpr uint32_t layouts = 3 * 3 * 3 * 3;
-    for (const uint32_t version : {10u, 11u})
+    for (const auto& features : {paced_cohorts, revision_1})
         for (const bool with_priors : {false, true})
             for (uint32_t layout = 0; layout < layouts; ++layout) {
-                FullEnemyRun run(version);
+                FullEnemyRun run(features);
                 auto digits = layout;
                 for (uint16_t target = 1; target <= 4; ++target) {
                     const auto& point = points[digits % points.size()];
@@ -3017,11 +3007,12 @@ void test_full_enemy_reference_exhausts_small_layouts() {
 
 /// Requires the eighth fresh candidate and a separately eligible ninth majority prior.
 void test_full_enemy_reference_keeps_eighth_and_outside_prior() {
-    for (const uint32_t version : {10u, 11u}) {
-        FullEnemyRun run(version);
+    for (const auto& features : {paced_cohorts, revision_1}) {
+        const bool retained = features == revision_1;
+        FullEnemyRun run(features);
         run.prior(run.first + 7, 9);
         check(
-            run.reference().fronts[7] == (version == 11 ? 9 : 8),
+            run.reference().fronts[7] == (retained ? 9 : 8),
             "full enemy reference: seven penalties expose eighth fresh or ninth retained front"
         );
         run.compare();
@@ -3031,7 +3022,7 @@ void test_full_enemy_reference_keeps_eighth_and_outside_prior() {
                 "full enemy reference: every earlier tied front receives its finalized load"
             );
         check(
-            run.fake.owned_targets[run.first + 7] == (version == 11 ? 9 : 8),
+            run.fake.owned_targets[run.first + 7] == (retained ? 9 : 8),
             "full enemy reference: public dispatch preserves eighth-rank and outside-prior cases"
         );
     }
@@ -3039,10 +3030,10 @@ void test_full_enemy_reference_keeps_eighth_and_outside_prior() {
 
 /// Checks complete eligibility masks, water policy and player-range tie ordering.
 void test_full_enemy_reference_keeps_filtered_candidate_domain() {
-    for (const uint32_t version : {10u, 11u})
+    for (const auto& features : {paced_cohorts, revision_1})
         for (const bool naval : {false, true})
             for (uint32_t unavailable = 0; unavailable < 16; ++unavailable) {
-                FullEnemyRun run(version, naval);
+                FullEnemyRun run(features, naval);
                 run.rules.ai.nearest_enemy_filter.rules =
                     oa::data::match_rules::AiNearestEnemyFilterRules::skip_submerged;
                 for (uint16_t target = 1; target <= 4; ++target)
@@ -3057,8 +3048,8 @@ void test_full_enemy_reference_keeps_filtered_candidate_domain() {
                 run.prior(run.first + 7, 9);
                 run.compare();
             }
-    for (const uint32_t version : {10u, 11u}) {
-        FullEnemyRun run(version);
+    for (const auto& features : {paced_cohorts, revision_1}) {
+        FullEnemyRun run(features);
         run.fake.player(0, OA_PLAYER_STATUS_LOCAL, 4, 9);
         run.fake.player(2, OA_PLAYER_STATUS_LOCAL, 1, 3);
         for (uint16_t target = 1; target <= 3; ++target) {
@@ -3077,8 +3068,8 @@ void test_full_enemy_reference_keeps_filtered_candidate_domain() {
 
 /// Covers signed extrema, partial refresh masks and repeatable canonical decisions.
 void test_full_enemy_reference_keeps_wide_masked_decisions() {
-    for (const uint32_t version : {10u, 11u}) {
-        FullEnemyRun run(version);
+    for (const auto& features : {paced_cohorts, revision_1}) {
+        FullEnemyRun run(features);
         constexpr std::array<int32_t, 4> z{-32768, -10000, 10000, 32767};
         for (uint16_t group = 0; group < run.groups; ++group) {
             // Z spans one more whole unit than X, retaining the known four Z bands.
@@ -3137,14 +3128,8 @@ void test_selected_front_fallback_respects_refresh_source_mask() {
 
 /// Admits at most 1,024 new members per dispatch with wide strike recruits.
 void test_wide_strike_recruitment_budget() {
-    namespace enhanced = oa::data::enhanced_mode;
-    const auto wide = enhanced::version_features(RecruitRun::distributed_version)
-                          .without(enhanced::Feature::bounded_strike_recruits)
-                          .with(enhanced::Feature::wide_strike_recruits);
-    check(enhanced::feature_set_problem(wide) == nullptr, "wide recruits: a playable set");
     for (const bool naval : {false, true}) {
-        RecruitRun run(RecruitRun::distributed_version, 2500, 4, naval);
-        run.state.features = wide;
+        RecruitRun run(revision_1, 2500, 4, naval);
         run.dispatch(300, 1024);
         run.dispatch(600, 1024);
         run.dispatch(900, 452);
@@ -3153,12 +3138,10 @@ void test_wide_strike_recruitment_budget() {
             "wide recruits: all waiting members join over three dispatches"
         );
     }
-    RecruitRun empty(RecruitRun::distributed_version, 1500, 0);
-    empty.state.features = wide;
+    RecruitRun empty(revision_1, 1500, 0);
     empty.dispatch(300, 1024);
     empty.dispatch(600, 476);
-    RecruitRun existing(RecruitRun::distributed_version, 0, 1500);
-    existing.state.features = wide;
+    RecruitRun existing(revision_1, 0, 1500);
     existing.dispatch(300, 0);
     check(
         existing.fake.orders.size() == 1500,
@@ -3166,22 +3149,23 @@ void test_wide_strike_recruitment_budget() {
     );
 }
 
-/// Leaves the old 5000 recruits plus the separate empty-squad seed unchanged.
+/// Leaves the 5000 recruits plus the separate empty-squad seed unchanged without wide recruits.
 void test_earlier_recruitment_keeps_its_seed_and_limit() {
-    for (uint32_t version = 0; version < RecruitRun::distributed_version; ++version) {
-        RecruitRun run(version, 5002, 0);
+    for (const auto& features :
+         {enhanced::FeatureSet{}, revision_1.without(enhanced::Feature::wide_strike_recruits)}) {
+        RecruitRun run(features, 5002, 0);
         run.dispatch(300, 5001);
         check(
             run.waiting().size() == 1 && run.members().size() == 5001,
-            "recruit budget: earlier presets retain the separate seed and 5000 joins"
+            "recruit budget: without wide recruits the separate seed and 5000 joins stay"
         );
     }
 }
 
 /// Reads the current source membership after a waiting slot becomes a builder.
 void test_recruitment_rereads_reused_source_slots() {
-    RecruitRun run(RecruitRun::distributed_version, 600, 4);
-    run.dispatch(300, 256);
+    RecruitRun run(revision_1, 2500, 4);
+    run.dispatch(300, 1024);
     const auto reused = run.waiting().front();
     run.fake.set_squad(reused, -1);
     auto& builder = run.fake.spawn(reused, RecruitRun::player, ARMCK, 300, 300, 0);
@@ -3189,7 +3173,7 @@ void test_recruitment_rereads_reused_source_slots() {
     builder.health = 1000;
     run.fake.set_squad(reused, static_cast<int>(Squad::builders));
     run.fake.running[reused] = "idle";
-    run.dispatch(600, 256);
+    run.dispatch(600, 1024);
     check(
         std::find(run.fake.joined.begin(), run.fake.joined.end(), reused) == run.fake.joined.end(),
         "recruit budget: the replacement builder is not admitted from stale membership"
@@ -3198,16 +3182,16 @@ void test_recruitment_rereads_reused_source_slots() {
         run.fake.running[reused] == "idle" && run.fake.units[reused].type_index == ARMCK,
         "recruit budget: the replacement's idle order remains unchanged"
     );
-    run.dispatch(900, 87);
+    run.dispatch(900, 451);
     check(
-        run.waiting().empty() && run.members().size() == 603,
+        run.waiting().empty() && run.members().size() == 2503,
         "recruit budget: all remaining live source members join without the reused slot"
     );
 }
 
 /// Leaves another task's whole-squad callback dispatch independent of recruitment.
 void test_recruitment_budget_does_not_limit_rally_callbacks() {
-    RecruitRun run(RecruitRun::distributed_version, 600, 1);
+    RecruitRun run(revision_1, 1500, 1);
     auto& tasks = run.state.players[RecruitRun::player].tasks;
     tasks[static_cast<uint32_t>(Squad::land_strike)].kind = TaskKind::none;
     tasks[static_cast<uint32_t>(Squad::land_army)] = {
@@ -3226,11 +3210,11 @@ void test_recruitment_budget_does_not_limit_rally_callbacks() {
         moved.push_back(order.unit);
     }
     check(
-        moved == expected && moved.size() == 600,
+        moved == expected && moved.size() == 1500,
         "recruit budget: another task still dispatches every waiting member"
     );
     check(
-        run.fake.joined.empty() && run.waiting().size() == 600,
+        run.fake.joined.empty() && run.waiting().size() == 1500,
         "recruit budget: the rally changes no source membership"
     );
     check(run.fake.roll == random_before, "recruit budget: the rally's random stream is unchanged");
@@ -3501,9 +3485,8 @@ int main(int argc, char** argv) {
     test_cohort_retention_precedes_member_front_fallback();
     test_cohort_retention_is_repeatable();
     test_cohort_retention_preserves_earlier_presets_and_null_reader();
-    test_cohort_retention_respects_mask_and_native_task_state();
     test_paced_cohort_targets_limit_new_chases();
-    test_dispatch_cohort_retention_matches_cohort_retention();
+    test_dispatch_cohort_retention_keeps_majority_priors();
     test_full_enemy_reference_exhausts_small_layouts();
     test_full_enemy_reference_keeps_eighth_and_outside_prior();
     test_full_enemy_reference_keeps_filtered_candidate_domain();

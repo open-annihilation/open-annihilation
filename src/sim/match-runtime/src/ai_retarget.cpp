@@ -180,7 +180,6 @@ void Match::EnhancedState::prepare_ai_retarget(Match& match, uint8_t player) {
         }
     }
     const bool cohorts =
-        match.enhanced_features_.has(data::enhanced_mode::Feature::cohort_targets) ||
         match.enhanced_features_.has(data::enhanced_mode::Feature::paced_cohort_targets);
     if (!cohorts && state.next_early_tick <= tick) {
         for (size_t step = 0; step < state.targets.size(); ++step) {
@@ -217,9 +216,7 @@ void Match::EnhancedState::prepare_ai_retarget(Match& match, uint8_t player) {
 }
 
 void Match::EnhancedState::refresh_ai_cohort_targets(Match& match, uint8_t player) {
-    const bool paced =
-        match.enhanced_features_.has(data::enhanced_mode::Feature::paced_cohort_targets);
-    if (!match.enhanced_features_.has(data::enhanced_mode::Feature::cohort_targets) && !paced)
+    if (!match.enhanced_features_.has(data::enhanced_mode::Feature::paced_cohort_targets))
         return;
     auto* computers = static_cast<sim::ai::ComputerPlayers*>(match.computer_player_state().get());
     if (computers == nullptr || !computers->players[player].present)
@@ -272,11 +269,11 @@ void Match::EnhancedState::refresh_ai_cohort_targets(Match& match, uint8_t playe
                                current->order.next == nullptr && current->attack.leash == 0 &&
                                (current->extra.command_flags & command_has_target) != 0 &&
                                (current->extra.command_flags & command_has_point) == 0;
-            // Under paced cohort targets a member whose order is not a chase (a
-            // recruit the dispatch left for later, or one standing by after its
-            // chase ended) is refreshed too. A chase the unit started itself, or
-            // a queued one, is still left alone.
-            if (paced && current != nullptr && current->order.kind != attack_chase_kind)
+            // A member whose order is not a chase (a recruit the dispatch left
+            // for later, or one standing by after its chase ended) is refreshed
+            // too. A chase the unit started itself, or a queued one, is still
+            // left alone.
+            if (current != nullptr && current->order.kind != attack_chase_kind)
                 lost = true;
             if (chase) {
                 const auto* target = current->attack.target;

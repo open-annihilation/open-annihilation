@@ -69,9 +69,10 @@ pass to the next.
   members and the native straggler-shedding order are unchanged. Without it
   the limit of 5,000 recruits plus an optional first member stays. This uses
   canonical membership and keeps no pending queue or extra saved state.
-- Enhanced preset 10 divides each attacking land or naval strike into at
-  most eight spatial groups: four bands along the squad's larger horizontal
-  extent and two along the smaller. Each group chooses from the current
+- With the Enhanced Mode feature `paced_cohort_targets`, each attacking
+  land or naval strike is divided into at most eight spatial groups: four
+  bands along the squad's larger horizontal extent and two along the
+  smaller. Each group chooses from the current
   canonical enemy records, with the ordinary alliance, cloak, occupancy and
   water filters and positive live health. A target's squared whole-world
   distance, plus one, is multiplied by one plus the number of earlier groups
@@ -85,7 +86,12 @@ pass to the next.
   selected-front comparisons per dispatched member use bounded local arrays,
   no new random draws and no retained target handles. A masked refresh still
   commands only its selected sources. Attack callbacks remain in unit-slot order.
-  Earlier presets keep the whole-squad nearest-enemy command.
+  A call starts at most 256 chases for members that have none; the match's
+  cohort refresh orders the rest a few ticks later. With
+  `dispatch_cohort_retention` as well, a group whose verified majority already
+  chases one target keeps it at the strike's periodic dispatch while it costs
+  within 12.5% of the best. Without these features the strike keeps the
+  whole-squad nearest-enemy command.
 - A pick whose unit name holds `MAKENUKE` or `MAKEANTI` is a round for the
   builder's first weapon. The structures task queues it with `order_factory`,
   and so does the construction task, which places no site for it: the match
