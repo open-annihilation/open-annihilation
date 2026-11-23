@@ -4817,16 +4817,16 @@ void Emitter::draw_model(const ModelDraw& drawn) {
     const gw::ModelMesh* mesh = mesh_of(model);
     if (mesh == nullptr)
         return;
-    const auto* original_mesh = mesh;
+    const auto* prior_mesh = mesh;
     mesh = &body_mesh(drawn, model, *mesh);
-    body_lod_mesh_ = mesh != original_mesh ? mesh : nullptr;
+    body_lod_mesh_ = mesh != prior_mesh ? mesh : nullptr;
     if (body_image(drawn, model, canvas))
         return;
     const BodyEmission emission{
         impl_.body_lod_counts,
         frame_,
         frame_.indices.size(),
-        mesh != original_mesh,
+        mesh != prior_mesh,
         false,
         !drawn.on_map && drawn.stand_in < 0
     };

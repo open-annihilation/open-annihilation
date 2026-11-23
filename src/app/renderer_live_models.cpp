@@ -280,11 +280,11 @@ bool fill_body_type(
                 polygon.body_vertices[corner] = static_cast<uint16_t>(compact_vertex);
                 uint32_t texture_corner = static_cast<uint32_t>(corner);
                 if (!face.reduced) {
-                    const auto original_corner =
+                    const auto listed_corner =
                         std::find(original.begin(), original.end(), face.vertices[corner]);
-                    if (original_corner == original.end())
+                    if (listed_corner == original.end())
                         return false;
-                    texture_corner = static_cast<uint32_t>(original_corner - original.begin());
+                    texture_corner = static_cast<uint32_t>(listed_corner - original.begin());
                 }
                 records.push_back((vertices + compact_vertex) | (piece << gpu::model_piece_shift));
                 records.push_back(

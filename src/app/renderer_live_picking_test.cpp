@@ -344,7 +344,7 @@ void component_net() {
         "rendered coordinates; not whole "
         "draw/"
         "nativeFPS\",\"ground_vertices\":%zu,\"tail_vertices\":%zu,\"samples_per_path\":%zu,"
-        "\"original_vertex_median_ms\":%.6f,\"factored_vertex_median_ms\":%.6f,\"compact_median_"
+        "\"direct_vertex_median_ms\":%.6f,\"factored_vertex_median_ms\":%.6f,\"compact_median_"
         "ms\":%.6f,\"checksum\":%.9g}\n",
         input.terrain_vertex_count,
         input.vertices.size() - input.terrain_vertex_count,

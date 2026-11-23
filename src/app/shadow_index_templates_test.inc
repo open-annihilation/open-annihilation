@@ -192,13 +192,13 @@ void shadow_index_template_piece_policy() {
 /// Material retries restore a warm pending run, even after it became dynamic.
 void shadow_index_template_lifecycle() {
     auto cards = joined_card_fixture(16, 100, false);
-    const auto original_words = cards.cast_indices;
+    const auto saved_index_words = cards.cast_indices;
     joined_compact_shadow_indices(cards, joined_shadow_patterns());
     live::remember_shadow_index_key(cards.shadow_indices, {23, 0, 1, false});
     live::mark_cards(cards);
     auto expected = cards;
     OA_CHECK(live::materialize_shadow_index_run(cards.shadow_indices, 0));
-    OA_CHECK(cards.shadow_indices.indices == original_words);
+    OA_CHECK(cards.shadow_indices.indices == saved_index_words);
     OA_CHECK(cards.shadow_indices.runs[0].pattern == 0);
     live::remember_shadow_index_key(cards.shadow_indices, {23, 0, 3, false});
     cards.casts.push_back(cards.casts.back());
@@ -274,8 +274,8 @@ void shadow_index_template_registry_copies() {
     OA_CHECK(original && original->keys.size() == 1);
     if (!original)
         return;
-    const auto original_indices = original->indices;
-    OA_CHECK(original->patterns.size() == 1 && !original_indices.empty());
+    const auto saved_indices = original->indices;
+    OA_CHECK(original->patterns.size() == 1 && !saved_indices.empty());
     auto left = types;
     auto right = types;
     live::prepare_shadow_index_patterns(left);
@@ -287,8 +287,8 @@ void shadow_index_template_registry_copies() {
     OA_CHECK(left.shadow_patterns->revision != original->revision);
     OA_CHECK(right.shadow_patterns->revision != original->revision);
     OA_CHECK(left.shadow_patterns->revision != right.shadow_patterns->revision);
-    OA_CHECK(left.shadow_patterns->indices == original_indices);
-    OA_CHECK(right.shadow_patterns->indices == original_indices);
+    OA_CHECK(left.shadow_patterns->indices == saved_indices);
+    OA_CHECK(right.shadow_patterns->indices == saved_indices);
     const live::ShadowIndexKey left_key{types.revision, type, 3, false};
     const live::ShadowIndexKey right_key{types.revision, type, 1, true};
     live::admit_shadow_index_patterns(left, {&left_key, 1});
@@ -298,20 +298,20 @@ void shadow_index_template_registry_copies() {
         (right.shadow_patterns->keys == std::vector<live::ShadowIndexKey>{base_key, right_key})
     );
     OA_CHECK((original->keys == std::vector<live::ShadowIndexKey>{base_key}));
-    OA_CHECK(original->indices == original_indices);
-    OA_CHECK(left.shadow_patterns->indices.size() >= original_indices.size());
-    OA_CHECK(right.shadow_patterns->indices.size() >= original_indices.size());
-    if (left.shadow_patterns->indices.size() < original_indices.size() ||
-        right.shadow_patterns->indices.size() < original_indices.size())
+    OA_CHECK(original->indices == saved_indices);
+    OA_CHECK(left.shadow_patterns->indices.size() >= saved_indices.size());
+    OA_CHECK(right.shadow_patterns->indices.size() >= saved_indices.size());
+    if (left.shadow_patterns->indices.size() < saved_indices.size() ||
+        right.shadow_patterns->indices.size() < saved_indices.size())
         return;
     OA_CHECK(
         std::equal(
-            original_indices.begin(), original_indices.end(), left.shadow_patterns->indices.begin()
+            saved_indices.begin(), saved_indices.end(), left.shadow_patterns->indices.begin()
         )
     );
     OA_CHECK(
         std::equal(
-            original_indices.begin(), original_indices.end(), right.shadow_patterns->indices.begin()
+            saved_indices.begin(), saved_indices.end(), right.shadow_patterns->indices.begin()
         )
     );
 }

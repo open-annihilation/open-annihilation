@@ -2331,7 +2331,7 @@ void test_shared_solid_materials() {
                     });
                 };
                 const auto original = card.raster(scene, zoom);
-                const auto original_batches = body_batches();
+                const auto prior_batches = body_batches();
                 scene.share_solid_materials = true;
                 const auto shared = card.raster(scene, zoom);
                 OA_CHECK(shared.rgba == original.rgba);
@@ -2341,20 +2341,20 @@ void test_shared_solid_materials() {
                         "shared materials zoom %.2f gamma %.2f: %td to %td body batches\n",
                         zoom,
                         gamma,
-                        original_batches,
+                        prior_batches,
                         body_batches()
                     );
-                    OA_CHECK(original_batches == face_count);
+                    OA_CHECK(prior_batches == face_count);
                     OA_CHECK(body_batches() == 1);
                 }
                 actor.unit->state_flags |= draw::unit_state_cloaked;
                 scene.begin_frame(processor, 1);
                 scene.plan_unit(actor);
                 scene.share_solid_materials = false;
-                const auto original_cloak = card.raster(scene, zoom);
+                const auto prior_cloak = card.raster(scene, zoom);
                 scene.share_solid_materials = true;
                 const auto shared_cloak = card.raster(scene, zoom);
-                OA_CHECK(shared_cloak.rgba == original_cloak.rgba);
+                OA_CHECK(shared_cloak.rgba == prior_cloak.rgba);
             }
     // A frame whose cell fills its page leaves no white cell; both kinds
     // retain their original batches and pixels without evicting the texture.
@@ -4453,7 +4453,7 @@ void test_cached_body_image_failed_revision() {
     auto& image = actor.state.image.sprite;
     const auto size = size_t{image.width} * image.height;
     auto* pixels = static_cast<uint8_t*>(image.data);
-    const std::vector<uint8_t> original_pixels(pixels, pixels + size);
+    const std::vector<uint8_t> saved_pixels(pixels, pixels + size);
     const auto revision = actor.state.image_builds;
     for (size_t at = 0; at < size; ++at)
         if (pixels[at] != draw::image_key)
@@ -4471,7 +4471,7 @@ void test_cached_body_image_failed_revision() {
     );
     OA_CHECK(candidate.frame.vertices.size() != 4);
     OA_CHECK(candidate.stage.error().empty());
-    std::copy(original_pixels.begin(), original_pixels.end(), pixels);
+    std::copy(saved_pixels.begin(), saved_pixels.end(), pixels);
     actor.state.image_builds = revision;
     OA_CHECK(candidate.executor.open(candidate.canvas.renderer, 0));
     candidate.stage.begin_frame();

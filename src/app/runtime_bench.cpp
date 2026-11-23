@@ -1300,7 +1300,7 @@ void Runtime::play_bench() {
             "bench: NATIVE last_frame_planned_models %zu last_frame_deferred_draws %zu "
             "last_frame_preplanned_omissions %zu "
             "last_frame_copy_preplan_omissions %zu last_frame_whole_tick_postplan_omissions %zu "
-            "retained_deferred_original_states %zu retained_deferred_copy_states %zu "
+            "retained_deferred_source_states %zu retained_deferred_copy_states %zu "
             "retained_pose_workers %zu retained_pose_hits %llu retained_pose_misses %llu "
             "retained_pose_stores %llu retained_pose_overflows %llu retained_pose_bytes %zu\n",
             models.draws.models.size(),

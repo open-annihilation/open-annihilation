@@ -28,7 +28,7 @@ struct DeferredModelGeometry {
     bool pending{};
     /// Current-pose geometry and image obligations of the version-10 draw path.
     bool fresh_geometry{};
-    bool fresh_original_images{};
+    bool fresh_source_images{};
     bool fresh_copy_images{};
 
     /// Accepts newer effect geometry without validating frozen presentation images.
@@ -47,7 +47,7 @@ struct DeferredModelGeometry {
     ) noexcept {
         observe_fresh(current);
         fresh_geometry |= geometry_needed;
-        fresh_original_images = true;
+        fresh_source_images = true;
         fresh_copy_images |= copied;
         revision = current.materialization_revision();
     }
@@ -156,7 +156,7 @@ struct DeferredModelGeometries {
         if (kept.instance != &instance || kept.generation != generation) {
             kept.pending = false;
             kept.fresh_geometry = false;
-            kept.fresh_original_images = false;
+            kept.fresh_source_images = false;
             kept.fresh_copy_images = false;
             kept.instance = &instance;
             kept.generation = generation;

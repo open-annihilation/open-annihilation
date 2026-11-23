@@ -206,7 +206,7 @@ void publication_preserves_canonical_state() {
         OA_CHECK(std::memcmp(&fixture.unit, &unit_before, sizeof(fixture.unit)) == 0);
         OA_CHECK(fixture.state.image_builds == builds);
         OA_CHECK(fixture.state.deferred_image && fixture.state.deferred_image->width == 12);
-        OA_CHECK(fixture.deferred.fresh_geometry && fixture.deferred.fresh_original_images);
+        OA_CHECK(fixture.deferred.fresh_geometry && fixture.deferred.fresh_source_images);
         OA_CHECK(!fixture.deferred.fresh_copy_images && !fixture.state.transforms_dirty);
         OA_CHECK(draw.root_prefix && draw.root_prefix->geometry == recipe.geometry);
         OA_CHECK(draw.shown_vertices.empty() && draw.plan.linked.drawn && draw.plan.linked.unlit);
@@ -244,7 +244,7 @@ void refusal_materializes_current_geometry() {
             [](uint8_t value) { return value == body_color; }
         )
     );
-    OA_CHECK(!fixture.deferred.fresh_geometry && !fixture.deferred.fresh_original_images);
+    OA_CHECK(!fixture.deferred.fresh_geometry && !fixture.deferred.fresh_source_images);
     OA_CHECK(fixture.deferred.revision == fixture.instance.materialization_revision());
     const auto materialized = fixture.instance;
     OA_CHECK(!app::materialize_root_prefix_draw(
@@ -254,11 +254,11 @@ void refusal_materializes_current_geometry() {
 }
 
 /// A copy's ordinary refusal never satisfies its canonical original's debt.
-void copied_refusal_preserves_original_obligations() {
+void copied_refusal_preserves_source_obligations() {
     Fixture fixture;
     auto original = fixture.ref();
-    Host original_host(fixture.instance);
-    original_host.set_piece_position(fixture.instance.root_piece(), 0, fixed + 19);
+    Host source_host(fixture.instance);
+    source_host.set_piece_position(fixture.instance.root_piece(), 0, fixed + 19);
     auto copy = fixture.instance;
     auto copy_unit = fixture.unit;
     copy_unit.heading = 24571;
@@ -267,15 +267,15 @@ void copied_refusal_preserves_original_obligations() {
     Host copy_host(copy);
     copy_host.set_piece_position(1, 1, fixed / 3);
     const auto recipe = recipe_for(shown);
-    const auto original_before = fixture.instance;
+    const auto instance_before = fixture.instance;
     const auto copy_before = copy;
     app::ModelDraw draw;
     OA_CHECK(
         app::publish_root_prefix_draw(original, shown, fixture.deferred, recipe, 7, false, draw)
     );
-    OA_CHECK(same_instance(fixture.instance, original_before) && same_instance(copy, copy_before));
+    OA_CHECK(same_instance(fixture.instance, instance_before) && same_instance(copy, copy_before));
     OA_CHECK(
-        fixture.deferred.fresh_geometry && fixture.deferred.fresh_original_images &&
+        fixture.deferred.fresh_geometry && fixture.deferred.fresh_source_images &&
         fixture.deferred.fresh_copy_images
     );
     copy_host.set_piece_position(1, 2, fixed / 5);
@@ -284,10 +284,10 @@ void copied_refusal_preserves_original_obligations() {
     OA_CHECK(
         app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw, &fixture.deferred)
     );
-    OA_CHECK(same_instance(fixture.instance, original_before));
+    OA_CHECK(same_instance(fixture.instance, instance_before));
     OA_CHECK(same_geometry(copy, expected) && copy_state.image.sprite.data != nullptr);
     OA_CHECK(
-        fixture.deferred.fresh_geometry && fixture.deferred.fresh_original_images &&
+        fixture.deferred.fresh_geometry && fixture.deferred.fresh_source_images &&
         !fixture.deferred.fresh_copy_images
     );
     const auto current_recipe = recipe_for(original);
@@ -299,7 +299,7 @@ void copied_refusal_preserves_original_obligations() {
     OA_CHECK(
         app::materialize_root_prefix_draw(fixture.renderer, fixture.bridge, draw, &fixture.deferred)
     );
-    OA_CHECK(!fixture.deferred.fresh_geometry && !fixture.deferred.fresh_original_images);
+    OA_CHECK(!fixture.deferred.fresh_geometry && !fixture.deferred.fresh_source_images);
 }
 
 } // namespace
@@ -307,6 +307,6 @@ void copied_refusal_preserves_original_obligations() {
 int main() {
     publication_preserves_canonical_state();
     refusal_materializes_current_geometry();
-    copied_refusal_preserves_original_obligations();
+    copied_refusal_preserves_source_obligations();
     return oa::test::check_exit_status();
 }

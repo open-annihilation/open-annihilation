@@ -247,17 +247,17 @@ void test_nested_scope_ownership() {
     outer.counts.sampling_stride = 0;
     inner.sample = false;
     plan::Binding caller(&outer);
-    plan::Span observed(plan::Phase::original_update, true);
+    plan::Span observed(plan::Phase::source_update, true);
     std::optional<plan::UnitSampling> sampling;
     sampling.emplace(0);
     OA_CHECK(!outer.sample);
     {
         plan::Binding nested(&inner);
         observed.stop();
-        const auto stopped = phase(outer.counts, plan::Phase::original_update);
+        const auto stopped = phase(outer.counts, plan::Phase::source_update);
         observed.stop();
-        OA_CHECK(same_phase(phase(outer.counts, plan::Phase::original_update), stopped));
-        OA_CHECK(phase(inner.counts, plan::Phase::original_update).calls == 0);
+        OA_CHECK(same_phase(phase(outer.counts, plan::Phase::source_update), stopped));
+        OA_CHECK(phase(inner.counts, plan::Phase::source_update).calls == 0);
         sampling.reset();
         OA_CHECK(outer.sample && !inner.sample);
         {
@@ -267,8 +267,8 @@ void test_nested_scope_ownership() {
         OA_CHECK(plan::current == &inner);
     }
     OA_CHECK(plan::current == &outer);
-    OA_CHECK(phase(outer.counts, plan::Phase::original_update).calls == 1);
-    OA_CHECK(phase(outer.counts, plan::Phase::original_update).samples == 1);
+    OA_CHECK(phase(outer.counts, plan::Phase::source_update).calls == 1);
+    OA_CHECK(phase(outer.counts, plan::Phase::source_update).samples == 1);
     try {
         plan::Binding nested(&inner);
         throw std::runtime_error("restore the caller collector");

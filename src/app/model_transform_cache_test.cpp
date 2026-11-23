@@ -219,12 +219,12 @@ void test_reuse_keeps_owner_flags_and_world_rounding() {
         receiver.pieces()[2].flags =
             static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::visible);
         receiver.pieces()[1].transform_marker = 7;
-        const auto oracle = rebuilt_afresh(receiver, root);
+        const auto reference = rebuilt_afresh(receiver, root);
         const auto* vertices = receiver.pieces()[1].transformed_vertices.data();
         const auto capacity = receiver.pieces()[1].transformed_vertices.capacity();
         const auto storage = cache.storage_bytes();
         OA_CHECK(cache.reuse(receiver, root));
-        OA_CHECK(same_transforms(receiver, oracle));
+        OA_CHECK(same_transforms(receiver, reference));
         OA_CHECK(receiver.owner_token() == reinterpret_cast<uintptr_t>(&unit));
         OA_CHECK(receiver.pieces()[1].flags == 0);
         OA_CHECK(receiver.pieces()[2].flags == 1);
@@ -237,7 +237,7 @@ void test_reuse_keeps_owner_flags_and_world_rounding() {
         );
         for (size_t piece = 0; piece < receiver.pieces().size(); ++piece) {
             const auto& actual = receiver.pieces()[piece];
-            const auto& expected = oracle.pieces()[piece];
+            const auto& expected = reference.pieces()[piece];
             OA_CHECK(
                 world_bits(unit.position.x, actual.transformed_origin.x) ==
                 world_bits(record.position.x, expected.transformed_origin.x)
@@ -317,7 +317,7 @@ void test_interpolated_instances_and_generation() {
         OA_CHECK(record.position.x == 3 * fixed + 17);
         OA_CHECK(shown.pieces()[1].rotation.xz == 0x200);
         const RotationWords root{record.bank, static_cast<int16_t>(record.heading), record.pitch};
-        const auto oracle = rebuilt_afresh(shown, root);
+        const auto reference = rebuilt_afresh(shown, root);
         if (generation == 1) {
             check_miss(cache, shown, root);
             shown.rebuild_transforms(root);
@@ -325,7 +325,7 @@ void test_interpolated_instances_and_generation() {
         } else {
             OA_CHECK(cache.reuse(shown, root));
         }
-        OA_CHECK(same_transforms(shown, oracle));
+        OA_CHECK(same_transforms(shown, reference));
         OA_CHECK(shown.owner_token() == reinterpret_cast<uintptr_t>(&unit));
         check_unchanged(instance, simulation);
     }
@@ -495,7 +495,7 @@ void test_failed_replacement_preserves_accounting_and_active_entry() {
     active.rebuild_transforms(root);
     previous.rebuild_transforms(root);
     replacement.rebuild_transforms(root);
-    const auto replacement_oracle = rebuilt_afresh(replacement, root);
+    const auto replacement_reference = rebuilt_afresh(replacement, root);
 
     ModelTransformCache cache;
     cache.begin_frame();
@@ -530,7 +530,7 @@ void test_failed_replacement_preserves_accounting_and_active_entry() {
     OA_CHECK(cache.storage_bytes() <= ModelTransformCache::storage_limit);
     OA_CHECK(cache.reuse(active, root));
     OA_CHECK(cache.reuse(replacement, root));
-    OA_CHECK(same_transforms(replacement, replacement_oracle));
+    OA_CHECK(same_transforms(replacement, replacement_reference));
     OA_CHECK(active.owner_token() == 11 && replacement.owner_token() == 33);
     cache.begin_frame();
     cache.remember(previous, root);
@@ -572,7 +572,7 @@ void test_heading_and_pitch_families_keep_exact_repeats() {
         receiver.rebuild_transforms();
         for (size_t index = 0; index < family_size; ++index) {
             const auto root = root_at(index);
-            const auto oracle = rebuilt_afresh(receiver, root);
+            const auto reference = rebuilt_afresh(receiver, root);
             const auto before = receiver;
             const bool reused = cache.reuse(receiver, root);
             OA_CHECK(reused == admitted[index]);
@@ -580,7 +580,7 @@ void test_heading_and_pitch_families_keep_exact_repeats() {
                 check_unchanged(receiver, before);
                 receiver.rebuild_transforms(root);
             }
-            OA_CHECK(same_transforms(receiver, oracle));
+            OA_CHECK(same_transforms(receiver, reference));
             OA_CHECK(receiver.owner_token() == 73);
         }
         OA_CHECK(cache.counts().hits == stored);
@@ -611,9 +611,9 @@ void test_root_prefix_domain() {
         root_piece.translation = {INT32_MAX, INT32_MIN, heading};
         root_piece.rotation.xz = static_cast<int16_t>(heading / 2);
         const RotationWords wanted{built.xy, static_cast<int16_t>(heading), built.yz};
-        const auto oracle = rebuilt_afresh(receiver, wanted);
+        const auto reference = rebuilt_afresh(receiver, wanted);
         OA_CHECK(cache.reuse_root_prefix(receiver, wanted));
-        OA_CHECK(same_transforms(receiver, oracle));
+        OA_CHECK(same_transforms(receiver, reference));
         OA_CHECK(receiver.owner_token() == 99);
         OA_CHECK(!receiver.transforms_dirty());
         OA_CHECK(cache.storage_bytes() == bytes);
@@ -681,11 +681,11 @@ void test_owned_root_prefix_recipes() {
     check_unchanged(receiver, before);
     OA_CHECK(receiver.materialization_revision() == revision);
     check_unchanged(source, source_before);
-    const auto oracle = rebuilt_afresh(receiver, wanted);
+    const auto reference = rebuilt_afresh(receiver, wanted);
     for (uint32_t piece = 0; piece < receiver.pieces().size(); ++piece)
-        for (uint32_t point = 0; point < oracle.pieces()[piece].transformed_vertices.size();
+        for (uint32_t point = 0; point < reference.pieces()[piece].transformed_vertices.size();
              ++point) {
-            const auto expected = oracle.pieces()[piece].transformed_vertices[point];
+            const auto expected = reference.pieces()[piece].transformed_vertices[point];
             const auto actual = oa::app::root_prefix_point(*recipe, piece, point);
             OA_CHECK(std::abs(int64_t{actual.x} - expected.x) <= 1);
             OA_CHECK(actual.y == expected.y);

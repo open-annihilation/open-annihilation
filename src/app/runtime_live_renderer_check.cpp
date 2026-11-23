@@ -1733,7 +1733,7 @@ int Runtime::check_live_renderer() {
                 snapshot(false).rgb == compact.rgb, "compact markers did not recover after fallback"
             );
             require(
-                live_renderer_marker_count() == marker_count, "recovered marker membership changed"
+                live_renderer_marker_count() == marker_count, "restored marker membership changed"
             );
             std::cout << "live renderer check: " << marker_count
                       << " compact Runtime markers match ordinary pixels, dense and half-pixel "
@@ -5463,14 +5463,14 @@ int Runtime::check_live_renderer() {
                         );
                         require(
                             fresh.pieces().size() == canonical.pieces().size(),
-                            "the fresh stock radius oracle changed the piece count"
+                            "the fresh stock radius reference changed the piece count"
                         );
                         for (std::size_t piece = 0; piece < canonical.pieces().size(); ++piece) {
                             const auto& raw = canonical.pieces()[piece];
                             auto& target = fresh.pieces()[piece];
                             require(
                                 raw.object_index == target.object_index,
-                                "the fresh stock radius oracle changed the COB piece order"
+                                "the fresh stock radius reference changed the COB piece order"
                             );
                             target.translation = raw.translation;
                             target.rotation = raw.rotation;
@@ -5502,7 +5502,7 @@ int Runtime::check_live_renderer() {
                                     );
                         ++far_bound_frames;
                     };
-                    // Build an independent current-pose oracle. No retained recipe
+                    // Build an independent current-pose reference. No retained recipe
                     // or production deferred-image resolver participates in it.
                     const auto current_geometry = [&](const auto& source, const auto& state) {
                         auto current = source;
@@ -5559,7 +5559,7 @@ int Runtime::check_live_renderer() {
                         // Each attempt starts a real tick and draws the optimized
                         // copy first. Effects may already have refreshed one tick's
                         // geometry; require an actual geometry deferral within the bound.
-                        auto original_before_copy = canonical;
+                        auto canonical_before_copy = canonical;
                         auto state_before_copy = clone_state(canonical_state);
                         uint32_t copy_tick{};
                         auto copy_random = match_->random_state();
@@ -5573,7 +5573,7 @@ int Runtime::check_live_renderer() {
                             observe_match_tick(models, *match_, draw_pool_.get());
                             set_presentation_alpha(0.5F);
                             visibility.force_ordinary = false;
-                            original_before_copy = canonical;
+                            canonical_before_copy = canonical;
                             state_before_copy = clone_state(canonical_state);
                             const auto copy_builds =
                                 models.presentation.units[walker].state.image_builds;
@@ -5588,12 +5588,12 @@ int Runtime::check_live_renderer() {
                             render_match_surface();
                             const auto& fresh = models.deferred_geometry.units.at(walker);
                             require(
-                                copied_plan() && walker_omitted() && fresh.fresh_original_images &&
+                                copied_plan() && walker_omitted() && fresh.fresh_source_images &&
                                     fresh.fresh_copy_images &&
                                     visibility.copy_preplan_omitted_count != 0 &&
-                                    same_points(canonical, original_before_copy) &&
+                                    same_points(canonical, canonical_before_copy) &&
                                     canonical.materialization_revision() ==
-                                        original_before_copy.materialization_revision() &&
+                                        canonical_before_copy.materialization_revision() &&
                                     lifecycle(canonical_state, true) ==
                                         lifecycle(state_before_copy, true) &&
                                     draw_count_waited(
@@ -5618,10 +5618,10 @@ int Runtime::check_live_renderer() {
                         const auto& fresh = models.deferred_geometry.units.at(walker);
                         require(
                             canonical_plan() && walker_omitted() && fresh.fresh_geometry &&
-                                fresh.fresh_original_images && fresh.fresh_copy_images &&
-                                same_points(canonical, original_before_copy) &&
+                                fresh.fresh_source_images && fresh.fresh_copy_images &&
+                                same_points(canonical, canonical_before_copy) &&
                                 canonical.materialization_revision() ==
-                                    original_before_copy.materialization_revision() &&
+                                    canonical_before_copy.materialization_revision() &&
                                 lifecycle(canonical_state, true) ==
                                     lifecycle(state_before_copy, true) &&
                                 draw_count_waited(
@@ -5664,7 +5664,7 @@ int Runtime::check_live_renderer() {
                                     canonical.materialization_revision() ==
                                         before_instance.materialization_revision() &&
                                     lifecycle(canonical_state) == lifecycle(before_state),
-                                "the stock radius oracle materialized canonical renderer state"
+                                "the stock radius reference materialized canonical renderer state"
                             );
                         }
                         const auto batch_tick = uint32_t{match_->simulation().tick};
@@ -5739,7 +5739,7 @@ int Runtime::check_live_renderer() {
                         const auto* waiting = walker < models.deferred_geometry.units.size()
                                                   ? &models.deferred_geometry.units[walker]
                                                   : nullptr;
-                        const bool fresh_images = waiting && waiting->fresh_original_images;
+                        const bool fresh_images = waiting && waiting->fresh_source_images;
                         const bool lazy = waiting && waiting->fresh_geometry;
                         if (deferred_geometry_preset)
                             require(
@@ -5793,8 +5793,7 @@ int Runtime::check_live_renderer() {
                             const auto revision = canonical.materialization_revision();
                             const auto repeated_readback = match_draw_read_back();
                             require(
-                                same_derived(canonical, retained) &&
-                                    waiting->fresh_original_images &&
+                                same_derived(canonical, retained) && waiting->fresh_source_images &&
                                     waiting->fresh_geometry == lazy &&
                                     canonical.materialization_revision() == revision &&
                                     repeated_readback.pieces == postplan_readback.pieces,
@@ -5881,7 +5880,7 @@ int Runtime::check_live_renderer() {
                         const auto refreshed_revision = canonical.materialization_revision();
                         pending.observe_fresh(canonical);
                         require(
-                            !pending.fresh_geometry && pending.fresh_original_images &&
+                            !pending.fresh_geometry && pending.fresh_source_images &&
                                 same_derived(canonical, effect_geometry) &&
                                 canonical.materialization_revision() == refreshed_revision &&
                                 match_->simulation().tick == effect_tick &&
@@ -5905,7 +5904,7 @@ int Runtime::check_live_renderer() {
                         walker_visible() && canonical_plan() &&
                             (walker >= models.deferred_geometry.units.size() ||
                              (!models.deferred_geometry.units[walker].fresh_geometry &&
-                              !models.deferred_geometry.units[walker].fresh_original_images)),
+                              !models.deferred_geometry.units[walker].fresh_source_images)),
                         "whole-tick camera ingress did not resolve canonical animated geometry"
                     );
                     const auto ingress_instance = canonical;
@@ -6029,7 +6028,7 @@ int Runtime::check_live_renderer() {
                             !live_renderer_active() && classic_draw &&
                                 classic_draw->plan.linked.drawn &&
                                 !models.deferred_geometry.units.at(walker).fresh_geometry &&
-                                !models.deferred_geometry.units.at(walker).fresh_original_images &&
+                                !models.deferred_geometry.units.at(walker).fresh_source_images &&
                                 same_derived(canonical, expected_classic),
                             "the visible classic consumer did not resolve current actor geometry"
                         );
@@ -6123,14 +6122,14 @@ int Runtime::check_live_renderer() {
                             );
                             require(
                                 fresh.pieces().size() == motion.instance.pieces().size(),
-                                "the current-copy oracle changed its piece count"
+                                "the current-copy reference changed its piece count"
                             );
                             for (std::size_t piece = 0; piece < fresh.pieces().size(); ++piece) {
                                 const auto& from = motion.instance.pieces()[piece];
                                 auto& to = fresh.pieces()[piece];
                                 require(
                                     from.object_index == to.object_index,
-                                    "the current-copy oracle changed its piece order"
+                                    "the current-copy reference changed its piece order"
                                 );
                                 to.translation = from.translation;
                                 to.rotation = from.rotation;
@@ -6148,19 +6147,19 @@ int Runtime::check_live_renderer() {
                                    !motion.instance.transforms_dirty() &&
                                    !pending.fresh_copy_images;
                         };
-                        bool original_waited{};
-                        bool original_geometry_waited{};
+                        bool source_waited{};
+                        bool source_geometry_waited{};
                         bool copy_animated{};
                         constexpr unsigned maximum_visible_attempts = 12;
                         for (unsigned attempt = 0; attempt < maximum_visible_attempts &&
-                                                   (!original_geometry_waited || !copy_animated);
+                                                   (!source_geometry_waited || !copy_animated);
                              ++attempt) {
                             step_match_simulation();
                             observe_match_tick(models, *match_, draw_pool_.get());
                             set_presentation_alpha(0.5F);
                             center_camera_on_unit(walker);
-                            const auto original_before = canonical;
-                            const auto original_state_before = clone_state(canonical_state);
+                            const auto canonical_before = canonical;
+                            const auto canonical_state_before = clone_state(canonical_state);
                             const auto debt_before = pending;
                             const auto copy_before = motion.instance;
                             const auto copy_state_before = clone_state(motion.state);
@@ -6177,16 +6176,16 @@ int Runtime::check_live_renderer() {
                                 visible_current_copy() && !match_->fault(),
                                 "the original-debt control did not draw a current visible copy"
                             );
-                            if (!pending.fresh_original_images)
+                            if (!pending.fresh_source_images)
                                 continue;
-                            original_waited = true;
-                            original_geometry_waited |= pending.fresh_geometry;
+                            source_waited = true;
+                            source_geometry_waited |= pending.fresh_geometry;
                             require(
-                                same_points(canonical, original_before) &&
+                                same_points(canonical, canonical_before) &&
                                     canonical.materialization_revision() ==
-                                        original_before.materialization_revision() &&
+                                        canonical_before.materialization_revision() &&
                                     lifecycle(canonical_state, true) ==
-                                        lifecycle(original_state_before, true) &&
+                                        lifecycle(canonical_state_before, true) &&
                                     (!pending.fresh_geometry || canonical.transforms_dirty()),
                                 "a visible copy advanced original vectors, snapshots or images"
                             );
@@ -6209,15 +6208,15 @@ int Runtime::check_live_renderer() {
                                     match_->random_state() == random,
                                 "visible original deferral changed canonical/save state or RNG"
                             );
-                            canonical = original_before;
-                            canonical_state = clone_state(original_state_before);
+                            canonical = canonical_before;
+                            canonical_state = clone_state(canonical_state_before);
                             pending = debt_before;
                             motion.instance = copy_before;
                             motion.state = clone_state(copy_state_before);
                             visibility.force_ordinary = true;
                             render_match_surface();
                             require(
-                                visible_current_copy() && !pending.fresh_original_images &&
+                                visible_current_copy() && !pending.fresh_source_images &&
                                     !pending.fresh_geometry &&
                                     match_world_cpu_.rgb == optimized_picture.rgb &&
                                     bounds_and_picks() == optimized_picks &&
@@ -6230,7 +6229,7 @@ int Runtime::check_live_renderer() {
                             );
                         }
                         require(
-                            original_waited && original_geometry_waited && copy_animated,
+                            source_waited && source_geometry_waited && copy_animated,
                             "a real visible moving copy never skipped original presentation work"
                         );
 
@@ -6247,7 +6246,7 @@ int Runtime::check_live_renderer() {
                         }
                         require(
                             visible_current_copy() && pending.fresh_geometry &&
-                                pending.fresh_original_images && canonical.transforms_dirty(),
+                                pending.fresh_source_images && canonical.transforms_dirty(),
                             "the visible SFX control did not retain dirty original geometry"
                         );
                         auto expected_sfx = canonical;
@@ -6268,7 +6267,7 @@ int Runtime::check_live_renderer() {
                         );
                         pending.observe_fresh(canonical);
                         require(
-                            !pending.fresh_geometry && pending.fresh_original_images &&
+                            !pending.fresh_geometry && pending.fresh_source_images &&
                                 same_derived(canonical, expected_sfx) &&
                                 match_world_digest() == sfx_save &&
                                 match_->simulation().tick == sfx_tick &&
@@ -6285,7 +6284,7 @@ int Runtime::check_live_renderer() {
                         render_match_surface();
                         require(
                             canonical_plan() && walker_visible() && !pending.fresh_geometry &&
-                                !pending.fresh_original_images,
+                                !pending.fresh_source_images,
                             "the whole-tick consumer did not resolve visible original debt"
                         );
                         const auto whole_picture = match_world_cpu_;
@@ -6316,7 +6315,7 @@ int Runtime::check_live_renderer() {
                             visibility.force_ordinary = false;
                             render_match_surface();
                             require(
-                                visible_current_copy() && pending.fresh_original_images,
+                                visible_current_copy() && pending.fresh_source_images,
                                 "the copy-reentry control did not start with original image debt"
                             );
                             const auto tick = uint32_t{match_->simulation().tick};
@@ -6343,7 +6342,7 @@ int Runtime::check_live_renderer() {
                             }
                             render_match_surface();
                             require(
-                                visible_current_copy() && !pending.fresh_original_images &&
+                                visible_current_copy() && !pending.fresh_source_images &&
                                     !pending.fresh_geometry &&
                                     same_points(motion.instance, independently_built_copy()) &&
                                     match_world_digest() == save_state &&
@@ -6357,20 +6356,20 @@ int Runtime::check_live_renderer() {
                         visibility.force_ordinary = false;
                         render_match_surface();
                         require(
-                            visible_current_copy() && pending.fresh_original_images,
+                            visible_current_copy() && pending.fresh_source_images,
                             "the copy did not reenter original-only deferral"
                         );
                         models.unit_plans.snapshot_unlinked_vertices = true;
                         render_match_surface();
                         require(
-                            visible_current_copy() && !pending.fresh_original_images &&
+                            visible_current_copy() && !pending.fresh_source_images &&
                                 !pending.fresh_geometry,
                             "a snapshot consumer did not resolve visible original presentation"
                         );
                         models.unit_plans.snapshot_unlinked_vertices = false;
                         render_match_surface();
                         require(
-                            visible_current_copy() && pending.fresh_original_images,
+                            visible_current_copy() && pending.fresh_source_images,
                             "the visible producer-loss fixture has no original debt"
                         );
                         const auto fallback_save = match_world_digest();
@@ -6379,7 +6378,7 @@ int Runtime::check_live_renderer() {
                         set_live_models_on_card(false);
                         render_match_surface();
                         require(
-                            !pending.fresh_original_images && !pending.fresh_geometry &&
+                            !pending.fresh_source_images && !pending.fresh_geometry &&
                                 !pending.fresh_copy_images && !match_world_cpu_.rgb.empty() &&
                                 match_world_digest() == fallback_save &&
                                 match_->simulation().tick == producer_loss_tick &&
@@ -6394,7 +6393,7 @@ int Runtime::check_live_renderer() {
                         render_match_surface();
                         render_match_surface();
                         require(
-                            visible_current_copy() && pending.fresh_original_images &&
+                            visible_current_copy() && pending.fresh_source_images &&
                                 same_points(motion.instance, independently_built_copy()),
                             "the actual GPU copy did not reenter current original-only deferral"
                         );
