@@ -272,12 +272,10 @@ void TickHost::movement_tick(oa::Unit& record) {
                         uint32_t player{};
                         bool have_movement{};
                         bool same_route_queue{};
-                        bool follow_applied_heads{};
                     } context;
 
                     context.match = &match;
                     context.player = s.record.owner_index;
-                    context.follow_applied_heads = features.has(Feature::local_following);
                     context.same_route_queue =
                         features.has(Feature::route_queue) &&
                         flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks &&
@@ -402,22 +400,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                                         ) &&
                                         owns_route(follower_id, *follower) &&
                                         owns_route(occupant, *other);
-                                    if (all_share_route && probe_context.follow_applied_heads) {
-                                        const auto* applied =
-                                            occupant < m.enhanced_->unit_count
-                                                ? &m.enhanced_->local_flow_heads[occupant]
-                                                : nullptr;
-                                        all_share_route = same_forward_route_with_applied_head(
-                                            moving,
-                                            follower->navigation,
-                                            other->geometry,
-                                            other->navigation,
-                                            applied,
-                                            local_flow_goal_key(*other->navigation.goal),
-                                            m.simulation_.tick,
-                                            true
-                                        );
-                                    }
                                 }
                                 const bool have_snapshot =
                                     m.enhanced_->local_flow_progress_snapshot_valid &&
