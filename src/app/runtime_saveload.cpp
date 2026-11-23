@@ -832,7 +832,8 @@ Runtime::SaveLoadState::buildable_unit_limit(Runtime& runtime, int32_t limit) {
     if (const auto& held = runtime.engine_settings_state().restored_enhanced_choice)
         capacity = held->features.has(oa::data::enhanced_mode::Feature::capacity);
     else
-        capacity = enhanced_mode_version(runtime) != 0;
+        capacity =
+            enhanced_mode_choice(runtime).features.has(oa::data::enhanced_mode::Feature::capacity);
     if (capacity)
         return limit <= oa::data::limits::highest_enhanced_units_per_player
                    ? std::optional<uint16_t>{static_cast<uint16_t>(limit)}

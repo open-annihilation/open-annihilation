@@ -147,8 +147,6 @@ Match::RuntimeOrder& Match::adopt_order(std::unique_ptr<RuntimeOrder> entry) {
 }
 
 void Match::drop_order(const RuntimeOrder& record) {
-    if (record.unit)
-        forget_advisory_order(record.unit->record.id, &record.order);
     auto* index = enhanced_ ? enhanced_->order_ownership.get() : nullptr;
     if (index)
         prepare_order_ownership(orders_, *index, simulation_.tick);

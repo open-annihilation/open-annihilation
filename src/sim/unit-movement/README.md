@@ -68,15 +68,14 @@ heads retain the current tick for replication, with no change to the
 27-byte saved representation.
 
 A mature retry may also step into a clear neighbouring cell
-(`LocalFlowProbe::mature_cell_escape`, the `cardinal_queue_escape` and
-`counterflow_queue_escape` features): when moving traffic blocks the route
-and ordinary passing leaves the unit in its own footprint origin, the four
-neighbouring origins are tried in goal-facing order through the same
-clearance checks, and the first clear one becomes a short leg. With
-`LocalFlowProbe::counterflow_cell_escape` the step is taken only when the
-traffic the route probe found heads a quarter turn or more away from the
-unit's heading, across its way or against it; behind traffic going its own
-way the unit keeps its place. `unit-local-flow-cell-escape` checks both.
+(`LocalFlowProbe::mature_cell_escape`, the `counterflow_queue_escape`
+feature): when moving traffic blocks the route and ordinary passing leaves
+the unit in its own footprint origin, the four neighbouring origins are
+tried in goal-facing order through the same clearance checks, and the first
+clear one becomes a short leg. The step is taken only when the traffic the
+route probe found heads a quarter turn or more away from the unit's heading,
+across its way or against it; behind traffic going its own way the unit
+keeps its place. `unit-local-flow-cell-escape` checks both.
 
 `unit-local-flow` checks clearance, priorities, coherent turns, bounded retries
 and canonical saved heads. `unit-local-flow-steering` runs the actual ground
@@ -87,19 +86,6 @@ opens after sustained blockage, immediate-return controls and an idle queue.
 These fixtures do not establish repaired flow in the connected 20,000-unit
 installed-map recordings; their current bridge limits are recorded in
 [Enhanced Mode](../../../docs/enhanced-mode.md#congestion-and-cpu-checkpoint).
-
-Enhanced version 4 uses `integrate_swept_local_flow` for locally simulated,
-unattached ground movement. Its underlying `integrate_swept_ground` checks
-the complete fixed-point step against native footprint occupancy, including
-intermediate origins and both side origins at exact diagonal crossings.
-Preflight bounds work to 128 origins and 512 footprint cells before any Host
-query. Unsupported steps fail closed; blocked steps retain the ordinary
-current-cell clamp, speed reduction, height and clock behavior. Successful
-steps update registration once. Remote and nonground movement delegates to
-the original integration. Off and earlier rules keep the original entry
-points. `unit-swept-ground` checks independent geometric intersections,
-callback ordering, budgets, refusal and legacy parity; these checks do not
-establish queue throughput.
 
 ## TNT terrain and four-point ground pose
 

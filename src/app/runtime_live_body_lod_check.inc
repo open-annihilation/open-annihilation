@@ -89,7 +89,7 @@
             );
         const auto& counts = bench_timers::body_counts;
         std::cout
-            << "live renderer check: aggregate stock rules-" << preplan_version << " physical bodies at zoom "
+            << "live renderer check: aggregate stock Revision 1 physical bodies at zoom "
             << match_zoom() << ": " << counts.body_lod_models << "; logical body vertices " << counts.body_lod_vertices
             << "; zero distance/budget markers; real walking/source-pose animation; frozen pixels, "
                "picks, pose, clocks and RNG preserved\n";

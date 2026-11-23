@@ -68,7 +68,7 @@ uint32_t TickHost::GroundMissions::patrol() {
         return ground::next_phase;
     case 1:
         AttackAdapter(host, s, record).reset_weapons();
-        refresh_patrol_goal(record.extra.destination, 0);
+        circle_goal(record.extra.destination, 0);
         wait_ticks(attack::patrol_step_wait);
         order.wait_events |= ground::goal_events;
         return ground::next_phase;

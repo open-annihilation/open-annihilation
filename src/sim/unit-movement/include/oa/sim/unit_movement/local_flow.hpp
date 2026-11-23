@@ -18,8 +18,6 @@ struct LocalFlowBlocker {
     uint16_t unit_id{};
     uint16_t heading{};
     uint32_t waiting_ticks{};
-    /// Transient proof of a compatible leader within the caller's traffic grace period.
-    bool same_route_queue{};
 };
 
 /// Counts local traffic work and its movement outcomes.
@@ -52,12 +50,11 @@ struct LocalFlowProbe {
     /// The caller schedules this from the existing retry phase and actual motion age.
     bool recovery_yield{};
     /// Whether a mature retry may use a clear adjacent origin when ordinary passing
-    /// leaves it in the current origin. The caller enables this only on its retry phase.
+    /// leaves it in the current origin and the moving traffic the route probe found
+    /// heads a quarter turn or more away from the unit's heading, across its way or
+    /// against it. Behind traffic going its own way the unit keeps its place. The
+    /// caller enables this only on its retry phase.
     bool mature_cell_escape{};
-    /// Whether that escape is taken only when the moving traffic the route probe
-    /// found heads a quarter turn or more away from the unit's heading, across its
-    /// way or against it. Behind traffic going its own way the unit keeps its place.
-    bool counterflow_cell_escape{};
 };
 
 /// A temporary steering target; the original mission and route remain unchanged.
@@ -255,29 +252,6 @@ bool read_local_flow_heads(std::span<LocalFlowHead> heads, std::span<const uint8
 /// @param host collision and spatial operations
 /// @param[in,out] counters blockage and deferred-replan counts
 void integrate_local_flow(
-    Unit& unit,
-    Movement& movement,
-    uint32_t tick,
-    bool local_simulation,
-    Host& host,
-    LocalFlowCounters& counters
-);
-
-/// Opts into the swept ground step while retaining Enhanced motion-clock accounting.
-///
-/// The actual-position progress clock and blocked counter follow integrate_local_flow:
-/// a step leaving position unchanged restores its previous clock. Other layers and
-/// remote simulation retain native integration through the swept function's delegation.
-/// The caller must establish that the unit is unattached.
-///
-/// @param[in,out] unit actual unit whose pose and occupancy are updated
-/// @param[in,out] movement actual motion, speed, collision flags and progress clock
-/// @param tick current simulation tick
-/// @param local_simulation whether this machine simulates the unit's owner
-/// @param host existing native collision and spatial operations
-/// @param[in,out] counters existing Enhanced blocked-step accounting
-/// @return the swept step's bounded-query outcome
-[[nodiscard]] GroundSweepResult integrate_swept_local_flow(
     Unit& unit,
     Movement& movement,
     uint32_t tick,

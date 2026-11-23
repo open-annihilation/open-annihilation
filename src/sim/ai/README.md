@@ -62,16 +62,17 @@ pass to the next.
   a builder. An id that is 0 or not below the type count is skipped. The
   list keeps `build_list_kept` plus one entries.
 - Downloadable types are skipped when the campaign flag is set.
-- Experimental Enhanced preset 7 admits at most 256 new members to one
-  strike task per dispatch, including the first member of an empty squad.
-  The remaining source members keep their squads and existing orders until
-  a later dispatch recruits them. Existing strike members and the native
-  straggler-shedding order are unchanged. Earlier presets retain the limit
-  of 5,000 recruits plus an optional first member. This uses canonical
-  membership and keeps no pending queue or extra saved state.
-- Enhanced preset 10 divides each attacking land or naval strike into at
-  most eight spatial groups: four bands along the squad's larger horizontal
-  extent and two along the smaller. Each group chooses from the current
+- With the Enhanced Mode feature `wide_strike_recruits`, a strike task
+  admits at most 1,024 new members per dispatch, including the first member
+  of an empty squad. The remaining source members keep their squads and
+  existing orders until a later dispatch recruits them. Existing strike
+  members and the native straggler-shedding order are unchanged. Without it
+  the limit of 5,000 recruits plus an optional first member stays. This uses
+  canonical membership and keeps no pending queue or extra saved state.
+- With the Enhanced Mode feature `paced_cohort_targets`, each attacking
+  land or naval strike is divided into at most eight spatial groups: four
+  bands along the squad's larger horizontal extent and two along the
+  smaller. Each group chooses from the current
   canonical enemy records, with the ordinary alliance, cloak, occupancy and
   water filters and positive live health. A target's squared whole-world
   distance, plus one, is multiplied by one plus the number of earlier groups
@@ -85,7 +86,12 @@ pass to the next.
   selected-front comparisons per dispatched member use bounded local arrays,
   no new random draws and no retained target handles. A masked refresh still
   commands only its selected sources. Attack callbacks remain in unit-slot order.
-  Earlier presets keep the whole-squad nearest-enemy command.
+  A call starts at most 256 chases for members that have none; the match's
+  cohort refresh orders the rest a few ticks later. With
+  `dispatch_cohort_retention` as well, a group whose verified majority already
+  chases one target keeps it at the strike's periodic dispatch while it costs
+  within 12.5% of the best. Without these features the strike keeps the
+  whole-squad nearest-enemy command.
 - A pick whose unit name holds `MAKENUKE` or `MAKEANTI` is a round for the
   builder's first weapon. The structures task queues it with `order_factory`,
   and so does the construction task, which places no site for it: the match
@@ -105,8 +111,8 @@ downloadable type's own lines. The built-in player does both. The strategic
 strengths belong to the match: this module reads them and does not refresh
 them.
 
-The distributed recruitment bound can take more strike dispatches to gather
-a large army. It does not cap the existing squad's attack commands when a
+The wide recruitment bound can take more strike dispatches to gather a very
+large army. It does not cap the existing squad's attack commands when a
 target changes, or the cost of examining and shedding its stragglers.
 
 Spatial attack groups do not test ground reachability or line of fire, and

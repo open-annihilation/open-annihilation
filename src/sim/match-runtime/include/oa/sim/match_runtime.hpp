@@ -27,7 +27,7 @@
 #include "oa/sim/unit_health/paralysis.hpp"
 #include <functional>
 #include "oa/sim/ground_orders/ground_runtime.hpp"
-#include "oa/sim/ground_orders/corridors.hpp"
+#include "oa/sim/ground_orders/navigator.hpp"
 #include "oa/sim/air/driver.hpp"
 #include "oa/sim/ground_orders/search_worker.hpp"
 #include "oa/sim/detection.hpp"
@@ -270,8 +270,6 @@ struct OfflineInputs {
     // The mutator digest of the match, folded into the state digest when
     // set. None when the match applied no mutator.
     std::optional<base::sha256::Digest> mutator_digest{};
-    /// The battle benchmark only; R05 replaces it.
-    std::optional<data::enhanced_mode::FeatureSet> enhanced_features_override{};
 };
 
 /// Returns a canonical 16.16 point as the raw words the legacy views use.
@@ -601,7 +599,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Returns the effective local traffic route for network publication.
     ///
     /// @param unit unit slot
-    /// @return the passing head, advisory guide, or null without traffic storage
+    /// @return the passing head, or null without traffic storage
     [[nodiscard]] const sim::unit_movement::LocalFlowHead*
     local_flow_head(uint16_t unit) const noexcept;
 
@@ -3410,27 +3408,6 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     SpatialQueryCounters spatial_query_counters_{};
     struct EnhancedState;
     std::unique_ptr<EnhancedState> enhanced_{};
-    /// Preallocates future-five corridor advice and its owner-local save table.
-    void initialize_advisory_flow();
-    /// Chooses temporary lane geometry after canonical navigation, preserving its Goal.
-    bool advisory_navigation(
-        sim::unit_spawn::Slot& slot,
-        sim::ground_orders::GroundRuntime& ground,
-        std::array<uint8_t, 3>& weapon_flags,
-        sim::ground_orders::Navigation& steering
-    );
-    /// Invalidates only proofs intersecting an actual static-footprint change.
-    void advisory_static_change(std::array<int16_t, 2> cell, std::array<int16_t, 2> footprint);
-    /// Withdraws advice before a unit slot starts another incarnation.
-    void reset_advisory_unit(uint16_t unit) noexcept;
-    /// Withdraws advice before a canonical order's storage can be reused.
-    void forget_advisory_order(uint16_t unit, const sim::simulation_state::Order* order) noexcept;
-    /// Builds the complete-known static sampler for one player/class catalog.
-    sim::ground_orders::CorridorSampler advisory_sampler(void* catalog) noexcept;
-    /// Saves and restores the complete bounded advisory continuation state.
-    std::span<const uint8_t> advisory_state_bytes() noexcept;
-    /// Restores complete preallocated advisory state after atomic validation.
-    bool restore_advisory_state(std::span<const uint8_t> bytes) noexcept;
     /// Invalidates the once-per-tick list before spawning or carrying a unit.
     void invalidate_target_query_extras() noexcept;
     friend class TickHost;
@@ -4090,13 +4067,6 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     sim::visibility_state::SightContext sight_context();
     sim::unit_movement::Terrain terrain_;
     std::array<std::map<uint32_t, std::vector<uint16_t>>, 10> groups_;
-    /// One entry for every value a 16-bit unit slot can hold.
-    static constexpr std::size_t squad_slot_capacity = std::size_t{1} << 16;
-    /// Preset 6's derived squad positions plus one; zero has no cached position.
-    /// Every use checks the current owner's squad vector before removing a member.
-    std::array<uint16_t, squad_slot_capacity> squad_positions_{};
-    /// A restored or changed membership leaves this Match on legacy searches.
-    bool squad_positions_valid_{true};
     SharedRandom random_;
     std::shared_ptr<void> computer_player_state_;
     // One seat's turn, when something other than the built-in computer player

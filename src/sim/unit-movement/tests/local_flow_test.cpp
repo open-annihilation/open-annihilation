@@ -375,80 +375,6 @@ void test_units_turning_together_keep_their_route() {
     OA_CHECK(grid.overlap_count == 0);
 }
 
-void test_verified_queue_keeps_native_target_until_recovery() {
-    Grid grid;
-    auto& blocker = grid.add(8, 6, 0, 14, 6);
-    auto& follower = grid.add(6, 6, 0, 14, 6);
-    grid.tick = 20;
-    blocker.movement.last_motion_tick = grid.tick - 5;
-    follower.movement.last_motion_tick = grid.tick - 1;
-    grid.snapshot_progress();
-    OA_CHECK(!LocalFlowBlocker{}.same_route_queue);
-    auto verified = grid.query();
-    verified.at =
-        [](void* context, const Unit& unit, std::array<int16_t, 2> cell, uint8_t occupancy) {
-            auto result = static_cast<Grid*>(context)->probe(unit, cell, occupancy);
-            result.same_route_queue = result.obstacle == LocalFlowObstacle::moving;
-            return result;
-        };
-    LocalFlowCounters original_counters{}, queue_counters{};
-    const auto original = choose_local_flow(
-        follower.unit,
-        follower.movement,
-        follower.destination,
-        grid.tick,
-        grid,
-        grid.query(),
-        original_counters
-    );
-    const auto queued = choose_local_flow(
-        follower.unit,
-        follower.movement,
-        follower.destination,
-        grid.tick,
-        grid,
-        verified,
-        queue_counters
-    );
-    OA_CHECK(original.mobile_blocked && original.adjusted);
-    OA_CHECK(queued.mobile_blocked && !queued.adjusted && !queued.reverse);
-    OA_CHECK(queued.target == follower.destination);
-    OA_CHECK(queue_counters.yielded_ticks == 0 && queue_counters.steering_adjustments == 0);
-    OA_CHECK(queue_counters.probes < original_counters.probes);
-    verified.recovery_yield = true;
-    auto recovery = grid.query();
-    recovery.recovery_yield = true;
-    LocalFlowCounters verified_recovery_counters{}, recovery_counters{};
-    const auto checked = choose_local_flow(
-        follower.unit,
-        follower.movement,
-        follower.destination,
-        grid.tick,
-        grid,
-        verified,
-        verified_recovery_counters
-    );
-    const auto ordinary = choose_local_flow(
-        follower.unit,
-        follower.movement,
-        follower.destination,
-        grid.tick,
-        grid,
-        recovery,
-        recovery_counters
-    );
-    OA_CHECK(checked.adjusted && checked.target == ordinary.target);
-    OA_CHECK(
-        checked.reverse == ordinary.reverse && checked.mobile_blocked == ordinary.mobile_blocked
-    );
-    OA_CHECK(verified_recovery_counters.probes == recovery_counters.probes);
-    OA_CHECK(verified_recovery_counters.yielded_ticks == recovery_counters.yielded_ticks);
-    OA_CHECK(
-        verified_recovery_counters.steering_adjustments == recovery_counters.steering_adjustments
-    );
-    OA_CHECK(grid.overlap_count == 0);
-}
-
 void test_diagonal_corner_clearance() {
     Grid grid;
     grid.add(8, 6, west, 2, 6);
@@ -753,7 +679,6 @@ void test_counterflow_crossing_and_choke() {
 int main() {
     test_priority_and_stationary_obstacles();
     test_units_turning_together_keep_their_route();
-    test_verified_queue_keeps_native_target_until_recovery();
     test_sequential_progress_preserves_tick_start_priority();
     test_older_higher_id_keeps_priority_after_moving();
     test_diagonal_corner_clearance();

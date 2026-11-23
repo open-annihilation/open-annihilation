@@ -26,6 +26,14 @@ namespace runtime = oa::sim::match_runtime;
 namespace simulation = oa::sim::simulation_state;
 namespace movement = oa::sim::unit_movement;
 namespace ground = oa::sim::ground_orders;
+namespace enhanced = oa::data::enhanced_mode;
+
+/// Local traffic flow with nothing else but capacity, the set whose recovery
+/// these cases measure.
+const enhanced::FeatureSet local_flow_set =
+    enhanced::close_features(enhanced::FeatureSet{}.with(enhanced::Feature::local_flow));
+/// Capacity alone: Enhanced Mode on, without local traffic flow.
+const enhanced::FeatureSet capacity_only = enhanced::FeatureSet{}.with(enhanced::Feature::capacity);
 
 constexpr int32_t pixel = 65536;
 constexpr movement::Fixed maximum_speed = 117964;
@@ -37,7 +45,7 @@ constexpr uint8_t sea_level = 30;
 constexpr uint32_t recovery_tick = 58;
 
 /// Rebuilds the fixture with flat known land and one full two-by-two ground class.
-void configure_ground(Fixture& fixture, uint32_t version) {
+void configure_ground(Fixture& fixture, const enhanced::FeatureSet& features) {
     fixture.match.reset();
     fixture.map.sea_level = sea_level;
     for (size_t index = 0; index < fixture.map.attributes.size(); ++index) {
@@ -78,8 +86,9 @@ void configure_ground(Fixture& fixture, uint32_t version) {
             8, 8, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
-    oa::data::enhanced_mode::apply_alias(
-        input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    enhanced::store_choice(
+        input.rules.setup.enhanced_mode,
+        features.empty() ? enhanced::Choice{} : enhanced::Choice{1, features}
     );
     input.unit_player_mask = 3;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
@@ -208,14 +217,14 @@ MovementResult run_gate_case(
     uint32_t snapshot_age,
     uint8_t blocked_ticks,
     std::optional<uint32_t> later_age = std::nullopt,
-    uint32_t version = 2
+    const enhanced::FeatureSet& features = local_flow_set
 ) {
     Options options;
     options.sight_cells = 9;
     Fixture fixture(options);
     std::array<uint8_t, 4> yard{4, 4, 4, 4};
     fixture.fields[1].yard_mask = yard;
-    configure_ground(fixture, version);
+    configure_ground(fixture, features);
     auto& blocker = fixture.spawn(0, 136, 64);
     auto& mover = fixture.spawn(0, 112, 64);
     auto& match = *fixture.match;
@@ -247,7 +256,8 @@ MovementResult run_gate_case(
     ground.navigation.flags = ground::route_present_flag;
     ground.navigation.last_search_tick = 0;
     CHECK(ground.navigation.goal != nullptr);
-    if (version >= 2)
+    const bool local_flow = features.has(enhanced::Feature::local_flow);
+    if (local_flow)
         restore_blocked_head(match, mover.unit_index, blocked_ticks);
     else
         CHECK(runtime::find_rule_state(match.rule_state(), "local-flow") == nullptr);
@@ -310,7 +320,7 @@ MovementResult run_gate_case(
     }
     // Eligibility reads the snapshot; it must not restore the live clock
     // changed by another callback. A clamped non-yielding move goes nowhere.
-    if (later_age && version >= 2 && !result.active)
+    if (later_age && local_flow && !result.active)
         CHECK(ground.movement.last_motion_tick == tick - *later_age);
     return result;
 }
@@ -324,8 +334,8 @@ void test_recovery_phase_and_age_boundaries() {
     CHECK(!run_gate_case(recovery_tick - 1, 30, 31).active);
     CHECK(!run_gate_case(recovery_tick, 30, 29).active);
     CHECK(run_gate_case(recovery_tick, 30, 30).active);
-    CHECK(!run_gate_case(recovery_tick, 30, 31, std::nullopt, 0).active);
-    CHECK(!run_gate_case(recovery_tick, 30, 31, std::nullopt, 1).active);
+    CHECK(!run_gate_case(recovery_tick, 30, 31, std::nullopt, {}).active);
+    CHECK(!run_gate_case(recovery_tick, 30, 31, std::nullopt, capacity_only).active);
 }
 
 /// Uses the captured age even when a later callback makes the live clock fresh or old.

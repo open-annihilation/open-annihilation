@@ -269,8 +269,6 @@ revision. A benchmark takes the same two flags, and a `--bench` file takes
 `enhanced_revision` and `enhanced_features`. Either one applies to that
 measured match.
 
-Development aliases (removed before release): `--enhanced-mode-version` and `--benchmark-rules-version`. `--benchmark-features SPEC` plays a closed feature set in a battle benchmark only (a base such as `v13` or a list of names, then `+name` and `-name`); it cannot be combined with `--enhanced-revision` or `--enhanced-features`.
-
 ### Network play
 
 | Option | What it does |
@@ -464,7 +462,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-paused-save` | Saves a paused skirmish, loads it and checks it runs. |
 | `--check-saved-brains` | Saves a skirmish a brain plays, loads it with that brain's state, and asks to load with the built-in player when the brain is missing. |
 | `--check-simulation-hash` | Checks the simulation hash with no mod, with a mod and after a Developer Mode override. |
-| `--check-enhanced-mode` | Checks the versioned preset, independent graphics choices, fixed match rules and save/replay restoration. Requires an isolated `--preferences-file`. |
+| `--check-enhanced-mode` | Checks Revision 1 and named feature sets, independent graphics choices, fixed match rules and save/replay restoration. Requires an isolated `--preferences-file`. |
 | `--check-zoom-memory` | Zooms a large battlefield out and back with a small model budget. |
 | `--check-unit-language TAG` | Checks units' names and descriptions show in the language `TAG` names. |
 | `--check-language-switch` | Changes the language over the main menu and over a skirmish, from Simplified Chinese, or the installed pack's language `--check-language TAG` names, to English and German and back. |

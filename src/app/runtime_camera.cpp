@@ -3,8 +3,6 @@
 
 // Radar interaction, zoom, camera panning and move/patrol orders.
 #include "oa/app/runtime.hpp"
-#include "group_order_distribution.hpp"
-#include "oa/data/enhanced_mode.hpp"
 #include "oa_layer.hpp"
 #include "oa/app/far_view.hpp"
 #include "oa/app/frame_coordinates.hpp"
@@ -1220,40 +1218,13 @@ void Runtime::issue_selection_move(
         const auto command = oa::sim::gameplay_input::OrderCommand::move;
         const auto bound = group_order_bound_unit(command, pointer_unit);
         const auto centre = local_selection_centre(bound);
-        if (match_->enhanced_features().has(
-                oa::data::enhanced_mode::Feature::distributed_arrivals
-            )) {
-            std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
-            const auto& world = match_->state();
-            const oa::FixedVec3 click{point[0], point[1], point[2]};
-            const auto hooks = order_cursor_hooks();
-            for_each_selected([&](uint16_t id) {
-                if (id != bound)
-                    if (const auto* actor = oa::world_unit_at(&world, id))
-                        orders.push_back(
-                            group_order_intent(world, centre, command, *actor, click, hooks)
-                        );
-            });
-            distribute_group_order_destinations(orders, point);
-            for (const auto& order : orders) {
-                const auto id = order.actor->id;
-                const oa::sim::ground_orders::Point at{
-                    order.position.x, order.position.y, order.position.z
-                };
-                if (!cancels_queued_command(id, command, 0, at, queue) &&
-                    match_->takes_move_order(id))
-                    match_->issue_ground_move(id, at, queue);
-            }
-        } else {
-            for_each_selected([&](uint16_t id) {
-                if (id == bound)
-                    return;
-                const auto at = group_order_destination(centre, command, id, 0, point);
-                if (!cancels_queued_command(id, command, 0, at, queue) &&
-                    match_->takes_move_order(id))
-                    match_->issue_ground_move(id, at, queue);
-            });
-        }
+        for_each_selected([&](uint16_t id) {
+            if (id == bound)
+                return;
+            const auto at = group_order_destination(centre, command, id, 0, point);
+            if (!cancels_queued_command(id, command, 0, at, queue) && match_->takes_move_order(id))
+                match_->issue_ground_move(id, at, queue);
+        });
     } catch (const std::exception& error) {
         status_ = std::string("move command: ") + error.what();
         std::cerr << "unsupported operation: " << status_ << '\n';
@@ -1289,40 +1260,16 @@ bool Runtime::issue_selection_patrol(
         const auto* aimed = bound != 0 ? oa::world_unit_at(&world, bound) : nullptr;
         const oa::FixedVec3 position{point[0], point[1], point[2]};
         const auto hooks = order_cursor_hooks();
-        if (match_->enhanced_features().has(
-                oa::data::enhanced_mode::Feature::distributed_arrivals
-            )) {
-            std::vector<input::SelectionOrder> orders;
-            for_each_selected([&](uint16_t id) {
-                const auto* actor = oa::world_unit_at(&world, id);
-                if (id == bound || actor == nullptr ||
-                    input::unit_order(world, command, *actor, aimed, &position, hooks) ==
-                        input::UnitOrder::none)
-                    return;
-                orders.push_back(
-                    group_order_intent(world, centre, command, *actor, position, hooks)
-                );
-            });
-            distribute_group_order_destinations(orders, point);
-            for (const auto& order : orders) {
-                const oa::sim::ground_orders::Point at{
-                    order.position.x, order.position.y, order.position.z
-                };
-                if (!cancels_queued_command(order.actor->id, command, 0, at, queue))
-                    match_->issue_patrol(order.actor->id, at, queue);
-            }
-        } else {
-            for_each_selected([&](uint16_t id) {
-                const auto* actor = oa::world_unit_at(&world, id);
-                if (id == bound || actor == nullptr ||
-                    input::unit_order(world, command, *actor, aimed, &position, hooks) ==
-                        input::UnitOrder::none)
-                    return;
-                const auto at = group_order_destination(centre, command, id, 0, point);
-                if (!cancels_queued_command(id, command, 0, at, queue))
-                    match_->issue_patrol(id, at, queue);
-            });
-        }
+        for_each_selected([&](uint16_t id) {
+            const auto* actor = oa::world_unit_at(&world, id);
+            if (id == bound || actor == nullptr ||
+                input::unit_order(world, command, *actor, aimed, &position, hooks) ==
+                    input::UnitOrder::none)
+                return;
+            const auto at = group_order_destination(centre, command, id, 0, point);
+            if (!cancels_queued_command(id, command, 0, at, queue))
+                match_->issue_patrol(id, at, queue);
+        });
     } catch (const std::exception& error) {
         status_ = std::string("patrol command: ") + error.what();
         std::cerr << "unsupported operation: " << status_ << '\n';

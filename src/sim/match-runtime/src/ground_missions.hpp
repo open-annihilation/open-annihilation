@@ -451,43 +451,6 @@ class TickHost::GroundMissions {
         );
     }
 
-    /// Retains an unchanged patrol leg's owned ground goal and navigation.
-    /// Search-seed status stays on a continued goal; completion and cancellation do not continue it.
-    ///
-    /// @param point signed 16.16 patrol destination
-    /// @param tolerance arrival radius in world units
-    void refresh_patrol_goal(const sim::ground_orders::Point& point, int32_t tolerance) {
-        constexpr uint32_t interrupted_goal_events =
-            sim::ground_orders::arrived_event | sim::ground_orders::path_failed_event |
-            sim::ground_orders::goal_replaced_event | ground::cancel_event;
-        auto* movement = host.match.ground_runtime(s.unit_index);
-        const auto features = host.match.enhanced_features();
-        if (features.has(data::enhanced_mode::Feature::patrol_goal_retention) && !can_fly() &&
-            movement && s.unit && sim::simulation_state::locally_simulated(*s.unit) &&
-            !movement->mirrored_driver && s.record.attach_parent == 0 &&
-            (movement->movement.flags & sim::unit_movement::occupancy_mask) ==
-                ground::occupancy_ground &&
-            order.kind == ground::patrol_kind && record.extra.goal &&
-            movement->navigation.goal == record.extra.goal.get() &&
-            record.extra.goal->order == &order &&
-            ((order.raised_events | events) & interrupted_goal_events) == 0) {
-            movement->project_slot();
-            const auto expected =
-                sim::ground_orders::make_goal(order, movement->geometry, point, tolerance);
-            const auto& existing = *record.extra.goal;
-            if (!sim::ground_orders::goal_contains_unit(existing, movement->geometry) &&
-                existing.shape == expected.shape && existing.cell == expected.cell &&
-                existing.tolerance == expected.tolerance &&
-                existing.radius_squared == expected.radius_squared &&
-                existing.inner_range == expected.inner_range &&
-                existing.inner_radius_squared == expected.inner_radius_squared &&
-                existing.left == expected.left && existing.right == expected.right &&
-                existing.top == expected.top && existing.bottom == expected.bottom)
-                return;
-        }
-        circle_goal(point, tolerance);
-    }
-
     /// Replaces the order's goal with standing on the border of a site; an
     /// aircraft or a unit without a movement object only drops its goal.
     ///

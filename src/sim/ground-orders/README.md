@@ -147,13 +147,15 @@ on every host and at every rounding threshold are not yet established. This
 component alone does not establish multiplayer compatibility. Goals and
 routes use standard C++ allocations; an allocation failure throws.
 
-`shared_routes.hpp` supplies the opt-in Enhanced v2 cache. Construction
-preallocates canonical byte storage for at most 64 coarse reverse fields,
-within a total of 2,097,152 coarse cells. A field joins repeated destinations
-in one 32-cell region for the same movement class and player. Every coarse
-edge and returned route edge is checked at footprint-cell resolution against
-current static passability and player knowledge. Narrow corridors outside
-the four-cell coarse graph fall back to ordinary search.
+`shared_routes.hpp` supplies the cache of the Enhanced Mode feature
+`routes_fine_regions`. Construction preallocates canonical byte storage for
+at most 64 coarse reverse fields by default, within a total of 2,097,152
+coarse cells; the match asks for 80 fields within 8,388,608 cells. A coarse
+node lies every two map cells. A field joins repeated destinations in one
+96-cell region for the same movement class and player. Every coarse edge and
+returned route edge is checked at footprint-cell resolution against current
+static passability and player knowledge. Narrow corridors outside the
+two-cell coarse graph fall back to ordinary search.
 
 Clear direct routes keep each unit's own destination instead of converging on
 the region's first destination or its coarse anchor. Direct visibility tests
@@ -170,15 +172,13 @@ Pending requests leave the full search's retry stamp untouched. The cache
 retains its cursors and frontiers in validated little-endian save bytes;
 it is owner-local state, excluded from shared simulation digests.
 
-The default `FlowPreset::original` retains format 1, 32-cell destination
-regions and extraction of up to 128 coarse edges. Enhanced rules version 3
-selects `FlowPreset::large_regions`: format 2, 96-cell regions and at most
-16 coarse edges per prefix. A blocked connection rejects that route and
-marks the field for bounded refresh while preserving other useful branches.
-The work and probe limits remain the same. Both formats use the same table
-layout and size; restoring another preset's format fails without changes.
-Format 2 can also remove one unnecessary bend after the anchor shortcut
-when the full chord is known and clear. It traces the actual fixed-point
+The saved state is format 3. A route prefix holds at most 32 coarse edges,
+and when the goal's own branch of the tree is needed the route follows it.
+A completed field keeps 60 ticks before a new destination may take its
+storage. A blocked connection rejects that route and marks the field for
+bounded refresh while preserving other useful branches. Restoring another
+format fails without changes. A route can also remove one unnecessary bend
+after the anchor shortcut when the full chord is known and clear. It traces the actual fixed-point
 footprint pose, including both sides of exact corner crossings. This optional
 ray uses at most 128 probes per request within the existing per-tick extraction
 budget.

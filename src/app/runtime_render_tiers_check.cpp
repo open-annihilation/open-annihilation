@@ -2333,15 +2333,14 @@ int Runtime::check_render_tiers() {
                 leave_match();
                 load(Screen::main_menu);
                 if (!hold_enhanced_rules_once(
-                        enhanced ? mode::following_flow_version : mode::off_version
+                        enhanced ? mode::Choice{1, mode::revision_features(1)} : mode::Choice{}
                     ))
                     fail("the classic overlay fixture could not select its actual match rules");
                 start_benchmark_skirmish();
                 if (!match_ || match_->rules().setup.enhanced_mode.enabled != enhanced)
                     fail("the classic overlay fixture did not start the requested real match");
-                if (enhanced && oa::data::enhanced_mode::rules_version(match_->rules()) !=
-                                    mode::following_flow_version)
-                    fail("the classic overlay fixture upgraded or replaced its Enhanced preset");
+                if (enhanced && mode::features(match_->rules()) != mode::revision_features(1))
+                    fail("the classic overlay fixture replaced its Enhanced Mode choice");
                 spawn_combat_armies(1);
                 select_local_commander();
                 const uint16_t selected = selected_match_unit_;
@@ -2427,7 +2426,9 @@ int Runtime::check_render_tiers() {
     if (!options_.snapshot.empty()) {
         leave_match();
         load(Screen::main_menu);
-        if (!hold_enhanced_rules_once(oa::data::enhanced_mode::cohort_target_version))
+        if (!hold_enhanced_rules_once(
+                oa::data::enhanced_mode::Choice{1, oa::data::enhanced_mode::revision_features(1)}
+            ))
             fail("the lighter-far-units pictures could not select an Enhanced match");
         start_benchmark_skirmish();
         if (!match_ || !match_->rules().setup.enhanced_mode.enabled)
@@ -2479,7 +2480,11 @@ int Runtime::check_render_tiers() {
         const auto switch_frame = [&](bool lighter, HardwareAcceleration level) {
             leave_match();
             load(Screen::main_menu);
-            if (!hold_enhanced_rules_once(oa::data::enhanced_mode::cohort_target_version))
+            if (!hold_enhanced_rules_once(
+                    oa::data::enhanced_mode::Choice{
+                        1, oa::data::enhanced_mode::revision_features(1)
+                    }
+                ))
                 fail("the dots switch-over could not select an Enhanced match");
             start_benchmark_skirmish();
             if (!match_ || !match_->rules().setup.enhanced_mode.enabled)

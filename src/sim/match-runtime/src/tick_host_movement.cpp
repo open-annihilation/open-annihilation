@@ -4,8 +4,6 @@
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
 #include "live_route_corner.hpp"
-#include "local_throat_guide.hpp"
-#include "route_queue.hpp"
 
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/air/flight.hpp"
@@ -21,7 +19,6 @@ using data::enhanced_mode::Feature;
 
 namespace {
 constexpr uint8_t ground_occupancy = 1;
-constexpr uint32_t local_throat_probe_period = 12;
 
 /// Identifies goal geometry without retaining order pointers or native padding.
 ///
@@ -126,10 +123,6 @@ void TickHost::movement_tick(oa::Unit& record) {
         if (flow_head->active)
             g.navigation.flags |= sim::ground_orders::route_changed_flag;
         *flow_head = {};
-        if (match.enhanced_->advisory &&
-            (match.enhanced_->advisory->guides[s.unit_index].phase != AdvisoryLanePhase::none ||
-             match.enhanced_->advisory->published_guides[s.unit_index].active))
-            match.reset_advisory_unit(s.unit_index);
     }
     // The driver's per-tick slot and the steering step run for carried units
     // too; the carried branch below then overrides their position, attitude,
@@ -180,11 +173,6 @@ void TickHost::movement_tick(oa::Unit& record) {
         if (defer_replan)
             g.movement.flags |= collision;
         bool advanced_corner = false;
-        const bool moving_corner =
-            flow_head && features.has(Feature::moving_corner_advance) && g.movement.speed > 0 &&
-            live_route_corner_moving_due(
-                g.geometry, g.navigation, match.simulation_.tick, s.unit_index
-            );
         const bool blocked_corner =
             flow_head &&
             live_route_corner_due(flow_head->blocked_ticks, match.simulation_.tick, s.unit_index);
@@ -194,7 +182,7 @@ void TickHost::movement_tick(oa::Unit& record) {
         if (flow_head && features.has(Feature::route_corner_advance) && !parent_index &&
             head_joins_corner &&
             (g.movement.flags & sim::unit_movement::occupancy_mask) == ground_occupancy &&
-            (blocked_corner || moving_corner)) {
+            blocked_corner) {
             if (const auto* klass = match.movement_class_map(g.movement_class)) {
                 auto classifier = klass->record;
                 classifier.occupancy_before_tick = 0;
@@ -228,18 +216,13 @@ void TickHost::movement_tick(oa::Unit& record) {
                     classifier.footprint_x,
                     classifier.footprint_z,
                     known_static_clear,
-                    match.enhanced_->local_flow_counters.probes,
-                    blocked_corner ? live_route_corner_maximum_plots
-                                   : moving_route_corner_maximum_plots
+                    match.enhanced_->local_flow_counters.probes
                 );
             }
         }
         auto effective_navigation = g.navigation;
         std::optional<sim::ground_orders::SteeringTargetCache> steering_cache;
         const bool reuse_steering = features.has(Feature::steering_projection_reuse);
-        if (match.enhanced_ && match.enhanced_->advisory)
-            (void)match.advisory_navigation(s, g, flags, effective_navigation);
-        const auto& advisory_navigation = effective_navigation;
         if (flow_head && !parent_index) {
             const bool had_head = flow_head->active;
             const auto previous_points = flow_head->points;
@@ -287,102 +270,20 @@ void TickHost::movement_tick(oa::Unit& record) {
                         sim::spatial_state::CellClassifier movement{};
                         uint32_t player{};
                         bool have_movement{};
-                        bool same_route_queue{};
-                        bool follow_applied_heads{};
                     } context;
 
                     context.match = &match;
                     context.player = s.record.owner_index;
-                    context.follow_applied_heads = features.has(Feature::local_following);
-                    context.same_route_queue =
-                        features.has(Feature::route_queue) &&
-                        flow_head->blocked_ticks < sim::unit_movement::local_flow_retry_ticks &&
-                        sim::simulation_state::locally_simulated(u);
                     if (const auto* klass = match.movement_class_map(g.movement_class)) {
                         context.movement = klass->record;
                         context.movement.occupancy_before_tick = 0;
                         context.have_movement = true;
                     }
-                    bool guide_ready = false;
-                    if (features.has(Feature::local_throat_guide) &&
-                        (uint64_t(match.simulation_.tick) + s.unit_index) %
-                                local_throat_probe_period ==
-                            0 &&
-                        sim::simulation_state::locally_simulated(u) &&
-                        (g.movement.flags & sim::unit_movement::occupancy_mask) ==
-                            ground_occupancy &&
-                        context.have_movement && context.movement.footprint_x == 2 &&
-                        context.movement.footprint_z == 2 &&
-                        g.geometry.footprint == sim::ground_orders::CorridorOrigin{2, 2}) {
-                        const auto* goal = g.navigation.goal;
-                        const auto* own = goal->order ? match.runtime_order(goal->order) : nullptr;
-                        if (own && own->unit == &u && own->extra.goal.get() == goal &&
-                            u.primary == goal->order) {
-                            const sim::ground_orders::CorridorSampler sampler{
-                                &context,
-                                [](void* context,
-                                   sim::ground_orders::CorridorOrigin cell,
-                                   sim::ground_orders::CorridorOrigin footprint) {
-                                    const auto& probe_context =
-                                        *static_cast<ProbeContext*>(context);
-                                    const auto& current = *probe_context.match;
-                                    if (footprint != sim::ground_orders::CorridorOrigin{2, 2} ||
-                                        probe_context.player >= OA_PLAYER_COUNT || cell[0] < 0 ||
-                                        cell[1] < 0 ||
-                                        uint32_t(cell[0]) + uint32_t(footprint[0]) >=
-                                            current.spatial_.terrain_width ||
-                                        uint32_t(cell[1]) + uint32_t(footprint[1]) >=
-                                            current.spatial_.terrain_height)
-                                        return sim::ground_orders::CorridorCell::blocked;
-                                    const auto width = current.spatial_.terrain_width >> 1;
-                                    const auto height = current.spatial_.terrain_height >> 1;
-                                    for (int32_t z = 0; z < footprint[1]; ++z)
-                                        for (int32_t x = 0; x < footprint[0]; ++x) {
-                                            const auto sx = uint32_t(cell[0] + x) >> 1;
-                                            const auto sz = uint32_t(cell[1] + z) >> 1;
-                                            const auto at = size_t(sz) * width + sx;
-                                            if (sx >= width || sz >= height ||
-                                                at >= current.sight_.player_bits.size() ||
-                                                (current.sight_.player_bits[at] &
-                                                 (1u << probe_context.player)) == 0)
-                                                return sim::ground_orders::CorridorCell::unknown;
-                                        }
-                                    return sim::ground_orders::static_flow_passable(
-                                               probe_context.movement,
-                                               cell[0],
-                                               cell[1],
-                                               current.spatial_
-                                           )
-                                               ? sim::ground_orders::CorridorCell::clear
-                                               : sim::ground_orders::CorridorCell::blocked;
-                                }
-                            };
-                            sim::ground_orders::CorridorBudget budget{
-                                local_throat_maximum_probes, 0
-                            };
-                            bool consume_first = false;
-                            guide_ready = try_local_throat_guide(
-                                g.geometry,
-                                g.navigation,
-                                sampler,
-                                budget,
-                                effective_navigation,
-                                &consume_first
-                            );
-                            if (guide_ready && consume_first) {
-                                sim::ground_orders::advance_path(g.navigation, 1);
-                                g.navigation.points[0] = local_flow_point(g.geometry);
-                            }
-                            match.enhanced_->local_flow_counters.probes += budget.used;
-                        }
-                    }
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &context;
                     probe.allow_reverse = recover;
-                    probe.counterflow_cell_escape = features.has(Feature::counterflow_queue_escape);
                     probe.mature_cell_escape =
-                        recover && (features.has(Feature::cardinal_queue_escape) ||
-                                    probe.counterflow_cell_escape);
+                        recover && features.has(Feature::counterflow_queue_escape);
                     if (completed_head || recent_completion)
                         probe.previous_head = flow_head;
                     if (match.enhanced_->local_flow_progress_snapshot_valid &&
@@ -407,7 +308,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                         using sim::unit_movement::LocalFlowBlocker;
                         using sim::unit_movement::LocalFlowObstacle;
                         LocalFlowBlocker result{};
-                        bool all_share_route = probe_context.same_route_queue;
                         if (occupancy != 1 || cell[0] < 0 || cell[1] < 0 ||
                             uint32_t(cell[0]) + uint32_t(moving.footprint[0]) >=
                                 m.spatial_.terrain_width ||
@@ -449,65 +349,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                                     other->geometry.type.maximum_speed <= 0 ||
                                     link_parent(m.slots_[occupant].record))
                                     return LocalFlowBlocker{LocalFlowObstacle::stationary};
-                                if (all_share_route) {
-                                    const auto follower_id = static_cast<uint16_t>(moving.id);
-                                    const auto* follower = m.ground_runtime(follower_id);
-                                    const auto owns_route = [&m](uint16_t id, const auto& ground) {
-                                        const auto& slot = m.slots_[id];
-                                        const auto* goal = ground.navigation.goal;
-                                        if (!slot.unit || !goal || !goal->order ||
-                                            !oa::unit_is_live_target(slot.record.flags) ||
-                                            slot.record.health <= 0 ||
-                                            slot.record.attach_parent != 0 ||
-                                            slot.unit->primary != goal->order ||
-                                            !sim::simulation_state::locally_simulated(*slot.unit))
-                                            return false;
-                                        const auto* own = m.runtime_order(goal->order);
-                                        constexpr uint32_t cancel_event = 2;
-                                        constexpr uint32_t terminal_events =
-                                            sim::ground_orders::arrived_event |
-                                            sim::ground_orders::path_failed_event |
-                                            sim::ground_orders::goal_replaced_event | cancel_event;
-                                        return own && own->unit == slot.unit &&
-                                               own->extra.goal.get() == goal &&
-                                               (goal->order->raised_events & terminal_events) ==
-                                                   0 &&
-                                               !sim::ground_orders::goal_contains_unit(
-                                                   *goal, ground.geometry
-                                               );
-                                    };
-                                    all_share_route =
-                                        follower &&
-                                        m.slots_[occupant].record.owner_index ==
-                                            probe_context.player &&
-                                        !other->mirrored_driver &&
-                                        (other->movement.flags &
-                                         sim::unit_movement::occupancy_mask) == ground_occupancy &&
-                                        same_forward_route(
-                                            moving,
-                                            follower->navigation,
-                                            other->geometry,
-                                            other->navigation
-                                        ) &&
-                                        owns_route(follower_id, *follower) &&
-                                        owns_route(occupant, *other);
-                                    if (all_share_route && probe_context.follow_applied_heads) {
-                                        const auto* applied =
-                                            occupant < m.enhanced_->unit_count
-                                                ? &m.enhanced_->local_flow_heads[occupant]
-                                                : nullptr;
-                                        all_share_route = same_forward_route_with_applied_head(
-                                            moving,
-                                            follower->navigation,
-                                            other->geometry,
-                                            other->navigation,
-                                            applied,
-                                            local_flow_goal_key(*other->navigation.goal),
-                                            m.simulation_.tick,
-                                            true
-                                        );
-                                    }
-                                }
                                 const bool have_snapshot =
                                     m.enhanced_->local_flow_progress_snapshot_valid &&
                                     m.enhanced_->local_flow_progress_snapshot_tick ==
@@ -527,11 +368,9 @@ void TickHost::movement_tick(oa::Unit& record) {
                                         waiting
                                     };
                             }
-                        result.same_route_queue =
-                            result.obstacle == LocalFlowObstacle::moving && all_share_route;
                         return result;
                     };
-                    const auto points = sim::ground_orders::steering_points(advisory_navigation);
+                    const auto points = sim::ground_orders::steering_points(effective_navigation);
                     sim::ground_orders::SteeringTarget target;
                     if (reuse_steering) {
                         steering_cache =
@@ -567,14 +406,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                         flow_head->count = 3;
                         flow_head->active = true;
                         flow_head->goal_key = goal_key;
-                    } else if (guide_ready && !flow_head->active) {
-                        std::copy_n(
-                            effective_navigation.points.begin(), 3, flow_head->points.begin()
-                        );
-                        flow_head->count = 3;
-                        flow_head->goal_key = goal_key;
-                        flow_head->tick = match.simulation_.tick;
-                        flow_head->active = true;
                     }
                 }
             }
@@ -664,17 +495,7 @@ void TickHost::movement_tick(oa::Unit& record) {
         }
         g.geometry.flags &= ~sim::unit_movement::position_dirty;
     } else {
-        if (enhanced_flow && !air_driven && !g.mirrored_driver &&
-            features.has(Feature::swept_ground_steps))
-            (void)sim::unit_movement::integrate_swept_local_flow(
-                g.geometry,
-                g.movement,
-                match.simulation_.tick,
-                sim::simulation_state::locally_simulated(u),
-                *this,
-                match.enhanced_->local_flow_counters
-            );
-        else if (enhanced_flow && !air_driven)
+        if (enhanced_flow && !air_driven)
             sim::unit_movement::integrate_local_flow(
                 g.geometry,
                 g.movement,

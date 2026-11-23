@@ -70,7 +70,16 @@ void configure_water_barrier(Fixture& fixture, bool water, uint8_t footprint = 1
             8, 8, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
-    oa::data::enhanced_mode::apply_alias(input.rules.setup.enhanced_mode, static_cast<uint32_t>(2));
+    // Local traffic flow with nothing else but capacity.
+    oa::data::enhanced_mode::store_choice(
+        input.rules.setup.enhanced_mode,
+        {1,
+         oa::data::enhanced_mode::close_features(
+             oa::data::enhanced_mode::FeatureSet{}.with(
+                 oa::data::enhanced_mode::Feature::local_flow
+             )
+         )}
+    );
     input.unit_player_mask = 3;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
     fixture.match->configure_strategic_environment({0, 0.5F, 0});

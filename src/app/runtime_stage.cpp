@@ -8,13 +8,11 @@
 // steps run the timed lines (run_due_stage_lines).
 #include "oa/app/runtime.hpp"
 #include "stage_state.hpp"
-#include "group_order_distribution.hpp"
 
 #include "oa/app/frame_coordinates.hpp"
 
 #include "oa/core/unit.h"
 #include "oa/core/world.h"
-#include "oa/data/enhanced_mode.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "oa/sim/ground_orders/goals.hpp"
 #include "oa/sim/match_runtime.hpp"
@@ -309,40 +307,15 @@ bool Runtime::run_stage_direction(
         const auto command = action == "move" ? oa::sim::gameplay_input::OrderCommand::move
                                               : oa::sim::gameplay_input::OrderCommand::patrol;
         std::size_t ordered = 0;
-        if (match_->enhanced_features().has(
-                oa::data::enhanced_mode::Feature::distributed_arrivals
-            )) {
-            std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
-            const oa::FixedVec3 click{point[0], point[1], point[2]};
-            const auto hooks = order_cursor_hooks();
-            for (const auto unit : members)
-                if (match_->takes_move_order(unit))
-                    if (const auto* actor = oa::world_unit_at(&world, unit))
-                        orders.push_back(
-                            group_order_intent(world, centre, command, *actor, click, hooks)
-                        );
-            distribute_group_order_destinations(orders, point);
-            for (const auto& order : orders) {
-                const oa::sim::ground_orders::Point at{
-                    order.position.x, order.position.y, order.position.z
-                };
-                if (action == "move")
-                    match_->issue_ground_move(order.actor->id, at, false);
-                else
-                    match_->issue_patrol(order.actor->id, at, false);
-                ++ordered;
-            }
-        } else {
-            for (const auto unit : members) {
-                if (!match_->takes_move_order(unit))
-                    continue;
-                const auto at = group_order_destination(centre, command, unit, 0, point);
-                if (action == "move")
-                    match_->issue_ground_move(unit, at, false);
-                else
-                    match_->issue_patrol(unit, at, false);
-                ++ordered;
-            }
+        for (const auto unit : members) {
+            if (!match_->takes_move_order(unit))
+                continue;
+            const auto at = group_order_destination(centre, command, unit, 0, point);
+            if (action == "move")
+                match_->issue_ground_move(unit, at, false);
+            else
+                match_->issue_patrol(unit, at, false);
+            ++ordered;
         }
         std::printf(
             "stage: %s %s: %zu units to %d,%d\n", action.c_str(), group.c_str(), ordered, x, z
@@ -441,37 +414,14 @@ bool Runtime::run_stage_direction(
         for (const auto unit : members)
             if (const auto* member = oa::world_unit_at(&world, unit); member != nullptr)
                 oa::sim::gameplay_input::add_to_group_centre(centre, *member);
-        if (match_->enhanced_features().has(
-                oa::data::enhanced_mode::Feature::distributed_arrivals
-            )) {
-            std::vector<oa::sim::gameplay_input::SelectionOrder> orders;
-            const oa::FixedVec3 click{point[0], point[1], point[2]};
-            const auto hooks = order_cursor_hooks();
-            for (const auto unit : members)
-                if (const auto* actor = oa::world_unit_at(&world, unit))
-                    orders.push_back(group_order_intent(
-                        world,
-                        centre,
-                        oa::sim::gameplay_input::OrderCommand::patrol,
-                        *actor,
-                        click,
-                        hooks
-                    ));
-            distribute_group_order_destinations(orders, point);
-            for (const auto& order : orders)
-                match_->issue_patrol(
-                    order.actor->id, {order.position.x, order.position.y, order.position.z}, false
-                );
-        } else {
-            for (const auto unit : members)
-                match_->issue_patrol(
-                    unit,
-                    group_order_destination(
-                        centre, oa::sim::gameplay_input::OrderCommand::patrol, unit, 0, point
-                    ),
-                    false
-                );
-        }
+        for (const auto unit : members)
+            match_->issue_patrol(
+                unit,
+                group_order_destination(
+                    centre, oa::sim::gameplay_input::OrderCommand::patrol, unit, 0, point
+                ),
+                false
+            );
         std::printf("stage: patrol-all %d: %zu units to %d,%d\n", player, members.size(), x, z);
         return true;
     }

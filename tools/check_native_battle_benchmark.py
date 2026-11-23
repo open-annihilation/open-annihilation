@@ -106,7 +106,18 @@ def valid_timing_report(report):
         valid_timing(timing, count, f"{phase} phase")
 
 
-def valid_report(process, report, scenario, enabled, ticks=12, version=None, feature_spec=""):
+# Revision 1's features, in id order.
+REVISION_1 = [
+    "capacity", "local_flow", "routes_fine_regions", "route_corner_advance",
+    "ai_strike_retarget", "credited_fallback_search", "ai_attack_retention",
+    "ai_rally_retention", "occupancy_free_planning", "steering_projection_reuse",
+    "exact_indexed_searches", "wide_strike_recruits", "paced_cohort_targets",
+    "dispatch_cohort_retention", "counterflow_queue_escape", "idle_goal_skip",
+    "static_interior_refresh_skip",
+]
+
+
+def valid_report(process, report, scenario, enabled, ticks=12, revision=None, feature_spec=""):
     """Check completion, population, rules metadata and ordered tick statistics."""
     require(process.returncode == 0 and report is not None, "benchmark failed", process)
     require(report["schema_version"] == 1 and report["completed"] and not report["error"],
@@ -117,30 +128,27 @@ def valid_report(process, report, scenario, enabled, ticks=12, version=None, fea
             "benchmark did not place the requested armies")
     require(report["successful_warmup_ticks"] == 3 and report["successful_ticks"] == ticks,
             "benchmark did not run every requested tick")
-    require(report["enhanced_mode"] is enabled and
-            (report["enhanced_version"] > 0 if enabled else report["enhanced_version"] == 0),
-            "benchmark did not record its Enhanced rules")
-    revision = report["enhanced_revision"]
+    require(report["enhanced_mode"] is enabled, "benchmark did not record its Enhanced rules")
+    require("enhanced_version" not in report and "enhanced_features_" + "override" not in report,
+            "benchmark still reports a numbered version or a feature override")
+    played = report["enhanced_revision"]
     features = report["enhanced_features"]
-    require(isinstance(revision, int), "benchmark revision is not a number")
+    require(isinstance(played, int), "benchmark revision is not a number")
     require(isinstance(features, list) and
             all(isinstance(name, str) and name.isidentifier() and name.islower() for name in features),
             "benchmark features are not snake_case names")
-    require((revision != 0) is enabled, "benchmark revision does not match Enhanced Mode")
+    require((played != 0) is enabled, "benchmark revision does not match Enhanced Mode")
     if enabled:
         require(features, "an Enhanced benchmark recorded no features")
     else:
-        require(revision == 0 and features == [], "an Off benchmark recorded Enhanced rules")
-    if version is not None:
-        require(report["enhanced_version"] == version, "benchmark selected the wrong rules version")
-        require(revision == 1, "an alias benchmark did not record revision 1")
+        require(played == 0 and features == [], "an Off benchmark recorded Enhanced rules")
+    if revision is not None:
+        require(played == revision, "benchmark selected the wrong revision")
     names = report.get("enhanced_features")
     require(isinstance(names, list) and all(isinstance(name, str) for name in names),
             "benchmark did not name the features it played")
     require(report.get("enhanced_features_spec") == feature_spec,
-            "benchmark did not record the feature specification")
-    require(report.get("enhanced_features_" + "override") is (feature_spec != ""),
-            "benchmark did not record whether the feature flag chose the set")
+            "benchmark did not record the feature list")
     require(type(report.get("data_faults")) is int and report["data_faults"] >= 0,
             "benchmark did not count its data faults")
     if not enabled and feature_spec == "":
@@ -231,14 +239,14 @@ def staged_battles(native, game_dir, workdir):
     reports = []
     for run in (1, 2):
         process, report = play_staged(native, game_dir, workdir, f"staged-{run}",
-                                      ("--enhanced-mode", "--benchmark-rules-version", "6",
+                                      ("--enhanced-mode", "--enhanced-revision", "1",
                                        "--benchmark-crossing", STAGED_LINE))
         require(process.returncode == 0 and report is not None and report["completed"],
                 "staged battle failed", process)
         require(report["scenario"] == "stage" and report["map"] == "Ashap Plateau" and
                 report["requested_units_per_side"] == 0 and report["initial_units"] == 26 and
-                report["successful_ticks"] == STAGED_TICKS and report["enhanced_version"] == 6 and
-                report["enhanced_revision"] == 1 and report["enhanced_features"],
+                report["successful_ticks"] == STAGED_TICKS and
+                report["enhanced_revision"] == 1 and report["enhanced_features"] == REVISION_1,
                 "staged battle lost its map, population, ticks or rules", process)
         valid_timing_report(report)
         staged = report["staged_battle"]
@@ -264,11 +272,13 @@ def staged_battles(native, game_dir, workdir):
                 audit["ownership_errors"] == 0 and audit["overlap_cells"] == 0 and
                 audit["first_error_tick"] is None,
                 "staged battle's ownership audits did not all run clean")
+        # Revision 1 plays ordinary ground steps: the audit checks every one and
+        # counts those a swept step would have refused, by what blocked them.
         swept = staged["swept_steps"]
-        require(swept["steps"] > 0 and swept["unchecked_steps"] == 0 and swept["misses"] == 0 and
-                swept["ground_misses"] == 0 and swept["unit_misses"] == 0 and
-                swept["first_miss_tick"] is None,
-                "a staged battle with swept ground steps counted a step through blocked ground")
+        require(swept["steps"] > 0 and swept["unchecked_steps"] == 0 and
+                swept["misses"] == swept["ground_misses"] + swept["unit_misses"] and
+                (swept["first_miss_tick"] is None) == (swept["misses"] == 0),
+                "a staged battle's ground step audit skipped a step or miscounted its misses")
         reports.append(report)
     require(reports[0]["world_digest"] == reports[1]["world_digest"] and
             reports[0]["staged_battle"] == reports[1]["staged_battle"],
@@ -347,13 +357,25 @@ def main():
                      "local_flow_probes", "local_flow_moving_blockers",
                      "local_flow_steering_adjustments", "local_flow_yielded_ticks",
                      "local_flow_blocked_ticks", "local_flow_deferred_replans")
-        for version in (1, 2, 2, 3, 3, 4, 4, 5, 5, 10, 10, 11, 11, 13, 13):
-            name = f"group-{version}-{'repeat' if version in group_references else 'first'}"
+        # Capacity alone once, then local flow over shared routes, Revision 1 and
+        # Revision 1 without one feature, each twice.
+        group_sets = {
+            "capacity": ("--enhanced-features", "capacity"),
+            "flow": ("--enhanced-features", "capacity,local_flow,routes_fine_regions"),
+            "revision-1": ("--enhanced-revision", "1"),
+            "without-idle-goal-skip": ("--enhanced-features", "-idle_goal_skip"),
+        }
+        for label in ("capacity", "flow", "flow", "revision-1", "revision-1",
+                      "without-idle-goal-skip", "without-idle-goal-skip"):
+            name = f"group-{label}-{'repeat' if label in group_references else 'first'}"
+            chosen = group_sets[label]
             process, report = play(native, game_dir, workdir, name,
-                                   ("--enhanced-mode", "--benchmark-rules-version", str(version),
+                                   ("--enhanced-mode",) + chosen + (
                                     "--benchmark-scenario", "group-march", "--benchmark-map",
                                     "Ashap Plateau", "--match-ticks", "120"))
-            valid_report(process, report, "group-march", True, ticks=120, version=version)
+            spec = chosen[1] if chosen[0] == "--enhanced-features" else ""
+            valid_report(process, report, "group-march", True, ticks=120, revision=1,
+                         feature_spec=spec)
             require(report["goal_metrics_available"] and len(report["goal_progress"]) == 2,
                     "group movement lacks per-army progress")
             require(report["damaged_unit_ticks"] == 0, "hold-fire group movement damaged a unit")
@@ -366,25 +388,28 @@ def main():
                         "group activity could be explained by one moving or jittering unit")
                 require(sum(third["goal_units"] for third in side["distance_thirds"]) == 24,
                         "group movement lost its trip-distance fairness bins")
-            if version == 1:
+            if label == "capacity":
                 require(report["shared_route_hits"] == 0 and report["local_flow_probes"] == 0,
-                        "v1 acquired the new routing or local-flow behavior")
+                        "capacity alone acquired the new routing or local-flow behavior")
                 continue
             require(report["shared_route_hits"] > 0 and 0 < report["shared_route_fields"] < 48,
-                    f"v{version} group movement did not share route construction")
-            group_reference = group_references.get(version)
+                    f"{label} group movement did not share route construction")
+            group_reference = group_references.get(label)
             if group_reference:
                 require(report["world_digest"] == group_reference["world_digest"] and
                         report["simulation_hash"] == group_reference["simulation_hash"] and
                         report["goal_progress"] == group_reference["goal_progress"] and
                         all(report[key] == group_reference[key] for key in work_keys),
-                        f"seeded v{version} group movement or work counts changed on repeat")
-            group_references[version] = report
-        process, report = play(native, game_dir, workdir, "version-with-mode-off",
-                               ("--no-enhanced-mode", "--benchmark-rules-version", "1"))
-        require(process.returncode != 0 and report is not None and not report["completed"],
-                "an explicit Enhanced preset silently enabled the mode", process)
-        valid_timing_report(report)
+                        f"seeded {label} group movement or work counts changed on repeat")
+            group_references[label] = report
+        for name, chosen in (("revision-with-mode-off", ("--enhanced-revision", "1")),
+                             ("features-with-mode-off", ("--enhanced-features", "capacity"))):
+            process, report = play(native, game_dir, workdir, name,
+                                   ("--no-enhanced-mode",) + chosen)
+            require(process.returncode != 0 and (report is None or not report["completed"]),
+                    "an explicit Enhanced choice silently enabled the mode", process)
+            if report is not None:
+                valid_timing_report(report)
         invalid_path = workdir / "capacity.json"
         process, report = play(native, game_dir, workdir, "capacity",
                                ("--no-enhanced-mode", "--benchmark-units", "10000"), invalid_path)
@@ -400,29 +425,25 @@ def main():
                 report["completed"] is False and report["error"] and report["successful_ticks"] == 0,
                 "failed setup left a stale successful report", process)
         valid_timing_report(report)
-        # Version 13 without cardinal queue escape is version 10: 22 names, and the
-        # rules hold is version 1 because the feature flag chose the set.
-        version_10 = [
-            "capacity", "local_flow", "routes_fine_regions", "indexed_searches",
-            "route_corner_advance", "swept_ground_steps", "patrol_goal_retention",
-            "ai_strike_retarget", "squad_position_index", "route_queue",
-            "group_destination_repair", "distributed_arrivals", "moving_corner_advance",
-            "local_throat_guide", "credited_fallback_search", "bounded_strike_recruits",
-            "ai_attack_retention", "ai_rally_retention", "local_following",
-            "occupancy_free_planning", "cohort_targets", "steering_projection_reuse",
-        ]
-        spec = "v13,-cardinal_queue_escape"
-        process, report = play(native, game_dir, workdir, "features-v10",
-                               ("--enhanced-mode", "--benchmark-features", spec))
-        valid_report(process, report, "combat", True, version=1, feature_spec=spec)
-        require(report["enhanced_features"] == version_10,
-                "v13 without cardinal queue escape did not play version 10's features", process)
-        print("benchmark-features %s enhanced_features_override true enhanced_version %s names %d" % (
-            spec, report["enhanced_version"], len(report["enhanced_features"])))
-        print(" ".join(report["enhanced_features"]))
+        # A feature list plays Revision 1 without the feature it takes out, and
+        # the report keeps the list.
+        spec = "-idle_goal_skip"
+        process, report = play(native, game_dir, workdir, "features-without-idle-goal-skip",
+                               ("--enhanced-features", spec))
+        valid_report(process, report, "combat", True, revision=1, feature_spec=spec)
+        expected = [name for name in REVISION_1 if name != "idle_goal_skip"]
+        require(report["enhanced_features"] == expected,
+                "Revision 1 without idle_goal_skip did not play its features", process)
+        process, report = play(native, game_dir, workdir, "revision-1",
+                               ("--enhanced-revision", "1"))
+        valid_report(process, report, "combat", True, revision=1)
+        require(report["enhanced_features"] == REVISION_1,
+                "Revision 1 did not play its features", process)
+        print("enhanced-features %s enhanced_revision %s names %d" % (
+            spec, report["enhanced_revision"], len(expected)))
         staged_battles(native, game_dir, workdir)
-    print("battle benchmark: seeded workloads, group flow, preset versions, graphics independence, "
-          "staged battles and failures checked")
+    print("battle benchmark: seeded workloads, group flow, revisions and feature lists, graphics "
+          "independence, staged battles and failures checked")
 
 
 if __name__ == "__main__":

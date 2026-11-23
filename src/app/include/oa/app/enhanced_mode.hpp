@@ -16,15 +16,6 @@ class Runtime;
 /// @return revision 0 and no features while Enhanced Mode is off
 [[nodiscard]] oa::data::enhanced_mode::Choice enhanced_mode_choice(const Runtime& runtime) noexcept;
 
-/// Returns the Enhanced Mode rules version of the running game or next start.
-///
-/// Restructure only; removed in R09. This is the old preset whose features
-/// equal the running choice, or zero while Enhanced Mode is off.
-///
-/// @param runtime the running application
-/// @return zero while Enhanced Mode is off
-[[nodiscard]] uint32_t enhanced_mode_version(const Runtime& runtime) noexcept;
-
 /// Holds a recorded choice for one loaded match without changing preferences.
 ///
 /// @param runtime the running application
@@ -32,15 +23,6 @@ class Runtime;
 /// @return false when the choice or resolved rules cannot be played
 [[nodiscard]] bool
 hold_enhanced_mode_once(Runtime& runtime, const oa::data::enhanced_mode::Choice& choice);
-
-/// Holds a recorded rules version for one loaded match without changing preferences.
-///
-/// Restructure only; removed in R09.
-///
-/// @param runtime the running application
-/// @param version the recorded version; zero selects the released rules
-/// @return false when the version or resolved rules are unsupported
-[[nodiscard]] bool hold_enhanced_mode_once(Runtime& runtime, uint32_t version);
 
 /// Restores the preference after a held match or failed load.
 ///

@@ -1662,15 +1662,6 @@ class Runtime final : public menu::Host,
     /// @return false when the choice cannot be played or the rules do not resolve
     [[nodiscard]] bool hold_enhanced_rules_once(const oa::data::enhanced_mode::Choice& choice);
 
-    /// Holds a recorded preset for the next loaded match, keeping the preference separate.
-    ///
-    /// Restructure only; removed in R09. An unsupported version is refused
-    /// before it becomes a choice.
-    ///
-    /// @param version the recorded preset version, or zero for released rules
-    /// @return false for unsupported versions or unresolved rules
-    [[nodiscard]] bool hold_enhanced_rules_once(uint32_t version);
-
     /// Restores the menu's mode or the hold replaced by a failed load.
     ///
     /// @param restore_previous restores a previous held match after a failed load
@@ -16721,31 +16712,6 @@ class Runtime final : public menu::Host,
         const oa::sim::ground_orders::Point& point
     );
 
-    /// Repairs an already-resolved ground formation under Enhanced rules.
-    /// Selection and stage orders share this repair without translating the
-    /// formation again or resolving the unit's command twice.
-    /// @param actor canonical unit receiving the order
-    /// @param order resolved order for this unit
-    /// @param formation precomputed group destination in signed 16.16 coordinates
-    /// @param point original command point in signed 16.16 coordinates
-    /// @return the repaired point, or the unchanged formation when the policy does not apply
-    oa::sim::ground_orders::Point group_order_destination(
-        const oa::Unit& actor,
-        oa::sim::gameplay_input::UnitOrder order,
-        const oa::FixedVec3& formation,
-        const oa::sim::ground_orders::Point& point
-    );
-
-    /// Resolves a complete group's ground destinations before issuing its orders.
-    /// Preserves valid formation points and shares bounded arrival reservations
-    /// among repaired points under the distributed Enhanced preset.
-    /// @param[in,out] orders pre-resolved selection orders, retained in issue order
-    /// @param point original command point in signed 16.16 world coordinates
-    void distribute_group_order_destinations(
-        std::span<oa::sim::gameplay_input::SelectionOrder> orders,
-        const oa::sim::ground_orders::Point& point
-    );
-
     /// Checks both interface types (Game.interface_type) through SDL input on a skirmish.
     ///
     /// First, one pointer shows at a time: the system's without the focus, the
@@ -24596,9 +24562,6 @@ class Runtime final : public menu::Host,
     /// The faults of the game data the run has logged, by their lines
     /// (report_data_fault).
     std::set<std::string> reported_data_faults_{};
-    /// The feature set a battle benchmark plays. Set only inside that run
-    /// and cleared on the way out. Empty for every other match.
-    std::optional<oa::data::enhanced_mode::FeatureSet> benchmark_feature_set_{};
     // The GUI context's cursor and pointer, with the picture the software
     // cursor shows and the cursor table index of the animation shown; the
     // runtime keeps them in place of the Game block's gui_context_block and

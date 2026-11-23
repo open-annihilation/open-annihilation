@@ -9,38 +9,30 @@
 #include "oa/sim/ground_orders/shared_routes.hpp"
 #include "static_passability_memo.hpp"
 #include "order_ownership.hpp"
-#include "advisory_flow.hpp"
 #include "ai_retarget.hpp"
 
 namespace oa::sim::match_runtime {
 
-/// Tells whether a feature set builds shared routes, with any of the three
-/// route builders.
+/// Tells whether a feature set builds shared routes.
 ///
 /// @param features the match's Enhanced Mode features
-/// @return true when the set holds a route builder
+/// @return true when the set holds routes_fine_regions
 [[nodiscard]] constexpr bool
 builds_shared_routes(data::enhanced_mode::FeatureSet features) noexcept {
-    return features.has(data::enhanced_mode::Feature::routes_original) ||
-           features.has(data::enhanced_mode::Feature::routes_large_regions) ||
-           features.has(data::enhanced_mode::Feature::routes_fine_regions);
+    return features.has(data::enhanced_mode::Feature::routes_fine_regions);
 }
 
 /// Tells whether a feature set indexes its target, sighting and order
-/// searches, with either of the two indexed searches.
+/// searches.
 ///
 /// @param features the match's Enhanced Mode features
-/// @return true when the set holds indexed_searches or exact_indexed_searches
+/// @return true when the set holds exact_indexed_searches
 [[nodiscard]] constexpr bool indexes_searches(data::enhanced_mode::FeatureSet features) noexcept {
-    return features.has(data::enhanced_mode::Feature::indexed_searches) ||
-           features.has(data::enhanced_mode::Feature::exact_indexed_searches);
+    return features.has(data::enhanced_mode::Feature::exact_indexed_searches);
 }
 
 /// Preallocated v2 navigation and query storage, outside packed world records.
 struct Match::EnhancedState {
-    /// Prepares shared bounded work once for the match's current simulation tick.
-    void prepare_advisory_tick(Match& match);
-
     /// Advances bounded target-loss checks before a built-in controller runs.
     ///
     /// @param[in,out] match the match and its canonical computer tasks
@@ -88,7 +80,6 @@ struct Match::EnhancedState {
     bool air_goal_cleanup_required{};
     std::unique_ptr<StaticPassabilityMemo> static_passability_memo{};
     std::unique_ptr<OrderOwnershipIndex> order_ownership{};
-    std::unique_ptr<AdvisoryFlowData> advisory{};
     AiRetargetState ai_retarget{};
 };
 

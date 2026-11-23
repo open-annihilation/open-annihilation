@@ -28,8 +28,38 @@ namespace runtime = oa::sim::match_runtime;
 namespace ground = oa::sim::ground_orders;
 namespace ai = oa::sim::ai;
 
-constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
-constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
+namespace enhanced = oa::data::enhanced_mode;
+using FeatureSet = enhanced::FeatureSet;
+
+/// Revision 1 without spatial cohorts: whole-strike retargeting with attack
+/// and rally retention, over Revision 1's movement.
+const FeatureSet whole_strike = enhanced::revision_features(1)
+                                    .without(enhanced::Feature::dispatch_cohort_retention)
+                                    .without(enhanced::Feature::paced_cohort_targets);
+/// Strike retargeting with attack and rally retention, and no other feature
+/// but capacity.
+const FeatureSet retention_only = enhanced::close_features(
+    FeatureSet{}
+        .with(enhanced::Feature::ai_attack_retention)
+        .with(enhanced::Feature::ai_rally_retention)
+);
+/// The sets without retention: Off, capacity alone, and strike retargeting alone.
+const std::array<FeatureSet, 3> without_retention{
+    {FeatureSet{},
+     FeatureSet{}.with(enhanced::Feature::capacity),
+     enhanced::close_features(FeatureSet{}.with(enhanced::Feature::ai_strike_retarget))}
+};
+
+/// Writes a set into a match's rules; the empty set is Off.
+///
+/// @param[out] mode the rules record
+/// @param features the set
+void store_features(oa::data::match_rules::SetupEnhancedMode& mode, const FeatureSet& features) {
+    enhanced::store_choice(
+        mode, features.empty() ? enhanced::Choice{} : enhanced::Choice{1, features}
+    );
+}
+
 constexpr uint8_t computer = 1, enemy = 0;
 constexpr uint32_t strike_squad = static_cast<uint32_t>(ai::Squad::land_strike);
 constexpr int32_t pixel = 65536;
@@ -39,11 +69,9 @@ constexpr uint32_t bridge_width = 64, bridge_height = 24;
 constexpr uint32_t cancel_event = 2, target_lost_event = 8, attack_abort_event = 0x800;
 
 /// Supplies durable targets and room for a small built-in strike.
-Options options_for(uint32_t version, bool bridge) {
+Options options_for(const FeatureSet& features, bool bridge) {
     Options options;
-    oa::data::enhanced_mode::apply_alias(
-        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
-    );
+    store_features(options.rules.setup.enhanced_mode, features);
     options.per_player_limit = 8;
     options.maximum_health = 30000;
     options.gun_reload_time = "10";
@@ -71,14 +99,14 @@ struct Battle {
     ai::ComputerPlayer* controller{};
 
     /// Starts a strike and waits for its actual owned chase goal.
-    Battle(uint32_t version = distributed_version, bool bridge = false)
-        : fixture(options_for(version, bridge)) {
+    Battle(const FeatureSet& features = whole_strike, bool bridge = false)
+        : fixture(options_for(features, bridge)) {
         auto gun = fixture.weapons.records()[1];
         gun.range = 32;
         fixture.weapons.install(gun, {});
         fixture.match->state().game.weapon_defs[1] = gun;
         if (bridge)
-            rebuild_bridge(version);
+            rebuild_bridge(features);
         auto& member = fixture.spawn(computer, bridge ? 48 : 24, bridge ? 208 : 112);
         actor = member.unit_index;
         hold_fire(member);
@@ -146,7 +174,7 @@ struct Battle {
     }
 
     /// Rebuilds the native match around a FP2 neck between coarse route anchors.
-    void rebuild_bridge(uint32_t version) {
+    void rebuild_bridge(const FeatureSet& features) {
         fixture.match.reset();
         fixture.map.attribute_width = bridge_width;
         fixture.map.attribute_height = bridge_height;
@@ -214,9 +242,7 @@ struct Battle {
                 fixture.altitude_patterns
             }
         };
-        oa::data::enhanced_mode::apply_alias(
-            input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
-        );
+        store_features(input.rules.setup.enhanced_mode, features);
         input.unit_player_mask = 3;
         fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
         match().configure_strategic_environment({0, 0.5F, 0});
@@ -233,8 +259,8 @@ struct Battle {
 };
 
 /// Keeps a refresh's owned order, navigation and weapon binding without new tick work.
-void unchanged_builtin_attack_keeps_live_work(uint32_t version) {
-    Battle battle(version);
+void unchanged_builtin_attack_keeps_live_work(const FeatureSet& features) {
+    Battle battle(features);
     auto* order = battle.unit().primary;
     auto* goal = battle.movement().navigation.goal;
     const auto navigation = battle.movement().navigation;
@@ -260,8 +286,8 @@ void unchanged_builtin_attack_keeps_live_work(uint32_t version) {
 }
 
 /// Keeps the actual worker, its remaining budget and every native search field.
-void a_pending_native_search_survives_the_refresh(uint32_t version) {
-    Battle battle(version, true);
+void a_pending_native_search_survives_the_refresh(const FeatureSet& features) {
+    Battle battle(features, true);
     ground::SearchRecord before{};
     for (uint32_t tick = 0; tick < 120; ++tick) {
         before = runtime::MatchTickAccess::active_path_search(battle.match());
@@ -294,8 +320,8 @@ void a_pending_native_search_survives_the_refresh(uint32_t version) {
 
 /// Leaves every earlier preset's periodic command replacement unchanged.
 void older_presets_replace_the_attack() {
-    for (uint32_t version = 0; version < distributed_version; ++version) {
-        Battle battle(version);
+    for (const auto& features : without_retention) {
+        Battle battle(features);
         auto* order = battle.unit().primary;
         battle.refresh();
         CHECK(battle.unit().primary != order);
@@ -305,7 +331,7 @@ void older_presets_replace_the_attack() {
 }
 
 /// Replaces interrupted attacks instead of retaining a failed or terminal goal.
-void interrupted_orders_replace_the_attack(uint32_t version) {
+void interrupted_orders_replace_the_attack(const FeatureSet& features) {
     for (const auto event :
          {cancel_event,
           target_lost_event,
@@ -313,14 +339,14 @@ void interrupted_orders_replace_the_attack(uint32_t version) {
           ground::arrived_event,
           ground::path_failed_event,
           ground::goal_replaced_event}) {
-        Battle battle(version);
+        Battle battle(features);
         auto* order = battle.unit().primary;
         order->raised_events |= event;
         battle.refresh();
         CHECK(battle.unit().primary != order);
         CHECK(battle.movement().navigation.goal == nullptr);
     }
-    Battle battle(version);
+    Battle battle(features);
     auto* order = battle.unit().primary;
     order->phase = 4;
     battle.refresh();
@@ -328,9 +354,9 @@ void interrupted_orders_replace_the_attack(uint32_t version) {
 }
 
 /// Replaces an attack when a tail, a point or a different target changes the command.
-void changed_commands_replace_the_attack(uint32_t version) {
+void changed_commands_replace_the_attack(const FeatureSet& features) {
     {
-        Battle battle(version);
+        Battle battle(features);
         auto* order = battle.unit().primary;
         CHECK(!battle.match().order_refused(
             battle.match().issue_patrol(battle.actor, {80 * pixel, 0, 144 * pixel}, true)
@@ -340,7 +366,7 @@ void changed_commands_replace_the_attack(uint32_t version) {
         CHECK(battle.unit().primary != order && battle.unit().primary->next == nullptr);
     }
     {
-        Battle battle(version);
+        Battle battle(features);
         CHECK(
             battle.match().issue_attack_command(battle.actor, battle.replacement, false, nullptr)
         );
@@ -350,7 +376,7 @@ void changed_commands_replace_the_attack(uint32_t version) {
         CHECK(head_record(battle.match(), battle.actor).target == battle.target);
     }
     {
-        Battle battle(version);
+        Battle battle(features);
         const ground::Point point{200 * pixel, 0, 112 * pixel};
         CHECK(battle.match().issue_attack_ground(battle.actor, point, false) != nullptr);
         const auto ground_command = head_record(battle.match(), battle.actor);
@@ -362,7 +388,7 @@ void changed_commands_replace_the_attack(uint32_t version) {
         CHECK(head_record(battle.match(), battle.actor).target == battle.target);
     }
     {
-        Battle battle(version);
+        Battle battle(features);
 
         struct Request {
             uint16_t actor{}, target{};
@@ -394,7 +420,7 @@ void changed_commands_replace_the_attack(uint32_t version) {
         CHECK(battle.match().fault() == nullptr);
     }
     {
-        Battle battle(version);
+        Battle battle(features);
         const ground::Point ignored_point{200 * pixel, 0, 112 * pixel};
         CHECK(
             battle.match().issue_attack_command(battle.actor, battle.target, false, &ignored_point)
@@ -409,9 +435,9 @@ void changed_commands_replace_the_attack(uint32_t version) {
 }
 
 /// Rejects dying bindings and targets with no health before the native refresh.
-void dying_targets_get_replaced(uint32_t version) {
+void dying_targets_get_replaced(const FeatureSet& features) {
     for (const bool death_pending : {false, true}) {
-        Battle battle(version);
+        Battle battle(features);
         auto* order = battle.unit().primary;
         auto& target = battle.match().spawn_slot(battle.target).record;
         if (death_pending)
@@ -438,8 +464,8 @@ struct CustomSeat {
 };
 
 /// Leaves player commands and a custom controller's commands on the normal path.
-void manual_and_custom_commands_replace_the_attack(uint32_t version) {
-    Battle battle(version);
+void manual_and_custom_commands_replace_the_attack(const FeatureSet& features) {
+    Battle battle(features);
     auto* previous = battle.unit().primary;
     CHECK(battle.match().issue_attack_command(battle.actor, battle.target, false, nullptr));
     CHECK(battle.unit().primary != previous);
@@ -455,8 +481,8 @@ void manual_and_custom_commands_replace_the_attack(uint32_t version) {
 }
 
 /// Continues an actual restored order and its restored owned goal on AI refresh.
-void restored_orders_continue_without_a_new_schema(uint32_t version) {
-    Battle battle(version);
+void restored_orders_continue_without_a_new_schema(const FeatureSet& features) {
+    Battle battle(features);
     saved_game::ScopedBank bank;
     data::persist::bank_open_account(bank.get(), "Units");
     const auto count = saved_game::write_orders(
@@ -476,8 +502,8 @@ void restored_orders_continue_without_a_new_schema(uint32_t version) {
 }
 
 /// Replaces a sole saved automatic attack carrying its original movement leash.
-void leashed_attacks_take_the_explicit_ai_command(uint32_t version) {
-    Battle battle(version);
+void leashed_attacks_take_the_explicit_ai_command(const FeatureSet& features) {
+    Battle battle(features);
 
     struct Saved {
         data::persist::SavedOrder order{};
@@ -514,16 +540,17 @@ void leashed_attacks_take_the_explicit_ai_command(uint32_t version) {
 int main() {
     try {
         older_presets_replace_the_attack();
-        for (const auto version : {distributed_version, following_version}) {
-            std::cout << "Enhanced attack retention: version=" << version << '\n';
-            unchanged_builtin_attack_keeps_live_work(version);
-            a_pending_native_search_survives_the_refresh(version);
-            interrupted_orders_replace_the_attack(version);
-            changed_commands_replace_the_attack(version);
-            dying_targets_get_replaced(version);
-            manual_and_custom_commands_replace_the_attack(version);
-            restored_orders_continue_without_a_new_schema(version);
-            leashed_attacks_take_the_explicit_ai_command(version);
+        for (const auto& features : {retention_only, whole_strike}) {
+            std::cout << "Enhanced attack retention: "
+                      << (features == retention_only ? "retention alone" : "whole strikes") << '\n';
+            unchanged_builtin_attack_keeps_live_work(features);
+            a_pending_native_search_survives_the_refresh(features);
+            interrupted_orders_replace_the_attack(features);
+            changed_commands_replace_the_attack(features);
+            dying_targets_get_replaced(features);
+            manual_and_custom_commands_replace_the_attack(features);
+            restored_orders_continue_without_a_new_schema(features);
+            leashed_attacks_take_the_explicit_ai_command(features);
         }
     } catch (const std::exception& error) {
         std::cerr << "Enhanced attack retention: " << error.what() << '\n';

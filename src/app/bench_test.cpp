@@ -199,7 +199,7 @@ void started_rules_must_match_explicit_requests() {
 
 /// A revision is one this build plays and may be named only once. A feature
 /// list uses the flag's grammar, and the refusal names the line.
-void view_refuses_invalid_rules_versions() {
+void view_refuses_invalid_revisions_and_feature_lists() {
     for (const std::string_view value : std::array<std::string_view, 5>{"0", "2", "-1", "1.5", "x"})
         OA_CHECK(
             refusal("enhanced_revision " + std::string(value)) ==
@@ -676,7 +676,7 @@ int main() {
     view_plan_work_is_opt_in();
     rules_requests_preserve_defaults_and_require_enhanced_mode();
     started_rules_must_match_explicit_requests();
-    view_refuses_invalid_rules_versions();
+    view_refuses_invalid_revisions_and_feature_lists();
     gameplay_view_checks_only_the_starting_population();
     view_refuses_what_it_cannot_read();
     view_file_takes_its_folder();

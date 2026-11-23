@@ -101,10 +101,8 @@ slope under water) both before and after the tick, or was held by another
 unit, the same live unit, both before and after it: blocked through the
 whole tick, so the step passed through it while it was blocked. A cell
 another unit took or left during the tick does not count, since the step
-may have passed before it came or after it went. With swept ground steps
-on, every such origin is refused before the step is taken, so the count is
-zero by construction; without them it counts the steps that slipped
-through a corner or another unit.
+may have passed before it came or after it went. The count is the steps
+that slipped through a corner or another unit.
 `report_json` writes these as the `staged_battle` object, or null for the
 other scenarios; the fields extend schema version 1. Its `swept_steps`
 object holds the ground steps, the unchecked ones, the misses, the misses
@@ -146,12 +144,11 @@ costs are excluded.
 
 `report_json` writes schema version 1, explicit completion and error fields,
 the scenario and seed, requested and observed populations, successful tick
-counts, Enhanced Mode, its revision and the alias version, the features the
-match played (`enhanced_features`, names in id order), the text of
-`--benchmark-features` (`enhanced_features_spec`, empty when that flag was
-absent), whether that flag chose the set (a boolean named by joining
-`enhanced_features` and `_override`), and `data_faults`, the number of
-distinct data-fault lines reported by the end of the run. Simulation identity
+counts, Enhanced Mode and its revision (`enhanced_revision`, 0 for Off), the
+features the match played (`enhanced_features`, names in id order), the text
+of `--enhanced-features` (`enhanced_features_spec`, empty when that flag was
+absent), and `data_faults`, the number of distinct data-fault lines reported
+by the end of the run. Simulation identity
 and timing facts follow.
 Movement, damage, projectile high-water and activity-observed facts state
 whether a labelled workload did corresponding work and when it was sampled.

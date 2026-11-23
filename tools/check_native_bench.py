@@ -52,26 +52,15 @@ REVISION_1 = (
     "steering_projection_reuse,exact_indexed_searches,wide_strike_recruits,paced_cohort_targets,"
     "dispatch_cohort_retention,counterflow_queue_escape,idle_goal_skip,"
     "static_interior_refresh_skip")
-# Old version 4's features, which Revision 1 no longer holds.
-VERSION_4 = (
-    "capacity,local_flow,routes_large_regions,indexed_searches,"
-    "route_corner_advance,swept_ground_steps")
-# Feature lists the paused loop still asks for, written as revision 1 plus an
-# absolute list, one for each old version.
-OLD_PRESET_FEATURES = {
-    4: VERSION_4,
-    6: VERSION_4 + ",patrol_goal_retention,ai_strike_retarget,squad_position_index,"
-       "route_queue,group_destination_repair",
-    7: "capacity,local_flow,routes_fine_regions,indexed_searches,route_corner_advance,"
-       "swept_ground_steps,patrol_goal_retention,ai_strike_retarget,squad_position_index,"
-       "route_queue,group_destination_repair,distributed_arrivals,moving_corner_advance,"
-       "local_throat_guide,credited_fallback_search,bounded_strike_recruits,"
-       "ai_attack_retention,ai_rally_retention",
+# Feature lists the paused loop asks for, each written as revision 1 plus an
+# absolute list: capacity alone, local flow over shared routes, and Revision 1
+# without one of its features.
+NAMED_FEATURES = {
+    "capacity": "capacity",
+    "flow": "capacity,local_flow,routes_fine_regions",
+    "without-idle-goal-skip": REVISION_1.replace("idle_goal_skip,", ""),
+    "without-dispatch-retention": REVISION_1.replace("dispatch_cohort_retention,", ""),
 }
-OLD_PRESET_FEATURES[8] = OLD_PRESET_FEATURES[7] + ",local_following,occupancy_free_planning"
-OLD_PRESET_FEATURES[10] = OLD_PRESET_FEATURES[8] + ",cohort_targets,steering_projection_reuse"
-OLD_PRESET_FEATURES[11] = OLD_PRESET_FEATURES[10] + ",cohort_retention"
-OLD_PRESET_FEATURES[13] = OLD_PRESET_FEATURES[10] + ",cardinal_queue_escape"
 VIEW = """label check
 stage {stage}
 menu_seconds 0
@@ -1158,36 +1147,37 @@ def main():
                     "bench: FAILED the live unit roster differs from expected_live_units" \
                     not in wrong_population.stdout:
                 fail(wrong_population, "a wrong rendering population was not refused")
-            # 0 turns Enhanced Mode on and names nothing, "revision" names
-            # revision 1 alone, and each old version names its list.
-            for version in (0, "revision", 4, 6, 7, 8, 10, 11, 13):
+            # "on" turns Enhanced Mode on and names nothing, "revision" names
+            # revision 1 alone, and each named set names its list.
+            for chosen in ("on", "revision", *NAMED_FEATURES):
                 rules_view = paused_view
-                if version == "revision":
+                if chosen == "revision":
                     rules_view += "enhanced_revision 1\n"
-                elif version:
+                elif chosen != "on":
                     rules_view += (
                         "enhanced_revision 1\n"
-                        f"enhanced_features {OLD_PRESET_FEATURES[version]}\n")
-                if version == 11:
+                        f"enhanced_features {NAMED_FEATURES[chosen]}\n")
+                if chosen == "without-dispatch-retention":
                     rules_view += "plan_work 1\n"
                 selected = run_bench(
-                    arguments.native, arguments.game_dir, workdir, f"rules-{version}",
+                    arguments.native, arguments.game_dir, workdir, f"rules-{chosen}",
                     rules_view, enhanced=True)
                 if selected.returncode != 0 or not re.search(
                         r"^bench: STATIC tick \d+ units 2 world [0-9a-f]{16} "
                         r"warmup_frames 2 verified_frames 3$", selected.stdout, re.M):
                     fail(selected, "the Enhanced paused span did not finish")
-                if version == 0:
+                if chosen == "on":
                     check_initial(selected, 1, REVISION_1)
-                elif version == "revision":
+                elif chosen == "revision":
                     check_initial(selected, 1, REVISION_1, 1, "-")
                 else:
-                    names = OLD_PRESET_FEATURES[version]
+                    names = NAMED_FEATURES[chosen]
                     check_initial(selected, 1, names, 1, names)
                 selected_lines = [line for line in selected.stdout.splitlines()
                                   if line.startswith("bench: ")]
                 check_renderer_records(selected, selected_lines, 3, False)
-                check_work_record_presence(selected, selected_lines, plan_enabled=version == 11)
+                check_work_record_presence(
+                    selected, selected_lines, plan_enabled=chosen == "without-dispatch-retention")
             mode_off = run_bench(
                 arguments.native, arguments.game_dir, workdir, "rules-off",
                 "label rules-off\nenhanced_revision 1\n")

@@ -22,12 +22,22 @@ using sim::match_runtime::MatchTickAccess;
 
 constexpr uint32_t damage_wake = 0x10; // the damage reaction wakes watchers with it
 
-Options mode_options(uint32_t version) {
+/// The rules the cases play: Off, capacity alone, and Revision 1, whose
+/// searches use the exact indexes.
+const std::array<oa::data::enhanced_mode::Choice, 3> played_choices{{
+    {},
+    {1, oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity)},
+    {1, oa::data::enhanced_mode::revision_features(1)},
+}};
+
+/// Options playing one of the cases' rules.
+///
+/// @param choice the rules
+/// @return the options
+Options mode_options(const oa::data::enhanced_mode::Choice& choice) {
     Options options;
     options.per_player_limit = 32;
-    oa::data::enhanced_mode::apply_alias(
-        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
-    );
+    oa::data::enhanced_mode::store_choice(options.rules.setup.enhanced_mode, choice);
     return options;
 }
 
@@ -116,8 +126,10 @@ void ownership_index_retains_collisions_and_reused_addresses() {
 
 // Cancellation destroys records immediately, retains survivor creation order,
 // and compaction on a later tick does not change that presentation order.
-void cancellations_keep_stable_ownership(uint32_t version, bool overflow) {
-    Fixture f(mode_options(version));
+void cancellations_keep_stable_ownership(
+    const oa::data::enhanced_mode::Choice& choice, bool overflow
+) {
+    Fixture f(mode_options(choice));
     if (overflow)
         CHECK(MatchTickAccess::reset_order_index(*f.match, 1));
     auto& first = f.spawn(0, 32, 64);
@@ -163,8 +175,8 @@ void cancellations_keep_stable_ownership(uint32_t version, bool overflow) {
     CHECK(f.match->fault() == nullptr);
 }
 
-void saved_observers_release_a_common_target(uint32_t version) {
-    Fixture f(mode_options(version));
+void saved_observers_release_a_common_target(const oa::data::enhanced_mode::Choice& choice) {
+    Fixture f(mode_options(choice));
     auto& owner = f.spawn(0, 32, 64);
     auto& target = f.spawn(0, 224, 64);
     auto tails = f.match->saved_order_tails(owner.unit_index);
@@ -189,7 +201,7 @@ void saved_observers_release_a_common_target(uint32_t version) {
 }
 
 void full_audit_detects_untracked_duplicate_heads() {
-    Fixture f(mode_options(2));
+    Fixture f(mode_options(played_choices[2]));
     auto& owner = f.spawn(0, 32, 64);
     auto& target = f.spawn(0, 128, 64);
     auto& other = f.spawn(0, 224, 64);
@@ -204,7 +216,7 @@ void full_audit_detects_untracked_duplicate_heads() {
 }
 
 void full_capacity_replacement_reuses_storage() {
-    Fixture f(mode_options(2));
+    Fixture f(mode_options(played_choices[2]));
     auto& owner = f.spawn(0, 32, 64);
     auto& target = f.spawn(0, 128, 64);
     (void)f.match->issue_guard(owner.unit_index, target.unit_index, false);
@@ -219,7 +231,7 @@ void full_capacity_replacement_reuses_storage() {
 }
 
 void retargeting_the_tail_of_a_long_live_chain() {
-    auto options = mode_options(2);
+    auto options = mode_options(played_choices[2]);
     options.per_player_limit = 64;
     Fixture f(options);
     auto& target = f.spawn(0, 224, 224);
@@ -248,7 +260,7 @@ void retargeting_the_tail_of_a_long_live_chain() {
 // Invoked separately by the assertion negative control. Retargeting must reject
 // a false certificate before modifying the actual old target's chain.
 void corrupt_certificate() {
-    Fixture f(mode_options(2));
+    Fixture f(mode_options(played_choices[2]));
     auto& owner = f.spawn(0, 32, 64);
     auto& target = f.spawn(0, 128, 64);
     auto& other = f.spawn(0, 224, 64);
@@ -259,7 +271,7 @@ void corrupt_certificate() {
 }
 
 void corrupt_missing_link() {
-    Fixture f(mode_options(2));
+    Fixture f(mode_options(played_choices[2]));
     auto& owner = f.spawn(0, 32, 64);
     auto& target = f.spawn(0, 128, 64);
     auto& order = f.match->issue_guard(owner.unit_index, target.unit_index, false);
@@ -269,7 +281,7 @@ void corrupt_missing_link() {
 }
 
 void corrupt_previous_link() {
-    Fixture f(mode_options(2));
+    Fixture f(mode_options(played_choices[2]));
     auto& first = f.spawn(0, 32, 64);
     auto& second = f.spawn(0, 48, 64);
     auto& target = f.spawn(0, 128, 64);
@@ -281,7 +293,7 @@ void corrupt_previous_link() {
 }
 
 void cancelling_behind_a_new_observer() {
-    Fixture f(mode_options(2));
+    Fixture f(mode_options(played_choices[2]));
     auto& first = f.spawn(0, 32, 64);
     auto& second = f.spawn(0, 48, 64);
     auto& target = f.spawn(0, 128, 64);
@@ -296,8 +308,8 @@ void cancelling_behind_a_new_observer() {
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--enhanced-lifecycle") {
-            cancellations_keep_stable_ownership(2, false);
-            saved_observers_release_a_common_target(2);
+            cancellations_keep_stable_ownership(played_choices[2], false);
+            saved_observers_release_a_common_target(played_choices[2]);
             retargeting_the_tail_of_a_long_live_chain();
             return 0;
         }
@@ -314,11 +326,11 @@ int main(int argc, char** argv) {
         retarget_to_another_unit_leaves_the_first();
         retarget_to_no_unit_leaves_the_first();
         ownership_index_retains_collisions_and_reused_addresses();
-        for (uint32_t version : {0u, 1u, 2u}) {
-            cancellations_keep_stable_ownership(version, false);
-            saved_observers_release_a_common_target(version);
+        for (const auto& choice : played_choices) {
+            cancellations_keep_stable_ownership(choice, false);
+            saved_observers_release_a_common_target(choice);
         }
-        cancellations_keep_stable_ownership(2, true);
+        cancellations_keep_stable_ownership(played_choices[2], true);
         full_audit_detects_untracked_duplicate_heads();
         full_capacity_replacement_reuses_storage();
         retargeting_the_tail_of_a_long_live_chain();

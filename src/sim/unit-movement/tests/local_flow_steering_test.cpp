@@ -790,12 +790,11 @@ void test_cached_local_flow_distance_matches_queries_and_decisions() {
     const auto cache = ground::cache_steering_target(unit, points);
     OA_CHECK(cache.target.point != target && cache.target.distance > 80 * fixed_one);
     const movement::LocalFlowBlocker moving{movement::LocalFlowObstacle::moving, 20, west, 20};
-    const std::array<movement::LocalFlowBlocker, 5> blockers{{
+    const std::array<movement::LocalFlowBlocker, 4> blockers{{
         {},
         {movement::LocalFlowObstacle::stationary},
         moving,
         {movement::LocalFlowObstacle::moving, 20, east, 0},
-        {movement::LocalFlowObstacle::moving, 20, west, 20, true},
     }};
     for (const auto& blocker : blockers)
         for (const auto clearance :

@@ -44,10 +44,6 @@ struct FlowLimits {
     uint32_t route_probes_per_tick{65'536};
 };
 
-/// Selects immutable shared-route grid, key, prefix and blocked-field behavior.
-/// The original preset retains the version-two match behavior and format.
-enum class FlowPreset : uint8_t { original, large_regions, fine_regions };
-
 /// A movement class and a player's knowledge of the static map.
 struct FlowContext {
     uint32_t movement_class{}; ///< stable movement-class table index, 0 through 31
@@ -78,7 +74,7 @@ struct FlowCounters {
 
 /// Shares bounded reverse fields between nearby destinations of one movement class/player.
 ///
-/// A coarse node lies every two or four map cells. Every connection is checked at
+/// A coarse node lies every two map cells. Every connection is checked at
 /// footprint-cell resolution, including diagonal corner clearance. Narrow
 /// corridors that miss the coarse graph use the ordinary search. Fields are
 /// admitted only after a second matching request. Construction/clearing work
@@ -90,18 +86,14 @@ class FlowCache {
 
     /// Allocates bounded storage before simulation ticks.
     ///
-    /// @param width map width in footprint cells
-    /// @param height map height in footprint cells
-    /// @param limits maximum fields, total coarse cells and work per tick
-    FlowCache(uint32_t width, uint32_t height, FlowLimits limits = {});
-
-    /// Allocates a specific shared-route preset without changing legacy defaults.
+    /// Destinations share a field when they fall in the same 96-cell region.
+    /// A route's prefix holds at most 32 coarse edges, and a blocked edge
+    /// marks its field for the bounded refresh instead of discarding it.
     ///
     /// @param width map width in footprint cells
     /// @param height map height in footprint cells
     /// @param limits maximum fields, total coarse cells and work per tick
-    /// @param preset immutable grid, key, prefix and blocked-field policy
-    FlowCache(uint32_t width, uint32_t height, FlowLimits limits, FlowPreset preset);
+    FlowCache(uint32_t width, uint32_t height, FlowLimits limits = {});
 
     /// Clears at most 65,536 direction bytes and spends the configured expansion budget.
     /// Seed connections consume expansion credits; clearing uses contiguous slices.

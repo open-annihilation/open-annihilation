@@ -240,8 +240,7 @@ const char* Match::input_error(const OfflineInputs& input) noexcept {
         input.fields.size() != input.types.size() ||
         (!input.unit_defs.empty() && input.unit_defs.size() != input.types.size()))
         return "offline runtime type tables differ";
-    if (input.enhanced_features_override.value_or(data::enhanced_mode::features(input.rules))
-            .has(Feature::capacity)) {
+    if (data::enhanced_mode::features(input.rules).has(Feature::capacity)) {
         if (sim::unit_spawn::unit_pool_size(input.per_player_limit, input.unit_player_mask) == 0)
             return "Enhanced Mode participants exceed the 15-bit unit id capacity";
         if (input.projectile_capacity < OA_PROJECTILE_CAPACITY ||
@@ -393,10 +392,7 @@ void Match::replace_unit_def(std::size_t type, const oa::UnitDef& record) {
 }
 
 Match::Match(const OfflineInputs& input, OfflineServices& services)
-    : input_(input),
-      enhanced_features_(
-          input.enhanced_features_override.value_or(data::enhanced_mode::features(input.rules))
-      ),
+    : input_(input), enhanced_features_(data::enhanced_mode::features(input.rules)),
       services_(services), state_(input, enhanced_features_),
       simulation_(state_.views->simulation()), world_(state_.views->world()),
       slots_(state_.views->slots()), units_(state_.views->units()), spatial_units_(slots_.size()),
@@ -527,20 +523,11 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     if (shared_routes) {
         constexpr uint32_t fine_flow_field_limit = 80;
         constexpr uint32_t fine_flow_cell_limit = 8 * 1024 * 1024;
-        const bool fine_routes = enhanced_features_.has(Feature::routes_fine_regions);
         auto flow_limits = sim::ground_orders::FlowLimits{};
-        if (fine_routes) {
-            flow_limits.fields = fine_flow_field_limit;
-            flow_limits.total_cells = fine_flow_cell_limit;
-        }
+        flow_limits.fields = fine_flow_field_limit;
+        flow_limits.total_cells = fine_flow_cell_limit;
         enhanced_->shared_routes = std::make_unique<sim::ground_orders::FlowCache>(
-            spatial_.terrain_width,
-            spatial_.terrain_height,
-            flow_limits,
-            fine_routes ? sim::ground_orders::FlowPreset::fine_regions
-            : enhanced_features_.has(Feature::routes_large_regions)
-                ? sim::ground_orders::FlowPreset::large_regions
-                : sim::ground_orders::FlowPreset::original
+            spatial_.terrain_width, spatial_.terrain_height, flow_limits
         );
     }
     // A save restores these tables by name in the order they were added:
@@ -783,7 +770,6 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
          environment_wind_.normalized_strength}
     );
     build_movement_maps();
-    initialize_advisory_flow();
     add_allied_sight_state();
 }
 
@@ -820,11 +806,7 @@ EnhancedCounters Match::enhanced_counters() const noexcept {
 const sim::unit_movement::LocalFlowHead* Match::local_flow_head(uint16_t unit) const noexcept {
     if (!enhanced_ || !enhanced_features_.has(Feature::local_flow) || unit >= enhanced_->unit_count)
         return nullptr;
-    const auto* head = &enhanced_->local_flow_heads[unit];
-    if (!head->active && enhanced_features_.has(Feature::corridor_lanes) && enhanced_->advisory &&
-        enhanced_->advisory->published_guides[unit].active)
-        return &enhanced_->advisory->published_guides[unit];
-    return head;
+    return &enhanced_->local_flow_heads[unit];
 }
 
 void Match::note_wind(sim::world_environment::WindRefresh result) noexcept {
@@ -936,8 +918,6 @@ std::size_t Match::event_listener_count() const noexcept {
 }
 
 void Match::report_created(const sim::unit_spawn::Slot* slot, bool finished, uint16_t builder) {
-    if (slot != nullptr)
-        reset_advisory_unit(slot->unit_index);
     if (enhanced_ && slot != nullptr && slot->unit_index < enhanced_->unit_count) {
         enhanced_->local_flow_heads[slot->unit_index] = {};
         const auto* ground = ground_runtime(slot->unit_index);
@@ -1153,43 +1133,16 @@ void Match::assign_squad(sim::unit_spawn::Slot& slot, uint32_t group) {
         return;
     }
     auto& groups = groups_[owner];
-    bool indexed = squad_positions_valid_ && enhanced_features_.has(Feature::squad_position_index);
-    if (indexed && slot.record.squad == -1 && squad_positions_[slot.unit_index] != 0) {
-        squad_positions_valid_ = false;
-        indexed = false;
-    }
     if (slot.record.squad != -1) {
         auto& old = groups[static_cast<uint32_t>(slot.record.squad)];
-        auto found = old.end();
-        if (indexed) {
-            const auto position = squad_positions_[slot.unit_index];
-            if (position != 0 && position <= old.size() && old[position - 1] == slot.unit_index)
-                found = old.begin() + position - 1;
-            else {
-                // A load can change the declared squad while leaving an old
-                // vector entry. Later joins may duplicate it, and legacy find
-                // must keep removing the first occurrence.
-                squad_positions_valid_ = false;
-                indexed = false;
-            }
-        }
-        if (found == old.end())
-            found = std::find(old.begin(), old.end(), slot.unit_index);
+        const auto found = std::find(old.begin(), old.end(), slot.unit_index);
         if (found != old.end()) {
             *found = old.back();
-            if (indexed)
-                squad_positions_[*found] = static_cast<uint16_t>(found - old.begin() + 1);
             old.pop_back();
         }
     }
-    if (indexed)
-        squad_positions_[slot.unit_index] = 0;
-    if (group != 0xffffffffu) {
-        auto& assigned = groups[group];
-        assigned.push_back(slot.unit_index);
-        if (indexed && assigned.size() < squad_slot_capacity)
-            squad_positions_[slot.unit_index] = static_cast<uint16_t>(assigned.size());
-    }
+    if (group != 0xffffffffu)
+        groups[group].push_back(slot.unit_index);
     slot.record.squad = static_cast<int32_t>(group);
 }
 

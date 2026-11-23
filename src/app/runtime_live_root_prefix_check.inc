@@ -89,8 +89,9 @@ if (root_prefix_requested) {
             }
             return result;
         };
-        for (const auto version : {mode::cohort_target_version, mode::cohort_retention_version}) {
-            start_ground_match(version, "Core Prime Industrial Area");
+        {
+            const std::string_view rules_name = "Revision 1";
+            start_ground_match("Core Prime Industrial Area");
             enter_console_check_line("+nowisee");
             clear_local_selection();
             switch_accelerated_presentation(true, prefix_rung_kept);
@@ -399,7 +400,7 @@ if (root_prefix_requested) {
                 "the moving stock army never activated all four root-prefix production stages in "
                 "one frame"
             );
-            std::cout << "live renderer check: root-prefix activation rules=" << version
+            std::cout << "live renderer check: root-prefix activation rules=" << rules_name
                       << " root_prefix_recipe_publishes=" << witness_publishes
                       << " root_prefix_scene_instances=" << witness_counts.scene_instances
                       << " root_prefix_gpu_instances=" << witness_counts.gpu_instances

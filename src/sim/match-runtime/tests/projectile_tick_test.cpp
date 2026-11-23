@@ -794,7 +794,10 @@ void silo_waits_for_its_aim_script(
 /// Flies and detonates shots beyond the normal pool in an Enhanced match.
 void expanded_projectile_tick(sim::match_runtime::OfflineInputs input, Services& services) {
     constexpr uint32_t shots = 512;
-    oa::data::enhanced_mode::apply_alias(input.rules.setup.enhanced_mode, static_cast<uint32_t>(1));
+    oa::data::enhanced_mode::store_choice(
+        input.rules.setup.enhanced_mode,
+        {1, oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity)}
+    );
     input.projectile_capacity = 1024;
     input.unit_player_mask = 0x3;
     CHECK(sim::match_runtime::Match::input_error(input) == nullptr);

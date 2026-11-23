@@ -1065,7 +1065,6 @@ std::string report_json(const Report& report) {
     out << ",\n  \"activity_observed\": " << (report.activity_observed ? "true" : "false");
     text("activity_sampling_scope", report.activity_sampling_scope);
     out << ",\n  \"enhanced_mode\": " << (report.enhanced_mode ? "true" : "false");
-    number("enhanced_version", report.enhanced_version);
     number("enhanced_revision", report.enhanced_revision);
     out << ",\n  \"enhanced_features\": [";
     for (std::size_t index = 0; index < report.enhanced_features.size(); ++index) {
@@ -1074,10 +1073,7 @@ std::string report_json(const Report& report) {
         json_string(out, report.enhanced_features[index]);
     }
     out << ']';
-    text("enhanced_features_spec", report.played_feature_spec);
-    out << ",\n  ";
-    json_string(out, std::string("enhanced_features_") + "override");
-    out << ": " << (report.played_feature_override ? "true" : "false");
+    text("enhanced_features_spec", report.enhanced_features_spec);
     number("data_faults", report.data_faults);
     text("simulation_hash", report.simulation_hash);
     text("world_digest", report.world_digest);

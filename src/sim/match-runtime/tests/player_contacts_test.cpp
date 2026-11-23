@@ -524,8 +524,10 @@ struct Digests {
 Digests fight(bool keep, bool enhanced = false) {
     Options options;
     if (enhanced) {
-        oa::data::enhanced_mode::apply_alias(
-            options.rules.setup.enhanced_mode, oa::data::enhanced_mode::capacity_version
+        oa::data::enhanced_mode::store_choice(
+            options.rules.setup.enhanced_mode,
+            {1,
+             oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity)}
         );
     }
     Fixture f(options);
@@ -598,8 +600,10 @@ ScanSample sample_scan(
     options.per_player_limit = units_per_side;
     options.unit_player_mask = allied_vision ? 7 : 3;
     if (enhanced) {
-        oa::data::enhanced_mode::apply_alias(
-            options.rules.setup.enhanced_mode, oa::data::enhanced_mode::capacity_version
+        oa::data::enhanced_mode::store_choice(
+            options.rules.setup.enhanced_mode,
+            {1,
+             oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity)}
         );
     }
     Fixture f(options);

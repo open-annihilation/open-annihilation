@@ -5,7 +5,9 @@
 """Check Enhanced Mode's opt-in rules and save lifetime in an isolated player folder.
 
 A battle room plays revisions only, so the network recording here plays
-Revision 1, and the old presets 10, 11 and 13 are recorded from skirmishes.
+Revision 1. Skirmishes record Revision 1 and named feature sets chosen with
+--enhanced-features, and each recording keeps its set when played back under
+another one.
 """
 
 import argparse
@@ -25,15 +27,6 @@ def sector_bits(feature_ids):
     return bits
 
 
-# Alias sets for versions 10, 11 and 13, feature ids in id order.
-# Version 10 is version 8 plus cohort targets and steering-projection reuse.
-# Version 11 adds cohort retention. Version 13 adds cardinal queue escape
-# and does not include cohort retention.
-ALIAS_FEATURES = {
-    10: [1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
-    11: [1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
-    13: [1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27],
-}
 # Revision 1's feature ids: capacity, local_flow, routes_fine_regions,
 # route_corner_advance, ai_strike_retarget, credited_fallback_search,
 # ai_attack_retention, ai_rally_retention, occupancy_free_planning,
@@ -41,6 +34,13 @@ ALIAS_FEATURES = {
 # paced_cohort_targets, dispatch_cohort_retention, counterflow_queue_escape,
 # idle_goal_skip and static_interior_refresh_skip.
 REVISION_1_FEATURES = [1, 2, 5, 7, 11, 18, 20, 21, 23, 25, 28, 29, 30, 31, 32, 33, 34]
+# The named sets the skirmishes record and play back with, each Revision 1
+# without one feature: the --enhanced-features list and the feature ids.
+NAMED_SETS = {
+    "-idle_goal_skip": [i for i in REVISION_1_FEATURES if i != 33],
+    "-counterflow_queue_escape": [i for i in REVISION_1_FEATURES if i != 32],
+    "-dispatch_cohort_retention": [i for i in REVISION_1_FEATURES if i != 31],
+}
 # 0.9.3 packed as major << 16 | minor << 8 | patch.
 NEEDED_ENGINE = 0x00000903
 
@@ -86,13 +86,13 @@ def recording_enhanced(path):
         return found[0]
 
 
-def require_alias_sector(path, version):
-    """The recording stores revision 1, that version's feature bits and engine 0.9.3."""
+def require_set_sector(path, feature_ids, name):
+    """The recording stores revision 1, the set's feature bits and engine 0.9.3."""
     recorded = recording_enhanced(path)
-    expected = (1, sector_bits(ALIAS_FEATURES[version]), NEEDED_ENGINE)
+    expected = (1, sector_bits(feature_ids), NEEDED_ENGINE)
     if recorded != expected:
         raise RuntimeError(
-            f"{path.name}: Enhanced Mode sector {recorded} is not alias {version} {expected}"
+            f"{path.name}: Enhanced Mode sector {recorded} is not {name} {expected}"
         )
 
 
@@ -117,7 +117,7 @@ def main():
                                 text=True, timeout=900)
         if result.returncode:
             raise RuntimeError(result.stdout + result.stderr)
-        if "Enhanced Mode: preset, graphics independence" not in result.stdout:
+        if "Enhanced Mode: revision, graphics independence" not in result.stdout:
             raise RuntimeError("the native check did not report success\n" + result.stdout)
         refusal_log = result.stdout + result.stderr
         for line in (
@@ -154,70 +154,46 @@ def main():
         if playback.returncode or "tick errors 0" not in playback.stdout:
             raise RuntimeError("enhanced replay failed\n" + playback.stdout + playback.stderr)
         print("Enhanced Mode: Revision 1 network recording replays with the default set to Off")
-        cohort_recording = root / "enhanced-v10.tad"
-        cohort_record = subprocess.run(
-            base + ["--enhanced-mode-version", "10", "--give-orders", "--seed", "7",
-                    "--match-ticks", "300", "--record-game", str(cohort_recording),
-                    "--preferences-file", str(root / "cohort-record.conf")],
-            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
+        # (recorded with, played back under, file name), each a launch choice:
+        # Revision 1, or a named set's --enhanced-features list.
+        pairs = (
+            ("-idle_goal_skip", "-counterflow_queue_escape", "enhanced-set-a.tad"),
+            ("-dispatch_cohort_retention", "-idle_goal_skip", "enhanced-set-b.tad"),
+            ("revision 1", "-idle_goal_skip", "enhanced-revision-1.tad"),
         )
-        if cohort_record.returncode or not cohort_recording.is_file():
-            raise RuntimeError("v10 skirmish recording failed\n" +
-                               cohort_record.stdout + cohort_record.stderr)
-        require_alias_sector(cohort_recording, 10)
-        cohort_playback = subprocess.run(
-            base + ["--enhanced-mode-version", "8", "--play-demo", str(cohort_recording),
-                    "--match-ticks", "300", "--preferences-file",
-                    str(root / "cohort-playback.conf")],
-            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
-        )
-        if cohort_playback.returncode or "tick errors 0" not in cohort_playback.stdout:
-            raise RuntimeError("v10 replay under CLI v8 failed\n" +
-                               cohort_playback.stdout + cohort_playback.stderr)
-        print("Enhanced Mode: CLI v10 recording keeps its rules under a CLI v8 selection")
-        retained_recording = root / "enhanced-v11.tad"
-        retained_record = subprocess.run(
-            base + ["--enhanced-mode-version", "11", "--give-orders", "--seed", "7",
-                    "--match-ticks", "300", "--record-game", str(retained_recording),
-                    "--preferences-file", str(root / "retained-record.conf")],
-            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
-        )
-        if retained_record.returncode or not retained_recording.is_file():
-            raise RuntimeError("v11 skirmish recording failed\n" +
-                               retained_record.stdout + retained_record.stderr)
-        require_alias_sector(retained_recording, 11)
-        retained_playback = subprocess.run(
-            base + ["--enhanced-mode-version", "10", "--play-demo", str(retained_recording),
-                    "--match-ticks", "300", "--preferences-file",
-                    str(root / "retained-playback.conf")],
-            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
-        )
-        if retained_playback.returncode or "tick errors 0" not in retained_playback.stdout:
-            raise RuntimeError("v11 replay under CLI v10 failed\n" +
-                               retained_playback.stdout + retained_playback.stderr)
-        print("Enhanced Mode: CLI v11 recording keeps its rules under a CLI v10 selection")
-        cardinal_recording = root / "enhanced-v13.tad"
-        cardinal_record = subprocess.run(
-            base + ["--enhanced-mode-version", "13", "--give-orders", "--seed", "7",
-                    "--match-ticks", "300", "--record-game", str(cardinal_recording),
-                    "--preferences-file", str(root / "cardinal-record.conf")],
-            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
-        )
-        if cardinal_record.returncode or not cardinal_recording.is_file():
-            raise RuntimeError("v13 skirmish recording failed\n" +
-                               cardinal_record.stdout + cardinal_record.stderr)
-        require_alias_sector(cardinal_recording, 13)
-        cardinal_playback = subprocess.run(
-            base + ["--enhanced-mode-version", "10", "--play-demo", str(cardinal_recording),
-                    "--match-ticks", "300", "--preferences-file",
-                    str(root / "cardinal-playback.conf")],
-            cwd=root, env=environment, capture_output=True, text=True, timeout=900,
-        )
-        if cardinal_playback.returncode or "tick errors 0" not in cardinal_playback.stdout:
-            raise RuntimeError("v13 replay under CLI v10 failed\n" +
-                               cardinal_playback.stdout + cardinal_playback.stderr)
-        print("Enhanced Mode: CLI v13 recording keeps its rules under a CLI v10 selection")
 
+        def launch(choice):
+            if choice == "revision 1":
+                return ["--enhanced-revision", "1"]
+            return ["--enhanced-features", choice]
+
+        for recorded_with, played_under, name in pairs:
+            skirmish_recording = root / name
+            skirmish_record = subprocess.run(
+                base + launch(recorded_with) + [
+                    "--give-orders", "--seed", "7", "--match-ticks", "300", "--record-game",
+                    str(skirmish_recording), "--preferences-file",
+                    str(root / (name + "-record.conf"))],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=900,
+            )
+            if skirmish_record.returncode or not skirmish_recording.is_file():
+                raise RuntimeError(f"{recorded_with} skirmish recording failed\n" +
+                                   skirmish_record.stdout + skirmish_record.stderr)
+            if recorded_with == "revision 1":
+                require_set_sector(skirmish_recording, REVISION_1_FEATURES, "Revision 1")
+            else:
+                require_set_sector(skirmish_recording, NAMED_SETS[recorded_with], recorded_with)
+            skirmish_playback = subprocess.run(
+                base + launch(played_under) + [
+                    "--play-demo", str(skirmish_recording), "--match-ticks", "300",
+                    "--preferences-file", str(root / (name + "-playback.conf"))],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=900,
+            )
+            if skirmish_playback.returncode or "tick errors 0" not in skirmish_playback.stdout:
+                raise RuntimeError(f"{recorded_with} replay under {played_under} failed\n" +
+                                   skirmish_playback.stdout + skirmish_playback.stderr)
+            print(f"Enhanced Mode: a {recorded_with} recording keeps its rules under "
+                  f"{played_under}")
 
 if __name__ == "__main__":
     main()

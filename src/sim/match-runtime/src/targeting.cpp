@@ -237,11 +237,8 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
                           match.slots_.size()
                       }
                     : std::span<const uint8_t>{};
-            // The first indexed searches looked only as far as a unit's filed
-            // bucket, and missed a unit that had moved out of it within its
-            // cell; the old versions keep that.
-            const bool exact =
-                match.enhanced_features_.has(data::enhanced_mode::Feature::exact_indexed_searches);
+            // The search reaches a cell beyond a unit's filed bucket, so it
+            // finds a unit that has moved out of it within its cell.
             const auto nearby = nearby_target_sightings(
                 match.state(),
                 match.spatial_,
@@ -253,7 +250,7 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
                 {enhanced.target_query_slots.get(), 2 * match.slots_.size()},
                 membership,
                 sightings.radar_fallback != 0,
-                exact ? filed_position_slack : 0
+                filed_position_slack
             );
             if (nearby.complete) {
                 seen = nearby.seen;

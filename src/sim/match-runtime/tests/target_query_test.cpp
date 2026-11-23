@@ -416,8 +416,8 @@ void keeps_broad_and_saturated_queries_on_the_linear_walk() {
 
 // A unit is filed in the bucket of the position where it last changed cell and
 // moves on inside that cell, so it can stand up to a cell beyond its bucket.
-// The first indexed searches missed such a unit at the edge of a query's
-// rectangle (old versions keep that); a cell of slack finds it.
+// Without slack a search misses such a unit at the edge of a query's
+// rectangle; a cell of slack finds it.
 void reaches_units_that_moved_out_of_their_filed_bucket() {
     Fixture fixture(2, 81, 81);
     // Filed at x = 5120, the first column of bucket 40; now at 5114, still in

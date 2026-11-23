@@ -33,18 +33,24 @@ namespace runtime = oa::sim::match_runtime;
 
 constexpr uint8_t computer_player = 1;
 constexpr uint8_t enemy_player = 0;
-constexpr uint32_t retarget_version = oa::data::enhanced_mode::battle_flow_version;
-constexpr uint32_t distributed_version = oa::data::enhanced_mode::distributed_battle_flow_version;
-constexpr uint32_t following_version = oa::data::enhanced_mode::following_flow_version;
-constexpr uint32_t cohort_version = 10;
-constexpr uint32_t retention_version = 11;
-/// Not a version: the test's key for version 10's features with
-/// paced_cohort_targets in place of cohort_targets.
-constexpr uint32_t paced_cohort_rules = 1000;
-/// Not a version: the test's key for version 11's features with
-/// paced_cohort_targets and dispatch_cohort_retention in place of
-/// cohort_targets and cohort_retention.
-constexpr uint32_t dispatch_retention_rules = 1001;
+namespace enhanced = oa::data::enhanced_mode;
+using FeatureSet = enhanced::FeatureSet;
+
+/// Revision 1: strike retargeting, attack and rally retention, paced cohort
+/// targets and dispatch cohort retention.
+const FeatureSet revision_1 = enhanced::revision_features(1);
+/// Revision 1 without dispatch retention: paced cohort targets alone.
+const FeatureSet paced_cohorts = revision_1.without(enhanced::Feature::dispatch_cohort_retention);
+/// Revision 1 without spatial cohorts: whole-strike retargeting with attack
+/// and rally retention.
+const FeatureSet whole_strike = paced_cohorts.without(enhanced::Feature::paced_cohort_targets);
+/// Strike retargeting alone, with no retention and no local traffic.
+const FeatureSet retarget_only =
+    enhanced::close_features(FeatureSet{}.with(enhanced::Feature::ai_strike_retarget));
+/// The sets without strike retargeting: Off, and capacity alone.
+const std::array<FeatureSet, 2> without_retarget = {
+    FeatureSet{}, FeatureSet{}.with(enhanced::Feature::capacity)
+};
 constexpr uint32_t strike_refresh_ticks = 300;
 constexpr uint32_t retarget_interval_ticks = 6;
 constexpr uint32_t target_loss_tick = 55;
@@ -134,32 +140,16 @@ void restore_retarget(Fixture& fixture, std::span<const uint8_t> bytes) {
     CHECK(table.restore(table.context, bytes));
 }
 
-/// Tells whether a test key plays paced_cohort_targets.
-bool paced_rules(uint32_t version) {
-    return version == paced_cohort_rules || version == dispatch_retention_rules;
-}
-
-/// Prepares durable units and one version of the match rules, version 10's
-/// features with paced_cohort_targets for paced_cohort_rules, or version 11's
-/// with paced cohort targets and dispatch retention for
-/// dispatch_retention_rules.
-Options options_for(uint32_t version) {
+/// Prepares durable units and match rules playing a feature set.
+///
+/// @param features the set; empty is Off
+/// @return the options
+Options options_for(const FeatureSet& features) {
     Options options;
-    auto& mode = options.rules.setup.enhanced_mode;
-    if (paced_rules(version)) {
-        using StoredFeature = oa::data::match_rules::SetupEnhancedModeFeatures;
-        const bool retention = version == dispatch_retention_rules;
-        oa::data::enhanced_mode::apply_alias(mode, retention ? retention_version : cohort_version);
-        mode.features.members[static_cast<std::size_t>(StoredFeature::cohort_targets)] = false;
-        mode.features.insert(StoredFeature::paced_cohort_targets);
-        if (retention) {
-            mode.features.members[static_cast<std::size_t>(StoredFeature::cohort_retention)] =
-                false;
-            mode.features.insert(StoredFeature::dispatch_cohort_retention);
-        }
-    } else {
-        oa::data::enhanced_mode::apply_alias(mode, static_cast<uint32_t>(version));
-    }
+    enhanced::store_choice(
+        options.rules.setup.enhanced_mode,
+        features.empty() ? enhanced::Choice{} : enhanced::Choice{1, features}
+    );
     options.per_player_limit = slots_per_player;
     options.maximum_health = durable_health;
     options.gun_reload_time = "10";
@@ -167,10 +157,8 @@ Options options_for(uint32_t version) {
 }
 
 /// Tells whether a match divides computer strikes into spatial cohorts.
-bool uses_cohorts(const Fixture& fixture) {
-    const auto features = fixture.match->enhanced_features();
-    return features.has(oa::data::enhanced_mode::Feature::cohort_targets) ||
-           features.has(oa::data::enhanced_mode::Feature::paced_cohort_targets);
+bool plays_cohorts(const Fixture& fixture) {
+    return fixture.match->enhanced_features().has(enhanced::Feature::paced_cohort_targets);
 }
 
 /// Keeps an idle unit from independently replacing the squad's target.
@@ -200,7 +188,7 @@ struct AttackReaderFixture {
 
     /// Creates real owned commands, optionally through the ownership-index fallback.
     explicit AttackReaderFixture(bool index_fallback = false, bool queued = false)
-        : fixture(options_for(retention_version)) {
+        : fixture(options_for(revision_1)) {
         if (index_fallback)
             CHECK(runtime::MatchTickAccess::reset_order_index(*fixture.match, 0));
         auto gun = fixture.weapons.records()[fixture_gun];
@@ -507,8 +495,8 @@ struct StrikeFixture {
     uint32_t regular_refresh_tick{};
 
     /// Starts the ordinary strike through the full match controller tick.
-    explicit StrikeFixture(uint32_t version, bool short_range_weapon = false)
-        : fixture(options_for(version)) {
+    explicit StrikeFixture(const FeatureSet& features, bool short_range_weapon = false)
+        : fixture(options_for(features)) {
         if (short_range_weapon) {
             auto gun = fixture.weapons.records()[fixture_gun];
             gun.range = movement_gun_range;
@@ -528,7 +516,7 @@ struct StrikeFixture {
         target = first.unit_index;
         // Keep an actual split when members may choose another selected front.
         // The short-range fixture retains separate targets at its shared Z.
-        const bool nearby_fronts = !short_range_weapon && uses_cohorts(fixture);
+        const bool nearby_fronts = !short_range_weapon && plays_cohorts(fixture);
         auto& second = fixture.spawn(
             enemy_player,
             nearby_fronts ? target_x : replacement_x,
@@ -560,7 +548,7 @@ struct StrikeFixture {
         initial_issue_tick = head_record(fixture, members.front()).issue_tick;
         regular_refresh_tick = initial_issue_tick + strike_refresh_ticks;
         CHECK(strike().next_tick == regular_refresh_tick);
-        if (uses_cohorts(fixture)) {
+        if (plays_cohorts(fixture)) {
             std::size_t first_members = 0;
             std::size_t second_members = 0;
             for (const auto member : members) {
@@ -691,9 +679,9 @@ std::vector<uint16_t> cohort_target_members(StrikeFixture& battle, uint16_t targ
 
 /// Refreshes a lost non-last target while keeping busy orders and recruitment untouched;
 /// under paced cohort targets a member with no chase at all is refreshed too.
-void cohort_loss_refreshes_only_lost_orders(uint32_t version) {
-    const bool paced = paced_rules(version);
-    StrikeFixture battle(version);
+void cohort_loss_refreshes_only_lost_orders(const FeatureSet& features) {
+    const bool paced = features.has(enhanced::Feature::paced_cohort_targets);
+    StrikeFixture battle(features);
     const auto lost_target = untracked_cohort_target(battle);
     const auto remaining_target = lost_target == battle.target ? battle.replacement : battle.target;
     auto affected = cohort_target_members(battle, lost_target);
@@ -757,8 +745,8 @@ void cohort_loss_refreshes_only_lost_orders(uint32_t version) {
 }
 
 /// Gives a reused target slot a fresh command instead of retaining the disappearing target.
-void cohort_slot_reuse_requires_a_fresh_attack(uint32_t version) {
-    StrikeFixture battle(version);
+void cohort_slot_reuse_requires_a_fresh_attack(const FeatureSet& features) {
+    StrikeFixture battle(features);
     const auto lost_target = untracked_cohort_target(battle);
     const auto affected = cohort_target_members(battle, lost_target);
     CHECK(!affected.empty());
@@ -791,9 +779,9 @@ void cohort_slot_reuse_requires_a_fresh_attack(uint32_t version) {
 void recreate_ai_without_task_clocks(StrikeFixture& battle);
 
 /// Continues cohort loss scanning from the existing saved cooldown and task clock.
-void cohort_cooldown_continues_after_rule_restore(uint32_t version) {
-    StrikeFixture first(version);
-    StrikeFixture restored(version);
+void cohort_cooldown_continues_after_rule_restore(const FeatureSet& features) {
+    StrikeFixture first(features);
+    StrikeFixture restored(features);
     first.run_until(target_loss_tick);
     restored.run_until(target_loss_tick);
     const auto lost_target = untracked_cohort_target(first);
@@ -805,7 +793,7 @@ void cohort_cooldown_continues_after_rule_restore(uint32_t version) {
     CHECK(saved.size() == state_byte_count);
     CHECK(read_integer(saved, schema_offset) == state_schema);
     CHECK(read_integer(saved, next_early_offset) > target_loss_tick);
-    Fixture fresh(options_for(version));
+    Fixture fresh(options_for(features));
     restore_retarget(restored.fixture, retarget_bytes(fresh));
     recreate_ai_without_task_clocks(restored);
     CHECK(restored.strike().next_tick == 0 && restored.strike().attacking == 0);
@@ -833,8 +821,8 @@ void cohort_cooldown_continues_after_rule_restore(uint32_t version) {
 }
 
 /// Keeps never-bound state loadable while checking empty orders at the shared cadence.
-void cohort_without_an_enemy_keeps_empty_binding_loadable(uint32_t version) {
-    Fixture fixture(options_for(version));
+void cohort_without_an_enemy_keeps_empty_binding_loadable(const FeatureSet& features) {
+    Fixture fixture(options_for(features));
     std::array<uint16_t, strike_members> members{};
     for (std::size_t index = 0; index < members.size(); ++index) {
         auto& member = fixture.spawn(computer_player, member_x, member_z[index]);
@@ -886,8 +874,8 @@ void cohort_without_an_enemy_keeps_empty_binding_loadable(uint32_t version) {
 }
 
 /// Refreshes one lost source without recruiting, consuming randomness or replacing healthy heads.
-void cohort_masked_refresh_preserves_unselected_state(uint32_t version) {
-    StrikeFixture battle(version);
+void cohort_masked_refresh_preserves_unselected_state(const FeatureSet& features) {
+    StrikeFixture battle(features);
     battle.run_until(target_loss_tick);
     const auto lost_target = untracked_cohort_target(battle);
     const auto affected = cohort_target_members(battle, lost_target);
@@ -931,10 +919,10 @@ void cohort_masked_refresh_preserves_unselected_state(uint32_t version) {
     CHECK(retarget_bytes(battle.fixture) == state);
 }
 
-/// Keeps all earlier presets on the existing regular strike refresh.
+/// Keeps matches without strike retargeting on the existing regular strike refresh.
 void old_presets_keep_the_regular_refresh() {
-    for (uint32_t version = 0; version < retarget_version; ++version) {
-        StrikeFixture battle(version);
+    for (const auto& features : without_retarget) {
+        StrikeFixture battle(features);
         CHECK(
             runtime::find_rule_state(battle.fixture.match->rule_state(), "ai-retarget") == nullptr
         );
@@ -949,8 +937,8 @@ void old_presets_keep_the_regular_refresh() {
 }
 
 /// Retargets the complete strike promptly when its shared target dies.
-void dead_target_refreshes_the_squad_before_the_regular_deadline(uint32_t version) {
-    StrikeFixture battle(version);
+void dead_target_refreshes_the_squad_before_the_regular_deadline(const FeatureSet& features) {
+    StrikeFixture battle(features);
     battle.run_until(target_loss_tick);
     battle.kill_target(battle.target);
     const auto issued =
@@ -995,8 +983,8 @@ void create_healthy_replacement(StrikeFixture& battle, uint16_t slot, uint32_t x
 }
 
 /// Waits for the remaining short cooldown when a target dies just after its issue.
-void early_target_loss_respects_the_short_cooldown_then_moves(uint32_t version) {
-    StrikeFixture battle(version, true);
+void early_target_loss_respects_the_short_cooldown_then_moves(const FeatureSet& features) {
+    StrikeFixture battle(features, true);
     const uint32_t died = battle.initial_issue_tick + 1;
     const uint32_t next_allowed = battle.initial_issue_tick + retarget_interval_ticks;
     battle.run_until(died);
@@ -1025,8 +1013,8 @@ void early_target_loss_respects_the_short_cooldown_then_moves(uint32_t version) 
 }
 
 /// Keeps goals and movement returning as healthy replacement targets die repeatedly.
-void short_lived_healthy_targets_resume_goals_and_motion(uint32_t version) {
-    StrikeFixture battle(version, true);
+void short_lived_healthy_targets_resume_goals_and_motion(const FeatureSet& features) {
+    StrikeFixture battle(features, true);
     constexpr uint32_t first_target_lifetime = 4;
     battle.run_until(battle.initial_issue_tick + first_target_lifetime);
     const uint32_t first_death = battle.fixture.match->simulation().tick;
@@ -1061,8 +1049,8 @@ void short_lived_healthy_targets_resume_goals_and_motion(uint32_t version) {
 }
 
 /// Keeps the native refresh cadence while distributed attacks continue in place.
-void live_target_does_not_add_command_refreshes(uint32_t version) {
-    StrikeFixture battle(version);
+void live_target_does_not_add_command_refreshes(const FeatureSet& features) {
+    StrikeFixture battle(features);
     while (battle.fixture.match->simulation().tick < battle.regular_refresh_tick - 1) {
         battle.fixture.run(1);
         battle.check_attack(battle.target, battle.initial_issue_tick);
@@ -1107,10 +1095,10 @@ void run_controller_at(StrikeFixture& battle, uint32_t tick) {
     CHECK(battle.fixture.match->fault() == nullptr);
 }
 
-/// Keeps earlier presets' selection of a still-live pending target unchanged.
+/// Keeps the selection of a still-live pending target without strike retargeting.
 void earlier_presets_keep_the_pending_target_selection() {
-    for (uint32_t version = 0; version < retarget_version; ++version) {
-        StrikeFixture battle(version);
+    for (const auto& features : without_retarget) {
+        StrikeFixture battle(features);
         battle.run_until(target_loss_tick - 1);
         mark_unhealthy_target(battle, battle.target, UnhealthyTarget::zero_health_pending);
         battle.strike().next_tick = target_loss_tick;
@@ -1124,14 +1112,14 @@ void earlier_presets_keep_the_pending_target_selection() {
 }
 
 /// Uses one early strike batch to choose a healthy enemy before the old target tears down.
-void enhanced_strike_skips_unhealthy_live_target_bodies(uint32_t version) {
+void enhanced_strike_skips_unhealthy_live_target_bodies(const FeatureSet& features) {
     constexpr std::array conditions = {
         UnhealthyTarget::zero_health_pending,
         UnhealthyTarget::zero_health,
         UnhealthyTarget::pending_positive_health
     };
     for (const auto condition : conditions) {
-        StrikeFixture battle(version);
+        StrikeFixture battle(features);
         battle.run_until(target_loss_tick - 1);
         mark_unhealthy_target(battle, battle.target, condition);
         CHECK(battle.strike().next_tick > target_loss_tick);
@@ -1168,8 +1156,8 @@ void enhanced_strike_skips_unhealthy_live_target_bodies(uint32_t version) {
 }
 
 /// Retries at the finite cooldown without reissuing an attack on pending bodies.
-void all_pending_targets_keep_retries_bounded_without_new_attacks(uint32_t version) {
-    StrikeFixture battle(version);
+void all_pending_targets_keep_retries_bounded_without_new_attacks(const FeatureSet& features) {
+    StrikeFixture battle(features);
     battle.run_until(target_loss_tick - 1);
     mark_unhealthy_target(battle, battle.target, UnhealthyTarget::zero_health_pending);
     mark_unhealthy_target(battle, battle.replacement, UnhealthyTarget::zero_health_pending);
@@ -1214,8 +1202,8 @@ void all_pending_targets_keep_retries_bounded_without_new_attacks(uint32_t versi
 }
 
 /// Bounds unsuccessful retarget attempts when no enemy remains.
-void no_enemy_does_not_retry_on_every_tick(uint32_t version) {
-    StrikeFixture battle(version);
+void no_enemy_does_not_retry_on_every_tick(const FeatureSet& features) {
+    StrikeFixture battle(features);
     battle.run_until(target_loss_tick);
     battle.kill_target(battle.target);
     battle.kill_target(battle.replacement);
@@ -1238,8 +1226,8 @@ void no_enemy_does_not_retry_on_every_tick(uint32_t version) {
 }
 
 /// Treats a new enemy in the dead target's slot as a different unit lifetime.
-void reusing_the_target_slot_still_requires_a_new_command(uint32_t version) {
-    StrikeFixture battle(version);
+void reusing_the_target_slot_still_requires_a_new_command(const FeatureSet& features) {
+    StrikeFixture battle(features);
     battle.run_until(target_loss_tick);
     battle.kill_target(battle.target);
     battle.reuse_target_slot();
@@ -1250,8 +1238,8 @@ void reusing_the_target_slot_still_requires_a_new_command(uint32_t version) {
 }
 
 /// Retargets an enemy that has been given to the computer player's own side.
-void transferred_target_is_no_longer_a_hostile_binding(uint32_t version) {
-    StrikeFixture battle(version);
+void transferred_target_is_no_longer_a_hostile_binding(const FeatureSet& features) {
+    StrikeFixture battle(features);
     battle.run_until(target_loss_tick);
     battle.fixture.match->transfer_unit(battle.target, computer_player);
     const auto issued =
@@ -1261,8 +1249,8 @@ void transferred_target_is_no_longer_a_hostile_binding(uint32_t version) {
 }
 
 /// Rejects malformed codec input without changing any retained state.
-void malformed_rule_state_is_rejected_transactionally(uint32_t version) {
-    StrikeFixture battle(version);
+void malformed_rule_state_is_rejected_transactionally(const FeatureSet& features) {
+    StrikeFixture battle(features);
     const auto original = retarget_bytes(battle.fixture);
     CHECK(original.size() == state_byte_count);
     CHECK(read_integer(original, magic_offset) == state_magic);
@@ -1324,8 +1312,8 @@ void malformed_rule_state_is_rejected_transactionally(uint32_t version) {
 }
 
 /// Keeps owner-local target bindings out of the shared match digest.
-void owner_local_retarget_state_does_not_change_the_shared_digest(uint32_t version) {
-    StrikeFixture battle(version);
+void owner_local_retarget_state_does_not_change_the_shared_digest(const FeatureSet& features) {
+    StrikeFixture battle(features);
     const auto& table = retarget_table(battle.fixture);
     CHECK(!table.digest);
     constexpr uint64_t digest_seed = 0x0123456789abcdefULL;
@@ -1333,7 +1321,7 @@ void owner_local_retarget_state_does_not_change_the_shared_digest(uint32_t versi
     const uint64_t before = battle.fixture.match->fold_rule_state(digest_seed);
     const uint8_t shared_tables =
         runtime::digested_rule_state_count(battle.fixture.match->rule_state());
-    Fixture fresh(options_for(version));
+    Fixture fresh(options_for(features));
     const auto blank = retarget_bytes(fresh);
     CHECK(blank != original);
     restore_retarget(battle.fixture, blank);
@@ -1385,9 +1373,7 @@ void compare_continuation_state(StrikeFixture& first, StrikeFixture& restored) {
 void restore_and_compare_continuation(StrikeFixture& first, StrikeFixture& restored) {
     compare_continuation_state(first, restored);
     const auto saved = retarget_bytes(first.fixture);
-    Fixture fresh(
-        options_for(oa::data::enhanced_mode::rules_version(first.fixture.match->rules()))
-    );
+    Fixture fresh(options_for(enhanced::features(first.fixture.match->rules())));
     const auto blank = retarget_bytes(fresh);
     CHECK(blank != saved);
     restore_retarget(restored.fixture, blank);
@@ -1402,9 +1388,9 @@ void restore_and_compare_continuation(StrikeFixture& first, StrikeFixture& resto
 }
 
 /// Resumes rule state after target loss, including the saved early-refresh cursor.
-void rule_state_continues_after_target_loss(uint32_t version) {
-    StrikeFixture first(version);
-    StrikeFixture restored(version);
+void rule_state_continues_after_target_loss(const FeatureSet& features) {
+    StrikeFixture first(features);
+    StrikeFixture restored(features);
     first.run_until(target_loss_tick);
     restored.run_until(target_loss_tick);
     first.kill_target(first.target);
@@ -1415,9 +1401,9 @@ void rule_state_continues_after_target_loss(uint32_t version) {
 }
 
 /// Keeps a saved loss when the dead target's slot already holds a new unit.
-void rule_state_continues_after_immediate_slot_reuse(uint32_t version) {
-    StrikeFixture first(version);
-    StrikeFixture restored(version);
+void rule_state_continues_after_immediate_slot_reuse(const FeatureSet& features) {
+    StrikeFixture first(features);
+    StrikeFixture restored(features);
     first.run_until(target_loss_tick);
     restored.run_until(target_loss_tick);
     first.kill_target(first.target);
@@ -1431,9 +1417,9 @@ void rule_state_continues_after_immediate_slot_reuse(uint32_t version) {
 }
 
 /// Keeps the finite retry deadline across a second loss during the cooldown.
-void rule_state_continues_during_retarget_cooldown(uint32_t version) {
-    StrikeFixture first(version);
-    StrikeFixture restored(version);
+void rule_state_continues_during_retarget_cooldown(const FeatureSet& features) {
+    StrikeFixture first(features);
+    StrikeFixture restored(features);
     first.run_until(target_loss_tick);
     restored.run_until(target_loss_tick);
     first.kill_target(first.target);
@@ -1481,15 +1467,15 @@ void recreate_ai_without_task_clocks(StrikeFixture& battle) {
 enum class FreshAiSavePoint { target_loss, slot_reuse, retry_cooldown };
 
 /// Restores native strike clocks before a freshly initialized AI takes its first turn.
-void fresh_ai_heap_continues_saved_strike_clocks(uint32_t version) {
+void fresh_ai_heap_continues_saved_strike_clocks(const FeatureSet& features) {
     constexpr std::array save_points = {
         FreshAiSavePoint::target_loss,
         FreshAiSavePoint::slot_reuse,
         FreshAiSavePoint::retry_cooldown
     };
     for (const auto save_point : save_points) {
-        StrikeFixture first(version);
-        StrikeFixture restored(version);
+        StrikeFixture first(features);
+        StrikeFixture restored(features);
         first.run_until(target_loss_tick);
         restored.run_until(target_loss_tick);
         first.kill_target(first.target);
@@ -1520,7 +1506,7 @@ void fresh_ai_heap_continues_saved_strike_clocks(uint32_t version) {
         if (save_point == FreshAiSavePoint::retry_cooldown)
             CHECK(read_integer(saved, next_early_offset) > first.fixture.match->simulation().tick);
 
-        Fixture fresh(options_for(version));
+        Fixture fresh(options_for(features));
         restore_retarget(restored.fixture, retarget_bytes(fresh));
         recreate_ai_without_task_clocks(restored);
         CHECK(restored.strike().next_tick == 0 && restored.strike().attacking == 0);
@@ -1537,9 +1523,9 @@ void fresh_ai_heap_continues_saved_strike_clocks(uint32_t version) {
 }
 
 /// Applies saved task clocks before the saved tick's load-pass controller turn.
-void load_pass_keeps_an_unexpired_retarget_cooldown(uint32_t version) {
-    StrikeFixture first(version);
-    StrikeFixture restored(version);
+void load_pass_keeps_an_unexpired_retarget_cooldown(const FeatureSet& features) {
+    StrikeFixture first(features);
+    StrikeFixture restored(features);
     first.run_until(target_loss_tick);
     restored.run_until(target_loss_tick);
     first.kill_target(first.target);
@@ -1569,7 +1555,7 @@ void load_pass_keeps_an_unexpired_retarget_cooldown(uint32_t version) {
     const uint32_t native_deadline = first.strike().next_tick;
     CHECK(native_deadline != saved_tick + strike_refresh_ticks);
 
-    Fixture fresh(options_for(version));
+    Fixture fresh(options_for(features));
     restore_retarget(restored.fixture, retarget_bytes(fresh));
     recreate_ai_without_task_clocks(restored);
     CHECK(restored.strike().next_tick == 0 && restored.strike().attacking == 0);
@@ -1598,8 +1584,8 @@ void load_pass_keeps_an_unexpired_retarget_cooldown(uint32_t version) {
 }
 
 /// Shares early retries fairly between two strikes that keep losing their targets.
-void repeated_failed_retries_serve_land_and_naval_strikes_fairly(uint32_t version) {
-    StrikeFixture battle(version);
+void repeated_failed_retries_serve_land_and_naval_strikes_fairly(const FeatureSet& features) {
+    StrikeFixture battle(features);
     (void)battle.add_naval_strike();
     battle.run_until(target_loss_tick);
     battle.kill_target(battle.target);
@@ -1637,9 +1623,9 @@ void repeated_failed_retries_serve_land_and_naval_strikes_fairly(uint32_t versio
 }
 
 /// Resumes the next competing strike after the other task spent the global budget.
-void round_robin_cursor_continues_after_restore(uint32_t version) {
-    StrikeFixture first(version);
-    StrikeFixture restored(version);
+void round_robin_cursor_continues_after_restore(const FeatureSet& features) {
+    StrikeFixture first(features);
+    StrikeFixture restored(features);
     (void)first.add_naval_strike();
     (void)restored.add_naval_strike();
     first.run_until(target_loss_tick);
@@ -1657,7 +1643,7 @@ void round_robin_cursor_continues_after_restore(uint32_t version) {
     const auto saved = retarget_bytes(first.fixture);
     CHECK(saved[cursor_offset] == computer_player * 2 + 1);
     CHECK(read_integer(saved, next_early_offset) > first.fixture.match->simulation().tick);
-    Fixture fresh(options_for(version));
+    Fixture fresh(options_for(features));
     restore_retarget(restored.fixture, retarget_bytes(fresh));
     restore_retarget(restored.fixture, saved);
     const auto next_service_tick = read_integer(saved, next_early_offset);
@@ -1687,8 +1673,8 @@ struct ClaimedSeat {
 };
 
 /// Waits for the built-in controller when a custom seat has claimed its turns.
-void claimed_seat_does_not_advance_the_builtin_strike(uint32_t version) {
-    StrikeFixture battle(version);
+void claimed_seat_does_not_advance_the_builtin_strike(const FeatureSet& features) {
+    StrikeFixture battle(features);
     battle.run_until(target_loss_tick);
     ClaimedSeat seat;
     runtime::SeatHooks hooks;
@@ -1709,8 +1695,8 @@ void claimed_seat_does_not_advance_the_builtin_strike(uint32_t version) {
 }
 
 /// Retargets normally when a custom hook lets the built-in player take its turn.
-void unclaimed_seat_turn_keeps_builtin_retargeting(uint32_t version) {
-    StrikeFixture battle(version);
+void unclaimed_seat_turn_keeps_builtin_retargeting(const FeatureSet& features) {
+    StrikeFixture battle(features);
     battle.run_until(target_loss_tick);
     ClaimedSeat seat;
     seat.claimed = false;
@@ -1768,94 +1754,92 @@ int main() {
         "owned attack saved/index continuation",
         owned_attack_target_continues_after_saved_orders_and_index_fallback
     );
-    for (const auto version :
-         {cohort_version, retention_version, paced_cohort_rules, dispatch_retention_rules}) {
-        if (version == paced_cohort_rules)
+    for (const auto& features : {paced_cohorts, revision_1}) {
+        if (features == paced_cohorts)
             std::cout << "Enhanced cohort retarget: paced cohort targets\n";
-        else if (version == dispatch_retention_rules)
-            std::cout << "Enhanced cohort retarget: paced cohort targets, dispatch retention\n";
         else
-            std::cout << "Enhanced cohort retarget: version=" << version << '\n';
-        failures += run_case("cohort non-last target loss", [version] {
-            cohort_loss_refreshes_only_lost_orders(version);
+            std::cout << "Enhanced cohort retarget: Revision 1\n";
+        failures += run_case("cohort non-last target loss", [features] {
+            cohort_loss_refreshes_only_lost_orders(features);
         });
-        failures += run_case("cohort slot reuse", [version] {
-            cohort_slot_reuse_requires_a_fresh_attack(version);
+        failures += run_case("cohort slot reuse", [features] {
+            cohort_slot_reuse_requires_a_fresh_attack(features);
         });
-        failures += run_case("cohort saved cooldown", [version] {
-            cohort_cooldown_continues_after_rule_restore(version);
+        failures += run_case("cohort saved cooldown", [features] {
+            cohort_cooldown_continues_after_rule_restore(features);
         });
-        failures += run_case("cohort never-bound save", [version] {
-            cohort_without_an_enemy_keeps_empty_binding_loadable(version);
+        failures += run_case("cohort never-bound save", [features] {
+            cohort_without_an_enemy_keeps_empty_binding_loadable(features);
         });
-        failures += run_case("cohort masked refresh state", [version] {
-            cohort_masked_refresh_preserves_unselected_state(version);
+        failures += run_case("cohort masked refresh state", [features] {
+            cohort_masked_refresh_preserves_unselected_state(features);
         });
     }
     failures += run_case("earlier presets", old_presets_keep_the_regular_refresh);
     failures += run_case(
         "earlier pending-target selection", earlier_presets_keep_the_pending_target_selection
     );
-    for (const auto version : {retarget_version, distributed_version, following_version}) {
-        std::cout << "Enhanced strike retarget: version=" << version << '\n';
-        failures += run_case("dead target", [version] {
-            dead_target_refreshes_the_squad_before_the_regular_deadline(version);
+    for (const auto& features : {retarget_only, whole_strike}) {
+        std::cout << "Enhanced strike retarget: "
+                  << (features == retarget_only ? "retargeting alone" : "whole strikes") << '\n';
+        failures += run_case("dead target", [features] {
+            dead_target_refreshes_the_squad_before_the_regular_deadline(features);
         });
-        failures += run_case("short cooldown before movement", [version] {
-            early_target_loss_respects_the_short_cooldown_then_moves(version);
+        failures += run_case("short cooldown before movement", [features] {
+            early_target_loss_respects_the_short_cooldown_then_moves(features);
         });
-        failures += run_case("short-lived targets keep moving", [version] {
-            short_lived_healthy_targets_resume_goals_and_motion(version);
+        failures += run_case("short-lived targets keep moving", [features] {
+            short_lived_healthy_targets_resume_goals_and_motion(features);
         });
-        failures += run_case("live target", [version] {
-            live_target_does_not_add_command_refreshes(version);
+        failures += run_case("live target", [features] {
+            live_target_does_not_add_command_refreshes(features);
         });
-        failures += run_case("healthy strike target", [version] {
-            enhanced_strike_skips_unhealthy_live_target_bodies(version);
+        failures += run_case("healthy strike target", [features] {
+            enhanced_strike_skips_unhealthy_live_target_bodies(features);
         });
-        failures += run_case("pending targets retry cooldown", [version] {
-            all_pending_targets_keep_retries_bounded_without_new_attacks(version);
+        failures += run_case("pending targets retry cooldown", [features] {
+            all_pending_targets_keep_retries_bounded_without_new_attacks(features);
         });
         failures +=
-            run_case("no enemy", [version] { no_enemy_does_not_retry_on_every_tick(version); });
-        failures += run_case("reused target slot", [version] {
-            reusing_the_target_slot_still_requires_a_new_command(version);
+            run_case("no enemy", [features] { no_enemy_does_not_retry_on_every_tick(features); });
+        failures += run_case("reused target slot", [features] {
+            reusing_the_target_slot_still_requires_a_new_command(features);
         });
-        failures += run_case("transferred target", [version] {
-            transferred_target_is_no_longer_a_hostile_binding(version);
+        failures += run_case("transferred target", [features] {
+            transferred_target_is_no_longer_a_hostile_binding(features);
         });
-        failures += run_case("malformed rule state", [version] {
-            malformed_rule_state_is_rejected_transactionally(version);
+        failures += run_case("malformed rule state", [features] {
+            malformed_rule_state_is_rejected_transactionally(features);
         });
-        failures += run_case("owner-local rule-state digest", [version] {
-            owner_local_retarget_state_does_not_change_the_shared_digest(version);
+        failures += run_case("owner-local rule-state digest", [features] {
+            owner_local_retarget_state_does_not_change_the_shared_digest(features);
         });
-        failures += run_case("saved target loss", [version] {
-            rule_state_continues_after_target_loss(version);
+        failures += run_case("saved target loss", [features] {
+            rule_state_continues_after_target_loss(features);
         });
-        failures += run_case("saved slot reuse", [version] {
-            rule_state_continues_after_immediate_slot_reuse(version);
+        failures += run_case("saved slot reuse", [features] {
+            rule_state_continues_after_immediate_slot_reuse(features);
         });
-        failures += run_case("saved retry cooldown", [version] {
-            rule_state_continues_during_retarget_cooldown(version);
+        failures += run_case("saved retry cooldown", [features] {
+            rule_state_continues_during_retarget_cooldown(features);
         });
-        failures += run_case("fresh AI task clocks", [version] {
-            fresh_ai_heap_continues_saved_strike_clocks(version);
+        failures += run_case("fresh AI task clocks", [features] {
+            fresh_ai_heap_continues_saved_strike_clocks(features);
         });
-        failures += run_case("load-pass retry cooldown", [version] {
-            load_pass_keeps_an_unexpired_retarget_cooldown(version);
+        failures += run_case("load-pass retry cooldown", [features] {
+            load_pass_keeps_an_unexpired_retarget_cooldown(features);
         });
-        failures += run_case("land and naval retry fairness", [version] {
-            repeated_failed_retries_serve_land_and_naval_strikes_fairly(version);
+        failures += run_case("land and naval retry fairness", [features] {
+            repeated_failed_retries_serve_land_and_naval_strikes_fairly(features);
         });
-        failures += run_case("saved round-robin cursor", [version] {
-            round_robin_cursor_continues_after_restore(version);
+        failures += run_case("saved round-robin cursor", [features] {
+            round_robin_cursor_continues_after_restore(features);
         });
-        failures += run_case("claimed seat", [version] {
-            claimed_seat_does_not_advance_the_builtin_strike(version);
+        failures += run_case("claimed seat", [features] {
+            claimed_seat_does_not_advance_the_builtin_strike(features);
         });
-        failures += run_case("unclaimed seat", [version] {
-            unclaimed_seat_turn_keeps_builtin_retargeting(version);
+        failures += run_case("unclaimed seat", [features] {
+            unclaimed_seat_turn_keeps_builtin_retargeting(features);
         });
     }
     return failures == 0 ? 0 : 1;

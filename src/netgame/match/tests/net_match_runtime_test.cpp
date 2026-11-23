@@ -64,10 +64,19 @@ constexpr uint16_t kFloaterType = 4;
 constexpr uint32_t kNavalSeaLevel = 60;
 constexpr int8_t kFloaterWaterline = 4;
 constexpr uint32_t kUptimeMilliseconds = 1000;
-constexpr uint32_t released_mode = 0;
-constexpr uint32_t enhanced_capacity_mode = 1;
-constexpr uint32_t enhanced_flow_mode = 2;
-constexpr uint32_t enhanced_regional_flow_mode = 3;
+// The Enhanced Mode features the machines play: Off; capacity alone; local
+// traffic flow over shared routes on the fine regional grid; and Revision 1.
+const oa::data::enhanced_mode::FeatureSet released_mode{};
+const oa::data::enhanced_mode::FeatureSet enhanced_capacity_mode =
+    oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity);
+const oa::data::enhanced_mode::FeatureSet enhanced_flow_mode =
+    oa::data::enhanced_mode::close_features(
+        oa::data::enhanced_mode::FeatureSet{}.with(
+            oa::data::enhanced_mode::Feature::routes_fine_regions
+        )
+    );
+const oa::data::enhanced_mode::FeatureSet revision_1_mode =
+    oa::data::enhanced_mode::revision_features(1);
 constexpr uint16_t participating_players = (1u << 0) | (1u << 1);
 // The transport machines' air transport, air pad and cargo types. The cargo
 // stands kCargoHeight units high; the pad's landing piece sits on its deck.
@@ -760,7 +769,7 @@ struct Pair {
         bool killable = false,
         bool naval = false,
         bool transports = false,
-        uint32_t enhanced_version = released_mode,
+        const oa::data::enhanced_mode::FeatureSet& enhanced_features = released_mode,
         uint16_t units_per_player = kUnitsPerPlayer,
         const WireRules& wire = {}
     )
@@ -773,9 +782,10 @@ struct Pair {
         host->inbox.peer = &joiner->inbox;
         joiner->inbox.peer = &host->inbox;
         for (auto* machine : {host.get(), joiner.get()}) {
-            oa::data::enhanced_mode::apply_alias(
+            oa::data::enhanced_mode::store_choice(
                 machine->rules.setup.enhanced_mode,
-                static_cast<uint32_t>(static_cast<int32_t>(enhanced_version))
+                enhanced_features.empty() ? oa::data::enhanced_mode::Choice{}
+                                          : oa::data::enhanced_mode::Choice{1, enhanced_features}
             );
             machine->units_per_player = units_per_player;
             machine->wire = wire;
@@ -787,10 +797,9 @@ struct Pair {
 
 /// Preparing an existing match for recording keeps its ranges and canonical records.
 void preparing_a_binding_keeps_canonical_records() {
-    constexpr uint32_t cardinal_queue_mode = 13;
     constexpr int16_t recorded_squad = 7;
-    for (const uint32_t version : {released_mode, enhanced_capacity_mode, cardinal_queue_mode}) {
-        Pair pair(0, kMapCells, false, false, false, false, version);
+    for (const auto& features : {released_mode, enhanced_capacity_mode, revision_1_mode}) {
+        Pair pair(0, kMapCells, false, false, false, false, features);
         for (auto* machine : {pair.host.get(), pair.joiner.get()}) {
             CHECK(machine->match->fault() == nullptr);
             if (machine->match->fault() != nullptr)
@@ -931,19 +940,9 @@ void replicated_play() {
 void local_traffic_heads_keep_their_copies() {
     // Keep both routes above the map's hidden bottom edge.
     constexpr uint16_t traffic_map_cells = kMapCells * 2;
-    for (const uint32_t version :
-         {released_mode,
-          enhanced_capacity_mode,
-          enhanced_flow_mode,
-          enhanced_regional_flow_mode,
-          4u,
-          5u,
-          6u,
-          7u,
-          8u,
-          10u,
-          11u}) {
-        Pair pair(0, traffic_map_cells, false, false, false, false, version);
+    for (const auto& features :
+         {released_mode, enhanced_capacity_mode, enhanced_flow_mode, revision_1_mode}) {
+        Pair pair(0, traffic_map_cells, false, false, false, false, features);
         auto& host = *pair.host;
         auto& joiner = *pair.joiner;
         if (host.match->fault() != nullptr || joiner.match->fault() != nullptr)
@@ -1016,7 +1015,7 @@ void local_traffic_heads_keep_their_copies() {
             CHECK(tracked.differing == 0);
         }
         CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
-        if (version >= enhanced_flow_mode) {
+        if (features.has(oa::data::enhanced_mode::Feature::local_flow)) {
             if (!saw_head || !saw_original_route || !resumed)
                 std::fprintf(
                     stderr,
