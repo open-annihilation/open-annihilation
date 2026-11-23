@@ -831,6 +831,11 @@ struct Runtime::LibraryHost {
     /// @return true when it has finished
     [[nodiscard]] bool watched_replay_finished() const;
 
+    /// Returns where the replay Watch opened stands, as its hooks say.
+    ///
+    /// @return its status; nothing when none is open or the status cannot be read
+    [[nodiscard]] std::optional<RecordingStatus> watched_replay_status() const;
+
     /// Writes every listed replay as already read, with nothing to show, and
     /// stops the index pass. A check takes the pictures that predate this
     /// pass with no row unread.

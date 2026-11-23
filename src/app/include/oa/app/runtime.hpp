@@ -9632,6 +9632,17 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_library_replays();
 
+    /// Runs --check-library-replay (runtime_library_replay_check.cpp): one
+    /// replay already in the player's Recordings folder, whatever its length,
+    /// listed by the Library, given its timeline by the Library's own index
+    /// pass, watched to the middle, watched from there by the replay's own
+    /// jump to its end with no error, and exported as a .oademo of the same
+    /// recording and as a .tad, each the size measured. Prints `library
+    /// replay:` lines, and the run's peak memory once the replay has played.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_library_replay();
+
     /// Runs --check-replay-import (runtime_library_replays_check.cpp): a
     /// made-up .oademo and a made-up .tad, opened into Recordings/Imported
     /// and selected in the Library. Opening either again copies nothing. The

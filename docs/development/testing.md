@@ -151,6 +151,15 @@ saved. A file whose digest differs is refused and not kept. With the server
 stopped the list reads "Core Prime cannot be reached." `replays-core-prime-clean`
 clears the working folder before each run. The check never calls a live host.
 
+`native-replays-library-walk` (`--check-library-replay`,
+`tools/check_native_library_replays.py`) places that same recorded game in a
+scratch player's `Recordings` and walks it through the Library as a replay of
+any length: listed, given its timeline by the Library's index pass, watched to
+the middle, watched from there to its end with no error, and exported as a
+`.oademo` and a `.tad`; then `oa-tool replay info` and the recording dump read
+it, and the index pass alone gives its length and peak memory. Given
+`--replay` naming a replay past 512 MiB, the script walks that one instead.
+
 `native-replays-import` (`--check-replay-import`,
 `tools/check_native_replay_import.py`) copies a made-up `.oademo` and a
 made-up `.tad` into `Recordings/Imported` and selects each, copies nothing

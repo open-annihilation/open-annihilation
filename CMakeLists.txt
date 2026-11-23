@@ -1699,6 +1699,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_library_map_preview_check.cpp
   src/app/runtime_library_content_check.cpp
   src/app/runtime_library_replays_check.cpp
+  src/app/runtime_library_replay_check.cpp
   src/app/runtime_replays_content_check.cpp
   src/app/runtime_library_core_prime_check.cpp
   src/app/runtime_team_panel_check.cpp src/app/runtime_scroll_bar_check.cpp
@@ -3468,6 +3469,25 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_library_replays_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED "library-replays-clean;library-replays-source")
+      # The same recorded game walked through the Library as one replay of any
+      # length is (--check-library-replay): listed, given its timeline by the
+      # Library's index pass, watched to the middle, watched from there to its
+      # end with no error, and exported as a .oademo and a .tad; then read by
+      # oa-tool replay and the recording dump. Run with --replay naming a
+      # replay past 512 MiB, the check reads that one instead.
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME native-replays-library-walk COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_library_replays.py"
+          --native $<TARGET_FILE:oa-game> --tool $<TARGET_FILE:oa-tool>
+          --dump $<TARGET_FILE:oa-formats-tad-dump> --game-dir "${OA_GAME_DIR}"
+          --replay "${oa_library_replays_dir}/library-replays-source.oademo"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-replays-library-walk PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+          FIXTURES_REQUIRED library-replays-source)
+      endif()
       # A replay that needs an older map pack and a mutator. The pack is only
       # in the catalogue's releases list. One press fetches both from a
       # loopback registry and the replay plays; the mutator's selection is

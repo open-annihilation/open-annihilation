@@ -7537,6 +7537,18 @@ int Runtime::LibraryHost::index_pass_pid() const noexcept {
 #endif
 }
 
+std::optional<RecordingStatus> Runtime::LibraryHost::watched_replay_status() const {
+    if (!replays || !replays->watching || replays->watching->status == nullptr)
+        return std::nullopt;
+    RecordingStatus status{};
+    try {
+        replays->watching->status(replays->watching->context, status);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    return status;
+}
+
 bool Runtime::LibraryHost::watched_replay_finished() const {
     if (!replays)
         return false;

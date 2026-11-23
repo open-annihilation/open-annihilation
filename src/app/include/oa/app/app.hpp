@@ -1053,6 +1053,13 @@ struct Options {
     // a restart, the filters, the kind menu, the search and the sort, and
     // Turn on recording. With --snapshot, the section at three sizes.
     bool check_library_replays = false;
+    // --check-library-replay PATH: walks one replay already in the player's
+    // Recordings folder (PATH below it, '/' between folders) through the
+    // Library, whatever its length: listed, given its timeline by the index
+    // pass, watched to the middle, watched from there to its end with no
+    // error, and exported as a .oademo and a .tad. Prints `library replay:`
+    // lines. Empty runs no such check.
+    std::string check_library_replay;
     // Opens a made-up .oademo and a made-up .tad into Recordings/Imported,
     // selects each in the Library, opens each again without copying, and
     // refuses a damaged file and a version this game does not play. The
