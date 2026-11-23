@@ -9,7 +9,9 @@
 
 #include "oa/core/player.h"
 #include "oa/core/player_setup.h"
+#include "oa/data/replays/long_replay.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_walk.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/media/director/planner.hpp"
 #include "oa/netgame/private_channel.hpp"
@@ -25,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <map>
 #include <optional>
@@ -846,26 +849,64 @@ void fill_battle_events(const Source& source, oademo::TimelineIndex& index) {
     std::stable_sort(index.events.begin(), index.events.end(), battle_before);
 }
 
-} // namespace
+/// Says why a walk of a recording stopped, as a whole read and parse of it say.
+///
+/// @param failure the walk's failure
+/// @return the replay's sentence, or the parse's words
+std::string walk_error(const oademo::WalkFailure& failure) {
+    if (!failure.sentence.empty())
+        return failure.sentence;
+    if (failure.parse.has_value())
+        return "the recording does not parse: " + failure.parse->message;
+    return "the recording cannot be read";
+}
 
-std::optional<StreamNotes> read_stream_notes(std::span<const uint8_t> file, std::string& error) {
-    std::vector<uint8_t> unpacked;
-    std::span<const uint8_t> recording = file;
-    if (oademo::recognised(file)) {
-        oademo::ReadResult replay = oademo::read(file);
-        if (!replay.ok()) {
-            error = replay.error;
-            return std::nullopt;
-        }
-        unpacked = std::move(replay.replay->recording);
-        recording = unpacked;
+/// Opens a walk of a recording, a `.oademo`'s timeline read as a whole read reads it.
+///
+/// @param walk the walk
+/// @param replay true for a `.oademo`
+/// @param archive the replay's bytes at offsets, for a `.oademo`
+/// @param recording the recording's bytes in order, for a `.tad`
+/// @param[out] error why it did not open
+/// @return false when it did not
+bool open_walk(
+    oademo::RecordingWalk& walk,
+    bool replay,
+    const oademo::ArchiveSource& archive,
+    const oademo::RecordingSource& recording,
+    std::string& error
+) {
+    if (!replay) {
+        if (walk.open_tad(recording))
+            return true;
+        error = walk_error(walk.failure());
+        return false;
     }
-    const tad::ParseResult parsed = tad::parse(recording);
-    if (!parsed.ok()) {
-        error = "the recording does not parse: " + parsed.error->message;
-        return std::nullopt;
+    const bool opened = walk.open_replay(archive);
+    // A whole read refuses a replay for its description, then its timeline, then its recording.
+    if (walk.replay() == nullptr || !walk.failure().sentence.empty()) {
+        error = walk_error(walk.failure());
+        return false;
     }
-    const tad::Demo& demo = *parsed.demo;
+    std::optional<std::string> timeline;
+    if (std::string why_not = walk.replay()->read_timeline(timeline); !why_not.empty()) {
+        error = std::move(why_not);
+        return false;
+    }
+    if (!opened) {
+        error = walk_error(walk.failure());
+        return false;
+    }
+    return true;
+}
+
+/// Reads the notes of a recording's packets as a walk gives them.
+///
+/// @param walk an opened walk
+/// @param[out] error why the recording stopped
+/// @return the notes, or nothing when it stopped
+std::optional<StreamNotes> notes_of(oademo::RecordingWalk& walk, std::string& error) {
+    const tad::Demo& demo = walk.head();
     tad::RecordForms forms = tad::RecordForms::narrow;
     if (const tad::Sector* sector = tad::find_sector(demo, tad::SectorType::limits);
         sector != nullptr)
@@ -900,7 +941,15 @@ std::optional<StreamNotes> read_stream_notes(std::span<const uint8_t> file, std:
     // the packet before it when it carries none; a packet with no game
     // record is skipped (demo_load).
     uint32_t due_tick = 0;
-    for (const tad::Packet& packet : demo.packets) {
+    tad::Packet packet;
+    for (;;) {
+        bool ended = false;
+        if (!walk.next(packet, ended)) {
+            error = walk_error(walk.failure());
+            return std::nullopt;
+        }
+        if (ended)
+            break;
         if (!listed[packet.sender])
             continue;
         const tad::DecodedPayload decoded = tad::decode_payload(packet.payload);
@@ -948,6 +997,65 @@ std::optional<StreamNotes> read_stream_notes(std::span<const uint8_t> file, std:
                 note_record(seats, packet.sender, due_tick, record.bytes, notes.notes);
     }
     return notes;
+}
+
+/// Bytes held, read at offsets as a replay's are, or in order as a `.tad`'s are.
+struct HeldFile {
+    std::span<const uint8_t> bytes{};
+    std::size_t next{};
+};
+
+bool read_held_at(void* context, uint64_t offset, std::span<uint8_t> into) {
+    const auto& held = *static_cast<const HeldFile*>(context);
+    if (offset > held.bytes.size() || into.size() > held.bytes.size() - offset)
+        return false;
+    std::copy_n(
+        held.bytes.begin() + static_cast<std::ptrdiff_t>(offset), into.size(), into.begin()
+    );
+    return true;
+}
+
+bool read_held_on(void* context, std::span<uint8_t> into, std::size_t& got) {
+    auto& held = *static_cast<HeldFile*>(context);
+    got = std::min(into.size(), held.bytes.size() - held.next);
+    std::copy_n(held.bytes.begin() + static_cast<std::ptrdiff_t>(held.next), got, into.begin());
+    held.next += got;
+    return true;
+}
+
+} // namespace
+
+std::optional<StreamNotes> read_stream_notes(std::span<const uint8_t> file, std::string& error) {
+    HeldFile held{file, 0};
+    oademo::RecordingWalk walk;
+    if (!open_walk(
+            walk,
+            oademo::recognised(file),
+            oademo::ArchiveSource{&held, read_held_at, file.size()},
+            oademo::RecordingSource{&held, read_held_on},
+            error
+        ))
+        return std::nullopt;
+    return notes_of(walk, error);
+}
+
+std::optional<StreamNotes>
+read_stream_notes(const std::filesystem::path& file, std::string& error) {
+    oa::data::replays::ReplayFile opened;
+    if (!opened.open(file)) {
+        error = "the recording cannot be read";
+        return std::nullopt;
+    }
+    oademo::RecordingWalk walk;
+    if (!open_walk(
+            walk,
+            oademo::recognised(opened.first_bytes(64)),
+            opened.archive(),
+            opened.recording(),
+            error
+        ))
+        return std::nullopt;
+    return notes_of(walk, error);
 }
 
 oademo::TimelineIndex build_index(const Source& source) {

@@ -955,16 +955,18 @@ endif()
 add_library(oa-app-replay-index src/app/replay_index.cpp)
 add_library(oa::app::replay_index ALIAS oa-app-replay-index)
 target_link_libraries(oa-app-replay-index PUBLIC oa-app-headers oa-formats-oademo oa-media-director
-  PRIVATE oa-formats-tad oa-session-demo oa-netgame oa-present oa-core-types oa-options)
+  PRIVATE oa-formats-tad oa-data-replays oa-session-demo oa-netgame oa-present oa-core-types
+    oa-options)
 if(BUILD_TESTING)
-  # Notes read from a made-up recording of every kind of record, the index
-  # built from a made-up timeline, and the refusals.
+  # Notes read from a made-up recording of every kind of record, also from
+  # files past the 512 MiB a whole read takes, the index built from a made-up
+  # timeline, and the refusals.
   add_executable(oa-app-replay-index-test src/app/replay_index_test.cpp)
   target_link_libraries(oa-app-replay-index-test PRIVATE oa-app-replay-index oa-formats-oademo
-    oa-formats-tad oa-media-director oa-netgame oa-session-demo oa-core-types oa-test-support
-    oa-options)
+    oa-formats-tad oa-media-director oa-netgame oa-session-demo oa-core-types oa-base-sha256
+    oa-base-zstd oa-test-support oa-options)
   add_test(NAME app-replay-index COMMAND oa-app-replay-index-test)
-  set_tests_properties(app-replay-index PROPERTIES TIMEOUT 60)
+  set_tests_properties(app-replay-index PROPERTIES TIMEOUT 600)
 endif()
 # Installed map packs: each pack's maps from its manifest, cached by the
 # pack's SHA-256, and whether one map fits the base game.
