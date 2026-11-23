@@ -633,8 +633,8 @@ void deferred_pixels_keep_the_cached_frame() {
             deferred,
             ModelImagePlan::metadata
         );
-        const auto original_frame = pixels.states[0].image.sprite;
-        const auto original_pixels = pixels.states[0].image.pixels;
+        const auto prior_frame = pixels.states[0].image.sprite;
+        const auto prior_pixels = pixels.states[0].image.pixels;
         for (Scene* scene : {&pixels, &metadata}) {
             scene->instances[0].pieces()[1].translation.x = moving_piece_offset;
             scene->states[0].transforms_dirty = true;
@@ -659,17 +659,17 @@ void deferred_pixels_keep_the_cached_frame() {
             deferred
         );
         const auto current_frame = measure_model_bounds(pixels.instances[0], nullptr);
-        CHECK(current_frame.width > original_frame.width);
-        CHECK(pixels.states[0].image.pixels == original_pixels);
+        CHECK(current_frame.width > prior_frame.width);
+        CHECK(pixels.states[0].image.pixels == prior_pixels);
         const auto& image = metadata.states[0].image.sprite;
         CHECK(image.data != nullptr);
         CHECK(!metadata.states[0].deferred_image.has_value());
-        CHECK(image.width == original_frame.width);
-        CHECK(image.height == original_frame.height);
-        CHECK(image.origin_x == original_frame.origin_x);
-        CHECK(image.origin_y == original_frame.origin_y);
+        CHECK(image.width == prior_frame.width);
+        CHECK(image.height == prior_frame.height);
+        CHECK(image.origin_x == prior_frame.origin_x);
+        CHECK(image.origin_y == prior_frame.origin_y);
         CHECK((image.aux != nullptr) == depth_image);
-        CHECK(metadata.states[0].image.pixels == original_pixels);
+        CHECK(metadata.states[0].image.pixels == prior_pixels);
         bool holds = false;
         draw_planned_unit(
             pixels.renderer,
