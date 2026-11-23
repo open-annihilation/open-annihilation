@@ -4,7 +4,6 @@
 #include "tick_internal.hpp"
 #include "enhanced_state.hpp"
 #include "live_route_corner.hpp"
-#include "local_throat_guide.hpp"
 #include "route_queue.hpp"
 
 #include "oa/data/enhanced_mode.hpp"
@@ -21,7 +20,6 @@ using data::enhanced_mode::Feature;
 
 namespace {
 constexpr uint8_t ground_occupancy = 1;
-constexpr uint32_t local_throat_probe_period = 12;
 
 /// Identifies goal geometry without retaining order pointers or native padding.
 ///
@@ -303,79 +301,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                         context.movement.occupancy_before_tick = 0;
                         context.have_movement = true;
                     }
-                    bool guide_ready = false;
-                    if (features.has(Feature::local_throat_guide) &&
-                        (uint64_t(match.simulation_.tick) + s.unit_index) %
-                                local_throat_probe_period ==
-                            0 &&
-                        sim::simulation_state::locally_simulated(u) &&
-                        (g.movement.flags & sim::unit_movement::occupancy_mask) ==
-                            ground_occupancy &&
-                        context.have_movement && context.movement.footprint_x == 2 &&
-                        context.movement.footprint_z == 2 &&
-                        g.geometry.footprint == sim::ground_orders::CorridorOrigin{2, 2}) {
-                        const auto* goal = g.navigation.goal;
-                        const auto* own = goal->order ? match.runtime_order(goal->order) : nullptr;
-                        if (own && own->unit == &u && own->extra.goal.get() == goal &&
-                            u.primary == goal->order) {
-                            const sim::ground_orders::CorridorSampler sampler{
-                                &context,
-                                [](void* context,
-                                   sim::ground_orders::CorridorOrigin cell,
-                                   sim::ground_orders::CorridorOrigin footprint) {
-                                    const auto& probe_context =
-                                        *static_cast<ProbeContext*>(context);
-                                    const auto& current = *probe_context.match;
-                                    if (footprint != sim::ground_orders::CorridorOrigin{2, 2} ||
-                                        probe_context.player >= OA_PLAYER_COUNT || cell[0] < 0 ||
-                                        cell[1] < 0 ||
-                                        uint32_t(cell[0]) + uint32_t(footprint[0]) >=
-                                            current.spatial_.terrain_width ||
-                                        uint32_t(cell[1]) + uint32_t(footprint[1]) >=
-                                            current.spatial_.terrain_height)
-                                        return sim::ground_orders::CorridorCell::blocked;
-                                    const auto width = current.spatial_.terrain_width >> 1;
-                                    const auto height = current.spatial_.terrain_height >> 1;
-                                    for (int32_t z = 0; z < footprint[1]; ++z)
-                                        for (int32_t x = 0; x < footprint[0]; ++x) {
-                                            const auto sx = uint32_t(cell[0] + x) >> 1;
-                                            const auto sz = uint32_t(cell[1] + z) >> 1;
-                                            const auto at = size_t(sz) * width + sx;
-                                            if (sx >= width || sz >= height ||
-                                                at >= current.sight_.player_bits.size() ||
-                                                (current.sight_.player_bits[at] &
-                                                 (1u << probe_context.player)) == 0)
-                                                return sim::ground_orders::CorridorCell::unknown;
-                                        }
-                                    return sim::ground_orders::static_flow_passable(
-                                               probe_context.movement,
-                                               cell[0],
-                                               cell[1],
-                                               current.spatial_
-                                           )
-                                               ? sim::ground_orders::CorridorCell::clear
-                                               : sim::ground_orders::CorridorCell::blocked;
-                                }
-                            };
-                            sim::ground_orders::CorridorBudget budget{
-                                local_throat_maximum_probes, 0
-                            };
-                            bool consume_first = false;
-                            guide_ready = try_local_throat_guide(
-                                g.geometry,
-                                g.navigation,
-                                sampler,
-                                budget,
-                                effective_navigation,
-                                &consume_first
-                            );
-                            if (guide_ready && consume_first) {
-                                sim::ground_orders::advance_path(g.navigation, 1);
-                                g.navigation.points[0] = local_flow_point(g.geometry);
-                            }
-                            match.enhanced_->local_flow_counters.probes += budget.used;
-                        }
-                    }
                     sim::unit_movement::LocalFlowProbe probe{};
                     probe.context = &context;
                     probe.allow_reverse = recover;
@@ -567,14 +492,6 @@ void TickHost::movement_tick(oa::Unit& record) {
                         flow_head->count = 3;
                         flow_head->active = true;
                         flow_head->goal_key = goal_key;
-                    } else if (guide_ready && !flow_head->active) {
-                        std::copy_n(
-                            effective_navigation.points.begin(), 3, flow_head->points.begin()
-                        );
-                        flow_head->count = 3;
-                        flow_head->goal_key = goal_key;
-                        flow_head->tick = match.simulation_.tick;
-                        flow_head->active = true;
                     }
                 }
             }
