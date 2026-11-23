@@ -4,8 +4,8 @@
 # TA Demo (.tad) playback through the match's network receive path, and the
 # recording of a network game: its stream on disk and its replay (.oademo).
 add_library(oa-session-demo src/demo_clock.cpp src/demo_keyframe.cpp src/demo_playback.cpp
-  src/demo_recording.cpp src/demo_summary.cpp src/imported_recording.cpp src/place_file.cpp
-  src/recording_stream.cpp src/replay_record.cpp)
+  src/demo_recording.cpp src/demo_source.cpp src/demo_summary.cpp src/imported_recording.cpp
+  src/place_file.cpp src/recording_stream.cpp src/replay_record.cpp)
 add_library(oa::session::demo ALIAS oa-session-demo)
 target_include_directories(oa-session-demo PUBLIC include)
 target_compile_features(oa-session-demo PUBLIC cxx_std_20)
@@ -17,8 +17,8 @@ target_link_libraries(oa-session-demo
 
 if(BUILD_TESTING)
   add_executable(oa-session-demo-test tests/demo_playback_test.cpp)
-  target_link_libraries(oa-session-demo-test PRIVATE oa-session-demo oa-formats-oademo oa-formats-zip oa-options
-    oa-test-match oa-test-support)
+  target_link_libraries(oa-session-demo-test PRIVATE oa-session-demo oa-base-sha256 oa-formats-oademo
+    oa-formats-zip oa-options oa-test-match oa-test-support)
   add_test(NAME demo-playback COMMAND oa-session-demo-test)
   set_tests_properties(demo-playback PROPERTIES TIMEOUT 120)
   add_executable(oa-session-demo-clock tests/demo_clock_test.cpp)
@@ -27,6 +27,13 @@ if(BUILD_TESTING)
   set_tests_properties(session-demo-clock PROPERTIES TIMEOUT 30)
   # Putting a finished recording where it goes with the rename and the link refused, as across
   # volumes: the copy that takes their place, the next free name, and a copy that fails.
+  # A recording longer than a stream finished in one piece, made packet by packet: it finishes,
+  # reads back packet for packet, and plays. It writes about 1.1 GB to a scratch folder.
+  add_executable(oa-session-demo-long-recording tests/long_recording_test.cpp)
+  target_link_libraries(oa-session-demo-long-recording PRIVATE oa-session-demo oa-formats-oademo
+    oa-formats-tad oa-netgame oa-test-support)
+  add_test(NAME session-demo-long-recording COMMAND oa-session-demo-long-recording)
+  set_tests_properties(session-demo-long-recording PROPERTIES TIMEOUT 600)
   add_executable(oa-session-demo-place-file tests/place_file_test.cpp)
   target_link_libraries(oa-session-demo-place-file PRIVATE oa-session-demo oa-test-support)
   add_test(NAME demo-place-file COMMAND oa-session-demo-place-file)

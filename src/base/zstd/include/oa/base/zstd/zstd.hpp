@@ -3,14 +3,16 @@
 
 #pragma once
 
-// One zstd frame, into and out of buffers the caller owns. The base tier
-// holds no heap container, so nothing here allocates the bytes it returns:
-// the caller asks for a size, makes room for it, and passes the room in.
+// One zstd frame, into and out of buffers the caller owns, whole or in
+// pieces. The base tier holds no heap container, so nothing here allocates
+// the bytes it returns: the caller asks for a size, makes room for it, and
+// passes the room in.
 // Compression pledges the input's size, so a frame this module writes names
 // that size in its header, and never declares a window above
 // `most_window_log`. Decompression reads the size a frame names, refusing one
 // past the caller's limit, before the caller allocates anything.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -35,6 +37,7 @@ enum class Error : uint8_t {
     buffer_too_small, ///< the buffer cannot hold the result
     out_of_memory,    ///< zstd could not allocate its work area
     stopped,          ///< a watched compression was asked to stop before the frame ended
+    sink_refused,     ///< the sink of a frame written in pieces refused its bytes
 };
 
 /// A byte count, or why there is none.
@@ -131,6 +134,132 @@ struct CompressWatch {
 [[nodiscard]] Sized compress_watched(
     std::span<const uint8_t> input, int level, std::span<uint8_t> out, const CompressWatch& watch
 );
+
+/// The most bits of window a frame read in pieces may declare: 128 MiB.
+///
+/// zstd's own bound for a frame read in pieces. A reader in pieces keeps a
+/// window of the frame's declared size, or of its content when that is
+/// smaller, so this bounds what a damaged or hostile frame can make it hold.
+/// Every frame this module writes declares at most `most_window_log`.
+inline constexpr int most_read_window_log = 27;
+
+/// Where the bytes of a frame written in pieces go, in order.
+struct FrameSink {
+    /// Passed to `write`.
+    void* context{};
+    /// Takes the frame's next bytes. False stops the frame with `sink_refused`.
+    /// Null takes nothing, so every frame stops at its first bytes.
+    bool (*write)(void* context, std::span<const uint8_t> bytes){};
+};
+
+/// One zstd frame written from input that arrives in pieces.
+///
+/// The frame's size is given when it begins, and its header names it. The
+/// window is at most `most_window_log` bits, as `compress` writes. The bytes
+/// are the same however the input is cut into pieces, so two writers given
+/// the same input at the same level write the same frame; they need not be
+/// the bytes `compress` writes for that input in one piece. A writer holds
+/// zstd's work area and the room it was given, and nothing that grows with
+/// the input. Begin it with `frame_writer_begin` and free it with
+/// `frame_writer_free`.
+struct FrameWriter {
+    /// zstd's compression context; null before `frame_writer_begin`.
+    void* context{};
+    /// Where the frame's bytes gather before the sink takes them.
+    std::span<uint8_t> room{};
+    /// Takes the frame's bytes.
+    FrameSink sink{};
+    /// The input's size, as begun.
+    uint64_t whole{};
+    /// Input bytes taken so far.
+    uint64_t taken{};
+    /// Frame bytes handed to the sink so far.
+    uint64_t written{};
+    /// The first failure, which every later call returns.
+    Error failed{Error::none};
+};
+
+/// Begins a frame written in pieces.
+///
+/// @param[out] writer the writer; any frame it held is freed first
+/// @param level a level from `lowest_level` to `highest_level`
+/// @param whole the input's size: exactly this many bytes are given before the frame ends
+/// @param room where the frame's bytes gather; at least one byte
+/// @param sink takes the frame's bytes in order
+/// @return `none`, or `bad_level`, `out_of_memory` or `damaged`
+[[nodiscard]] Error frame_writer_begin(
+    FrameWriter& writer, int level, uint64_t whole, std::span<uint8_t> room, FrameSink sink
+);
+
+/// Takes the next bytes of a frame's input, handing on what is compressed.
+///
+/// @param[in,out] writer a writer begun with `frame_writer_begin`
+/// @param input the next bytes; empty takes nothing
+/// @return `none`, or `damaged` (more input than begun with), `sink_refused`
+///         or the writer's earlier failure
+[[nodiscard]] Error frame_writer_write(FrameWriter& writer, std::span<const uint8_t> input);
+
+/// Ends a frame, handing its last bytes to the sink.
+///
+/// @param[in,out] writer a writer that took the whole input it was begun with
+/// @return `none`, or `damaged` (less input than begun with), `sink_refused`
+///         or the writer's earlier failure
+[[nodiscard]] Error frame_writer_end(FrameWriter& writer);
+
+/// Frees a writer's work area. A writer freed, or never begun, is left as new.
+///
+/// @param[in,out] writer the writer
+void frame_writer_free(FrameWriter& writer) noexcept;
+
+/// One zstd frame read from bytes that arrive in pieces.
+///
+/// A reader takes one data frame and nothing else, as `decompress` does: a
+/// skippable frame, or any byte after the frame ends, is `damaged`. It keeps
+/// a window of at most `most_read_window_log` bits and nothing that grows
+/// with the frame. Begin it with `frame_reader_begin` and free it with
+/// `frame_reader_free`.
+struct FrameReader {
+    /// zstd's decompression context; null before `frame_reader_begin`.
+    void* context{};
+    /// The frame's first bytes, gathered to tell a skippable frame from a data frame.
+    std::array<uint8_t, 4> magic{};
+    /// How many of `magic` have arrived.
+    uint8_t magic_seen{};
+    /// True once the frame has ended and every byte of it was handed out.
+    bool ended{};
+    /// Bytes handed out so far.
+    uint64_t produced{};
+    /// The first failure, which every later call returns.
+    Error failed{Error::none};
+};
+
+/// Begins reading a frame in pieces.
+///
+/// @param[out] reader the reader; any frame it held is freed first
+/// @return `none`, or `out_of_memory`
+[[nodiscard]] Error frame_reader_begin(FrameReader& reader);
+
+/// Decodes as much of the frame as the input and the room allow.
+///
+/// Stops when the room is full, the input is used up or the frame ends.
+/// The frame ends when `reader.ended` is set; input left then is `damaged`.
+///
+/// @param[in,out] reader a reader begun with `frame_reader_begin`
+/// @param[in,out] input the frame's next bytes; left holding those not taken
+/// @param out room for the decoded bytes
+/// @param[out] decoded how many bytes of `out` were written
+/// @return `none`, or `damaged` or the reader's earlier failure
+[[nodiscard]] Error frame_reader_read(
+    FrameReader& reader,
+    std::span<const uint8_t>& input,
+    std::span<uint8_t> out,
+    std::size_t& decoded
+);
+
+/// Frees a reader's window. A reader freed, or never begun, is left as new.
+///
+/// @param[in,out] reader the reader
+void frame_reader_free(FrameReader& reader) noexcept;
 
 /// Reads the size a frame names, refusing one past `most_bytes`.
 ///

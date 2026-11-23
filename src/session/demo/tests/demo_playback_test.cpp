@@ -8,6 +8,7 @@
 // match records its own datagrams, stored as the recorder stores them, as a
 // demo that a second match then replays.
 
+#include "oa/base/sha256.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/session/demo.hpp"
 #include "oa/session/demo/recording.hpp"
@@ -229,32 +230,24 @@ void frames_rebuild_broadcast_sequences() {
     CHECK(playback.stats.frames == 3 && playback.stats.empty_packets == 2);
     CHECK(playback.stats.recorder_records == 1 && playback.stats.untimed_unit_states == 4);
     CHECK(playback.stats.empty_ticks == 1);
-    CHECK(playback.frames.size() == 3);
-    if (playback.frames.size() != 3)
+    const std::vector<DemoFrame> frames = demo_frames(playback);
+    CHECK(frames.size() == 3 && playback.frame_count == 3);
+    if (frames.size() != 3)
         return;
-    CHECK(
-        playback.frames[0].sender == 1 && playback.frames[0].time_ms == 0 &&
-        playback.frames[0].due_tick == 0
-    );
-    CHECK(
-        playback.frames[1].sender == 2 && playback.frames[1].time_ms == 50 &&
-        playback.frames[1].due_tick == 0
-    );
-    CHECK(
-        playback.frames[2].sender == 1 && playback.frames[2].time_ms == 1050 &&
-        playback.frames[2].due_tick == 6
-    );
+    CHECK(frames[0].sender == 1 && frames[0].time_ms == 0 && frames[0].due_tick == 0);
+    CHECK(frames[1].sender == 2 && frames[1].time_ms == 50 && frames[1].due_tick == 0);
+    CHECK(frames[2].sender == 1 && frames[2].time_ms == 1050 && frames[2].due_tick == 6);
     const auto sequence_of = [](const DemoFrame& frame) {
         const auto decoded = oa::netgame::network::decode_frame(frame.datagram);
         return static_cast<int32_t>(load_u32(decoded.data()));
     };
-    CHECK(sequence_of(playback.frames[0]) == first_broadcast_frame_sequence);
-    CHECK(sequence_of(playback.frames[1]) == first_broadcast_frame_sequence);
-    CHECK(sequence_of(playback.frames[2]) == next_frame_sequence(first_broadcast_frame_sequence));
+    CHECK(sequence_of(frames[0]) == first_broadcast_frame_sequence);
+    CHECK(sequence_of(frames[1]) == first_broadcast_frame_sequence);
+    CHECK(sequence_of(frames[2]) == next_frame_sequence(first_broadcast_frame_sequence));
     // The elided state at tick 5, then the empty tick 6 as a minimal 0x2c:
     // header, 16-bit terminator, flag bit and a 2-bit empty full record.
     constexpr std::size_t minimal_state_bytes = unit_state_header_bytes + 3;
-    const auto state = oa::netgame::network::decode_frame(playback.frames[2].datagram);
+    const auto state = oa::netgame::network::decode_frame(frames[2].datagram);
     CHECK(state.size() == frame_header_bytes + unit_state_header_bytes + 3 + minimal_state_bytes);
     CHECK(state[frame_header_bytes] == static_cast<uint8_t>(RecordType::unit_state));
     CHECK(load_u32(state.data() + frame_header_bytes + unit_state_prefix_bytes) == 5);
@@ -298,10 +291,11 @@ void compressed_packets_rebuild_without_spurious_records() {
     std::string error;
     CHECK(demo_load(&playback, recording.bytes(), &error));
     CHECK(playback.stats.frames == 1 && playback.stats.bad_packets == 1);
-    CHECK(playback.stats.empty_packets == 1 && playback.frames.size() == 1);
-    if (playback.frames.size() != 1)
+    const std::vector<DemoFrame> frames = demo_frames(playback);
+    CHECK(playback.stats.empty_packets == 1 && frames.size() == 1 && playback.frame_count == 1);
+    if (frames.size() != 1)
         return;
-    const auto frame = oa::netgame::network::decode_frame(playback.frames[0].datagram);
+    const auto frame = oa::netgame::network::decode_frame(frames[0].datagram);
     CHECK(frame.size() == frame_header_bytes + 58);
     CHECK(frame[frame_header_bytes] == 0x28 && frame.back() == 0x44);
 }
@@ -335,12 +329,14 @@ void stored_unit_states_time_their_frame() {
     DemoPlayback playback;
     std::string error;
     CHECK(demo_load(&playback, recording.bytes(), &error));
-    CHECK(playback.frames.size() == 2 && playback.stats.untimed_unit_states == 0);
-    if (playback.frames.size() != 2)
+    const std::vector<DemoFrame> frames = demo_frames(playback);
+    CHECK(frames.size() == 2 && playback.stats.untimed_unit_states == 0);
+    if (frames.size() != 2)
         return;
-    CHECK(playback.frames[0].due_tick == first_tick + states - 1);
-    CHECK(playback.frames[1].due_tick == first_tick + states - 1);
-    const auto frame = oa::netgame::network::decode_frame(playback.frames[0].datagram);
+    CHECK(frames[0].due_tick == first_tick + states - 1);
+    CHECK(frames[1].due_tick == first_tick + states - 1);
+    CHECK(playback.last_due_tick == first_tick + states - 1);
+    const auto frame = oa::netgame::network::decode_frame(frames[0].datagram);
     CHECK(frame.size() == frame_header_bytes + payload.size() - 1);
     CHECK(std::equal(payload.begin() + 1, payload.end(), frame.begin() + frame_header_bytes));
 }
@@ -399,10 +395,11 @@ void transport_follows_the_ticks() {
     DemoPlayback playback;
     std::string error;
     CHECK(demo_load(&playback, recording.bytes(), &error));
-    CHECK(playback.frames.size() == 3);
-    if (playback.frames.size() != 3)
+    const std::vector<DemoFrame> frames = demo_frames(playback);
+    CHECK(frames.size() == 3 && playback.frame_count == 3);
+    if (frames.size() != 3)
         return;
-    CHECK(playback.frames[1].due_tick == 4 && playback.frames[2].due_tick == 4);
+    CHECK(frames[1].due_tick == 4 && frames[2].due_tick == 4);
     auto transport = demo_transport(&playback);
     std::array<uint8_t, 64> buffer{};
     uint32_t from = 0, to = 7, size = static_cast<uint32_t>(buffer.size());
@@ -419,8 +416,8 @@ void transport_follows_the_ticks() {
     );
     // Room for the probe frame only: the unit-state frame is dropped.
     playback.tick = 4;
-    size = static_cast<uint32_t>(playback.frames[2].datagram.size());
-    CHECK(size < playback.frames[1].datagram.size());
+    size = static_cast<uint32_t>(frames[2].datagram.size());
+    CHECK(size < frames[1].datagram.size());
     CHECK(
         transport.receive(transport.context, &from, &to, buffer.data(), &size) ==
         transport_result::ok
@@ -1505,7 +1502,7 @@ void recorded_records_reach_the_binding() {
     std::string error;
     CHECK(demo_load(&session->playback, recording.bytes(), &error));
     CHECK(session->playback.stats.unknown_senders == 1);
-    CHECK(session->playback.frames.size() == 1);
+    CHECK(session->playback.frame_count == 1 && demo_frames(session->playback).size() == 1);
     CHECK(session->playback.watcher_id == watcher_id);
     Machine replay;
     replay.build(1);
@@ -1877,7 +1874,7 @@ void a_partial_recording_is_finished_into_a_file_that_loads() {
     DemoPlayback playback;
     CHECK(demo_open(&playback, destination, &error));
     CHECK(playback.players.size() == 2);
-    CHECK(!playback.frames.empty());
+    CHECK(playback.frame_count != 0);
 
     // A recording that holds no packet is not made into a replay.
     DemoRecording nothing;
@@ -1916,6 +1913,209 @@ void a_partial_recording_is_finished_into_a_file_that_loads() {
     const auto cut_bytes = file_bytes(tad_destination);
     const auto cut_parsed = formats::tad::parse(cut_bytes);
     CHECK(cut_parsed.ok() && cut_parsed.demo->packets.size() == added - 1);
+    std::error_code removed;
+    std::filesystem::remove_all(scratch, removed);
+}
+
+// The hex SHA-256 of a file's bytes.
+std::string sha256_of(std::span<const uint8_t> bytes) {
+    const auto hex = oa::base::sha256::to_hex(oa::base::sha256::digest_of(bytes));
+    return std::string(hex.data(), hex.size());
+}
+
+// A recording that finishes today finishes to the bytes it always gave. Two streams, one small
+// and one of a few megabytes (past the size at which a zstd frame made in pieces would differ
+// from one made whole), finish into replays whose size and SHA-256 are pinned to what the game
+// wrote before a stream could be finished in pieces. The recorder hack's file is the stream.
+void a_finished_recording_keeps_its_bytes() {
+    struct Pinned {
+        uint32_t records{};
+        uint64_t stream_bytes{};
+        uint64_t replay_bytes{};
+        std::string_view sha256{};
+    };
+
+    constexpr std::array<Pinned, 2> pinned{{
+        {60, 2254, 1729, "24c921ba24b531628893561765e2c5a063e9a52958c6278094b4cd40e48f22a6"},
+        {90000, 2430634, 77180, "ead7691baadc7137ec3746b72c0cedef17499757ee845b3bd790cb83bc00bc9d"},
+    }};
+    const auto scratch = oa::test::make_scratch_directory("demo-pinned");
+    ReplayFacts facts;
+    facts.recorded_at = "2026-11-06T01:02:03Z";
+    facts.recorded_by = "open-annihilation 0.9.1";
+    facts.platform = "macos-arm64";
+    facts.engine_version = "0.9.1";
+    facts.map_name = "Test Map";
+    facts.players = {{"Ada", "human", true}, {"Bo", "computer", false}};
+    for (const Pinned& pin : pinned) {
+        DemoRecording recording;
+        recording_begin(&recording, live_setup(2, false));
+        const auto stream_file = scratch / "pinned.oademo.part";
+        std::string error;
+        CHECK(recording_stream_to(&recording, stream_file, &error));
+        add_sample_records(&recording, pin.records);
+        CHECK(recording.stream->close(&error));
+        const auto stream_bytes = file_bytes(stream_file);
+        const auto destination = scratch / "pinned.oademo";
+        const auto result = finish_as_replay(
+            stream_file,
+            replay_begin(recording.setup, facts),
+            ReplayEnd{"finished", uint64_t{1234}, false},
+            destination
+        );
+        CHECK(result.ok);
+        const auto bytes = file_bytes(destination);
+        const std::string digest = sha256_of(bytes);
+        if (stream_bytes.size() != pin.stream_bytes || bytes.size() != pin.replay_bytes ||
+            digest != pin.sha256)
+            std::fprintf(
+                stderr,
+                "pinned replay of %u records: stream %zu bytes, replay %zu bytes, sha256 %s\n",
+                pin.records,
+                stream_bytes.size(),
+                bytes.size(),
+                digest.c_str()
+            );
+        CHECK(stream_bytes.size() == pin.stream_bytes);
+        CHECK(bytes.size() == pin.replay_bytes && digest == pin.sha256);
+        // The recorder hack's file is the stream, byte for byte.
+        const auto tad_stream = scratch / "pinned.tad.part";
+        write_bytes(tad_stream, stream_bytes);
+        const auto tad_destination = scratch / "pinned.tad";
+        CHECK(finish_as_tad(tad_stream, tad_destination, true).ok);
+        CHECK(file_bytes(tad_destination) == stream_bytes);
+        std::error_code removed;
+        std::filesystem::remove(destination, removed);
+        std::filesystem::remove(tad_destination, removed);
+    }
+    std::error_code removed;
+    std::filesystem::remove_all(scratch, removed);
+}
+
+// A stream finished in pieces makes the replay a stream finished in one piece makes: the same
+// recording, description and manifest, and only the frame's bytes may differ. So it is for a
+// whole stream and for one a crash cut part way through a packet, and a stream that cannot be
+// finished in one piece cannot be finished in pieces either, for the same reason.
+void a_stream_finished_in_pieces_holds_the_same_replay() {
+    const auto scratch = oa::test::make_scratch_directory("demo-pieces");
+    ReplayFacts facts;
+    facts.recorded_at = "2026-11-06T01:02:03Z";
+    facts.recorded_by = "open-annihilation 0.9.1";
+    facts.map_name = "Test Map";
+    facts.players = {{"Ada", "human", true}, {"Bo", "computer", false}};
+    std::string error;
+    for (const uint32_t count : {60u, 90000u}) {
+        DemoRecording recording;
+        recording_begin(&recording, live_setup(2, false));
+        const auto stream_file = scratch / "made.oademo.part";
+        CHECK(recording_stream_to(&recording, stream_file, &error));
+        add_sample_records(&recording, count);
+        CHECK(recording.stream->close(&error));
+        const auto complete = file_bytes(stream_file);
+        for (const bool cut : {false, true}) {
+            const auto stream = std::span(complete).first(complete.size() - (cut ? 3 : 0));
+            ReplayEnd end;
+            end.ended = cut ? "cut" : "finished";
+            end.length_ticks = 100 + count;
+            end.after_crash = cut;
+            const auto one_stream = scratch / "one.oademo.part";
+            const auto pieces_stream = scratch / "pieces.oademo.part";
+            write_bytes(one_stream, stream);
+            write_bytes(pieces_stream, stream);
+            const auto one = finish_as_replay(
+                one_stream, replay_begin(recording.setup, facts), end, scratch / "one.oademo"
+            );
+            const auto pieces = finish_as_replay(
+                pieces_stream,
+                replay_begin(recording.setup, facts),
+                end,
+                scratch / "pieces.oademo",
+                true,
+                0
+            );
+            CHECK(one.ok && pieces.ok && one.packets == pieces.packets);
+            CHECK(!std::filesystem::exists(pieces_stream));
+            CHECK(!std::filesystem::exists(scratch / "pieces.oademo.part.writing"));
+            const auto from_one = formats::oademo::read(file_bytes(scratch / "one.oademo"));
+            const auto from_pieces = formats::oademo::read(file_bytes(scratch / "pieces.oademo"));
+            CHECK(from_one.ok() && from_pieces.ok());
+            if (!from_one.ok() || !from_pieces.ok())
+                continue;
+            CHECK(from_pieces.replay->recording == from_one.replay->recording);
+            CHECK(
+                formats::oademo::meta_text(from_pieces.replay->meta) ==
+                formats::oademo::meta_text(from_one.replay->meta)
+            );
+            CHECK(
+                formats::oademo::manifest_text(from_pieces.replay->manifest) ==
+                formats::oademo::manifest_text(from_one.replay->manifest)
+            );
+            DemoPlayback playback;
+            CHECK(demo_open(&playback, scratch / "pieces.oademo", &error));
+        }
+    }
+
+    // A stream with no packet, one cut inside its header, one with a packed packet and one
+    // with a sector of network addresses are refused in pieces as in one piece.
+    const auto refusal = [&](std::span<const uint8_t> stream, const RecordingSetup& setup) {
+        const auto one_stream = scratch / "refused-one.oademo.part";
+        const auto pieces_stream = scratch / "refused-pieces.oademo.part";
+        write_bytes(one_stream, stream);
+        write_bytes(pieces_stream, stream);
+        const ReplayEnd end{"finished", {}, false};
+        const auto one = finish_as_replay(
+            one_stream, replay_begin(setup, facts), end, scratch / "refused-one.oademo"
+        );
+        const auto pieces = finish_as_replay(
+            pieces_stream,
+            replay_begin(setup, facts),
+            end,
+            scratch / "refused-pieces.oademo",
+            true,
+            0
+        );
+        CHECK(!one.ok && !pieces.ok && one.error == pieces.error && one.empty == pieces.empty);
+        CHECK(!one.transient && !pieces.transient);
+        CHECK(std::filesystem::exists(pieces_stream));
+        CHECK(!std::filesystem::exists(scratch / "refused-pieces.oademo"));
+        return pieces;
+    };
+    DemoRecording nothing;
+    recording_begin(&nothing, live_setup(2, false));
+    const auto header = recording_header(nothing.setup).bytes;
+    CHECK(refusal(header, nothing.setup).empty);
+    CHECK(
+        refusal(std::span(header).first(header.size() - 1), nothing.setup).error ==
+        "the recording does not hold its header"
+    );
+    DemoRecording packed;
+    recording_begin(&packed, live_setup(2, true));
+    const auto packed_stream = scratch / "packed.part";
+    CHECK(recording_stream_to(&packed, packed_stream, &error));
+    add_sample_records(&packed, 10);
+    CHECK(packed.stream->close(&error));
+    CHECK(
+        refusal(file_bytes(packed_stream), packed.setup).error ==
+        "the recording holds a packet that is not plain"
+    );
+    DemoRecording plain;
+    recording_begin(&plain, live_setup(2, false));
+    add_sample_records(&plain, 6);
+    const auto written = recording_write(plain);
+    const auto parsed = formats::tad::parse(written.bytes);
+    CHECK(parsed.ok());
+    if (parsed.ok()) {
+        formats::tad::Demo with_address = *parsed.demo;
+        const std::vector<uint8_t> masked{0x1a ^ 0x2a, 0x2a ^ 0x2a};
+        with_address.sectors.push_back(
+            {static_cast<uint32_t>(formats::tad::SectorType::player_address), masked}
+        );
+        const auto rewritten = formats::tad::write(with_address);
+        CHECK(
+            refusal(rewritten.bytes, plain.setup).error ==
+            formats::oademo::recording_holds_addresses
+        );
+    }
     std::error_code removed;
     std::filesystem::remove_all(scratch, removed);
 }
@@ -2870,7 +3070,7 @@ void recording_remaps_source_peer_ids() {
 }
 
 /// Replays all campaign allocations and restored range order, including silent participants.
-void enhanced_recordings_keep_original_unit_ranges() {
+void enhanced_recordings_keep_their_unit_ranges() {
     for (const uint8_t count : {uint8_t{3}, uint8_t{OA_PLAYER_COUNT}}) {
         auto setup = live_setup(count, false);
         setup.unit_checks.resize(1);
@@ -3072,10 +3272,10 @@ uint32_t applied_wide_records(std::optional<formats::tad::RecordedLimits> limits
     CHECK(demo_load(&session->playback, recording.bytes(), &error));
     const bool wide = limits && limits->weapon_types > formats::tad::recorded_base_weapon_types;
     CHECK(session->playback.stats.wide_records == (wide ? 1u : 0u));
-    CHECK(session->playback.frames.size() == (wide ? 1u : 0u));
-    if (wide && !session->playback.frames.empty()) {
-        const auto unwrapped =
-            oa::netgame::network::unwrap_frame(session->playback.frames[0].datagram);
+    const std::vector<DemoFrame> frames = demo_frames(session->playback);
+    CHECK(session->playback.frame_count == (wide ? 1u : 0u) && frames.size() == (wide ? 1u : 0u));
+    if (wide && !frames.empty()) {
+        const auto unwrapped = oa::netgame::network::unwrap_frame(frames[0].datagram);
         CHECK(unwrapped.ok());
         if (unwrapped.ok()) {
             const auto& frame = *unwrapped.value;
@@ -3210,7 +3410,13 @@ void oademo_loads_the_same_playback() {
     if (!error.empty())
         std::fprintf(stderr, "oademo load: %s\n", error.c_str());
     CHECK(error.empty());
-    CHECK(from_oademo.file == tad_bytes);
+    // Each holds the recording's part before its packets, which is the start of the `.tad`.
+    CHECK(from_oademo.file == from_tad.file && !from_tad.file.empty());
+    CHECK(
+        from_tad.file.size() <= tad_bytes.size() &&
+        std::equal(from_tad.file.begin(), from_tad.file.end(), tad_bytes.begin())
+    );
+    CHECK(from_oademo.duration_ms == from_tad.duration_ms);
     CHECK(from_tad.players.size() == from_oademo.players.size());
     for (std::size_t index = 0; index < from_tad.players.size(); ++index) {
         CHECK(from_tad.players[index].from_status == from_oademo.players[index].from_status);
@@ -3227,12 +3433,15 @@ void oademo_loads_the_same_playback() {
         CHECK(from_tad.demo.players[index].name == from_oademo.demo.players[index].name);
         CHECK(from_tad.demo.players[index].number == from_oademo.demo.players[index].number);
     }
-    CHECK(from_tad.frames.size() == from_oademo.frames.size());
-    for (std::size_t index = 0; index < from_tad.frames.size(); ++index) {
-        CHECK(from_tad.frames[index].datagram == from_oademo.frames[index].datagram);
-        CHECK(from_tad.frames[index].time_ms == from_oademo.frames[index].time_ms);
-        CHECK(from_tad.frames[index].sender == from_oademo.frames[index].sender);
-        CHECK(from_tad.frames[index].due_tick == from_oademo.frames[index].due_tick);
+    const std::vector<DemoFrame> tad_frames = demo_frames(from_tad);
+    const std::vector<DemoFrame> oademo_frames = demo_frames(from_oademo);
+    CHECK(tad_frames.size() == oademo_frames.size() && tad_frames.size() == from_tad.frame_count);
+    for (std::size_t index = 0; index < tad_frames.size() && index < oademo_frames.size();
+         ++index) {
+        CHECK(tad_frames[index].datagram == oademo_frames[index].datagram);
+        CHECK(tad_frames[index].time_ms == oademo_frames[index].time_ms);
+        CHECK(tad_frames[index].sender == oademo_frames[index].sender);
+        CHECK(tad_frames[index].due_tick == oademo_frames[index].due_tick);
     }
     CHECK(from_tad.recorded_definitions == from_oademo.recorded_definitions);
     CHECK(from_tad.recorded_verdicts == from_oademo.recorded_verdicts);
@@ -3401,6 +3610,8 @@ int main() {
     no_written_recording_holds_a_player_address();
     a_partial_recording_is_finished_into_a_file_that_loads();
     a_finished_file_replaces_another_only_when_asked();
+    a_finished_recording_keeps_its_bytes();
+    a_stream_finished_in_pieces_holds_the_same_replay();
     a_replay_describes_the_game_it_was_made_from();
     ten_players_watch_without_a_slot();
     recording_carries_loadout_text();
@@ -3408,7 +3619,7 @@ int main() {
     recording_carries_limits();
     recording_carries_enhanced_mode();
     recording_remaps_source_peer_ids();
-    enhanced_recordings_keep_original_unit_ranges();
+    enhanced_recordings_keep_their_unit_ranges();
     tad_wide_lengths_match_the_wire();
     wide_records_reach_the_binding();
     limits_verdicts();

@@ -4,8 +4,8 @@
 // Round trips at the levels a replay uses, a damaged frame (junk, and a real
 // frame cut short), a frame whose header names more bytes than the call
 // allows (refused from the header, before any buffer exists), a frame with
-// no size in its header, and the window every frame this module writes
-// declares.
+// no size in its header, the window every frame this module writes
+// declares, and frames written and read in pieces.
 
 // ZSTD_getFrameHeader, which reads the window a frame declares, is in zstd's
 // static-linking section.
@@ -338,6 +338,198 @@ void a_watched_compression_can_be_stopped() {
     OA_CHECK(counts.reports == 0);
 }
 
+// Noise with some repeats, so a frame of it has both literals and matches.
+std::vector<uint8_t> patterned(std::size_t size, uint32_t seed) {
+    std::vector<uint8_t> bytes(size);
+    uint32_t state = seed;
+    for (std::size_t at = 0; at < size; ++at) {
+        state ^= state << 13U;
+        state ^= state >> 17U;
+        state ^= state << 5U;
+        bytes[at] =
+            (state & 3U) == 0U ? static_cast<uint8_t>(state >> 8U) : static_cast<uint8_t>(at / 97U);
+    }
+    return bytes;
+}
+
+// A sink that keeps what it is given, or refuses once it holds `refuse_past` bytes.
+struct KeptFrame {
+    std::vector<uint8_t> bytes{};
+    std::size_t refuse_past{SIZE_MAX};
+};
+
+bool keep_frame(void* context, std::span<const uint8_t> bytes) {
+    auto& kept = *static_cast<KeptFrame*>(context);
+    if (kept.bytes.size() + bytes.size() > kept.refuse_past)
+        return false;
+    kept.bytes.insert(kept.bytes.end(), bytes.begin(), bytes.end());
+    return true;
+}
+
+// The frame of `bytes` written in pieces of `piece` bytes through a room of `room` bytes.
+std::vector<uint8_t>
+frame_in_pieces(const std::vector<uint8_t>& bytes, int level, std::size_t piece, std::size_t room) {
+    oa::base::zstd::FrameWriter writer;
+    std::vector<uint8_t> space(room);
+    KeptFrame kept;
+    OA_CHECK(
+        oa::base::zstd::frame_writer_begin(
+            writer, level, bytes.size(), space, {&kept, keep_frame}
+        ) == Error::none
+    );
+    for (std::size_t at = 0; at < bytes.size(); at += piece) {
+        const std::size_t take = std::min(piece, bytes.size() - at);
+        OA_CHECK(
+            oa::base::zstd::frame_writer_write(
+                writer, std::span<const uint8_t>(bytes.data() + at, take)
+            ) == Error::none
+        );
+    }
+    OA_CHECK(oa::base::zstd::frame_writer_end(writer) == Error::none);
+    OA_CHECK(writer.written == kept.bytes.size());
+    oa::base::zstd::frame_writer_free(writer);
+    return kept.bytes;
+}
+
+// Every byte of `frame` read back through a reader, `piece` bytes of input at a time into a
+// room of `room` bytes. False when the reader refuses the frame or it does not end.
+bool read_in_pieces(
+    std::span<const uint8_t> frame, std::size_t piece, std::size_t room, std::vector<uint8_t>& out
+) {
+    out.clear();
+    oa::base::zstd::FrameReader reader;
+    OA_CHECK(oa::base::zstd::frame_reader_begin(reader) == Error::none);
+    std::vector<uint8_t> space(room);
+    bool good = true;
+    for (std::size_t at = 0; good && at < frame.size(); at += piece) {
+        std::span<const uint8_t> input = frame.subspan(at, std::min(piece, frame.size() - at));
+        // The room may fill before the input is taken: read on until it is.
+        while (good && (!input.empty() || !reader.ended)) {
+            std::size_t decoded = 0;
+            good = oa::base::zstd::frame_reader_read(reader, input, space, decoded) == Error::none;
+            out.insert(
+                out.end(), space.begin(), space.begin() + static_cast<std::ptrdiff_t>(decoded)
+            );
+            if (decoded == 0 && input.empty())
+                break;
+        }
+    }
+    const bool ended = reader.ended;
+    oa::base::zstd::frame_reader_free(reader);
+    return good && ended;
+}
+
+void a_frame_written_in_pieces_reads_back() {
+    // Past zstd's window and block, so the frame is not one block.
+    const std::vector<uint8_t> bytes = patterned(3U * 1024U * 1024U + 77U, 0x1234567U);
+    const std::vector<uint8_t> frame = frame_in_pieces(bytes, 3, 65536, 4096);
+    OA_CHECK(frame.size() < bytes.size());
+    // The header names the size, and the frame reads whole and in pieces.
+    const Sized named = oa::base::zstd::content_size(frame, bytes.size());
+    OA_CHECK(named.ok() && named.bytes == bytes.size());
+    std::vector<uint8_t> back(bytes.size());
+    OA_CHECK(oa::base::zstd::decompress(frame, back).ok());
+    OA_CHECK(back == bytes);
+    std::vector<uint8_t> read;
+    OA_CHECK(read_in_pieces(frame, 1000, 777, read));
+    OA_CHECK(read == bytes);
+    // However the input is cut, and whatever the room, the frame is the same bytes.
+    OA_CHECK(frame_in_pieces(bytes, 3, 333331, 5) == frame);
+    OA_CHECK(frame_in_pieces(bytes, 3, bytes.size(), 64) == frame);
+    const std::vector<uint8_t> small = patterned(300U * 1024U, 0x77U);
+    OA_CHECK(frame_in_pieces(small, 3, 7, 3) == frame_in_pieces(small, 3, small.size(), 4096));
+    // A frame of nothing reads back as nothing.
+    const std::vector<uint8_t> empty = frame_in_pieces({}, 3, 1, 16);
+    OA_CHECK(oa::base::zstd::content_size(empty, 0).ok());
+    OA_CHECK(read_in_pieces(empty, 1, 1, read) && read.empty());
+}
+
+void a_frame_written_in_pieces_keeps_the_window_cap() {
+    constexpr unsigned long long cap = 1ULL << oa::base::zstd::most_window_log;
+    const std::vector<uint8_t> bytes = patterned(static_cast<std::size_t>(cap) + 4096U, 0x51U);
+    const std::vector<uint8_t> frame = frame_in_pieces(bytes, 20, 1U << 20U, 1U << 16U);
+    OA_CHECK(window_of(frame) <= cap);
+    std::vector<uint8_t> read;
+    OA_CHECK(read_in_pieces(frame, 1U << 16U, 1U << 16U, read) && read == bytes);
+}
+
+void a_writer_takes_exactly_the_size_it_began_with() {
+    const std::vector<uint8_t> bytes = sample();
+    std::vector<uint8_t> room(256);
+    KeptFrame kept;
+    oa::base::zstd::FrameWriter writer;
+    OA_CHECK(
+        oa::base::zstd::frame_writer_begin(
+            writer, 3, bytes.size() - 1, room, {&kept, keep_frame}
+        ) == Error::none
+    );
+    OA_CHECK(oa::base::zstd::frame_writer_write(writer, bytes) == Error::damaged);
+    // The failure stays.
+    OA_CHECK(oa::base::zstd::frame_writer_end(writer) == Error::damaged);
+    OA_CHECK(
+        oa::base::zstd::frame_writer_begin(
+            writer, 3, bytes.size() + 1, room, {&kept, keep_frame}
+        ) == Error::none
+    );
+    OA_CHECK(oa::base::zstd::frame_writer_write(writer, bytes) == Error::none);
+    OA_CHECK(oa::base::zstd::frame_writer_end(writer) == Error::damaged);
+    OA_CHECK(
+        oa::base::zstd::frame_writer_begin(
+            writer, 0x7fff, bytes.size(), room, {&kept, keep_frame}
+        ) == Error::bad_level
+    );
+    oa::base::zstd::frame_writer_free(writer);
+    // A sink that refuses stops the frame.
+    KeptFrame refusing;
+    refusing.refuse_past = 0;
+    OA_CHECK(
+        oa::base::zstd::frame_writer_begin(
+            writer, 3, bytes.size(), room, {&refusing, keep_frame}
+        ) == Error::none
+    );
+    Error status = oa::base::zstd::frame_writer_write(writer, bytes);
+    if (status == Error::none)
+        status = oa::base::zstd::frame_writer_end(writer);
+    OA_CHECK(status == Error::sink_refused);
+    oa::base::zstd::frame_writer_free(writer);
+    OA_CHECK(writer.context == nullptr && writer.failed == Error::none);
+}
+
+void a_reader_takes_one_whole_frame() {
+    const std::vector<uint8_t> bytes = sample();
+    const std::vector<uint8_t> frame = frame_of(bytes, 3);
+    std::vector<uint8_t> read;
+    // A frame `compress` wrote reads back a byte of input at a time.
+    OA_CHECK(read_in_pieces(frame, 1, 3, read) && read == bytes);
+    // A frame cut short never ends.
+    OA_CHECK(!read_in_pieces(std::span(frame).first(frame.size() - 1), 7, 64, read));
+    // A byte after the frame, junk, and a skippable frame are refused.
+    std::vector<uint8_t> longer = frame;
+    longer.push_back(0);
+    OA_CHECK(!read_in_pieces(longer, 5, 64, read));
+    const std::vector<uint8_t> junk{1, 2, 3, 4, 5, 6, 7, 8};
+    OA_CHECK(!read_in_pieces(junk, 3, 64, read));
+    const std::vector<uint8_t> skippable{0x50, 0x2A, 0x4D, 0x18, 0x00, 0x00, 0x00, 0x00};
+    OA_CHECK(!read_in_pieces(skippable, 1, 64, read));
+    // A frame that names no size but declares a window past the reader's cap is refused.
+    ZSTD_CCtx* context = ZSTD_createCCtx();
+    OA_CHECK(context != nullptr);
+    OA_CHECK(ZSTD_isError(ZSTD_CCtx_setParameter(context, ZSTD_c_windowLog, 28)) == 0);
+    OA_CHECK(ZSTD_isError(ZSTD_CCtx_setParameter(context, ZSTD_c_contentSizeFlag, 0)) == 0);
+    std::vector<uint8_t> wide(ZSTD_compressBound(bytes.size()));
+    ZSTD_outBuffer output{wide.data(), wide.size(), 0};
+    ZSTD_inBuffer input{bytes.data(), bytes.size(), 0};
+    // Given in two calls, the input's size is not known when the frame starts, so zstd keeps
+    // the window it was asked for.
+    OA_CHECK(ZSTD_isError(ZSTD_compressStream2(context, &output, &input, ZSTD_e_continue)) == 0);
+    ZSTD_inBuffer none{bytes.data(), 0, 0};
+    OA_CHECK(ZSTD_compressStream2(context, &output, &none, ZSTD_e_end) == 0);
+    ZSTD_freeCCtx(context);
+    wide.resize(output.pos);
+    OA_CHECK(window_of(wide) > (1ULL << oa::base::zstd::most_read_window_log));
+    OA_CHECK(!read_in_pieces(wide, 64, 64, read));
+}
+
 } // namespace
 
 int main() {
@@ -357,5 +549,9 @@ int main() {
     every_frame_declares_a_window_within_the_cap();
     a_watched_frame_reads_back();
     a_watched_compression_can_be_stopped();
+    a_frame_written_in_pieces_reads_back();
+    a_frame_written_in_pieces_keeps_the_window_cap();
+    a_writer_takes_exactly_the_size_it_began_with();
+    a_reader_takes_one_whole_frame();
     return oa::test::check_exit_status();
 }

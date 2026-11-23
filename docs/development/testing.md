@@ -714,7 +714,10 @@ names, these run the game headless:
   `.oademo`; a headless game without `--record-game` writes no
   `Recordings` folder; and a replay of a game with a mod names the mod by a
   SHA-256 (the folder's, computed by the check, for a mod folder). `netgame-recording-partials` and `demo-playback`
-  check the same rules without the game;
+  check the same rules without the game, and `session-demo-long-recording`
+  makes a recording past 512 MiB packet by packet, finishes it cut part way
+  and whole as a `.tad`, reads it back packet for packet and plays every
+  frame of both (it writes about 1.1 GB to a scratch folder);
 - `native-replays-skirmish` (`tools/check_native_replays_skirmish.py`) runs
   two built-in computer players on Ashap Plateau for 9000 ticks with and
   without `--record-game` and compares the `--trace-digest` streams, plays

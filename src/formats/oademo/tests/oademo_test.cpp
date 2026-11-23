@@ -4,12 +4,16 @@
 // The replay container: two writes of one replay are the same bytes, the
 // first 45 bytes and every local header are pinned, each refusal names its
 // sentence, a deflated recording reads like a zstd one, a member this
-// version does not know is kept, and a writer refuses a recording that
-// holds an address sector.
+// version does not know is kept, a writer refuses a recording that holds an
+// address sector, a replay written from a frame already made is the one
+// `write` makes, and a recording read in pieces is the recording `read` gives.
 
 #include "oa/formats/oademo/interface_words.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_reader.hpp"
 #include "oa/formats/oademo/timeline_index.hpp"
+
+#include "oa/base/zstd/zstd.hpp"
 
 #include "oa/formats/sqsh.hpp"
 #include "oa/formats/tad.hpp"
@@ -17,6 +21,7 @@
 #include "oa/formats/zip/writer.hpp"
 #include "oa/test/check.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -1298,6 +1303,194 @@ void a_replay_export_keeps_a_clean_recording() {
     }
 }
 
+// A frame read from bytes held, a piece at a time.
+struct HeldFrame {
+    std::span<const uint8_t> bytes{};
+    std::size_t at{};
+};
+
+bool read_held_frame(void* context, std::span<uint8_t> into) {
+    auto& held = *static_cast<HeldFrame*>(context);
+    if (into.size() > held.bytes.size() - held.at)
+        return false;
+    std::copy_n(
+        held.bytes.begin() + static_cast<std::ptrdiff_t>(held.at), into.size(), into.begin()
+    );
+    held.at += into.size();
+    return true;
+}
+
+// A replay held in memory, read at offsets as from a file.
+struct HeldArchive {
+    std::span<const uint8_t> bytes{};
+};
+
+bool read_held_archive(void* context, uint64_t offset, std::span<uint8_t> into) {
+    const auto& held = *static_cast<const HeldArchive*>(context);
+    if (offset > held.bytes.size() || into.size() > held.bytes.size() - offset)
+        return false;
+    std::copy_n(
+        held.bytes.begin() + static_cast<std::ptrdiff_t>(offset), into.size(), into.begin()
+    );
+    return true;
+}
+
+// The one zstd frame `write` makes of a recording at a level.
+std::vector<uint8_t> whole_frame_of(std::span<const uint8_t> recording, int level) {
+    std::vector<uint8_t> frame(oa::base::zstd::compress_bound(recording.size()));
+    const oa::base::zstd::Sized made = oa::base::zstd::compress(recording, level, frame);
+    OA_CHECK(made.ok());
+    frame.resize(made.bytes);
+    return frame;
+}
+
+void a_framed_write_is_the_write() {
+    using namespace oa::formats::oademo;
+    for (const bool bulky : {false, true}) {
+        Replay replay;
+        fill(replay, bulky ? bulky_tad_recording() : tad_recording(false));
+        for (const bool with_timeline : {false, true}) {
+            if (!with_timeline)
+                replay.timeline.reset();
+            const WriteResult whole = write(replay, {});
+            OA_CHECK(whole.ok());
+            const std::vector<uint8_t> frame = whole_frame_of(replay.recording, 3);
+            // The framed write reads nothing of the recording: only the description names it.
+            Replay described = replay;
+            described.recording.clear();
+            HeldFrame held{frame};
+            MemoryOut out;
+            const std::string why_not = write_framed(
+                described,
+                FrameSource{&held, read_held_frame, frame.size()},
+                ArchiveOutput{&out, write_memory}
+            );
+            OA_CHECK(why_not.empty());
+            OA_CHECK(held.at == frame.size());
+            OA_CHECK(out.bytes == whole.bytes);
+        }
+    }
+    // A frame that cannot be read leaves no replay written.
+    Replay replay = sample();
+    const std::vector<uint8_t> frame = whole_frame_of(replay.recording, 3);
+    HeldFrame short_frame{std::span<const uint8_t>(frame).first(frame.size() / 2)};
+    MemoryOut out;
+    OA_CHECK(
+        write_framed(
+            replay,
+            FrameSource{&short_frame, read_held_frame, frame.size()},
+            ArchiveOutput{&out, write_memory}
+        ) == replay_unwritable
+    );
+}
+
+// The whole recording of `archive`, read in pieces of `piece` bytes.
+std::string read_in_pieces(
+    std::span<const uint8_t> archive, std::size_t piece, std::vector<uint8_t>& recording
+) {
+    using namespace oa::formats::oademo;
+    recording.clear();
+    HeldArchive held{archive};
+    RecordingReader reader;
+    std::string why_not = reader.open(ArchiveSource{&held, read_held_archive, archive.size()});
+    if (!why_not.empty())
+        return why_not;
+    std::vector<uint8_t> room(piece);
+    for (;;) {
+        std::size_t got = 0;
+        why_not = reader.read(room, got);
+        if (!why_not.empty())
+            return why_not;
+        if (got == 0)
+            break;
+        recording.insert(
+            recording.end(), room.begin(), room.begin() + static_cast<std::ptrdiff_t>(got)
+        );
+    }
+    OA_CHECK(reader.finished() && reader.position() == recording.size());
+    return {};
+}
+
+void a_recording_reads_in_pieces() {
+    using namespace oa::formats::oademo;
+    Replay replay;
+    fill(replay, bulky_tad_recording());
+    for (const bool deflated : {false, true}) {
+        WriteOptions options;
+        options.deflate = deflated;
+        const WriteResult written = write(replay, options);
+        OA_CHECK(written.ok());
+        for (const std::size_t piece : {std::size_t{1} << 20U, std::size_t{777}}) {
+            std::vector<uint8_t> recording;
+            OA_CHECK(read_in_pieces(written.bytes, piece, recording).empty());
+            OA_CHECK(recording == replay.recording);
+        }
+        // The description and the manifest are the ones `read_description` gives, and a rewind
+        // reads the recording again from its first byte.
+        HeldArchive held{written.bytes};
+        RecordingReader reader;
+        OA_CHECK(
+            reader.open(ArchiveSource{&held, read_held_archive, written.bytes.size()}).empty()
+        );
+        OA_CHECK(meta_text(reader.meta()) == meta_text(replay.meta));
+        OA_CHECK(manifest_text(reader.manifest()) == manifest_text(replay.manifest));
+        std::vector<uint8_t> room(5000);
+        std::size_t got = 0;
+        OA_CHECK(reader.read(room, got).empty() && got == room.size());
+        OA_CHECK(reader.position() == room.size() && !reader.finished());
+        OA_CHECK(reader.rewind().empty() && reader.position() == 0);
+        std::vector<uint8_t> again(room.size());
+        OA_CHECK(reader.read(again, got).empty() && got == again.size());
+        OA_CHECK(std::equal(again.begin(), again.end(), replay.recording.begin()));
+    }
+}
+
+void a_recording_read_in_pieces_is_refused_where_read_refuses_it() {
+    using namespace oa::formats::oademo;
+    std::vector<uint8_t> recording;
+    const std::vector<uint8_t> junk{1, 2, 3, 4};
+    OA_CHECK(read_in_pieces(junk, 64, recording) == not_a_replay);
+    // A description whose digest is another recording's.
+    Replay replay = sample();
+    replay.meta.recording.sha256 = std::string(64, '0');
+    const WriteResult other_digest = write(replay, {});
+    OA_CHECK(read(other_digest.bytes).error == recording_mismatch);
+    OA_CHECK(read_in_pieces(other_digest.bytes, 64, recording) == recording_mismatch);
+    // A description that names fewer bytes than the recording holds is refused as they pass.
+    replay = sample();
+    replay.meta.recording.bytes -= 1;
+    const WriteResult short_count = write(replay, {});
+    OA_CHECK(read_in_pieces(short_count.bytes, 64, recording) == recording_mismatch);
+    // A damaged frame, another version, and two recordings.
+    const Replay good = sample();
+    const std::vector<uint8_t> damaged = archive_of(
+        std::string(signature_line),
+        meta_of(good),
+        manifest_of(good),
+        "recording.tad.zst",
+        oa::formats::zip::Method::stored,
+        {1, 2, 3, 4, 5, 6, 7, 8}
+    );
+    OA_CHECK(read_in_pieces(damaged, 64, recording) == recording_unreadable);
+    // The frame cut short.
+    std::vector<uint8_t> frame = whole_frame_of(good.recording, 3);
+    frame.pop_back();
+    const std::vector<uint8_t> cut = archive_of(
+        std::string(signature_line),
+        meta_of(good),
+        manifest_of(good),
+        "recording.tad.zst",
+        oa::formats::zip::Method::stored,
+        frame
+    );
+    OA_CHECK(read(cut).error == recording_unreadable);
+    OA_CHECK(read_in_pieces(cut, 64, recording) == recording_unreadable);
+    Replay other = sample();
+    other.meta.oademo = 2;
+    const WriteResult other_version = write(other, {});
+    OA_CHECK(read_in_pieces(other_version.bytes, 64, recording) == not_this_version);
+}
+
 } // namespace
 
 int main() {
@@ -1317,5 +1510,8 @@ int main() {
     the_words_of_an_index_are_pinned();
     an_export_is_plain_and_the_same_twice();
     a_replay_export_keeps_a_clean_recording();
+    a_framed_write_is_the_write();
+    a_recording_reads_in_pieces();
+    a_recording_read_in_pieces_is_refused_where_read_refuses_it();
     return oa::test::check_exit_status();
 }

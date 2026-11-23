@@ -146,7 +146,17 @@ leave it, the recording is finished and moved into place: a `.oademo` is
 compressed off the thread that draws. The log says
 `multiplayer: recorded the game to FILE`,
 `skirmish: recorded the game to FILE` for a skirmish, or
-`campaign: recorded the game to FILE` for a campaign mission.
+`campaign: recorded the game to FILE` for a campaign mission. A recording of
+any length finishes and plays. A stream of up to 512 MiB is compressed in one
+piece, as it always was; a longer one, which a battle of 20,000 units makes
+in about a minute and a half, is read and compressed a piece at a time,
+holding a few megabytes whatever its length, and playback reads any replay a
+piece at a time too. The stream takes room on the disk while the game goes:
+at 20,000 units about 280 KB a tick, some 15 GB for half an hour, and the
+finished replay about an eighth of that. When a write fails, as when the disk
+is full, the recording stops there and the log says when and why, as in
+`skirmish: the recording stopped at 12:34 of the game (tick 22620): the file
+cannot be written; the replay keeps the game up to there`.
 
 **After a crash.** A recording the game left in `partial` because it stopped
 is finished at the start of the next run, whatever that run is: cut to its

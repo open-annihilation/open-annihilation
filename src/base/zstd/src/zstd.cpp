@@ -257,6 +257,207 @@ Sized compress_watched(
     return finished(written);
 }
 
+namespace {
+
+ZSTD_CCtx* compression_of(const FrameWriter& writer) noexcept {
+    return static_cast<ZSTD_CCtx*>(writer.context);
+}
+
+ZSTD_DCtx* decompression_of(const FrameReader& reader) noexcept {
+    return static_cast<ZSTD_DCtx*>(reader.context);
+}
+
+// Records a writer's first failure, which every later call returns.
+Error writer_failed(FrameWriter& writer, Error error) noexcept {
+    if (writer.failed == Error::none)
+        writer.failed = error;
+    return writer.failed;
+}
+
+// Records a reader's first failure, which every later call returns.
+Error reader_failed(FrameReader& reader, Error error) noexcept {
+    if (reader.failed == Error::none)
+        reader.failed = error;
+    return reader.failed;
+}
+
+// Runs the compressor once over `input` with `directive`, handing what it
+// wrote to the sink. Sets `remaining` to what zstd still has to flush.
+Error writer_pass(
+    FrameWriter& writer, ZSTD_inBuffer& input, ZSTD_EndDirective directive, std::size_t& remaining
+) noexcept {
+    ZSTD_outBuffer output{writer.room.data(), writer.room.size(), 0};
+    remaining = ZSTD_compressStream2(compression_of(writer), &output, &input, directive);
+    if (ZSTD_isError(remaining) != 0)
+        return writer_failed(writer, Error::damaged);
+    if (output.pos != 0) {
+        const std::span<const uint8_t> made(writer.room.data(), output.pos);
+        if (writer.sink.write == nullptr || !writer.sink.write(writer.sink.context, made))
+            return writer_failed(writer, Error::sink_refused);
+        writer.written += output.pos;
+    }
+    return Error::none;
+}
+
+} // namespace
+
+Error frame_writer_begin(
+    FrameWriter& writer, int level, uint64_t whole, std::span<uint8_t> room, FrameSink sink
+) {
+    frame_writer_free(writer);
+    if (level < ZSTD_minCLevel() || level > ZSTD_maxCLevel())
+        return writer_failed(writer, Error::bad_level);
+    if (room.empty())
+        return writer_failed(writer, Error::buffer_too_small);
+    ZSTD_CCtx* context = ZSTD_createCCtx();
+    if (context == nullptr)
+        return writer_failed(writer, Error::out_of_memory);
+    writer.context = context;
+    writer.room = room;
+    writer.sink = sink;
+    writer.whole = whole;
+    if (ZSTD_isError(ZSTD_CCtx_setParameter(context, ZSTD_c_compressionLevel, level)) != 0)
+        return writer_failed(writer, Error::damaged);
+    // The level's own window for this input, held to the module's cap, as `compress` sets it.
+    const ZSTD_compressionParameters wanted =
+        ZSTD_getCParams(level, static_cast<unsigned long long>(whole), 0);
+    if (wanted.windowLog > static_cast<unsigned>(most_window_log) &&
+        ZSTD_isError(ZSTD_CCtx_setParameter(context, ZSTD_c_windowLog, most_window_log)) != 0)
+        return writer_failed(writer, Error::damaged);
+    // The header names the input's size.
+    if (ZSTD_isError(
+            ZSTD_CCtx_setPledgedSrcSize(context, static_cast<unsigned long long>(whole))
+        ) != 0)
+        return writer_failed(writer, Error::damaged);
+    return Error::none;
+}
+
+Error frame_writer_write(FrameWriter& writer, std::span<const uint8_t> input) {
+    if (writer.failed != Error::none)
+        return writer.failed;
+    if (writer.context == nullptr)
+        return writer_failed(writer, Error::damaged);
+    if (input.empty())
+        return Error::none;
+    if (input.size() > writer.whole - writer.taken)
+        return writer_failed(writer, Error::damaged);
+    ZSTD_inBuffer incoming{input.data(), input.size(), 0};
+    // Each pass takes input until zstd's own buffer is full; the room is handed on after each.
+    while (incoming.pos < incoming.size) {
+        std::size_t remaining = 0;
+        if (const Error error = writer_pass(writer, incoming, ZSTD_e_continue, remaining);
+            error != Error::none)
+            return error;
+    }
+    writer.taken += input.size();
+    return Error::none;
+}
+
+Error frame_writer_end(FrameWriter& writer) {
+    if (writer.failed != Error::none)
+        return writer.failed;
+    if (writer.context == nullptr || writer.taken != writer.whole)
+        return writer_failed(writer, Error::damaged);
+    uint8_t spare{};
+    ZSTD_inBuffer none{&spare, 0, 0};
+    for (;;) {
+        std::size_t remaining = 0;
+        if (const Error error = writer_pass(writer, none, ZSTD_e_end, remaining);
+            error != Error::none)
+            return error;
+        if (remaining == 0)
+            return Error::none;
+    }
+}
+
+void frame_writer_free(FrameWriter& writer) noexcept {
+    if (writer.context != nullptr)
+        ZSTD_freeCCtx(compression_of(writer));
+    writer = FrameWriter{};
+}
+
+Error frame_reader_begin(FrameReader& reader) {
+    frame_reader_free(reader);
+    ZSTD_DCtx* context = ZSTD_createDCtx();
+    if (context == nullptr)
+        return reader_failed(reader, Error::out_of_memory);
+    reader.context = context;
+    if (ZSTD_isError(ZSTD_DCtx_setParameter(context, ZSTD_d_windowLogMax, most_read_window_log)) !=
+        0)
+        return reader_failed(reader, Error::damaged);
+    return Error::none;
+}
+
+Error frame_reader_read(
+    FrameReader& reader,
+    std::span<const uint8_t>& input,
+    std::span<uint8_t> out,
+    std::size_t& decoded
+) {
+    decoded = 0;
+    if (reader.failed != Error::none)
+        return reader.failed;
+    if (reader.context == nullptr)
+        return reader_failed(reader, Error::damaged);
+    if (reader.ended) {
+        // One frame and nothing after it.
+        if (!input.empty())
+            return reader_failed(reader, Error::damaged);
+        return Error::none;
+    }
+    // A skippable frame holds no data, and zstd would pass over it: it is refused here, as
+    // `decompress` refuses it, once its magic number has arrived.
+    for (std::size_t at = 0; reader.magic_seen < reader.magic.size() && at < input.size(); ++at) {
+        reader.magic[reader.magic_seen] = input[at];
+        ++reader.magic_seen;
+    }
+    if (reader.magic_seen == reader.magic.size() &&
+        ZSTD_isSkippableFrame(reader.magic.data(), reader.magic.size()) != 0)
+        return reader_failed(reader, Error::damaged);
+    uint8_t spare_out{};
+    ZSTD_outBuffer output{
+        out.empty() ? static_cast<void*>(&spare_out) : static_cast<void*>(out.data()), out.size(), 0
+    };
+    uint8_t spare_in{};
+    ZSTD_inBuffer incoming{
+        input.empty() ? static_cast<const void*>(&spare_in)
+                      : static_cast<const void*>(input.data()),
+        input.size(),
+        0
+    };
+    for (;;) {
+        const std::size_t before_in = incoming.pos;
+        const std::size_t before_out = output.pos;
+        const std::size_t hint =
+            ZSTD_decompressStream(decompression_of(reader), &output, &incoming);
+        if (ZSTD_isError(hint) != 0) {
+            input = input.subspan(incoming.pos);
+            decoded = output.pos;
+            return reader_failed(reader, Error::damaged);
+        }
+        if (hint == 0) {
+            reader.ended = true;
+            break;
+        }
+        // Room full, input used up, or a pass that moved nothing: the caller brings more.
+        if (output.pos == output.size || incoming.pos == incoming.size ||
+            (incoming.pos == before_in && output.pos == before_out))
+            break;
+    }
+    input = input.subspan(incoming.pos);
+    decoded = output.pos;
+    reader.produced += output.pos;
+    if (reader.ended && !input.empty())
+        return reader_failed(reader, Error::damaged);
+    return Error::none;
+}
+
+void frame_reader_free(FrameReader& reader) noexcept {
+    if (reader.context != nullptr)
+        ZSTD_freeDCtx(decompression_of(reader));
+    reader = FrameReader{};
+}
+
 Sized content_size(std::span<const uint8_t> frame, std::size_t most_bytes) {
     if (frame.empty() || ZSTD_isSkippableFrame(frame.data(), frame.size()) != 0)
         return failed(Error::damaged);

@@ -120,7 +120,9 @@ void recording_begin(DemoRecording* recording, RecordingSetup setup);
 /// A unit state (0x2c) is stored as a tick base and the record without its
 /// tick, an empty one as the empty-tick marker. The delay is the time since
 /// the previous record, in milliseconds. The packet goes to the recording's
-/// stream when it has one, and is kept in memory otherwise.
+/// stream when it has one, and is kept in memory otherwise. A recording kept
+/// in memory takes at most formats::tad::limit::packets packets, the most a
+/// recording read whole holds; a stream takes every one.
 /// When a player supplies source_player_id, the sender and peer ids inside
 /// the record are source ids; the recording maps them to its player_id.
 ///
