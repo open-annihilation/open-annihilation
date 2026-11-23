@@ -1161,9 +1161,9 @@ void equivalent_shared_guides_preserve_passing_heads() {
         jobs.tick_credit = 0;
         jobs.credit.fill(0);
         match.simulation().tick = request_tick;
-        const auto original_points = navigation.points;
-        const auto original_count = navigation.count;
-        const auto original_flags = navigation.flags;
+        const auto saved_points = navigation.points;
+        const auto saved_count = navigation.count;
+        const auto saved_flags = navigation.flags;
         const auto before = match.enhanced_counters();
         match.advance_path_search();
         CHECK(match.fault() == nullptr);
@@ -1174,9 +1174,9 @@ void equivalent_shared_guides_preserve_passing_heads() {
         CHECK(navigation.goal == goal);
         if (storage != Storage::inactive) {
             CHECK(bytes_of(steering) == steering_bytes);
-            CHECK(navigation.points == original_points);
-            CHECK(navigation.count == original_count);
-            CHECK(navigation.flags == original_flags);
+            CHECK(navigation.points == saved_points);
+            CHECK(navigation.count == saved_count);
+            CHECK(navigation.flags == saved_flags);
             CHECK(navigation.last_search_tick == 0);
         } else {
             // Identical storage without a live guide must still get a route.

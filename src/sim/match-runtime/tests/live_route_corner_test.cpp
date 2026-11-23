@@ -255,32 +255,32 @@ Result run(const Case& input, bool advances) {
         mover.record.attach_parent = oa::oa_unit_ref_from_slot(blocker.unit_index);
         mover.record.attach_piece = 0xff;
     }
-    const auto original_navigation = state.navigation;
-    const auto original_geometry = state.geometry;
-    const auto original_motion = state.movement;
+    const auto saved_navigation = state.navigation;
+    const auto saved_geometry = state.geometry;
+    const auto saved_motion = state.movement;
     const auto searches = match.enhanced_counters().full_route_searches;
     match.simulation().tick = input.tick - 1;
     fixture.run(1);
     CHECK(match.simulation().tick == input.tick);
     CHECK(match.enhanced_counters().full_route_searches == searches);
-    CHECK(state.navigation.goal == original_navigation.goal);
-    CHECK(state.navigation.last_search_tick == original_navigation.last_search_tick);
+    CHECK(state.navigation.goal == saved_navigation.goal);
+    CHECK(state.navigation.last_search_tick == saved_navigation.last_search_tick);
     CHECK(state.navigation.needs_search() == input.pending);
     CHECK(ground::route_present(state.navigation) == input.has_route);
-    CHECK(state.navigation.count == original_navigation.count - (advances ? 1u : 0u));
+    CHECK(state.navigation.count == saved_navigation.count - (advances ? 1u : 0u));
     if (advances) {
         CHECK((state.navigation.flags & ground::route_changed_flag) != 0);
         CHECK(
             state.navigation.points[0] ==
             (ground::RoutePoint{
-                static_cast<int16_t>(original_geometry.position[0] >> 16),
-                static_cast<int16_t>(original_geometry.position[2] >> 16)
+                static_cast<int16_t>(saved_geometry.position[0] >> 16),
+                static_cast<int16_t>(saved_geometry.position[2] >> 16)
             })
         );
         for (uint32_t index = 1; index < state.navigation.count; ++index)
-            CHECK(state.navigation.points[index] == original_navigation.points[index + 1]);
+            CHECK(state.navigation.points[index] == saved_navigation.points[index + 1]);
     } else {
-        CHECK(state.navigation.points == original_navigation.points);
+        CHECK(state.navigation.points == saved_navigation.points);
     }
     if (input.driver == Driver::owned) {
         CHECK(state.geometry.footprint == (std::array<int16_t, 2>{2, 2}));
@@ -298,13 +298,13 @@ Result run(const Case& input, bool advances) {
             mover.record.cell_z + mover.record.footprint_z > blocker.record.cell_z;
         CHECK(!overlap);
         if (input.clamp) {
-            CHECK(state.geometry.position == original_geometry.position);
-            CHECK(state.geometry.cell == original_geometry.cell);
+            CHECK(state.geometry.position == saved_geometry.position);
+            CHECK(state.geometry.cell == saved_geometry.cell);
             CHECK(state.movement.speed == maximum_speed / 2);
             CHECK((state.movement.flags & movement::collision_blocked) != 0);
         } else {
-            auto native_geometry = original_geometry;
-            auto native_motion = original_motion;
+            auto native_geometry = saved_geometry;
+            auto native_motion = saved_motion;
             auto native_navigation = state.navigation;
             if (const auto* head = match.local_flow_head(mover.unit_index); head && head->active) {
                 std::copy(
@@ -326,12 +326,10 @@ Result run(const Case& input, bool advances) {
             CHECK(state.movement.speed == native_motion.speed);
             CHECK(state.movement.velocity == native_motion.velocity);
             CHECK(
-                state.geometry.position[0] ==
-                original_geometry.position[0] + native_motion.velocity[0]
+                state.geometry.position[0] == saved_geometry.position[0] + native_motion.velocity[0]
             );
             CHECK(
-                state.geometry.position[2] ==
-                original_geometry.position[2] + native_motion.velocity[2]
+                state.geometry.position[2] == saved_geometry.position[2] + native_motion.velocity[2]
             );
         }
     }
