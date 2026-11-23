@@ -372,16 +372,14 @@ Each of these takes effect at once.
   setup's key codes store, so a code changes the slider and the slider
   changes what a code would set. A count you already stored stays, including
   one outside 2 to 10, until you move the slider.
-- **Enhanced Mode**, Off or On, Off by default. It selects the versioned
-  enhanced engine preset for new games and is locked during a match.
-  Saved games and recordings keep their own mode. Graphics settings remain
-  independent. The first preset permits 10,000 units per participating
-  player, a larger projectile pool and more efficient contact scans.
-  Shared routing and swept ground checks are included in the supplied
-  preset; experimental versions add further unit flow and AI policies. See
+- **Enhanced Mode**, Off or On, Off by default. On plays Enhanced Mode,
+  Revision 1, in skirmishes, campaigns and the battle rooms you host. It
+  applies from the next game and is locked during a match. A saved game
+  and a recording keep the revision and the features they were played with.
+  With it on, a player may field 10,000 units, and the match holds at most
+  32,767 units and 32,767 shots. Graphics settings stay separate. Lighter
+  far units, under Graphics, is off unless you turn it on. See
   [Enhanced Mode](enhanced-mode.md).
-  Saved games and recordings keep their recorded rules. Graphics remain
-  separate under Graphics.
 - **Weapon types**, set by the mod. It counts how many weapon types the
   mod allows. The base game allows 256. In a match it shows how many of
   that limit the match loaded, as "312 of 4096". Every player in a game

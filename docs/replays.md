@@ -63,6 +63,13 @@ Whether the game records, and for how long it keeps what it recorded, are
 two settings, **Record my games** and **Keep replays for**, in
 [Settings › Replays](settings.md#replays).
 
+A recording of an Enhanced match keeps the revision and the features in an
+`OAE1` sector of the `.tad`. A recording without that sector plays with
+Enhanced Mode off. Playback uses the recorded choice and does not change
+the setting for a new game. A revision or a feature this build does not
+play is refused with the same sentence a save uses.
+[Enhanced Mode](enhanced-mode.md#saved-and-recorded-games) has the sector.
+
 **What is recorded, and when.** A game is recorded from the moment its match
 starts, when any of these holds:
 

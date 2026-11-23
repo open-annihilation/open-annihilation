@@ -14,9 +14,12 @@
 ## Description
 
 Records the Enhanced Mode revision and the features a match plays. Revision 1
-is the set new games play when Enhanced Mode is on. A match can name a
-revision and a set of features. Graphics settings remain independent. Saved
-games and recordings keep the revision and features they were played with.
+is the set new games play when Enhanced Mode is on. Off plays as 3.1c. A
+match can name a revision this build plays, and a set of features that can
+be played together. A feature this build will not play is refused. Graphics
+settings remain independent. Lighter far units, under Graphics, is off
+unless the player turns it on. Saved games and recordings keep the revision
+and features they were played with.
 
 ## Configuration example
 
@@ -37,11 +40,12 @@ list, a new game plays Revision 1.
 
 The revision and features enter the simulation hash and are recorded in
 saves and replays. Every multiplayer participant must use the same revision
-and features. Games with the mode Off retain the classic allocation and
-simulation path.
+and features. A battle room plays a revision, the whole set. Games with the
+mode Off retain the classic allocation and simulation path. A revision is
+frozen: a later release plays Revision 1 as this one does.
 
-See [Enhanced Mode](../../enhanced-mode.md) for current limitations and
-repeatable battle benchmarks.
+See [Enhanced Mode](../../enhanced-mode.md) for what Revision 1 changes, how
+a battle room decides, and the battle benchmark.
 
 ## Full configuration schema
 

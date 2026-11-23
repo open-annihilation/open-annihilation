@@ -61,7 +61,10 @@ Enhanced Mode state every other feature uses. `feature_by_name` and
 `feature_name` convert between features and their names.
 
 A revision is a frozen, numbered set of features; `highest_revision` is the
-highest this build plays, and `revision_features` gives each one's set.
+highest this build plays, and `revision_features` gives each one's set. A
+feature the table marks withdrawn was tried and no revision plays it;
+`feature_set_problem` refuses a set that names it. Its id stays, so nothing
+is renumbered.
 Revision 1 holds seventeen features: `capacity`, `local_flow`,
 `routes_fine_regions`, `route_corner_advance`, `ai_strike_retarget`,
 `credited_fallback_search`, `ai_attack_retention`, `ai_rally_retention`,

@@ -83,9 +83,10 @@ steering and integration through sustained opposing traffic, checking arrival,
 zero overlap, repeated-run determinism and a radius-only completion control.
 `unit-local-flow-queue` adds stock two-cell footprints, a passing lane that
 opens after sustained blockage, immediate-return controls and an idle queue.
-These fixtures do not establish repaired flow in the connected 20,000-unit
-installed-map recordings; their current bridge limits are recorded in
-[Enhanced Mode](../../../docs/enhanced-mode.md#congestion-and-cpu-checkpoint).
+These fixtures check the local rules. They do not by themselves show how a
+battle of 10,000 units a side moves.
+[Enhanced Mode](../../../docs/enhanced-mode.md#measuring-battles) is where
+those battles are measured.
 
 ## TNT terrain and four-point ground pose
 
