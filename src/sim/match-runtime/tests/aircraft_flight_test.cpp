@@ -6,6 +6,7 @@
 // flight step and goals share.
 #include "oa/data/enhanced_mode.hpp"
 #include "match_tick_access.hpp"
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -20,6 +21,13 @@ using namespace oa;
     } while (false)
 
 namespace {
+/// The rules the cases play: Off, capacity alone, and Revision 1, whose
+/// searches use the exact indexes.
+const std::array<oa::data::enhanced_mode::Choice, 3> played_choices{{
+    {},
+    {1, oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity)},
+    {1, oa::data::enhanced_mode::revision_features(1)},
+}};
 constexpr int32_t map_cells = 32;
 // ARMCA.FBI: Canfly=1, cruisealt=70, FootprintX/Z=2, DefaultMissionType=VTOL_standby.
 constexpr uint16_t copter_type = 1;
@@ -62,7 +70,7 @@ struct Fixture {
     Scenario scenario;
     std::unique_ptr<sim::match_runtime::Match> match;
 
-    explicit Fixture(uint32_t enhanced_version = 0) {
+    explicit Fixture(const oa::data::enhanced_mode::Choice& choice = {}) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
         terrain_values.resize(map_cells * map_cells);
@@ -117,9 +125,7 @@ struct Fixture {
             map, loaded, types, fields,    weapons, terrain_values,  masks, 16, 16, 16,   2,
             0,   30,     1,     &scenario, {},      collision_plots, {},    0,  0,  0.0F, {}
         };
-        oa::data::enhanced_mode::apply_alias(
-            input.rules.setup.enhanced_mode, static_cast<uint32_t>(enhanced_version)
-        );
+        oa::data::enhanced_mode::store_choice(input.rules.setup.enhanced_mode, choice);
         input.unit_player_mask = 1;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
         CHECK(match->fault() == nullptr);
@@ -397,8 +403,8 @@ void off_map_is_the_footprint_bucket() {
 // Arrived copies and mirrored goals must lose a dead target even after the
 // current goal has changed. Accessing a flying driver may populate either.
 void dead_targets_leave_arrived_and_mirrored_air_goals() {
-    for (const uint32_t version : {0u, 1u, 2u}) {
-        Fixture f(version);
+    for (const auto& choice : played_choices) {
+        Fixture f(choice);
         auto& target = f.spawn(cargo_type, 160, 128);
         auto& aircraft = f.spawn(copter_type, 256, 128);
         auto* driver = f.match->air_driver(aircraft.unit_index);

@@ -23,8 +23,38 @@ namespace runtime = oa::sim::match_runtime;
 namespace ground = oa::sim::ground_orders;
 namespace ai = oa::sim::ai;
 
-constexpr uint32_t distributed = oa::data::enhanced_mode::distributed_battle_flow_version;
-constexpr uint32_t following = oa::data::enhanced_mode::following_flow_version;
+namespace enhanced = oa::data::enhanced_mode;
+using FeatureSet = enhanced::FeatureSet;
+
+/// Revision 1 without spatial cohorts: whole-strike retargeting with attack
+/// and rally retention, over Revision 1's movement.
+const FeatureSet whole_strike = enhanced::revision_features(1)
+                                    .without(enhanced::Feature::dispatch_cohort_retention)
+                                    .without(enhanced::Feature::paced_cohort_targets);
+/// Strike retargeting with attack and rally retention, and no other feature
+/// but capacity.
+const FeatureSet retention_only = enhanced::close_features(
+    FeatureSet{}
+        .with(enhanced::Feature::ai_attack_retention)
+        .with(enhanced::Feature::ai_rally_retention)
+);
+/// The sets without retention: Off, capacity alone, and strike retargeting alone.
+const std::array<FeatureSet, 3> without_retention{
+    {FeatureSet{},
+     FeatureSet{}.with(enhanced::Feature::capacity),
+     enhanced::close_features(FeatureSet{}.with(enhanced::Feature::ai_strike_retarget))}
+};
+
+/// Writes a set into a match's rules; the empty set is Off.
+///
+/// @param[out] mode the rules record
+/// @param features the set
+void store_features(oa::data::match_rules::SetupEnhancedMode& mode, const FeatureSet& features) {
+    enhanced::store_choice(
+        mode, features.empty() ? enhanced::Choice{} : enhanced::Choice{1, features}
+    );
+}
+
 constexpr uint8_t owner = 1;
 constexpr int32_t pixel = 65536;
 constexpr uint32_t rally_interval = 150;
@@ -37,11 +67,9 @@ constexpr uint32_t cancel_event = 2;
 enum class March { move, patrol, repair_patrol };
 
 /// Supplies room and durable units for one real rally task.
-Options options_for(uint32_t version, bool bridge) {
+Options options_for(const FeatureSet& features, bool bridge) {
     Options options;
-    oa::data::enhanced_mode::apply_alias(
-        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
-    );
+    store_features(options.rules.setup.enhanced_mode, features);
     options.per_player_limit = 8;
     options.maximum_health = 30000;
     options.sight_cells = bridge ? 129 : 9;
@@ -56,10 +84,12 @@ struct Rally {
     ai::ComputerPlayer* controller{};
 
     /// Starts a genuine march before enabling only the computer's rally task.
-    explicit Rally(uint32_t version = distributed, March march = March::patrol, bool bridge = false)
-        : fixture(options_for(version, bridge)) {
+    explicit Rally(
+        const FeatureSet& features = whole_strike, March march = March::patrol, bool bridge = false
+    )
+        : fixture(options_for(features, bridge)) {
         if (bridge)
-            rebuild_bridge(version);
+            rebuild_bridge(features);
         actor = fixture.spawn(owner, bridge ? 48 : 24, bridge ? 208 : 112).unit_index;
         idle = fixture.spawn(owner, bridge ? 64 : 24, bridge ? 64 : 208).unit_index;
         leader = fixture.spawn(owner, bridge ? 976 : 232, bridge ? 208 : 224).unit_index;
@@ -130,7 +160,7 @@ struct Rally {
     }
 
     /// Builds an FP2 neck that requires an actual retained fine-search job.
-    void rebuild_bridge(uint32_t version) {
+    void rebuild_bridge(const FeatureSet& features) {
         fixture.match.reset();
         fixture.map.attribute_width = bridge_width;
         fixture.map.attribute_height = bridge_height;
@@ -198,9 +228,7 @@ struct Rally {
                 fixture.altitude_patterns
             }
         };
-        oa::data::enhanced_mode::apply_alias(
-            input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
-        );
+        store_features(input.rules.setup.enhanced_mode, features);
         input.unit_player_mask = 3;
         fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
         match().configure_strategic_environment({0, 0.5F, 0});
@@ -218,8 +246,8 @@ struct Rally {
 };
 
 /// Checks the complete native patrol queue and navigation, not just its head kind.
-void an_active_two_leg_patrol_survives_while_idle_members_rally(uint32_t version) {
-    Rally battle(version);
+void an_active_two_leg_patrol_survives_while_idle_members_rally(const FeatureSet& features) {
+    Rally battle(features);
     auto* head = battle.unit().primary;
     auto* tail = head->next;
     CHECK(tail != nullptr && tail->next == nullptr);
@@ -248,8 +276,8 @@ void an_active_two_leg_patrol_survives_while_idle_members_rally(uint32_t version
 }
 
 /// Keeps a native patrol's owned goal while its idle wait has selected phase one.
-void a_native_phase_one_patrol_wait_survives_the_rally(uint32_t version) {
-    Rally battle(version);
+void a_native_phase_one_patrol_wait_survives_the_rally(const FeatureSet& features) {
+    Rally battle(features);
     battle.rally().next_tick = battle.match().simulation().tick + 100000;
     bool waiting = false;
     for (uint32_t ticks = 0; ticks < 90; ++ticks) {
@@ -295,9 +323,9 @@ void a_native_phase_one_patrol_wait_survives_the_rally(uint32_t version) {
 }
 
 /// Retains the other supported active ground marches through the same real rally.
-void move_and_repair_patrol_continue(uint32_t version) {
+void move_and_repair_patrol_continue(const FeatureSet& features) {
     for (const auto march : {March::move, March::repair_patrol}) {
-        Rally battle(version, march);
+        Rally battle(features, march);
         auto* head = battle.unit().primary;
         const auto navigation = battle.movement().navigation;
         battle.refresh();
@@ -309,8 +337,8 @@ void move_and_repair_patrol_continue(uint32_t version) {
 }
 
 /// Keeps the actual fine-search worker, owned goal, cursor and remaining credits.
-void a_pending_native_search_survives_the_rally(uint32_t version) {
-    Rally battle(version, March::patrol, true);
+void a_pending_native_search_survives_the_rally(const FeatureSet& features) {
+    Rally battle(features, March::patrol, true);
     ground::SearchRecord before{};
     for (uint32_t tick = 0; tick < 120; ++tick) {
         before = runtime::MatchTickAccess::active_path_search(battle.match());
@@ -343,8 +371,8 @@ void a_pending_native_search_survives_the_rally(uint32_t version) {
 
 /// Leaves the ordinary whole-queue replacement of every older preset unchanged.
 void older_presets_keep_their_rally_replacement() {
-    for (uint32_t version = 0; version < distributed; ++version) {
-        Rally battle(version);
+    for (const auto& features : without_retention) {
+        Rally battle(features);
         auto* head = battle.unit().primary;
         battle.refresh();
         CHECK(battle.unit().primary != head);
@@ -355,13 +383,13 @@ void older_presets_keep_their_rally_replacement() {
 }
 
 /// Replaces interrupted, completed, absent or mismatched goal bindings normally.
-void terminal_or_unowned_work_does_not_block_a_rally(uint32_t version) {
+void terminal_or_unowned_work_does_not_block_a_rally(const FeatureSet& features) {
     for (const auto event :
          {cancel_event,
           ground::arrived_event,
           ground::path_failed_event,
           ground::goal_replaced_event}) {
-        Rally battle(version);
+        Rally battle(features);
         auto* head = battle.unit().primary;
         head->raised_events |= event;
         battle.refresh();
@@ -369,21 +397,21 @@ void terminal_or_unowned_work_does_not_block_a_rally(uint32_t version) {
         CHECK(battle.unit().primary->kind == ground::move_ground_kind);
     }
     {
-        Rally battle(version);
+        Rally battle(features);
         auto* head = battle.unit().primary;
         battle.movement().navigation.goal = nullptr;
         battle.refresh();
         CHECK(battle.unit().primary != head);
     }
     {
-        Rally battle(version);
+        Rally battle(features);
         auto* head = battle.unit().primary;
         const_cast<ground::Goal*>(battle.movement().navigation.goal)->order = head->next;
         battle.refresh();
         CHECK(battle.unit().primary != head);
     }
     {
-        Rally battle(version);
+        Rally battle(features);
         auto* head = battle.unit().primary;
         head->kind = ground::standby_kind;
         battle.refresh();
@@ -407,9 +435,9 @@ struct CustomSeat {
 };
 
 /// Keeps explicit moves, queued moves and custom controllers on their native paths.
-void manual_queued_and_custom_commands_keep_their_semantics(uint32_t version) {
+void manual_queued_and_custom_commands_keep_their_semantics(const FeatureSet& features) {
     {
-        Rally battle(version);
+        Rally battle(features);
         auto* head = battle.unit().primary;
         CHECK(!battle.match().order_refused(
             battle.match().issue_ground_move(battle.actor, {96 * pixel, 0, 96 * pixel}, false)
@@ -417,7 +445,7 @@ void manual_queued_and_custom_commands_keep_their_semantics(uint32_t version) {
         CHECK(battle.unit().primary != head && battle.unit().primary->next == nullptr);
     }
     {
-        Rally battle(version);
+        Rally battle(features);
         auto* head = battle.unit().primary;
         auto* tail = head->next;
         auto& appended =
@@ -448,7 +476,7 @@ void manual_queued_and_custom_commands_keep_their_semantics(uint32_t version) {
         }
     }
     {
-        Rally battle(version);
+        Rally battle(features);
         auto* head = battle.unit().primary;
         CustomSeat seat{battle.actor};
         runtime::SeatHooks hooks;
@@ -462,8 +490,8 @@ void manual_queued_and_custom_commands_keep_their_semantics(uint32_t version) {
 }
 
 /// Retains both restored patrol legs and their restored owned head goal.
-void restored_patrol_queues_continue_after_the_rally(uint32_t version) {
-    Rally battle(version);
+void restored_patrol_queues_continue_after_the_rally(const FeatureSet& features) {
+    Rally battle(features);
     saved_game::ScopedBank bank;
     data::persist::bank_open_account(bank.get(), "Units");
     const auto count = saved_game::write_orders(
@@ -488,15 +516,16 @@ void restored_patrol_queues_continue_after_the_rally(uint32_t version) {
 int main() {
     try {
         older_presets_keep_their_rally_replacement();
-        for (const auto version : {distributed, following}) {
-            std::cout << "Enhanced rally retention: version=" << version << '\n';
-            an_active_two_leg_patrol_survives_while_idle_members_rally(version);
-            a_native_phase_one_patrol_wait_survives_the_rally(version);
-            move_and_repair_patrol_continue(version);
-            a_pending_native_search_survives_the_rally(version);
-            terminal_or_unowned_work_does_not_block_a_rally(version);
-            manual_queued_and_custom_commands_keep_their_semantics(version);
-            restored_patrol_queues_continue_after_the_rally(version);
+        for (const auto& features : {retention_only, whole_strike}) {
+            std::cout << "Enhanced rally retention: "
+                      << (features == retention_only ? "retention alone" : "whole strikes") << '\n';
+            an_active_two_leg_patrol_survives_while_idle_members_rally(features);
+            a_native_phase_one_patrol_wait_survives_the_rally(features);
+            move_and_repair_patrol_continue(features);
+            a_pending_native_search_survives_the_rally(features);
+            terminal_or_unowned_work_does_not_block_a_rally(features);
+            manual_queued_and_custom_commands_keep_their_semantics(features);
+            restored_patrol_queues_continue_after_the_rally(features);
         }
         std::cout << "Enhanced rally retention: 15 groups passed\n";
         return 0;

@@ -70,34 +70,14 @@ bool land(uint32_t x, uint32_t z) {
                 : x >= uint32_t(passage_start) && x <= uint32_t(passage_end) && z >= 8 && z <= 12;
 }
 
-/// The candidate set the salvage tickets judge against (C9).
+/// Revision 1 without its two features that only skip work: the set those
+/// features were judged against.
 ///
 /// @return its features
 FeatureSet candidate_features() {
-    FeatureSet features = enhanced::version_features(13);
-    for (const Feature cut :
-         {Feature::moving_corner_advance,
-          Feature::indexed_searches,
-          Feature::patrol_goal_retention,
-          Feature::bounded_strike_recruits,
-          Feature::squad_position_index,
-          Feature::swept_ground_steps,
-          Feature::group_destination_repair,
-          Feature::distributed_arrivals,
-          Feature::local_throat_guide,
-          Feature::cohort_targets,
-          Feature::local_following,
-          Feature::route_queue,
-          Feature::cardinal_queue_escape})
-        features = features.without(cut);
-    for (const Feature added :
-         {Feature::exact_indexed_searches,
-          Feature::wide_strike_recruits,
-          Feature::paced_cohort_targets,
-          Feature::dispatch_cohort_retention,
-          Feature::counterflow_queue_escape})
-        features = features.with(added);
-    return features;
+    return enhanced::revision_features(1)
+        .without(Feature::idle_goal_skip)
+        .without(Feature::static_interior_refresh_skip);
 }
 
 /// What one march saw, tick by tick.
@@ -221,8 +201,7 @@ March march(FeatureSet features) {
             fixture.altitude_patterns
         }
     };
-    enhanced::apply_alias(input.rules.setup.enhanced_mode, 13);
-    input.enhanced_features_override = features;
+    enhanced::store_choice(input.rules.setup.enhanced_mode, {1, features});
     input.unit_player_mask = 3;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
     auto& match = *fixture.match;
@@ -361,7 +340,6 @@ void skips_play_the_same_battle(FeatureSet base) {
 
 int main() {
     try {
-        skips_play_the_same_battle(enhanced::version_features(13));
         skips_play_the_same_battle(candidate_features());
         std::cout << "enhanced skips play the same battle\n";
     } catch (const std::exception& error) {

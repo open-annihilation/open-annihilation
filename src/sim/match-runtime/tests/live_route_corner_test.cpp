@@ -24,6 +24,19 @@ using namespace combat_fixture;
 namespace runtime = oa::sim::match_runtime;
 namespace ground = oa::sim::ground_orders;
 namespace movement = oa::sim::unit_movement;
+namespace enhanced = oa::data::enhanced_mode;
+using FeatureSet = enhanced::FeatureSet;
+
+/// Route corner advance with what it needs: local traffic flow and capacity.
+const FeatureSet corner_set =
+    enhanced::close_features(FeatureSet{}.with(enhanced::Feature::route_corner_advance));
+/// The sets without route corner advance whose trajectories are pinned: Off,
+/// capacity alone, and local traffic flow.
+const std::array<FeatureSet, 3> legacy_sets{
+    {FeatureSet{},
+     FeatureSet{}.with(enhanced::Feature::capacity),
+     enhanced::close_features(FeatureSet{}.with(enhanced::Feature::local_flow))}
+};
 
 constexpr int32_t pixel = 65536;
 constexpr int32_t maximum_speed = 117964;
@@ -36,7 +49,7 @@ constexpr uint8_t sea_level = 30;
 constexpr uint32_t corner_tick = 118;
 
 /// Rebuilds the fixture with flat known land and one full two-by-two ground class.
-void configure_ground(Fixture& fixture, uint32_t version, bool water, bool aircraft) {
+void configure_ground(Fixture& fixture, const FeatureSet& features, bool water, bool aircraft) {
     fixture.match.reset();
     fixture.map.sea_level = sea_level;
     for (size_t index = 0; index < fixture.map.attributes.size(); ++index) {
@@ -85,8 +98,9 @@ void configure_ground(Fixture& fixture, uint32_t version, bool water, bool aircr
             8, 8, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
-    oa::data::enhanced_mode::apply_alias(
-        input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    enhanced::store_choice(
+        input.rules.setup.enhanced_mode,
+        features.empty() ? enhanced::Choice{} : enhanced::Choice{1, features}
     );
     input.unit_player_mask = 3;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
@@ -119,7 +133,7 @@ enum class Driver { owned, mirrored, carried, aircraft };
 enum class Head { inactive, active, completed, replaced_goal };
 
 struct Case {
-    uint32_t version = 3;
+    FeatureSet features = corner_set;
     uint32_t tick = corner_tick;
     uint8_t blocked = 30;
     uint32_t count = 4;
@@ -159,7 +173,7 @@ Result run(const Case& input, bool advances) {
     Fixture fixture(options);
     std::array<uint8_t, 4> yard{4, 4, 4, 4};
     fixture.fields[1].yard_mask = yard;
-    configure_ground(fixture, input.version, input.water, input.driver == Driver::aircraft);
+    configure_ground(fixture, input.features, input.water, input.driver == Driver::aircraft);
     auto& blocker = fixture.spawn(0, 96, 64);
     auto& mover = fixture.spawn(0, 64, 64);
     auto& match = *fixture.match;
@@ -230,7 +244,7 @@ Result run(const Case& input, bool advances) {
         ++restored.goal_key;
     if (!input.matching_join)
         restored.points[2][0] += 16;
-    if (input.version >= 2)
+    if (input.features.has(enhanced::Feature::local_flow))
         restore_head(match, mover.unit_index, restored);
     if (input.driver == Driver::mirrored) {
         state.mirrored_driver = true;
@@ -379,11 +393,11 @@ void eligibility_and_legacy_controls() {
     input.pending = false;
     run(input, true);
     input = {};
-    input.version = 0;
+    input.features = legacy_sets[0];
     const auto disabled = run(input, false);
-    input.version = 1;
+    input.features = legacy_sets[1];
     CHECK(disabled == run(input, false));
-    input.version = 2;
+    input.features = legacy_sets[2];
     run(input, false);
     for (const auto driver : {Driver::mirrored, Driver::carried, Driver::aircraft}) {
         input = {};
@@ -515,13 +529,14 @@ void record_legacy_tick(
 }
 
 /// Replays ordinary corners, a physical traffic clamp and a known water corner.
-uint64_t legacy_trajectory(uint32_t version, uint32_t scene, bool trace) {
+uint64_t legacy_trajectory(uint32_t set, uint32_t scene, bool trace) {
+    const FeatureSet& features = legacy_sets[set];
     Options options;
     options.sight_cells = 9;
     Fixture fixture(options);
     std::array<uint8_t, 4> yard{4, 4, 4, 4};
     fixture.fields[1].yard_mask = yard;
-    configure_ground(fixture, version, scene == 2, false);
+    configure_ground(fixture, features, scene == 2, false);
     auto& blocker = fixture.spawn(0, 96, 64);
     auto& mover = fixture.spawn(0, 64, 64);
     auto& match = *fixture.match;
@@ -567,7 +582,7 @@ uint64_t legacy_trajectory(uint32_t version, uint32_t scene, bool trace) {
     state.navigation.points[3] = {208, 128};
     state.navigation.flags = ground::route_present_flag | ground::search_pending_flag;
     state.navigation.last_search_tick = corner_tick - 1;
-    if (version >= 2) {
+    if (features.has(enhanced::Feature::local_flow)) {
         restored.active = true;
         restored.count = 3;
         restored.mobile_blocked = true;
@@ -587,12 +602,12 @@ uint64_t legacy_trajectory(uint32_t version, uint32_t scene, bool trace) {
         record_legacy_tick(digest, match, {blocker.unit_index, mover.unit_index});
     }
     if (trace)
-        std::cout << "legacy " << version << ' ' << scene << ' ' << std::hex << digest.value
-                  << std::dec << '\n';
+        std::cout << "legacy " << set << ' ' << scene << ' ' << std::hex << digest.value << std::dec
+                  << '\n';
     return digest.value;
 }
 
-/// Pins all trajectory words to the accepted pre-corner behavior of presets 0, 1 and 2.
+/// Pins all trajectory words of the sets without route corner advance.
 void legacy_trajectories_remain_exact() {
     // Each row covers 360 real ticks of both stock units, including all route
     // points, goal fields, native motion clocks and canonical saved rule state.
@@ -600,19 +615,19 @@ void legacy_trajectories_remain_exact() {
     constexpr std::array<std::array<uint64_t, 3>, 3> expected{
         {{0xee445ee95c8c1bc6ull, 0xd26438bc5520bdd8ull, 0x9c8da14e224b3672ull},
          {0xee445ee95c8c1bc6ull, 0xd26438bc5520bdd8ull, 0x9c8da14e224b3672ull},
-         {0x89b0c0c6c6b37ab6ull, 0x2934a602980d13dcull, 0xc4067e3b0bb5713full}}
+         {0x2d6f755621ba2791ull, 0x3b6ca80bb8424bcaull, 0x2a9e52f924d434c9ull}}
     };
-    for (uint32_t version = 0; version < expected.size(); ++version)
-        for (uint32_t scene = 0; scene < expected[version].size(); ++scene)
-            CHECK(legacy_trajectory(version, scene, false) == expected[version][scene]);
+    for (uint32_t set = 0; set < expected.size(); ++set)
+        for (uint32_t scene = 0; scene < expected[set].size(); ++scene)
+            CHECK(legacy_trajectory(set, scene, false) == expected[set][scene]);
 }
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc == 2 && std::string_view(argv[1]) == "--legacy-traces") {
-        for (uint32_t version = 0; version < 3; ++version)
+        for (uint32_t set = 0; set < legacy_sets.size(); ++set)
             for (uint32_t scene = 0; scene < 3; ++scene)
-                (void)legacy_trajectory(version, scene, true);
+                (void)legacy_trajectory(set, scene, true);
         return 0;
     }
 

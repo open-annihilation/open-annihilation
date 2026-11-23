@@ -76,14 +76,15 @@ struct Fixture {
     sim::combat_state::WeaponRegistry weapons;
     Services services;
     Scenario scenario;
-    // The features the match plays in place of the version's, when set.
-    std::optional<data::enhanced_mode::FeatureSet> features_override;
+    // The features the match plays in place of the constructor's, when a
+    // preparation sets them.
+    std::optional<data::enhanced_mode::FeatureSet> prepared_features;
     std::unique_ptr<sim::match_runtime::Match> match;
 
     explicit Fixture(
         const std::vector<std::array<int32_t, 2>>& wall = {},
         float tank_energy = 0,
-        uint32_t version = 0,
+        data::enhanced_mode::FeatureSet enhanced_features = {},
         void (*prepare)(Fixture&) = nullptr,
         bool enabled = true
     ) {
@@ -164,12 +165,14 @@ struct Fixture {
             {}
         };
         input.feature_defs = features;
-        oa::data::enhanced_mode::apply_alias(
-            input.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+        const auto played = prepared_features.value_or(enhanced_features);
+        oa::data::enhanced_mode::store_choice(
+            input.rules.setup.enhanced_mode,
+            played.empty() ? oa::data::enhanced_mode::Choice{}
+                           : oa::data::enhanced_mode::Choice{1, played}
         );
         if (!enabled)
             input.rules.setup.enhanced_mode.enabled = false;
-        input.enhanced_features_override = features_override;
         if (input.rules.setup.enhanced_mode.enabled)
             input.unit_player_mask = 3;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
@@ -462,14 +465,18 @@ namespace ground = sim::ground_orders;
 namespace movement = sim::unit_movement;
 namespace spatial = sim::spatial_state;
 constexpr int32_t pixel = 65536;
-constexpr uint32_t following_version = data::enhanced_mode::following_flow_version;
-constexpr uint32_t cohort_version = data::enhanced_mode::cohort_target_version;
-constexpr uint32_t retained_version = data::enhanced_mode::cohort_retention_version;
+namespace enhanced = data::enhanced_mode;
+/// Revision 1 without the interior refresh skip: planning that passes
+/// through moving units, refreshing every one of them.
+const enhanced::FeatureSet planning_set =
+    enhanced::revision_features(1).without(enhanced::Feature::static_interior_refresh_skip);
+/// The same without planning through moving units.
+const enhanced::FeatureSet occupied_planning_set =
+    planning_set.without(enhanced::Feature::occupancy_free_planning);
 constexpr uint16_t east = 49152;
 constexpr uint8_t ground_layer = 1;
 constexpr uint8_t patrol_kind = 29;
 constexpr uint32_t native_occupancy_history = 30;
-constexpr uint32_t distributed_version = data::enhanced_mode::distributed_battle_flow_version;
 
 void planning_inputs(Fixture& f) {
     f.defs[kbot].max_velocity_fixed = 0;
@@ -481,8 +488,12 @@ void planning_inputs(Fixture& f) {
 }
 
 void cached_planning_excludes_movement_objects_only_for_following_presets() {
-    for (uint32_t version = 0; version <= retained_version + 1; ++version) {
-        Fixture f({}, 0, version, planning_inputs);
+    for (const auto& features :
+         {enhanced::FeatureSet{},
+          enhanced::FeatureSet{}.with(enhanced::Feature::capacity),
+          occupied_planning_set,
+          planning_set}) {
+        Fixture f({}, 0, features, planning_inputs);
         f.match->simulation().tick = 5;
         const auto aged = f.spawn(tank, 6, 8).unit_index;
         const auto immobile = f.spawn(kbot, 10, 8).unit_index;
@@ -497,8 +508,8 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
         begin.current_tick = now;
         ground::MovementMap* map{};
         CHECK(f.match->prepare_search_job(searcher, begin, map));
-        // No old version skips a moving unit's refresh: the three other
-        // moving units are all fed.
+        // Without the interior refresh skip no moving unit's refresh is
+        // skipped: the three other moving units are all fed.
         CHECK(begin.occupancy.size() == 3);
         map->prepare_search(
             ground::occupancy_rectangle(searcher.record),
@@ -510,11 +521,10 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
         CHECK(f.match->spatial().units[aged].object_present);
         CHECK(f.match->spatial().units[immobile].object_present);
         CHECK(f.match->ground_runtime(immobile)->geometry.type.maximum_speed == 0);
-        const bool follows = version == following_version || version == cohort_version ||
-                             version == retained_version;
+        const bool follows = features.has(enhanced::Feature::occupancy_free_planning);
         const uint8_t occupied = follows ? 3 : 0;
         if (map->cell(6, 8) != occupied)
-            std::cerr << "Cached planning version=" << version
+            std::cerr << "Cached planning follows=" << follows
                       << ", aged=" << unsigned(map->cell(6, 8))
                       << ", expected=" << unsigned(occupied) << '\n';
         CHECK(map->cell(6, 8) == occupied);
@@ -532,9 +542,8 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
             CHECK(physical && !*physical);
         }
     }
-    // Unsupported versions nine and twelve retain the native cutoff;
-    // the public profile resolver refuses both. Disabled following is Off.
-    Fixture off({}, 0, following_version, planning_inputs, false);
+    // Planning through moving units in rules that leave Enhanced Mode off is Off.
+    Fixture off({}, 0, planning_set, planning_inputs, false);
     off.match->simulation().tick = 5;
     off.spawn(tank, 6, 8);
     auto& searcher = off.spawn(tank, 4, 14);
@@ -552,11 +561,10 @@ void cached_planning_excludes_movement_objects_only_for_following_presets() {
     CHECK(map->cell(6, 8) == 0);
 }
 
-// The interior refresh skip on top of version 8's set, whose planning passes
-// through moving units.
+// The interior refresh skip on top of planning that passes through moving
+// units: Revision 1.
 void skip_interior_refreshes(Fixture& f) {
-    f.features_override = data::enhanced_mode::version_features(following_version)
-                              .with(data::enhanced_mode::Feature::static_interior_refresh_skip);
+    f.prepared_features = planning_set.with(enhanced::Feature::static_interior_refresh_skip);
 }
 
 void planning_inputs_skipping_interior_refreshes(Fixture& f) {
@@ -568,7 +576,7 @@ void planning_inputs_skipping_interior_refreshes(Fixture& f) {
 // and the skip itself.
 void only_the_skip_and_its_needs(Fixture& f) {
     planning_inputs(f);
-    f.features_override = data::enhanced_mode::close_features(
+    f.prepared_features = data::enhanced_mode::close_features(
         data::enhanced_mode::FeatureSet{}.with(
             data::enhanced_mode::Feature::static_interior_refresh_skip
         )
@@ -577,12 +585,12 @@ void only_the_skip_and_its_needs(Fixture& f) {
 
 // With the skip, the search's feed leaves out every moving unit whose refresh
 // stays away from the far edges, and the class maps hold exactly what
-// version 8's hold, cell for cell, in both classes. The smallest set with the
+// planning without the skip holds, cell for cell, in both classes. The smallest set with the
 // skip plans through moving units the same way.
 void interior_refresh_skip_keeps_cached_planning() {
     const auto run = [](void (*prepare)(Fixture&), std::size_t fed) {
         auto f = std::make_unique<Fixture>(
-            std::vector<std::array<int32_t, 2>>{}, 0.0F, following_version, prepare
+            std::vector<std::array<int32_t, 2>>{}, 0.0F, planning_set, prepare
         );
         f->match->simulation().tick = 5;
         f->spawn(tank, 6, 8);
@@ -686,7 +694,7 @@ std::vector<ground::RoutePoint> check_static_cached_maps(
 // change both classes' maps hold what a fresh build holds, and the tank's
 // route is the fresh build's.
 void interior_skip_keeps_refreshing_real_obstacles() {
-    Fixture f({}, 0, following_version, skip_interior_refreshes);
+    Fixture f({}, 0, planning_set, skip_interior_refreshes);
     auto& searcher = f.spawn(tank, 3, 11);
     f.match->simulation().tick = 5;
     auto& parked = f.spawn(tank, 13, 10);
@@ -752,7 +760,7 @@ void interior_skip_keeps_edge_refreshes() {
     for (const auto type : {tank, kbot})
         for (const unsigned axis : {0u, 1u})
             for (const auto refresh : {Refresh::age, Refresh::removal, Refresh::active_search}) {
-                Fixture f({}, 0, following_version, skip_interior_refreshes);
+                Fixture f({}, 0, planning_set, skip_interior_refreshes);
                 auto& searcher = f.spawn(type, 3, 11);
                 const auto* map = f.match->movement_map(*f.fields[type].movement_class);
                 CHECK(map != nullptr);
@@ -878,7 +886,7 @@ void interior_skip_keeps_edge_refreshes() {
 // edge band refresh every class there as they do without it: each anchor of
 // the band holds what the classifier gives it now.
 void interior_skip_keeps_static_edge_refreshes() {
-    Fixture f({}, 0, following_version, skip_interior_refreshes);
+    Fixture f({}, 0, planning_set, skip_interior_refreshes);
     const auto check_edge_patch = [&] {
         for (const auto type : {tank, kbot}) {
             auto classifier = static_plot_classifier(f, type);
@@ -1010,8 +1018,8 @@ struct PatrolResult {
     bool native_plan_reaches{}, fresh_refusal{}, home_before_far{}, reached_far{}, rested{};
 };
 
-PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
-    Fixture f({}, 0, version);
+PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(const enhanced::FeatureSet& features) {
+    Fixture f({}, 0, features);
     place_gated_corridor(f);
     const auto gate = f.spawn(tank, 6, 8).unit_index;
     const auto mover = f.spawn(tank, 2, 8).unit_index;
@@ -1029,7 +1037,8 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
     const auto home_cell = body.geometry.cell;
     CHECK(home_cell == (std::array<int16_t, 2>{2, 8}));
     const auto* initial_head = f.match->local_flow_head(mover);
-    std::cerr << "Patrol checkpoint: version=" << version
+    std::cerr << "Patrol checkpoint: planning="
+              << features.has(enhanced::Feature::occupancy_free_planning)
               << ", tick=" << uint32_t(f.match->simulation().tick)
               << ", head=" << (initial_head && initial_head->active)
               << ", count=" << (initial_head ? unsigned(initial_head->count) : 0)
@@ -1135,10 +1144,10 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
             CHECK(body.navigation.goal->cell == home_cell);
             result.home_before_far = true;
         }
-        if ((version == following_version || version == cohort_version ||
-             version == retained_version) &&
-            !result.reached_far) {
-            CHECK(body.navigation.goal == far_goal);
+        // A patrol takes a fresh goal at each refresh, as with Enhanced Mode
+        // off; planning through moving units keeps it on the far one.
+        if (features.has(enhanced::Feature::occupancy_free_planning) && !result.reached_far) {
+            CHECK(body.navigation.goal && same_goal_geometry(*body.navigation.goal, far));
             CHECK(body.navigation.goal->order == slot.unit->primary);
             CHECK(slot.unit->primary->kind == patrol_kind);
         }
@@ -1154,8 +1163,9 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
             break;
         }
     }
-    std::cout << "Static planning Patrol: version=" << version << ", publication_wait=" << waited
-              << ", plan_reaches=" << result.native_plan_reaches
+    std::cout << "Static planning Patrol: planning="
+              << features.has(enhanced::Feature::occupancy_free_planning)
+              << ", publication_wait=" << waited << ", plan_reaches=" << result.native_plan_reaches
               << ", fresh_refusal=" << result.fresh_refusal
               << ", home_before_far=" << result.home_before_far
               << ", reached_far=" << result.reached_far << ", rested=" << result.rested << '\n';
@@ -1163,10 +1173,10 @@ PatrolResult patrol_keeps_its_far_goal_after_the_gate_leaves(uint32_t version) {
 }
 
 void static_following_planning_does_not_weaken_physical_traffic() {
-    const auto old = patrol_keeps_its_far_goal_after_the_gate_leaves(distributed_version);
+    const auto old = patrol_keeps_its_far_goal_after_the_gate_leaves(occupied_planning_set);
     CHECK(!old.native_plan_reaches && old.fresh_refusal && old.home_before_far);
-    for (const auto version : {following_version, cohort_version, retained_version}) {
-        const auto following = patrol_keeps_its_far_goal_after_the_gate_leaves(version);
+    for (const auto& features : {planning_set, enhanced::revision_features(1)}) {
+        const auto following = patrol_keeps_its_far_goal_after_the_gate_leaves(features);
         CHECK(
             following.native_plan_reaches && following.fresh_refusal && !following.home_before_far
         );

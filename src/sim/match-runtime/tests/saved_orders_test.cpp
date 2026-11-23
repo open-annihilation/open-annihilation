@@ -10,6 +10,7 @@
 
 #include "oa/data/persist/save_orders.hpp"
 
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -21,6 +22,14 @@ using saved_game::ScopedBank;
 using saved_game::write_orders;
 
 namespace {
+
+/// The rules the cases play: Off, capacity alone, and Revision 1, whose
+/// searches use the exact indexes.
+const std::array<oa::data::enhanced_mode::Choice, 3> played_choices{{
+    {},
+    {1, oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity)},
+    {1, oa::data::enhanced_mode::revision_features(1)},
+}};
 
 constexpr uint8_t building_build = 12, build_weapon = 13, follow_ground = 18, move_ground = 26,
                   patrol = 29;
@@ -209,11 +218,9 @@ void attack_orders_survive_a_save() {
 // A restored air goal can belong to a ground unit. Its pointer is separate
 // from the order's target-observer link and still needs death cleanup.
 void restored_ground_owned_air_goal_loses_dead_target() {
-    for (const uint32_t version : {0u, 1u, 2u}) {
+    for (const auto& choice : played_choices) {
         Options options;
-        oa::data::enhanced_mode::apply_alias(
-            options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
-        );
+        oa::data::enhanced_mode::store_choice(options.rules.setup.enhanced_mode, choice);
         Fixture f(options);
         auto& owner = f.spawn(0, 64, 64);
         auto& target = f.spawn(1, 128, 64);

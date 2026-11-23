@@ -157,7 +157,7 @@ Options options_for(const FeatureSet& features) {
 }
 
 /// Tells whether a match divides computer strikes into spatial cohorts.
-bool uses_cohorts(const Fixture& fixture) {
+bool plays_cohorts(const Fixture& fixture) {
     return fixture.match->enhanced_features().has(enhanced::Feature::paced_cohort_targets);
 }
 
@@ -516,7 +516,7 @@ struct StrikeFixture {
         target = first.unit_index;
         // Keep an actual split when members may choose another selected front.
         // The short-range fixture retains separate targets at its shared Z.
-        const bool nearby_fronts = !short_range_weapon && uses_cohorts(fixture);
+        const bool nearby_fronts = !short_range_weapon && plays_cohorts(fixture);
         auto& second = fixture.spawn(
             enemy_player,
             nearby_fronts ? target_x : replacement_x,
@@ -548,7 +548,7 @@ struct StrikeFixture {
         initial_issue_tick = head_record(fixture, members.front()).issue_tick;
         regular_refresh_tick = initial_issue_tick + strike_refresh_ticks;
         CHECK(strike().next_tick == regular_refresh_tick);
-        if (uses_cohorts(fixture)) {
+        if (plays_cohorts(fixture)) {
             std::size_t first_members = 0;
             std::size_t second_members = 0;
             for (const auto member : members) {
@@ -1373,9 +1373,7 @@ void compare_continuation_state(StrikeFixture& first, StrikeFixture& restored) {
 void restore_and_compare_continuation(StrikeFixture& first, StrikeFixture& restored) {
     compare_continuation_state(first, restored);
     const auto saved = retarget_bytes(first.fixture);
-    Fixture fresh(
-        options_for(enhanced::features(first.fixture.match->rules()))
-    );
+    Fixture fresh(options_for(enhanced::features(first.fixture.match->rules())));
     const auto blank = retarget_bytes(fresh);
     CHECK(blank != saved);
     restore_retarget(restored.fixture, blank);

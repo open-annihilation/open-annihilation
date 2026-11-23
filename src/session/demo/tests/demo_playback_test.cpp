@@ -730,7 +730,11 @@ struct Machine {
         fields[1].movement_class = 0;
     }
 
-    void build(uint8_t viewpoint, uint16_t allocated_players = 0, uint32_t enhanced_version = 0) {
+    void build(
+        uint8_t viewpoint,
+        uint16_t allocated_players = 0,
+        const oa::data::enhanced_mode::FeatureSet& enhanced_features = {}
+    ) {
         sim::match_runtime::OfflineInputs input{
             map,
             loaded,
@@ -751,10 +755,9 @@ struct Machine {
             collision_plots,
             sim::visibility_state::AltitudeSightData{8, 8, altitude_cells, altitude_patterns}
         };
-        if (enhanced_version != 0) {
-            oa::data::enhanced_mode::apply_alias(
-                input.rules.setup.enhanced_mode,
-                static_cast<uint32_t>(static_cast<int32_t>(enhanced_version))
+        if (!enhanced_features.empty()) {
+            oa::data::enhanced_mode::store_choice(
+                input.rules.setup.enhanced_mode, {1, enhanced_features}
             );
             input.unit_player_mask = allocated_players;
         }
@@ -2874,12 +2877,7 @@ void enhanced_recordings_keep_original_unit_ranges() {
     for (const uint8_t count : {uint8_t{3}, uint8_t{OA_PLAYER_COUNT}}) {
         auto setup = live_setup(count, false);
         setup.unit_checks.resize(1);
-        setup.enhanced_mode = {
-            1,
-            oa::data::enhanced_mode::version_features(
-                oa::data::enhanced_mode::cardinal_queue_escape_version
-            )
-        };
+        setup.enhanced_mode = {1, oa::data::enhanced_mode::revision_features(1)};
         // Slot 1 owns the first range, slot 0 the last: this is a restored
         // allocation order, independent of the record's player-list order.
         for (uint8_t slot = 0; slot < count; ++slot) {
@@ -2930,7 +2928,11 @@ void enhanced_recordings_keep_original_unit_ranges() {
         session->playback.ten_player_replay = TenPlayerReplay::watcher_view;
         Machine replay;
         const auto mask = static_cast<uint16_t>((1u << count) - 1u);
-        replay.build(count == OA_PLAYER_COUNT ? 0 : count, mask, 13);
+        replay.build(
+            count == OA_PLAYER_COUNT ? 0 : count,
+            mask,
+            oa::data::enhanced_mode::revision_features(1)
+        );
         std::array<uint8_t, OA_PLAYER_COUNT> allies{};
         allies[0] = 1;
         replay.match->configure_outcomes(0, allies, false);
@@ -2968,15 +2970,15 @@ void enhanced_recordings_keep_original_unit_ranges() {
 
 /// Records a nonzero Enhanced Mode revision after the limits and omits revision zero.
 void recording_carries_enhanced_mode() {
-    for (const uint32_t version : {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 10u, 11u, 13u}) {
+    for (const auto& features :
+         {oa::data::enhanced_mode::FeatureSet{}.with(oa::data::enhanced_mode::Feature::capacity),
+          oa::data::enhanced_mode::revision_features(1)}) {
         DemoRecording recorded;
         recording_begin(&recorded, live_setup(2, false));
         const auto plain = recording_write(recorded);
         CHECK(plain.ok());
         recorded.setup.limits = formats::tad::RecordedLimits{1024, 10};
-        const oa::data::enhanced_mode::Choice choice{
-            1, oa::data::enhanced_mode::version_features(version)
-        };
+        const oa::data::enhanced_mode::Choice choice{1, features};
         recorded.setup.enhanced_mode = choice;
         const char* needed = oa::data::enhanced_mode::needed_engine_version(choice);
         recorded.setup.needed_engine_version =

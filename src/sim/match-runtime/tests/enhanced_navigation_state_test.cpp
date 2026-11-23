@@ -32,10 +32,25 @@ constexpr std::array<const char*, 5> navigation_tables{
     "shared-routes", "local-flow", "flow-map-version", "flow-progress", "shared-route-scan"
 };
 
-Options options_for(uint32_t version) {
+namespace enhanced = oa::data::enhanced_mode;
+using FeatureSet = enhanced::FeatureSet;
+
+/// Local traffic flow over shared routes on the fine regional grid, with
+/// nothing else but capacity.
+const FeatureSet flow_set =
+    enhanced::close_features(FeatureSet{}.with(enhanced::Feature::routes_fine_regions));
+/// Revision 1.
+const FeatureSet revision_1 = enhanced::revision_features(1);
+
+/// Options playing a feature set; the empty set is Off.
+///
+/// @param features the set
+/// @return the options
+Options options_for(const FeatureSet& features) {
     Options options;
-    oa::data::enhanced_mode::apply_alias(
-        options.rules.setup.enhanced_mode, static_cast<uint32_t>(version)
+    enhanced::store_choice(
+        options.rules.setup.enhanced_mode,
+        features.empty() ? enhanced::Choice{} : enhanced::Choice{1, features}
     );
     return options;
 }
@@ -47,13 +62,6 @@ routes::FlowLimits fixture_route_limits(oa::data::enhanced_mode::FeatureSet feat
         limits.total_cells = 8 * 1024 * 1024;
     }
     return limits;
-}
-
-routes::FlowPreset fixture_route_preset(oa::data::enhanced_mode::FeatureSet features) {
-    using oa::data::enhanced_mode::Feature;
-    return features.has(Feature::routes_fine_regions)    ? routes::FlowPreset::fine_regions
-           : features.has(Feature::routes_large_regions) ? routes::FlowPreset::large_regions
-                                                         : routes::FlowPreset::original;
 }
 
 const runtime::RuleStateTable& table(runtime::Match& match, const char* name) {
@@ -70,9 +78,9 @@ std::vector<uint8_t> bytes_of(const runtime::RuleStateTable& state) {
     return {bytes.begin(), bytes.end()};
 }
 
-void version_one_and_off_keep_no_flow_state() {
-    for (const uint32_t version : {0u, 1u}) {
-        Fixture fixture(options_for(version));
+void capacity_and_off_keep_no_flow_state() {
+    for (const auto& features : {FeatureSet{}, FeatureSet{}.with(enhanced::Feature::capacity)}) {
+        Fixture fixture(options_for(features));
         CHECK(fixture.match->fault() == nullptr);
         for (const auto* name : navigation_tables)
             CHECK(runtime::find_rule_state(fixture.match->rule_state(), name) == nullptr);
@@ -81,12 +89,7 @@ void version_one_and_off_keep_no_flow_state() {
 
 /// Installs an unfinished field whose revision is one behind the current map.
 void install_pending_field(runtime::Match& match) {
-    routes::FlowCache cache(
-        16,
-        16,
-        fixture_route_limits(match.enhanced_features()),
-        fixture_route_preset(match.enhanced_features())
-    );
+    routes::FlowCache cache(16, 16, fixture_route_limits(match.enhanced_features()));
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
             return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
@@ -133,9 +136,9 @@ void install_steering_state(runtime::Match& match, uint16_t unit) {
     match.ground_runtime(unit)->movement.last_motion_tick = match.state().game.tick - 9;
 }
 
-void navigation_state_survives_restore(uint32_t version) {
-    Fixture source(options_for(version));
-    Fixture loaded(options_for(version));
+void navigation_state_survives_restore(const FeatureSet& features) {
+    Fixture source(options_for(features));
+    Fixture loaded(options_for(features));
     auto& first = source.spawn(0, 64, 64);
     auto& second = loaded.spawn(0, 64, 64);
     CHECK(first.unit_index == second.unit_index);
@@ -187,8 +190,8 @@ void navigation_state_survives_restore(uint32_t version) {
     );
 }
 
-void malformed_state_is_rejected_atomically(uint32_t version) {
-    Fixture fixture(options_for(version));
+void malformed_state_is_rejected_atomically(const FeatureSet& features) {
+    Fixture fixture(options_for(features));
     auto& unit = fixture.spawn(0, 64, 64);
     fixture.match->simulation().tick = 123;
     install_pending_field(*fixture.match);
@@ -229,80 +232,17 @@ void malformed_state_is_rejected_atomically(uint32_t version) {
     CHECK(bytes_of(scan) == std::vector<uint8_t>(unscanned.begin(), unscanned.end()));
 }
 
-/// Match construction fixes the routing format to its recorded rules version.
-void different_presets_refuse_each_others_routes() {
-    Fixture original(options_for(2));
-    Fixture regional(options_for(3));
-    install_pending_field(*original.match);
-    install_pending_field(*regional.match);
-    const auto& old_routes = table(*original.match, "shared-routes");
-    const auto& new_routes = table(*regional.match, "shared-routes");
-    const auto old_bytes = bytes_of(old_routes), new_bytes = bytes_of(new_routes);
-    CHECK(old_bytes.size() == new_bytes.size());
-    CHECK(old_bytes[4] == 1 && new_bytes[4] == 2);
-    CHECK(!old_routes.restore(old_routes.context, new_bytes));
-    CHECK(!new_routes.restore(new_routes.context, old_bytes));
-    CHECK(bytes_of(old_routes) == old_bytes);
-    CHECK(bytes_of(new_routes) == new_bytes);
-}
-
-/// Older presets retain their bytes; seven and following share the fine save format.
-void fine_routes_are_selected_only_for_known_fine_presets() {
-    for (const uint32_t version : {2u, 3u, 4u, 5u, 6u}) {
-        Fixture fixture(options_for(version));
-        routes::FlowCache expected(
-            16,
-            16,
-            routes::FlowLimits{},
-            version >= 3 ? routes::FlowPreset::large_regions : routes::FlowPreset::original
-        );
+/// Shared routes are saved in the fine regional format, with the match's
+/// field and node limits.
+void shared_routes_use_the_fine_format() {
+    for (const auto& features : {flow_set, revision_1}) {
+        Fixture fixture(options_for(features));
+        routes::FlowCache expected(16, 16, fixture_route_limits(features));
         const auto& actual = table(*fixture.match, "shared-routes");
         const auto bytes = expected.state_bytes();
         CHECK(bytes_of(actual) == std::vector<uint8_t>(bytes.begin(), bytes.end()));
+        CHECK(bytes[4] == 3 && bytes[28] == 2);
     }
-
-    Fixture previous(options_for(oa::data::enhanced_mode::battle_flow_version));
-    Fixture fine(options_for(oa::data::enhanced_mode::distributed_battle_flow_version));
-    install_pending_field(*previous.match);
-    install_pending_field(*fine.match);
-    const auto& old_routes = table(*previous.match, "shared-routes");
-    const auto& fine_routes = table(*fine.match, "shared-routes");
-    const auto old_bytes = bytes_of(old_routes), fine_bytes = bytes_of(fine_routes);
-    CHECK(old_bytes[4] == 2 && old_bytes[28] == 4);
-    CHECK(fine_bytes[4] == 3 && fine_bytes[28] == 2);
-    CHECK(fine_bytes.size() > old_bytes.size());
-    CHECK(!old_routes.restore(old_routes.context, fine_bytes));
-    CHECK(!fine_routes.restore(fine_routes.context, old_bytes));
-    CHECK(bytes_of(old_routes) == old_bytes);
-    CHECK(bytes_of(fine_routes) == fine_bytes);
-}
-
-/// Following preserves unfinished fine bytes and saved continuation from seven.
-void following_keeps_fine_navigation_continuation() {
-    Fixture previous(options_for(oa::data::enhanced_mode::distributed_battle_flow_version));
-    Fixture following(options_for(oa::data::enhanced_mode::following_flow_version));
-    auto& first = previous.spawn(0, 64, 64);
-    auto& second = following.spawn(0, 64, 64);
-    CHECK(first.unit_index == second.unit_index);
-    previous.match->simulation().tick = following.match->simulation().tick = 123;
-    install_pending_field(*previous.match);
-    install_pending_field(*following.match);
-    install_steering_state(*previous.match, first.unit_index);
-    install_steering_state(*following.match, second.unit_index);
-    const auto compare = [&] {
-        for (const auto* name : navigation_tables)
-            CHECK(
-                bytes_of(table(*previous.match, name)) == bytes_of(table(*following.match, name))
-            );
-        CHECK(previous.match->random_state() == following.match->random_state());
-        CHECK(previous.match->lcg_state() == following.match->lcg_state());
-        CHECK(first.record.position.x == second.record.position.x);
-        CHECK(first.record.position.z == second.record.position.z);
-    };
-    compare();
-    previous.run(1);
-    following.run(1);
-    compare();
 }
 
 /// Rebuilds the fixture with one real, permissive ground movement class.
@@ -310,7 +250,7 @@ void configure_movement_class(
     Fixture& fixture,
     uint16_t per_player_limit = 4,
     uint16_t unit_player_mask = 3,
-    uint32_t version = 2
+    const FeatureSet& features = flow_set
 ) {
     fixture.match.reset();
     fixture.fields[1].movement_class = 1;
@@ -342,7 +282,7 @@ void configure_movement_class(
             sight_width, sight_height, fixture.altitude_cells, fixture.altitude_patterns
         }
     };
-    input.rules = options_for(version).rules;
+    input.rules = options_for(features).rules;
     input.unit_player_mask = unit_player_mask;
     fixture.match = std::make_unique<runtime::Match>(input, fixture.services);
     fixture.match->configure_strategic_environment({0, 0.5F, 0});
@@ -361,28 +301,24 @@ void configure_movement_class(
     CHECK(fixture.match->movement_map(1) != nullptr);
 }
 
-/// Continues a real half-built fine frontier after seven-to-following restore.
-void following_restores_a_building_fine_frontier() {
+/// Continues a real half-built fine frontier after restore, alike under the
+/// flow set and Revision 1.
+void a_building_fine_frontier_continues_after_restore() {
     constexpr uint32_t side = 128, saved_tick = 121;
-    Fixture previous(options_for(oa::data::enhanced_mode::distributed_battle_flow_version));
-    Fixture following(options_for(oa::data::enhanced_mode::following_flow_version));
+    Fixture previous(options_for(flow_set));
+    Fixture following(options_for(revision_1));
     for (auto* fixture : {&previous, &following}) {
-        const uint32_t version = oa::data::enhanced_mode::rules_version(fixture->match->rules());
+        const FeatureSet features = enhanced::features(fixture->match->rules());
         fixture->match.reset();
         fixture->map.attribute_width = fixture->map.attribute_height = side;
         fixture->map.attributes.resize(size_t(side) * side);
         fixture->terrain_values.resize(size_t(side) * side);
         fixture->collision_plots.resize(size_t(side) * side);
         fixture->altitude_cells.resize(size_t(side / 2) * (side / 2));
-        configure_movement_class(*fixture, 1, 1, version);
+        configure_movement_class(*fixture, 1, 1, features);
         fixture->match->simulation().tick = saved_tick;
     }
-    routes::FlowCache cache(
-        side,
-        side,
-        fixture_route_limits(oa::data::enhanced_mode::version_features(7)),
-        routes::FlowPreset::fine_regions
-    );
+    routes::FlowCache cache(side, side, fixture_route_limits(flow_set));
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
             return x >= 0 && z >= 0 && x < int32_t(side) && z < int32_t(side) ? 1 : 0;
@@ -434,25 +370,21 @@ void following_restores_a_building_fine_frontier() {
 }
 
 /// Fine storage can hold the battle's working set without increasing expansion work.
-void shared_field_storage_is_bounded_per_preset() {
+void shared_field_storage_is_bounded() {
     struct StorageCase {
-        uint32_t version, width, height, fields;
+        FeatureSet features;
+        uint32_t width, height, fields;
         size_t bytes;
     };
 
-    constexpr auto old = oa::data::enhanced_mode::battle_flow_version;
-    constexpr auto fine_version = oa::data::enhanced_mode::distributed_battle_flow_version;
-    constexpr auto following = oa::data::enhanced_mode::following_flow_version;
-    constexpr std::array<StorageCase, 6> cases{
-        {{old, 642, 648, 64, 8'354'560},
-         {fine_version, 642, 648, 80, 41'611'200},
-         {old, 1024, 512, 64, 10'494'080},
-         {fine_version, 1024, 512, 64, 41'951'360},
-         {following, 642, 648, 80, 41'611'200},
-         {following, 1024, 512, 64, 41'951'360}}
+    const std::array<StorageCase, 4> cases{
+        {{flow_set, 642, 648, 80, 41'611'200},
+         {flow_set, 1024, 512, 64, 41'951'360},
+         {revision_1, 642, 648, 80, 41'611'200},
+         {revision_1, 1024, 512, 64, 41'951'360}}
     };
     for (const auto& c : cases) {
-        Fixture fixture(options_for(c.version));
+        Fixture fixture(options_for(c.features));
         fixture.match.reset();
         fixture.map.attribute_width = c.width;
         fixture.map.attribute_height = c.height;
@@ -460,7 +392,7 @@ void shared_field_storage_is_bounded_per_preset() {
         fixture.terrain_values.resize(size_t(c.width) * c.height);
         fixture.collision_plots.resize(size_t(c.width) * c.height);
         fixture.altitude_cells.resize(size_t(c.width / 2) * (c.height / 2));
-        configure_movement_class(fixture, 1, 1, c.version);
+        configure_movement_class(fixture, 1, 1, c.features);
         auto& match = *fixture.match;
         const auto& shared = table(match, "shared-routes");
         const auto bytes = bytes_of(shared);
@@ -468,17 +400,16 @@ void shared_field_storage_is_bounded_per_preset() {
             return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 |
                    uint32_t(bytes[at + 2]) << 16 | uint32_t(bytes[at + 3]) << 24;
         };
-        const bool fine =
-            match.enhanced_features().has(oa::data::enhanced_mode::Feature::routes_fine_regions);
-        const uint32_t stride = fine ? 2 : 4;
+        CHECK(match.enhanced_features().has(enhanced::Feature::routes_fine_regions));
+        constexpr uint32_t stride = 2;
         const uint32_t cells =
             ((c.width + stride - 1) / stride) * ((c.height + stride - 1) / stride);
-        CHECK(word(4) == (fine ? 3u : 2u));
+        CHECK(word(4) == 3u);
         CHECK(word(16) == c.fields && word(20) == cells && word(28) == stride);
         CHECK(word(24) == 2048 && word(56) == 65536);
         CHECK(bytes.size() == 128 + 64 * 48 + c.fields * (80 + size_t(cells) * 5));
         CHECK(bytes.size() == c.bytes);
-        CHECK(uint64_t(c.fields) * cells <= (fine ? 8'388'608u : 2'097'152u));
+        CHECK(uint64_t(c.fields) * cells <= 8'388'608u);
         const auto core_rng = match.random_state(), lcg_rng = match.lcg_state();
         CHECK(shared.restore(shared.context, bytes));
         CHECK(bytes_of(shared) == bytes);
@@ -488,12 +419,7 @@ void shared_field_storage_is_bounded_per_preset() {
 
 /// Installs an admitted field before or after its first expansion tick.
 void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, bool pending) {
-    routes::FlowCache cache(
-        16,
-        16,
-        fixture_route_limits(match.enhanced_features()),
-        fixture_route_preset(match.enhanced_features())
-    );
+    routes::FlowCache cache(16, 16, fixture_route_limits(match.enhanced_features()));
     const routes::FlowSampler sampler{
         nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
             return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
@@ -531,14 +457,14 @@ void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, boo
 }
 
 /// Serves shared routes without waiting for a full-search cursor or its budget.
-void shared_poll_progresses_without_legacy_credit(uint32_t version = 2) {
+void shared_poll_progresses_without_legacy_credit(const FeatureSet& features = flow_set) {
     constexpr uint16_t player_units = 1024;
     constexpr uint32_t request_tick = 120;
     for (const bool pending : {false, true}) {
-        auto options = options_for(version);
+        auto options = options_for(features);
         options.per_player_limit = player_units;
         Fixture fixture(options);
-        configure_movement_class(fixture, player_units, 3, version);
+        configure_movement_class(fixture, player_units, 3, features);
         auto& match = *fixture.match;
         auto& unit = fixture.spawn(0, 64, 64);
         CHECK(!match.order_refused(
@@ -631,7 +557,7 @@ void shared_poll_rotates_extraction_opportunities() {
             player_mask |= uint16_t(1u << player);
             allies[player] = 1;
         }
-        auto options = options_for(2);
+        auto options = options_for(flow_set);
         options.unit_player_mask = player_mask;
         Fixture fixture(options);
         configure_movement_class(fixture, 4, player_mask);
@@ -652,7 +578,7 @@ void shared_poll_rotates_extraction_opportunities() {
         jobs.tick_credit = 0;
         jobs.credit.fill(0);
 
-        routes::FlowCache cache(16, 16);
+        routes::FlowCache cache(16, 16, fixture_route_limits(flow_set));
         const routes::FlowSampler sampler{
             nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
                 return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
@@ -768,7 +694,7 @@ void shared_poll_rotates_extraction_opportunities() {
 void shared_poll_preserves_an_active_full_search() {
     constexpr uint16_t player_units = 1024;
     constexpr uint32_t search_tick = 120;
-    auto options = options_for(2);
+    auto options = options_for(flow_set);
     options.per_player_limit = player_units;
     Fixture fixture(options);
     configure_movement_class(fixture, player_units);
@@ -840,7 +766,7 @@ void sustained_blockage_bypasses_shared_routes() {
     for (const bool pending : {false, true}) {
         for (const uint8_t blocked_ticks :
              {uint8_t(flow::local_flow_retry_ticks - 1), flow::local_flow_retry_ticks}) {
-            Fixture fixture(options_for(2));
+            Fixture fixture(options_for(flow_set));
             configure_movement_class(fixture);
             auto& unit = fixture.spawn(0, 64, 64);
             auto& match = *fixture.match;
@@ -892,7 +818,7 @@ void sustained_blockage_bypasses_shared_routes() {
 
 /// A crowded static edge must still reach a shared route through its bridge.
 void static_barrier_keeps_shared_route_access() {
-    Fixture fixture(options_for(2));
+    Fixture fixture(options_for(flow_set));
     // Leave both bridges above the hidden 128-world-unit bottom edge.
     fixture.map.attribute_height = 32;
     fixture.map.attributes.resize(16 * 32);
@@ -923,7 +849,7 @@ void static_barrier_keeps_shared_route_access() {
     std::fill(sight.begin(), sight.end(), uint16_t{1});
     match.simulation().tick = 123;
 
-    routes::FlowCache cache(width, height);
+    routes::FlowCache cache(width, height, fixture_route_limits(flow_set));
     const routes::FlowSampler sampler{
         &match, [](void* context, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
             auto& current = *static_cast<runtime::Match*>(context);
@@ -978,11 +904,16 @@ void static_barrier_keeps_shared_route_access() {
     CHECK(after.shared_route_hits == before.shared_route_hits + 1);
     CHECK(after.full_route_searches == before.full_route_searches);
     CHECK(ground->navigation.count >= 3);
+    // The route passes through one of the bridges, 16 world units a cell.
     CHECK(
         std::any_of(
             ground->navigation.points.begin(),
             ground->navigation.points.begin() + ground->navigation.count,
-            [](const routes::RoutePoint& point) { return point[1] == 72 || point[1] == 200; }
+            [&](const routes::RoutePoint& point) {
+                return std::any_of(bridge_rows.begin(), bridge_rows.end(), [&](int32_t row) {
+                    return point[1] >= row * 16 && point[1] < (row + 4) * 16;
+                });
+            }
         )
     );
     constexpr uint32_t crossing_tick_limit = 240;
@@ -1012,7 +943,7 @@ void far_terrain_detour_releases_a_mature_queue() {
     constexpr uint16_t east = 49152;
     constexpr uint32_t congestion_ticks = 50, request_tick = 120, arrival_tick_limit = 500;
     constexpr int32_t destination_x = 424, destination_z = 136;
-    Fixture fixture(options_for(2));
+    Fixture fixture(options_for(flow_set));
     fixture.map.attribute_width = width;
     fixture.map.attribute_height = height;
     fixture.map.attributes.resize(width * height);
@@ -1056,7 +987,7 @@ void far_terrain_detour_releases_a_mature_queue() {
     auto& sight = match.sight_mutable().player_bits;
     std::fill(sight.begin(), sight.end(), uint16_t{1});
 
-    routes::FlowCache cache(width, height);
+    routes::FlowCache cache(width, height, fixture_route_limits(flow_set));
     const routes::FlowSampler sampler{
         &match, [](void* context, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
             const auto& world = static_cast<runtime::Match*>(context)->spatial();
@@ -1125,7 +1056,7 @@ void equivalent_shared_guides_preserve_passing_heads() {
     constexpr uint16_t east = 49152;
     constexpr int32_t width = 16, height = 32, wall_x = 8;
     for (const auto storage : {Storage::duplicate, Storage::collinear, Storage::inactive}) {
-        Fixture fixture(options_for(2));
+        Fixture fixture(options_for(flow_set));
         fixture.map.attribute_height = height;
         fixture.map.attributes.resize(width * height);
         fixture.terrain_values.resize(width * height);
@@ -1156,7 +1087,7 @@ void equivalent_shared_guides_preserve_passing_heads() {
         CHECK(ground != nullptr && ground->navigation.goal != nullptr);
         const auto* goal = ground->navigation.goal;
 
-        routes::FlowCache cache(width, height);
+        routes::FlowCache cache(width, height, fixture_route_limits(flow_set));
         const routes::FlowSampler sampler{
             &match, [](void* context, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
                 const auto& world = static_cast<runtime::Match*>(context)->spatial();
@@ -1292,7 +1223,7 @@ uint16_t create_passing_head(Fixture& fixture) {
 
 /// Keeps a delivered route and its avoidance head through the retry interval.
 void delivered_shared_routes_keep_their_retry_interval() {
-    Fixture fixture(options_for(2));
+    Fixture fixture(options_for(flow_set));
     const auto unit = create_passing_head(fixture);
     auto& match = *fixture.match;
     auto* ground = match.ground_runtime(unit);
@@ -1364,7 +1295,7 @@ void delivered_shared_routes_keep_their_retry_interval() {
 /// New searches must replace temporary steering from an older route of the same goal.
 void accepted_routes_release_old_traffic_heads() {
     for (const bool shared_path : {false, true}) {
-        Fixture fixture(options_for(2));
+        Fixture fixture(options_for(flow_set));
         const auto unit = create_passing_head(fixture);
         auto& match = *fixture.match;
         auto* ground = match.ground_runtime(unit);
@@ -1389,7 +1320,7 @@ void accepted_routes_release_old_traffic_heads() {
         CHECK(steering.restore(steering.context, bytes));
 
         if (shared_path) {
-            routes::FlowCache cache(16, 16);
+            routes::FlowCache cache(16, 16, fixture_route_limits(flow_set));
             const routes::FlowSampler sampler{
                 nullptr, [](void*, uint32_t, uint32_t, int32_t x, int32_t z) -> uint8_t {
                     return x >= 0 && z >= 0 && x < 16 && z < 16 ? 1 : 0;
@@ -1458,7 +1389,7 @@ void accepted_routes_release_old_traffic_heads() {
 
 /// Opposing units must complete their moves naturally and remain at rest.
 void passing_units_rejoin_and_arrive() {
-    Fixture fixture(options_for(2));
+    Fixture fixture(options_for(flow_set));
     (void)create_passing_head(fixture);
     auto& match = *fixture.match;
     std::vector<uint16_t> units;
@@ -1490,28 +1421,16 @@ void passing_units_rejoin_and_arrive() {
 
 int main() {
     try {
-        version_one_and_off_keep_no_flow_state();
-        for (const uint32_t version :
-             {2u,
-              3u,
-              oa::data::enhanced_mode::battle_flow_version,
-              oa::data::enhanced_mode::distributed_battle_flow_version,
-              oa::data::enhanced_mode::following_flow_version}) {
-            navigation_state_survives_restore(version);
-            malformed_state_is_rejected_atomically(version);
+        capacity_and_off_keep_no_flow_state();
+        for (const auto& features : {flow_set, revision_1}) {
+            navigation_state_survives_restore(features);
+            malformed_state_is_rejected_atomically(features);
         }
-        different_presets_refuse_each_others_routes();
-        fine_routes_are_selected_only_for_known_fine_presets();
-        following_keeps_fine_navigation_continuation();
-        following_restores_a_building_fine_frontier();
-        shared_field_storage_is_bounded_per_preset();
+        shared_routes_use_the_fine_format();
+        a_building_fine_frontier_continues_after_restore();
+        shared_field_storage_is_bounded();
         shared_poll_progresses_without_legacy_credit();
-        shared_poll_progresses_without_legacy_credit(
-            oa::data::enhanced_mode::distributed_battle_flow_version
-        );
-        shared_poll_progresses_without_legacy_credit(
-            oa::data::enhanced_mode::following_flow_version
-        );
+        shared_poll_progresses_without_legacy_credit(revision_1);
         shared_poll_rotates_extraction_opportunities();
         shared_poll_preserves_an_active_full_search();
         sustained_blockage_bypasses_shared_routes();
