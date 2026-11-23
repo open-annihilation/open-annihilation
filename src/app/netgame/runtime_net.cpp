@@ -3113,7 +3113,7 @@ struct NetworkPlay::NetHost {
                 std::string error;
                 require(
                     oa::session::demo::demo_open(&playback, host.net_->recording_path, &error) &&
-                        !playback.frames.empty(),
+                        playback.frame_count != 0,
                     "the recording did not open"
                 );
                 int32_t named = 0;

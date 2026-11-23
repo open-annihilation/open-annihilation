@@ -4,7 +4,9 @@
 #pragma once
 
 // Playback of a TA Demo recording (.tad) or a .oademo replay through the match's own network
-// receive path. The third-party recorder kept every datagram the recording
+// receive path. The recording is never held whole: its packets are read from the file, the
+// bytes given or the replay's frame as playback reaches them, so a recording of any length plays
+// in the memory a match takes. The third-party recorder kept every datagram the recording
 // client sent or received, minus the condenser envelope and the frame
 // sequence dword, stored unit-state (0x2c) records without their tick behind
 // a tick base, and kept each player's lobby block as sent. Playback rebuilds
@@ -37,6 +39,9 @@
 namespace oa::session::demo {
 
 inline constexpr std::size_t sender_count = 256; // one entry per recorded player number
+
+/// Where a playback's recording is read from, and the delivery's place in it.
+struct PlaybackSource;
 
 /// One recorded camera (record 0xfc), kept out of the game stream.
 ///
@@ -92,8 +97,10 @@ struct PlaybackStats {
 };
 
 struct DemoPlayback {
+    /// The recording's bytes before its first packet: the header, the sectors, the players,
+    /// their statuses and the unit checks. The packets are read as playback reaches them.
     std::vector<uint8_t> file;
-    formats::tad::Demo demo;                         // views file
+    formats::tad::Demo demo;                         // views file; its packets are left empty
     std::vector<RecordedPlayer> players;             // demo.players order
     std::array<uint32_t, sender_count> sender_ids{}; // recorded player number -> net id
     uint32_t watcher_id{};                           // sorts after every recorded id
@@ -104,8 +111,13 @@ struct DemoPlayback {
     uint32_t recorded_verdicts{};    // subtype-3 records in the recording
     uint32_t recorded_definitions{}; // the recorded game's unit table, slot 0 excluded
     unsigned unit_def_bits{};        // its 0x2c index width
-    std::vector<DemoFrame> frames;   // recorded order
-    std::size_t cursor{};
+    std::size_t cursor{};            // frames taken, in recorded order: delivered or dropped
+    /// Frames the recording's packets make.
+    std::size_t frame_count{};
+    /// The local tick the last frame is due at; 0 without frames.
+    uint32_t last_due_tick{};
+    /// The recorder's clock at the last packet, in milliseconds; 0 without packets.
+    uint64_t duration_ms{};
     uint32_t tick{}; // local tick being delivered for
     PlaybackStats stats;
     /// The limits sector when the recording carried one that could be read.
@@ -122,6 +134,8 @@ struct DemoPlayback {
     netgame::TenPlayerReplay ten_player_replay{};
     /// Cameras the file recorded, in file order. The game stream leaves these out.
     std::vector<RecordedCamera> cameras;
+    /// Where the packets are read from, and the delivery's place in them.
+    std::shared_ptr<PlaybackSource> source;
 };
 
 /// How a recording's limits sit against the mod the player has.
@@ -248,24 +262,32 @@ demo_note_shown_camera(ShownCamera* camera, const uint8_t* record, std::size_t s
 /// @return True when the bytes open like a `.oademo` or a recording's header chunk holds the magic.
 [[nodiscard]] bool demo_recognised(std::span<const uint8_t> bytes) noexcept;
 
-/// Reads a recording file and loads it with demo_load.
+/// Loads a recording file as demo_load loads bytes, reading it from the file.
+///
+/// The file is read as playback reaches its packets, and is kept open while
+/// the playback lasts; it is never read whole.
 ///
 /// @param[out] playback Playback state to fill.
 /// @param path Path of the `.tad` or `.oademo` file.
 /// @param[out] error Reason for a failure.
-/// @return False when the file cannot be opened or demo_load fails.
+/// @return False when the file cannot be opened or the recording cannot be played, as for demo_load.
 [[nodiscard]] bool
 demo_open(DemoPlayback* playback, const std::filesystem::path& path, std::string* error);
 
-/// Parses a recording and rebuilds its packets as condenser-wrapped broadcast frames.
+/// Reads a recording's packets and counts the condenser-wrapped broadcast frames they rebuild as.
 ///
-/// A `.oademo` is read first and replaced by the recording it stores. When
-/// that read fails, `error` is the sentence the replay reader returns.
-/// Binds each recorded player to an id and lobby block, replays the
-/// recorded 0x1a unit checks into the watcher's battle room, sizes the 0x2c
-/// index width from the recorded unit table (slot 0 included), and gives
-/// each frame the local tick from which it is due: the last sender tick it
-/// carries, or the previous frame's for frames without unit states.
+/// A `.oademo`'s recording is read through its frame a piece at a time, and
+/// its size and digest are checked against its description; when that read
+/// fails, `error` is the sentence the replay reader returns. Binds each
+/// recorded player to an id and lobby block, replays the recorded 0x1a unit
+/// checks into the watcher's battle room, sizes the 0x2c index width from
+/// the recorded unit table (slot 0 included), and reads every packet once:
+/// it counts the frames and what they hold, keeps the cameras, and gives
+/// each frame the local tick from which it is due (the last sender tick it
+/// carries, or the previous frame's for frames without unit states). The
+/// frames themselves are rebuilt again as the transport delivers them, so
+/// nothing held grows with the recording but its cameras and one place to
+/// read again from every few thousand frames.
 ///
 /// @param[out] playback Playback state to fill; it takes the bytes.
 /// @param bytes Whole `.tad` or `.oademo`.
@@ -274,6 +296,30 @@ demo_open(DemoPlayback* playback, const std::filesystem::path& path, std::string
 ///         them or announces no unit definitions.
 [[nodiscard]] bool
 demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* error);
+
+/// Rebuilds every frame of a loaded playback, in recorded order, without moving its delivery.
+///
+/// For checks and tests: the frames of a long recording take as much memory as the recording.
+///
+/// @param playback Loaded playback.
+/// @return The frames, each as the transport delivers it.
+[[nodiscard]] std::vector<DemoFrame> demo_frames(const DemoPlayback& playback);
+
+/// Puts the delivery at a frame: the next frame the transport takes is that one.
+///
+/// Forward, the recording is read on; backward, it is read again from a place
+/// before the frame. A keyframe's restore calls this with the cursor it held.
+///
+/// @param[in,out] playback Loaded playback.
+/// @param cursor The frame, at most frame_count.
+/// @return False when the recording cannot be read to the frame.
+[[nodiscard]] bool demo_deliver_from(DemoPlayback* playback, std::size_t cursor);
+
+/// Returns why the delivery stopped reading the recording part way, as when its file changed.
+///
+/// @param playback Loaded playback.
+/// @return The reason; empty while the recording reads.
+[[nodiscard]] std::string demo_read_failure(const DemoPlayback& playback);
 
 /// Returns a transport over the recording: receive yields, in recorded order, every frame whose due tick
 /// has come; send drops the frame.
@@ -285,7 +331,7 @@ demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* error
 /// Tells whether every rebuilt frame has been delivered.
 ///
 /// @param playback Loaded playback.
-/// @return True once the cursor is past the last frame.
+/// @return True once the cursor is past the last frame, or the recording stopped reading.
 [[nodiscard]] bool demo_exhausted(const DemoPlayback& playback) noexcept;
 
 /// Returns the recording's length on the recorder's clock.

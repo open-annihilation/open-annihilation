@@ -405,7 +405,7 @@ void NetworkPlay::start_demo_playback() {
     arm_replay_controls();
     runtime_.status_ =
         "Demo playback: " + recording.map_name + ", " + std::to_string(players.size()) +
-        " players, " + std::to_string(demo_->playback.frames.size()) + " frames over " +
+        " players, " + std::to_string(demo_->playback.frame_count) + " frames over " +
         std::to_string(demo::demo_duration_ms(demo_->playback) / kMillisecondsPerSecond) + " s";
     std::cerr << runtime_.status_ << '\n';
     enhanced_mode.keep = true;
@@ -656,7 +656,7 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
         "demo %s: %zu players, %zu frames, %llu ms, unit limit %u\n",
         playback.demo.map_name.c_str(),
         playback.demo.players.size(),
-        playback.frames.size(),
+        playback.frame_count,
         static_cast<unsigned long long>(demo::demo_duration_ms(playback)),
         playback.demo.max_units
     );
@@ -707,7 +707,7 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
         static_cast<unsigned long long>(demo::demo_world_digest(&world)),
         demo::demo_live_units(&world),
         playback.stats.frames_delivered,
-        playback.frames.size(),
+        playback.frame_count,
         finished ? ", finished" : ""
     );
     // Each seated player's units, kills, losses, metal and energy, so a
@@ -1002,8 +1002,8 @@ void NetworkPlay::note_replay_length(uint32_t play_tick) {
     if (!demo_)
         return;
     uint32_t known = demo_->clock.furthest();
-    if (!demo_->playback.frames.empty())
-        known = std::max(known, demo_->playback.frames.back().due_tick);
+    if (demo_->playback.frame_count != 0)
+        known = std::max(known, demo_->playback.last_due_tick);
     if (demo::demo_session_finished(*demo_))
         known = std::max(known, play_tick);
     demo_->clock.note_length(known);
