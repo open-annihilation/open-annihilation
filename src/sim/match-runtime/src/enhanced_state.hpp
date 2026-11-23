@@ -26,13 +26,12 @@ builds_shared_routes(data::enhanced_mode::FeatureSet features) noexcept {
 }
 
 /// Tells whether a feature set indexes its target, sighting and order
-/// searches, with either of the two indexed searches.
+/// searches.
 ///
 /// @param features the match's Enhanced Mode features
-/// @return true when the set holds indexed_searches or exact_indexed_searches
+/// @return true when the set holds exact_indexed_searches
 [[nodiscard]] constexpr bool indexes_searches(data::enhanced_mode::FeatureSet features) noexcept {
-    return features.has(data::enhanced_mode::Feature::indexed_searches) ||
-           features.has(data::enhanced_mode::Feature::exact_indexed_searches);
+    return features.has(data::enhanced_mode::Feature::exact_indexed_searches);
 }
 
 /// Preallocated v2 navigation and query storage, outside packed world records.

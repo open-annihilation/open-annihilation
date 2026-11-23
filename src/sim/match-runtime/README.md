@@ -796,11 +796,9 @@ IDs, while every visited bucket slot still consumes the original raw-query
 limit. Radar membership is consulted only when the search allows radar
 fallback; its source list size still contributes to that query limit.
 A unit is filed in the bucket of the position where it last changed cell and
-moves on inside that cell, up to a cell beyond its bucket. The first indexed
-searches (`indexed_searches`, kept by the old versions) walk only the buckets
-the range touches and can miss such a unit at the range's edge, changing the
-candidates and their random draws. `exact_indexed_searches` walks one cell
-further and finds exactly what the full scan finds.
+moves on inside that cell, up to a cell beyond its bucket.
+`exact_indexed_searches` walks one cell beyond the buckets the range touches,
+so it finds exactly what the full scan finds.
 
 Five rule tables retain owner-local navigation across saves:
 
