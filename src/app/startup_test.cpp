@@ -1028,6 +1028,16 @@ void enhanced_revision_options() {
             "route_corner_advance needs local_flow",
         "a set that is not closed is refused with the reason"
     );
+    for (const char* list : {"+swept_ground_steps", "capacity,local_flow,route_queue"})
+        expect(
+            rejection({"--enhanced-features", list}).ends_with("is withdrawn; no release plays it"),
+            "a feature no release plays is refused, named"
+        );
+    expect(
+        rejection({"--enhanced-features", "+swept_ground_steps"}) ==
+            "swept_ground_steps is withdrawn; no release plays it",
+        "an added withdrawn feature is named"
+    );
     expect(
         rejection({"--enhanced-features", "capacity", "--enhanced-features", "local_flow"}) ==
             "--enhanced-features cannot name different feature lists",

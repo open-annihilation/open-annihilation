@@ -196,7 +196,7 @@ int Runtime::check_live_renderer() {
             // Each picture match takes one hold. Drop the previous one first.
             release_enhanced_rules_once(true);
             require(
-                hold_enhanced_rules_once(mode::cohort_target_version),
+                hold_enhanced_rules_once(mode::Choice{1, mode::revision_features(1)}),
                 "the card pictures could not select Enhanced rules"
             );
             start_benchmark_skirmish();
@@ -4442,12 +4442,12 @@ int Runtime::check_live_renderer() {
         constexpr float ground_check_pitch = -53;
         constexpr float ground_check_angle_step = 5;
         constexpr double ground_check_pan = 16;
-        const auto start_ground_match = [&](uint32_t version = mode::following_flow_version,
-                                            std::string_view map = {}) {
+        const mode::Choice revision_one{1, mode::revision_features(1)};
+        const auto start_ground_match = [&](std::string_view map = {}) {
             leave_match();
             load(Screen::main_menu);
             require(
-                hold_enhanced_rules_once(version),
+                hold_enhanced_rules_once(revision_one),
                 "the ground-query fixture could not select Enhanced rules"
             );
             if (map.empty()) {
@@ -4465,8 +4465,7 @@ int Runtime::check_live_renderer() {
             require(match_ != nullptr, "the Enhanced ground-query match did not start");
             const auto& enhanced = match_->rules().setup.enhanced_mode;
             require(
-                enhanced.enabled &&
-                    oa::data::enhanced_mode::rules_version(match_->rules()) == version,
+                enhanced.enabled && mode::features(match_->rules()) == revision_one.features,
                 "the ground-query fixture did not start the requested real Enhanced match"
             );
             select_local_commander();
@@ -4828,28 +4827,23 @@ int Runtime::check_live_renderer() {
                          "3D pixels, bounds and picks; lost producer repeated the frozen frame "
                          "with genuine classic pixels\n";
         }
+
         // A real walking rig must enter the caller's from-copies path before
         // any frozen comparison. No record position, piece pose or tick is
         // manufactured to make the visibility proof succeed.
-        constexpr uint32_t deferred_geometry_version = mode::cohort_target_version;
-
         struct DeferredProof {
             float zoom;
-            int32_t version;
             bool lighter_far_units;
         };
 
-        for (const DeferredProof proof : std::array<DeferredProof, 6>{{
-                 {1.0F, mode::following_flow_version, false},
-                 {0.35F, mode::following_flow_version, false},
-                 {1.0F, deferred_geometry_version, true},
-                 {0.35F, deferred_geometry_version, true},
-                 {1.0F, mode::cohort_retention_version, true},
-                 {0.35F, mode::cohort_retention_version, true},
+        for (const DeferredProof proof : std::array<DeferredProof, 4>{{
+                 {1.0F, false},
+                 {0.35F, false},
+                 {1.0F, true},
+                 {0.35F, true},
              }}) {
             const float preplan_zoom = proof.zoom;
-            const int32_t preplan_version = proof.version;
-            start_ground_match(preplan_version);
+            start_ground_match();
             {
                 auto chosen = engine_settings();
                 chosen.lighter_far_units = proof.lighter_far_units;
@@ -6435,8 +6429,8 @@ int Runtime::check_live_renderer() {
             visibility.force_ordinary = false;
             set_live_models_on_card(true);
             set_presentation_alpha(1);
-            std::cout << "live renderer check: preset=" << preplan_version
-                      << " zoom=" << preplan_zoom
+            std::cout << "live renderer check: lighter far units="
+                      << (proof.lighter_far_units ? "on" : "off") << " zoom=" << preplan_zoom
                       << " real stock walking and animated canonical units naturally omitted "
                          "with exact frozen pixels, bounds and picks; camera ingress animates; "
                          "held camera mismatch and omitted-only producer loss request genuine "
@@ -6459,7 +6453,7 @@ int Runtime::check_live_renderer() {
                 return count;
             };
             const auto card_frame = [&](bool lighter) {
-                start_ground_match(mode::cohort_target_version);
+                start_ground_match();
                 require(live_renderer_active(), "the card switch-over did not draw on the card");
                 auto chosen = engine_settings();
                 chosen.lighter_far_units = lighter;

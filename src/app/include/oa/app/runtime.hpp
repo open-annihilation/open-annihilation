@@ -1662,15 +1662,6 @@ class Runtime final : public menu::Host,
     /// @return false when the choice cannot be played or the rules do not resolve
     [[nodiscard]] bool hold_enhanced_rules_once(const oa::data::enhanced_mode::Choice& choice);
 
-    /// Holds a recorded preset for the next loaded match, keeping the preference separate.
-    ///
-    /// Restructure only; removed in R09. An unsupported version is refused
-    /// before it becomes a choice.
-    ///
-    /// @param version the recorded preset version, or zero for released rules
-    /// @return false for unsupported versions or unresolved rules
-    [[nodiscard]] bool hold_enhanced_rules_once(uint32_t version);
-
     /// Restores the menu's mode or the hold replaced by a failed load.
     ///
     /// @param restore_previous restores a previous held match after a failed load

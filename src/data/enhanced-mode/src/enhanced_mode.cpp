@@ -43,75 +43,118 @@ constexpr FeatureSet set_of(std::initializer_list<Feature> members) noexcept {
 
 using enum Feature;
 
+/// Marks a table row withdrawn: no release plays the feature.
+///
+/// @param row the feature's entry
+/// @return the entry, withdrawn
+constexpr FeatureInfo withdrawn_row(FeatureInfo row) noexcept {
+    row.withdrawn = true;
+    return row;
+}
+
 /// The feature table, in id order: entry n - 1 describes the feature with
 /// id n. Every feature needs Enhanced Mode on, and every chain of needs ends
-/// in capacity, the feature that sizes the Enhanced Mode state.
+/// in capacity, the feature that sizes the Enhanced Mode state. The features
+/// Revision 1 left out are withdrawn in 0.9.3: their rows stay, so no id
+/// moves, and no release plays them.
 constexpr std::array<FeatureInfo, 34> feature_rows{{
     {capacity, "capacity", FeatureKind::capacity, {}, {}},
     {local_flow, "local_flow", FeatureKind::simulation, set_of({capacity}), {}},
-    {routes_original,
-     "routes_original",
-     FeatureKind::simulation,
-     set_of({capacity, local_flow}),
-     set_of({routes_large_regions, routes_fine_regions})},
-    {routes_large_regions,
-     "routes_large_regions",
-     FeatureKind::simulation,
-     set_of({capacity, local_flow}),
-     set_of({routes_original, routes_fine_regions})},
+    withdrawn_row(
+        {routes_original,
+         "routes_original",
+         FeatureKind::simulation,
+         set_of({capacity, local_flow}),
+         set_of({routes_large_regions, routes_fine_regions})}
+    ),
+    withdrawn_row(
+        {routes_large_regions,
+         "routes_large_regions",
+         FeatureKind::simulation,
+         set_of({capacity, local_flow}),
+         set_of({routes_original, routes_fine_regions})}
+    ),
     {routes_fine_regions,
      "routes_fine_regions",
      FeatureKind::simulation,
      set_of({capacity, local_flow}),
      set_of({routes_original, routes_large_regions})},
-    {indexed_searches,
-     "indexed_searches",
-     FeatureKind::capacity,
-     set_of({capacity}),
-     set_of({exact_indexed_searches})},
+    withdrawn_row(
+        {indexed_searches,
+         "indexed_searches",
+         FeatureKind::capacity,
+         set_of({capacity}),
+         set_of({exact_indexed_searches})}
+    ),
     {route_corner_advance,
      "route_corner_advance",
      FeatureKind::simulation,
      set_of({local_flow}),
      {}},
-    {swept_ground_steps, "swept_ground_steps", FeatureKind::simulation, set_of({capacity}), {}},
-    {corridor_lanes, "corridor_lanes", FeatureKind::simulation, set_of({local_flow}), {}},
-    {patrol_goal_retention,
-     "patrol_goal_retention",
-     FeatureKind::simulation,
-     set_of({capacity}),
-     {}},
+    withdrawn_row(
+        {swept_ground_steps, "swept_ground_steps", FeatureKind::simulation, set_of({capacity}), {}}
+    ),
+    withdrawn_row(
+        {corridor_lanes, "corridor_lanes", FeatureKind::simulation, set_of({local_flow}), {}}
+    ),
+    withdrawn_row(
+        {patrol_goal_retention,
+         "patrol_goal_retention",
+         FeatureKind::simulation,
+         set_of({capacity}),
+         {}}
+    ),
     // The retarget table keeps its own count, so it does not need local flow.
     {ai_strike_retarget, "ai_strike_retarget", FeatureKind::simulation, set_of({capacity}), {}},
-    {squad_position_index, "squad_position_index", FeatureKind::capacity, set_of({capacity}), {}},
-    {route_queue, "route_queue", FeatureKind::simulation, set_of({local_flow}), {}},
-    {group_destination_repair,
-     "group_destination_repair",
-     FeatureKind::orders,
-     set_of({capacity}),
-     {}},
-    {distributed_arrivals,
-     "distributed_arrivals",
-     FeatureKind::orders,
-     set_of({group_destination_repair}),
-     {}},
-    {moving_corner_advance,
-     "moving_corner_advance",
-     FeatureKind::simulation,
-     set_of({route_corner_advance}),
-     {}},
-    {local_throat_guide, "local_throat_guide", FeatureKind::simulation, set_of({local_flow}), {}},
+    withdrawn_row(
+        {squad_position_index,
+         "squad_position_index",
+         FeatureKind::capacity,
+         set_of({capacity}),
+         {}}
+    ),
+    withdrawn_row({route_queue, "route_queue", FeatureKind::simulation, set_of({local_flow}), {}}),
+    withdrawn_row(
+        {group_destination_repair,
+         "group_destination_repair",
+         FeatureKind::orders,
+         set_of({capacity}),
+         {}}
+    ),
+    withdrawn_row(
+        {distributed_arrivals,
+         "distributed_arrivals",
+         FeatureKind::orders,
+         set_of({group_destination_repair}),
+         {}}
+    ),
+    withdrawn_row(
+        {moving_corner_advance,
+         "moving_corner_advance",
+         FeatureKind::simulation,
+         set_of({route_corner_advance}),
+         {}}
+    ),
+    withdrawn_row(
+        {local_throat_guide,
+         "local_throat_guide",
+         FeatureKind::simulation,
+         set_of({local_flow}),
+         {}}
+    ),
     // Any route builder would serve; the fine one is the only one it has played with.
     {credited_fallback_search,
      "credited_fallback_search",
      FeatureKind::simulation,
      set_of({local_flow, routes_fine_regions}),
      {}},
-    {bounded_strike_recruits,
-     "bounded_strike_recruits",
-     FeatureKind::simulation,
-     set_of({capacity}),
-     set_of({wide_strike_recruits})},
+    withdrawn_row(
+        {bounded_strike_recruits,
+         "bounded_strike_recruits",
+         FeatureKind::simulation,
+         set_of({capacity}),
+         set_of({wide_strike_recruits})}
+    ),
     {ai_attack_retention,
      "ai_attack_retention",
      FeatureKind::simulation,
@@ -122,66 +165,74 @@ constexpr std::array<FeatureInfo, 34> feature_rows{{
      FeatureKind::simulation,
      set_of({ai_strike_retarget}),
      {}},
-    {local_following,
-     "local_following",
-     FeatureKind::simulation,
-     set_of({local_flow, route_queue}),
-     {}},
+    withdrawn_row(
+        {local_following,
+         "local_following",
+         FeatureKind::simulation,
+         set_of({local_flow, route_queue}),
+         {}}
+    ),
     {occupancy_free_planning,
      "occupancy_free_planning",
      FeatureKind::simulation,
      set_of({capacity}),
      {}},
-    {cohort_targets,
-     "cohort_targets",
-     FeatureKind::simulation,
-     set_of({ai_strike_retarget}),
-     set_of({paced_cohort_targets})},
+    withdrawn_row(
+        {cohort_targets,
+         "cohort_targets",
+         FeatureKind::simulation,
+         set_of({ai_strike_retarget}),
+         set_of({paced_cohort_targets})}
+    ),
     {steering_projection_reuse,
      "steering_projection_reuse",
      FeatureKind::capacity,
      set_of({local_flow}),
      {}},
-    {cohort_retention,
-     "cohort_retention",
-     FeatureKind::simulation,
-     set_of({cohort_targets}),
-     set_of({dispatch_cohort_retention})},
-    {cardinal_queue_escape,
-     "cardinal_queue_escape",
-     FeatureKind::simulation,
-     set_of({local_flow}),
-     set_of({counterflow_queue_escape})},
-    // Indexed searches whose target search finds what a full scan finds; the
-    // old versions keep indexed_searches.
+    withdrawn_row(
+        {cohort_retention,
+         "cohort_retention",
+         FeatureKind::simulation,
+         set_of({cohort_targets}),
+         set_of({dispatch_cohort_retention})}
+    ),
+    withdrawn_row(
+        {cardinal_queue_escape,
+         "cardinal_queue_escape",
+         FeatureKind::simulation,
+         set_of({local_flow}),
+         set_of({counterflow_queue_escape})}
+    ),
+    // Indexed searches whose target search finds what a full scan finds, in
+    // place of the withdrawn indexed_searches.
     {exact_indexed_searches,
      "exact_indexed_searches",
      FeatureKind::capacity,
      set_of({capacity}),
      set_of({indexed_searches})},
-    // Strike recruits in larger batches; the old versions keep
+    // Strike recruits in larger batches, in place of the withdrawn
     // bounded_strike_recruits.
     {wide_strike_recruits,
      "wide_strike_recruits",
      FeatureKind::simulation,
      set_of({capacity}),
      set_of({bounded_strike_recruits})},
-    // Cohort targets whose new chases are spread over a few ticks; the old
-    // versions keep cohort_targets.
+    // Cohort targets whose new chases are spread over a few ticks, in place of
+    // the withdrawn cohort_targets.
     {paced_cohort_targets,
      "paced_cohort_targets",
      FeatureKind::simulation,
      set_of({ai_strike_retarget}),
      set_of({cohort_targets})},
     // Cohort retention for paced cohort targets at the periodic dispatch
-    // only; the old versions keep cohort_retention.
+    // only, in place of the withdrawn cohort_retention.
     {dispatch_cohort_retention,
      "dispatch_cohort_retention",
      FeatureKind::simulation,
      set_of({paced_cohort_targets}),
      set_of({cohort_retention})},
-    // Cardinal queue escape only from crossing or oncoming traffic; version 13
-    // keeps cardinal_queue_escape.
+    // Cardinal queue escape only from crossing or oncoming traffic, in place of
+    // the withdrawn cardinal_queue_escape.
     {counterflow_queue_escape,
      "counterflow_queue_escape",
      FeatureKind::simulation,
@@ -205,6 +256,37 @@ constexpr FeatureSet known_features = [] {
         known = known.with(row.id);
     return known;
 }();
+
+/// Returns the features two sets both hold.
+///
+/// @param left one set
+/// @param right the other set
+/// @return their intersection
+constexpr FeatureSet common_features(FeatureSet left, FeatureSet right) noexcept {
+    return left - (left - right);
+}
+
+/// Every withdrawn feature: known, and played by no release.
+constexpr FeatureSet withdrawn_features = [] {
+    FeatureSet withdrawn;
+    for (const FeatureInfo& row : feature_rows)
+        if (row.withdrawn)
+            withdrawn = withdrawn.with(row.id);
+    return withdrawn;
+}();
+
+/// Tells whether no feature that is still played needs a withdrawn one, so
+/// closing a set of played features never needs a withdrawn feature.
+///
+/// @return true when every played feature's needs are played features
+constexpr bool played_features_need_no_withdrawn() noexcept {
+    for (const FeatureInfo& row : feature_rows)
+        if (!row.withdrawn && !common_features(row.needs, withdrawn_features).empty())
+            return false;
+    return true;
+}
+
+static_assert(played_features_need_no_withdrawn());
 
 /// Tells whether the table's rows are in id order with no gaps, every
 /// feature needs only features with lower ids, and every exclusion is
@@ -297,6 +379,16 @@ constexpr std::array<PairReason, link_count()> pair_reasons = [] {
     return reasons;
 }();
 
+/// The reason feature_set_problem gives for each feature, by id - 1, when the
+/// feature is withdrawn.
+constexpr std::array<PairReason, feature_rows.size()> withdrawn_reasons = [] {
+    std::array<PairReason, feature_rows.size()> reasons{};
+    for (std::size_t index = 0; index < feature_rows.size(); ++index)
+        reasons[index] =
+            join_reason(feature_rows[index].name, " is withdrawn; no release plays it", "");
+    return reasons;
+}();
+
 /// Returns the reason naming a feature and one it is linked to.
 ///
 /// @param row the feature's entry
@@ -307,101 +399,6 @@ const char* pair_reason(const FeatureInfo& row, Feature other) noexcept {
     const auto rank = static_cast<std::size_t>(std::popcount(links_of(row).bits() & lower));
     return pair_reasons[first_reason[static_cast<std::size_t>(row.id) - 1] + rank].data();
 }
-
-// The old numbered presets' features. Restructure only; removed before the
-// version numbers leave the engine.
-
-/// Old version 1: capacity alone.
-constexpr FeatureSet version_1_features = set_of({capacity});
-/// Old version 2: local flow over the original shared routes.
-constexpr FeatureSet version_2_features =
-    set_of({capacity, local_flow, routes_original, indexed_searches});
-/// Old version 3: regional routes and corner advances.
-constexpr FeatureSet version_3_features =
-    set_of({capacity, local_flow, routes_large_regions, indexed_searches, route_corner_advance});
-/// Old version 4: version 3 with swept ground steps.
-constexpr FeatureSet version_4_features = set_of(
-    {capacity,
-     local_flow,
-     routes_large_regions,
-     indexed_searches,
-     route_corner_advance,
-     swept_ground_steps}
-);
-/// Old version 5: version 4 with corridor lanes.
-constexpr FeatureSet version_5_features = set_of(
-    {capacity,
-     local_flow,
-     routes_large_regions,
-     indexed_searches,
-     route_corner_advance,
-     swept_ground_steps,
-     corridor_lanes}
-);
-/// Old version 6: version 4 with battle flow and repaired group destinations.
-constexpr FeatureSet version_6_features = set_of(
-    {capacity,
-     local_flow,
-     routes_large_regions,
-     indexed_searches,
-     route_corner_advance,
-     swept_ground_steps,
-     patrol_goal_retention,
-     ai_strike_retarget,
-     squad_position_index,
-     route_queue,
-     group_destination_repair}
-);
-/// Old version 7: version 6 over fine routes, with distributed arrivals.
-constexpr FeatureSet version_7_features = set_of(
-    {capacity,
-     local_flow,
-     routes_fine_regions,
-     indexed_searches,
-     route_corner_advance,
-     swept_ground_steps,
-     patrol_goal_retention,
-     ai_strike_retarget,
-     squad_position_index,
-     route_queue,
-     group_destination_repair,
-     distributed_arrivals,
-     moving_corner_advance,
-     local_throat_guide,
-     credited_fallback_search,
-     bounded_strike_recruits,
-     ai_attack_retention,
-     ai_rally_retention}
-);
-/// Old version 8: version 7 with local following.
-constexpr FeatureSet version_8_features =
-    version_7_features | set_of({local_following, occupancy_free_planning});
-/// Old version 10: version 8 with cohort targets.
-constexpr FeatureSet version_10_features =
-    version_8_features | set_of({cohort_targets, steering_projection_reuse});
-/// Old version 11: version 10 with cohort retention.
-constexpr FeatureSet version_11_features = version_10_features | set_of({cohort_retention});
-/// Old version 13: version 10 with cardinal queue escape.
-constexpr FeatureSet version_13_features = version_10_features | set_of({cardinal_queue_escape});
-
-/// The features of each old preset, by version; Off and the withdrawn
-/// versions 9 and 12 are empty.
-constexpr std::array<FeatureSet, cardinal_queue_escape_version + 1> version_feature_sets{{
-    {},
-    version_1_features,
-    version_2_features,
-    version_3_features,
-    version_4_features,
-    version_5_features,
-    version_6_features,
-    version_7_features,
-    version_8_features,
-    {},
-    version_10_features,
-    version_11_features,
-    {},
-    version_13_features,
-}};
 
 /// Revision 1's features, the set measured in the gate battles and
 /// approved. Frozen: every later build plays exactly these.
@@ -445,6 +442,24 @@ constexpr bool closed_and_conflict_free(FeatureSet set) noexcept {
 }
 
 static_assert(closed_and_conflict_free(revision_1_features));
+
+/// The features of each revision, by revision. Index 0 is Off.
+constexpr std::array<FeatureSet, highest_revision + 1> revision_sets{{
+    {},
+    revision_1_features,
+}};
+
+/// Tells whether no revision holds a withdrawn feature.
+///
+/// @return true when every revision plays only features a release plays
+constexpr bool revisions_hold_no_withdrawn() noexcept {
+    for (const FeatureSet& revision : revision_sets)
+        if (!common_features(revision, withdrawn_features).empty())
+            return false;
+    return true;
+}
+
+static_assert(revisions_hold_no_withdrawn());
 
 /// The first engine version of each feature, in id order. A new feature
 /// names its version here and nowhere else.
@@ -572,13 +587,16 @@ FeatureSet close_features(FeatureSet set) noexcept {
     FeatureSet closed = set;
     for (auto row = feature_rows.rbegin(); row != feature_rows.rend(); ++row)
         if (closed.has(row->id))
-            closed = closed | row->needs;
+            closed = closed | (row->needs - withdrawn_features);
     return closed;
 }
 
 const char* feature_set_problem(FeatureSet set) noexcept {
     if (!(set - known_features).empty())
         return "the set holds a feature this build does not know";
+    for (std::size_t index = 0; index < feature_rows.size(); ++index)
+        if (feature_rows[index].withdrawn && set.has(feature_rows[index].id))
+            return withdrawn_reasons[index].data();
     for (const FeatureInfo& row : feature_rows) {
         if (!set.has(row.id))
             continue;
@@ -598,10 +616,6 @@ const char* feature_set_problem(FeatureSet set) noexcept {
     return nullptr;
 }
 
-FeatureSet version_features(uint32_t version) noexcept {
-    return version < version_feature_sets.size() ? version_feature_sets[version] : FeatureSet{};
-}
-
 FeatureSet features(const match_rules::MatchRules& rules) noexcept {
     if (!rules.setup.enhanced_mode.enabled)
         return {};
@@ -609,31 +623,8 @@ FeatureSet features(const match_rules::MatchRules& rules) noexcept {
 }
 
 FeatureSet revision_features(uint32_t revision) noexcept {
-    return revision == 1 ? revision_1_features : FeatureSet{};
-}
-
-bool supported_version(uint32_t version) noexcept {
-    return version == off_version || version == capacity_version || version == flow_version ||
-           version == regional_flow_version || version == swept_ground_version ||
-           version == corridor_flow_version || version == battle_flow_version ||
-           uses_distributed_battle_flow(version);
-}
-
-uint32_t alias_version(FeatureSet set) noexcept {
-    // Restructure only; removed in R09.
-    if (set.empty())
-        return off_version;
-    for (uint32_t version = 1; version < version_feature_sets.size(); ++version)
-        if (supported_version(version) && version_feature_sets[version] == set)
-            return version;
-    return no_alias_version;
-}
-
-uint32_t rules_version(const match_rules::MatchRules& rules) noexcept {
-    // Restructure only; removed in R09.
-    if (!rules.setup.enhanced_mode.enabled)
-        return off_version;
-    return alias_version(stored_features(rules.setup.enhanced_mode));
+    return revision != 0 && revision < revision_sets.size() ? revision_sets[revision]
+                                                            : FeatureSet{};
 }
 
 FeatureSet stored_features(const match_rules::SetupEnhancedMode& mode) noexcept {
@@ -647,16 +638,6 @@ void store_choice(match_rules::SetupEnhancedMode& mode, const Choice& choice) no
     mode.enabled = true;
     mode.revision = static_cast<int32_t>(choice.revision);
     mode.features = to_enum(choice.features);
-}
-
-void apply_alias(match_rules::SetupEnhancedMode& mode, uint32_t version) noexcept {
-    // Restructure only; removed in R09.
-    mode = {};
-    if (version == off_version || !supported_version(version))
-        return;
-    mode.enabled = true;
-    mode.revision = 1;
-    mode.features = to_enum(version_features(version));
 }
 
 const char* choice_problem(const Choice& choice) noexcept {
@@ -705,25 +686,6 @@ mod_profile::ResolveResult resolve_profile(
         stored_features(mode) != choice.features)
         refuse(result, source, "the Enhanced Mode preset did not resolve at the required revision");
     return result;
-}
-
-mod_profile::ResolveResult resolve_profile(
-    std::span<const uint8_t> text,
-    std::string_view source,
-    const mod_profile::ResolveOptions& options,
-    uint32_t version
-) {
-    // Restructure only; removed in R09.
-    mod_profile::ResolveResult result;
-    if (!supported_version(version)) {
-        refuse(
-            result, source, "unsupported Enhanced Mode rules version " + std::to_string(version)
-        );
-        return result;
-    }
-    if (version == off_version)
-        return resolve_profile(text, source, options, Choice{});
-    return resolve_profile(text, source, options, Choice{1, version_features(version)});
 }
 
 const char* first_engine_version(uint32_t revision) noexcept {

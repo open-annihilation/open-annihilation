@@ -907,7 +907,15 @@ entries:
     scope: sim
     mutator: true
     # Feature values stay in id order: index + 1 is the feature id. A cut
-    # feature stays listed, marked retired, so no index and no hash shifts.
+    # feature stays listed, so no index and no hash shifts.
+    # Withdrawn in 0.9.3; no release plays it: routes-original (3),
+    # routes-large-regions (4), indexed-searches (6), swept-ground-steps (8),
+    # corridor-lanes (9), patrol-goal-retention (10), squad-position-index (12),
+    # route-queue (13), group-destination-repair (14), distributed-arrivals
+    # (15), moving-corner-advance (16), local-throat-guide (17),
+    # bounded-strike-recruits (19), local-following (22), cohort-targets (24),
+    # cohort-retention (26) and cardinal-queue-escape (27). The engine refuses
+    # a set that names one.
     params:
       revision: {type: int, min: 1, max: 1, baseline: 1, default: 1, adjustable: match, scope: sim}
       features: {type: set<enum>, values: [capacity, local-flow, routes-original, routes-large-regions, routes-fine-regions, indexed-searches, route-corner-advance, swept-ground-steps, corridor-lanes, patrol-goal-retention, ai-strike-retarget, squad-position-index, route-queue, group-destination-repair, distributed-arrivals, moving-corner-advance, local-throat-guide, credited-fallback-search, bounded-strike-recruits, ai-attack-retention, ai-rally-retention, local-following, occupancy-free-planning, cohort-targets, steering-projection-reuse, cohort-retention, cardinal-queue-escape, exact-indexed-searches, wide-strike-recruits, paced-cohort-targets, dispatch-cohort-retention, counterflow-queue-escape, idle-goal-skip, static-interior-refresh-skip], baseline: [], default: [capacity], adjustable: match, scope: sim}

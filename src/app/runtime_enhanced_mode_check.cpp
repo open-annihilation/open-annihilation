@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The opt-in preset, graphics independence and recorded rules of loaded games.
+// The opt-in revision, graphics independence and recorded rules of loaded games.
 #include "oa/app/runtime.hpp"
 #include "oa/app/enhanced_mode.hpp"
 #include "oa/app/play_host.hpp"
@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -172,6 +173,15 @@ future_recording(uint32_t revision, uint64_t feature_bits, uint32_t needed_versi
     return written.bytes;
 }
 
+/// Returns the first feature the table marks withdrawn: one this build knows
+/// and will not play.
+oa::data::enhanced_mode::Feature first_withdrawn_feature() {
+    for (const auto& row : oa::data::enhanced_mode::feature_table())
+        if (row.withdrawn)
+            return row.id;
+    throw std::runtime_error("Enhanced Mode check: the feature table withdraws nothing");
+}
+
 } // namespace
 
 void Runtime::check_enhanced_mode() {
@@ -180,43 +190,57 @@ void Runtime::check_enhanced_mode() {
     namespace input = oa::sim::gameplay_input;
     require(options_.preferences_file.has_value(), "needs an isolated --preferences-file");
     const settings::EngineSettings kept = engine_settings();
-    const auto command_line_version = options_.enhanced_mode_version;
-    options_.enhanced_mode_version.reset();
-    // A new game with Enhanced Mode on plays Revision 1, which matches no old
-    // version's set.
+    const auto command_line_mode = options_.enhanced_mode;
+    const auto command_line_revision = options_.enhanced_revision;
+    const auto command_line_features = options_.enhanced_features;
+    options_.enhanced_revision.reset();
+    options_.enhanced_features.reset();
+    // A new game with Enhanced Mode on plays Revision 1.
     const mode::Choice revision_one{1, mode::revision_features(1)};
+    const mode::Choice off{};
+    // Sets a save, a recording or a launch's feature list can name besides
+    // Revision 1: capacity alone, local traffic flow over shared routes, and
+    // Revision 1 without one of its features.
+    const auto without = [&](mode::Feature feature) {
+        return mode::Choice{1, revision_one.features.without(feature)};
+    };
+    const std::array<mode::Choice, 3> named_sets{
+        {mode::Choice{1, mode::FeatureSet{}.with(mode::Feature::capacity)},
+         mode::Choice{
+             1, mode::close_features(mode::FeatureSet{}.with(mode::Feature::routes_fine_regions))
+         },
+         without(mode::Feature::idle_goal_skip)}
+    };
+    // Choices no build plays: an unknown revision, a set without capacity, Off
+    // naming a feature, a feature id no build knows, and a withdrawn feature.
+    const std::array<mode::Choice, 5> unplayable{
+        {mode::Choice{mode::highest_revision + 1, revision_one.features},
+         mode::Choice{1, mode::FeatureSet{}.with(mode::Feature::local_flow)},
+         mode::Choice{0, mode::FeatureSet{}.with(mode::Feature::capacity)},
+         mode::Choice{1, revision_one.features | mode::FeatureSet::from_bits(uint64_t{1} << 60)},
+         mode::Choice{1, revision_one.features.with(first_withdrawn_feature())}}
+    };
     auto chosen = kept;
     chosen.enhanced_mode = false;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == mode::off_version, "Off did not keep released rules");
+    require(enhanced_mode_choice(*this) == off, "Off did not keep released rules");
     const std::string released_hash = simulation_hash(*this);
 
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
-    require(enhanced_mode_choice(*this) == revision_one, "On did not resolve the preset");
+    require(enhanced_mode_choice(*this) == revision_one, "On did not resolve Revision 1");
     const std::string enhanced_hash = simulation_hash(*this);
-    require(enhanced_hash != released_hash, "the preset did not enter the simulation hash");
-    for (const uint32_t previous :
-         {mode::capacity_version,
-          mode::flow_version,
-          mode::regional_flow_version,
-          mode::swept_ground_version,
-          mode::corridor_flow_version,
-          mode::battle_flow_version,
-          mode::distributed_battle_flow_version,
-          mode::following_flow_version,
-          mode::cohort_target_version,
-          mode::cohort_retention_version,
-          mode::cardinal_queue_escape_version}) {
-        require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
-        require(enhanced_mode_version(*this) == previous, "an earlier preset was upgraded");
-        require(simulation_hash(*this) != enhanced_hash, "different presets share an identity");
+    require(enhanced_hash != released_hash, "Revision 1 did not enter the simulation hash");
+    for (const auto& held : named_sets) {
+        require(hold_enhanced_rules_once(held), "a named set was refused");
+        require(enhanced_mode_choice(*this) == held, "a named set was replaced");
+        require(simulation_hash(*this) != enhanced_hash, "different sets share an identity");
         release_enhanced_rules_once(true);
         require(
             enhanced_mode_choice(*this) == revision_one,
-            "releasing old rules did not restore the new-game preset"
+            "releasing a named set did not restore Revision 1"
         );
-        require(simulation_hash(*this) == enhanced_hash, "releasing old rules changed identity");
+        require(simulation_hash(*this) == enhanced_hash, "releasing a named set changed identity");
     }
     constexpr std::array renderers{
         settings::HardwareAcceleration::off,
@@ -444,8 +468,7 @@ void Runtime::check_enhanced_mode() {
         }
         clear_local_selection();
         require(match_->fault() == nullptr, "entrypoint regression recorded a native fault");
-        const uint32_t alias = mode::alias_version(wanted.features);
-        if (alias == mode::no_alias_version)
+        if (wanted == mode::Choice{1, mode::revision_features(wanted.revision)})
             std::printf(
                 "Enhanced Mode: generic/specialized/play-host group entrypoints agree in "
                 "Revision %u\n",
@@ -453,8 +476,9 @@ void Runtime::check_enhanced_mode() {
             );
         else
             std::printf(
-                "Enhanced Mode: generic/specialized/play-host group entrypoints agree in v%u\n",
-                static_cast<unsigned>(alias)
+                "Enhanced Mode: generic/specialized/play-host group entrypoints agree in a set "
+                "of %d features\n",
+                std::popcount(wanted.features.bits())
             );
     };
     constexpr int32_t patch_width = 28;
@@ -594,7 +618,7 @@ void Runtime::check_enhanced_mode() {
     require(simulation_hash(*this) == enhanced_hash, "a live match changed rules identity");
     leave_match();
     load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == mode::off_version, "the next game did not take Off");
+    require(enhanced_mode_choice(*this) == off, "the next game did not take Off");
     require(simulation_hash(*this) == released_hash, "Off did not restore the original hash");
     require(load_saved_game(enhanced_save), "the enhanced save did not load with Off selected");
     require(enhanced_mode_choice(*this) == revision_one, "the save did not restore its mode");
@@ -625,7 +649,7 @@ void Runtime::check_enhanced_mode() {
     );
     std::puts("Enhanced Mode: populated pending flow tables restored and continued");
     check_group_entrypoints(revision_one);
-    require(hold_enhanced_rules_once(mode::off_version), "a subsequent load could not hold Off");
+    require(hold_enhanced_rules_once(off), "a subsequent load could not hold Off");
     release_enhanced_rules_once(true);
     require(
         engine_settings_->restored_enhanced_choice &&
@@ -635,7 +659,7 @@ void Runtime::check_enhanced_mode() {
     );
     leave_match();
     load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == mode::off_version, "leaving kept the recorded mode");
+    require(enhanced_mode_choice(*this) == off, "leaving kept the recorded mode");
     require(
         frontend_game().max_units_setting <= oa::data::limits::highest_units_per_player,
         "the enhanced save left an unsupported classic unit limit"
@@ -653,15 +677,13 @@ void Runtime::check_enhanced_mode() {
     require(
         load_saved_game(released_save), "a classic save could not replace a live enhanced match"
     );
-    require(enhanced_mode_version(*this) == mode::off_version, "replacement kept enhanced rules");
+    require(enhanced_mode_choice(*this) == off, "replacement kept enhanced rules");
     leave_match();
     load(Screen::main_menu);
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
     require(load_saved_game(released_save), "a released save did not load with On selected");
-    require(
-        enhanced_mode_version(*this) == mode::off_version, "a released save acquired new rules"
-    );
+    require(enhanced_mode_choice(*this) == off, "a released save acquired new rules");
     require(engine_settings().enhanced_mode, "loading changed the menu preference");
     check_group_entrypoints(mode::Choice{});
     std::array<sim::unit_spawn::Request, 2> reordered_units{};
@@ -710,18 +732,8 @@ void Runtime::check_enhanced_mode() {
     );
     leave_match();
     load(Screen::main_menu);
-    for (const uint32_t previous :
-         {mode::capacity_version,
-          mode::flow_version,
-          mode::regional_flow_version,
-          mode::swept_ground_version,
-          mode::corridor_flow_version,
-          mode::battle_flow_version,
-          mode::distributed_battle_flow_version,
-          mode::following_flow_version,
-          mode::cohort_target_version,
-          mode::cohort_retention_version,
-          mode::cardinal_queue_escape_version}) {
+    for (std::size_t at = 0; at < named_sets.size(); ++at) {
+        const auto& previous = named_sets[at];
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
         bootstrap_match(
             {.units_per_player = 10'000, .place_commanders = false, .seat_roster = true}
@@ -732,31 +744,27 @@ void Runtime::check_enhanced_mode() {
         const std::string old_hash = simulation_hash(*this);
         const fs::path old_save =
             options_.preferences_file->parent_path() /
-            oa::platform::path_from_utf8("enhanced-v" + std::to_string(previous) + ".sav");
-        require(save_match_game(old_save, "Earlier Enhanced rules", 0), "old rules did not save");
+            oa::platform::path_from_utf8("enhanced-set-" + std::to_string(at) + ".sav");
+        require(save_match_game(old_save, "Named Enhanced set", 0), "a named set did not save");
         leave_match();
         load(Screen::main_menu);
         require(
             enhanced_mode_choice(*this) == revision_one,
             "old-save fixture changed the new-game preference"
         );
-        require(load_saved_game(old_save), "an earlier Enhanced save did not load");
-        require(enhanced_mode_version(*this) == previous, "an earlier save was upgraded");
-        require(simulation_hash(*this) == old_hash, "an earlier save changed rules identity");
-        check_group_entrypoints(mode::Choice{1, mode::version_features(previous)});
+        require(load_saved_game(old_save), "a named set's save did not load");
+        require(enhanced_mode_choice(*this) == previous, "a named set's save was replaced");
+        require(simulation_hash(*this) == old_hash, "a named set's save changed rules identity");
+        check_group_entrypoints(previous);
         leave_match();
         load(Screen::main_menu);
         require(
-            enhanced_mode_choice(*this) == revision_one,
-            "leaving an earlier save kept its old rules"
+            enhanced_mode_choice(*this) == revision_one, "leaving a named set's save kept its rules"
         );
     }
-    for (const uint32_t unsupported :
-         {mode::following_flow_version + 1,
-          mode::cohort_retention_version + 1,
-          mode::cardinal_queue_escape_version + 1})
-        require(!hold_enhanced_rules_once(unsupported), "an unknown version was accepted");
-    require(enhanced_mode_choice(*this) == revision_one, "a rejected version changed rules");
+    for (const auto& refused : unplayable)
+        require(!hold_enhanced_rules_once(refused), "an unplayable choice was accepted");
+    require(enhanced_mode_choice(*this) == revision_one, "a rejected choice changed rules");
     show_mission_briefing();
     start_campaign_mission();
     require(match_ != nullptr, "the campaign fixture did not start");
@@ -776,172 +784,127 @@ void Runtime::check_enhanced_mode() {
     require(!engine_settings().enhanced_mode, "the campaign changed the menu preference");
     leave_match();
     load(Screen::main_menu);
-    require(
-        enhanced_mode_version(*this) == mode::off_version, "leaving the campaign kept its mode"
-    );
-    const auto command_line_mode = options_.enhanced_mode;
+    require(enhanced_mode_choice(*this) == off, "leaving the campaign kept its mode");
+    // A launch's feature list (--enhanced-features) chooses what new games
+    // play over the menu; held and saved games keep their own sets.
+    const mode::Choice launched = without(mode::Feature::idle_goal_skip);
+    const mode::Choice relaunched = without(mode::Feature::counterflow_queue_escape);
+    const mode::Choice retained = without(mode::Feature::dispatch_cohort_retention);
     options_.enhanced_mode = true;
-    options_.enhanced_mode_version = mode::cohort_target_version;
+    options_.enhanced_features = "-idle_goal_skip";
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == 10, "the command-line preset did not select v10");
-    const std::string cohort_hash = simulation_hash(*this);
-    require(cohort_hash != enhanced_hash, "the command-line preset kept the default identity");
+    require(enhanced_mode_choice(*this) == launched, "the launch's list did not choose its set");
+    const std::string launched_hash = simulation_hash(*this);
+    require(launched_hash != enhanced_hash, "the launch's list kept Revision 1's identity");
     for (const auto renderer : renderers) {
         chosen.hardware_acceleration = renderer;
         apply_engine_settings(chosen);
-        require(enhanced_mode_version(*this) == 10, "graphics changed the command-line preset");
-        require(simulation_hash(*this) == cohort_hash, "graphics changed the v10 identity");
+        require(enhanced_mode_choice(*this) == launched, "graphics changed the launch's set");
+        require(simulation_hash(*this) == launched_hash, "graphics changed the launch's identity");
     }
     chosen.enhanced_mode = false;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == 0, "menu Off did not set the CLI preset aside");
+    require(enhanced_mode_choice(*this) == launched, "menu Off replaced the launch's list");
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == 10, "menu On lost the CLI preset");
-    for (const uint32_t held : {0u, 8u}) {
-        require(hold_enhanced_rules_once(held), "a held preset could not override the CLI");
-        require(enhanced_mode_version(*this) == held, "the CLI replaced held rules");
+    require(enhanced_mode_choice(*this) == launched, "menu On lost the launch's list");
+    for (const auto& held : {off, relaunched}) {
+        require(hold_enhanced_rules_once(held), "a held set could not override the launch");
+        require(enhanced_mode_choice(*this) == held, "the launch replaced held rules");
         release_enhanced_rules_once(true);
-        require(enhanced_mode_version(*this) == 10, "releasing held rules lost the CLI preset");
+        require(enhanced_mode_choice(*this) == launched, "releasing held rules lost the launch");
     }
-    for (const uint32_t unsupported : {9u, 12u, mode::cardinal_queue_escape_version + 1}) {
-        require(!hold_enhanced_rules_once(unsupported), "a held unknown preset was accepted");
-        require(enhanced_mode_version(*this) == 10, "a rejected preset changed the CLI rules");
+    for (const auto& refused : unplayable) {
+        require(!hold_enhanced_rules_once(refused), "a held unplayable choice was accepted");
+        require(enhanced_mode_choice(*this) == launched, "a rejected choice changed the launch");
     }
     chosen.hardware_acceleration = settings::HardwareAcceleration::off;
     apply_engine_settings(chosen);
     start_benchmark_skirmish_as_chosen();
-    require(enhanced_mode_version(*this) == 10, "a new skirmish lost the CLI preset");
-    const fs::path cohort_save = options_.preferences_file->parent_path() / "enhanced-cli-v10.sav";
-    require(save_match_game(cohort_save, "CLI Enhanced rules", 0), "CLI rules did not save");
-    // A real launch keeps its Options. This fixture changes the version,
-    // so resolve its pending profile explicitly while the live rules stay held.
-    options_.enhanced_mode_version = mode::following_flow_version;
+    require(enhanced_mode_choice(*this) == launched, "a new skirmish lost the launch's set");
+    const fs::path launched_save =
+        options_.preferences_file->parent_path() / "enhanced-launch-list.sav";
+    require(
+        save_match_game(launched_save, "Launch feature list", 0), "the launch's set did not save"
+    );
+    // A real launch keeps its Options. This fixture changes the list, so
+    // resolve its pending profile explicitly while the live rules stay held.
+    options_.enhanced_features = "-counterflow_queue_escape";
     apply_engine_settings(chosen);
     apply_hack_overrides();
     const auto* pending_profile = next_match_profile();
     require(
-        pending_profile != nullptr && mode::rules_version(pending_profile->rules) == 8,
-        "the pending profile did not take the synthetic CLI selection"
+        pending_profile != nullptr && mode::features(pending_profile->rules) == relaunched.features,
+        "the pending profile did not take the changed list"
     );
-    require(enhanced_mode_version(*this) == 10, "a live match changed its CLI rules");
+    require(enhanced_mode_choice(*this) == launched, "a live match changed its launch rules");
     leave_match();
     load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == 8, "the next game did not take the CLI selection");
-    require(load_saved_game(cohort_save), "the CLI v10 save did not load under v8");
-    require(enhanced_mode_version(*this) == 10, "the CLI downgraded saved v10 rules");
+    require(
+        enhanced_mode_choice(*this) == relaunched, "the next game did not take the changed list"
+    );
+    require(load_saved_game(launched_save), "the launch's save did not load under another list");
+    require(enhanced_mode_choice(*this) == launched, "another list replaced a saved set");
     leave_match();
     load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == 8, "leaving a saved match lost the CLI selection");
-    options_.enhanced_mode_version = mode::cohort_target_version;
+    require(enhanced_mode_choice(*this) == relaunched, "leaving a saved match lost the list");
+    options_.enhanced_features = "-idle_goal_skip";
     apply_engine_settings(chosen);
     apply_hack_overrides();
-    require(
-        enhanced_mode_version(*this) == 10, "the CLI fixture did not restore its v10 selection"
-    );
-    require(load_saved_game(enhanced_save), "the default save did not load under CLI v10");
-    require(enhanced_mode_choice(*this) == revision_one, "the CLI upgraded saved default rules");
+    require(enhanced_mode_choice(*this) == launched, "the fixture did not restore its first list");
+    require(load_saved_game(enhanced_save), "the default save did not load under a launch list");
+    require(enhanced_mode_choice(*this) == revision_one, "a launch list replaced saved Revision 1");
     leave_match();
     load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == 10, "leaving default save lost the CLI selection");
-    options_.enhanced_mode_version = mode::cohort_retention_version;
+    require(enhanced_mode_choice(*this) == launched, "leaving the default save lost the list");
+    options_.enhanced_features = "-dispatch_cohort_retention";
     apply_hack_overrides();
-    require(enhanced_mode_version(*this) == 11, "the CLI did not select retained cohort targets");
+    require(enhanced_mode_choice(*this) == retained, "the launch did not take a third list");
     const std::string retained_hash = simulation_hash(*this);
     require(
-        retained_hash != cohort_hash && retained_hash != enhanced_hash,
-        "retained cohort targets did not have a distinct rules identity"
+        retained_hash != launched_hash && retained_hash != enhanced_hash,
+        "a third list did not have a distinct rules identity"
     );
     for (const auto renderer : renderers) {
         chosen.hardware_acceleration = renderer;
         apply_engine_settings(chosen);
-        require(enhanced_mode_version(*this) == 11, "graphics changed preset 11");
-        require(simulation_hash(*this) == retained_hash, "graphics changed the v11 identity");
-    }
-    chosen.enhanced_mode = false;
-    apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == 0, "menu Off did not set v11 aside");
-    chosen.enhanced_mode = true;
-    apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == 11, "menu On lost preset 11");
-    for (const uint32_t held : {0u, 10u}) {
-        require(hold_enhanced_rules_once(held), "held rules could not override CLI v11");
-        require(enhanced_mode_version(*this) == held, "the CLI replaced held v10 or Off rules");
-        release_enhanced_rules_once(true);
-        require(enhanced_mode_version(*this) == 11, "releasing held rules lost CLI v11");
+        require(enhanced_mode_choice(*this) == retained, "graphics changed the third list");
+        require(simulation_hash(*this) == retained_hash, "graphics changed the third identity");
     }
     chosen.hardware_acceleration = settings::HardwareAcceleration::off;
     apply_engine_settings(chosen);
     start_benchmark_skirmish_as_chosen();
-    require(enhanced_mode_version(*this) == 11, "a new skirmish lost CLI v11");
-    const fs::path retained_save =
-        options_.preferences_file->parent_path() / "enhanced-cli-v11.sav";
-    require(save_match_game(retained_save, "Retained cohort targets", 0), "CLI v11 did not save");
-    options_.enhanced_mode_version = mode::cohort_target_version;
+    require(enhanced_mode_choice(*this) == retained, "a new skirmish lost the third list");
+    const fs::path retained_save = options_.preferences_file->parent_path() / "enhanced-third.sav";
+    require(save_match_game(retained_save, "Third feature list", 0), "the third list did not save");
+    options_.enhanced_features = "-idle_goal_skip";
     apply_hack_overrides();
     const auto* retained_pending = next_match_profile();
     require(
-        retained_pending != nullptr && mode::rules_version(retained_pending->rules) == 10,
-        "the pending profile did not return to CLI v10"
+        retained_pending != nullptr && mode::features(retained_pending->rules) == launched.features,
+        "the pending profile did not return to the first list"
     );
-    require(enhanced_mode_version(*this) == 11, "a live v11 match took the pending CLI rules");
+    require(enhanced_mode_choice(*this) == retained, "a live match took the pending list");
     leave_match();
     load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == 10, "leaving v11 did not return to CLI v10");
-    require(load_saved_game(retained_save), "a v11 save did not load under CLI v10");
-    require(enhanced_mode_version(*this) == 11, "CLI v10 downgraded a saved v11 match");
+    require(enhanced_mode_choice(*this) == launched, "leaving did not return to the first list");
+    require(load_saved_game(retained_save), "the third list's save did not load");
+    require(enhanced_mode_choice(*this) == retained, "the first list replaced a saved third set");
     leave_match();
     load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == 10, "leaving a v11 save lost CLI v10");
-    options_.enhanced_mode_version = mode::cohort_retention_version;
-    apply_hack_overrides();
-    require(enhanced_mode_version(*this) == 11, "the CLI fixture did not restore v11");
-    require(load_saved_game(cohort_save), "a v10 save did not load under CLI v11");
-    require(enhanced_mode_version(*this) == 10, "CLI v11 upgraded a saved v10 match");
-    leave_match();
-    load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == 11, "leaving a v10 save lost CLI v11");
-    options_.enhanced_mode_version = mode::cardinal_queue_escape_version;
-    apply_hack_overrides();
-    require(
-        enhanced_mode_version(*this) == mode::cardinal_queue_escape_version,
-        "the CLI did not select cardinal queue escape"
-    );
-    const std::string cardinal_hash = simulation_hash(*this);
-    require(
-        cardinal_hash != cohort_hash && cardinal_hash != retained_hash &&
-            cardinal_hash != enhanced_hash,
-        "cardinal queue escape did not have a distinct rules identity"
-    );
-    for (const auto renderer : renderers) {
-        chosen.hardware_acceleration = renderer;
-        apply_engine_settings(chosen);
-        require(
-            enhanced_mode_version(*this) == mode::cardinal_queue_escape_version &&
-                simulation_hash(*this) == cardinal_hash,
-            "graphics changed cardinal queue escape rules"
-        );
-    }
-    require(hold_enhanced_rules_once(mode::cohort_target_version), "v10 could not override v13");
-    require(enhanced_mode_version(*this) == mode::cohort_target_version, "v13 replaced held v10");
-    release_enhanced_rules_once(true);
-    require(
-        enhanced_mode_version(*this) == mode::cardinal_queue_escape_version,
-        "releasing held v10 lost CLI v13"
-    );
-    options_.enhanced_mode_version = 0;
+    require(enhanced_mode_choice(*this) == launched, "leaving the third save lost the first list");
+    options_.enhanced_features.reset();
     options_.enhanced_mode = false;
     chosen.enhanced_mode = false;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == 0, "CLI zero did not leave Enhanced Mode Off");
+    require(enhanced_mode_choice(*this) == off, "a launch Off did not leave Enhanced Mode Off");
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
     require(
         enhanced_mode_choice(*this) == revision_one,
-        "menu On after CLI zero did not select Revision 1"
+        "menu On after a launch Off did not select Revision 1"
     );
-    options_.enhanced_mode_version.reset();
     const std::string mode_key(settings::key::enhanced_mode);
     preference_values_[mode_key] = "1";
     options_.enhanced_mode = false;
@@ -958,10 +921,10 @@ void Runtime::check_enhanced_mode() {
     );
     preference_values_.erase(mode_key);
     options_.enhanced_mode = true;
-    options_.enhanced_mode_version = mode::cohort_target_version;
+    options_.enhanced_features = "-idle_goal_skip";
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == 10, "the CLI preference fixture lost its version");
+    require(enhanced_mode_choice(*this) == launched, "the preference fixture lost its list");
     require(
         !save_engine_settings(chosen, chosen, true),
         "Restore defaults could not write an absent preference"
@@ -969,11 +932,12 @@ void Runtime::check_enhanced_mode() {
     written = oa::platform::preferences::load(*options_.preferences_file);
     require(!written.contains(mode_key), "a command-line On was stored as a preference");
     options_.enhanced_mode = command_line_mode;
-    options_.enhanced_mode_version = command_line_version;
+    options_.enhanced_revision = command_line_revision;
+    options_.enhanced_features = command_line_features;
     apply_engine_settings(kept);
     // A later game's revision, or a feature id this build does not know, is
     // refused with the stored version. The reader does not guess one.
-    const uint32_t rules_before = enhanced_mode_version(*this);
+    const mode::Choice rules_before = enhanced_mode_choice(*this);
     const std::string version_line = [] {
         std::string text = mode::refusal_needs_version("0.9.4");
         const auto token = text.find("{version}");
@@ -1008,7 +972,7 @@ void Runtime::check_enhanced_mode() {
         );
         require(!load_saved_game(save), "a future save was accepted");
         require(status_ == *future.line, "a future save used the wrong refusal");
-        require(enhanced_mode_version(*this) == rules_before, "a future save changed the rules");
+        require(enhanced_mode_choice(*this) == rules_before, "a future save changed the rules");
         const fs::path recording = future_dir / (std::string{future.name} + ".tad");
         const std::vector<uint8_t> bytes =
             future_recording(future.revision, future.feature_bits, future.packed_version);
@@ -1036,8 +1000,61 @@ void Runtime::check_enhanced_mode() {
             std::cerr << "future recording refusal: " << message << '\n';
         require(message == *future.line, "a future recording used the wrong refusal");
         require(
-            enhanced_mode_version(*this) == rules_before, "a future recording changed the rules"
+            enhanced_mode_choice(*this) == rules_before, "a future recording changed the rules"
         );
+    }
+
+    // A withdrawn feature is one this build knows and will not play: a save or
+    // recording naming one is refused as unusable, not as a later game's.
+    {
+        const mode::FeatureSet withdrawn_set =
+            revision_one.features.with(first_withdrawn_feature());
+        const std::string problem = mode::feature_set_problem(withdrawn_set);
+        std::vector<uint32_t> withdrawn_ids;
+        for (const mode::FeatureInfo& row : mode::feature_table())
+            if (withdrawn_set.has(row.id))
+                withdrawn_ids.push_back(static_cast<uint32_t>(row.id));
+        const fs::path save = future_dir / "withdrawn-feature.sav";
+        rewrite_enhanced_account(enhanced_save, save, 1, withdrawn_ids, "0.9.3");
+        require(!load_saved_game(save), "a save naming a withdrawn feature was accepted");
+        if (status_ != "Invalid savegame file: " + problem)
+            std::cerr << "withdrawn save refusal: " << status_ << '\n';
+        require(
+            status_ == "Invalid savegame file: " + problem,
+            "a save naming a withdrawn feature used the wrong refusal"
+        );
+        require(enhanced_mode_choice(*this) == rules_before, "a withdrawn save changed the rules");
+        const fs::path recording = future_dir / "withdrawn-feature.tad";
+        const std::vector<uint8_t> bytes = future_recording(
+            1, mode::sector_feature_bits(withdrawn_set), mode::packed_engine_version("0.9.3")
+        );
+        {
+            std::ofstream out(recording, std::ios::binary);
+            require(static_cast<bool>(out), "the withdrawn recording file did not open");
+            out.write(
+                reinterpret_cast<const char*>(bytes.data()),
+                static_cast<std::streamsize>(bytes.size())
+            );
+            require(static_cast<bool>(out), "the withdrawn recording file did not write");
+        }
+        netgame_context().staged_recording =
+            StagedRecording{oa::platform::path_to_utf8(recording.filename()), bytes, false};
+        std::string message;
+        try {
+            NetworkPlay::of(*this).start_demo_playback();
+        } catch (const std::runtime_error& playback_error) {
+            message = playback_error.what();
+        }
+        if (message != "demo playback: " + problem)
+            std::cerr << "withdrawn recording refusal: " << message << '\n';
+        require(
+            message == "demo playback: " + problem,
+            "a recording naming a withdrawn feature used the wrong refusal"
+        );
+        require(
+            enhanced_mode_choice(*this) == rules_before, "a withdrawn recording changed the rules"
+        );
+        std::puts("Enhanced Mode: a save and a recording naming a withdrawn feature are unusable");
     }
 
     // A mutator's hack check reads the choice new games play. A planned hack
@@ -1046,7 +1063,6 @@ void Runtime::check_enhanced_mode() {
         leave_match();
     release_enhanced_rules_once(false);
     const auto kept_mode = options_.enhanced_mode;
-    const auto kept_version = options_.enhanced_mode_version;
     const auto kept_revision = options_.enhanced_revision;
     const auto kept_features = options_.enhanced_features;
     const oa::data::mutators::MutatorHack feature_hack{
@@ -1066,7 +1082,6 @@ void Runtime::check_enhanced_mode() {
         require(probed.has_value() && *probed == wanted, "a mutator changed the match's set");
     };
     options_.enhanced_mode = true;
-    options_.enhanced_mode_version.reset();
     options_.enhanced_revision = mode::highest_revision;
     options_.enhanced_features.reset();
     {
@@ -1079,20 +1094,19 @@ void Runtime::check_enhanced_mode() {
         "Revision 1 was not the mutator check's choice"
     );
     options_.enhanced_revision.reset();
-    options_.enhanced_features.reset();
-    options_.enhanced_mode_version = mode::following_flow_version;
+    options_.enhanced_features = "-counterflow_queue_escape";
     expect_set(
-        mode::Choice{1, mode::version_features(mode::following_flow_version)},
-        "the alias set was not the mutator check's choice"
+        without(mode::Feature::counterflow_queue_escape),
+        "a launch's feature list was not the mutator check's choice"
     );
     options_.enhanced_mode = kept_mode;
-    options_.enhanced_mode_version = kept_version;
     options_.enhanced_revision = kept_revision;
     options_.enhanced_features = kept_features;
     apply_hack_overrides();
-    std::puts("Enhanced Mode: mutator checks keep Revision 1 and an alias set");
+    std::puts("Enhanced Mode: mutator checks keep Revision 1 and a launch's feature list");
     std::puts(
-        "Enhanced Mode: preset, graphics independence, frozen matches and save restoration passed"
+        "Enhanced Mode: revision, graphics independence, frozen matches and save restoration "
+        "passed"
     );
 }
 

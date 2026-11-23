@@ -360,11 +360,6 @@ struct PlayHostAccess {
         return runtime.hold_enhanced_rules_once(choice);
     }
 
-    /// Holds recorded mode rules through the application's existing access boundary.
-    static bool hold_mode(Runtime& runtime, uint32_t version) {
-        return runtime.hold_enhanced_rules_once(version);
-    }
-
     /// Releases recorded mode rules through the application's existing access boundary.
     static void release_mode(Runtime& runtime) noexcept {
         runtime.release_enhanced_rules_once(true);
@@ -1512,18 +1507,8 @@ oa::data::enhanced_mode::Choice enhanced_mode_choice(const Runtime& runtime) noe
     return {static_cast<uint32_t>(mode.revision), oa::data::enhanced_mode::stored_features(mode)};
 }
 
-uint32_t enhanced_mode_version(const Runtime& runtime) noexcept {
-    // Restructure only; removed in R09.
-    const auto* profile = runtime.mod_profile();
-    return profile != nullptr ? oa::data::enhanced_mode::rules_version(profile->rules) : 0;
-}
-
 bool hold_enhanced_mode_once(Runtime& runtime, const oa::data::enhanced_mode::Choice& choice) {
     return PlayHostAccess::hold_mode(runtime, choice);
-}
-
-bool hold_enhanced_mode_once(Runtime& runtime, uint32_t version) {
-    return PlayHostAccess::hold_mode(runtime, version);
 }
 
 void cancel_enhanced_mode_once(Runtime& runtime) noexcept {

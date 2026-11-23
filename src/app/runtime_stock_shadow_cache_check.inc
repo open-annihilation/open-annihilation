@@ -30,9 +30,10 @@
         );
         constexpr int32_t stock_view_margin_x = 256;
         constexpr int32_t stock_view_margin_z = 768;
-        for (const auto version : {mode::cohort_target_version, mode::cohort_retention_version}) {
+        {
+            const std::string_view rules_name = "Revision 1";
             for (const std::string_view stock_name : {"ARMPW", "CORAK", "ARMPW+CORAK"}) {
-                start_ground_match(version, "Core Prime Industrial Area");
+                start_ground_match("Core Prime Industrial Area");
                 enter_console_check_line("+nowisee");
                 clear_local_selection();
                 const bool mixed = stock_name == "ARMPW+CORAK";
@@ -377,7 +378,7 @@
                                 unit != nullptr ? unit->position : oa::FixedVec3{}
                             );
                             std::cout << "stock shadow foreign draw: stock=" << stock_name
-                                      << " rules=" << version << " type=" << foreign_type
+                                      << " rules=" << rules_name << " type=" << foreign_type
                                       << " name="
                                       << (foreign_type < spawn_type_names_.size()
                                               ? std::string_view{spawn_type_names_[foreign_type]}
@@ -575,7 +576,7 @@
                     saw_cold && saw_upload && saw_hit,
                     "real stock casters did not upload and reuse GPU shadow templates"
                 );
-                std::cout << "stock shadow cache: type=" << stock_name << " rules=" << version
+                std::cout << "stock shadow cache: type=" << stock_name << " rules=" << rules_name
                           << " actors=" << actors.size() << " moving_animated=" << animated_count
                           << " cold_logical=" << cold.logical_indices
                           << " upload_words=" << uploaded.template_uploaded_indices

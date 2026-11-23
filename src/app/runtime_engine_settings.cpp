@@ -1549,16 +1549,6 @@ bool Runtime::hold_enhanced_rules_once(const oa::data::enhanced_mode::Choice& ch
     }
 }
 
-bool Runtime::hold_enhanced_rules_once(uint32_t version) {
-    // Restructure only; removed in R09.
-    namespace mode = oa::data::enhanced_mode;
-    if (!mode::supported_version(version))
-        return false;
-    if (version == mode::off_version)
-        return hold_enhanced_rules_once(mode::Choice{});
-    return hold_enhanced_rules_once(mode::Choice{1, mode::version_features(version)});
-}
-
 void Runtime::release_enhanced_rules_once(bool restore_previous) noexcept {
     if (!engine_settings_ || !engine_settings_->restored_enhanced_choice)
         return;
@@ -1724,14 +1714,6 @@ void Runtime::apply_hack_overrides() {
         choice = mode::Choice{revision, features};
     } else if (!settings.enhanced_mode) {
         choice = {};
-    } else if (options_.enhanced_mode_version && *options_.enhanced_mode_version != 0) {
-        // Restructure only; removed in R09.
-        const uint32_t requested = *options_.enhanced_mode_version;
-        if (!mode::supported_version(requested))
-            throw std::runtime_error(
-                "unsupported Enhanced Mode rules version " + std::to_string(requested)
-            );
-        choice = mode::Choice{1, mode::version_features(requested)};
     } else {
         choice =
             mode::Choice{mode::highest_revision, mode::revision_features(mode::highest_revision)};
