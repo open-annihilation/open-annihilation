@@ -18,8 +18,6 @@ struct LocalFlowBlocker {
     uint16_t unit_id{};
     uint16_t heading{};
     uint32_t waiting_ticks{};
-    /// Transient proof of a compatible leader within the caller's traffic grace period.
-    bool same_route_queue{};
 };
 
 /// Counts local traffic work and its movement outcomes.
