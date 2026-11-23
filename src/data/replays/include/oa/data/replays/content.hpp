@@ -181,6 +181,12 @@ struct ContentGap {
     bool any_release{};
 };
 
+/// The id of the game's own profile of the base game, played with no mod. A
+/// game with no mod names it as its mod when its rules were resolved, as
+/// Enhanced Mode resolves them. Every installation holds it, so a replay
+/// that names it needs no package for it.
+inline constexpr std::string_view base_game_mod_id = "base-game";
+
 /// The Recordings folder that holds the files of games played without a mod.
 inline constexpr std::string_view no_mod_recordings_folder = "default";
 
@@ -200,6 +206,7 @@ inline constexpr std::string_view default_id_recordings_folder = "default (mod)"
 
 /// Compares a replay's needs with what is installed and what a registry lists.
 ///
+/// A need for the mod base_game_mod_id is never a gap: the game holds it.
 /// A package is fetched only when `listed` names its SHA-256 as `listed`.
 /// An expansion is also fetched when `listed` names that id as `listed`,
 /// because a manifest names an expansion by id and not by a digest. A
