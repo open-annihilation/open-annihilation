@@ -9,7 +9,6 @@
 #include "oa/sim/ground_orders/shared_routes.hpp"
 #include "static_passability_memo.hpp"
 #include "order_ownership.hpp"
-#include "advisory_flow.hpp"
 #include "ai_retarget.hpp"
 
 namespace oa::sim::match_runtime {
@@ -38,9 +37,6 @@ builds_shared_routes(data::enhanced_mode::FeatureSet features) noexcept {
 
 /// Preallocated v2 navigation and query storage, outside packed world records.
 struct Match::EnhancedState {
-    /// Prepares shared bounded work once for the match's current simulation tick.
-    void prepare_advisory_tick(Match& match);
-
     /// Advances bounded target-loss checks before a built-in controller runs.
     ///
     /// @param[in,out] match the match and its canonical computer tasks
@@ -88,7 +84,6 @@ struct Match::EnhancedState {
     bool air_goal_cleanup_required{};
     std::unique_ptr<StaticPassabilityMemo> static_passability_memo{};
     std::unique_ptr<OrderOwnershipIndex> order_ownership{};
-    std::unique_ptr<AdvisoryFlowData> advisory{};
     AiRetargetState ai_retarget{};
 };
 

@@ -783,7 +783,6 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
          environment_wind_.normalized_strength}
     );
     build_movement_maps();
-    initialize_advisory_flow();
     add_allied_sight_state();
 }
 
@@ -820,11 +819,7 @@ EnhancedCounters Match::enhanced_counters() const noexcept {
 const sim::unit_movement::LocalFlowHead* Match::local_flow_head(uint16_t unit) const noexcept {
     if (!enhanced_ || !enhanced_features_.has(Feature::local_flow) || unit >= enhanced_->unit_count)
         return nullptr;
-    const auto* head = &enhanced_->local_flow_heads[unit];
-    if (!head->active && enhanced_features_.has(Feature::corridor_lanes) && enhanced_->advisory &&
-        enhanced_->advisory->published_guides[unit].active)
-        return &enhanced_->advisory->published_guides[unit];
-    return head;
+    return &enhanced_->local_flow_heads[unit];
 }
 
 void Match::note_wind(sim::world_environment::WindRefresh result) noexcept {
@@ -936,8 +931,6 @@ std::size_t Match::event_listener_count() const noexcept {
 }
 
 void Match::report_created(const sim::unit_spawn::Slot* slot, bool finished, uint16_t builder) {
-    if (slot != nullptr)
-        reset_advisory_unit(slot->unit_index);
     if (enhanced_ && slot != nullptr && slot->unit_index < enhanced_->unit_count) {
         enhanced_->local_flow_heads[slot->unit_index] = {};
         const auto* ground = ground_runtime(slot->unit_index);
