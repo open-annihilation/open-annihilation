@@ -13,16 +13,13 @@
 
 namespace oa::sim::match_runtime {
 
-/// Tells whether a feature set builds shared routes, with any of the three
-/// route builders.
+/// Tells whether a feature set builds shared routes.
 ///
 /// @param features the match's Enhanced Mode features
-/// @return true when the set holds a route builder
+/// @return true when the set holds routes_fine_regions
 [[nodiscard]] constexpr bool
 builds_shared_routes(data::enhanced_mode::FeatureSet features) noexcept {
-    return features.has(data::enhanced_mode::Feature::routes_original) ||
-           features.has(data::enhanced_mode::Feature::routes_large_regions) ||
-           features.has(data::enhanced_mode::Feature::routes_fine_regions);
+    return features.has(data::enhanced_mode::Feature::routes_fine_regions);
 }
 
 /// Tells whether a feature set indexes its target, sighting and order

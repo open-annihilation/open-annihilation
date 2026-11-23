@@ -13,10 +13,12 @@
 
 namespace oa::sim::ground_orders {
 namespace {
-constexpr uint32_t magic = 0x3246414f, original_format = 1, regional_format = 2, fine_format = 3;
-constexpr uint32_t original_stride = 4, fine_stride = 2;
-constexpr uint32_t original_region = 32, large_region = 96;
-constexpr uint32_t original_prefix_edges = 128, regional_prefix_edges = 16, fine_prefix_edges = 32;
+/// The saved state's magic and format: format 3 is the fine regional grid, and
+/// restore refuses any other.
+constexpr uint32_t magic = 0x3246414f, fine_format = 3;
+constexpr uint32_t fine_stride = 2;
+constexpr uint32_t large_region = 96;
+constexpr uint32_t fine_prefix_edges = 32;
 constexpr size_t goal_branch_capacity = 512;
 constexpr uint32_t fine_anchor_offset = fine_stride + fine_stride / 2;
 constexpr uint32_t fine_anchor_probe_bound = 9 * (1 + 3 * fine_anchor_offset);
@@ -218,12 +220,7 @@ bool static_flow_passable(
 }
 
 FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
-    : FlowCache(width, height, limits, FlowPreset::original) {
-}
-
-FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits, FlowPreset preset)
-    : width_(width), height_(height),
-      stride_(preset == FlowPreset::fine_regions ? fine_stride : original_stride),
+    : width_(width), height_(height), stride_(fine_stride),
       columns_(width / stride_ + (width % stride_ != 0)),
       rows_(height / stride_ + (height % stride_ != 0)), work_per_tick_(limits.work_per_tick),
       route_probes_per_tick_(limits.route_probes_per_tick) {
@@ -238,12 +235,7 @@ FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits, FlowPre
     state_ = std::make_unique<uint8_t[]>(state_size_);
     restore_marks_ = std::make_unique<uint8_t[]>(cells_);
     put32(state_.get(), magic);
-    put32(
-        state_.get() + 4,
-        preset == FlowPreset::fine_regions
-            ? fine_format
-            : (preset == FlowPreset::large_regions ? regional_format : original_format)
-    );
+    put32(state_.get() + 4, fine_format);
     put32(state_.get() + 8, width_);
     put32(state_.get() + 12, height_);
     put32(state_.get() + 16, fields_);
@@ -441,13 +433,7 @@ FlowResult FlowCache::route(
         static_cast<uint32_t>(unit.cell_x) >= width_ ||
         static_cast<uint32_t>(unit.cell_z) >= height_)
         return fallback();
-    const auto format = get32(state + 4);
-    const bool regional = format != original_format;
-    const auto region = regional ? large_region : original_region;
-    const auto prefix_edges = format == fine_format
-                                  ? fine_prefix_edges
-                                  : (regional ? regional_prefix_edges : original_prefix_edges);
-    const auto key = make_key(context, goal, region);
+    const auto key = make_key(context, goal, large_region);
     if (!valid_key(key.data()) || context.static_revision != get32(state + 36))
         return fallback();
     uint8_t* selected = nullptr;
@@ -488,7 +474,7 @@ FlowResult FlowCache::route(
             }
             // A completed fine field must survive a delayed cohort's poll
             // before another destination can reuse its bounded storage.
-            if (format == fine_format && phase == complete &&
+            if (phase == complete &&
                 get32(state + 32) - get32(f + completed_tick_offset) < completed_admission_grace)
                 continue;
             if ((phase == complete || phase == failed) && get32(f + 64) <= oldest) {
@@ -570,7 +556,9 @@ FlowResult FlowCache::route(
         return budget.exhausted || phase == building ? wait() : fallback();
     std::array<uint32_t, goal_branch_capacity> goal_branch;
     size_t goal_branch_count{};
-    if (format == fine_format) {
+    {
+        // The goal's own branch of the tree, when the root's chord to the
+        // goal is blocked.
         const auto seed = get32(selected + 48);
         const auto root_x = static_cast<int32_t>(seed % columns_) * static_cast<int32_t>(stride);
         const auto root_z = static_cast<int32_t>(seed / columns_) * static_cast<int32_t>(stride);
@@ -648,7 +636,7 @@ FlowResult FlowCache::route(
     if (has_start_anchor)
         points[count++] = point_at(x, z, context);
     const auto ready = [&]() {
-        bool can_prune_corner = regional && !has_start_anchor;
+        bool can_prune_corner = !has_start_anchor;
         if (has_start_anchor && count >= 3 &&
             points[2] != point_at(goal.cell[0], goal.cell[1], context)) {
             constexpr int32_t cell_width = 16, half_cell = cell_width / 2;
@@ -668,7 +656,7 @@ FlowResult FlowCache::route(
                 line_clear(bounded, key.data(), unit.cell_x, unit.cell_z, to_x, to_z)) {
                 std::move(points.begin() + 2, points.begin() + count, points.begin() + 1);
                 --count;
-                can_prune_corner = regional;
+                can_prune_corner = true;
             }
         }
         if (can_prune_corner && count >= 3) {
@@ -701,7 +689,7 @@ FlowResult FlowCache::route(
         return FlowResult::ready;
     };
     uint8_t previous = unseen;
-    for (uint32_t walked = 0; walked < prefix_edges; ++walked) {
+    for (uint32_t walked = 0; walked < fine_prefix_edges; ++walked) {
         auto direction = directions[node];
         const auto branch_end = goal_branch.begin() + goal_branch_count;
         const auto branch = std::find(goal_branch.begin(), branch_end, static_cast<uint32_t>(node));
@@ -717,8 +705,8 @@ FlowResult FlowCache::route(
             direction = static_cast<uint8_t>((child_direction + 4) % 8);
         }
         if (direction == root || at_requested_anchor ||
-            (static_cast<uint32_t>(x) / region == get32(key.data() + 28) &&
-             static_cast<uint32_t>(z) / region == get32(key.data() + 32))) {
+            (static_cast<uint32_t>(x) / large_region == get32(key.data() + 28) &&
+             static_cast<uint32_t>(z) / large_region == get32(key.data() + 32))) {
             if (line_clear(bounded, key.data(), x, z, goal.cell[0], goal.cell[1])) {
                 const auto corner = point_at(x, z, context);
                 if (points[count - 1] != corner) {
@@ -752,16 +740,11 @@ FlowResult FlowCache::route(
                 count = 0;
                 return wait();
             }
-            if (regional) {
-                // Preserve the other legal branches and unfinished work.
-                // The bounded dirty-field refresh replaces this tree later.
-                if (get32(selected + dirty_offset) == 0) {
-                    put32(selected + dirty_offset, 1);
-                    put32(selected + dirty_since_offset, get32(state + 32));
-                }
-            } else {
-                put32(selected, empty);
-                increment(state, 6);
+            // Preserve the other legal branches and unfinished work. The
+            // bounded dirty-field refresh replaces this tree later.
+            if (get32(selected + dirty_offset) == 0) {
+                put32(selected + dirty_offset, 1);
+                put32(selected + dirty_since_offset, get32(state + 32));
             }
             count = 0;
             return fallback();
@@ -776,7 +759,7 @@ FlowResult FlowCache::route(
         node = (z / static_cast<int32_t>(stride)) * static_cast<int32_t>(columns_) +
                x / static_cast<int32_t>(stride);
         previous = direction;
-        if (walked + 1 == prefix_edges || count >= points.size() - 1) {
+        if (walked + 1 == fine_prefix_edges || count >= points.size() - 1) {
             if (count < points.size())
                 points[count++] = point_at(x, z, context);
             break;
@@ -818,10 +801,9 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
         get32(bytes.data() + 60) > route_probes_per_tick_ || get32(bytes.data() + 48) > 1 ||
         (fields_ != 0 && get32(bytes.data() + 40) >= fields_))
         return false;
-    const bool regional = get32(state_.get() + 4) != original_format;
     const auto valid_region = [&](const uint8_t* key) {
-        return !regional || (uint64_t{get32(key + 28)} * large_region < width_ &&
-                             uint64_t{get32(key + 32)} * large_region < height_);
+        return uint64_t{get32(key + 28)} * large_region < width_ &&
+               uint64_t{get32(key + 32)} * large_region < height_;
     };
     for (uint32_t i = 0; i < admission_count; ++i) {
         const auto* entry = bytes.data() + header_size + i * admission_size;
@@ -839,7 +821,7 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
         if (phase != empty && (get32(f + 12) != get32(bytes.data() + 36) ||
                                get32(f + 40) >= width_ || get32(f + 44) >= height_))
             return false;
-        if (regional && phase != empty &&
+        if (phase != empty &&
             (!valid_region(f + 4) || get32(f + 40) / large_region != get32(f + 32) ||
              get32(f + 44) / large_region != get32(f + 36)))
             return false;
