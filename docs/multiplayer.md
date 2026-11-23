@@ -14,3 +14,12 @@ While a seat is free, a player who arrives takes it at once. The seat they
 take, and the messages the room sends, are the ones sent for any arrival.
 The map and the options a waiting player had already sent are there when
 they sit down.
+
+The host's Enhanced Mode switch, in the strip right of BATTLE ROOM, chooses
+Off or Revision 1 for the room. It starts from the host's setting. A
+Boneyards room starts Off, and the player who created the battle may turn
+it on, a matchmade battle and a QuickPlay battle included. A launch that
+locks the room's options keeps it Off. A machine without Enhanced Mode makes
+the room Off, and the room names that player.
+[Enhanced Mode](enhanced-mode.md#battle-rooms) says how the room picks the
+revision.

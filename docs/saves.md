@@ -55,6 +55,15 @@ stockpile, up to 200. After loading, the silo holds the round and can
 launch it again. The missile does not land. A save made with nothing of
 the kind in flight is the same file 3.1c writes.
 
+A saved game played with Enhanced Mode also keeps that choice: the revision
+and the features, and the first engine release that plays them. A save with
+the mode off keeps no such record, and a save that has none loads as Off.
+Loading does not change the setting for the next new game. A revision or a
+feature this build does not play is refused, and the refusal names the
+release the save stored when it stored one: "This game needs Open
+Annihilation {version} or later."
+[Enhanced Mode](enhanced-mode.md#saved-and-recorded-games) has the account.
+
 ## Repairs in games from 0.8.6 or earlier
 
 From 0.8.7 a repair costs the unit doing the repairing, as in 3.1c. A

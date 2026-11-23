@@ -814,9 +814,8 @@ installed or restored air goal sets it permanently. Deaths can skip the
 order, mirrored-goal and arrived-goal sweeps only before that flag is set;
 Without the indexed searches the sweeps stay unconditional. The flag and target membership
 index are private derived state, outside the saved navigation tables and
-shared hashes. Isolated 20,000-unit CPU measurements and the remaining
-installed-map congestion are described in
-[Enhanced Mode](../../../docs/enhanced-mode.md#congestion-and-cpu-checkpoint).
+shared hashes. How a whole battle's searches are measured is in
+[Enhanced Mode](../../../docs/enhanced-mode.md#measuring-battles).
 
 `exact_indexed_searches` also preallocates `OrderOwnershipIndex` for order lookup, ownership slots
 and observer-list certificates. Deletion destroys an order immediately and

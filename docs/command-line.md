@@ -247,17 +247,18 @@ renderer needs Full hardware acceleration and a graphics card SDL can draw
 on through Metal or Vulkan. See the [preview notes](development/pluggable-renderers.md#interactive-skirmish-preview)
 for limitations and a weapon-effect test recipe.
 
-For a skirmish or campaign on Revision 1 with one feature added, run:
+For a skirmish or campaign on Revision 1 with one of its features left out,
+run:
 
 ```sh
-./run.sh --skip-intro --enhanced-revision 1 --enhanced-features +cardinal_queue_escape --hardware-acceleration=full
+./run.sh --skip-intro --enhanced-revision 1 --enhanced-features -route_corner_advance --hardware-acceleration=full
 ```
 
-`--enhanced-features -swept_ground_steps` removes that feature from the
-revision. An absolute list such as `capacity,local_flow` names the whole
-set. A battle room refuses a feature list: `--enhanced-features` is for
-skirmishes, campaigns and benchmarks; a battle room plays a revision. The
-same applies to `--enhanced-revision` below the highest revision.
+An absolute list such as `capacity,local_flow` names the whole set. A name
+this build will not play is refused. A battle room refuses a feature list:
+`--enhanced-features` is for skirmishes, campaigns and benchmarks; a battle
+room plays a revision. The same applies to `--enhanced-revision` below the
+highest revision.
 
 This opens the normal frontend. Start a Skirmish or campaign as usual;
 the match starts in the classic 2.5D view, and the camera controls above
@@ -1942,7 +1943,7 @@ For an A/B comparison, repeat the same command with each feature set:
 ```sh
 ./run.sh --game-dir "/path/to/Total Annihilation" --enhanced-mode \
   --battle-benchmark /tmp/oa-group.json --enhanced-revision 1 \
-  --enhanced-features +cardinal_queue_escape \
+  --enhanced-features -route_corner_advance \
   --benchmark-scenario group-march --benchmark-map "Core Prime Industrial Area" \
   --benchmark-units 1000 --benchmark-warmup 30 --match-ticks 600 --seed 7
 ```
