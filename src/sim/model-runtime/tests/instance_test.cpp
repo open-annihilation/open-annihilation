@@ -419,7 +419,7 @@ void check_root_prefix_transforms() {
             std::bit_cast<int32_t>(0U - uint32_t(angle) * 2246822519U)
         };
         const RotationWords root{-40, static_cast<int16_t>(angle), 421};
-        const auto oracle = scalar_old_rebuild(receiver, root);
+        const auto reference = scalar_old_rebuild(receiver, root);
         require(receiver.root_transforms_changed(root), "a changed root was called incremental");
         transform_allocations = 0;
         watch_transform_allocations = true;
@@ -427,7 +427,7 @@ void check_root_prefix_transforms() {
         watch_transform_allocations = false;
         require(reused && transform_allocations == 0, "a root prefix missed or allocated");
         require(
-            same_transforms(receiver, oracle), "a final root plane differs from the scalar walk"
+            same_transforms(receiver, reference), "a final root plane differs from the scalar walk"
         );
         require(
             receiver.owner_token() == 91 && !receiver.transforms_dirty() &&
@@ -479,7 +479,7 @@ void check_root_prefix_transforms() {
     refused(empty, prefix, last_root);
 
     // An eleven-level chain plus an untransformed root sibling. Lower poses
-    // vary independently; the oracle uses neither prefix API nor fast rotations.
+    // vary independently; the reference uses neither prefix API nor fast rotations.
     constexpr uint32_t count = 12, loose = count - 1;
     auto deep_model = std::make_shared<oa::formats::objects3d::Model>();
     deep_model->objects.resize(count);
@@ -514,10 +514,10 @@ void check_root_prefix_transforms() {
         deep.pieces()[ri].translation = {highest, lowest, highest};
         deep.pieces()[ri].rotation.xz = word(frame * 691);
         const RotationWords wanted{built_root.xy, word(frame * 977), built_root.yz};
-        const auto oracle = scalar_old_rebuild(deep, wanted);
+        const auto reference = scalar_old_rebuild(deep, wanted);
         require(deep.reuse_root_prefix_transforms(saved, wanted), "a deep prefix was refused");
         require(
-            same_transforms(deep, oracle), "a deep wrapped prefix differs from the scalar walk"
+            same_transforms(deep, reference), "a deep wrapped prefix differs from the scalar walk"
         );
         require(!deep.root_transforms_changed(wanted), "a reused deep root remains dirty");
         uint32_t child{};
@@ -531,13 +531,13 @@ void check_root_prefix_transforms() {
         auto changed_root = wanted;
         changed_root.xz = cancelled(changed_prefix.pieces()[ri].rotation.xz);
         changed_prefix.rebuild_transforms(changed_root, true);
-        const auto partial_oracle = scalar_old_rebuild(deep, wanted);
+        const auto partial_reference = scalar_old_rebuild(deep, wanted);
         require(
             deep.reuse_root_prefix_transforms(changed_prefix, wanted),
             "partial dirty prefix refused"
         );
         require(
-            same_transforms(deep, partial_oracle), "partial dirty prefix changed kept geometry"
+            same_transforms(deep, partial_reference), "partial dirty prefix changed kept geometry"
         );
     }
 }
