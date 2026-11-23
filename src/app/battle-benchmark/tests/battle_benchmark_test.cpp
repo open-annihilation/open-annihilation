@@ -332,9 +332,9 @@ void reports() {
     report.goal_progress[0].progressed_units = 23;
     report.activity_observed = true;
     report.enhanced_mode = true;
-    report.enhanced_version = 1;
     report.enhanced_revision = 1;
     report.enhanced_features = {"capacity", "local_flow"};
+    report.enhanced_features_spec = "-idle_goal_skip";
     report.simulation_hash = "hash";
     report.world_digest = "digest";
     report.ticks.mean_ns = 1.5;
@@ -370,12 +370,11 @@ void reports() {
     CHECK(json.find("\"movement\": {\"count\": 2, \"min\": 2") != std::string::npos);
     CHECK(json.find("\"phase\\\"name\":") != std::string::npos);
     CHECK(json.find("\"successful_ticks\": 100") != std::string::npos);
-    CHECK(json.find("\"enhanced_version\": 1") != std::string::npos);
     CHECK(json.find("\"enhanced_revision\": 1") != std::string::npos);
     CHECK(json.find("\"enhanced_features\": [\"capacity\", \"local_flow\"]") != std::string::npos);
-    CHECK(json.find("\"enhanced_features_spec\": \"\"") != std::string::npos);
-    const std::string chose_features = std::string("\"enhanced_features_") + "override\": false";
-    CHECK(json.find(chose_features) != std::string::npos);
+    CHECK(json.find("\"enhanced_features_spec\": \"-idle_goal_skip\"") != std::string::npos);
+    CHECK(json.find("\"enhanced_version\"") == std::string::npos);
+    CHECK(json.find("_override\"") == std::string::npos);
     CHECK(json.find("\"data_faults\": 0") != std::string::npos);
     CHECK(json.find("\"moved_unit_ticks\": 40") != std::string::npos);
     CHECK(json.find("\"damaged_unit_ticks\": 3") != std::string::npos);

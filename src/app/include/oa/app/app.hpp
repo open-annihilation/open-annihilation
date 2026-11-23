@@ -407,9 +407,6 @@ struct Options {
     std::optional<std::size_t> benchmark_frames;
     /// Overrides Enhanced Mode for this run; absent uses the stored choice.
     std::optional<bool> enhanced_mode{};
-    /// Selects a new game's Enhanced preset for this run; saved games keep their own version.
-    /// Development alias, removed before release.
-    std::optional<uint32_t> enhanced_mode_version{};
     /// One-session Enhanced Mode revision, from 1 to the highest this build plays.
     std::optional<uint32_t> enhanced_revision{};
     /// A feature list for this launch: names, or items that each start with + or -.
@@ -420,14 +417,6 @@ struct Options {
     std::size_t benchmark_units{128};
     /// Simulation ticks run before measurements begin.
     std::size_t benchmark_warmup{30};
-    /// Explicit Enhanced rules version for a benchmark; zero uses the selected mode.
-    uint32_t benchmark_rules_version{};
-    /// Text of --benchmark-features, or empty when that flag was not given.
-    std::string benchmark_features_spec{};
-    /// The closed set --benchmark-features names. Set only with the spec.
-    std::optional<oa::data::enhanced_mode::FeatureSet> benchmark_features{};
-    /// The switch that last turned Enhanced Mode off on this line, if one did.
-    std::string enhanced_mode_off_switch{};
     /// Workload: idle, march, group-march, combat or stage.
     std::string benchmark_scenario{"combat"};
     /// Map selected explicitly instead of the remembered skirmish choice.

@@ -269,8 +269,6 @@ revision. A benchmark takes the same two flags, and a `--bench` file takes
 `enhanced_revision` and `enhanced_features`. Either one applies to that
 measured match.
 
-Development aliases (removed before release): `--enhanced-mode-version` and `--benchmark-rules-version`. `--benchmark-features SPEC` plays a closed feature set in a battle benchmark only (a base such as `v13` or a list of names, then `+name` and `-name`); it cannot be combined with `--enhanced-revision` or `--enhanced-features`.
-
 ### Network play
 
 | Option | What it does |

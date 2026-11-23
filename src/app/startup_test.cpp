@@ -843,7 +843,7 @@ void prototype_root_prefix_options() {
     expect(
         requested.hardware_acceleration == plain.hardware_acceleration &&
             requested.enhanced_mode == plain.enhanced_mode &&
-            requested.enhanced_mode_version == plain.enhanced_mode_version &&
+            requested.enhanced_revision == plain.enhanced_revision &&
             requested.experimental_3d == plain.experimental_3d,
         "the root-prefix request leaves renderer, camera and game-rule choices unchanged"
     );
@@ -858,138 +858,17 @@ void prototype_root_prefix_options() {
     expect(
         disabled.prototype_root_prefix &&
             disabled.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::off &&
-            disabled.enhanced_mode == false && !disabled.enhanced_mode_version,
+            disabled.enhanced_mode == false && !disabled.enhanced_revision,
         "an unqualified renderer or game mode does not change the prototype request"
     );
     const auto enabled = parse(
-        {"--prototype-root-prefix", "--hardware-acceleration=full", "--enhanced-mode-version", "10"}
+        {"--prototype-root-prefix", "--hardware-acceleration=full", "--enhanced-revision", "1"}
     );
     expect(
         enabled.prototype_root_prefix &&
             enabled.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full &&
-            enabled.enhanced_mode == true && enabled.enhanced_mode_version == 10,
+            enabled.enhanced_mode == true && enabled.enhanced_revision == 1u,
         "the prototype request accompanies separately selected Full and Enhanced Mode"
-    );
-}
-
-/// Selects known new-game presets for ordinary play without starting a benchmark.
-void enhanced_new_game_options() {
-    expect(!parse({}).enhanced_mode_version, "normal play keeps the supplied new-game preset");
-    for (const char* version : {"0", "1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "13"}) {
-        const auto chosen = parse({"--enhanced-mode-version", version});
-        const uint32_t expected = static_cast<uint32_t>(std::stoul(version));
-        expect(chosen.enhanced_mode_version == expected, "a normal launch keeps its chosen preset");
-        expect(chosen.enhanced_mode == (expected != 0), "the version implies its mode");
-        expect(
-            !chosen.headless_check && !chosen.fixed_clock && !chosen.unattended &&
-                chosen.battle_benchmark_report.empty() && !chosen.benchmark_options_named &&
-                chosen.bench_file.empty(),
-            "a chosen preset still opens the ordinary game"
-        );
-    }
-    for (const char* acceleration :
-         {"--hardware-acceleration=off", "--hardware-acceleration=full"}) {
-        const auto chosen = parse({"--enhanced-mode-version", "10", acceleration});
-        expect(chosen.enhanced_mode_version == 10, "graphics leave the new-game preset unchanged");
-    }
-    expect(
-        parse({"--enhanced-mode", "--enhanced-mode-version", "10"}).enhanced_mode == true,
-        "a positive preset agrees with an explicit On"
-    );
-    expect(
-        parse({"--enhanced-mode-version", "0", "--no-enhanced-mode"}).enhanced_mode == false,
-        "zero agrees with an explicit Off"
-    );
-    expect(
-        parse({"--enhanced-mode-version", "10", "--enhanced-mode-version", "10"})
-                .enhanced_mode_version == 10,
-        "repeating the same preset is allowed"
-    );
-    expect(
-        parse({"--no-enhanced-mode", "--enhanced-mode", "--enhanced-mode-version", "10"})
-                .enhanced_mode == true,
-        "the final explicit toggle agrees with the chosen version"
-    );
-    const auto benchmark = parse(
-        {"--enhanced-mode-version",
-         "10",
-         "--battle-benchmark",
-         "report.json",
-         "--benchmark-rules-version",
-         "8"}
-    );
-    expect(
-        benchmark.enhanced_mode_version == 10 && benchmark.benchmark_rules_version == 8,
-        "a benchmark may hold another preset without changing the normal new-game selection"
-    );
-    const auto view = parse({"--enhanced-mode-version", "10", "--bench", "gameplay.bench"});
-    expect(
-        view.enhanced_mode_version == 10 && view.bench_file == "gameplay.bench",
-        "a benchmark view retains its separate session rules request"
-    );
-    const auto retained = parse(
-        {"--enhanced-mode-version",
-         "11",
-         "--battle-benchmark",
-         "report.json",
-         "--benchmark-rules-version",
-         "10"}
-    );
-    expect(
-        retained.enhanced_mode_version == 11 && retained.benchmark_rules_version == 10,
-        "a cohort benchmark may hold v10 while ordinary games select retained targets"
-    );
-    const auto retained_view =
-        parse({"--enhanced-mode-version", "11", "--bench", "gameplay.bench"});
-    expect(
-        retained_view.enhanced_mode_version == 11 && retained_view.bench_file == "gameplay.bench",
-        "preset 11 leaves gameplay session rules independent"
-    );
-    const auto cardinal = parse(
-        {"--enhanced-mode-version",
-         "13",
-         "--battle-benchmark",
-         "report.json",
-         "--benchmark-rules-version",
-         "10"}
-    );
-    expect(
-        cardinal.enhanced_mode_version == 13 && cardinal.benchmark_rules_version == 10,
-        "a cohort benchmark may hold v10 while ordinary games select cardinal queue escape"
-    );
-    const auto cardinal_view =
-        parse({"--enhanced-mode-version", "13", "--bench", "gameplay.bench"});
-    expect(
-        cardinal_view.enhanced_mode_version == 13 && cardinal_view.bench_file == "gameplay.bench",
-        "preset 13 leaves gameplay session rules independent"
-    );
-    const char* conflict = "--enhanced-mode-version conflicts with the Enhanced Mode switch";
-    for (const auto& arguments : std::vector<std::vector<const char*>>{
-             {"--no-enhanced-mode", "--enhanced-mode-version", "10"},
-             {"--enhanced-mode-version", "10", "--no-enhanced-mode"},
-             {"--enhanced-mode=off", "--enhanced-mode-version", "10"},
-             {"--enhanced-mode-version", "10", "--enhanced-mode=off"},
-             {"--no-enhanced-mode", "--enhanced-mode-version", "11"},
-             {"--enhanced-mode-version", "11", "--no-enhanced-mode"},
-             {"--no-enhanced-mode", "--enhanced-mode-version", "13"},
-             {"--enhanced-mode-version", "13", "--no-enhanced-mode"},
-             {"--enhanced-mode", "--enhanced-mode-version", "0"},
-             {"--enhanced-mode-version", "0", "--enhanced-mode"}
-         })
-        expect(rejection(arguments) == conflict, "a conflicting toggle is refused in either order");
-    expect(
-        rejection({"--enhanced-mode-version", "4", "--enhanced-mode-version", "10"}) ==
-            "--enhanced-mode-version cannot name different versions",
-        "two different new-game presets are refused"
-    );
-    const char* invalid = "--enhanced-mode-version expects 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11 or 13";
-    for (const char* value : {"9", "12", "14", "-1", "4.5", "4294967296", "on"})
-        expect(
-            rejection({"--enhanced-mode-version", value}) == invalid, "unknown presets are refused"
-        );
-    expect(
-        rejection({"--enhanced-mode-version"}) == "--enhanced-mode-version requires a value",
-        "a preset needs its version"
     );
 }
 
@@ -1023,23 +902,41 @@ std::string known_feature_names() {
 }
 
 /// --enhanced-revision and --enhanced-features choose a skirmish's set.
-/// A battle room plays a revision, and the development aliases stay apart.
+/// A battle room plays a revision.
 void enhanced_revision_options() {
+    expect(!parse({}).enhanced_revision, "normal play keeps the stored new-game choice");
     const auto revision = parse({"--enhanced-revision", "1"});
     expect(
         revision.enhanced_mode == true && revision.enhanced_revision == 1u &&
             !revision.enhanced_features && !revision.benchmark_options_named,
         "a revision turns Enhanced Mode on"
     );
+    expect(
+        !revision.headless_check && !revision.fixed_clock && !revision.unattended &&
+            revision.battle_benchmark_report.empty() && revision.bench_file.empty(),
+        "a chosen revision still opens the ordinary game"
+    );
+    for (const char* acceleration :
+         {"--hardware-acceleration=off", "--hardware-acceleration=full"}) {
+        const auto chosen = parse({"--enhanced-revision", "1", acceleration});
+        expect(chosen.enhanced_revision == 1u, "graphics leave the chosen revision unchanged");
+    }
+    const auto view = parse({"--enhanced-revision", "1", "--bench", "gameplay.bench"});
+    expect(
+        view.enhanced_revision == 1u && view.bench_file == "gameplay.bench",
+        "a benchmark view keeps its separate session rules request"
+    );
     const auto features = parse({"--enhanced-features", "capacity"});
     expect(
         features.enhanced_mode == true && features.enhanced_features == "capacity",
         "an absolute feature list turns Enhanced Mode on"
     );
-    const auto added =
-        parse({"--enhanced-revision", "1", "--enhanced-features", "+swept_ground_steps"});
+    const auto added = parse(
+        {"--enhanced-revision", "1", "--enhanced-features", "-idle_goal_skip,+idle_goal_skip"}
+    );
     expect(
-        added.enhanced_revision == 1u && added.enhanced_features == "+swept_ground_steps",
+        added.enhanced_revision == 1u &&
+            added.enhanced_features == "-idle_goal_skip,+idle_goal_skip",
         "a plus adds a feature to the revision"
     );
     const auto removed = parse({"--enhanced-features", "-counterflow_queue_escape"});
@@ -1107,38 +1004,6 @@ void enhanced_revision_options() {
         "Enhanced Mode off is reported before a bad list"
     );
     expect(
-        rejection({"--enhanced-mode-version", "4", "--enhanced-revision", "1"}) ==
-            "--enhanced-mode-version cannot be used with --enhanced-revision",
-        "the version alias is refused with a revision"
-    );
-    expect(
-        rejection({"--enhanced-mode-version", "4", "--enhanced-features", "capacity"}) ==
-            "--enhanced-mode-version cannot be used with --enhanced-features",
-        "the version alias is refused with a feature list"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--benchmark-rules-version",
-             "4",
-             "--enhanced-revision",
-             "1"}
-        ) == "--benchmark-rules-version cannot be used with --enhanced-revision",
-        "the benchmark version alias is refused with a revision"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--benchmark-rules-version",
-             "4",
-             "--enhanced-features",
-             "capacity"}
-        ) == "--benchmark-rules-version cannot be used with --enhanced-features",
-        "the benchmark version alias is refused with a feature list"
-    );
-    expect(
         rejection({"--enhanced-features", "-local_flow"}) ==
             "--enhanced-features cannot remove local_flow: routes_fine_regions needs it",
         "a removal that closing would undo names the feature that needs it"
@@ -1167,18 +1032,6 @@ void enhanced_revision_options() {
         rejection({"--enhanced-features", "capacity", "--enhanced-features", "local_flow"}) ==
             "--enhanced-features cannot name different feature lists",
         "two different lists are refused"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode",
-             "--enhanced-features",
-             "capacity",
-             "--benchmark-features",
-             "v6"}
-        ) == "--benchmark-features cannot be used with --enhanced-revision or --enhanced-features",
-        "the benchmark's own feature set and the rules' feature list are refused together"
     );
     const char* room_sentence =
         "--enhanced-features is for skirmishes, campaigns and benchmarks; a battle room plays "
@@ -1225,7 +1078,7 @@ void enhanced_benchmark_options() {
         defaults.headless_check && defaults.fixed_clock && defaults.unattended && defaults.seed &&
             defaults.match_ticks == 300u && defaults.benchmark_units == 128 &&
             defaults.benchmark_warmup == 30 && defaults.benchmark_scenario == "combat" &&
-            defaults.benchmark_rules_version == 0,
+            !defaults.enhanced_revision && !defaults.enhanced_features,
         "battle benchmarks select a repeatable headless workload"
     );
     const auto chosen = parse(
@@ -1255,29 +1108,21 @@ void enhanced_benchmark_options() {
                 .benchmark_units == 10000,
         "the enhanced battle population parses before runtime mode validation"
     );
-    for (const char* version : {"1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "13"}) {
-        const auto group = parse(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode",
-             "--benchmark-rules-version",
-             version,
-             "--benchmark-scenario",
-             "group-march"}
-        );
-        expect(
-            group.benchmark_scenario == "group-march" &&
-                group.benchmark_rules_version == static_cast<uint32_t>(std::stoul(version)),
-            "group movement can compare every recorded Enhanced preset"
-        );
-    }
-    for (const char* version : {"0", "9", "12", "14", "4294967296"})
-        expect(
-            rejection(
-                {"--battle-benchmark", "report.json", "--benchmark-rules-version", version}
-            ) == "--benchmark-rules-version expects 1, 2, 3, 4, 5, 6, 7, 8, 10, 11 or 13",
-            "unsupported benchmark rules versions are refused without truncation"
-        );
+    const auto group = parse(
+        {"--battle-benchmark",
+         "report.json",
+         "--enhanced-revision",
+         "1",
+         "--enhanced-features",
+         "-idle_goal_skip",
+         "--benchmark-scenario",
+         "group-march"}
+    );
+    expect(
+        group.benchmark_scenario == "group-march" && group.enhanced_revision == 1u &&
+            group.enhanced_features == "-idle_goal_skip",
+        "group movement can compare a revision with a feature list"
+    );
     for (const char* value : {"0", "10001", "65536"})
         expect(
             rejection({"--battle-benchmark", "report.json", "--benchmark-units", value}) ==
@@ -1361,207 +1206,10 @@ void enhanced_benchmark_options() {
         "benchmark companions require the run option"
     );
     expect(
-        !rejection({"--benchmark-rules-version", "1"}).empty(),
-        "a benchmark rules version requires the run option"
-    );
-    expect(
-        rejection({"--benchmark-features", "v6"}) ==
-            "--benchmark-units, --benchmark-warmup, --benchmark-rules-version, "
-            "--benchmark-scenario, --benchmark-map, --benchmark-crossing and "
-            "--benchmark-features need --battle-benchmark",
-        "a benchmark feature set requires the run option"
-    );
-    expect(
-        rejection({"--battle-benchmark", "report.json", "--benchmark-features"}) ==
-            "--benchmark-features requires a value",
-        "a benchmark feature set needs its text"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark", "report.json", "--enhanced-mode", "--benchmark-features", "v6,"}
-        ) == "--benchmark-features has an empty item",
-        "an empty feature item is refused"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode",
-             "--benchmark-features",
-             "+capacity"}
-        ) == "--benchmark-features starts with a version or feature names",
-        "a feature set starts with its base"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode",
-             "--benchmark-features",
-             "v6,capacity"}
-        ) == "--benchmark-features takes one version or a list of feature names",
-        "a version base takes only additions after it"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode",
-             "--benchmark-features",
-             "capacity,v6"}
-        ) == "--benchmark-features takes one version or a list of feature names",
-        "a name base takes only additions after it"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark", "report.json", "--enhanced-mode", "--benchmark-features", "v9"}
-        ) == "--benchmark-features: v9 is not an old version with a feature set",
-        "a withdrawn version is not a feature base"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark", "report.json", "--enhanced-mode", "--benchmark-features", "nope"}
-        ) == "--benchmark-features: unknown feature 'nope'; known features: capacity, local_flow, "
-             "routes_original, routes_large_regions, routes_fine_regions, indexed_searches, "
-             "route_corner_advance, swept_ground_steps, corridor_lanes, patrol_goal_retention, "
-             "ai_strike_retarget, squad_position_index, route_queue, group_destination_repair, "
-             "distributed_arrivals, moving_corner_advance, local_throat_guide, "
-             "credited_fallback_search, bounded_strike_recruits, ai_attack_retention, "
-             "ai_rally_retention, local_following, occupancy_free_planning, cohort_targets, "
-             "steering_projection_reuse, cohort_retention, cardinal_queue_escape, "
-             "exact_indexed_searches, wide_strike_recruits, paced_cohort_targets, "
-             "dispatch_cohort_retention, counterflow_queue_escape, idle_goal_skip, "
-             "static_interior_refresh_skip",
-        "an unknown feature names the known ones"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode",
-             "--benchmark-features",
-             "v4,-local_flow"}
-        ) == "--benchmark-features: routes_large_regions needs local_flow",
-        "removing a feature closing puts back names the member that needs it"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode",
-             "--benchmark-features",
-             "routes_original,routes_fine_regions"}
-        ) == "--benchmark-features: routes_original cannot share a match with routes_fine_regions",
-        "a closed set the feature rules refuse is refused with their reason"
-    );
-    expect(
-        rejection({"--battle-benchmark", "report.json", "--benchmark-features", "v6"}) ==
-            "--benchmark-features needs Enhanced Mode",
-        "a feature set needs Enhanced Mode on"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode=off",
-             "--benchmark-features",
-             "v6"}
-        ) == "--benchmark-features cannot be used with --enhanced-mode=off",
-        "turning Enhanced Mode off with the value refuses a feature set"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--no-enhanced-mode",
-             "--benchmark-features",
-             "v6"}
-        ) == "--benchmark-features cannot be used with --no-enhanced-mode",
-        "the negative Enhanced Mode flag refuses a feature set"
-    );
-    expect(
-        rejection({"--battle-benchmark",
-                   "report.json",
-                   "--no-enhanced-mode",
-                   "--enhanced-mode",
-                   "--benchmark-features",
-                   "v6"})
-            .empty(),
-        "a later switch that turns Enhanced Mode on clears the off switch"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode",
-             "--benchmark-rules-version",
-             "4",
-             "--benchmark-features",
-             "v6"}
-        ) == "--benchmark-features cannot be used with --benchmark-rules-version",
-        "a feature set cannot share the benchmark with a rules version"
-    );
-    expect(
-        rejection(
-            {"--battle-benchmark",
-             "report.json",
-             "--enhanced-mode-version",
-             "4",
-             "--benchmark-features",
-             "v6"}
-        ) == "--benchmark-features cannot be used with --enhanced-mode-version",
-        "a feature set cannot share the launch with an Enhanced Mode version"
-    );
-    oa::app::Extension network{};
-    network.take_option =
-        [](void*, const char* name, const oa::app::OptionValues& values, uint32_t&) {
-            const std::string_view option(name);
-            if (option == "--host")
-                return true;
-            if (option == "--join" || option == "--net-loopback-check") {
-                (void)values.next(values.arguments);
-                return true;
-            }
-            return false;
-        };
-    for (const char* flag : {"--host", "--join", "--net-loopback-check"}) {
-        const char* value = flag[2] == 'h' ? nullptr : "127.0.0.1";
-        std::vector<const char*> line = {
-            "--battle-benchmark",
-            "report.json",
-            "--enhanced-mode",
-            "--benchmark-features",
-            "v6",
-            flag
-        };
-        if (value != nullptr)
-            line.push_back(value);
-        expect(
-            rejection(line, network) ==
-                std::string("--benchmark-features cannot be used with ") + flag,
-            "a feature set cannot share a launch with a network game"
-        );
-    }
-    const auto base_only = parse(
-        {"--battle-benchmark", "report.json", "--enhanced-mode", "--benchmark-features", "v6"}
-    );
-    expect(
-        base_only.benchmark_features_spec == "v6" && base_only.benchmark_features &&
-            *base_only.benchmark_features == oa::data::enhanced_mode::version_features(6),
-        "a version base closes to that version's features"
-    );
-    const auto adjusted = parse(
-        {"--battle-benchmark",
-         "report.json",
-         "--enhanced-mode",
-         "--benchmark-features",
-         "v13,+cohort_retention,-cardinal_queue_escape"}
-    );
-    expect(
-        adjusted.benchmark_features_spec == "v13,+cohort_retention,-cardinal_queue_escape" &&
-            adjusted.benchmark_features &&
-            *adjusted.benchmark_features == oa::data::enhanced_mode::version_features(11),
-        "additions and removals close to the named set"
+        rejection({"--benchmark-scenario", "march"}) ==
+            "--benchmark-units, --benchmark-warmup, --benchmark-scenario, --benchmark-map and "
+            "--benchmark-crossing need --battle-benchmark",
+        "a benchmark scenario requires the run option"
     );
 }
 
@@ -2211,7 +1859,6 @@ int main() {
     value_options();
     showcase_tour_options();
     prototype_root_prefix_options();
-    enhanced_new_game_options();
     enhanced_revision_options();
     enhanced_benchmark_options();
     mutator_options();

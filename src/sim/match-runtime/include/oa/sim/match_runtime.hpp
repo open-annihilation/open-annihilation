@@ -270,8 +270,6 @@ struct OfflineInputs {
     // The mutator digest of the match, folded into the state digest when
     // set. None when the match applied no mutator.
     std::optional<base::sha256::Digest> mutator_digest{};
-    /// The battle benchmark only; R05 replaces it.
-    std::optional<data::enhanced_mode::FeatureSet> enhanced_features_override{};
 };
 
 /// Returns a canonical 16.16 point as the raw words the legacy views use.
