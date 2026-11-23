@@ -2397,10 +2397,15 @@ struct NetworkPlay::NetHost {
             return;
         auto finishing = std::move(state.finishing);
         finishing->join();
-        if (!finishing->stream_problem.empty())
-            std::cerr << "multiplayer: the recording is not whole: " << finishing->stream_problem
-                      << '\n';
         const auto& result = finishing->result;
+        // A stream that stopped writing says when the replay stops, and why.
+        if (!finishing->stream_problem.empty())
+            std::cerr
+                << "multiplayer: "
+                << (finishing->finish.cut && result.ok
+                        ? oa::session::demo::recording_stop_line(result, finishing->stream_problem)
+                        : "the recording is not whole: " + finishing->stream_problem)
+                << '\n';
         if (result.ok) {
             // The file may have taken another name than the one wanted.
             state.recording_path = result.placed;
@@ -3919,9 +3924,15 @@ void reap_skirmish(SkirmishRecord& record) {
     auto finishing = std::move(record.finishing);
     finishing->join();
     const char* word = record.campaign ? "campaign" : "skirmish";
-    if (!finishing->stream_problem.empty())
-        std::cerr << word << ": the recording is not whole: " << finishing->stream_problem << '\n';
     const auto& result = finishing->result;
+    // A stream that stopped writing says when the replay stops, and why.
+    if (!finishing->stream_problem.empty())
+        std::cerr
+            << word << ": "
+            << (finishing->finish.cut && result.ok
+                    ? oa::session::demo::recording_stop_line(result, finishing->stream_problem)
+                    : "the recording is not whole: " + finishing->stream_problem)
+            << '\n';
     if (result.ok) {
         record.recording_path = result.placed;
         std::cout << word << ": recorded the game to " << path_to_utf8(result.placed) << '\n';

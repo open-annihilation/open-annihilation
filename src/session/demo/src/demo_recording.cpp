@@ -213,7 +213,10 @@ void recording_begin(DemoRecording* recording, RecordingSetup setup) {
 void recording_add(
     DemoRecording* recording, uint32_t sender_id, uint64_t now_ms, std::span<const uint8_t> record
 ) {
-    if (!recording->started || record.empty() || recording->packet_count >= tad::limit::packets)
+    // Packets kept in memory stop at the most a recording read whole holds. A stream holds no
+    // packet in memory, and finishing and playback read it in pieces, so it takes every one.
+    if (!recording->started || record.empty() ||
+        (recording->stream == nullptr && recording->packet_count >= tad::limit::packets))
         return;
     const auto sender = number_of(recording->setup, sender_id);
     if (sender == no_sender) {

@@ -1996,6 +1996,134 @@ void a_finished_recording_keeps_its_bytes() {
     std::filesystem::remove_all(scratch, removed);
 }
 
+// A stream finished in pieces makes the replay a stream finished in one piece makes: the same
+// recording, description and manifest, and only the frame's bytes may differ. So it is for a
+// whole stream and for one a crash cut part way through a packet, and a stream that cannot be
+// finished in one piece cannot be finished in pieces either, for the same reason.
+void a_stream_finished_in_pieces_holds_the_same_replay() {
+    const auto scratch = oa::test::make_scratch_directory("demo-pieces");
+    ReplayFacts facts;
+    facts.recorded_at = "2026-11-06T01:02:03Z";
+    facts.recorded_by = "open-annihilation 0.9.1";
+    facts.map_name = "Test Map";
+    facts.players = {{"Ada", "human", true}, {"Bo", "computer", false}};
+    std::string error;
+    for (const uint32_t count : {60u, 90000u}) {
+        DemoRecording recording;
+        recording_begin(&recording, live_setup(2, false));
+        const auto stream_file = scratch / "made.oademo.part";
+        CHECK(recording_stream_to(&recording, stream_file, &error));
+        add_sample_records(&recording, count);
+        CHECK(recording.stream->close(&error));
+        const auto complete = file_bytes(stream_file);
+        for (const bool cut : {false, true}) {
+            const auto stream = std::span(complete).first(complete.size() - (cut ? 3 : 0));
+            ReplayEnd end;
+            end.ended = cut ? "cut" : "finished";
+            end.length_ticks = 100 + count;
+            end.after_crash = cut;
+            const auto one_stream = scratch / "one.oademo.part";
+            const auto pieces_stream = scratch / "pieces.oademo.part";
+            write_bytes(one_stream, stream);
+            write_bytes(pieces_stream, stream);
+            const auto one = finish_as_replay(
+                one_stream, replay_begin(recording.setup, facts), end, scratch / "one.oademo"
+            );
+            const auto pieces = finish_as_replay(
+                pieces_stream,
+                replay_begin(recording.setup, facts),
+                end,
+                scratch / "pieces.oademo",
+                true,
+                0
+            );
+            CHECK(one.ok && pieces.ok && one.packets == pieces.packets);
+            CHECK(!std::filesystem::exists(pieces_stream));
+            CHECK(!std::filesystem::exists(scratch / "pieces.oademo.part.writing"));
+            const auto from_one = formats::oademo::read(file_bytes(scratch / "one.oademo"));
+            const auto from_pieces = formats::oademo::read(file_bytes(scratch / "pieces.oademo"));
+            CHECK(from_one.ok() && from_pieces.ok());
+            if (!from_one.ok() || !from_pieces.ok())
+                continue;
+            CHECK(from_pieces.replay->recording == from_one.replay->recording);
+            CHECK(
+                formats::oademo::meta_text(from_pieces.replay->meta) ==
+                formats::oademo::meta_text(from_one.replay->meta)
+            );
+            CHECK(
+                formats::oademo::manifest_text(from_pieces.replay->manifest) ==
+                formats::oademo::manifest_text(from_one.replay->manifest)
+            );
+            DemoPlayback playback;
+            CHECK(demo_open(&playback, scratch / "pieces.oademo", &error));
+        }
+    }
+
+    // A stream with no packet, one cut inside its header, one with a packed packet and one
+    // with a sector of network addresses are refused in pieces as in one piece.
+    const auto refusal = [&](std::span<const uint8_t> stream, const RecordingSetup& setup) {
+        const auto one_stream = scratch / "refused-one.oademo.part";
+        const auto pieces_stream = scratch / "refused-pieces.oademo.part";
+        write_bytes(one_stream, stream);
+        write_bytes(pieces_stream, stream);
+        const ReplayEnd end{"finished", {}, false};
+        const auto one = finish_as_replay(
+            one_stream, replay_begin(setup, facts), end, scratch / "refused-one.oademo"
+        );
+        const auto pieces = finish_as_replay(
+            pieces_stream,
+            replay_begin(setup, facts),
+            end,
+            scratch / "refused-pieces.oademo",
+            true,
+            0
+        );
+        CHECK(!one.ok && !pieces.ok && one.error == pieces.error && one.empty == pieces.empty);
+        CHECK(!one.transient && !pieces.transient);
+        CHECK(std::filesystem::exists(pieces_stream));
+        CHECK(!std::filesystem::exists(scratch / "refused-pieces.oademo"));
+        return pieces;
+    };
+    DemoRecording nothing;
+    recording_begin(&nothing, live_setup(2, false));
+    const auto header = recording_header(nothing.setup).bytes;
+    CHECK(refusal(header, nothing.setup).empty);
+    CHECK(
+        refusal(std::span(header).first(header.size() - 1), nothing.setup).error ==
+        "the recording does not hold its header"
+    );
+    DemoRecording packed;
+    recording_begin(&packed, live_setup(2, true));
+    const auto packed_stream = scratch / "packed.part";
+    CHECK(recording_stream_to(&packed, packed_stream, &error));
+    add_sample_records(&packed, 10);
+    CHECK(packed.stream->close(&error));
+    CHECK(
+        refusal(file_bytes(packed_stream), packed.setup).error ==
+        "the recording holds a packet that is not plain"
+    );
+    DemoRecording plain;
+    recording_begin(&plain, live_setup(2, false));
+    add_sample_records(&plain, 6);
+    const auto written = recording_write(plain);
+    const auto parsed = formats::tad::parse(written.bytes);
+    CHECK(parsed.ok());
+    if (parsed.ok()) {
+        formats::tad::Demo with_address = *parsed.demo;
+        const std::vector<uint8_t> masked{0x1a ^ 0x2a, 0x2a ^ 0x2a};
+        with_address.sectors.push_back(
+            {static_cast<uint32_t>(formats::tad::SectorType::player_address), masked}
+        );
+        const auto rewritten = formats::tad::write(with_address);
+        CHECK(
+            refusal(rewritten.bytes, plain.setup).error ==
+            formats::oademo::recording_holds_addresses
+        );
+    }
+    std::error_code removed;
+    std::filesystem::remove_all(scratch, removed);
+}
+
 // A finished file never replaces another unless it is asked to: it takes the next free name, and says
 // which, for a recording and for a replay alike.
 void a_finished_file_replaces_another_only_when_asked() {
@@ -3478,6 +3606,7 @@ int main() {
     a_partial_recording_is_finished_into_a_file_that_loads();
     a_finished_file_replaces_another_only_when_asked();
     a_finished_recording_keeps_its_bytes();
+    a_stream_finished_in_pieces_holds_the_same_replay();
     a_replay_describes_the_game_it_was_made_from();
     ten_players_watch_without_a_slot();
     recording_carries_loadout_text();

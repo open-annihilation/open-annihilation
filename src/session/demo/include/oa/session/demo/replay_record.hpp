@@ -9,9 +9,11 @@
 // file as it goes (RecordingStream), and when the game ends, or a crash cut it
 // short, finishes that stream into the replay (finish_as_replay) or, for the
 // recorder hack's layout, into the .tad it already is (finish_as_tad). The
-// replay holds no network address.
+// replay holds no network address. A stream of any length finishes: one past
+// finish_whole_most_bytes is read and compressed a piece at a time.
 
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/tad.hpp"
 #include "oa/session/demo/recording.hpp"
 
 #include <cstddef>
@@ -24,6 +26,14 @@
 #include <vector>
 
 namespace oa::session::demo {
+
+/// The longest stream finished in one piece: read whole and compressed as one
+/// zstd frame, as every recording was before a longer one could finish. A
+/// recording that finished then finishes to the same bytes now. A longer
+/// stream is finished in pieces, holding a window of it and nothing that
+/// grows with it; its frame is not the one a whole compression would make, as
+/// a zstd frame made in pieces never is.
+inline constexpr uint64_t finish_whole_most_bytes = formats::tad::limit::input_bytes;
 
 /// The first release that reads a `.oademo`, which a replay's manifest names
 /// as the engine it needs (`engine.needs`), whichever build wrote it.
@@ -102,7 +112,25 @@ struct FinishResult {
     /// later try may do better; false when the recording itself cannot be finished (its header is
     /// not whole, it does not parse, it holds a packet that is not plain).
     bool transient{};
+    /// The latest tick a plain packet's tick base names in the finished recording: where it
+    /// stops. 0 when it holds none.
+    uint32_t last_tick{};
 };
+
+/// Game ticks a second, at the speed a game is played: what a tick count is shown as time in.
+inline constexpr uint32_t recorded_ticks_per_second = 30;
+
+/// Says where a recording that stopped part way stopped, and why, for the player.
+///
+/// The time is the game's own, from its start, at the last tick the
+/// finished recording holds: "the recording stopped at 12:34 of the game
+/// (tick 22620): why; the replay keeps the game up to there". Without a
+/// tick it says only that the recording stopped part way.
+///
+/// @param result the finish of the recording
+/// @param why why it stopped, as the stream said
+/// @return the line, without the word that names the kind of game
+[[nodiscard]] std::string recording_stop_line(const FinishResult& result, std::string_view why);
 
 /// Describes a recording that is about to start, as far as the game knows.
 ///
@@ -139,26 +167,37 @@ replay_begin(const RecordingSetup& setup, const ReplayFacts& facts);
 /// stream file is removed. Nothing is changed on a failure. A recording that
 /// holds no packet is not written: `empty` is set.
 ///
+/// A stream of at most `whole_most_bytes` (and of no more packets than a
+/// recording held whole may hold) is read whole and compressed in one piece.
+/// A longer one is read three times a piece at a time: to find its last whole
+/// packet, check it and take its digest; to learn its frame's size; and to
+/// compress it into the replay. It then holds a few megabytes, whatever the
+/// stream's length.
+///
 /// @param stream_file the recording stream
 /// @param replay the replay replay_begin made, or a copy of it
 /// @param end how the recording ended
 /// @param destination the file to make
 /// @param replace true replaces a file that is there; false never does, and takes the next free
 ///        name instead (`placed` says which)
+/// @param whole_most_bytes the longest stream finished in one piece; never more than
+///        finish_whole_most_bytes
 /// @return whether the file is in place
 [[nodiscard]] FinishResult finish_as_replay(
     const std::filesystem::path& stream_file,
     formats::oademo::Replay replay,
     const ReplayEnd& end,
     const std::filesystem::path& destination,
-    bool replace = true
+    bool replace = true,
+    uint64_t whole_most_bytes = finish_whole_most_bytes
 );
 
 /// Finishes a recording stream that is already a `.tad` by moving it into place.
 ///
 /// A stream cut part way through a packet is shortened to its last whole
-/// packet first. Any other stream is moved as it is. The stream file is gone
-/// when this returns true.
+/// packet first, copied a piece at a time. Any other stream is moved as it
+/// is. The stream is walked a chunk at a time, never held whole, so a stream
+/// of any length finishes. The stream file is gone when this returns true.
 ///
 /// @param stream_file the recording stream
 /// @param destination the file to make
