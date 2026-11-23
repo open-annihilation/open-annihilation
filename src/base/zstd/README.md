@@ -30,6 +30,21 @@ the size check.
   input has been taken, and may stop the frame before it ends. A stop
   leaves no frame and returns `stopped`. The bytes need not match
   `compress` of the same input. The window cap is the same.
+- `frame_writer_begin`, `frame_writer_write`, `frame_writer_end` and
+  `frame_writer_free` write one frame from input that arrives in pieces,
+  handing the frame's bytes to a sink as they are made. The input's size is
+  given at the start and the header names it; the window cap is the same as
+  `compress`. The bytes do not depend on how the input is cut, so two
+  writers given the same input at one level write the same frame, but they
+  need not be the bytes `compress` writes for that input in one piece:
+  zstd splits and matches a stream it is given in pieces differently from
+  one it holds whole. A writer holds zstd's work area and its room.
+- `frame_reader_begin`, `frame_reader_read` and `frame_reader_free` read one
+  frame whose bytes arrive in pieces, into room the caller gives each time.
+  It is one data frame and nothing else, as `decompress` takes: a skippable
+  frame and any byte after the frame's end are `damaged`. Its window is at
+  most `most_read_window_log` (27 bits, 128 MiB), zstd's own bound for a
+  frame read in pieces.
 - `content_size(frame, most_bytes)` reads the size a frame names from its
   header alone and refuses a size past `most_bytes` with `too_large`, before
   anything exists to hold it. A header that names no size gives
@@ -44,9 +59,10 @@ the size check.
 
 ## State
 
-None. Each call reads its arguments and writes into the buffer it is given.
-The vendored library keeps no state of this module's between calls: each
-call makes and frees its own zstd context.
+None for the calls on whole buffers: each reads its arguments, writes into
+the buffer it is given, and makes and frees its own zstd context. A
+`FrameWriter` or `FrameReader` holds its zstd context from its begin to its
+free, and the caller owns the struct and the room it gave.
 
 ## Invariants
 
@@ -77,7 +93,13 @@ frame that reads back and one that is stopped before it ends, a buffer too
 small for the result, a header
 that names a gigabyte against a limit of 64 bytes, a frame with no size in
 its header, and that a level-19 and a level-22 frame of an input over 8 MiB
-declare a window of 8 MiB or less (`ZSTD_getFrameHeader`).
+declare a window of 8 MiB or less (`ZSTD_getFrameHeader`). It also checks
+that a frame written in pieces reads back whole and in pieces, names its
+size, is the same bytes however its input is cut and keeps the window cap at
+level 20 on an input over 8 MiB; that a writer refuses more or less input
+than it began with and stops when its sink refuses; and that a reader takes
+a frame `compress` wrote a byte at a time and refuses a frame cut short, a
+byte after the frame, junk, a skippable frame and a window past its cap.
 
 ## Limitations
 
