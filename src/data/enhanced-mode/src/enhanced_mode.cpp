@@ -640,6 +640,15 @@ FeatureSet stored_features(const match_rules::SetupEnhancedMode& mode) noexcept 
     return from_enum(mode.features);
 }
 
+void store_choice(match_rules::SetupEnhancedMode& mode, const Choice& choice) noexcept {
+    mode = {};
+    if (choice.revision == 0)
+        return;
+    mode.enabled = true;
+    mode.revision = static_cast<int32_t>(choice.revision);
+    mode.features = to_enum(choice.features);
+}
+
 void apply_alias(match_rules::SetupEnhancedMode& mode, uint32_t version) noexcept {
     // Restructure only; removed in R09.
     mode = {};

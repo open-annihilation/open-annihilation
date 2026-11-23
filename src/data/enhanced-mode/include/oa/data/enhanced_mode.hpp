@@ -518,6 +518,16 @@ struct Choice {
 /// @param version the preset version, or off_version
 void apply_alias(match_rules::SetupEnhancedMode& mode, uint32_t version) noexcept;
 
+/// Writes a choice into a rules record, as resolve_profile stores it.
+///
+/// Off clears the record. Any other choice enables it with the choice's
+/// revision and features. The choice is not checked: a caller that builds
+/// rules by hand, such as a test fixture, checks it with choice_problem.
+///
+/// @param[out] mode the Enhanced Mode record
+/// @param choice the revision and features
+void store_choice(match_rules::SetupEnhancedMode& mode, const Choice& choice) noexcept;
+
 /// Reads the features stored on an Enhanced Mode record, ignoring whether it is on.
 ///
 /// @param mode the Enhanced Mode record

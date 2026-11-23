@@ -987,6 +987,20 @@ void check_revision_features() {
     }
 }
 
+/// Checks that a choice written into a rules record reads back, and that Off clears it.
+void check_store_choice() {
+    oa::data::match_rules::MatchRules rules;
+    const enhanced::Choice revision_1{1, enhanced::revision_features(1)};
+    enhanced::store_choice(rules.setup.enhanced_mode, revision_1);
+    OA_CHECK(rules.setup.enhanced_mode.enabled);
+    OA_CHECK(rules.setup.enhanced_mode.revision == 1);
+    OA_CHECK(enhanced::features(rules) == revision_1.features);
+    OA_CHECK(enhanced::stored_features(rules.setup.enhanced_mode) == revision_1.features);
+    enhanced::store_choice(rules.setup.enhanced_mode, {});
+    OA_CHECK(rules.setup.enhanced_mode == oa::data::match_rules::SetupEnhancedMode{});
+    OA_CHECK(enhanced::features(rules).empty());
+}
+
 /// Checks that resolved rules play their version's features, and that the hashes differ.
 void check_rules_features() {
     OA_CHECK(enhanced::features({}).empty());
@@ -1105,5 +1119,6 @@ int main() {
     check_feature_set_problems();
     check_revision_features();
     check_rules_features();
+    check_store_choice();
     return oa::test::check_exit_status();
 }
