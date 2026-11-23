@@ -17,36 +17,6 @@ inline constexpr uint32_t live_route_corner_period = 120;
 inline constexpr uint32_t live_route_corner_maximum_origins = 128;
 inline constexpr uint32_t live_route_corner_maximum_plots = 512;
 inline constexpr int16_t live_route_corner_maximum_footprint = 8;
-inline constexpr uint32_t moving_route_corner_period = 31;
-inline constexpr uint32_t moving_route_corner_maximum_plots = 64;
-
-/// Checks a nearby route anchor without aliasing the ordinary 60-tick retry.
-///
-/// A short anchor that reverses the route can make a moving unit circle
-/// outside the native five-pixel capture radius. Ordinary forward corners
-/// remain untouched. This only schedules a bounded visibility test; the
-/// caller still requires actual movement and the recorded enhanced preset.
-[[nodiscard]] inline bool live_route_corner_moving_due(
-    const sim::unit_movement::Unit& unit,
-    const sim::ground_orders::Navigation& navigation,
-    uint32_t tick,
-    uint16_t unit_id
-) noexcept {
-    if ((uint64_t(tick) + unit_id) % moving_route_corner_period != 0 || !navigation.goal ||
-        !sim::ground_orders::route_present(navigation) || navigation.count < 3 ||
-        navigation.count > navigation.points.size())
-        return false;
-    constexpr int64_t reach = int64_t{32} * 65536;
-    const auto dx = int64_t(navigation.points[1][0]) * 65536 - unit.position[0];
-    const auto dz = int64_t(navigation.points[1][1]) * 65536 - unit.position[2];
-    if (dx < -reach || dx > reach || dz < -reach || dz > reach || dx * dx + dz * dz > reach * reach)
-        return false;
-    const auto incoming_x = int64_t(navigation.points[1][0]) - navigation.points[0][0];
-    const auto incoming_z = int64_t(navigation.points[1][1]) - navigation.points[0][1];
-    const auto outgoing_x = int64_t(navigation.points[2][0]) - navigation.points[1][0];
-    const auto outgoing_z = int64_t(navigation.points[2][1]) - navigation.points[1][1];
-    return incoming_x * outgoing_x + incoming_z * outgoing_z < 0;
-}
 
 /// Staggers visible-corner checks after sustained collision blockage.
 ///
@@ -160,7 +130,6 @@ visit_origins(const Segment& segment, uint32_t limit, Visit&& visit, uint32_t& c
 /// @param class_fp_z classifier footprint height, one through eight
 /// @param known_static_clear nonthrowing full-footprint origin query
 /// @param[in,out] probes actual sampler calls, excluding the pure preflight
-/// @param maximum_plots maximum full-footprint plot work for this attempt
 /// @return whether exactly the original P1 was removed
 template <class Sampler>
 [[nodiscard]] bool try_advance_visible_corner(
@@ -169,8 +138,7 @@ template <class Sampler>
     int16_t class_fp_x,
     int16_t class_fp_z,
     Sampler&& known_static_clear,
-    uint64_t& probes,
-    uint32_t maximum_plots = live_route_corner_maximum_plots
+    uint64_t& probes
 ) noexcept {
     using namespace live_corner_detail;
     if (!navigation.goal || !sim::ground_orders::route_present(navigation) ||
@@ -180,7 +148,8 @@ template <class Sampler>
         unit.footprint[1] != class_fp_z)
         return false;
     const auto area = uint32_t(class_fp_x) * uint32_t(class_fp_z);
-    const auto limit = std::min(live_route_corner_maximum_origins, maximum_plots / area);
+    const auto limit =
+        std::min(live_route_corner_maximum_origins, live_route_corner_maximum_plots / area);
     Segment segment{};
     for (unsigned axis = 0; axis < 2; ++axis) {
         const auto position_axis = axis == 0 ? 0 : 2;

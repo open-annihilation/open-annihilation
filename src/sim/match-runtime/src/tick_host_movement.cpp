@@ -174,11 +174,6 @@ void TickHost::movement_tick(oa::Unit& record) {
         if (defer_replan)
             g.movement.flags |= collision;
         bool advanced_corner = false;
-        const bool moving_corner =
-            flow_head && features.has(Feature::moving_corner_advance) && g.movement.speed > 0 &&
-            live_route_corner_moving_due(
-                g.geometry, g.navigation, match.simulation_.tick, s.unit_index
-            );
         const bool blocked_corner =
             flow_head &&
             live_route_corner_due(flow_head->blocked_ticks, match.simulation_.tick, s.unit_index);
@@ -188,7 +183,7 @@ void TickHost::movement_tick(oa::Unit& record) {
         if (flow_head && features.has(Feature::route_corner_advance) && !parent_index &&
             head_joins_corner &&
             (g.movement.flags & sim::unit_movement::occupancy_mask) == ground_occupancy &&
-            (blocked_corner || moving_corner)) {
+            blocked_corner) {
             if (const auto* klass = match.movement_class_map(g.movement_class)) {
                 auto classifier = klass->record;
                 classifier.occupancy_before_tick = 0;
@@ -222,9 +217,7 @@ void TickHost::movement_tick(oa::Unit& record) {
                     classifier.footprint_x,
                     classifier.footprint_z,
                     known_static_clear,
-                    match.enhanced_->local_flow_counters.probes,
-                    blocked_corner ? live_route_corner_maximum_plots
-                                   : moving_route_corner_maximum_plots
+                    match.enhanced_->local_flow_counters.probes
                 );
             }
         }
