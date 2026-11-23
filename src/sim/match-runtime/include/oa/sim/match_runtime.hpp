@@ -4090,13 +4090,6 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     sim::visibility_state::SightContext sight_context();
     sim::unit_movement::Terrain terrain_;
     std::array<std::map<uint32_t, std::vector<uint16_t>>, 10> groups_;
-    /// One entry for every value a 16-bit unit slot can hold.
-    static constexpr std::size_t squad_slot_capacity = std::size_t{1} << 16;
-    /// Preset 6's derived squad positions plus one; zero has no cached position.
-    /// Every use checks the current owner's squad vector before removing a member.
-    std::array<uint16_t, squad_slot_capacity> squad_positions_{};
-    /// A restored or changed membership leaves this Match on legacy searches.
-    bool squad_positions_valid_{true};
     SharedRandom random_;
     std::shared_ptr<void> computer_player_state_;
     // One seat's turn, when something other than the built-in computer player

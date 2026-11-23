@@ -1153,43 +1153,16 @@ void Match::assign_squad(sim::unit_spawn::Slot& slot, uint32_t group) {
         return;
     }
     auto& groups = groups_[owner];
-    bool indexed = squad_positions_valid_ && enhanced_features_.has(Feature::squad_position_index);
-    if (indexed && slot.record.squad == -1 && squad_positions_[slot.unit_index] != 0) {
-        squad_positions_valid_ = false;
-        indexed = false;
-    }
     if (slot.record.squad != -1) {
         auto& old = groups[static_cast<uint32_t>(slot.record.squad)];
-        auto found = old.end();
-        if (indexed) {
-            const auto position = squad_positions_[slot.unit_index];
-            if (position != 0 && position <= old.size() && old[position - 1] == slot.unit_index)
-                found = old.begin() + position - 1;
-            else {
-                // A load can change the declared squad while leaving an old
-                // vector entry. Later joins may duplicate it, and legacy find
-                // must keep removing the first occurrence.
-                squad_positions_valid_ = false;
-                indexed = false;
-            }
-        }
-        if (found == old.end())
-            found = std::find(old.begin(), old.end(), slot.unit_index);
+        const auto found = std::find(old.begin(), old.end(), slot.unit_index);
         if (found != old.end()) {
             *found = old.back();
-            if (indexed)
-                squad_positions_[*found] = static_cast<uint16_t>(found - old.begin() + 1);
             old.pop_back();
         }
     }
-    if (indexed)
-        squad_positions_[slot.unit_index] = 0;
-    if (group != 0xffffffffu) {
-        auto& assigned = groups[group];
-        assigned.push_back(slot.unit_index);
-        if (indexed && assigned.size() < squad_slot_capacity)
-            squad_positions_[slot.unit_index] = static_cast<uint16_t>(assigned.size());
-    }
+    if (group != 0xffffffffu)
+        groups[group].push_back(slot.unit_index);
     slot.record.squad = static_cast<int32_t>(group);
 }
 
