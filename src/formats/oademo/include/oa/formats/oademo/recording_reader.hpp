@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -36,6 +37,20 @@ struct ArchiveSource {
     /// The replay's size in bytes.
     uint64_t bytes{};
 };
+
+/// Reads a replay's description and manifest a piece at a time, without its
+/// timeline or its recording.
+///
+/// Makes the checks and gives the sentences of the `read_description` that
+/// takes the whole file, through the zip reader that takes an archive in
+/// pieces, as that one does for a file larger than a whole archive may be.
+/// It reads the zip directory and the three small entries only, so a replay
+/// of any length is described in a few kilobytes.
+///
+/// @param source where the replay's bytes come from
+/// @return the description and the manifest, or the sentence from
+///         interface_words.hpp that says why not
+[[nodiscard]] DescriptionResult read_description(const ArchiveSource& source);
 
 /// A replay's recording, read in order a piece at a time.
 ///
@@ -85,6 +100,35 @@ class RecordingReader {
     ///
     /// @return the manifest; empty before a replay was opened
     [[nodiscard]] const Manifest& manifest() const noexcept;
+
+    /// Reads the replay's timeline, when it holds one.
+    ///
+    /// Reads `timeline.json` as `read` does: at most the size a description
+    /// may have, and rewritten as compact JSON. The recording's place is not
+    /// moved.
+    ///
+    /// @param[out] timeline the timeline; nothing when the replay holds none
+    /// @return empty, or the sentence `read` gives for the same entry:
+    ///         details_unreadable (too large, or not one JSON value) or
+    ///         not_a_replay (the entry does not read)
+    [[nodiscard]] std::string read_timeline(std::optional<std::string>& timeline);
+
+    /// Returns the size of the recording's zstd frame, as the replay stores it.
+    ///
+    /// @return the bytes; 0 for a deflated recording, and before a replay was opened
+    [[nodiscard]] uint64_t stored_frame_bytes() const noexcept;
+
+    /// Reads the recording's zstd frame as the replay stores it, without
+    /// decoding it, in order from its first byte.
+    ///
+    /// The recording's own place is not moved. A frame read so is stored in
+    /// another replay unchanged by write_framed.
+    ///
+    /// @param out room for the bytes
+    /// @param[out] got how many bytes of `out` were written; fewer only at the frame's end
+    /// @return empty, not_a_replay when the entry does not read or its CRC-32
+    ///         does not match, or recording_unreadable for a deflated recording
+    [[nodiscard]] std::string read_stored_frame(std::span<uint8_t> out, std::size_t& got);
 
     /// Reads the recording's next bytes.
     ///

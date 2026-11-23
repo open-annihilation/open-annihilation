@@ -4,6 +4,7 @@
 #include "detail.hpp"
 
 #include "oa/formats/oademo/interface_words.hpp"
+#include "oa/formats/oademo/recording_reader.hpp"
 
 #include "oa/base/sha256.hpp"
 #include "oa/base/zstd/zstd.hpp"
@@ -276,18 +277,19 @@ bool read_held(void* context, uint64_t offset, std::span<uint8_t> into) {
     return true;
 }
 
-/// Reads the description and the manifest of a replay held in memory but too large for the zip
-/// reader that takes a whole archive, through the reader that takes one in pieces.
+/// Reads the description and the manifest of a replay through the zip reader that takes an
+/// archive in pieces.
 ///
-/// @param bytes the whole file
+/// @param source where the replay's bytes come from
+/// @param archive_bytes the replay's size
 /// @param[out] result the description and the manifest, or why not
-void describe_in_pieces(std::span<const uint8_t> bytes, DescriptionResult& result) {
-    HeldBytes held{bytes};
-    const zip::SourceHooks source{&held, read_held};
+void describe_in_pieces(
+    const zip::SourceHooks& source, uint64_t archive_bytes, DescriptionResult& result
+) {
     zip::StreamDirectory directory;
     zip::ZipError zip_error;
     if (!zip::read_stream_directory(
-            source, bytes.size(), detail::archive_limits(), directory, zip_error
+            source, archive_bytes, detail::archive_limits(), directory, zip_error
         )) {
         result.error = sentence(
             zip_error.status == zip::ZipStatus::duplicate_name ? not_one_recording : not_a_replay
@@ -299,7 +301,7 @@ void describe_in_pieces(std::span<const uint8_t> bytes, DescriptionResult& resul
                           std::string_view oversize,
                           std::vector<uint8_t>& loaded) {
         return detail::load_stream_entry(
-            source, bytes.size(), directory.entries[index], cap, oversize, loaded
+            source, archive_bytes, directory.entries[index], cap, oversize, loaded
         );
     };
     detail::Layout layout;
@@ -391,7 +393,8 @@ DescriptionResult read_description(std::span<const uint8_t> bytes) {
     // A file past what the whole-archive reader takes is read in pieces; its recording is never
     // touched here, so its size costs nothing.
     if (bytes.size() > zip::max_archive_bytes) {
-        describe_in_pieces(bytes, result);
+        HeldBytes held{bytes};
+        describe_in_pieces(zip::SourceHooks{&held, read_held}, bytes.size(), result);
         return result;
     }
     Described described;
@@ -400,6 +403,16 @@ DescriptionResult read_description(std::span<const uint8_t> bytes) {
         return result;
     result.meta = std::move(described.meta);
     result.manifest = std::move(described.manifest);
+    return result;
+}
+
+DescriptionResult read_description(const ArchiveSource& source) {
+    DescriptionResult result;
+    if (source.read_at == nullptr) {
+        result.error = sentence(not_a_replay);
+        return result;
+    }
+    describe_in_pieces(zip::SourceHooks{source.context, source.read_at}, source.bytes, result);
     return result;
 }
 

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -117,6 +118,16 @@ struct RecordingReader::State {
     bool finished{};
     /// The refusal that stopped the reads, which every later read returns.
     std::string failed{};
+    /// The recording entry read again as stored, for read_stored_frame.
+    zip::EntryStream stored{};
+    /// True once `stored` was opened.
+    bool stored_open{};
+    /// True once its last byte was read and its CRC-32 checked.
+    bool stored_done{};
+    /// Stored bytes read and not yet handed out.
+    std::vector<uint8_t> stored_pending{};
+    /// How much of `stored_pending` has been handed out.
+    std::size_t stored_at{};
 
     /// Records a refusal, which every later read returns.
     ///
@@ -298,6 +309,86 @@ const Meta& RecordingReader::meta() const noexcept {
 const Manifest& RecordingReader::manifest() const noexcept {
     static const Manifest none{};
     return state_ != nullptr ? state_->manifest : none;
+}
+
+std::string RecordingReader::read_timeline(std::optional<std::string>& timeline) {
+    timeline.reset();
+    if (state_ == nullptr || state_->directory.entries.empty())
+        return std::string(not_a_replay);
+    State& state = *state_;
+    if (!state.layout.with_timeline)
+        return {};
+    // The timeline is the fourth entry when there is one (detail::describe_entries).
+    constexpr std::size_t timeline_entry = 3;
+    std::vector<uint8_t> bytes;
+    if (std::string problem = detail::load_stream_entry(
+            state.hooks,
+            state.source.bytes,
+            state.directory.entries[timeline_entry],
+            detail::description_cap,
+            details_unreadable,
+            bytes
+        );
+        !problem.empty())
+        return problem;
+    std::optional<std::string> compact = detail::canonical_json(
+        std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())
+    );
+    if (!compact.has_value())
+        return std::string(details_unreadable);
+    timeline = std::move(compact);
+    return {};
+}
+
+uint64_t RecordingReader::stored_frame_bytes() const noexcept {
+    if (state_ == nullptr || state_->directory.entries.empty() || !state_->layout.zstd_entry)
+        return 0;
+    return state_->directory.entries[state_->layout.recording].bytes;
+}
+
+std::string RecordingReader::read_stored_frame(std::span<uint8_t> out, std::size_t& got) {
+    got = 0;
+    if (state_ == nullptr || state_->directory.entries.empty())
+        return std::string(not_a_replay);
+    State& state = *state_;
+    if (!state.layout.zstd_entry)
+        return std::string(recording_unreadable);
+    if (!state.stored_open) {
+        zip::ZipError error;
+        if (!state.stored.open(
+                state.hooks,
+                state.source.bytes,
+                state.directory.entries[state.layout.recording],
+                error
+            ))
+            return std::string(not_a_replay);
+        state.stored_open = true;
+    }
+    const zip::SinkHooks sink{&state.stored_pending, keep_entry_data};
+    while (got < out.size()) {
+        if (state.stored_at == state.stored_pending.size()) {
+            state.stored_pending.clear();
+            state.stored_at = 0;
+            if (state.stored_done)
+                break;
+            zip::ZipError error;
+            const zip::StreamStep step = state.stored.step(sink, entry_step_bytes, error);
+            if (step == zip::StreamStep::failed)
+                return std::string(not_a_replay);
+            state.stored_done = step == zip::StreamStep::done;
+            continue;
+        }
+        const std::size_t take =
+            std::min(out.size() - got, state.stored_pending.size() - state.stored_at);
+        std::copy_n(
+            state.stored_pending.begin() + static_cast<std::ptrdiff_t>(state.stored_at),
+            take,
+            out.begin() + static_cast<std::ptrdiff_t>(got)
+        );
+        state.stored_at += take;
+        got += take;
+    }
+    return {};
 }
 
 std::string RecordingReader::read(std::span<uint8_t> out, std::size_t& got) {

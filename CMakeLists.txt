@@ -62,8 +62,10 @@ include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaDemoInstaller.cmake")
 # oa-test-support, the headers test programs share: OA_CHECK, the check a
 # test makes in place of assert(), kept in every build type (oa/test/check.hpp),
 # make_scratch_directory(), a temporary directory no other run shares
-# (oa/test/scratch_directory.hpp), and zip archives built field by field
-# (oa/test/raw_zip.hpp, which needs ZLIB::ZLIB), in tests/support/include.
+# (oa/test/scratch_directory.hpp), zip archives built field by field
+# (oa/test/raw_zip.hpp, which needs ZLIB::ZLIB), and a recording, a `.tad`
+# and a `.oademo` past the 512 MiB a whole read takes (oa/test/large_replay.hpp,
+# which needs oa-formats-oademo and oa-base-zstd), in tests/support/include.
 add_library(oa-test-support INTERFACE)
 add_library(oa::test::support ALIAS oa-test-support)
 target_include_directories(oa-test-support INTERFACE "${CMAKE_CURRENT_LIST_DIR}/tests/support/include")
