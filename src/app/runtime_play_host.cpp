@@ -17,7 +17,6 @@
 // refused. A stepped clock holds an order until a step runs it, the way a
 // speed change waits to be felt.
 #include "oa/app/play_host.hpp"
-#include "group_order_distribution.hpp"
 
 #include "oa/app/runtime.hpp"
 #include "oa/app/enhanced_mode.hpp"
@@ -1036,64 +1035,19 @@ struct PlayHostAccess {
             oa::sim::gameplay_input::GroupCentre centre{};
             const bool shaped =
                 request.kind == PlayOrderKind::move || request.kind == PlayOrderKind::patrol;
-            const auto features = app.match_->enhanced_features();
-            const bool repair_formation =
-                features.has(oa::data::enhanced_mode::Feature::group_destination_repair) &&
-                !features.has(oa::data::enhanced_mode::Feature::distributed_arrivals);
-            const bool distribute_formation =
-                shaped && features.has(oa::data::enhanced_mode::Feature::distributed_arrivals);
             const auto& spawned = app.match_->world();
             if (shaped) {
                 for (uint16_t id : ids)
                     oa::sim::gameplay_input::add_to_group_centre(centre, spawned.slots[id].record);
             }
-            std::vector<oa::sim::gameplay_input::SelectionOrder> planned;
-            if (distribute_formation) {
-                using Order = oa::sim::gameplay_input::UnitOrder;
-                planned.reserve(ids.size());
-                for (const uint16_t id : ids) {
-                    const auto& actor = spawned.slots[id].record;
-                    auto position = asked;
-                    auto order = Order::none;
-                    if (app.match_->ground_runtime(id) != nullptr) {
-                        position = oa::sim::gameplay_input::group_order_point(centre, actor, asked);
-                        const auto* definition =
-                            oa::world_unit_def_of(&app.match_->state(), &actor);
-                        if (definition && (definition->flags & OA_UNIT_DEF_FLAG_CAN_FLY) == 0)
-                            order = request.kind == PlayOrderKind::move ? Order::move_ground
-                                    : (definition->abilities & OA_UNIT_DEF_ABILITY_CAN_REPAIR) != 0
-                                        ? Order::repair_patrol
-                                        : Order::patrol;
-                    }
-                    planned.push_back({&actor, order, position});
-                }
-                app.distribute_group_order_destinations(planned, raw);
-            }
-            for (size_t index = 0; index < ids.size(); ++index) {
-                const uint16_t id = ids[index];
+            for (const uint16_t id : ids) {
                 oa::sim::ground_orders::Point destination = raw;
-                if (distribute_formation) {
-                    destination = point_of(planned[index].position);
-                } else if (shaped && app.match_->ground_runtime(id) != nullptr) {
-                    const oa::FixedVec3 shifted = oa::sim::gameplay_input::group_order_point(
-                        centre, spawned.slots[id].record, asked
+                if (shaped && app.match_->ground_runtime(id) != nullptr)
+                    destination = point_of(
+                        oa::sim::gameplay_input::group_order_point(
+                            centre, spawned.slots[id].record, asked
+                        )
                     );
-                    destination = point_of(shifted);
-                    if (repair_formation) {
-                        const auto& actor = spawned.slots[id].record;
-                        const auto* definition =
-                            oa::world_unit_def_of(&app.match_->state(), &actor);
-                        if (definition && (definition->flags & OA_UNIT_DEF_FLAG_CAN_FLY) == 0) {
-                            using Order = oa::sim::gameplay_input::UnitOrder;
-                            const auto order =
-                                request.kind == PlayOrderKind::move ? Order::move_ground
-                                : (definition->abilities & OA_UNIT_DEF_ABILITY_CAN_REPAIR) != 0
-                                    ? Order::repair_patrol
-                                    : Order::patrol;
-                            destination = app.group_order_destination(actor, order, shifted, raw);
-                        }
-                    }
-                }
                 if (const std::string why = give_one(app, id, request, destination, product);
                     !why.empty())
                     return refused_result(why);

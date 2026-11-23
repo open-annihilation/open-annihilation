@@ -6,7 +6,6 @@
 #include "oa/app/enhanced_mode.hpp"
 #include "oa/app/play_host.hpp"
 #include "engine_settings_state.hpp"
-#include "stage_state.hpp"
 #include "oa/data/enhanced_mode.hpp"
 #include "oa/data/mutators/hacks.hpp"
 #include "oa/data/mutators/pipeline.hpp"
@@ -31,7 +30,6 @@
 #include <fstream>
 #include <memory>
 #include <span>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -391,32 +389,10 @@ void Runtime::check_enhanced_mode() {
                 require(!plot.blocking_feature, "entrypoint static fixture was not clear");
                 plot.blocking_feature = true;
             }
-            std::array<Point, 2> specialized_expected = formations;
-            const bool distributed = wanted.features.has(mode::Feature::distributed_arrivals);
-            if (wanted.features.has(mode::Feature::group_destination_repair) && scenario != 0)
-                specialized_expected[1] = click;
-            auto expected = specialized_expected;
-            if (distributed && scenario != 0) {
-                // The raw left body occupies origins c-2 and c-1. The repaired
-                // right body therefore takes the click's clear origin c, whose
-                // native footprint centre is eight pixels past this click.
-                constexpr int32_t native_centre_offset = 8 * pixel;
-                expected[1][0] += native_centre_offset;
-                expected[1][2] += native_centre_offset;
-                const auto valid_goal =
-                    sim::ground_orders::make_goal(scratch, body->geometry, expected[0], 0);
-                const auto assigned_goal =
-                    sim::ground_orders::make_goal(scratch, body->geometry, expected[1], 0);
-                require(
-                    assigned_goal.cell == click_goal.cell &&
-                        valid_goal.cell[0] + definition.footprint_x <= assigned_goal.cell[0],
-                    "distributed fixture did not retain disjoint native arrival footprints"
-                );
-                require(
-                    expected[0] == formations[0] && expected[1][1] == click[1],
-                    "distributed fixture changed a usable XYZ or the repaired click height"
-                );
-            }
+            // Every unit keeps its place in the group around the click, as
+            // with Enhanced Mode off, even when that place is outside the
+            // playable area or blocked.
+            const std::array<Point, 2>& expected = formations;
             for (const auto command : {input::OrderCommand::move, input::OrderCommand::patrol}) {
                 const auto kind = data::mission_types::index_for_name(
                     command == input::OrderCommand::move ? "Move_Ground" : "Patrol"
@@ -426,7 +402,7 @@ void Runtime::check_enhanced_mode() {
                     specialized[index] =
                         group_order_destination(centre, command, actors[index], 0, click);
                     require(
-                        specialized[index] == specialized_expected[index],
+                        specialized[index] == expected[index],
                         "the specialized group path did not match its native formation policy"
                     );
                 }
@@ -449,59 +425,6 @@ void Runtime::check_enhanced_mode() {
                         "the specialized path could not cancel a generic queued destination"
                     );
                 expect_orders(kind, expected, 0);
-                if (distributed) {
-                    // These are the ordinary specialized selection entrypoints,
-                    // including their shared queued-order cancellation policy.
-                    if (command == input::OrderCommand::move)
-                        issue_selection_move(click, 0, false);
-                    else
-                        require(
-                            issue_selection_patrol(click, 0, false),
-                            "distributed explicit patrol refused"
-                        );
-                    expect_orders(kind, expected, 1);
-                    if (command == input::OrderCommand::move)
-                        issue_selection_move(click, 0, true);
-                    else
-                        require(
-                            issue_selection_patrol(click, 0, true),
-                            "distributed explicit patrol cancel refused"
-                        );
-                    expect_orders(kind, expected, 0);
-                    if (command == input::OrderCommand::move) {
-                        (void)issue_selection_orders(
-                            input::OrderCommand::default_order, 0, click, false
-                        );
-                        expect_orders(kind, expected, 1);
-                        clear_orders();
-                    }
-                    using HeldStage = decltype(stage_);
-                    const auto delete_stage = stage_.get_deleter();
-                    struct RestoreStage {
-                        HeldStage& current;
-                        HeldStage saved{nullptr, nullptr};
-                        ~RestoreStage() { current = std::move(saved); }
-                    } restore_stage{stage_, std::move(stage_)};
-                    stage_ = HeldStage{new StageState{}, delete_stage};
-                    for (const auto id : actors) {
-                        const auto& actor = world.units[id];
-                        stage_->groups["pair"].push_back({id, actor.owner_index, actor.type_index});
-                    }
-                    std::istringstream staged(
-                        "pair " + std::to_string(click[0] / pixel) + " " +
-                        std::to_string(click[2] / pixel)
-                    );
-                    require(
-                        run_stage_direction(
-                            command == input::OrderCommand::move ? "move" : "patrol",
-                            staged,
-                            "distributed group fixture"
-                        ),
-                        "distributed stage command refused"
-                    );
-                    expect_orders(kind, expected, 1);
-                    clear_orders();
-                }
                 PlayOrderRequest request;
                 request.kind = command == input::OrderCommand::move ? PlayOrderKind::move
                                                                     : PlayOrderKind::patrol;
