@@ -56,7 +56,7 @@
 // state one. Version 21 also adds ScreenServices::main_menu_order_owns_key.
 // These hooks do not call it. Version 21 also adds
 // ScreenServices::bound_focus_action. These hooks do not call it.
-constexpr uint32_t kExtensionApiVersionFollowed = 21;
+constexpr uint32_t kExtensionApiVersionFollowed = 22;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "

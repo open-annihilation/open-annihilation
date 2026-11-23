@@ -5865,6 +5865,9 @@ hidden, and stays enabled as the screen reported it. It is not a hook.
 Version 21 also adds `ScreenServices::main_menu_order_owns_key`. The
 main-menu overlay calls it, and passes the key on when the host owns it.
 The engine fills it. It is not a hook an extension fills.
+Version 22 adds `RecordingInput::path`: the Library's Watch and the index
+pass name the replay file by its path, with its first bytes in `bytes`, and
+network play reads it as the replay reaches it. It is not a hook.
 
 Version 9 adds `open_recording`, through which `--generate-script` and
 `--render-script` replay the recording a director script names. The

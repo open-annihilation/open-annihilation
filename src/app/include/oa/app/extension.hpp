@@ -271,7 +271,11 @@
 /// it composes a spoken line, and post_extension_note's kinds line, room,
 /// place, muzzle and hear, which go to spoken updates only and are never
 /// returned by take_extension_notes. Neither is a hook.
-#define OA_EXTENSION_API_VERSION 21
+/// Version 22 adds RecordingInput::path: a recording the engine names by its
+/// file, which the extension reads as its replay reaches it, with only the
+/// file's first bytes in `bytes`, so that a recording of any length is
+/// replayed without being held. It is not a hook.
+#define OA_EXTENSION_API_VERSION 22
 
 namespace oa {
 struct Game;
@@ -511,12 +515,19 @@ struct MatchOverlay {
 
 // A recording the engine asks an extension to replay: a file a director
 // script names, handed over as bytes so that a bundle's entries are never
-// written out.
+// written out, or a file named by its path, so that a recording of any length
+// is read as its replay reaches it and never held.
 struct RecordingInput {
-    const char* name{};     // the recording's file name as the script gives it, UTF-8; read at once
-    const uint8_t* bytes{}; // the recording's contents; valid for the call only
-    size_t byte_count{};    // bytes at `bytes`
-    bool strict{};          // refuse a recording this installation cannot replay exactly
+    const char* name{}; // the recording's file name as the script gives it, UTF-8; read at once
+    const uint8_t*
+        bytes{}; // the recording's contents, or its file's first bytes; valid for the call only
+    size_t byte_count{}; // bytes at `bytes`
+    bool strict{};       // refuse a recording this installation cannot replay exactly
+    // The recording's file, UTF-8, read at once; null when `bytes` hold the
+    // whole recording. When set, `bytes` hold only the file's first bytes
+    // (at least 64, or the whole file when it is shorter), enough to tell
+    // what it is, and the replay reads the file as it goes.
+    const char* path{};
 };
 
 // What an extension says about a recording it opened.
@@ -1240,7 +1251,8 @@ struct Extension {
     ///
     /// @param context Extension::context
     /// @param[in,out] runtime the running app, headless, with no match running
-    /// @param input the recording's name and bytes, valid for this call only
+    /// @param input the recording's name and bytes, or its file's path and
+    ///        first bytes, valid for this call only
     /// @param[out] replay the replay's step, status and close, all null on entry
     /// @param[out] info what the recording holds, all zero on entry
     /// @return true when the extension opened the recording

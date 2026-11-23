@@ -58,6 +58,7 @@
 #include "oa/data/replays/content.hpp"
 #include "oa/data/replays/import.hpp"
 #include "oa/data/replays/interface_words.hpp"
+#include "oa/data/replays/long_replay.hpp"
 #include "oa/data/replays/replays.hpp"
 #include "oa/data/saves/content_record.hpp"
 #include "oa/formats/oademo/oademo.hpp"
@@ -846,6 +847,10 @@ std::optional<fs::path> replay_file(const fs::path& recordings, std::string_view
     }
     return file;
 }
+
+/// The first bytes of a replay file Watch hands over with its path: enough to
+/// tell a `.oademo` from a `.tad` (RecordingInput::path).
+constexpr std::size_t replay_first_bytes = 64;
 
 /// Reads a whole replay file, at most the size a replay may have.
 ///
@@ -4516,10 +4521,8 @@ void remember_recorded_length(ReplayShelf& shelf, const fs::path& folder) {
     const std::optional<fs::path> file = replay_file(folder, shelf.left_path);
     if (!file.has_value())
         return;
-    std::vector<uint8_t> bytes;
-    if (!read_replay_bytes(*file, bytes))
-        return;
-    const oademo::DescriptionResult described = oademo::read_description(bytes);
+    // Read a piece at a time: the description only, whatever the replay's length.
+    const oademo::DescriptionResult described = replay_data::read_description_file(*file);
     if (!described.ok() || !described.meta->game.length_ticks.has_value())
         return;
     const uint64_t length = *described.meta->game.length_ticks;
@@ -5803,18 +5806,22 @@ bool Runtime::LibraryHost::start_replay_watch(
     stop_index_pass();
     const fs::path folder = runtime.user_folder_ / std::string(recordings_folder_name);
     const std::optional<fs::path> file = replay_file(folder, path);
-    std::vector<uint8_t> bytes;
-    if (!file || !read_replay_bytes(*file, bytes)) {
+    // The replay is named by its file, with its first bytes, and read as it
+    // plays: nothing of it is held, whatever its length.
+    replay_data::ReplayFile opened;
+    if (!file || !opened.open(*file)) {
         library::refuse_replay(
             model, path, std::string(library::shown(model.text, replay_data::file_unreadable))
         );
         ++model_revision;
         return false;
     }
+    const std::vector<uint8_t> first = opened.first_bytes(replay_first_bytes);
     runtime.replay_recording_path_ = *file;
     runtime.replay_handed_timeline_ = timeline_of(runtime, path);
     const std::string name = platform::path_to_utf8(file->filename());
-    const RecordingInput input{name.c_str(), bytes.data(), bytes.size(), true};
+    const std::string file_text = platform::path_to_utf8(*file);
+    const RecordingInput input{name.c_str(), first.data(), first.size(), true, file_text.c_str()};
     ReplayHooks hooks{};
     RecordingInfo info{};
     std::string refusal;

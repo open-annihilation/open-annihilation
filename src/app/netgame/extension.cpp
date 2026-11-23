@@ -79,7 +79,7 @@
 // Version 21 also adds ScreenServices::main_menu_order_owns_key. These hooks
 // do not call it. Version 21 also adds ScreenServices::bound_focus_action.
 // These hooks do not call it.
-constexpr uint32_t kExtensionApiVersionFollowed = 21;
+constexpr uint32_t kExtensionApiVersionFollowed = 22;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "
@@ -1104,8 +1104,9 @@ struct RuntimeExtension {
     /// staged for start_demo_playback, which loads it in place of the
     /// --play-demo file and refuses, when input.strict is set, a unit table
     /// that differs from the installed one; the match is then the watcher's,
-    /// as a --play-demo run's. The replay's ticks, status and close act on
-    /// the runtime's playback.
+    /// as a --play-demo run's. A recording named by its file is staged by
+    /// that file, which playback reads as it goes, as it reads --play-demo's.
+    /// The replay's ticks, status and close act on the runtime's playback.
     ///
     /// @param context Extension context (unused).
     /// @param runtime The running app, with no match running.
@@ -1128,9 +1129,15 @@ struct RuntimeExtension {
         auto& play = NetworkPlay::of(runtime);
         if (play.demo_)
             throw std::runtime_error(name + ": a recording is already being replayed");
-        netgame_context().staged_recording = StagedRecording{
-            name, std::vector<uint8_t>(input.bytes, input.bytes + input.byte_count), input.strict
-        };
+        if (input.path != nullptr)
+            netgame_context().staged_recording =
+                StagedRecording{name, {}, input.strict, path_from_utf8(input.path)};
+        else
+            netgame_context().staged_recording = StagedRecording{
+                name,
+                std::vector<uint8_t>(input.bytes, input.bytes + input.byte_count),
+                input.strict
+            };
         try {
             play.start_demo_playback();
         } catch (const std::runtime_error& error) {

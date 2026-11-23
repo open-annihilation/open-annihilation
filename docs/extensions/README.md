@@ -154,7 +154,7 @@ With one extension the combined table behaves as that extension's own.
 ## The version
 
 `OA_EXTENSION_API_VERSION` numbers the table's contract, and
-`oa::app::extension_api_version` is its typed copy. The version is 21. It
+`oa::app::extension_api_version` is its typed copy. The version is 22. It
 rises by one with each change to the contract: a hook added, removed or
 renamed; a hook's parameters, its return value or the meaning of leaving it
 null; when or in which order the engine calls it; what it may keep or must
@@ -233,6 +233,14 @@ main-menu overlay calls it before its own windows see a key. Nonzero means
 the host owns that key: the overlay drops its focus and passes the key on.
 The engine fills it. No extension fills it. It is not a hook.
 
+Version 22 adds `path` to `RecordingInput`, the recording the engine asks
+[`open_recording`][ext] to replay. The engine names a replay file by its
+path, with only the file's first bytes in `bytes`, enough to tell what it
+is, and the extension reads the file as its replay reaches it, so a
+recording of any length is replayed without being held. A director's
+bundle still hands its recording over as bytes, with `path` null. It is not
+a hook.
+
 An extension states the version it follows, so that a build against a
 table of another version stops until its author has read the change. The
 automation endpoint's fixture window
@@ -243,7 +251,7 @@ so:
 // The version of the engine's extension table these hooks follow. A build
 // against a table of another version stops here until the engine's change
 // has been read and the hooks follow it.
-constexpr uint32_t kExtensionApiVersionFollowed = 21;
+constexpr uint32_t kExtensionApiVersionFollowed = 22;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "

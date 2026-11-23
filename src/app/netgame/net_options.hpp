@@ -195,8 +195,10 @@ struct NetOptions {
 // place of the --play-demo file.
 struct StagedRecording {
     std::string name;           // the recording's name as the engine gave it
-    std::vector<uint8_t> bytes; // the whole recording
+    std::vector<uint8_t> bytes; // the whole recording; empty when `file` names it
     bool strict{};              // refuse a unit table that differs from the installed one
+    std::filesystem::path
+        file{}; // the recording's file, read as playback reaches it; empty when `bytes` hold it
 };
 
 // The extension's context: what the command line gave network play, and the
