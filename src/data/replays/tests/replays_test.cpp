@@ -13,7 +13,8 @@
 // their sentences. Kinds register by id, and a list groups by day. While a
 // damaged kept file is set aside, the replays recorded before it stay. An
 // exported mark keeps a replay past the span, and a file that is not those
-// marks is damaged. A read of it leaves the bytes.
+// marks is damaged. A read of it leaves the bytes. A `.tad` and a `.oademo`
+// past the 512 MiB a whole read takes are listed and imported a piece at a time.
 
 #include "oa/data/replays/import.hpp"
 #include "oa/data/replays/interface_words.hpp"
@@ -27,6 +28,7 @@
 #include "oa/formats/zip.hpp"
 #include "oa/formats/zip/writer.hpp"
 #include "oa/test/check.hpp"
+#include "oa/test/large_replay.hpp"
 #include "oa/test/scratch_directory.hpp"
 
 #include <algorithm>
@@ -1645,6 +1647,60 @@ void a_campaign_keeps_its_mission_name(const Scratch& scratch) {
 
 } // namespace
 
+/// A `.tad` and a `.oademo` past the 512 MiB a whole read takes are listed with
+/// what a whole read gives, read a piece at a time, and imported a piece at a
+/// time; the replay a second time selects the copy already there.
+void long_replays_are_listed_and_imported(const Scratch& scratch) {
+    const fs::path recordings = scratch.path() / "long" / "Recordings";
+    const fs::path sources = scratch.path() / "long" / "opened";
+    fs::create_directories(recordings / "default");
+    fs::create_directories(sources);
+    const oa::test::MadeRecording made = oa::test::recording_past_whole_reads();
+    const uint64_t last_time = ((made.packets - 1) / oa::test::made_packets_per_tick + 1) * 33U;
+    std::error_code removed;
+    {
+        const fs::path listed_file = recordings / "default" / "long.tad";
+        const oa::test::MadeFile written = oa::test::write_made_tad(made, listed_file);
+        OA_CHECK(written.bytes > lib::most_file_bytes);
+        const lib::Replay listed = lib::read_file(recordings, "default/long.tad");
+        OA_CHECK(!lib::damaged(listed));
+        OA_CHECK(listed.file == lib::FileKind::tad && listed.size == written.bytes);
+        OA_CHECK(listed.map == "Long Map" && listed.players.size() == 2);
+        OA_CHECK(listed.sha256 == written.recording_sha256);
+        OA_CHECK(listed.length_ms == last_time);
+        OA_CHECK(listed.recorded_by == "Program 1.0");
+        const fs::path opened = sources / "long.tad";
+        fs::rename(listed_file, opened);
+        const lib::ImportResult imported = lib::import_replay(recordings, opened);
+        OA_CHECK(imported.ok && imported.copied && imported.path == "Imported/long.tad");
+        OA_CHECK(imported.sha256 == written.recording_sha256 && imported.title == "Long Map");
+        OA_CHECK(fs::file_size(recordings / "Imported" / "long.tad", removed) == written.bytes);
+        fs::remove(opened, removed);
+        fs::remove(recordings / "Imported" / "long.tad", removed);
+    }
+    oademo::Replay replay = sample_replay("Long Map");
+    replay.meta.game.length_ms = last_time;
+    const fs::path listed_file = recordings / "default" / "long.oademo";
+    const oa::test::MadeFile written =
+        oa::test::write_made_replay(made, replay, listed_file, scratch.path() / "long" / "frame");
+    OA_CHECK(written.bytes > lib::most_file_bytes);
+    const lib::Replay listed = lib::read_file(recordings, "default/long.oademo");
+    OA_CHECK(!lib::damaged(listed));
+    OA_CHECK(listed.file == lib::FileKind::oademo && listed.size == written.bytes);
+    OA_CHECK(listed.map == "Long Map" && listed.players.size() == replay.meta.players.size());
+    OA_CHECK(listed.sha256 == written.recording_sha256);
+    OA_CHECK(listed.length_ms == last_time);
+    const fs::path opened = sources / "long.oademo";
+    fs::rename(listed_file, opened);
+    const lib::ImportResult imported = lib::import_replay(recordings, opened);
+    OA_CHECK(imported.ok && imported.copied && imported.path == "Imported/long.oademo");
+    OA_CHECK(imported.sha256 == written.recording_sha256 && imported.title == "Long Map");
+    OA_CHECK(fs::file_size(recordings / "Imported" / "long.oademo", removed) == written.bytes);
+    const lib::ImportResult again = lib::import_replay(recordings, opened);
+    OA_CHECK(again.ok && !again.copied && again.path == imported.path);
+    fs::remove_all(scratch.path() / "long", removed);
+}
+
 void test_replay_content_rows();
 void test_replay_feed();
 void test_replay_share();
@@ -1670,5 +1726,6 @@ int main() {
     test_replay_feed();
     test_replay_share();
     a_multibyte_title_is_cut_on_a_character();
+    long_replays_are_listed_and_imported(scratch);
     return oa::test::check_exit_status();
 }

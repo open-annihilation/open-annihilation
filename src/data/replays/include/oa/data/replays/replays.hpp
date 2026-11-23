@@ -75,7 +75,8 @@ inline constexpr int exported_version = 1;
 /// `index.json.damaged-2`, so an earlier copy is never replaced.
 inline constexpr std::string_view damaged_ending = ".damaged";
 
-/// The largest file read, in bytes. A larger file is listed damaged and never read.
+/// The largest file read whole, in bytes. A larger one is read a piece at a
+/// time (long_replay.hpp), and nothing of it is held.
 inline constexpr uint64_t most_file_bytes = 512ULL * 1024ULL * 1024ULL;
 
 /// The largest index read, in bytes. A larger one is not read, and is an empty index.
@@ -297,9 +298,10 @@ void apply_manifest(
 /// with neither ending is read as a `.oademo` when its bytes open like one,
 /// and as a `.tad` otherwise. A file that cannot be opened, or a path that
 /// leaves Recordings (an empty name, `.` or `..`, a drive or a root), is
-/// damaged with file_unreadable; a file larger than most_file_bytes is damaged
-/// with file_too_large and is not read. A damaged file's `recorded` is its
-/// modification time.
+/// damaged with file_unreadable. A file larger than most_file_bytes is read a
+/// piece at a time and gives what the whole read gives: a `.oademo`'s
+/// description, or a `.tad` walked packet by packet for its length and
+/// hashed as it is read. A damaged file's `recorded` is its modification time.
 ///
 /// @param recordings the Recordings folder
 /// @param path the file, relative to Recordings, '/' between folders, UTF-8

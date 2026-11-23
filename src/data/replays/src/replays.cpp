@@ -7,11 +7,13 @@
 #include "oa/data/replays/replays.hpp"
 
 #include "oa/data/replays/interface_words.hpp"
+#include "oa/data/replays/long_replay.hpp"
 
 #include "oa/base/sha256.hpp"
 #include "oa/data/saves/content_record.hpp"
 #include "oa/formats/json.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_walk.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/platform/file_time.hpp"
 #include "oa/platform/files.hpp"
@@ -311,10 +313,9 @@ std::string string_member(const json::Json& object, std::string_view name) {
 
 /// Fills a replay from a `.oademo`'s description.
 ///
-/// @param bytes the whole file
+/// @param described the description and the manifest, or why they did not read
 /// @param[in,out] replay the replay; `damage` is set when the file does not read
-void read_oademo(std::span<const uint8_t> bytes, Replay& replay) {
-    const oademo::DescriptionResult described = oademo::read_description(bytes);
+void fill_from_description(const oademo::DescriptionResult& described, Replay& replay) {
     if (!described.ok()) {
         replay.damage = described.error.empty() ? std::string(file_unreadable) : described.error;
         return;
@@ -394,23 +395,33 @@ std::string side_text(uint8_t side) {
     return std::to_string(side);
 }
 
-/// Fills a replay from a `.tad`'s header, players, sectors and packet times.
+/// Fills a replay from a `.oademo`'s description.
 ///
 /// @param bytes the whole file
-/// @param[in,out] replay the replay; `damage` is set when the file does not parse
-void read_tad(std::span<const uint8_t> bytes, Replay& replay) {
-    const tad::ParseResult parsed = tad::parse(bytes);
-    if (!parsed.ok()) {
-        replay.damage = std::string(tad_unreadable);
-        return;
-    }
-    const tad::Demo& demo = *parsed.demo;
-    const auto hex = oa::base::sha256::to_hex(oa::base::sha256::digest_of(bytes));
+/// @param[in,out] replay the replay; `damage` is set when the file does not read
+void read_oademo(std::span<const uint8_t> bytes, Replay& replay) {
+    fill_from_description(oademo::read_description(bytes), replay);
+}
+
+/// Fills a replay from a `.tad`'s header, players and sectors, its last
+/// packet's time and its identity.
+///
+/// @param demo the recording's part before its packets, parsed
+/// @param last_time_ms the recorder's clock at the last packet; nothing with no packet
+/// @param sha256 the SHA-256 of the whole file
+/// @param[in,out] replay the replay
+void fill_from_tad(
+    const tad::Demo& demo,
+    std::optional<uint64_t> last_time_ms,
+    const oa::base::sha256::Digest& sha256,
+    Replay& replay
+) {
+    const auto hex = oa::base::sha256::to_hex(sha256);
     replay.sha256.assign(hex.begin(), hex.end());
     replay.map = recorded_text(demo.map_name);
     replay.kind = std::string(kind_multiplayer);
-    if (!demo.packets.empty())
-        replay.length_ms = demo.packets.back().time_ms;
+    if (last_time_ms.has_value())
+        replay.length_ms = *last_time_ms;
     const tad::Sector* recorder = tad::find_sector(demo, tad::SectorType::recorder_version);
     if (recorder != nullptr)
         replay.recorded_by = recorded_text(tad::sector_text(*recorder));
@@ -436,6 +447,80 @@ void read_tad(std::span<const uint8_t> bytes, Replay& replay) {
         keep_need(replay, std::move(map_need));
     }
     replay.needs_read = true;
+}
+
+/// Fills a replay from a `.tad`'s header, players, sectors and packet times.
+///
+/// @param bytes the whole file
+/// @param[in,out] replay the replay; `damage` is set when the file does not parse
+void read_tad(std::span<const uint8_t> bytes, Replay& replay) {
+    const tad::ParseResult parsed = tad::parse(bytes);
+    if (!parsed.ok()) {
+        replay.damage = std::string(tad_unreadable);
+        return;
+    }
+    const tad::Demo& demo = *parsed.demo;
+    std::optional<uint64_t> last_time_ms;
+    if (!demo.packets.empty())
+        last_time_ms = demo.packets.back().time_ms;
+    fill_from_tad(demo, last_time_ms, oa::base::sha256::digest_of(bytes), replay);
+}
+
+/// A `.tad` file read in order whose bytes are hashed as they are read.
+struct HashedRecording {
+    ReplayFile* file{};
+    oademo::RecordingSource source{};
+    oa::base::sha256::Hasher hasher{};
+};
+
+bool read_hashed(void* context, std::span<uint8_t> into, std::size_t& got) {
+    auto& hashed = *static_cast<HashedRecording*>(context);
+    if (!hashed.source.read(hashed.source.context, into, got))
+        return false;
+    oa::base::sha256::update(hashed.hasher, into.first(got));
+    return true;
+}
+
+/// Fills a replay from a file too long to read whole, a piece at a time: a
+/// `.oademo`'s description, or a `.tad`'s header, players, sectors, packet
+/// times and identity, each as the whole read gives them.
+///
+/// @param file the opened file
+/// @param kind which reader reads it
+/// @param[in,out] replay the replay; `damage` is set when the file does not read
+void read_long(ReplayFile& file, FileKind kind, Replay& replay) {
+    replay.file = kind;
+    try {
+        if (kind == FileKind::oademo) {
+            fill_from_description(oademo::read_description(file.archive()), replay);
+            return;
+        }
+        HashedRecording hashed;
+        hashed.file = &file;
+        hashed.source = file.recording();
+        oademo::RecordingWalk walk;
+        if (!walk.open_tad(oademo::RecordingSource{&hashed, read_hashed})) {
+            replay.damage =
+                std::string(walk.failure().unreadable ? file_unreadable : tad_unreadable);
+            return;
+        }
+        std::optional<uint64_t> last_time_ms;
+        tad::Packet packet;
+        for (;;) {
+            bool ended = false;
+            if (!walk.next(packet, ended)) {
+                replay.damage =
+                    std::string(walk.failure().unreadable ? file_unreadable : tad_unreadable);
+                return;
+            }
+            if (ended)
+                break;
+            last_time_ms = packet.time_ms;
+        }
+        fill_from_tad(walk.head(), last_time_ms, oa::base::sha256::finish(hashed.hasher), replay);
+    } catch (const std::bad_alloc&) {
+        replay.damage = std::string(file_unreadable);
+    }
 }
 
 /// Fills a replay from its file's bytes.
@@ -645,7 +730,22 @@ Replay read_file(const fs::path& recordings, std::string_view path) {
     replay.modified = oa::platform::file_seconds_since_1970(written);
     replay.recorded = replay.modified;
     if (size > most_file_bytes) {
-        mark_damaged(replay, file_too_large);
+        // Too long to read whole: read a piece at a time, as nothing of it is held.
+        ReplayFile opened;
+        if (!opened.open(*file)) {
+            mark_damaged(replay, file_unreadable);
+            return replay;
+        }
+        const FileKind kind = named.value_or(
+            oademo::recognised(opened.first_bytes(64)) ? FileKind::oademo : FileKind::tad
+        );
+        read_long(opened, kind, replay);
+        if (!replay.damage.empty()) {
+            mark_damaged(replay, std::string(replay.damage));
+            return replay;
+        }
+        if (kind == FileKind::tad)
+            take_content_note(*file, replay);
         return replay;
     }
     std::vector<uint8_t> bytes;

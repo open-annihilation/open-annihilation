@@ -9,15 +9,18 @@
 #include "oa/data/replays/import.hpp"
 
 #include "oa/data/replays/interface_words.hpp"
+#include "oa/data/replays/long_replay.hpp"
 #include "oa/data/replays/replays.hpp"
 
 #include "oa/base/sha256.hpp"
 #include "oa/formats/json.hpp"
 #include "oa/formats/oademo/interface_words.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_walk.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/platform/files.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -412,12 +415,102 @@ bool write_file(const fs::path& path, std::span<const uint8_t> bytes) {
     return static_cast<bool>(out);
 }
 
+/// The SHA-256 of `prefix` and then of a file's bytes from `from` on, read a piece at a time.
+///
+/// @param prefix the bytes before
+/// @param file the opened file
+/// @param from where its bytes start being taken
+/// @return the digest, lower-case hexadecimal; nothing when the file does not read
+std::optional<std::string>
+digest_in_pieces(std::span<const uint8_t> prefix, ReplayFile& file, uint64_t from) {
+    oa::base::sha256::Hasher hasher;
+    oa::base::sha256::update(hasher, prefix);
+    const oademo::ArchiveSource source = file.archive();
+    std::vector<uint8_t> piece(read_chunk_bytes);
+    for (uint64_t at = from; at < file.size();) {
+        const auto take =
+            static_cast<std::size_t>(std::min<uint64_t>(piece.size(), file.size() - at));
+        if (!source.read_at(source.context, at, std::span(piece).first(take)))
+            return std::nullopt;
+        oa::base::sha256::update(hasher, std::span<const uint8_t>(piece).first(take));
+        at += take;
+    }
+    const auto hex = oa::base::sha256::to_hex(oa::base::sha256::finish(hasher));
+    return std::string(hex.begin(), hex.end());
+}
+
+/// Writes `prefix` and then a file's bytes from `from` on, a piece at a time.
+///
+/// @param path the file to write
+/// @param prefix the bytes before
+/// @param file the opened file
+/// @param from where its bytes start being copied
+/// @return false when the copy cannot be written or the file does not read
+bool copy_in_pieces(
+    const fs::path& path, std::span<const uint8_t> prefix, ReplayFile& file, uint64_t from
+) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out)
+        return false;
+    out.write(
+        reinterpret_cast<const char*>(prefix.data()), static_cast<std::streamsize>(prefix.size())
+    );
+    const oademo::ArchiveSource source = file.archive();
+    std::vector<uint8_t> piece(read_chunk_bytes);
+    for (uint64_t at = from; at < file.size() && out;) {
+        const auto take =
+            static_cast<std::size_t>(std::min<uint64_t>(piece.size(), file.size() - at));
+        if (!source.read_at(source.context, at, std::span(piece).first(take)))
+            return false;
+        out.write(reinterpret_cast<const char*>(piece.data()), static_cast<std::streamsize>(take));
+        at += take;
+    }
+    out.flush();
+    return static_cast<bool>(out);
+}
+
+/// Walks a recording to its last packet.
+///
+/// @param walk an opened walk
+/// @return false when it stopped first
+bool walk_to_end(oademo::RecordingWalk& walk) {
+    tad::Packet packet;
+    for (;;) {
+        bool ended = false;
+        if (!walk.next(packet, ended))
+            return false;
+        if (ended)
+            return true;
+    }
+}
+
+/// The identity a replay file too long to read whole keeps, read a piece at a time.
+///
+/// @param file the file
+/// @param kind which reader reads it
+/// @return the identity, or nothing when the file cannot be read
+std::optional<std::string> long_identity_of(const fs::path& file, FileKind kind) {
+    if (kind == FileKind::oademo) {
+        const oademo::DescriptionResult described = read_description_file(file);
+        if (!described.ok())
+            return std::nullopt;
+        return described.meta->recording.sha256;
+    }
+    ReplayFile opened;
+    if (!opened.open(file))
+        return std::nullopt;
+    return digest_in_pieces({}, opened, 0);
+}
+
 /// The identity a replay file already under Recordings keeps, when it can be read.
 ///
 /// @param file the file
 /// @param kind which reader reads it
 /// @return the identity, or nothing when the file cannot be read
 std::optional<std::string> identity_of(const fs::path& file, FileKind kind) {
+    std::error_code sized;
+    if (const uint64_t size = fs::file_size(file, sized); !sized && size > most_file_bytes)
+        return long_identity_of(file, kind);
     std::vector<uint8_t> bytes;
     if (load_file(file, bytes) != Loaded::read)
         return std::nullopt;
@@ -572,12 +665,184 @@ bool keep_oademo(
     return true;
 }
 
+/// Places a kept file under Imported: the first free name of `name`, written
+/// beside it and moved into place.
+///
+/// @param recordings the Recordings folder
+/// @param name the name asked for
+/// @param write writes the kept file to the path it is given; false when it cannot
+/// @param[out] relative the placed file, relative to Recordings
+/// @return false when no copy could be placed
+template <class Write>
+bool place_import(
+    const fs::path& recordings, const std::string& name, Write&& write, std::string& relative
+) {
+    const fs::path folder = recordings / std::string(imported_folder_name);
+    std::error_code failure;
+    fs::create_directories(folder, failure);
+    if (failure)
+        return false;
+    for (int copy = 1; copy < most_names; ++copy) {
+        const std::string candidate = numbered(name, copy);
+        const fs::path destination = folder / oa::platform::path_from_utf8(candidate);
+        failure.clear();
+        if (fs::exists(destination, failure) || failure)
+            continue;
+        // The partial name is a sibling, so a stop mid-write is not itself a
+        // replay. A name taken between the check and the write is replaced
+        // only when it is that partial.
+        fs::path temporary = destination;
+        temporary += ".importing";
+        if (!write(temporary)) {
+            std::error_code removed;
+            fs::remove(temporary, removed);
+            return false;
+        }
+        failure.clear();
+        fs::rename(temporary, destination, failure);
+        if (failure) {
+            std::error_code removed;
+            fs::remove(temporary, removed);
+            failure.clear();
+            if (fs::exists(destination, failure))
+                continue;
+            return false;
+        }
+        relative = std::string(imported_folder_name) + "/" + candidate;
+        return true;
+    }
+    return false;
+}
+
+/// Imports a replay too long to read whole, a piece at a time, as the whole
+/// import does: a `.tad` keeps every byte but sector 6, and a `.oademo` is
+/// read to its end and kept as it is, or, when its recording holds sector 6,
+/// cleaned as an export cleans it and written again.
+///
+/// @param recordings the Recordings folder
+/// @param source the file that was opened
+/// @param kind which reader reads it
+/// @return what became of it
+ImportResult import_long(const fs::path& recordings, const fs::path& source, FileKind kind) {
+    ReplayFile file;
+    if (!file.open(source))
+        return refuse(file_unreadable);
+    const std::string name = file_name_of(source, kind);
+    std::string title = stem_of(name);
+    std::string sha256;
+    std::vector<uint8_t> prefix;
+    uint64_t copy_from = 0;
+    bool rewrite = false;
+    if (kind == FileKind::tad) {
+        // Enough for the header chunk, whose version a refusal names.
+        const std::vector<uint8_t> first = file.first_bytes(tad::limit::chunk_bytes);
+        oademo::RecordingWalk walk;
+        if (!walk.open_tad(file.recording()) || !walk_to_end(walk)) {
+            if (walk.failure().unreadable || !walk.failure().parse.has_value())
+                return refuse(file_unreadable);
+            return refuse_tad(first, *walk.failure().parse);
+        }
+        const std::span<const uint8_t> head = walk.head_bytes();
+        const Stripped stripped =
+            without_sector_six(head, static_cast<uint32_t>(walk.head().sectors.size()));
+        if (!stripped.walked)
+            return refuse(tad_unreadable);
+        if (stripped.removed) {
+            const tad::ParseResult again = tad::parse(stripped.bytes);
+            if (!again.ok() ||
+                tad::find_sector(*again.demo, tad::SectorType::player_address) != nullptr)
+                return refuse(tad_unreadable);
+            prefix = stripped.bytes;
+        } else {
+            prefix.assign(head.begin(), head.end());
+        }
+        copy_from = head.size();
+        const std::string map = text_of(walk.head().map_name);
+        if (!map.empty())
+            title = map;
+        const std::optional<std::string> digest = digest_in_pieces(prefix, file, copy_from);
+        if (!digest)
+            return refuse(file_unreadable);
+        sha256 = *digest;
+    } else {
+        if (!oademo::recognised(file.first_bytes(64)))
+            return refuse(oademo::not_a_replay);
+        oademo::RecordingWalk walk;
+        const bool opened = walk.open_replay(file.archive());
+        if (!walk.failure().sentence.empty())
+            return refuse(walk.failure().sentence);
+        if (walk.replay() == nullptr)
+            return refuse(oademo::not_a_replay);
+        std::optional<std::string> timeline;
+        if (std::string why_not = walk.replay()->read_timeline(timeline); !why_not.empty())
+            return refuse(why_not);
+        // A recording that does not parse is kept as it is, as the whole import keeps it.
+        bool holds = false;
+        if (opened) {
+            const bool walked = walk_to_end(walk);
+            if (!walk.failure().sentence.empty())
+                return refuse(walk.failure().sentence);
+            holds =
+                walked && tad::find_sector(walk.head(), tad::SectorType::player_address) != nullptr;
+        }
+        const oademo::Meta& meta = walk.replay()->meta();
+        if (!meta.map.name.empty())
+            title = meta.map.name;
+        sha256 = meta.recording.sha256;
+        if (holds) {
+            tad::ExportOptions plain;
+            plain.keep_oa_sectors = true;
+            plain.fit_tadr_sizes = false;
+            const CleanedRecording cleaned = write_cleaned_recording(source, plain, ExportSink{});
+            if (!cleaned.ok())
+                return refuse(oademo::recording_unreadable);
+            sha256 = cleaned.sha256;
+            rewrite = true;
+        }
+    }
+    if (title.empty())
+        title = stem_of(name);
+
+    if (const std::optional<std::string> already = find_identity(recordings, sha256)) {
+        ImportResult result;
+        result.ok = true;
+        result.path = *already;
+        result.sha256 = sha256;
+        result.title = std::move(title);
+        return result;
+    }
+    std::string relative;
+    const auto write = [&](const fs::path& temporary) {
+        if (!rewrite)
+            return copy_in_pieces(temporary, prefix, file, copy_from);
+        ReplayOutput output;
+        if (!output.open(temporary))
+            return false;
+        fs::path frame = temporary;
+        frame += ".frame";
+        const std::string why_not =
+            export_long_replay(source, std::nullopt, frame, output.archive());
+        return output.close() && why_not.empty();
+    };
+    if (!place_import(recordings, name, write, relative))
+        return refuse(replay_not_copied);
+    ImportResult result;
+    result.ok = true;
+    result.copied = true;
+    result.path = std::move(relative);
+    result.sha256 = std::move(sha256);
+    result.title = std::move(title);
+    return result;
+}
+
 } // namespace
 
 ImportResult import_replay(const fs::path& recordings, const fs::path& source) {
     const std::optional<FileKind> kind = file_kind_of(oa::platform::path_to_utf8(source));
     if (!kind)
         return refuse(oademo::not_a_replay);
+    if (long_replay(source))
+        return import_long(recordings, source, *kind);
     std::vector<uint8_t> loaded;
     const Loaded loaded_as = load_file(source, loaded);
     if (loaded_as == Loaded::too_large)
