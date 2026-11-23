@@ -18,9 +18,12 @@
 #include "oa/netgame/frame.hpp"
 #include "oa/netgame/network.hpp"
 #include "oa/netgame/records.hpp"
+#include "oa/base/sha256.hpp"
 #include "oa/test/check.hpp"
+#include "oa/test/large_replay.hpp"
 #include "oa/test/scratch_directory.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -754,6 +757,130 @@ void level_with_deflate_is_usage() {
     OA_CHECK(both.out.empty());
 }
 
+// The SHA-256 of a file, read a piece at a time.
+std::string file_sha256(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    oa::base::sha256::Hasher hasher;
+    std::vector<char> piece(std::size_t{1} << 20);
+    while (in) {
+        in.read(piece.data(), static_cast<std::streamsize>(piece.size()));
+        const auto got = static_cast<std::size_t>(std::max<std::streamsize>(in.gcount(), 0));
+        oa::base::sha256::update(
+            hasher, std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(piece.data()), got)
+        );
+    }
+    const auto hex = oa::base::sha256::to_hex(oa::base::sha256::finish(hasher));
+    return {hex.begin(), hex.end()};
+}
+
+// A recording and a replay past the 512 MiB a whole read takes are read,
+// packed, unpacked and exported a piece at a time, and give back the same
+// recording.
+void files_past_whole_reads_are_read_in_pieces() {
+    const Scratch scratch;
+    const oa::test::MadeRecording made = oa::test::recording_past_whole_reads();
+    const uint64_t last_time = ((made.packets - 1) / oa::test::made_packets_per_tick + 1) * 33U;
+    const auto tad_path = scratch.path / "long.tad";
+    const auto packed_path = scratch.path / "long.oademo";
+    const oa::test::MadeFile written = oa::test::write_made_tad(made, tad_path);
+    OA_CHECK(written.bytes > oa::test::whole_read_most_bytes);
+    std::error_code removed;
+
+    const Captured tad_info = run({"replay", "info", utf8_of(tad_path), "--json"});
+    OA_CHECK(tad_info.status == oa::tool::exit_done && tad_info.err.empty());
+    OA_CHECK(one_json_object(tad_info.out));
+    OA_CHECK(tad_info.out.find("\"file\":\"tad\"") != std::string::npos);
+    OA_CHECK(tad_info.out.find("\"map\":\"Long Map\"") != std::string::npos);
+    OA_CHECK(
+        tad_info.out.find("\"packets\":" + std::to_string(made.packets) + ",") != std::string::npos
+    );
+    OA_CHECK(
+        tad_info.out.find("\"length_ms\":" + std::to_string(last_time) + ",") != std::string::npos
+    );
+
+    const Captured packed =
+        run({"replay", "pack", utf8_of(tad_path), "--out", utf8_of(packed_path), "--level", "1"});
+    OA_CHECK(packed.status == oa::tool::exit_done && packed.err.empty());
+    OA_CHECK(std::filesystem::file_size(packed_path, removed) > oa::test::whole_read_most_bytes);
+    const Captured deflated = run(
+        {"replay", "pack", utf8_of(tad_path), "--out", utf8_of(packed_path), "--deflate", "--force"}
+    );
+    OA_CHECK(deflated.status != oa::tool::exit_done);
+    OA_CHECK(deflated.err.find("zstd frame") != std::string::npos);
+    std::filesystem::remove(tad_path, removed);
+
+    const Captured replay_info = run({"replay", "info", utf8_of(packed_path), "--json"});
+    OA_CHECK(replay_info.status == oa::tool::exit_done && replay_info.err.empty());
+    OA_CHECK(one_json_object(replay_info.out));
+    OA_CHECK(
+        replay_info.out.find("\"sha256\":\"" + written.recording_sha256 + "\"") != std::string::npos
+    );
+    OA_CHECK(
+        replay_info.out.find("\"packets\":" + std::to_string(made.packets)) != std::string::npos
+    );
+    OA_CHECK(
+        replay_info.out.find("\"length_ms\":" + std::to_string(last_time)) != std::string::npos
+    );
+
+    const auto unpacked_path = scratch.path / "unpacked.tad";
+    const Captured unpacked =
+        run({"replay", "unpack", utf8_of(packed_path), "--out", utf8_of(unpacked_path)});
+    OA_CHECK(unpacked.status == oa::tool::exit_done && unpacked.err.empty());
+    OA_CHECK(std::filesystem::file_size(unpacked_path, removed) == written.recording_bytes);
+    OA_CHECK(file_sha256(unpacked_path) == written.recording_sha256);
+    std::filesystem::remove(unpacked_path, removed);
+
+    // A .tad export of a plain recording with no address and short names is the recording.
+    const auto exported_tad = scratch.path / "exported.tad";
+    const Captured as_tad = run({
+        "replay",
+        "export",
+        utf8_of(packed_path),
+        "--format",
+        "tad",
+        "--out",
+        utf8_of(exported_tad),
+    });
+    OA_CHECK(as_tad.status == oa::tool::exit_done && as_tad.err.empty());
+    OA_CHECK(file_sha256(exported_tad) == written.recording_sha256);
+    std::filesystem::remove(exported_tad, removed);
+
+    // A .oademo export of a clean recording keeps its frame: the same recording.
+    const auto exported_replay = scratch.path / "exported.oademo";
+    const Captured as_replay = run({
+        "replay",
+        "export",
+        utf8_of(packed_path),
+        "--format",
+        "oademo",
+        "--out",
+        utf8_of(exported_replay),
+    });
+    OA_CHECK(as_replay.status == oa::tool::exit_done && as_replay.err.empty());
+    const Captured exported_info = run({"replay", "info", utf8_of(exported_replay), "--json"});
+    OA_CHECK(exported_info.status == oa::tool::exit_done);
+    OA_CHECK(
+        exported_info.out.find("\"sha256\":\"" + written.recording_sha256 + "\"") !=
+        std::string::npos
+    );
+    OA_CHECK(
+        std::filesystem::file_size(exported_replay, removed) ==
+        std::filesystem::file_size(packed_path, removed)
+    );
+    const Captured again = run({
+        "replay",
+        "export",
+        utf8_of(packed_path),
+        "--format",
+        "oademo",
+        "--out",
+        utf8_of(exported_replay),
+    });
+    OA_CHECK(
+        again.status != oa::tool::exit_done && again.err.find("already exists") != std::string::npos
+    );
+}
+
 } // namespace
 
 int main() {
@@ -763,6 +890,7 @@ int main() {
     oa_sectors_fill_the_mutators_and_the_brains();
     a_version_other_than_one_is_not_a_version_this_game_reads();
     level_with_deflate_is_usage();
+    files_past_whole_reads_are_read_in_pieces();
     export_writes_both_formats();
     pack_and_export_describe_a_tad_the_same();
     return oa::test::check_exit_status();

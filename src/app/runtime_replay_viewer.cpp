@@ -21,7 +21,9 @@
 #include "oa/core/player.h"
 #include "oa/core/world.h"
 #include "oa/data/input_actions/actions.hpp"
+#include "oa/data/replays/long_replay.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_reader.hpp"
 #include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/formats/ota.hpp"
 #include "oa/platform/files.hpp"
@@ -65,6 +67,7 @@ namespace rv = oa::ui::replay_viewer;
 namespace kit = oa::ui::kit;
 namespace library = oa::ui::library;
 namespace oademo = oa::formats::oademo;
+namespace replay_data = oa::data::replays;
 namespace fs = std::filesystem;
 
 /// Ticks in ten seconds, and in a minute, at the bar's 30 ticks a second.
@@ -174,6 +177,9 @@ uint32_t heat_sample(uint64_t sample) noexcept {
     return sample > 0xffffffffu ? 0xffffffffu : static_cast<uint32_t>(sample);
 }
 
+/// The first bytes of a recording read to tell a `.oademo` from a `.tad`.
+constexpr std::size_t replay_first_bytes = 64;
+
 /// Reads a whole file. An unreadable file is empty.
 ///
 /// @param path the file
@@ -187,17 +193,20 @@ std::vector<uint8_t> read_bytes(const fs::path& path) {
 
 /// Copies colours the recording names onto a built index.
 ///
+/// The description is read a piece at a time, whatever the replay's length.
+/// Playback has read the recording to its end and checked it before the bar
+/// reads this.
+///
 /// @param built the index
 /// @param path the recording
 void attach_meta(BuiltIndex& built, const fs::path& path) {
-    const std::vector<uint8_t> bytes = read_bytes(path);
-    const std::span<const uint8_t> file(bytes.data(), bytes.size());
-    if (bytes.empty() || !oademo::recognised(file))
+    replay_data::ReplayFile file;
+    if (!file.open(path) || !oademo::recognised(file.first_bytes(replay_first_bytes)))
         return;
-    const oademo::ReadResult read = oademo::read(file);
-    if (!read.ok())
+    const oademo::DescriptionResult described = oademo::read_description(file.archive());
+    if (!described.ok())
         return;
-    for (const oademo::PlayerInfo& player : read.replay->meta.players) {
+    for (const oademo::PlayerInfo& player : described.meta->players) {
         BuiltIndex::MetaColour colour;
         colour.name = player.name;
         colour.number = player.number;
@@ -326,13 +335,15 @@ struct SavedTimeline {
 /// @param path the recording
 /// @return the timeline, or a request for the index pass when neither is there
 SavedTimeline read_saved_timeline(const fs::path& path) {
-    const std::vector<uint8_t> bytes = read_bytes(path);
-    const std::span<const uint8_t> file(bytes.data(), bytes.size());
-    if (!bytes.empty() && oademo::recognised(file)) {
-        const oademo::ReadResult read = oademo::read(file);
-        if (read.ok() && read.replay->timeline) {
+    // The timeline is read a piece at a time, whatever the replay's length.
+    // Playback has read the recording to its end and checked it already.
+    replay_data::ReplayFile file;
+    if (file.open(path) && oademo::recognised(file.first_bytes(replay_first_bytes))) {
+        oademo::RecordingReader reader;
+        std::optional<std::string> kept;
+        if (reader.open(file.archive()).empty() && reader.read_timeline(kept).empty() && kept) {
             if (const std::optional<oademo::TimelineIndex> timeline =
-                    oademo::parse_timeline_index(*read.replay->timeline)) {
+                    oademo::parse_timeline_index(*kept)) {
                 if (timeline_current(*timeline))
                     return {from_timeline(*timeline), false};
             }

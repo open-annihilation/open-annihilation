@@ -28,6 +28,7 @@
 #include "oa/audio/mixer.hpp"
 #include "oa/audio/offline_mix.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/data/replays/long_replay.hpp"
 #include "oa/formats/oademo/oademo.hpp"
 #include "oa/formats/oademo/timeline_index.hpp"
 #include "oa/formats/oascript.hpp"
@@ -329,6 +330,46 @@ void open_recording(
         throw std::logic_error("the extension that replays " + name + " left a replay hook null");
 }
 
+/// The first bytes of a recording file handed over with its path: enough to
+/// tell a `.oademo` from a `.tad` (RecordingInput::path).
+constexpr std::size_t kRecordingFirstBytes = 64;
+
+/// Asks the extensions for the one that replays a recording file, and has it
+/// start the recording's match. The file is named by its path, with its
+/// first bytes, and read as the replay reaches it: never whole.
+///
+/// Throws std::runtime_error when the file cannot be read or none replays
+/// it; an extension that recognises the recording and cannot replay it
+/// throws its own.
+///
+/// @param extension the combined extension table
+/// @param[in,out] runtime the running app, with no match running
+/// @param name the recording's name, for the extension and the messages
+/// @param file the recording's file
+/// @param[out] replay the replay's hooks
+/// @param[out] info what the recording holds
+void open_recording_file(
+    const Extension& extension,
+    Runtime& runtime,
+    const std::string& name,
+    const fs::path& file,
+    ReplayHooks& replay,
+    RecordingInfo& info
+) {
+    replay = {};
+    info = {};
+    oa::data::replays::ReplayFile opened;
+    if (!opened.open(file))
+        throw std::runtime_error("cannot read the recording " + path_to_utf8(file));
+    const std::vector<uint8_t> first = opened.first_bytes(kRecordingFirstBytes);
+    const std::string path = path_to_utf8(file);
+    const RecordingInput input{name.c_str(), first.data(), first.size(), true, path.c_str()};
+    if (!call_hook_or_raise<&Extension::open_recording>(extension, runtime, input, replay, info))
+        throw std::runtime_error("no extension of this build replays " + name);
+    if (replay.step == nullptr || replay.status == nullptr || replay.close == nullptr)
+        throw std::logic_error("the extension that replays " + name + " left a replay hook null");
+}
+
 /// Returns where a replay stands.
 ///
 /// A status hook that throws, which it must not, is reported and leaves the
@@ -461,10 +502,9 @@ struct VisibilityGlue {
 /// `finished` or `left`. A `.tad`, a description that does not read, and any
 /// other word give nothing, and the index keeps its own rule.
 ///
-/// @param file the recording's bytes
+/// @param described the recording's description, read from its file
 /// @return the end, or nothing
-std::optional<oademo::IndexEnd> recorded_end_of(std::span<const uint8_t> file) {
-    const oademo::DescriptionResult described = oademo::read_description(file);
+std::optional<oademo::IndexEnd> recorded_end_of(const oademo::DescriptionResult& described) {
     if (!described.ok() || !described.meta->game.ended.has_value())
         return std::nullopt;
     const std::string_view word = *described.meta->game.ended;
@@ -480,12 +520,12 @@ std::optional<oademo::IndexEnd> recorded_end_of(std::span<const uint8_t> file) {
 /// left, a game that is not a campaign, and a file that does not say, give
 /// nothing: the index then keeps the commanders' result.
 ///
-/// @param file the recording's bytes
+/// @param described the recording's description, read from its file
 /// @param[out] player that player's number, when a result is returned
 /// @return won, lost, or nothing
-replay_index::Source::Mission mission_result_of(std::span<const uint8_t> file, int& player) {
+replay_index::Source::Mission
+mission_result_of(const oademo::DescriptionResult& described, int& player) {
     player = 0;
-    const oademo::DescriptionResult described = oademo::read_description(file);
     if (!described.ok() || described.meta->game.kind != "campaign")
         return replay_index::Source::Mission::none;
     if (!described.meta->game.ended.has_value() ||
@@ -880,11 +920,20 @@ int Runtime::run_render_script() {
             );
         const std::string& recording_name = staged ? script.input.stage : script.input.recording;
         const fs::path input_path = file.parent_path() / path_from_utf8(recording_name);
-        const std::vector<uint8_t> recording =
-            bundled
-                ? read_bundle_entry(archive, bundle, recording_name)
-                : read_bounded(input_path, zip::max_entry_bytes, staged ? "stage" : "recording");
+        // A bundle carries its recording whole. A recording file is named by
+        // its path and read as its replay reaches it (open_recording_file).
+        std::vector<uint8_t> recording;
+        if (bundled)
+            recording = read_bundle_entry(archive, bundle, recording_name);
+        else if (staged)
+            recording = read_bounded(input_path, zip::max_entry_bytes, "stage");
         archive = {};
+        const auto open_input = [&](ReplayHooks& hooks, RecordingInfo& opened) {
+            if (bundled)
+                open_recording(extension_, *this, recording_name, recording, hooks, opened);
+            else
+                open_recording_file(extension_, *this, recording_name, input_path, hooks, opened);
+        };
         const auto encoder = encoder_settings_from_environment();
         if (encoder.enabled)
             run_encoder({director_encoder, "-hide_banner", "-loglevel", "error", "-version"});
@@ -896,7 +945,7 @@ int Runtime::run_render_script() {
             prepare_headless_match();
             replay = match_replay_hooks(played);
         } else {
-            open_recording(extension_, *this, recording_name, recording, replay, info);
+            open_input(replay, info);
         }
         replay_open = true;
         const auto& game = match_->state().game;
@@ -946,7 +995,7 @@ int Runtime::run_render_script() {
             leave_director_mode();
             leave_match();
             load(Screen::main_menu);
-            open_recording(extension_, *this, recording_name, recording, replay, info);
+            open_input(replay, info);
             replay_open = true;
         }
         director::ShotList shots{};
@@ -1133,7 +1182,11 @@ int Runtime::run_generate_script() {
                 std::to_string(oascript::max_dimension) + " a side, not " + std::to_string(width) +
                 'x' + std::to_string(height)
             );
-        const auto recording = read_bounded(recording_path, zip::max_entry_bytes, "recording");
+        // A bundle carries its recording whole; a script names the file, whose
+        // replay reads it as it goes.
+        std::vector<uint8_t> recording;
+        if (bundled)
+            recording = read_bounded(recording_path, zip::max_entry_bytes, "recording");
         const std::string recording_name = path_to_utf8(recording_path.filename());
         // The script names its recording by its path from the script's
         // folder when it lies there or below, else by its absolute path; a
@@ -1142,7 +1195,10 @@ int Runtime::run_generate_script() {
             bundled ? recording_name : script_recording_key(recording_path, out);
 
         RecordingInfo info{};
-        open_recording(extension_, *this, recording_name, recording, replay, info);
+        if (bundled)
+            open_recording(extension_, *this, recording_name, recording, replay, info);
+        else
+            open_recording_file(extension_, *this, recording_name, recording_path, replay, info);
         replay_open = true;
         const auto& world = match_->state();
         const director::MapBounds bounds{world.game.map_pixel_width, world.game.map_pixel_height};
@@ -1336,14 +1392,15 @@ int Runtime::run_replay_index() {
         // that pack is not played against the copy in Maps.
         if (!options_.replay_map_pack.empty())
             use_replay_map_pack(options_.replay_map_pack);
-        const auto recording = read_bounded(recording_path, zip::max_entry_bytes, "recording");
+        // The recording is read as its replay reaches it, and its notes and
+        // description a piece at a time: nothing of it is held whole.
         const std::string recording_name = path_to_utf8(recording_path.filename());
 
         RecordingInfo info{};
-        open_recording(extension_, *this, recording_name, recording, replay, info);
+        open_recording_file(extension_, *this, recording_name, recording_path, replay, info);
         replay_open = true;
         std::string stream_error;
-        const auto stream = replay_index::read_stream_notes(recording, stream_error);
+        const auto stream = replay_index::read_stream_notes(recording_path, stream_error);
         if (!stream)
             throw std::runtime_error(recording_name + ": " + stream_error);
         const auto& world = match_->state();
@@ -1426,8 +1483,10 @@ int Runtime::run_replay_index() {
         const director::Timeline timeline = recorder.take();
         source.timeline = &timeline;
         source.stream = &*stream;
-        source.recorded_end = recorded_end_of(recording);
-        source.mission = mission_result_of(recording, source.mission_player);
+        const oademo::DescriptionResult described =
+            oa::data::replays::read_description_file(recording_path);
+        source.recorded_end = recorded_end_of(described);
+        source.mission = mission_result_of(described, source.mission_player);
         const oademo::TimelineIndex index = replay_index::build_index(source);
         const std::string text = oademo::timeline_index_text(index);
         write_whole_file(out, {reinterpret_cast<const uint8_t*>(text.data()), text.size()});

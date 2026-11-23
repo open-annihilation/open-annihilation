@@ -62,8 +62,10 @@ include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaDemoInstaller.cmake")
 # oa-test-support, the headers test programs share: OA_CHECK, the check a
 # test makes in place of assert(), kept in every build type (oa/test/check.hpp),
 # make_scratch_directory(), a temporary directory no other run shares
-# (oa/test/scratch_directory.hpp), and zip archives built field by field
-# (oa/test/raw_zip.hpp, which needs ZLIB::ZLIB), in tests/support/include.
+# (oa/test/scratch_directory.hpp), zip archives built field by field
+# (oa/test/raw_zip.hpp, which needs ZLIB::ZLIB), and a recording, a `.tad`
+# and a `.oademo` past the 512 MiB a whole read takes (oa/test/large_replay.hpp,
+# which needs oa-formats-oademo and oa-base-zstd), in tests/support/include.
 add_library(oa-test-support INTERFACE)
 add_library(oa::test::support ALIAS oa-test-support)
 target_include_directories(oa-test-support INTERFACE "${CMAKE_CURRENT_LIST_DIR}/tests/support/include")
@@ -953,16 +955,18 @@ endif()
 add_library(oa-app-replay-index src/app/replay_index.cpp)
 add_library(oa::app::replay_index ALIAS oa-app-replay-index)
 target_link_libraries(oa-app-replay-index PUBLIC oa-app-headers oa-formats-oademo oa-media-director
-  PRIVATE oa-formats-tad oa-session-demo oa-netgame oa-present oa-core-types oa-options)
+  PRIVATE oa-formats-tad oa-data-replays oa-session-demo oa-netgame oa-present oa-core-types
+    oa-options)
 if(BUILD_TESTING)
-  # Notes read from a made-up recording of every kind of record, the index
-  # built from a made-up timeline, and the refusals.
+  # Notes read from a made-up recording of every kind of record, also from
+  # files past the 512 MiB a whole read takes, the index built from a made-up
+  # timeline, and the refusals.
   add_executable(oa-app-replay-index-test src/app/replay_index_test.cpp)
   target_link_libraries(oa-app-replay-index-test PRIVATE oa-app-replay-index oa-formats-oademo
-    oa-formats-tad oa-media-director oa-netgame oa-session-demo oa-core-types oa-test-support
-    oa-options)
+    oa-formats-tad oa-media-director oa-netgame oa-session-demo oa-core-types oa-base-sha256
+    oa-base-zstd oa-test-support oa-options)
   add_test(NAME app-replay-index COMMAND oa-app-replay-index-test)
-  set_tests_properties(app-replay-index PROPERTIES TIMEOUT 60)
+  set_tests_properties(app-replay-index PROPERTIES TIMEOUT 600)
 endif()
 # Installed map packs: each pack's maps from its manifest, cached by the
 # pack's SHA-256, and whether one map fits the base game.
@@ -1695,6 +1699,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_library_map_preview_check.cpp
   src/app/runtime_library_content_check.cpp
   src/app/runtime_library_replays_check.cpp
+  src/app/runtime_library_replay_check.cpp
   src/app/runtime_replays_content_check.cpp
   src/app/runtime_library_core_prime_check.cpp
   src/app/runtime_team_panel_check.cpp src/app/runtime_scroll_bar_check.cpp
@@ -3464,6 +3469,25 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_library_replays_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED "library-replays-clean;library-replays-source")
+      # The same recorded game walked through the Library as one replay of any
+      # length is (--check-library-replay): listed, given its timeline by the
+      # Library's index pass, watched to the middle, watched from there to its
+      # end with no error, and exported as a .oademo and a .tad; then read by
+      # oa-tool replay and the recording dump. Run with --replay naming a
+      # replay past 512 MiB, the check reads that one instead.
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME native-replays-library-walk COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_library_replays.py"
+          --native $<TARGET_FILE:oa-game> --tool $<TARGET_FILE:oa-tool>
+          --dump $<TARGET_FILE:oa-formats-tad-dump> --game-dir "${OA_GAME_DIR}"
+          --replay "${oa_library_replays_dir}/library-replays-source.oademo"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-replays-library-walk PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+          FIXTURES_REQUIRED library-replays-source)
+      endif()
       # A replay that needs an older map pack and a mutator. The pack is only
       # in the catalogue's releases list. One press fetches both from a
       # loopback registry and the replay plays; the mutator's selection is

@@ -149,11 +149,13 @@ void NetworkPlay::start_demo_playback() {
     };
     std::string error;
     // A recording the engine handed over comes first, the --play-demo file
-    // otherwise.
+    // otherwise. One it named by its file is read from there as it plays.
     auto staged = std::exchange(netgame_context().staged_recording, std::nullopt);
-    const bool loaded = staged
-                            ? demo::demo_load(&session->playback, std::move(staged->bytes), &error)
-                            : demo::demo_open(&session->playback, net_options().play_demo, &error);
+    const bool loaded =
+        staged ? (staged->file.empty()
+                      ? demo::demo_load(&session->playback, std::move(staged->bytes), &error)
+                      : demo::demo_open(&session->playback, staged->file, &error))
+               : demo::demo_open(&session->playback, net_options().play_demo, &error);
     if (!loaded)
         throw std::runtime_error(error);
     const fs::path recorded = staged ? path_from_utf8(staged->name) : net_options().play_demo;

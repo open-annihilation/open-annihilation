@@ -618,6 +618,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--generate-script", "game.rec", {}},
         {"--replay-index", "game.rec", {"--output", "game.json"}},
         {"--replay-map-pack", "kept", {"--replay-index", "game.rec", "--output", "game.json"}},
+        {"--check-library-replay", "default/game.oademo", {}},
         {"--render-script", "game.oascript", {}},
         {"--output", "out", {"--render-script", "game.oascript"}},
         {"--chunks", "1", {"--render-script", "game.oascript"}},

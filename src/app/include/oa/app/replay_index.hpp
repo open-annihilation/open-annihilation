@@ -23,6 +23,7 @@
 #include "oa/media/director/timeline.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -80,12 +81,27 @@ struct StreamNotes {
 /// or that is from a player the recording does not list, is skipped, as
 /// playback skips it. A private chat line is left out.
 ///
+/// The recording is read a piece at a time, whatever its length: a
+/// `.oademo`'s through its frame, a `.tad` as it is. A `.oademo` is refused
+/// for its description, its timeline or its recording as a whole read of it
+/// refuses it, and with the same sentence.
+///
 /// @param file a `.tad` or a `.oademo`
 /// @param[out] error why the file was not read; untouched on success
 /// @return the notes, or nothing when the file is neither a `.oademo` this
 ///         game reads nor a recording that parses
 [[nodiscard]] std::optional<StreamNotes>
 read_stream_notes(std::span<const uint8_t> file, std::string& error);
+
+/// Reads the notes of a recording file, as the bytes of it are read, without
+/// holding it.
+///
+/// @param file the `.tad` or `.oademo`
+/// @param[out] error why the file was not read; untouched on success
+/// @return the notes, or nothing when the file cannot be opened, or is neither
+///         a `.oademo` this game reads nor a recording that parses
+[[nodiscard]] std::optional<StreamNotes>
+read_stream_notes(const std::filesystem::path& file, std::string& error);
 
 /// What the index is built from.
 struct Source {

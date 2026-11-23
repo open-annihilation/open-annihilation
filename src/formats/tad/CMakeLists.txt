@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # The TA Demo (.tad) recording format, and oa-formats-tad-dump, which
-# summarises recordings: header, players, packet timing and record types.
+# summarises recordings: header, players, packet timing and record types. The
+# dump reads a .tad, or a .oademo's recording, a piece at a time.
 add_library(oa-formats-tad src/tad.cpp src/export.cpp)
 add_library(oa::formats::tad ALIAS oa-formats-tad)
 target_include_directories(oa-formats-tad PUBLIC include)
@@ -10,7 +11,7 @@ target_compile_features(oa-formats-tad PUBLIC cxx_std_20)
 target_link_libraries(oa-formats-tad PUBLIC oa-formats-sqsh oa-options PRIVATE oa-base-bytes)
 
 add_executable(oa-formats-tad-dump tools/tad_dump.cpp)
-target_link_libraries(oa-formats-tad-dump PRIVATE oa-formats-tad oa-platform-shims)
+target_link_libraries(oa-formats-tad-dump PRIVATE oa-formats-tad oa-formats-oademo oa-platform-shims)
 
 if(BUILD_TESTING)
   add_executable(oa-formats-tad-test tests/tad_test.cpp)

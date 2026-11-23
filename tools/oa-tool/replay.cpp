@@ -5,14 +5,20 @@
 // Pack leaves out an address sector and stores every packet plain. It reads a
 // player's side and colour from the player's status datagram, as playback
 // does, and turns the recorder's text from the game's code page to UTF-8.
+// Info and unpack read a file a piece at a time, whatever its length. Pack
+// and export read a file a whole read takes as before, and one too long for
+// it (oa/data/replays/long_replay.hpp) a piece at a time.
 
 #include "arguments.hpp"
 #include "command.hpp"
 
 #include "oa/core/player_setup.h"
+#include "oa/data/replays/long_replay.hpp"
 #include "oa/formats/json.hpp"
 #include "oa/formats/oademo/interface_words.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_reader.hpp"
+#include "oa/formats/oademo/recording_walk.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/formats/zip.hpp"
 #include "oa/present/game_text.hpp"
@@ -22,6 +28,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <ostream>
 #include <span>
@@ -34,10 +41,15 @@ namespace oa::tool {
 namespace {
 
 namespace fs = std::filesystem;
+namespace replay_data = oa::data::replays;
 
 constexpr uint64_t recording_cap = oa::formats::tad::limit::input_bytes;
 constexpr uint64_t container_cap = oa::formats::zip::max_archive_bytes;
 constexpr int highest_pack_level = 22;
+/// The first bytes read to tell a `.oademo` from a `.tad`.
+constexpr std::size_t first_bytes = 64;
+/// The bytes a recording is unpacked through.
+constexpr std::size_t piece_bytes = std::size_t{1} << 20;
 
 std::string utf8_of(const fs::path& path) {
     const auto text = path.generic_u8string();
@@ -72,6 +84,56 @@ std::vector<uint8_t> read_up_to(const fs::path& path, uint64_t cap) {
     if (!in)
         throw Failure("cannot read " + utf8_of(path));
     return bytes;
+}
+
+/// Opens a file to be read a piece at a time.
+///
+/// @param path the file
+/// @param[out] file the opened file
+void open_in_pieces(const fs::path& path, replay_data::ReplayFile& file) {
+    if (!file.open(path))
+        throw Failure("cannot open " + utf8_of(path));
+}
+
+/// Writes a new file a piece at a time: beside its place first, then moved there.
+///
+/// @param path the file
+/// @param force replace a file that is there
+/// @param write writes the file to the path it is given; returns why it could
+///        not, or empty
+void write_new_in_pieces(
+    const fs::path& path, bool force, const std::function<std::string(const fs::path&)>& write
+) {
+    std::error_code exists_error;
+    if (fs::exists(path, exists_error) && !force)
+        throw Failure("the file already exists");
+    fs::path partial = path;
+    partial += ".part";
+    std::string why_not = write(partial);
+    std::error_code moved;
+    if (why_not.empty())
+        fs::rename(partial, path, moved);
+    if (!why_not.empty() || moved) {
+        std::error_code removed;
+        fs::remove(partial, removed);
+        throw Failure(why_not.empty() ? "cannot write " + utf8_of(path) : why_not);
+    }
+}
+
+/// Says why a walk of a recording stopped, as a whole read and parse of it say.
+///
+/// @param failure the walk's failure
+/// @param path the file, for a read that failed
+/// @return the sentence or the parse's words
+std::string walk_failure(const oa::formats::oademo::WalkFailure& failure, const fs::path& path) {
+    if (!failure.sentence.empty())
+        return failure.sentence;
+    if (failure.parse.has_value()) {
+        if (failure.parse->code == oa::formats::tad::ErrorCode::bad_magic)
+            return std::string(oa::formats::oademo::not_a_replay);
+        return failure.parse->message;
+    }
+    return "cannot read " + utf8_of(path);
 }
 
 void write_new(const fs::path& path, std::span<const uint8_t> bytes, bool force) {
@@ -173,10 +235,22 @@ oa::formats::oademo::Replay replay_from_recording(const std::vector<uint8_t>& by
     return described.replay;
 }
 
-void print_tad(const oa::formats::tad::Demo& demo, bool as_json, Output& output) {
+/// Prints what a `.tad` holds.
+///
+/// @param demo the part before its packets
+/// @param packets how many packets it holds
+/// @param length the recorder's clock at its last packet; 0 with none
+/// @param as_json one JSON object rather than lines
+/// @param output where it goes
+void print_tad(
+    const oa::formats::tad::Demo& demo,
+    uint64_t packets,
+    uint64_t length,
+    bool as_json,
+    Output& output
+) {
     const oa::formats::oademo::UnitTableDigest digest =
         oa::formats::oademo::unit_table_digest(demo.unit_checks);
-    const uint64_t length = demo.packets.empty() ? 0 : demo.packets.back().time_ms;
     std::string recorder;
     std::string date;
     bool has_recorder = false;
@@ -217,7 +291,7 @@ void print_tad(const oa::formats::tad::Demo& demo, bool as_json, Output& output)
         }
         writer.end_array();
         writer.key("packets");
-        writer.integer(static_cast<int64_t>(demo.packets.size()));
+        writer.integer(static_cast<int64_t>(packets));
         writer.key("length_ms");
         writer.integer(static_cast<int64_t>(length));
         writer.key("units");
@@ -250,7 +324,7 @@ void print_tad(const oa::formats::tad::Demo& demo, bool as_json, Output& output)
         output.out << "player " << static_cast<int>(player.number) << ": " << facts.name << " "
                    << facts.side << " " << facts.colour << '\n';
     }
-    output.out << "packets: " << demo.packets.size() << '\n';
+    output.out << "packets: " << packets << '\n';
     output.out << "length_ms: " << length << '\n';
     output.out << "units: " << digest.count << " " << digest.sha256 << '\n';
     output.out << "index_bits: " << digest.index_bits << '\n';
@@ -294,6 +368,164 @@ void print_oademo(const oa::formats::oademo::Replay& replay, bool as_json, Outpu
         output.out << "timeline: yes\n";
 }
 
+/// Prints the warnings a `.tad` export gives.
+///
+/// @param notices the export's notices
+/// @param output where they go
+void warn_tad_export(std::span<const oa::formats::tad::ExportNotice> notices, Output& output) {
+    for (const oa::formats::tad::ExportNotice& notice : notices) {
+        switch (notice.kind) {
+        case oa::formats::tad::ExportNoticeKind::names_cut:
+            output.err << "Names longer than 63 letters are cut.\n";
+            break;
+        case oa::formats::tad::ExportNoticeKind::status_cut:
+            output.err << "A player's status is cut to 512 bytes.\n";
+            break;
+        case oa::formats::tad::ExportNoticeKind::wide_records:
+            output.err << "Other replayers stop at the first of this mod's wide weapon records.\n";
+            break;
+        case oa::formats::tad::ExportNoticeKind::mutators:
+            if (notice.mutators.empty()) {
+                output.err << "It was played with mutators. Other replayers cannot apply them, "
+                              "so commanders may not last as they did.\n";
+                break;
+            }
+            for (const std::string& name : notice.mutators) {
+                output.err << "It was played with the mutator " << name
+                           << ". Other replayers cannot apply it, so commanders may not last as "
+                              "they did.\n";
+            }
+            break;
+        }
+    }
+}
+
+/// Describes a long `.tad` as pack describes one, from the part before its packets.
+///
+/// @param source the `.tad`
+/// @return the description; its recording identity, packets and length are
+///         set when it is written (replay_data::write_replay_in_pieces)
+oa::formats::oademo::Replay long_recording_description(const fs::path& source) {
+    replay_data::ReplayFile file;
+    open_in_pieces(source, file);
+    oa::formats::oademo::RecordingWalk walk;
+    if (!walk.open_tad(file.recording()))
+        throw Failure(walk_failure(walk.failure(), source));
+    const std::vector<uint8_t> head(walk.head_bytes().begin(), walk.head_bytes().end());
+    oa::formats::oademo::Replay replay = replay_from_recording(head);
+    replay.recording.clear();
+    return replay;
+}
+
+/// Writes a `.oademo` of a long recording a piece at a time.
+///
+/// @param source the recording or replay
+/// @param destination the replay to make
+/// @param replay its description
+/// @param level the zstd level
+/// @param force replace a file that is there
+void write_long_replay(
+    const fs::path& source,
+    const fs::path& destination,
+    const oa::formats::oademo::Replay& replay,
+    int level,
+    bool force
+) {
+    write_new_in_pieces(destination, force, [&](const fs::path& part) {
+        replay_data::ReplayOutput out;
+        if (!out.open(part))
+            return "cannot write " + utf8_of(destination);
+        fs::path frame = part;
+        frame += ".frame";
+        std::string why_not =
+            replay_data::write_replay_in_pieces(source, replay, level, frame, out.archive());
+        if (!out.close() && why_not.empty())
+            why_not = "cannot write " + utf8_of(destination);
+        return why_not;
+    });
+}
+
+/// Packs a `.tad` past 512 MiB as a `.oademo`, a piece at a time, at `level`.
+///
+/// @param source the `.tad`
+/// @param destination the replay to make
+/// @param level the zstd level
+/// @param force replace a file that is there
+void pack_long(const fs::path& source, const fs::path& destination, int level, bool force) {
+    write_long_replay(source, destination, long_recording_description(source), level, force);
+}
+
+/// Exports a replay or recording too long to read whole, a piece at a time.
+///
+/// A `.oademo` keeps its own frame when its recording is plain and holds no
+/// address; a `.tad` is wrapped at the level a game ends at, since gigabytes
+/// of recording take far too long at the export's level. A `.tad` export is
+/// written as a whole one is, with the same warnings.
+///
+/// @param source the replay or recording
+/// @param destination the file to make
+/// @param as_oademo a `.oademo`, not a `.tad`
+/// @param keep_oa_sectors a `.tad` keeps Open Annihilation's sectors
+/// @param force replace a file that is there
+/// @param output where the warnings go
+void export_long(
+    const fs::path& source,
+    const fs::path& destination,
+    bool as_oademo,
+    bool keep_oa_sectors,
+    bool force,
+    Output& output
+) {
+    replay_data::ReplayFile file;
+    open_in_pieces(source, file);
+    const bool container = oa::formats::oademo::recognised(file.first_bytes(first_bytes));
+    if (as_oademo && !container) {
+        const oa::formats::oademo::Replay replay = long_recording_description(source);
+        write_long_replay(
+            source, destination, replay, oa::formats::oademo::level_when_a_game_ends, force
+        );
+        return;
+    }
+    if (as_oademo) {
+        write_new_in_pieces(destination, force, [&](const fs::path& part) {
+            replay_data::ReplayOutput out;
+            if (!out.open(part))
+                return "cannot write " + utf8_of(destination);
+            fs::path frame = part;
+            frame += ".frame";
+            std::string why_not =
+                replay_data::export_long_replay(source, std::nullopt, frame, out.archive());
+            if (!out.close() && why_not.empty())
+                why_not = "cannot write " + utf8_of(destination);
+            return why_not;
+        });
+        return;
+    }
+    oa::formats::tad::ExportOptions cleaning;
+    cleaning.keep_oa_sectors = keep_oa_sectors;
+    cleaning.fit_tadr_sizes = true;
+    std::vector<oa::formats::tad::ExportNotice> notices;
+    write_new_in_pieces(destination, force, [&](const fs::path& part) {
+        std::ofstream out(part, std::ios::binary | std::ios::trunc);
+        const replay_data::ExportSink sink{&out, [](void* context, std::span<const uint8_t> bytes) {
+                                               auto& to = *static_cast<std::ofstream*>(context);
+                                               to.write(
+                                                   reinterpret_cast<const char*>(bytes.data()),
+                                                   static_cast<std::streamsize>(bytes.size())
+                                               );
+                                               return static_cast<bool>(to);
+                                           }};
+        const replay_data::CleanedRecording cleaned =
+            replay_data::write_cleaned_recording(source, cleaning, sink);
+        out.close();
+        if (!cleaned.ok())
+            return cleaned.error;
+        notices = cleaned.notices;
+        return out.fail() ? "cannot write " + utf8_of(destination) : std::string();
+    });
+    warn_tad_export(notices, output);
+}
+
 } // namespace
 
 int run_replay_info(std::span<const std::string> arguments, Output& output) {
@@ -305,24 +537,46 @@ int run_replay_info(std::span<const std::string> arguments, Output& output) {
     if (parsed->positional.size() != 1)
         return usage(output, "info", "give one file");
     const fs::path path = path_from(parsed->positional[0]);
-    const std::vector<uint8_t> bytes = read_up_to(path, container_cap);
     const bool as_json = parsed->flags.contains("json");
-    if (oa::formats::oademo::recognised(bytes)) {
-        const oa::formats::oademo::ReadResult replay = oa::formats::oademo::read(bytes);
-        if (!replay.ok())
-            throw Failure(replay.error);
-        print_oademo(*replay.replay, as_json, output);
+    // Read a piece at a time, whatever the file's length: a replay is checked
+    // to its last byte, as a whole read checks it, and a `.tad` walked packet
+    // by packet, as a whole parse walks it.
+    replay_data::ReplayFile file;
+    open_in_pieces(path, file);
+    if (oa::formats::oademo::recognised(file.first_bytes(first_bytes))) {
+        oa::formats::oademo::RecordingReader reader;
+        if (std::string why_not = reader.open(file.archive()); !why_not.empty())
+            throw Failure(why_not);
+        oa::formats::oademo::Replay replay;
+        replay.meta = reader.meta();
+        replay.manifest = reader.manifest();
+        if (std::string why_not = reader.read_timeline(replay.timeline); !why_not.empty())
+            throw Failure(why_not);
+        std::vector<uint8_t> piece(piece_bytes);
+        for (;;) {
+            std::size_t got = 0;
+            if (std::string why_not = reader.read(piece, got); !why_not.empty())
+                throw Failure(why_not);
+            if (got == 0)
+                break;
+        }
+        print_oademo(replay, as_json, output);
         return exit_done;
     }
-    if (bytes.size() > recording_cap)
-        throw Failure("the file is too long to read");
-    const oa::formats::tad::ParseResult parsed_tad = oa::formats::tad::parse(bytes);
-    if (!parsed_tad.ok()) {
-        if (parsed_tad.error->code == oa::formats::tad::ErrorCode::bad_magic)
-            throw Failure(std::string(oa::formats::oademo::not_a_replay));
-        throw Failure(parsed_tad.error->message);
+    oa::formats::oademo::RecordingWalk walk;
+    if (!walk.open_tad(file.recording()))
+        throw Failure(walk_failure(walk.failure(), path));
+    oa::formats::tad::Packet packet;
+    uint64_t length = 0;
+    for (;;) {
+        bool ended = false;
+        if (!walk.next(packet, ended))
+            throw Failure(walk_failure(walk.failure(), path));
+        if (ended)
+            break;
+        length = packet.time_ms;
     }
-    print_tad(*parsed_tad.demo, as_json, output);
+    print_tad(walk.head(), walk.packets(), length, as_json, output);
     return exit_done;
 }
 
@@ -352,6 +606,13 @@ int run_replay_pack(std::span<const std::string> arguments, Output& output) {
     const fs::path destination = parsed->value("out") != nullptr
                                      ? path_from(*parsed->value("out"))
                                      : path_from(swapped_suffix(source, ".tad", ".oademo"));
+    if (replay_data::long_replay(source)) {
+        if (write_options.deflate)
+            throw Failure("a recording past 512 MiB is packed as a zstd frame, not deflated");
+        pack_long(source, destination, write_options.level, parsed->flags.contains("force"));
+        output.out << utf8_of(destination) << '\n';
+        return exit_done;
+    }
     const std::vector<uint8_t> bytes = read_up_to(source, recording_cap);
     const oa::formats::oademo::Replay replay = replay_from_recording(bytes);
     const oa::formats::oademo::WriteResult written =
@@ -378,41 +639,34 @@ int run_replay_unpack(std::span<const std::string> arguments, Output& output) {
     const fs::path destination = parsed->value("out") != nullptr
                                      ? path_from(*parsed->value("out"))
                                      : path_from(swapped_suffix(source, ".oademo", ".tad"));
-    const std::vector<uint8_t> bytes = read_up_to(source, container_cap);
-    const oa::formats::oademo::ReadResult replay = oa::formats::oademo::read(bytes);
-    if (!replay.ok())
-        throw Failure(replay.error);
-    write_new(destination, replay.replay->recording, parsed->flags.contains("force"));
+    // The recording is copied out a piece at a time and checked to its last
+    // byte, whatever its length; a replay that does not read leaves no file.
+    replay_data::ReplayFile file;
+    open_in_pieces(source, file);
+    oa::formats::oademo::RecordingReader reader;
+    if (std::string why_not = reader.open(file.archive()); !why_not.empty())
+        throw Failure(why_not);
+    std::optional<std::string> timeline;
+    if (std::string why_not = reader.read_timeline(timeline); !why_not.empty())
+        throw Failure(why_not);
+    write_new_in_pieces(destination, parsed->flags.contains("force"), [&](const fs::path& part) {
+        std::ofstream out(part, std::ios::binary | std::ios::trunc);
+        std::vector<uint8_t> piece(piece_bytes);
+        for (;;) {
+            std::size_t got = 0;
+            if (std::string why_not = reader.read(piece, got); !why_not.empty())
+                return why_not;
+            if (got == 0)
+                break;
+            out.write(
+                reinterpret_cast<const char*>(piece.data()), static_cast<std::streamsize>(got)
+            );
+        }
+        out.close();
+        return out.fail() ? "cannot write " + utf8_of(destination) : std::string();
+    });
     output.out << utf8_of(destination) << '\n';
     return exit_done;
-}
-
-void warn_tad_export(const oa::formats::tad::ExportResult& exported, Output& output) {
-    for (const oa::formats::tad::ExportNotice& notice : exported.notices) {
-        switch (notice.kind) {
-        case oa::formats::tad::ExportNoticeKind::names_cut:
-            output.err << "Names longer than 63 letters are cut.\n";
-            break;
-        case oa::formats::tad::ExportNoticeKind::status_cut:
-            output.err << "A player's status is cut to 512 bytes.\n";
-            break;
-        case oa::formats::tad::ExportNoticeKind::wide_records:
-            output.err << "Other replayers stop at the first of this mod's wide weapon records.\n";
-            break;
-        case oa::formats::tad::ExportNoticeKind::mutators:
-            if (notice.mutators.empty()) {
-                output.err << "It was played with mutators. Other replayers cannot apply them, "
-                              "so commanders may not last as they did.\n";
-                break;
-            }
-            for (const std::string& name : notice.mutators) {
-                output.err << "It was played with the mutator " << name
-                           << ". Other replayers cannot apply it, so commanders may not last as "
-                              "they did.\n";
-            }
-            break;
-        }
-    }
 }
 
 int run_replay_export(std::span<const std::string> arguments, Output& output) {
@@ -442,6 +696,18 @@ int run_replay_export(std::span<const std::string> arguments, Output& output) {
 
     const fs::path source = path_from(parsed->positional[0]);
     const fs::path destination = path_from(*out);
+    if (replay_data::long_replay(source)) {
+        export_long(
+            source,
+            destination,
+            as_oademo,
+            !parsed->flags.contains("no-oa-sectors"),
+            parsed->flags.contains("force"),
+            output
+        );
+        output.out << utf8_of(destination) << '\n';
+        return exit_done;
+    }
     const std::vector<uint8_t> bytes = read_up_to(source, container_cap);
     const bool container = oa::formats::oademo::recognised(bytes);
     std::vector<uint8_t> written;
@@ -487,7 +753,7 @@ int run_replay_export(std::span<const std::string> arguments, Output& output) {
             oa::formats::tad::export_recording(recording, cleaning);
         if (!exported.ok())
             throw Failure(exported.error->message);
-        warn_tad_export(exported, output);
+        warn_tad_export(exported.notices, output);
         written = exported.bytes;
     }
     write_new(destination, written, parsed->flags.contains("force"));
