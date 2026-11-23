@@ -167,7 +167,7 @@ SHADOW_CACHE_PATTERNS = 64
 SHADOW_FRAME_ADMISSIONS = 2
 SHADOW_INDEX_BYTES = 4
 LEGACY_PLAN_WORK_FIELDS = (
-    "unit_plans", "copy_plans", "linked_plans", "omitted_plans", "original_updates_dirty",
+    "unit_plans", "copy_plans", "linked_plans", "omitted_plans", "source_updates_dirty",
     "copy_updates_dirty", "transform_cache_hits", "root_prefix_hits", "transform_rebuilds",
     "metadata_image_builds", "pixel_image_builds",
 )
@@ -178,7 +178,7 @@ ROOT_PREFIX_WORK_FIELDS = (
 PLAN_WORK_FIELDS = (*LEGACY_PLAN_WORK_FIELDS, *ROOT_PREFIX_WORK_FIELDS)
 PLAN_WORK_PHASES = (
     "pose_capture", "list_prepare", "unit_sites", "battlefield_sort", "run_prepare", "run_wait",
-    "worker_plan", "copy_place", "original_note", "original_update", "copy_note", "copy_update",
+    "worker_plan", "copy_place", "source_note", "source_update", "copy_note", "copy_update",
     "omission_proof", "model_plan_metadata", "model_plan_pixels",
 )
 PLAN_PHASE_FIELDS = ("calls", "samples", "wall_ns", "cpu_ns", "cpu_samples")
