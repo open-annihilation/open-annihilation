@@ -13,8 +13,10 @@
 #include "oa/base/threads.hpp"
 #include "oa/data/replays/feed.hpp"
 #include "oa/data/replays/interface_words.hpp"
+#include "oa/data/replays/long_replay.hpp"
 #include "oa/data/replays/share.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_walk.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/netgame/http/client.hpp"
 #include "oa/netgame/http/form.hpp"
@@ -199,6 +201,100 @@ bool packets_match(std::span<const uint8_t> source, std::span<const uint8_t> exp
     return from_export.demo->packets.size() == from_source.demo->packets.size();
 }
 
+/// A replay written into memory at offsets, as a share's upload holds it.
+struct HeldArchive {
+    std::vector<uint8_t> bytes{};
+};
+
+bool write_held(void* context, uint64_t offset, std::span<const uint8_t> bytes) {
+    auto& held = *static_cast<HeldArchive*>(context);
+    if (offset > held.bytes.size() || bytes.size() > held.bytes.max_size() - offset)
+        return false;
+    const auto at = static_cast<std::size_t>(offset);
+    if (held.bytes.size() < at + bytes.size())
+        held.bytes.resize(at + bytes.size());
+    std::copy(bytes.begin(), bytes.end(), held.bytes.begin() + static_cast<std::ptrdiff_t>(at));
+    return true;
+}
+
+/// Exports a replay whose recording is too long to read whole, for a share:
+/// its own frame kept when its recording is plain and holds no address, its
+/// own timeline kept (replay_data::export_long_replay).
+///
+/// @param file the replay
+/// @param recordings the Recordings folder, for the scratch frame
+/// @return the archive, or the sentence when it cannot be written
+oademo::WriteResult export_long_share(const fs::path& file, const fs::path& recordings) {
+    HeldArchive held;
+    oademo::WriteResult exported;
+    const fs::path frame =
+        recordings / std::string(replay_data::replays_folder_name) / "share.frame";
+    exported.error = replay_data::export_long_replay(
+        file, std::nullopt, frame, oademo::ArchiveOutput{&held, write_held}
+    );
+    if (exported.error.empty())
+        exported.bytes = std::move(held.bytes);
+    return exported;
+}
+
+/// Counts a recording's packets and tells whether it holds an address, a piece at a time.
+///
+/// @param walk an opened walk
+/// @param[out] packets the packets
+/// @return false when it stopped before its end
+bool count_packets(oademo::RecordingWalk& walk, uint64_t& packets) {
+    tad::Packet packet;
+    for (;;) {
+        bool ended = false;
+        if (!walk.next(packet, ended))
+            return false;
+        if (ended)
+            break;
+    }
+    packets = walk.packets();
+    return true;
+}
+
+/// As packets_match, for a replay whose recording is too long to read whole:
+/// both recordings walked a piece at a time.
+///
+/// @param file the replay shared
+/// @param exported_archive its export
+/// @return true when the export holds no address and as many packets
+bool long_packets_match(const fs::path& file, std::span<const uint8_t> exported_archive) {
+    replay_data::ReplayFile source;
+    oademo::RecordingWalk from_source;
+    uint64_t source_packets = 0;
+    if (!source.open(file) || !from_source.open_replay(source.archive()) ||
+        !count_packets(from_source, source_packets))
+        return false;
+
+    struct Held {
+        std::span<const uint8_t> bytes{};
+    } held{exported_archive};
+
+    const oademo::ArchiveSource exported{
+        &held,
+        [](void* context, uint64_t offset, std::span<uint8_t> into) {
+            const auto& bytes = static_cast<const Held*>(context)->bytes;
+            if (offset > bytes.size() || into.size() > bytes.size() - offset)
+                return false;
+            std::copy_n(
+                bytes.begin() + static_cast<std::ptrdiff_t>(offset), into.size(), into.begin()
+            );
+            return true;
+        },
+        exported_archive.size()
+    };
+    oademo::RecordingWalk from_export;
+    uint64_t exported_packets = 0;
+    if (!from_export.open_replay(exported) ||
+        tad::find_sector(from_export.head(), tad::SectorType::player_address) != nullptr ||
+        !count_packets(from_export, exported_packets))
+        return false;
+    return exported_packets == source_packets;
+}
+
 } // namespace
 
 /// One sign-in or one share, off the main thread.
@@ -365,19 +461,27 @@ CoreShareShelf::Done upload_done(
         replay_data::wipe_secret(token);
         return refuse_upload(ask, std::string(replay_data::replay_larger_than_the_limit), true);
     }
-    std::ifstream input(*file, std::ios::binary);
-    std::vector<uint8_t> bytes(static_cast<std::size_t>(size));
-    if (!input ||
-        !input.read(
-            reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
-        ) ||
-        input.gcount() != static_cast<std::streamsize>(bytes.size())) {
-        replay_data::wipe_secret(token);
-        return refuse_upload(ask, std::string(replay_data::file_unreadable), false);
-    }
     std::vector<uint8_t> source_recording;
     oademo::WriteResult exported;
-    if (oademo::recognised(bytes)) {
+    // A replay within the share's limit whose recording is too long to read
+    // whole is exported a piece at a time, its frame kept.
+    const bool long_recording = replay_data::long_replay(*file);
+    std::vector<uint8_t> bytes;
+    if (!long_recording) {
+        std::ifstream input(*file, std::ios::binary);
+        bytes.resize(static_cast<std::size_t>(size));
+        if (!input ||
+            !input.read(
+                reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size())
+            ) ||
+            input.gcount() != static_cast<std::streamsize>(bytes.size())) {
+            replay_data::wipe_secret(token);
+            return refuse_upload(ask, std::string(replay_data::file_unreadable), false);
+        }
+    }
+    if (long_recording) {
+        exported = export_long_share(*file, ask.recordings);
+    } else if (oademo::recognised(bytes)) {
         const oademo::ReadResult read = oademo::read(bytes);
         if (!read.ok()) {
             replay_data::wipe_secret(token);
@@ -401,7 +505,8 @@ CoreShareShelf::Done upload_done(
         replay_data::wipe_secret(token);
         return refuse_upload(ask, std::string(replay_data::replay_larger_than_the_limit), true);
     }
-    if (!packets_match(source_recording, exported.bytes)) {
+    if (long_recording ? !long_packets_match(*file, exported.bytes)
+                       : !packets_match(source_recording, exported.bytes)) {
         replay_data::wipe_secret(token);
         return refuse_upload(ask, std::string(replay_data::file_unreadable), false);
     }

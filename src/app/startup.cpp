@@ -332,6 +332,7 @@ void check_game_files_options(Options& options) {
         {options.check_library_content, "--check-library-content"},
         {options.check_library_update_question, "--check-library-update-question"},
         {options.check_library_replays, "--check-library-replays"},
+        {!options.check_library_replay.empty(), "--check-library-replay"},
         {options.check_replay_import, "--check-replay-import"},
         {options.check_replays_content, "--check-replays-content"},
         {options.check_replays_core_prime, "--check-replays-core-prime"},
@@ -832,6 +833,7 @@ void check_director_options(Options& options) {
         {options.check_library_content, "--check-library-content"},
         {options.check_library_update_question, "--check-library-update-question"},
         {options.check_library_replays, "--check-library-replays"},
+        {!options.check_library_replay.empty(), "--check-library-replay"},
         {options.check_replay_import, "--check-replay-import"},
         {options.check_replays_content, "--check-replays-content"},
         {options.check_replays_core_prime, "--check-replays-core-prime"},
@@ -982,6 +984,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_library_content, "--check-library-content"},
             {options.check_library_update_question, "--check-library-update-question"},
             {options.check_library_replays, "--check-library-replays"},
+            {!options.check_library_replay.empty(), "--check-library-replay"},
             {options.check_replay_import, "--check-replay-import"},
             {options.check_replays_content, "--check-replays-content"},
             {options.check_replays_core_prime, "--check-replays-core-prime"},
@@ -1787,6 +1790,10 @@ take_recording_option(std::string_view argument, ArgumentCursor& cursor, Options
         options.replay_map_pack = path_from_utf8(option_value(cursor));
         return true;
     }
+    if (argument == "--check-library-replay") {
+        options.check_library_replay = option_value(cursor);
+        return true;
+    }
     if (argument == "--render-script") {
         options.render_script = path_from_utf8(option_value(cursor));
         return true;
@@ -2093,7 +2100,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-library] [--check-library-install] "
                      "[--check-library-map-previews] [--check-library-content] "
                      "[--check-library-update-question] "
-                     "[--check-library-replays] "
+                     "[--check-library-replays] [--check-library-replay PATH] "
                      "[--check-replay-import] "
                      "[--check-replays-content] [--check-replays-core-prime] "
                      "[--check-renderer-ladder [--render-fault POINT[@FRAME]]] "
@@ -2549,8 +2556,8 @@ void write_startup_line(std::string_view text) {
     // fetches what it needs and Core Prime's replays are walked on the fixed
     // clock too.
     result.fixed_clock = result.fixed_clock || result.check_library_replays ||
-                         result.check_replay_import || result.check_replays_content ||
-                         result.check_replays_core_prime;
+                         !result.check_library_replay.empty() || result.check_replay_import ||
+                         result.check_replays_content || result.check_replays_core_prime;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

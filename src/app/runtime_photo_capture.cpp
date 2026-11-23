@@ -44,6 +44,7 @@
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -779,14 +780,26 @@ void Runtime::take_photo() {
             !photo_->replay_digest_hex.empty()) {
             fact.sha256 = photo_->replay_digest_hex;
         } else {
+            // Hashed a piece at a time: a replay of any length is never held.
             std::ifstream recording(replay_recording_path_, std::ios::binary);
             if (recording) {
-                const std::vector<uint8_t> recording_bytes{
-                    std::istreambuf_iterator<char>(recording), std::istreambuf_iterator<char>()
-                };
-                if (!recording_bytes.empty()) {
-                    const oa::base::sha256::Digest digest =
-                        oa::base::sha256::digest_of(recording_bytes);
+                oa::base::sha256::Hasher hasher;
+                std::vector<char> piece(std::size_t{1} << 20);
+                uint64_t hashed = 0;
+                while (recording) {
+                    recording.read(piece.data(), static_cast<std::streamsize>(piece.size()));
+                    const auto got =
+                        static_cast<std::size_t>(std::max<std::streamsize>(recording.gcount(), 0));
+                    oa::base::sha256::update(
+                        hasher,
+                        std::span<const uint8_t>(
+                            reinterpret_cast<const uint8_t*>(piece.data()), got
+                        )
+                    );
+                    hashed += got;
+                }
+                if (hashed != 0 && !recording.bad()) {
+                    const oa::base::sha256::Digest digest = oa::base::sha256::finish(hasher);
                     const std::array<char, oa::base::sha256::hex_size> hex =
                         oa::base::sha256::to_hex(digest);
                     fact.sha256.assign(hex.data(), hex.size());

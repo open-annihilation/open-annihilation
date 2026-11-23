@@ -174,9 +174,11 @@ bool read_playback_state(DemoSession* session, keyframe::Reader* in) {
         !in->value(&session->playback.tick) || !in->value(&session->playback.stats) ||
         !in->value(&session->tick_errors))
         return false;
-    if (cursor > session->playback.frames.size())
+    if (cursor > session->playback.frame_count)
         return in->fail("a keyframe's cursor is past the recording");
-    session->playback.cursor = static_cast<std::size_t>(cursor);
+    // The delivery reads the recording again from the keyframe's frame.
+    if (!demo_deliver_from(&session->playback, static_cast<std::size_t>(cursor)))
+        return in->fail("the recording cannot be read again from a keyframe's frame");
     uint32_t count = 0;
     if (!in->list_count(&count, std::size_t{1} << 16))
         return false;

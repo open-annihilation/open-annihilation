@@ -3,6 +3,8 @@
 
 #include "oa/session/demo.hpp"
 
+#include "demo_source.hpp"
+
 #include "oa/formats/oademo/oademo.hpp"
 #include "oa/netgame/match/launch.hpp"
 #include "oa/netgame/private_channel.hpp"
@@ -267,6 +269,9 @@ bool bind_recorded_players(DemoPlayback* playback, std::string* error) {
     return true;
 }
 
+const DemoFrame* pending_frame(DemoPlayback* playback);
+void take_pending_frame(DemoPlayback* playback);
+
 uint32_t transport_send(void* context, uint32_t, uint32_t, uint32_t, const uint8_t*, uint32_t) {
     ++static_cast<DemoPlayback*>(context)->stats.sends_dropped;
     return netgame::transport_result::ok;
@@ -275,19 +280,22 @@ uint32_t transport_send(void* context, uint32_t, uint32_t, uint32_t, const uint8
 uint32_t
 transport_receive(void* context, uint32_t* from, uint32_t* to, uint8_t* buffer, uint32_t* size) {
     auto* playback = static_cast<DemoPlayback*>(context);
-    for (; playback->cursor < playback->frames.size(); ++playback->cursor) {
-        const auto& frame = playback->frames[playback->cursor];
-        if (frame.due_tick > playback->tick)
+    while (!demo_exhausted(*playback)) {
+        const DemoFrame* frame = pending_frame(playback);
+        if (frame == nullptr)
             return netgame::transport_result::no_messages;
-        if (frame.datagram.size() > *size) {
+        if (frame->due_tick > playback->tick)
+            return netgame::transport_result::no_messages;
+        if (frame->datagram.size() > *size) {
             ++playback->stats.frames_oversized;
+            take_pending_frame(playback);
             continue;
         }
-        std::memcpy(buffer, frame.datagram.data(), frame.datagram.size());
-        *size = static_cast<uint32_t>(frame.datagram.size());
-        *from = playback->sender_ids[frame.sender];
+        std::memcpy(buffer, frame->datagram.data(), frame->datagram.size());
+        *size = static_cast<uint32_t>(frame->datagram.size());
+        *from = playback->sender_ids[frame->sender];
         *to = netgame::broadcast_destination_id;
-        ++playback->cursor;
+        take_pending_frame(playback);
         ++playback->stats.frames_delivered;
         return netgame::transport_result::ok;
     }
@@ -366,6 +374,26 @@ uint32_t horizontal_distance(const FixedVec3& a, const FixedVec3& b) {
     return static_cast<uint32_t>(std::sqrt(dx * dx + dz * dz));
 }
 
+/// Returns the tick of the record that carries a full record being applied.
+///
+/// A unit state and a route batch set their sender's last_sim_tick to the
+/// tick they carry before their full record applies; the sender is the
+/// player whose range of units holds the slot.
+///
+/// @param world the replay's world
+/// @param slot the unit slot the full record is for
+/// @return the sender's tick, or 0 when no player's range holds the slot
+uint32_t sender_tick_of(const World& world, uint32_t slot) {
+    for (const auto& player : world.game.players) {
+        if (player.in_use == 0 || player.first_unit == 0 || player.last_unit == 0)
+            continue;
+        if (slot >= oa_unit_slot_from_ref(player.first_unit) &&
+            slot <= oa_unit_slot_from_ref(player.last_unit))
+            return static_cast<uint32_t>(player.last_sim_tick);
+    }
+    return 0;
+}
+
 void note_full_record(
     void* context, const Unit& unit, const FixedVec3& before, const FixedVec3& to
 ) {
@@ -391,7 +419,7 @@ void note_full_record(
     session->placed_type[slot] = unit.type_index;
     session->placed_at[slot] = to;
     if (slot == session->tracked_unit)
-        session->tracked.push_back({world->game.tick, before, to});
+        session->tracked.push_back({world->game.tick, sender_tick_of(*world, slot), before, to});
 }
 
 // A slot emptied since its last full record starts a new unit.
@@ -431,9 +459,12 @@ int recorded_player_slot(const formats::tad::Demo& demo, uint8_t sender) {
 
 // Camera records ride in the file and are left out of the rebuilt game frame.
 void keep_packet_cameras(
-    DemoPlayback* playback, const formats::tad::Packet& packet, uint32_t tick
+    const formats::tad::Demo& demo,
+    const formats::tad::Packet& packet,
+    uint32_t tick,
+    std::vector<RecordedCamera>& cameras
 ) {
-    const int player_slot = recorded_player_slot(playback->demo, packet.sender);
+    const int player_slot = recorded_player_slot(demo, packet.sender);
     if (player_slot < 0)
         return;
     const auto decoded = formats::tad::decode_payload(packet.payload);
@@ -451,7 +482,7 @@ void keep_packet_cameras(
         kept.x = shown.x;
         kept.y = shown.y;
         kept.shared = shown.shared;
-        playback->cameras.push_back(kept);
+        cameras.push_back(kept);
     }
 }
 
@@ -471,6 +502,445 @@ void apply_recorded_cameras(DemoSession* session) {
         if (camera.shared)
             session->recording_shares_camera = true;
     }
+}
+
+/// The most bytes before a recording's first packet: the header, the sector
+/// count, 256 sectors, ten players and their statuses, and the unit checks,
+/// each a chunk of at most 65,535 bytes.
+constexpr std::size_t most_head_bytes =
+    (2 + formats::tad::limit::sectors + 2 * formats::tad::limit::players + 1) *
+    formats::tad::limit::chunk_bytes;
+
+uint16_t load_u16(const uint8_t* at) noexcept {
+    return static_cast<uint16_t>(at[0] | (at[1] << 8));
+}
+
+/// Finds where a recording's packets start, walking its chunks as a whole
+/// parse reads them: the header, the sector count, the sectors, the players,
+/// their statuses and the unit checks.
+///
+/// @param bytes the recording's first bytes, its part before the packets whole
+/// @return the offset of the first packet's chunk; 0 when the chunks before
+///         it are not whole or do not read, which a parse then says why
+std::size_t packets_start(std::span<const uint8_t> bytes) {
+    namespace layout = formats::tad::layout;
+    std::size_t at = 0;
+    // The length of the whole chunk at a position; 0 when it is not all there.
+    const auto chunk_at = [&bytes](std::size_t position) -> std::size_t {
+        if (bytes.size() - position < layout::chunk_length_bytes)
+            return 0;
+        const std::size_t length = load_u16(bytes.data() + position);
+        if (length < layout::chunk_length_bytes || length > bytes.size() - position)
+            return 0;
+        return length;
+    };
+    const std::size_t header = chunk_at(at);
+    if (header < layout::chunk_length_bytes + layout::header_fixed_bytes)
+        return 0;
+    const std::size_t player_count =
+        bytes[at + layout::chunk_length_bytes + layout::magic_bytes + 2];
+    if (player_count > formats::tad::limit::players)
+        return 0;
+    at += header;
+    const std::size_t counted = chunk_at(at);
+    if (counted != layout::chunk_length_bytes + layout::sector_count_bytes)
+        return 0;
+    const std::size_t sectors = static_cast<std::size_t>(load_u16(bytes.data() + at + 2)) |
+                                (static_cast<std::size_t>(load_u16(bytes.data() + at + 4)) << 16);
+    if (sectors > formats::tad::limit::sectors)
+        return 0;
+    at += counted;
+    for (std::size_t index = 0; index < sectors + player_count * 2 + 1; ++index) {
+        const std::size_t length = chunk_at(at);
+        if (length == 0)
+            return 0;
+        at += length;
+    }
+    return at;
+}
+
+/// What a recorded packet gave when its frame was made.
+enum class Made : uint8_t {
+    frame,          ///< a frame
+    unknown_sender, ///< a number no player chunk names; dropped
+    empty,          ///< no game record
+    bad,            ///< a frame that does not encode
+};
+
+/// The record forms a playback's packets are split with.
+formats::tad::RecordForms forms_of(const DemoPlayback& playback) noexcept {
+    return playback.limits &&
+                   playback.limits->weapon_types > formats::tad::recorded_base_weapon_types
+               ? formats::tad::RecordForms::wide
+               : formats::tad::RecordForms::narrow;
+}
+
+/// Makes the frame a recorded packet gives, as the packet layer would have
+/// received it, and moves on what carries to the next packet.
+///
+/// A frame is due once the local tick reaches the last sender tick it
+/// carries; frames without unit states follow the one before them.
+///
+/// @param playback the playback, its players bound
+/// @param packet the packet
+/// @param[in,out] making the due tick and sequences that carry from packet to packet
+/// @param[in,out] stats counts what the packet held
+/// @param[in,out] frame room the frame is rebuilt in
+/// @param[out] out the frame, when one is made
+/// @param cameras where the packet's cameras are kept; null keeps none
+/// @return what the packet gave
+Made make_frame(
+    const DemoPlayback& playback,
+    const formats::tad::Packet& packet,
+    FrameMaking& making,
+    PlaybackStats& stats,
+    std::vector<uint8_t>& frame,
+    DemoFrame& out,
+    std::vector<RecordedCamera>* cameras
+) {
+    // Transport id 0 would make the frame a system message.
+    if (playback.sender_ids[packet.sender] == 0) {
+        ++stats.unknown_senders;
+        return Made::unknown_sender;
+    }
+    uint32_t last_tick = 0;
+    const auto route_batch_records = stats.route_batch_records;
+    const bool built = rebuild_frame(
+        packet, playback.unit_def_bits, forms_of(playback), &frame, &last_tick, &stats
+    );
+    // A part sent again carries the tick of its batch, which can lie
+    // before the frames already due: it is due with them.
+    if (last_tick != 0)
+        making.due_tick = stats.route_batch_records != route_batch_records
+                              ? std::max(making.due_tick, last_tick)
+                              : last_tick;
+    if (cameras != nullptr)
+        keep_packet_cameras(playback.demo, packet, making.due_tick, *cameras);
+    if (!built) {
+        ++stats.empty_packets;
+        return Made::empty;
+    }
+    auto& next = making.sequence[packet.sender];
+    put_u32(frame.data(), static_cast<uint32_t>(next));
+    out.time_ms = packet.time_ms;
+    out.sender = packet.sender;
+    out.due_tick = making.due_tick;
+    try {
+        out.datagram = oa::netgame::network::encode_frame(frame, false);
+    } catch (const std::exception&) {
+        ++stats.bad_packets;
+        return Made::bad;
+    }
+    next = netgame::next_frame_sequence(next);
+    return Made::frame;
+}
+
+/// The carry a recording's first packet starts from.
+FrameMaking first_making() {
+    FrameMaking making;
+    making.sequence.fill(netgame::first_broadcast_frame_sequence);
+    return making;
+}
+
+/// Makes the delivery's next frame, reading on until a packet gives one.
+///
+/// @param[in,out] playback the playback
+/// @param[out] out the frame
+/// @return false when no frame is left, or the recording cannot be read
+bool make_next_frame(DemoPlayback* playback, DemoFrame& out) {
+    PlaybackSource& source = *playback->source;
+    if (!source.failure.empty())
+        return false;
+    if (source.reader == nullptr) {
+        std::unique_ptr<RecordingBytes> bytes;
+        if (std::string why_not = source.open_bytes(bytes); !why_not.empty()) {
+            source.failure = why_not;
+            return false;
+        }
+        source.reader = std::make_unique<PacketReader>(std::move(bytes));
+        if (std::string why_not = source.reader->start_at(source.packets_at, 0); !why_not.empty()) {
+            source.failure = why_not;
+            return false;
+        }
+        source.making = first_making();
+        source.next_frame = 0;
+    }
+    PlaybackStats counted;
+    std::vector<uint8_t> frame;
+    for (;;) {
+        formats::tad::Packet packet{};
+        bool ended = false;
+        if (std::string why_not = source.reader->next(packet, ended); !why_not.empty()) {
+            source.failure = why_not;
+            return false;
+        }
+        if (ended) {
+            // The load counted more: the recording changed under the playback.
+            if (source.next_frame < playback->frame_count)
+                source.failure = "the recording ends before its last frame";
+            return false;
+        }
+        if (make_frame(*playback, packet, source.making, counted, frame, out, nullptr) ==
+            Made::frame) {
+            ++source.next_frame;
+            return true;
+        }
+    }
+}
+
+/// Returns the frame the delivery takes next, making it when it is not made yet.
+///
+/// @param[in,out] playback the playback
+/// @return the frame; null when none is left or the recording cannot be read
+const DemoFrame* pending_frame(DemoPlayback* playback) {
+    if (playback->source == nullptr)
+        return nullptr;
+    PlaybackSource& source = *playback->source;
+    if (!source.pending) {
+        DemoFrame frame;
+        if (!make_next_frame(playback, frame))
+            return nullptr;
+        source.pending = std::move(frame);
+    }
+    return &*source.pending;
+}
+
+/// Takes the pending frame: it was delivered, or dropped.
+///
+/// @param[in,out] playback the playback
+void take_pending_frame(DemoPlayback* playback) {
+    if (playback->source != nullptr)
+        playback->source->pending.reset();
+    ++playback->cursor;
+}
+
+/// Tells whether a playback's recording is a replay, read through its frame.
+bool from_replay(const PlaybackSource& source) noexcept {
+    return source.origin == PlaybackSource::Origin::held_replay ||
+           source.origin == PlaybackSource::Origin::file_replay;
+}
+
+/// Reads the recording's packets once: counts the frames they make and what
+/// they hold, keeps their cameras, and keeps a place to make frames again
+/// from every seek_point_frames frames.
+///
+/// @param[in,out] playback the playback, its players bound
+/// @param[in,out] reader the packets, from the first
+/// @param[out] error why the packets do not read
+/// @return false when they do not
+bool count_frames(DemoPlayback* playback, PacketReader& reader, std::string* error) {
+    PlaybackSource& source = *playback->source;
+    FrameMaking making = first_making();
+    std::vector<uint8_t> frame;
+    DemoFrame made;
+    uint64_t frames = 0;
+    source.seek_points.clear();
+    for (;;) {
+        if (frames % seek_point_frames == 0 &&
+            (source.seek_points.empty() || source.seek_points.back().frames != frames)) {
+            SeekPoint point;
+            point.frames = frames;
+            point.offset = reader.offset();
+            point.time_ms = reader.time_ms();
+            point.due_tick = making.due_tick;
+            for (std::size_t index = 0;
+                 index < playback->demo.players.size() && index < point.sequence.size();
+                 ++index)
+                point.sequence[index] = making.sequence[playback->demo.players[index].number];
+            source.seek_points.push_back(point);
+        }
+        formats::tad::Packet packet{};
+        bool ended = false;
+        if (std::string why_not = reader.next(packet, ended); !why_not.empty()) {
+            // A replay whose digest is not its description's says so first, as a whole read does.
+            if (from_replay(source)) {
+                if (std::string at_end = reader.drain(); !at_end.empty())
+                    return fail(error, at_end);
+            }
+            return fail(error, why_not);
+        }
+        if (ended)
+            break;
+        playback->duration_ms = packet.time_ms;
+        if (make_frame(
+                *playback, packet, making, playback->stats, frame, made, &playback->cameras
+            ) != Made::frame)
+            continue;
+        ++frames;
+        ++playback->stats.frames;
+        playback->last_due_tick = made.due_tick;
+    }
+    playback->frame_count = static_cast<std::size_t>(frames);
+    return true;
+}
+
+/// Puts the delivery where frame `target` is made next.
+///
+/// Forward, it reads on; backward, it reads again from the last seek point
+/// at or before the frame.
+///
+/// @param[in,out] playback the playback
+/// @param target the frame
+/// @return false when the recording cannot be read to it
+bool deliver_from(DemoPlayback* playback, uint64_t target) {
+    if (playback->source == nullptr)
+        return target == 0;
+    PlaybackSource& source = *playback->source;
+    if (source.pending && source.next_frame == target + 1)
+        return true;
+    source.pending.reset();
+    source.failure.clear();
+    if (source.reader == nullptr || source.next_frame > target) {
+        std::unique_ptr<RecordingBytes> bytes;
+        if (std::string why_not = source.open_bytes(bytes); !why_not.empty()) {
+            source.failure = why_not;
+            return false;
+        }
+        const SeekPoint* from = nullptr;
+        for (const SeekPoint& point : source.seek_points)
+            if (point.frames <= target)
+                from = &point;
+        source.reader = std::make_unique<PacketReader>(std::move(bytes));
+        source.making = first_making();
+        source.next_frame = 0;
+        std::string why_not;
+        if (from != nullptr) {
+            why_not = source.reader->start_at(from->offset, from->time_ms);
+            source.making.due_tick = from->due_tick;
+            for (std::size_t index = 0;
+                 index < playback->demo.players.size() && index < from->sequence.size();
+                 ++index)
+                source.making.sequence[playback->demo.players[index].number] =
+                    from->sequence[index];
+            source.next_frame = from->frames;
+        } else {
+            why_not = source.reader->start_at(source.packets_at, 0);
+        }
+        if (!why_not.empty()) {
+            source.failure = why_not;
+            return false;
+        }
+    }
+    DemoFrame dropped;
+    while (source.next_frame < target)
+        if (!make_next_frame(playback, dropped))
+            return false;
+    return true;
+}
+
+/// Refuses a recording, after reading its packets through: a recording whose
+/// packets do not read, or a replay whose digest is not its description's,
+/// says so first, as a whole parse and a whole read would.
+///
+/// @param[in,out] reader the packets, from the first
+/// @param[out] error why the recording cannot be played
+/// @param message the refusal when the packets read
+/// @return false
+bool fail_after_packets(PacketReader& reader, std::string* error, std::string message) {
+    for (;;) {
+        formats::tad::Packet packet{};
+        bool ended = false;
+        if (std::string why_not = reader.next(packet, ended); !why_not.empty()) {
+            if (std::string at_end = reader.drain(); !at_end.empty())
+                return fail(error, at_end);
+            return fail(error, why_not);
+        }
+        if (ended)
+            return fail(error, std::move(message));
+    }
+}
+
+/// Reads a playback's recording from where its origin says.
+///
+/// @param[in,out] playback the playback; emptied first
+/// @param source where the recording is
+/// @param[out] error why it cannot be played
+/// @return false when it cannot
+bool load_source(
+    DemoPlayback* playback, std::shared_ptr<PlaybackSource> source, std::string* error
+) {
+    *playback = DemoPlayback{};
+    playback->source = std::move(source);
+    const bool replay = from_replay(*playback->source);
+    std::unique_ptr<RecordingBytes> bytes;
+    if (std::string why_not = playback->source->open_bytes(bytes); !why_not.empty())
+        return fail(error, why_not);
+    // The part before the packets, read until it is whole: it is never more than most_head_bytes.
+    std::vector<uint8_t> first;
+    std::size_t packets_at = 0;
+    bool bytes_ended = false;
+    for (std::size_t want = std::size_t{64} << 10; packets_at == 0 && !bytes_ended;
+         want = std::min(want * 2, most_head_bytes)) {
+        const std::size_t have = first.size();
+        first.resize(want);
+        std::size_t filled = have;
+        while (filled < want) {
+            std::size_t got = 0;
+            if (std::string why_not = bytes->read(std::span(first).subspan(filled), got);
+                !why_not.empty())
+                return fail(error, why_not);
+            if (got == 0) {
+                bytes_ended = true;
+                break;
+            }
+            filled += got;
+        }
+        first.resize(filled);
+        packets_at = packets_start(first);
+        if (want == most_head_bytes)
+            break;
+    }
+    PacketReader reader(std::move(bytes));
+    reader.start_with(packets_at, 0, std::span(first).subspan(packets_at));
+    const auto refuse_parse = [&](const formats::tad::ParseResult& parsed) {
+        // A replay whose digest is not its description's says so first, as a whole read does.
+        if (replay) {
+            if (std::string at_end = reader.drain(); !at_end.empty())
+                return fail(error, at_end);
+        }
+        if (parsed.ok())
+            return fail(
+                error, "demo parse failed at offset 0: the part before the packets does not read"
+            );
+        return fail(
+            error,
+            "demo parse failed at offset " + std::to_string(parsed.error->offset) + ": " +
+                parsed.error->message
+        );
+    };
+    if (packets_at == 0)
+        return refuse_parse(formats::tad::parse(first));
+    playback->file.assign(first.begin(), first.begin() + static_cast<std::ptrdiff_t>(packets_at));
+    first = {};
+    playback->source->packets_at = packets_at;
+    auto parsed = formats::tad::parse(playback->file);
+    if (!parsed.ok())
+        return refuse_parse(parsed);
+    playback->demo = std::move(*parsed.demo);
+    if (const auto* sector =
+            formats::tad::find_sector(playback->demo, formats::tad::SectorType::limits)) {
+        if (const auto decoded = formats::tad::decode_limits_sector(*sector))
+            playback->limits = *decoded;
+        else
+            playback->limits_unreadable = true;
+    }
+    // A whole parse read the packets before the players were judged: a recording whose packets
+    // do not read still says so first.
+    if (playback->demo.players.empty())
+        return fail_after_packets(reader, error, "demo has no players");
+    std::string unbound;
+    if (!bind_recorded_players(playback, &unbound))
+        return fail_after_packets(reader, error, std::move(unbound));
+    receive_unit_checks(playback);
+    const auto recorded = recorded_unit_table(*playback);
+    if (recorded.empty())
+        return fail_after_packets(reader, error, "demo announces no unit definitions");
+    playback->recorded_definitions = static_cast<uint32_t>(recorded.size());
+    // The game sizes the 0x2c index from the compacted table, slot 0 included.
+    playback->unit_def_bits = static_cast<unsigned>(
+        netgame::match::unit_def_id_bits_for_count(playback->recorded_definitions + 1u)
+    );
+    return count_frames(playback, reader, error);
 }
 
 } // namespace
@@ -502,108 +972,66 @@ bool demo_recognised(std::span<const uint8_t> bytes) noexcept {
 }
 
 bool demo_open(DemoPlayback* playback, const std::filesystem::path& path, std::string* error) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        // In UTF-8: a recording named outside the system's code page has no
-        // narrow spelling on Windows.
-        const auto name = path.u8string();
-        return fail(error, "cannot open demo: " + std::string(name.begin(), name.end()));
+    // The first bytes say whether the file is a replay; the recording is read from the file as
+    // playback reaches it, never whole.
+    std::array<uint8_t, 64> start{};
+    std::size_t got = 0;
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in) {
+            // In UTF-8: a recording named outside the system's code page has no
+            // narrow spelling on Windows.
+            const auto name = path.u8string();
+            return fail(error, "cannot open demo: " + std::string(name.begin(), name.end()));
+        }
+        in.read(reinterpret_cast<char*>(start.data()), static_cast<std::streamsize>(start.size()));
+        got = static_cast<std::size_t>(std::max<std::streamsize>(in.gcount(), 0));
     }
-    std::vector<uint8_t> bytes(
-        (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()
-    );
-    return demo_load(playback, std::move(bytes), error);
+    auto source = std::make_shared<PlaybackSource>();
+    source->path = path;
+    source->origin = formats::oademo::recognised(std::span(start).first(got))
+                         ? PlaybackSource::Origin::file_replay
+                         : PlaybackSource::Origin::file_tad;
+    return load_source(playback, std::move(source), error);
 }
 
 bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* error) {
-    *playback = DemoPlayback{};
-    if (formats::oademo::recognised(bytes)) {
-        formats::oademo::ReadResult replay = formats::oademo::read(bytes);
-        if (!replay.ok())
-            return fail(error, replay.error);
-        // The mission's unit table is decided when playback loads the map the
-        // stream names, not from this description. A .tad has none, and a
-        // recording packed back from one says it was imported.
-        bytes = std::move(replay.replay->recording);
+    auto source = std::make_shared<PlaybackSource>();
+    // The mission's unit table is decided when playback loads the map the
+    // stream names, not from a replay's description. A .tad has none, and a
+    // recording packed back from one says it was imported.
+    source->origin = formats::oademo::recognised(bytes) ? PlaybackSource::Origin::held_replay
+                                                        : PlaybackSource::Origin::held_tad;
+    source->held = std::make_shared<const std::vector<uint8_t>>(std::move(bytes));
+    return load_source(playback, std::move(source), error);
+}
+
+std::vector<DemoFrame> demo_frames(const DemoPlayback& playback) {
+    std::vector<DemoFrame> frames;
+    if (playback.source == nullptr)
+        return frames;
+    // A playback of its own over the same recording, so this one's delivery is not moved.
+    DemoPlayback reading;
+    reading.sender_ids = playback.sender_ids;
+    reading.unit_def_bits = playback.unit_def_bits;
+    reading.limits = playback.limits;
+    reading.demo.players = playback.demo.players;
+    auto source = std::make_shared<PlaybackSource>();
+    source->origin = playback.source->origin;
+    source->path = playback.source->path;
+    source->packets_at = playback.source->packets_at;
+    source->held = playback.source->held;
+    reading.source = std::move(source);
+    reading.frame_count = playback.frame_count;
+    frames.reserve(playback.frame_count);
+    while (frames.size() < playback.frame_count) {
+        const DemoFrame* frame = pending_frame(&reading);
+        if (frame == nullptr)
+            break;
+        frames.push_back(*frame);
+        take_pending_frame(&reading);
     }
-    playback->file = std::move(bytes);
-    auto parsed = formats::tad::parse(playback->file);
-    if (!parsed.ok())
-        return fail(
-            error,
-            "demo parse failed at offset " + std::to_string(parsed.error->offset) + ": " +
-                parsed.error->message
-        );
-    playback->demo = std::move(*parsed.demo);
-    if (const auto* sector =
-            formats::tad::find_sector(playback->demo, formats::tad::SectorType::limits)) {
-        if (const auto decoded = formats::tad::decode_limits_sector(*sector))
-            playback->limits = *decoded;
-        else
-            playback->limits_unreadable = true;
-    }
-    if (playback->demo.players.empty())
-        return fail(error, "demo has no players");
-    if (!bind_recorded_players(playback, error))
-        return false;
-    receive_unit_checks(playback);
-    const auto recorded = recorded_unit_table(*playback);
-    if (recorded.empty())
-        return fail(error, "demo announces no unit definitions");
-    playback->recorded_definitions = static_cast<uint32_t>(recorded.size());
-    // The game sizes the 0x2c index from the compacted table, slot 0 included.
-    playback->unit_def_bits = static_cast<unsigned>(
-        netgame::match::unit_def_id_bits_for_count(playback->recorded_definitions + 1u)
-    );
-    std::array<int32_t, sender_count> sequence{};
-    sequence.fill(netgame::first_broadcast_frame_sequence);
-    std::vector<uint8_t> frame;
-    const auto forms = playback->limits && playback->limits->weapon_types >
-                                               formats::tad::recorded_base_weapon_types
-                           ? formats::tad::RecordForms::wide
-                           : formats::tad::RecordForms::narrow;
-    // A frame is due once the local tick reaches the last sender tick it
-    // carries; frames without unit states follow the one before them.
-    uint32_t due_tick = 0;
-    for (const auto& packet : playback->demo.packets) {
-        // Transport id 0 would make the frame a system message.
-        if (playback->sender_ids[packet.sender] == 0) {
-            ++playback->stats.unknown_senders;
-            continue;
-        }
-        uint32_t last_tick = 0;
-        const auto route_batch_records = playback->stats.route_batch_records;
-        const bool built = rebuild_frame(
-            packet, playback->unit_def_bits, forms, &frame, &last_tick, &playback->stats
-        );
-        // A part sent again carries the tick of its batch, which can lie
-        // before the frames already due: it is due with them.
-        if (last_tick != 0)
-            due_tick = playback->stats.route_batch_records != route_batch_records
-                           ? std::max(due_tick, last_tick)
-                           : last_tick;
-        keep_packet_cameras(playback, packet, due_tick);
-        if (!built) {
-            ++playback->stats.empty_packets;
-            continue;
-        }
-        auto& next = sequence[packet.sender];
-        put_u32(frame.data(), static_cast<uint32_t>(next));
-        DemoFrame out;
-        out.time_ms = packet.time_ms;
-        out.sender = packet.sender;
-        out.due_tick = due_tick;
-        try {
-            out.datagram = oa::netgame::network::encode_frame(frame, false);
-        } catch (const std::exception&) {
-            ++playback->stats.bad_packets;
-            continue;
-        }
-        next = netgame::next_frame_sequence(next);
-        playback->frames.push_back(std::move(out));
-        ++playback->stats.frames;
-    }
-    return true;
+    return frames;
 }
 
 DemoLimitsVerdict
@@ -626,11 +1054,25 @@ netgame::NetTransport demo_transport(DemoPlayback* playback) noexcept {
 }
 
 bool demo_exhausted(const DemoPlayback& playback) noexcept {
-    return playback.cursor >= playback.frames.size();
+    return playback.cursor >= playback.frame_count ||
+           (playback.source != nullptr && !playback.source->failure.empty());
 }
 
 uint64_t demo_duration_ms(const DemoPlayback& playback) noexcept {
-    return playback.demo.packets.empty() ? 0 : playback.demo.packets.back().time_ms;
+    return playback.duration_ms;
+}
+
+bool demo_deliver_from(DemoPlayback* playback, std::size_t cursor) {
+    if (playback == nullptr || cursor > playback->frame_count)
+        return false;
+    if (!deliver_from(playback, cursor))
+        return false;
+    playback->cursor = cursor;
+    return true;
+}
+
+std::string demo_read_failure(const DemoPlayback& playback) {
+    return playback.source != nullptr ? playback.source->failure : std::string();
 }
 
 const ui::frontend_multiplayer::UnitSync* demo_unit_sync(const DemoPlayback& playback) noexcept {
@@ -947,6 +1389,14 @@ void demo_session_frame(DemoSession* session) {
         static_cast<uint16_t>(game.sim_run_flags & ~netgame::match::run_flag_paused);
     forget_empty_slots(session);
     apply_recorded_cameras(session);
+    // A recording that stopped reading part way, as when its file changed, ends the playback
+    // there, and the session says so once.
+    if (auto* source = session->playback.source.get();
+        source != nullptr && !source->failure.empty() && !source->failure_told) {
+        source->failure_told = true;
+        ++session->tick_errors;
+        session->last_error = "the recording cannot be read on: " + source->failure;
+    }
     // A replay that began at a restore meets the digest the keyframe of this tick holds.
     if (session->keyframe_expected && game.tick >= session->keyframe_expected->tick) {
         const auto expected = *session->keyframe_expected;
@@ -983,17 +1433,16 @@ DemoVerdict demo_session_verdict(const DemoSession& session, bool unit_table_dif
                     (session.binding.creates_past_table == 0 || unit_table_differs) &&
                     session.tick_errors == 0 && session.binding.refused_creates == 0;
     // The tracked unit's full records ride on every units_per_player-th
-    // sender tick.
+    // sender tick, counted on the sender's clock.
     const auto period = static_cast<int64_t>(
         session.match != nullptr ? session.match->state().game.units_per_player
                                  : session.playback.demo.max_units
     );
     verdict.paced = true;
     for (std::size_t i = 1; i < session.tracked.size(); ++i) {
-        const auto spacing =
-            static_cast<int64_t>(session.tracked[i].tick) - session.tracked[i - 1].tick;
-        const auto stray = spacing > period ? spacing - period : period - spacing;
-        verdict.paced = verdict.paced && stray <= full_record_slack_ticks;
+        const auto spacing = static_cast<int64_t>(session.tracked[i].sender_tick) -
+                             session.tracked[i - 1].sender_tick;
+        verdict.paced = verdict.paced && spacing == period;
     }
     return verdict;
 }

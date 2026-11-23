@@ -5,7 +5,8 @@
 // it, a map, a mutator, an expansion, a newer engine, a package that is not
 // listed, and a registry that cannot be reached. A mod a .tad's note names by
 // its name or its id, or its Recordings folder names, is played when it is
-// installed and fetched from the catalogue when it is not.
+// installed and fetched from the catalogue when it is not. The base game's own
+// profile, which a game with no mod may name, is never missing.
 
 #include "oa/data/replays/content.hpp"
 #include "oa/test/check.hpp"
@@ -91,6 +92,15 @@ void test_replay_content_rows() {
         OA_CHECK(missing_gaps[0].sha256 == ridge_sha);
         OA_CHECK(missing_gaps[0].block == replays::GapBlock::none);
     }
+
+    // A game with no mod whose rules were resolved names the base game's own
+    // profile, which every installation holds.
+    replays::Replay base_game;
+    replays::ContentNeed base_need =
+        need_of("oamod", "base-game", "Total Annihilation 3.1c", "3.1c", std::string(newer_sha));
+    base_need.revision = 1;
+    base_game.needs.push_back(base_need);
+    OA_CHECK(replays::compare_needs(base_game, have, {}).empty());
 
     replays::HaveMod installed;
     installed.id = "ridge";

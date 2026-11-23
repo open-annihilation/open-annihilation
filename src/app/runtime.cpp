@@ -959,6 +959,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (!options_.check_library_replay.empty()) {
+            check_library_replay();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_replay_import) {
             check_replay_import();
             flush_preferences();

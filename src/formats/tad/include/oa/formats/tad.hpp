@@ -55,9 +55,15 @@
 
 namespace oa::formats::tad {
 namespace limit {
+/// The most bytes a recording read whole may hold: what parse, a replay read
+/// whole and a stream finished in one piece take. A recording read a piece at
+/// a time (finished, or played back) has no such bound.
 inline constexpr std::size_t input_bytes = 512U * 1024U * 1024U;
 inline constexpr std::size_t sectors = 256;
+/// The most players a recording names, as 3.1c's ten.
 inline constexpr std::size_t players = 10;
+/// The most packets a recording read whole may hold, and a recording kept in
+/// memory while it is made. A stream written to its file has no such bound.
 inline constexpr std::size_t packets = 16U * 1024U * 1024U;
 inline constexpr std::size_t chunk_bytes = 0xffff;
 inline constexpr std::size_t decoded_payload_bytes = 28000; // the condenser's receive storage

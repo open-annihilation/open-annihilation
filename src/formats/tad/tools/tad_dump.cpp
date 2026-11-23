@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Summarises TA Demo recordings: header, players, packet timing and a
-// histogram of record type bytes across all packet payloads.
+// histogram of record type bytes across all packet payloads. A `.tad` is read
+// in order and a `.oademo`'s recording through its frame, a piece at a time,
+// so a recording of any length is summarised without being held.
 
+#include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_walk.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/platform/files.hpp"
 
@@ -13,12 +17,16 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <ios>
+#include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
 
+namespace oademo = oa::formats::oademo;
 namespace tad = oa::formats::tad;
 
 namespace {
@@ -50,16 +58,96 @@ const char* recorder_type_name(uint8_t type) {
     }
 }
 
-bool read_file(const std::filesystem::path& path, std::vector<uint8_t>& bytes) {
-    std::error_code error;
-    const auto size = std::filesystem::file_size(path, error);
-    if (error || size > tad::limit::input_bytes)
+/// A file read at offsets, as a replay is, or in order, as a `.tad` is.
+struct DumpedFile {
+    std::ifstream in{};
+    uint64_t size{};
+    uint64_t next{};
+};
+
+bool read_at(void* context, uint64_t offset, std::span<uint8_t> into) {
+    auto& file = *static_cast<DumpedFile*>(context);
+    if (offset > file.size || into.size() > file.size - offset)
         return false;
-    std::ifstream stream(path, std::ios::binary);
-    bytes.resize(static_cast<std::size_t>(size));
-    return static_cast<bool>(
-        stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size))
+    file.in.clear();
+    file.in.seekg(static_cast<std::streamoff>(offset));
+    file.in.read(reinterpret_cast<char*>(into.data()), static_cast<std::streamsize>(into.size()));
+    return file.in.gcount() == static_cast<std::streamsize>(into.size());
+}
+
+bool read_on(void* context, std::span<uint8_t> into, std::size_t& got) {
+    auto& file = *static_cast<DumpedFile*>(context);
+    file.in.clear();
+    file.in.seekg(static_cast<std::streamoff>(file.next));
+    file.in.read(reinterpret_cast<char*>(into.data()), static_cast<std::streamsize>(into.size()));
+    got = static_cast<std::size_t>(std::max<std::streamsize>(file.in.gcount(), 0));
+    file.next += got;
+    return !file.in.bad();
+}
+
+/// Opens a file and a walk of the recording it holds.
+///
+/// @param path the `.tad` or `.oademo`
+/// @param[out] file the opened file, which the walk reads
+/// @param[out] walk the walk
+/// @param[out] opened true when the walk opened; its failure says why not
+/// @return false when the file cannot be opened
+bool open_recording(
+    const std::filesystem::path& path, DumpedFile& file, oademo::RecordingWalk& walk, bool& opened
+) {
+    file.in.open(path, std::ios::binary);
+    if (!file.in)
+        return false;
+    file.in.seekg(0, std::ios::end);
+    const std::streamoff end = file.in.tellg();
+    if (!file.in || end < 0)
+        return false;
+    file.size = static_cast<uint64_t>(end);
+    std::array<uint8_t, 64> first{};
+    const std::size_t take = static_cast<std::size_t>(std::min<uint64_t>(first.size(), file.size));
+    if (!read_at(&file, 0, std::span(first).first(take)))
+        return false;
+    file.next = 0;
+    opened = oademo::recognised(std::span(first).first(take))
+                 ? walk.open_replay(oademo::ArchiveSource{&file, read_at, file.size})
+                 : walk.open_tad(oademo::RecordingSource{&file, read_on});
+    return true;
+}
+
+/// Returns a line snprintf wrote.
+///
+/// @param line the buffer it wrote to
+/// @param written what it returned
+/// @return the line; empty when it failed
+std::string line_of(const std::array<char, 512>& line, int written) {
+    if (written <= 0)
+        return {};
+    return std::string(
+        line.data(), std::min<std::size_t>(static_cast<std::size_t>(written), line.size() - 1)
     );
+}
+
+/// Prints why a walk stopped, as a whole parse prints it.
+///
+/// @param path the file
+/// @param failure the walk's failure
+void print_failure(const std::filesystem::path& path, const oademo::WalkFailure& failure) {
+    const std::string name = oa::platform::path_to_utf8(path);
+    if (!failure.sentence.empty()) {
+        std::fprintf(stderr, "%s: %s\n", name.c_str(), failure.sentence.c_str());
+        return;
+    }
+    if (failure.parse.has_value()) {
+        std::fprintf(
+            stderr,
+            "%s: offset %zu: %s\n",
+            name.c_str(),
+            failure.parse->offset,
+            failure.parse->message.c_str()
+        );
+        return;
+    }
+    std::fprintf(stderr, "%s: cannot read\n", name.c_str());
 }
 
 double percent(uint64_t part, uint64_t whole) {
@@ -67,27 +155,18 @@ double percent(uint64_t part, uint64_t whole) {
 }
 
 bool dump(const std::filesystem::path& path) {
-    std::vector<uint8_t> bytes;
-    if (!read_file(path, bytes)) {
-        std::fprintf(
-            stderr,
-            "%s: cannot read (missing or over the size limit)\n",
-            oa::platform::path_to_utf8(path).c_str()
-        );
+    DumpedFile file;
+    oademo::RecordingWalk walk;
+    bool opened = false;
+    if (!open_recording(path, file, walk, opened)) {
+        std::fprintf(stderr, "%s: cannot read\n", oa::platform::path_to_utf8(path).c_str());
         return false;
     }
-    const auto result = tad::parse(bytes);
-    if (!result.ok()) {
-        std::fprintf(
-            stderr,
-            "%s: offset %zu: %s\n",
-            oa::platform::path_to_utf8(path).c_str(),
-            result.error->offset,
-            result.error->message.c_str()
-        );
+    if (!opened) {
+        print_failure(path, walk.failure());
         return false;
     }
-    const tad::Demo& demo = *result.demo;
+    const tad::Demo& demo = walk.head();
 
     std::printf("file            %s\n", oa::platform::path_to_utf8(path).c_str());
     std::printf("version         %u\n", demo.version);
@@ -131,15 +210,6 @@ bool dump(const std::filesystem::path& path) {
         );
     std::printf("unit checks     %zu\n", tad::unit_check_records(demo).size());
 
-    const uint64_t duration = demo.packets.empty() ? 0 : demo.packets.back().time_ms;
-    std::printf(
-        "packets         %zu over %llu:%02llu (%llu ms)\n",
-        demo.packets.size(),
-        static_cast<unsigned long long>(duration / 60000U),
-        static_cast<unsigned long long>(duration / 1000U % 60U),
-        static_cast<unsigned long long>(duration)
-    );
-
     // Each sender's unit-state ticks run on from packet to packet unless a
     // frame was lost on the way (a gap) or overtaken (late ticks).
     struct SenderTicks {
@@ -159,28 +229,56 @@ bool dump(const std::filesystem::path& path) {
     uint64_t decode_failures = 0;
     uint64_t split_failures = 0;
     uint64_t untimed = 0;
-    for (const auto& packet : demo.packets) {
+    // The packets are read once, in order: the lines they give wait for the
+    // count and the length, which the summary prints first.
+    uint64_t packet_count = 0;
+    uint64_t duration = 0;
+    std::string packet_lines;
+    std::array<char, 512> line{};
+    tad::Packet packet;
+    for (;;) {
+        bool ended = false;
+        if (!walk.next(packet, ended)) {
+            print_failure(path, walk.failure());
+            return false;
+        }
+        if (ended)
+            break;
+        ++packet_count;
+        duration = packet.time_ms;
+        const auto packet_at = static_cast<unsigned long long>(walk.offset());
         ++senders[packet.sender];
         const auto decoded = tad::decode_payload(packet.payload);
         if (!decoded.ok()) {
             ++decode_failures;
             if (++split_failures <= 5)
-                std::printf(
-                    "decode failure  packet at %zu: %s\n",
-                    packet.offset,
-                    decoded.error->message.c_str()
+                packet_lines += line_of(
+                    line,
+                    std::snprintf(
+                        line.data(),
+                        line.size(),
+                        "decode failure  packet at %llu: %s\n",
+                        packet_at,
+                        decoded.error->message.c_str()
+                    )
                 );
             continue;
         }
         const auto split = tad::split_records(decoded.bytes, record_forms);
         if (split.error && !decoded.bytes.empty()) {
             if (++split_failures <= 5)
-                std::printf(
-                    "split failure   packet at %zu, payload offset %zu, type 0x%02x\n",
-                    packet.offset,
-                    split.error->offset,
-                    split.error->offset < decoded.bytes.size() ? decoded.bytes[split.error->offset]
-                                                               : 0U
+                packet_lines += line_of(
+                    line,
+                    std::snprintf(
+                        line.data(),
+                        line.size(),
+                        "split failure   packet at %llu, payload offset %zu, type 0x%02x\n",
+                        packet_at,
+                        split.error->offset,
+                        split.error->offset < decoded.bytes.size()
+                            ? decoded.bytes[split.error->offset]
+                            : 0U
+                    )
                 );
         }
         auto& sender = ticks[packet.sender];
@@ -215,19 +313,32 @@ bool dump(const std::filesystem::path& path) {
             }
             sender.late += late;
             if (++gap_lines <= 10)
-                std::printf(
-                    "tick %s       #%u ticks %u..%u, packet at %zu, %llu ms after its last\n",
-                    gap ? "gap " : "late",
-                    packet.sender,
-                    gap ? expected : *first,
-                    gap ? *first - 1 : *first + late - 1,
-                    packet.offset,
-                    static_cast<unsigned long long>(packet.time_ms - sender.last_ms)
+                packet_lines += line_of(
+                    line,
+                    std::snprintf(
+                        line.data(),
+                        line.size(),
+                        "tick %s       #%u ticks %u..%u, packet at %llu, %llu ms after its last\n",
+                        gap ? "gap " : "late",
+                        packet.sender,
+                        gap ? expected : *first,
+                        gap ? *first - 1 : *first + late - 1,
+                        packet_at,
+                        static_cast<unsigned long long>(packet.time_ms - sender.last_ms)
+                    )
                 );
         }
         sender.seen = true;
         sender.last_ms = packet.time_ms;
     }
+    std::printf(
+        "packets         %llu over %llu:%02llu (%llu ms)\n",
+        static_cast<unsigned long long>(packet_count),
+        static_cast<unsigned long long>(duration / 60000U),
+        static_cast<unsigned long long>(duration / 1000U % 60U),
+        static_cast<unsigned long long>(duration)
+    );
+    std::fputs(packet_lines.c_str(), stdout);
     for (std::size_t sender = 0; sender < senders.size(); ++sender) {
         if (senders[sender] != 0)
             std::printf(
@@ -275,7 +386,7 @@ bool dump(const std::filesystem::path& path) {
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: oa-formats-tad-dump <demo.tad>...\n");
+        std::fprintf(stderr, "usage: oa-formats-tad-dump <demo.tad or replay.oademo>...\n");
         return 2;
     }
     bool ok = true;

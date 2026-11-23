@@ -267,6 +267,9 @@ std::vector<ContentGap> compare_needs(
         if (need.kind == "oamod") {
             if (need.id.empty() && need.name.empty())
                 continue;
+            // The base game's own profile is part of the game, never a package to fetch.
+            if (need.id == base_game_mod_id)
+                continue;
             // A note names the mod and no release: by the name the player
             // saw, or by its id. Any release of it plays the replay.
             // Several releases of one mod may be installed. The one a

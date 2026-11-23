@@ -146,7 +146,17 @@ leave it, the recording is finished and moved into place: a `.oademo` is
 compressed off the thread that draws. The log says
 `multiplayer: recorded the game to FILE`,
 `skirmish: recorded the game to FILE` for a skirmish, or
-`campaign: recorded the game to FILE` for a campaign mission.
+`campaign: recorded the game to FILE` for a campaign mission. A recording of
+any length finishes and plays. A stream of up to 512 MiB is compressed in one
+piece, as it always was; a longer one, which a battle of 20,000 units makes
+in about a minute and a half, is read and compressed a piece at a time,
+holding a few megabytes whatever its length, and playback reads any replay a
+piece at a time too. The stream takes room on the disk while the game goes:
+at 20,000 units about 280 KB a tick, some 15 GB for half an hour, and the
+finished replay about an eighth of that. When a write fails, as when the disk
+is full, the recording stops there and the log says when and why, as in
+`skirmish: the recording stopped at 12:34 of the game (tick 22620): the file
+cannot be written; the replay keeps the game up to there`.
 
 **After a crash.** A recording the game left in `partial` because it stopped
 is finished at the start of the next run, whatever that run is: cut to its
@@ -357,6 +367,21 @@ each new build reads it once more, in the same background read, one replay
 at a time. A phone, which cannot start that read, shows
 what the file's header says and no **Reading…** chip. Exporting a replay
 carries what that read wrote. A timeline the file already holds is kept.
+
+A replay of any length is listed, read, watched, exported and shared this
+way, and nothing holds it whole: a long battle's replay passes 512 MiB, and
+a 30-minute battle of 20,000 units makes one of about 1.7 GB. The list reads
+a replay's description, and a `.tad` packet by packet, a piece at a time;
+the background read and **Watch** read the file as the replay plays. A
+replay of at most 512 MiB whose recording is too is exported as before. A
+longer one is measured when **Export** opens, which takes a few seconds for
+each gigabyte of recording, and written a piece at a time: its `.oademo`
+keeps the replay's own frame (a recording compressed again at the export's
+level would take far too long), and a long `.tad` exported as a `.oademo` is
+compressed at the level a game ends at. A share sends a file of at most
+64 MiB, so a longer replay is refused before anything is read or sent; one
+within it whose recording passes 512 MiB is exported for the share a piece
+at a time.
 
 **On Core Prime** the same section lists the replays Core Prime publishes.
 **Download** writes the `.oademo` into `Recordings/Core Prime`, and **Watch**

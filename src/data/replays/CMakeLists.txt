@@ -8,13 +8,13 @@
 # Watch was left at), and the replays the player keeps, in a file of their
 # own beside it.
 add_library(oa-data-replays src/replays.cpp src/index.cpp src/kept.cpp src/kinds.cpp src/days.cpp
-  src/content.cpp src/import.cpp src/retention.cpp src/feed.cpp src/share.cpp)
+  src/content.cpp src/import.cpp src/long_replay.cpp src/retention.cpp src/feed.cpp src/share.cpp)
 add_library(oa::data::replays ALIAS oa-data-replays)
 target_include_directories(oa-data-replays PUBLIC include)
 target_compile_features(oa-data-replays PUBLIC cxx_std_20)
 target_link_libraries(oa-data-replays
-  PUBLIC oa-options
-  PRIVATE oa-formats-oademo oa-formats-tad oa-formats-json oa-formats-oamod oa-base-sha256
+  PUBLIC oa-options oa-formats-oademo oa-formats-tad
+  PRIVATE oa-formats-json oa-formats-oamod oa-base-sha256 oa-base-zstd
     oa-data-saves oa-platform-shims)
 
 if(BUILD_TESTING)
@@ -33,11 +33,12 @@ if(BUILD_TESTING)
   # 30, 90 and 365 days; the replays a kept file set aside spares, those
   # recorded before it was set aside; and a Core Prime feed: a page, one
   # replay with its needs, an empty next, an unknown member, a damaged feed,
-  # an empty feed, an error, and an id that is refused.
+  # an empty feed, an error, and an id that is refused; and a .tad and a
+  # .oademo past the 512 MiB a whole read takes, listed and imported.
   add_executable(oa-data-replays-test tests/replays_test.cpp tests/content_test.cpp
     tests/feed_test.cpp tests/share_test.cpp)
   target_link_libraries(oa-data-replays-test PRIVATE oa-data-replays oa-formats-oademo
-    oa-formats-tad oa-formats-zip oa-base-sha256 oa-test-support oa-options)
+    oa-formats-tad oa-formats-zip oa-base-sha256 oa-base-zstd oa-test-support oa-options)
   add_test(NAME data-replays COMMAND oa-data-replays-test)
-  set_tests_properties(data-replays PROPERTIES TIMEOUT 60)
+  set_tests_properties(data-replays PROPERTIES TIMEOUT 600)
 endif()

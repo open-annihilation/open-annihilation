@@ -635,6 +635,13 @@ bool net_match_send(
 /// machine's players' batches sent again, and H the longest this machine
 /// held a movement step.
 ///
+/// T is a signed count. It reads two machines' clocks, which drift apart,
+/// so it is the time the batch took to arrive plus how far this machine's
+/// clock is ahead of the sender's, and it is negative on a machine that runs
+/// behind the sender: that machine applies the batch before its own clock
+/// reaches the batch's tick. How long this machine held the batch, on its
+/// own clock alone, is in H.
+///
 /// @param match Running match.
 /// @return The line, without a line end.
 [[nodiscard]] std::string net_match_route_batch_line(const NetMatch* match);

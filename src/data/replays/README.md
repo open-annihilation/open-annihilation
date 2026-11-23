@@ -23,6 +23,11 @@ answer is one of the sentences Core Prime writes, plus the replay's id when
 the answer names one. A file over 64 MiB is past `share_byte_limit`. Nothing
 here stores a password or a token.
 
+A file past `most_file_bytes` (512 MiB), and a `.oademo` whose description
+names a recording past it, is a long replay (`oa/data/replays/long_replay.hpp`).
+Nothing of it is held: it is listed, imported and exported a piece at a time,
+and gives what the whole read gives.
+
 ## Entry points
 
 `oa/data/replays/replays.hpp` (namespace `oa::data::replays`):
@@ -107,7 +112,22 @@ here stores a password or a token.
   and then read, and a refusal is that read's sentence. One whose recording
   holds sector 6 is rewritten without it. A `.tad` that is not a TA Demo
   recording, or whose version this game does not play, is refused with the
-  sentence that says so. It never throws.
+  sentence that says so. It never throws. A long replay is read to its end a
+  piece at a time and copied a piece at a time; a long `.oademo` whose
+  recording holds sector 6 is cleaned as an export cleans it and written again.
+- `oa/data/replays/long_replay.hpp` reads and exports replays a piece at a
+  time. `ReplayFile` gives a file as a replay's source, read at offsets, or as
+  a recording read in order; `ReplayOutput` writes a replay at offsets, or
+  counts its size. `read_description_file` describes a `.oademo` file.
+  `long_replay` tells whether a file is past what a whole read takes.
+  `write_cleaned_recording` writes a recording as `tad::export_recording`
+  writes it, packet by packet: the same bytes, notices and refusals.
+  `export_long_replay` writes a `.oademo` export of a long replay, keeping
+  its own zstd frame when its recording is already plain and holds no
+  address (recompressing gigabytes at the export level would take far too
+  long), and otherwise cleaning it and compressing it a piece at a time at
+  the level a game ends at. `write_replay_in_pieces` stores the cleaned
+  recording of a `.tad` or replay file under a description the caller makes.
 - `register_kind` adds a kind of game an extension records, with the English
   title the Library looks up and shows; `registered_kinds` lists them.
 - `oa/data/replays/feed.hpp` reads Core Prime's JSON list. `parse_replay_page`
@@ -215,7 +235,9 @@ damaged, and reading it leaves the bytes. An import copies a `.oademo` and a
 `.tad` into `Imported`, writes a `.tad` with sector 6 left out and nothing
 else changed, selects the same identity again without copying, and refuses a
 file that is not a TA Demo recording and one whose version this game does not
-play.
+play. A `.tad` and a `.oademo` past the 512 MiB a whole read takes are listed
+with their map, players, length and identity, and imported, the replay a
+second time selecting its copy.
 
 ## Limitations
 

@@ -22,12 +22,48 @@ same bytes. A member this version does not know is kept and written back.
   the layout checks and refusals `read` makes up to and including those two
   entries, with the same sentences, and never reads the timeline or the
   recording, so a replay whose recording is damaged still has its details.
+  A file past the 1 GiB the whole-archive zip reader takes is read through
+  the zip reader that takes one in pieces, so a replay of any length has its
+  details.
+- `RecordingReader` (`oa/formats/oademo/recording_reader.hpp`) reads a
+  replay's recording a piece at a time, from a file or from bytes held,
+  without holding it. `open` reads the zip directory (the 64-bit extension
+  included) and makes `read_description`'s checks with the same sentences;
+  `read` hands out the recording in order, decoding the zstd frame through a
+  fixed window (or inflating a deflated recording), and refuses a recording
+  that runs past the size the description names, whose digest is not the
+  description's, or whose frame is damaged or cut short; `rewind` starts
+  again at its first byte. Whatever the recording's length, it holds the
+  window the frame declares (2 MiB for a frame written when a game ends, 8
+  MiB at most for any frame this engine writes) and about 500 KiB of
+  buffers. A replay may hold up to `most_streamed_archive_bytes` (64 GiB).
+  `read_timeline` reads its `timeline.json` as `read` does, and
+  `read_stored_frame` hands out its zstd frame as stored, undecoded, so an
+  export stores it in another replay unchanged.
+- `read_description` taking an `ArchiveSource` reads the description and the
+  manifest a piece at a time, with the checks and sentences of the one that
+  takes the whole file, so a replay of any length is described in a few
+  kilobytes.
+- `RecordingWalk` (`oa/formats/oademo/recording_walk.hpp`) reads a
+  recording's packets in order, from a `.tad` whose bytes come in order or
+  from a replay through `RecordingReader`. It parses the part before the
+  packets as `tad::parse` does, at most `most_head_bytes`, and checks each
+  packet as `tad::parse` does, with the same error at the same offset. A
+  replay whose digest is not its description's says so first, as a whole
+  read does. It holds that part and one megabyte of packets, whatever the
+  recording's length.
 - `write` writes a file. Deflated entries use deflate level 6. A zstd
   recording is one frame, at the level given, from 1 to the highest zstd
   accepts. The default level is 3. Level 19 is the one an export uses. The
   frame declares a window of at most 8 MiB at every level (see Invariants).
   `write` refuses a recording that is not a TA Demo recording, one past the
   recording format's limit, and one that holds a sector of network addresses.
+- `write_framed` writes a file whose recording is a zstd frame already made,
+  a piece at a time through a positioned write, as to a file. It is the
+  archive `write` makes for the same description and frame: `write`
+  compresses the recording and stores it through the same path. The
+  description's recording identity is written as given. A finished
+  recording too long to hold is written this way (`session/demo`).
 - `export_replay` writes a `.oademo` of a replay already read, at level 19.
   A recording that holds a network address, or a packet that is not plain,
   is cleaned first and the description's recording identity follows the
@@ -62,7 +98,10 @@ this game reads."
 ## State
 
 None. `read` and `write` take their arguments and return a result. The
-archive is bytes in memory. The module opens no file.
+archive is bytes in memory, or, for `write_framed` and `RecordingReader`,
+bytes the caller's hooks write and read. The module opens no file. A
+`RecordingReader` keeps its replay's directory, description and manifest,
+the open entry, the frame's window and one piece of each buffer.
 
 ## Invariants
 
@@ -77,9 +116,12 @@ archive is bytes in memory. The module opens no file.
 - The entries follow in order: `meta.json` and `manifest.json`, deflated,
   then `timeline.json` when there is one, then either `recording.tad.zst`
   stored or `recording.tad` deflated.
+- `write_framed` given the frame `write` makes writes the bytes `write`
+  writes.
 - A recording whose uncompressed size is above the recording format's
-  limit is refused before that buffer is allocated. A size equal to the
-  limit is accepted.
+  limit is refused by `read` before that buffer is allocated. A size equal
+  to the limit is accepted. `RecordingReader` holds no such buffer, so it
+  reads a recording of any size the description names.
 - A zstd frame whose header names a size above that limit is refused
   before the output is allocated.
 - **Every zstd frame a replay holds declares a window of at most 8 MiB**,
@@ -110,7 +152,21 @@ also beside a damaged recording, and `read`'s sentence for cut bytes, bytes
 that are no zip and another version, that a deflated recording reads as a
 zstd one does, that a frame with no size reads, that an unknown member, a `game.<kind>` object and a package's maps
 survive a read and a write, and that `write` refuses a recording with an
-address sector or one that is no recording.
+address sector or one that is no recording. It checks that `write_framed`
+given `write`'s frame writes `write`'s bytes, with and without a timeline,
+and writes nothing whole from a frame cut short; that `RecordingReader` reads
+a zstd and a deflated recording in pieces to the recording `read` gives,
+gives the description and manifest, and reads again after a rewind; and
+that it refuses junk, another digest, a description that names fewer bytes,
+a damaged frame, a frame cut short and another version. A description read
+from a source is the one read from the whole file, and is refused with the
+same sentence; a timeline read from an open reader is the one `read` gives,
+and is refused as `read` refuses it; a walk of a `.tad` in pieces of any size,
+and of a replay stored or deflated, gives the packets and the part before them
+a whole parse gives, and the same error at the same offset for a recording cut
+at every byte; and a `.tad` and a replay past the 512 MiB a whole read takes
+(`oa/test/large_replay.hpp`) are described, walked to their last packet and
+checked from their files.
 
 `demo-playback` loads one recording as a `.tad` and as a `.oademo` and
 compares the playback. `tools-oa-tool-replay` packs a recording, prints

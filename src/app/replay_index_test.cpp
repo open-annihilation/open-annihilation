@@ -3,7 +3,8 @@
 
 // The index pass's two parts that need no match: the notes read from a
 // made-up recording of every kind of record (also inside a .oademo, with the
-// refusals), and the index built from a made-up timeline and notes: the
+// refusals, and from files past the 512 MiB a whole read takes, read a piece
+// at a time), and the index built from a made-up timeline and notes: the
 // totals, the damage, the markers and how they are ordered and capped, the
 // commanders' result, how the replay ended, and where the fighting was.
 
@@ -15,14 +16,21 @@
 #include "oa/formats/tad.hpp"
 #include "oa/netgame/records.hpp"
 #include "oa/netgame/unicode_chat.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/session/demo/recording.hpp"
 #include "oa/test/check.hpp"
+#include "oa/test/large_replay.hpp"
+#include "oa/test/scratch_directory.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <initializer_list>
+#include <ios>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <utility>
@@ -372,6 +380,124 @@ void unreadable_files_are_refused() {
         OA_CHECK(!replay_index::read_stream_notes(replay, error).has_value());
         OA_CHECK(!error.empty());
     }
+}
+
+// A recording and a replay past the 512 MiB a whole read takes give their
+// notes, read a piece at a time from their files: a chat line near the end,
+// on the tick of the packet before it, and the two players. The notes of the
+// made-up recording read from its file are the ones read from its bytes.
+void notes_are_read_past_whole_reads() {
+    namespace fs = std::filesystem;
+    const fs::path scratch = oa::test::make_scratch_directory("replay-index-past-whole-reads");
+    oa::test::MadeRecording made = oa::test::recording_past_whole_reads();
+    const uint64_t chat_at = made.packets - 10;
+    const std::vector<uint8_t> line = chat("<player1> late in the game");
+    made.packet = [chat_at, line](uint64_t index, std::vector<uint8_t>& chunk) {
+        if (index != chat_at) {
+            oa::test::made_state_packet(index, chunk);
+            return;
+        }
+        const std::size_t length =
+            tad::layout::chunk_length_bytes + tad::layout::packet_fixed_bytes + 1 + line.size();
+        chunk = {static_cast<uint8_t>(length), static_cast<uint8_t>(length >> 8U), 0, 0, 1};
+        chunk.push_back(tad::payload_marker);
+        chunk.insert(chunk.end(), line.begin(), line.end());
+    };
+    const auto check_notes = [&](const fs::path& file) {
+        std::string error;
+        const std::optional<replay_index::StreamNotes> read =
+            replay_index::read_stream_notes(file, error);
+        if (!error.empty())
+            std::cerr << oa::platform::path_to_utf8(file.filename()) << ": " << error << '\n';
+        OA_CHECK(read.has_value() && error.empty());
+        if (!read.has_value())
+            return;
+        OA_CHECK(read->players.size() == 2);
+        OA_CHECK(read->notes.size() == 1);
+        if (read->notes.size() == 1)
+            OA_CHECK(is_note(
+                read->notes[0],
+                oa::test::made_tick_of(chat_at - 1),
+                NoteKind::chat,
+                1,
+                0,
+                0,
+                "<player1> late in the game"
+            ));
+    };
+    {
+        const fs::path tad_file = scratch / "long.tad";
+        const oa::test::MadeFile written = oa::test::write_made_tad(made, tad_file);
+        OA_CHECK(written.bytes > oa::test::whole_read_most_bytes);
+        check_notes(tad_file);
+        std::error_code removed;
+        fs::remove(tad_file, removed);
+    }
+    oademo::Replay replay;
+    replay.meta.recording.tad_version = tad::supported_version;
+    replay.meta.recording.addresses_removed = true;
+    replay.meta.recorded.how = "multiplayer";
+    replay.meta.game.kind = "multiplayer";
+    replay.meta.map.name = "Long Map";
+    replay.meta.content.base.id = "totala";
+    replay.meta.content.base.version = "3.1c";
+    replay.meta.units.count = 3;
+    replay.meta.units.table_sha256 = std::string(64, '0');
+    replay.meta.units.index_bits = 2;
+    oademo::PlayerInfo first;
+    first.number = 1;
+    first.name = "player1";
+    first.side = "arm";
+    first.kind = "human";
+    replay.meta.players.push_back(first);
+    replay.manifest.engine.recorded_with = "0.9.3";
+    replay.manifest.engine.needs = ">=0.9.1";
+    oademo::Need base;
+    base.kind = "base";
+    base.id = "totala";
+    base.version = "3.1c";
+    replay.manifest.needs.push_back(base);
+    const fs::path replay_file = scratch / "long.oademo";
+    const oa::test::MadeFile written =
+        oa::test::write_made_replay(made, replay, replay_file, scratch / "long.frame");
+    OA_CHECK(written.bytes > oa::test::whole_read_most_bytes);
+    check_notes(replay_file);
+
+    // A small recording reads the same from its file as from its bytes.
+    const std::vector<uint8_t> recording = made_up_recording();
+    const fs::path small_file = scratch / "small.tad";
+    {
+        std::ofstream out(small_file, std::ios::binary);
+        out.write(
+            reinterpret_cast<const char*>(recording.data()),
+            static_cast<std::streamsize>(recording.size())
+        );
+    }
+    std::string error;
+    const std::optional<replay_index::StreamNotes> from_bytes =
+        replay_index::read_stream_notes(recording, error);
+    const std::optional<replay_index::StreamNotes> from_file =
+        replay_index::read_stream_notes(small_file, error);
+    OA_CHECK(from_bytes.has_value() && from_file.has_value());
+    if (from_bytes.has_value() && from_file.has_value()) {
+        OA_CHECK(from_file->notes.size() == from_bytes->notes.size());
+        for (std::size_t at = 0; at < from_file->notes.size() && at < from_bytes->notes.size();
+             ++at)
+            OA_CHECK(is_note(
+                from_file->notes[at],
+                from_bytes->notes[at].tick,
+                from_bytes->notes[at].kind,
+                from_bytes->notes[at].player,
+                from_bytes->notes[at].other,
+                from_bytes->notes[at].value,
+                from_bytes->notes[at].text
+            ));
+    }
+    error.clear();
+    OA_CHECK(!replay_index::read_stream_notes(scratch / "missing.tad", error).has_value());
+    OA_CHECK(!error.empty());
+    std::error_code removed;
+    fs::remove_all(scratch, removed);
 }
 
 /// The made-up game: players 1 and 2 fight, 3 watches.
@@ -1539,6 +1665,7 @@ void the_opening_shows_a_start() {
 int main() {
     notes_are_read_from_a_recording();
     unreadable_files_are_refused();
+    notes_are_read_past_whole_reads();
     an_index_is_built();
     chat_markers_are_lines_a_player_typed();
     how_a_replay_ended();

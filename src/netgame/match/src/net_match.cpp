@@ -3540,8 +3540,9 @@ bool net_match_send(
 std::string net_match_route_batch_line(const NetMatch* m) {
     const auto& stats = m->route_batches;
     const auto& applied = stats.applied;
-    return "route batches: ticks " +
-           std::to_string(applied.largest_applied_at - applied.largest_tick) + ", changes " +
+    // Read on two machines' clocks, so negative on a machine that runs behind the sender.
+    const int64_t after_sent = int64_t{applied.largest_applied_at} - int64_t{applied.largest_tick};
+    return "route batches: ticks " + std::to_string(after_sent) + ", changes " +
            std::to_string(applied.largest_changes) + ", parts " +
            std::to_string(applied.largest_parts) + ", resent " +
            std::to_string(stats.parts_resent) + ", longest hold " +

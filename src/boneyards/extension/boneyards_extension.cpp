@@ -104,7 +104,7 @@
 // this module asks before it composes a spoken line, is the same version.
 // This extension table fills no new hook. None of 15 to 21 is a hook
 // this module fills.
-constexpr uint32_t kExtensionApiVersionFollowed = 21;
+constexpr uint32_t kExtensionApiVersionFollowed = 22;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "

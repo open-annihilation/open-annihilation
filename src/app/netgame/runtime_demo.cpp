@@ -149,11 +149,13 @@ void NetworkPlay::start_demo_playback() {
     };
     std::string error;
     // A recording the engine handed over comes first, the --play-demo file
-    // otherwise.
+    // otherwise. One it named by its file is read from there as it plays.
     auto staged = std::exchange(netgame_context().staged_recording, std::nullopt);
-    const bool loaded = staged
-                            ? demo::demo_load(&session->playback, std::move(staged->bytes), &error)
-                            : demo::demo_open(&session->playback, net_options().play_demo, &error);
+    const bool loaded =
+        staged ? (staged->file.empty()
+                      ? demo::demo_load(&session->playback, std::move(staged->bytes), &error)
+                      : demo::demo_open(&session->playback, staged->file, &error))
+               : demo::demo_open(&session->playback, net_options().play_demo, &error);
     if (!loaded)
         throw std::runtime_error(error);
     const fs::path recorded = staged ? path_from_utf8(staged->name) : net_options().play_demo;
@@ -405,7 +407,7 @@ void NetworkPlay::start_demo_playback() {
     arm_replay_controls();
     runtime_.status_ =
         "Demo playback: " + recording.map_name + ", " + std::to_string(players.size()) +
-        " players, " + std::to_string(demo_->playback.frames.size()) + " frames over " +
+        " players, " + std::to_string(demo_->playback.frame_count) + " frames over " +
         std::to_string(demo::demo_duration_ms(demo_->playback) / kMillisecondsPerSecond) + " s";
     std::cerr << runtime_.status_ << '\n';
     enhanced_mode.keep = true;
@@ -656,7 +658,7 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
         "demo %s: %zu players, %zu frames, %llu ms, unit limit %u\n",
         playback.demo.map_name.c_str(),
         playback.demo.players.size(),
-        playback.frames.size(),
+        playback.frame_count,
         static_cast<unsigned long long>(demo::demo_duration_ms(playback)),
         playback.demo.max_units
     );
@@ -707,7 +709,7 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
         static_cast<unsigned long long>(demo::demo_world_digest(&world)),
         demo::demo_live_units(&world),
         playback.stats.frames_delivered,
-        playback.frames.size(),
+        playback.frame_count,
         finished ? ", finished" : ""
     );
     // Each seated player's units, kills, losses, metal and energy, so a
@@ -739,9 +741,11 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
     print_feature_cells("demo features", world);
     for (const auto& sample : demo_->tracked)
         std::printf(
-            "unit %u full record at tick %u: recorded (%d, %d, %d), replay before (%d, %d, %d)\n",
+            "unit %u full record at tick %u, sender tick %u: recorded (%d, %d, %d), replay before "
+            "(%d, %d, %d)\n",
             demo_->tracked_unit,
             sample.tick,
+            sample.sender_tick,
             whole(sample.recorded.x),
             whole(sample.recorded.y),
             whole(sample.recorded.z),
@@ -769,8 +773,10 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
     if (drawing)
         write_ppm(options.snapshot, *host.surface(host.context));
     // The followed unit's full records ride on every units_per_player-th
-    // sender tick. Over a different unit table, record errors and creates
-    // past the table are only reported (demo_session_verdict).
+    // tick of its sender, counted on the sender's clock, so a recording of a
+    // machine that ran behind or ahead of the others is judged as the
+    // records were sent. Over a different unit table, record errors and
+    // creates past the table are only reported (demo_session_verdict).
     const auto period = static_cast<int64_t>(runtime_.match_->state().game.units_per_player);
     const auto verdict = demo::demo_session_verdict(*demo_, demo_unit_table_differs_);
     const bool clean = verdict.clean;
@@ -781,7 +787,7 @@ int NetworkPlay::run_headless_demo(std::size_t ticks) {
         std::printf("demo check failed: the replay was not clean\n");
     if (!paced)
         std::printf(
-            "demo check failed: unit %u's full records were not %lld ticks apart\n",
+            "demo check failed: unit %u's full records were not %lld sender ticks apart\n",
             demo_->tracked_unit,
             static_cast<long long>(period)
         );
@@ -1002,8 +1008,8 @@ void NetworkPlay::note_replay_length(uint32_t play_tick) {
     if (!demo_)
         return;
     uint32_t known = demo_->clock.furthest();
-    if (!demo_->playback.frames.empty())
-        known = std::max(known, demo_->playback.frames.back().due_tick);
+    if (demo_->playback.frame_count != 0)
+        known = std::max(known, demo_->playback.last_due_tick);
     if (demo::demo_session_finished(*demo_))
         known = std::max(known, play_tick);
     demo_->clock.note_length(known);

@@ -4,11 +4,13 @@
 #include "detail.hpp"
 
 #include "oa/formats/oademo/interface_words.hpp"
+#include "oa/formats/oademo/recording_reader.hpp"
 
 #include "oa/base/sha256.hpp"
 #include "oa/base/zstd/zstd.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/formats/zip.hpp"
+#include "oa/formats/zip/stream.hpp"
 #include "oa/formats/zip/writer.hpp"
 
 #include <algorithm>
@@ -23,16 +25,21 @@
 #include <vector>
 
 namespace oa::formats::oademo {
+
+namespace detail {
+
+bool signature_text(std::string_view text) noexcept {
+    return text == "oademo 1" || text == "oademo 1\n" || text == "oademo 1\r\n";
+}
+
+} // namespace detail
+
 namespace {
 
-constexpr std::string_view signature_name = "oademo";
-constexpr std::string_view meta_name = "meta.json";
-constexpr std::string_view manifest_name = "manifest.json";
-constexpr std::string_view timeline_name = "timeline.json";
-constexpr std::string_view zstd_name = "recording.tad.zst";
-constexpr std::string_view deflate_name = "recording.tad";
-constexpr uint32_t signature_cap = 32;
-constexpr uint32_t description_cap = 16U * 1024U * 1024U;
+using detail::deflate_name;
+using detail::description_cap;
+using detail::signature_name;
+using detail::zstd_name;
 
 std::string sentence(std::string_view text) {
     return std::string(text);
@@ -62,10 +69,6 @@ bool same_bytes(std::span<const uint8_t> bytes, std::size_t at, std::string_view
 uint16_t load_u16(std::span<const uint8_t> bytes, std::size_t at) noexcept {
     return static_cast<uint16_t>(bytes[at]) |
            static_cast<uint16_t>(static_cast<uint16_t>(bytes[at + 1]) << 8U);
-}
-
-bool signature_text(std::string_view text) noexcept {
-    return text == "oademo 1" || text == "oademo 1\n" || text == "oademo 1\r\n";
 }
 
 std::string as_text(const std::vector<uint8_t>& bytes) {
@@ -122,12 +125,6 @@ bool put_entry(
     if (!writer.write(bytes, problem))
         return false;
     return writer.end_entry(problem);
-}
-
-std::string issue_sentence(detail::Issue issue) {
-    if (issue == detail::Issue::version)
-        return sentence(not_this_version);
-    return sentence(details_unreadable);
 }
 
 bool load_capped(
@@ -216,26 +213,12 @@ std::string_view read_frame(std::span<const uint8_t> frame, std::vector<uint8_t>
     return {};
 }
 
-const zip::Entry* recording_entry(const zip::CentralDirectory& directory, int& count) noexcept {
-    count = 0;
-    const zip::Entry* found = nullptr;
-    for (const zip::Entry& entry : directory.entries) {
-        if (entry.name != zstd_name && entry.name != deflate_name)
-            continue;
-        ++count;
-        found = &entry;
-    }
-    return found;
-}
-
 /// A replay whose layout was checked, with its description and manifest read.
 struct Described {
     /// The archive's directory.
     zip::CentralDirectory directory{};
-    /// True when the fourth entry is `timeline.json` and the recording is the fifth.
-    bool with_timeline{};
-    /// True when the recording is the stored zstd frame, false when it is deflated.
-    bool zstd_entry{};
+    /// Where the recording is.
+    detail::Layout layout{};
     /// The description.
     Meta meta{};
     /// The manifest.
@@ -244,10 +227,8 @@ struct Described {
 
 /// Checks a replay's layout and reads its description and manifest.
 ///
-/// Checks the zip directory, the stored `oademo` entry and its line, that one
-/// recording entry follows the 4 or 5 entries in order with their methods,
-/// and the size a deflated recording names, then reads `meta.json` and
-/// `manifest.json`. Neither the timeline nor the recording is read.
+/// Reads the zip directory, then makes the checks of detail::describe_entries.
+/// Neither the timeline nor the recording is read.
 ///
 /// @param bytes the whole file
 /// @param[out] described the layout, the description and the manifest; whole
@@ -261,66 +242,129 @@ std::string describe(std::span<const uint8_t> bytes, Described& described) {
             return sentence(not_one_recording);
         return sentence(not_a_replay);
     }
-    // A zip that does not open with the stored `oademo` entry is some other zip.
-    if (directory.entries.empty() || directory.entries[0].name != signature_name ||
-        directory.entries[0].method != zip::Method::stored)
-        return sentence(not_a_replay);
+    const auto load = [&](std::size_t index,
+                          uint32_t cap,
+                          std::string_view oversize,
+                          std::vector<uint8_t>& loaded) {
+        std::string problem;
+        if (!load_capped(bytes, directory.entries[index], cap, oversize, loaded, problem))
+            return problem;
+        return std::string();
+    };
+    return detail::describe_entries(
+        std::span<const zip::Entry>(directory.entries),
+        tad::limit::input_bytes,
+        load,
+        described.layout,
+        described.meta,
+        described.manifest
+    );
+}
 
-    std::vector<uint8_t> signature;
-    std::string problem;
-    if (!load_capped(
-            bytes, directory.entries[0], signature_cap, not_this_version, signature, problem
-        ))
-        return problem;
-    if (!signature_text(as_text(signature)))
-        return sentence(not_this_version);
+/// Bytes of a file held in memory, read at an offset as a streamed zip reads them.
+struct HeldBytes {
+    /// The file.
+    std::span<const uint8_t> bytes{};
+};
 
-    int recordings = 0;
-    const zip::Entry* recording = recording_entry(directory, recordings);
-    if (recordings != 1 || recording == nullptr)
-        return sentence(not_one_recording);
+bool read_held(void* context, uint64_t offset, std::span<uint8_t> into) {
+    const auto& held = *static_cast<const HeldBytes*>(context);
+    if (offset > held.bytes.size() || into.size() > held.bytes.size() - offset)
+        return false;
+    std::copy_n(
+        held.bytes.begin() + static_cast<std::ptrdiff_t>(offset), into.size(), into.begin()
+    );
+    return true;
+}
 
-    const bool with_timeline = directory.entries.size() == 5;
-    if (directory.entries.size() != 4 && !with_timeline)
-        return sentence(not_this_version);
-    const zip::Entry& meta_entry = directory.entries[1];
-    const zip::Entry& manifest_entry = directory.entries[2];
-    if (meta_entry.name != meta_name || meta_entry.method != zip::Method::deflated ||
-        manifest_entry.name != manifest_name || manifest_entry.method != zip::Method::deflated)
-        return sentence(not_this_version);
-    const zip::Entry* recording_at = &directory.entries[3];
-    if (with_timeline) {
-        const zip::Entry& timeline_entry = directory.entries[3];
-        recording_at = &directory.entries[4];
-        if (timeline_entry.name != timeline_name || timeline_entry.method != zip::Method::deflated)
-            return sentence(not_this_version);
+/// Reads the description and the manifest of a replay through the zip reader that takes an
+/// archive in pieces.
+///
+/// @param source where the replay's bytes come from
+/// @param archive_bytes the replay's size
+/// @param[out] result the description and the manifest, or why not
+void describe_in_pieces(
+    const zip::SourceHooks& source, uint64_t archive_bytes, DescriptionResult& result
+) {
+    zip::StreamDirectory directory;
+    zip::ZipError zip_error;
+    if (!zip::read_stream_directory(
+            source, archive_bytes, detail::archive_limits(), directory, zip_error
+        )) {
+        result.error = sentence(
+            zip_error.status == zip::ZipStatus::duplicate_name ? not_one_recording : not_a_replay
+        );
+        return;
     }
-    if (recording_at != recording)
-        return sentence(not_this_version);
-    const bool zstd_entry = recording->name == zstd_name;
-    if (zstd_entry) {
-        if (recording->method != zip::Method::stored)
-            return sentence(not_this_version);
-    } else if (recording->method != zip::Method::deflated) {
-        return sentence(not_this_version);
-    }
-    if (!zstd_entry && static_cast<uint64_t>(recording->bytes) > tad::limit::input_bytes)
-        return sentence(recording_too_long);
+    const auto load = [&](std::size_t index,
+                          uint32_t cap,
+                          std::string_view oversize,
+                          std::vector<uint8_t>& loaded) {
+        return detail::load_stream_entry(
+            source, archive_bytes, directory.entries[index], cap, oversize, loaded
+        );
+    };
+    detail::Layout layout;
+    Meta meta;
+    Manifest manifest;
+    result.error = detail::describe_entries(
+        std::span<const zip::StreamEntry>(directory.entries),
+        UINT64_MAX,
+        load,
+        layout,
+        meta,
+        manifest
+    );
+    if (!result.error.empty())
+        return;
+    result.meta = std::move(meta);
+    result.manifest = std::move(manifest);
+}
 
-    std::vector<uint8_t> meta_bytes;
-    std::vector<uint8_t> manifest_bytes;
-    if (!load_capped(bytes, meta_entry, description_cap, details_unreadable, meta_bytes, problem) ||
-        !load_capped(
-            bytes, manifest_entry, description_cap, details_unreadable, manifest_bytes, problem
+/// Writes the entries of a replay in order: the signature, the description, the
+/// manifest, the timeline when there is one, and the recording entry, whose
+/// bytes `put_recording` hands the writer.
+///
+/// @param meta the description as compact JSON
+/// @param manifest the manifest as compact JSON
+/// @param timeline the timeline as compact JSON, when there is one
+/// @param recording_name the recording entry's name
+/// @param recording_method how the recording entry is stored
+/// @param recording_bytes the recording entry's size, uncompressed
+/// @param put_recording writes the entry's bytes, called as `put_recording(writer, problem)`
+/// @param output where the archive's bytes go
+/// @return empty, or replay_unwritable
+template <class PutRecording>
+std::string assemble(
+    std::string_view meta,
+    std::string_view manifest,
+    const std::optional<std::string>& timeline,
+    std::string_view recording_name,
+    zip::Method recording_method,
+    uint64_t recording_bytes,
+    PutRecording&& put_recording,
+    const zip::OutputHooks& output
+) {
+    zip::WriterOptions zip_options;
+    zip_options.deflate_level = deflate_level;
+    zip::StreamWriter writer(output, zip_options);
+    zip::ZipError problem;
+    if (!put_entry(
+            writer, signature_name, as_bytes(signature_line), zip::Method::stored, problem
+        ) ||
+        !put_entry(writer, detail::meta_name, as_bytes(meta), zip::Method::deflated, problem) ||
+        !put_entry(
+            writer, detail::manifest_name, as_bytes(manifest), zip::Method::deflated, problem
         ))
-        return problem;
-
-    detail::Issue issue = detail::Issue::none;
-    if (!detail::parse_meta(as_text(meta_bytes), described.meta, issue) ||
-        !detail::parse_manifest(as_text(manifest_bytes), described.manifest, issue))
-        return issue_sentence(issue);
-    described.with_timeline = with_timeline;
-    described.zstd_entry = zstd_entry;
+        return sentence(replay_unwritable);
+    if (timeline.has_value() &&
+        !put_entry(
+            writer, detail::timeline_name, as_bytes(*timeline), zip::Method::deflated, problem
+        ))
+        return sentence(replay_unwritable);
+    if (!writer.begin_entry(recording_name, recording_bytes, recording_method, problem) ||
+        !put_recording(writer, problem) || !writer.end_entry(problem) || !writer.finish(problem))
+        return sentence(replay_unwritable);
     return {};
 }
 
@@ -345,13 +389,30 @@ bool recognised(std::span<const uint8_t> bytes) noexcept {
 }
 
 DescriptionResult read_description(std::span<const uint8_t> bytes) {
-    Described described;
     DescriptionResult result;
+    // A file past what the whole-archive reader takes is read in pieces; its recording is never
+    // touched here, so its size costs nothing.
+    if (bytes.size() > zip::max_archive_bytes) {
+        HeldBytes held{bytes};
+        describe_in_pieces(zip::SourceHooks{&held, read_held}, bytes.size(), result);
+        return result;
+    }
+    Described described;
     result.error = describe(bytes, described);
     if (!result.error.empty())
         return result;
     result.meta = std::move(described.meta);
     result.manifest = std::move(described.manifest);
+    return result;
+}
+
+DescriptionResult read_description(const ArchiveSource& source) {
+    DescriptionResult result;
+    if (source.read_at == nullptr) {
+        result.error = sentence(not_a_replay);
+        return result;
+    }
+    describe_in_pieces(zip::SourceHooks{source.context, source.read_at}, source.bytes, result);
     return result;
 }
 
@@ -361,12 +422,12 @@ ReadResult read(std::span<const uint8_t> bytes) {
     if (!why_not_described.empty())
         return refuse(why_not_described);
     const std::vector<zip::Entry>& entries = described.directory.entries;
-    const zip::Entry* recording = described.with_timeline ? &entries[4] : &entries[3];
+    const zip::Entry* recording = &entries[described.layout.recording];
 
     Replay replay;
     replay.meta = std::move(described.meta);
     replay.manifest = std::move(described.manifest);
-    if (described.with_timeline) {
+    if (described.layout.with_timeline) {
         std::vector<uint8_t> timeline_bytes;
         std::string problem;
         if (!load_capped(
@@ -383,7 +444,7 @@ ReadResult read(std::span<const uint8_t> bytes) {
     zip::ZipError read_error;
     if (!zip::read_entry(bytes, *recording, stored, read_error))
         return refuse(not_a_replay);
-    if (described.zstd_entry) {
+    if (described.layout.zstd_entry) {
         const std::string_view why_not = read_frame(stored, replay.recording);
         if (!why_not.empty())
             return refuse(why_not);
@@ -456,28 +517,60 @@ WriteResult write(const Replay& replay, WriteOptions options) {
         recording_bytes = frame;
     }
 
-    const std::string meta = meta_text(replay.meta);
-    const std::string manifest = manifest_text(replay.manifest);
     MemoryOut out;
-    zip::WriterOptions zip_options;
-    zip_options.deflate_level = deflate_level;
-    zip::StreamWriter writer(zip::OutputHooks{&out, write_memory}, zip_options);
-    zip::ZipError problem;
-    if (!put_entry(
-            writer, signature_name, as_bytes(signature_line), zip::Method::stored, problem
-        ) ||
-        !put_entry(writer, meta_name, as_bytes(meta), zip::Method::deflated, problem) ||
-        !put_entry(writer, manifest_name, as_bytes(manifest), zip::Method::deflated, problem))
-        return refuse_write(replay_unwritable);
-    if (timeline.has_value() &&
-        !put_entry(writer, timeline_name, as_bytes(*timeline), zip::Method::deflated, problem))
-        return refuse_write(replay_unwritable);
-    if (!put_entry(writer, recording_entry_name, recording_bytes, recording_method, problem) ||
-        !writer.finish(problem))
-        return refuse_write(replay_unwritable);
+    const std::string why_not = assemble(
+        meta_text(replay.meta),
+        manifest_text(replay.manifest),
+        timeline,
+        recording_entry_name,
+        recording_method,
+        recording_bytes.size(),
+        [&](zip::StreamWriter& writer, zip::ZipError& problem) {
+            return writer.write(recording_bytes, problem);
+        },
+        zip::OutputHooks{&out, write_memory}
+    );
+    if (!why_not.empty())
+        return refuse_write(why_not);
     WriteResult result;
     result.bytes = std::move(out.bytes);
     return result;
+}
+
+std::string write_framed(const Replay& replay, const FrameSource& frame, const ArchiveOutput& out) {
+    std::optional<std::string> timeline;
+    if (replay.timeline.has_value()) {
+        timeline = detail::canonical_json(*replay.timeline);
+        if (!timeline.has_value())
+            return sentence(timeline_unwritable);
+    }
+    if (frame.read == nullptr || out.write_at == nullptr)
+        return sentence(replay_unwritable);
+    // The frame passes through one fixed piece, however large it is.
+    constexpr std::size_t piece_bytes = 256U * 1024U;
+    std::vector<uint8_t> piece(
+        static_cast<std::size_t>(std::min<uint64_t>(piece_bytes, frame.bytes))
+    );
+    return assemble(
+        meta_text(replay.meta),
+        manifest_text(replay.manifest),
+        timeline,
+        zstd_name,
+        zip::Method::stored,
+        frame.bytes,
+        [&](zip::StreamWriter& writer, zip::ZipError& problem) {
+            for (uint64_t left = frame.bytes; left != 0;) {
+                const std::span<uint8_t> next(
+                    piece.data(), static_cast<std::size_t>(std::min<uint64_t>(left, piece.size()))
+                );
+                if (!frame.read(frame.context, next) || !writer.write(next, problem))
+                    return false;
+                left -= next.size();
+            }
+            return true;
+        },
+        zip::OutputHooks{out.context, out.write_at}
+    );
 }
 
 void set_recording_identity(Replay& replay) {

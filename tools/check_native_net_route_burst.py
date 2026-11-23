@@ -54,6 +54,7 @@ import threading
 import time
 
 import check_native_automation as automation
+import native_offline
 
 # A command that starts the executable under test, such as the compatibility
 # layer a cross build runs its tests through; empty runs it directly.
@@ -87,7 +88,7 @@ UNIT_LIVE = 0x10000000
 BURST = re.compile(r"route burst: player (\d+) movers (\d+) tick (\d+)$")
 ROOM_LIMIT = re.compile(r"route burst: the room holds (\d+) units a player")
 BATCHES = re.compile(
-    r"route batches: ticks (\d+), changes (\d+), parts (\d+), resent (\d+), "
+    r"route batches: ticks (-?\d+), changes (\d+), parts (\d+), resent (\d+), "
     r"longest hold (\d+) ticks")
 ROOM = f'multiplayer: in the battle room of "{GAME_NAME}" as '
 

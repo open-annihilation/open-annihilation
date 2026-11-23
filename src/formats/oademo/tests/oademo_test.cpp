@@ -4,20 +4,33 @@
 // The replay container: two writes of one replay are the same bytes, the
 // first 45 bytes and every local header are pinned, each refusal names its
 // sentence, a deflated recording reads like a zstd one, a member this
-// version does not know is kept, and a writer refuses a recording that
-// holds an address sector.
+// version does not know is kept, a writer refuses a recording that holds an
+// address sector, a replay written from a frame already made is the one
+// `write` makes, a recording read in pieces is the recording `read` gives,
+// and a replay's description, timeline and packets read a piece at a time are
+// what the whole reads give, past the 512 MiB those take too.
 
 #include "oa/formats/oademo/interface_words.hpp"
 #include "oa/formats/oademo/oademo.hpp"
+#include "oa/formats/oademo/recording_reader.hpp"
+#include "oa/formats/oademo/recording_walk.hpp"
 #include "oa/formats/oademo/timeline_index.hpp"
+
+#include "oa/base/zstd/zstd.hpp"
 
 #include "oa/formats/sqsh.hpp"
 #include "oa/formats/tad.hpp"
 #include "oa/formats/zip.hpp"
 #include "oa/formats/zip/writer.hpp"
 #include "oa/test/check.hpp"
+#include "oa/test/large_replay.hpp"
+#include "oa/test/scratch_directory.hpp"
 
+#include <algorithm>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <ios>
 #include <optional>
 #include <span>
 #include <string>
@@ -1298,6 +1311,599 @@ void a_replay_export_keeps_a_clean_recording() {
     }
 }
 
+// A frame read from bytes held, a piece at a time.
+struct HeldFrame {
+    std::span<const uint8_t> bytes{};
+    std::size_t at{};
+};
+
+bool read_held_frame(void* context, std::span<uint8_t> into) {
+    auto& held = *static_cast<HeldFrame*>(context);
+    if (into.size() > held.bytes.size() - held.at)
+        return false;
+    std::copy_n(
+        held.bytes.begin() + static_cast<std::ptrdiff_t>(held.at), into.size(), into.begin()
+    );
+    held.at += into.size();
+    return true;
+}
+
+// A replay held in memory, read at offsets as from a file.
+struct HeldArchive {
+    std::span<const uint8_t> bytes{};
+};
+
+bool read_held_archive(void* context, uint64_t offset, std::span<uint8_t> into) {
+    const auto& held = *static_cast<const HeldArchive*>(context);
+    if (offset > held.bytes.size() || into.size() > held.bytes.size() - offset)
+        return false;
+    std::copy_n(
+        held.bytes.begin() + static_cast<std::ptrdiff_t>(offset), into.size(), into.begin()
+    );
+    return true;
+}
+
+// The one zstd frame `write` makes of a recording at a level.
+std::vector<uint8_t> whole_frame_of(std::span<const uint8_t> recording, int level) {
+    std::vector<uint8_t> frame(oa::base::zstd::compress_bound(recording.size()));
+    const oa::base::zstd::Sized made = oa::base::zstd::compress(recording, level, frame);
+    OA_CHECK(made.ok());
+    frame.resize(made.bytes);
+    return frame;
+}
+
+void a_framed_write_is_the_write() {
+    using namespace oa::formats::oademo;
+    for (const bool bulky : {false, true}) {
+        Replay replay;
+        fill(replay, bulky ? bulky_tad_recording() : tad_recording(false));
+        for (const bool with_timeline : {false, true}) {
+            if (!with_timeline)
+                replay.timeline.reset();
+            const WriteResult whole = write(replay, {});
+            OA_CHECK(whole.ok());
+            const std::vector<uint8_t> frame = whole_frame_of(replay.recording, 3);
+            // The framed write reads nothing of the recording: only the description names it.
+            Replay described = replay;
+            described.recording.clear();
+            HeldFrame held{frame};
+            MemoryOut out;
+            const std::string why_not = write_framed(
+                described,
+                FrameSource{&held, read_held_frame, frame.size()},
+                ArchiveOutput{&out, write_memory}
+            );
+            OA_CHECK(why_not.empty());
+            OA_CHECK(held.at == frame.size());
+            OA_CHECK(out.bytes == whole.bytes);
+        }
+    }
+    // A frame that cannot be read leaves no replay written.
+    Replay replay = sample();
+    const std::vector<uint8_t> frame = whole_frame_of(replay.recording, 3);
+    HeldFrame short_frame{std::span<const uint8_t>(frame).first(frame.size() / 2)};
+    MemoryOut out;
+    OA_CHECK(
+        write_framed(
+            replay,
+            FrameSource{&short_frame, read_held_frame, frame.size()},
+            ArchiveOutput{&out, write_memory}
+        ) == replay_unwritable
+    );
+}
+
+// The whole recording of `archive`, read in pieces of `piece` bytes.
+std::string read_in_pieces(
+    std::span<const uint8_t> archive, std::size_t piece, std::vector<uint8_t>& recording
+) {
+    using namespace oa::formats::oademo;
+    recording.clear();
+    HeldArchive held{archive};
+    RecordingReader reader;
+    std::string why_not = reader.open(ArchiveSource{&held, read_held_archive, archive.size()});
+    if (!why_not.empty())
+        return why_not;
+    std::vector<uint8_t> room(piece);
+    for (;;) {
+        std::size_t got = 0;
+        why_not = reader.read(room, got);
+        if (!why_not.empty())
+            return why_not;
+        if (got == 0)
+            break;
+        recording.insert(
+            recording.end(), room.begin(), room.begin() + static_cast<std::ptrdiff_t>(got)
+        );
+    }
+    OA_CHECK(reader.finished() && reader.position() == recording.size());
+    return {};
+}
+
+void a_recording_reads_in_pieces() {
+    using namespace oa::formats::oademo;
+    Replay replay;
+    fill(replay, bulky_tad_recording());
+    for (const bool deflated : {false, true}) {
+        WriteOptions options;
+        options.deflate = deflated;
+        const WriteResult written = write(replay, options);
+        OA_CHECK(written.ok());
+        for (const std::size_t piece : {std::size_t{1} << 20U, std::size_t{777}}) {
+            std::vector<uint8_t> recording;
+            OA_CHECK(read_in_pieces(written.bytes, piece, recording).empty());
+            OA_CHECK(recording == replay.recording);
+        }
+        // The description and the manifest are the ones `read_description` gives, and a rewind
+        // reads the recording again from its first byte.
+        HeldArchive held{written.bytes};
+        RecordingReader reader;
+        OA_CHECK(
+            reader.open(ArchiveSource{&held, read_held_archive, written.bytes.size()}).empty()
+        );
+        OA_CHECK(meta_text(reader.meta()) == meta_text(replay.meta));
+        OA_CHECK(manifest_text(reader.manifest()) == manifest_text(replay.manifest));
+        std::vector<uint8_t> room(5000);
+        std::size_t got = 0;
+        OA_CHECK(reader.read(room, got).empty() && got == room.size());
+        OA_CHECK(reader.position() == room.size() && !reader.finished());
+        OA_CHECK(reader.rewind().empty() && reader.position() == 0);
+        std::vector<uint8_t> again(room.size());
+        OA_CHECK(reader.read(again, got).empty() && got == again.size());
+        OA_CHECK(std::equal(again.begin(), again.end(), replay.recording.begin()));
+    }
+}
+
+void a_recording_read_in_pieces_is_refused_where_read_refuses_it() {
+    using namespace oa::formats::oademo;
+    std::vector<uint8_t> recording;
+    const std::vector<uint8_t> junk{1, 2, 3, 4};
+    OA_CHECK(read_in_pieces(junk, 64, recording) == not_a_replay);
+    // A description whose digest is another recording's.
+    Replay replay = sample();
+    replay.meta.recording.sha256 = std::string(64, '0');
+    const WriteResult other_digest = write(replay, {});
+    OA_CHECK(read(other_digest.bytes).error == recording_mismatch);
+    OA_CHECK(read_in_pieces(other_digest.bytes, 64, recording) == recording_mismatch);
+    // A description that names fewer bytes than the recording holds is refused as they pass.
+    replay = sample();
+    replay.meta.recording.bytes -= 1;
+    const WriteResult short_count = write(replay, {});
+    OA_CHECK(read_in_pieces(short_count.bytes, 64, recording) == recording_mismatch);
+    // A damaged frame, another version, and two recordings.
+    const Replay good = sample();
+    const std::vector<uint8_t> damaged = archive_of(
+        std::string(signature_line),
+        meta_of(good),
+        manifest_of(good),
+        "recording.tad.zst",
+        oa::formats::zip::Method::stored,
+        {1, 2, 3, 4, 5, 6, 7, 8}
+    );
+    OA_CHECK(read_in_pieces(damaged, 64, recording) == recording_unreadable);
+    // The frame cut short.
+    std::vector<uint8_t> frame = whole_frame_of(good.recording, 3);
+    frame.pop_back();
+    const std::vector<uint8_t> cut = archive_of(
+        std::string(signature_line),
+        meta_of(good),
+        manifest_of(good),
+        "recording.tad.zst",
+        oa::formats::zip::Method::stored,
+        frame
+    );
+    OA_CHECK(read(cut).error == recording_unreadable);
+    OA_CHECK(read_in_pieces(cut, 64, recording) == recording_unreadable);
+    Replay other = sample();
+    other.meta.oademo = 2;
+    const WriteResult other_version = write(other, {});
+    OA_CHECK(read_in_pieces(other_version.bytes, 64, recording) == not_this_version);
+}
+
+// A file read at offsets.
+struct FileArchive {
+    std::ifstream in{};
+};
+
+bool read_file_archive(void* context, uint64_t offset, std::span<uint8_t> into) {
+    auto& file = *static_cast<FileArchive*>(context);
+    file.in.clear();
+    file.in.seekg(static_cast<std::streamoff>(offset));
+    file.in.read(reinterpret_cast<char*>(into.data()), static_cast<std::streamsize>(into.size()));
+    return file.in.gcount() == static_cast<std::streamsize>(into.size());
+}
+
+// A `.tad` read in order, from bytes held, at most `piece` bytes a read.
+struct HeldRecording {
+    std::span<const uint8_t> bytes{};
+    std::size_t at{};
+    std::size_t piece{};
+};
+
+bool read_held_recording(void* context, std::span<uint8_t> into, std::size_t& got) {
+    auto& held = *static_cast<HeldRecording*>(context);
+    got = std::min({into.size(), held.bytes.size() - held.at, held.piece});
+    std::copy_n(held.bytes.begin() + static_cast<std::ptrdiff_t>(held.at), got, into.begin());
+    held.at += got;
+    return true;
+}
+
+// A `.tad` read in order from its file.
+bool read_file_recording(void* context, std::span<uint8_t> into, std::size_t& got) {
+    auto& in = *static_cast<std::ifstream*>(context);
+    in.read(reinterpret_cast<char*>(into.data()), static_cast<std::streamsize>(into.size()));
+    got = static_cast<std::size_t>(std::max<std::streamsize>(in.gcount(), 0));
+    return !in.bad();
+}
+
+// Walks a recording to its end, checking each packet against the whole parse's.
+//
+// Returns false when the walk stopped; `walk.failure()` says why.
+bool walks_as_parsed(
+    oa::formats::oademo::RecordingWalk& walk, const oa::formats::tad::Demo* parsed
+) {
+    oa::formats::tad::Packet packet;
+    for (std::size_t index = 0;; ++index) {
+        bool ended = false;
+        if (!walk.next(packet, ended))
+            return false;
+        if (ended) {
+            OA_CHECK(parsed == nullptr || index == parsed->packets.size());
+            return true;
+        }
+        if (parsed == nullptr)
+            continue;
+        OA_CHECK(index < parsed->packets.size());
+        if (index >= parsed->packets.size())
+            return true;
+        const oa::formats::tad::Packet& whole = parsed->packets[index];
+        OA_CHECK(packet.offset == whole.offset && walk.offset() == whole.offset);
+        OA_CHECK(packet.delay_ms == whole.delay_ms && packet.time_ms == whole.time_ms);
+        OA_CHECK(packet.sender == whole.sender);
+        OA_CHECK(
+            std::equal(
+                packet.payload.begin(),
+                packet.payload.end(),
+                whole.payload.begin(),
+                whole.payload.end()
+            )
+        );
+    }
+}
+
+// The part before the packets reads as the whole parse's.
+void head_is_parsed(
+    const oa::formats::oademo::RecordingWalk& walk, const oa::formats::tad::Demo& demo
+) {
+    const oa::formats::tad::Demo& head = walk.head();
+    OA_CHECK(head.version == demo.version && head.max_units == demo.max_units);
+    OA_CHECK(head.map_name == demo.map_name && head.packets.empty());
+    OA_CHECK(head.sectors.size() == demo.sectors.size());
+    for (std::size_t at = 0; at < head.sectors.size() && at < demo.sectors.size(); ++at)
+        OA_CHECK(
+            head.sectors[at].type == demo.sectors[at].type && std::equal(
+                                                                  head.sectors[at].data.begin(),
+                                                                  head.sectors[at].data.end(),
+                                                                  demo.sectors[at].data.begin(),
+                                                                  demo.sectors[at].data.end()
+                                                              )
+        );
+    OA_CHECK(head.players.size() == demo.players.size());
+    OA_CHECK(head.statuses.size() == demo.statuses.size());
+    OA_CHECK(
+        std::equal(
+            head.unit_checks.begin(),
+            head.unit_checks.end(),
+            demo.unit_checks.begin(),
+            demo.unit_checks.end()
+        )
+    );
+}
+
+// A replay's description read from its bytes a piece at a time is the one
+// read from the whole file, and is refused with the same sentence.
+void a_description_reads_from_its_source() {
+    using namespace oa::formats::oademo;
+    const auto from_source = [](std::span<const uint8_t> bytes) {
+        HeldArchive held{bytes};
+        return read_description(ArchiveSource{&held, read_held_archive, bytes.size()});
+    };
+    for (const bool deflated : {false, true}) {
+        for (const bool with_timeline : {false, true}) {
+            Replay replay = sample();
+            if (!with_timeline)
+                replay.timeline.reset();
+            WriteOptions options;
+            options.deflate = deflated;
+            const WriteResult written = write(replay, options);
+            OA_CHECK(written.ok());
+            const DescriptionResult whole = read_description(written.bytes);
+            const DescriptionResult pieces = from_source(written.bytes);
+            OA_CHECK(whole.ok() && pieces.ok() && pieces.manifest.has_value());
+            if (!whole.ok() || !pieces.ok() || !pieces.manifest.has_value())
+                continue;
+            OA_CHECK(meta_text(*pieces.meta) == meta_text(*whole.meta));
+            OA_CHECK(manifest_text(*pieces.manifest) == manifest_text(*whole.manifest));
+        }
+    }
+    const Replay replay = sample();
+    const WriteResult written = write(replay, {});
+    std::vector<uint8_t> cut = written.bytes;
+    cut.resize(cut.size() / 2);
+    const std::vector<uint8_t> junk{1, 2, 3, 4};
+    Replay other = sample();
+    other.meta.oademo = 2;
+    const WriteResult other_version = write(other, {});
+    const std::vector<uint8_t> broken_meta = archive_of(
+        std::string(signature_line),
+        "{not json",
+        manifest_of(replay),
+        "recording.tad.zst",
+        oa::formats::zip::Method::stored,
+        whole_frame_of(replay.recording, 3)
+    );
+    for (const std::vector<uint8_t>& refused : {cut, junk, other_version.bytes, broken_meta}) {
+        const DescriptionResult pieces = from_source(refused);
+        OA_CHECK(!pieces.ok() && !pieces.error.empty());
+        OA_CHECK(pieces.error == read_description(refused).error);
+    }
+    OA_CHECK(read_description(ArchiveSource{}).error == not_a_replay);
+}
+
+// A replay's timeline read from an open reader is the one `read` gives, and
+// is refused as `read` refuses it.
+void a_timeline_reads_from_its_reader() {
+    using namespace oa::formats::oademo;
+    const auto timeline_of = [](std::span<const uint8_t> bytes, std::optional<std::string>& out) {
+        HeldArchive held{bytes};
+        RecordingReader reader;
+        if (std::string why_not =
+                reader.open(ArchiveSource{&held, read_held_archive, bytes.size()});
+            !why_not.empty())
+            return why_not;
+        return reader.read_timeline(out);
+    };
+    Replay replay = sample();
+    replay.timeline = "{ \"mark\" : [1, 2] }";
+    const WriteResult written = write(replay, {});
+    const ReadResult whole = read(written.bytes);
+    OA_CHECK(whole.ok() && whole.replay->timeline.has_value());
+    std::optional<std::string> timeline;
+    OA_CHECK(timeline_of(written.bytes, timeline).empty());
+    OA_CHECK(timeline.has_value() && timeline == whole.replay->timeline);
+    OA_CHECK(timeline == std::optional<std::string>("{\"mark\":[1,2]}"));
+    replay.timeline.reset();
+    const WriteResult without = write(replay, {});
+    timeline = "left";
+    OA_CHECK(timeline_of(without.bytes, timeline).empty() && !timeline.has_value());
+
+    // A timeline that is not one JSON value.
+    MemoryOut out;
+    oa::formats::zip::WriterOptions options;
+    options.deflate_level = deflate_level;
+    oa::formats::zip::StreamWriter writer({&out, write_memory}, options);
+    oa::formats::zip::ZipError problem;
+    const Replay good = sample();
+    OA_CHECK(
+        put(writer, "oademo", as_bytes(signature_line), oa::formats::zip::Method::stored) &&
+        put(writer, "meta.json", as_bytes(meta_of(good)), oa::formats::zip::Method::deflated) &&
+        put(
+            writer, "manifest.json", as_bytes(manifest_of(good)), oa::formats::zip::Method::deflated
+        ) &&
+        put(writer, "timeline.json", as_bytes("{not json"), oa::formats::zip::Method::deflated) &&
+        put(writer,
+            "recording.tad.zst",
+            whole_frame_of(good.recording, 3),
+            oa::formats::zip::Method::stored) &&
+        writer.finish(problem)
+    );
+    OA_CHECK(read(out.bytes).error == details_unreadable);
+    OA_CHECK(timeline_of(out.bytes, timeline) == details_unreadable);
+    RecordingReader closed;
+    OA_CHECK(closed.read_timeline(timeline) == not_a_replay);
+}
+
+// A recording walked a piece at a time gives the packets, the part before
+// them and the refusals a whole parse gives, from a `.tad` and from a replay.
+void a_walk_gives_what_a_parse_gives() {
+    using namespace oa::formats::oademo;
+    namespace tad = oa::formats::tad;
+    for (const std::vector<uint8_t>& recording :
+         {tad_recording(false), tad_recording(true), bulky_tad_recording()}) {
+        const tad::ParseResult parsed = tad::parse(recording);
+        OA_CHECK(parsed.ok());
+        if (!parsed.ok())
+            continue;
+        for (const std::size_t piece : {std::size_t{1} << 20U, std::size_t{777}, std::size_t{1}}) {
+            HeldRecording held{recording, 0, piece};
+            RecordingWalk walk;
+            OA_CHECK(walk.open_tad(RecordingSource{&held, read_held_recording}));
+            head_is_parsed(walk, *parsed.demo);
+            OA_CHECK(walk.replay() == nullptr);
+            OA_CHECK(walks_as_parsed(walk, &*parsed.demo));
+            OA_CHECK(walk.packets() == parsed.demo->packets.size());
+            OA_CHECK(walk.bytes_read() == recording.size());
+            OA_CHECK(
+                std::equal(
+                    walk.head_bytes().begin(),
+                    walk.head_bytes().end(),
+                    recording.begin(),
+                    recording.begin() + static_cast<std::ptrdiff_t>(walk.head_bytes().size())
+                )
+            );
+        }
+        // The same recording in a replay, stored and deflated.
+        if (tad::find_sector(*parsed.demo, tad::SectorType::player_address) != nullptr)
+            continue;
+        for (const bool deflated : {false, true}) {
+            Replay replay;
+            fill(replay, recording);
+            WriteOptions options;
+            options.deflate = deflated;
+            const WriteResult written = write(replay, options);
+            OA_CHECK(written.ok());
+            HeldArchive held{written.bytes};
+            RecordingWalk walk;
+            OA_CHECK(
+                walk.open_replay(ArchiveSource{&held, read_held_archive, written.bytes.size()})
+            );
+            head_is_parsed(walk, *parsed.demo);
+            OA_CHECK(walk.replay() != nullptr);
+            if (walk.replay() != nullptr)
+                OA_CHECK(meta_text(walk.replay()->meta()) == meta_text(replay.meta));
+            OA_CHECK(walks_as_parsed(walk, &*parsed.demo));
+            OA_CHECK(walk.replay() != nullptr && walk.replay()->finished());
+        }
+    }
+    // Cut anywhere, a recording is refused at the offset and with the words a parse gives.
+    const std::vector<uint8_t> recording = tad_recording(false);
+    for (std::size_t length = 0; length < recording.size(); ++length) {
+        const std::span<const uint8_t> cut = std::span(recording).first(length);
+        const tad::ParseResult parsed = tad::parse(cut);
+        HeldRecording held{cut, 0, 5};
+        RecordingWalk walk;
+        const bool opened = walk.open_tad(RecordingSource{&held, read_held_recording});
+        const bool walked = opened && walks_as_parsed(walk, parsed.ok() ? &*parsed.demo : nullptr);
+        OA_CHECK(walked == parsed.ok());
+        if (walked || parsed.ok())
+            continue;
+        const WalkFailure& failure = walk.failure();
+        OA_CHECK(failure.sentence.empty() && !failure.unreadable && failure.parse.has_value());
+        if (!failure.parse.has_value())
+            continue;
+        OA_CHECK(failure.parse->code == parsed.error->code);
+        OA_CHECK(failure.parse->offset == parsed.error->offset);
+        OA_CHECK(failure.parse->message == parsed.error->message);
+    }
+    // Bytes that are no recording, and a source that refuses.
+    const std::vector<uint8_t> junk(100, 0x41);
+    HeldRecording junk_held{junk, 0, 64};
+    RecordingWalk junk_walk;
+    OA_CHECK(!junk_walk.open_tad(RecordingSource{&junk_held, read_held_recording}));
+    OA_CHECK(
+        junk_walk.failure().parse.has_value() &&
+        junk_walk.failure().parse->code == tad::parse(junk).error->code
+    );
+    RecordingWalk refused;
+    OA_CHECK(!refused.open_tad(RecordingSource{}) && refused.failure().unreadable);
+    tad::Packet packet;
+    bool ended = false;
+    OA_CHECK(!refused.next(packet, ended) && !ended);
+
+    // A replay whose digest is another's says so first, even when its
+    // recording does not parse; one whose digest matches says what the parse says.
+    const Replay good = sample();
+    const std::vector<uint8_t> not_recording(300, 0x41);
+    for (const bool matching : {true, false}) {
+        Replay junk_replay = good;
+        junk_replay.recording = not_recording;
+        oa::formats::oademo::set_recording_identity(junk_replay);
+        if (!matching)
+            junk_replay.meta.recording.sha256 = std::string(64, '0');
+        const std::vector<uint8_t> archive = archive_of(
+            std::string(signature_line),
+            meta_of(junk_replay),
+            manifest_of(junk_replay),
+            "recording.tad.zst",
+            oa::formats::zip::Method::stored,
+            whole_frame_of(not_recording, 3)
+        );
+        HeldArchive held{archive};
+        RecordingWalk walk;
+        OA_CHECK(!walk.open_replay(ArchiveSource{&held, read_held_archive, archive.size()}));
+        if (matching) {
+            OA_CHECK(walk.failure().sentence.empty() && walk.failure().parse.has_value());
+            OA_CHECK(
+                walk.failure().parse.has_value() &&
+                walk.failure().parse->message == tad::parse(not_recording).error->message
+            );
+        } else {
+            OA_CHECK(walk.failure().sentence == recording_mismatch);
+        }
+    }
+    Replay other_digest = good;
+    other_digest.meta.recording.sha256 = std::string(64, '0');
+    const WriteResult mismatched = write(other_digest, {});
+    HeldArchive held{mismatched.bytes};
+    RecordingWalk walk;
+    // A recording this short is read to its end, and its digest checked, as the walk opens.
+    const bool opened =
+        walk.open_replay(ArchiveSource{&held, read_held_archive, mismatched.bytes.size()});
+    OA_CHECK(!(opened && walks_as_parsed(walk, nullptr)));
+    OA_CHECK(walk.failure().sentence == recording_mismatch);
+    const std::vector<uint8_t> nothing{1, 2, 3, 4};
+    HeldArchive held_nothing{nothing};
+    RecordingWalk no_replay;
+    OA_CHECK(
+        !no_replay.open_replay(ArchiveSource{&held_nothing, read_held_archive, nothing.size()})
+    );
+    OA_CHECK(no_replay.failure().sentence == not_a_replay);
+}
+
+// A recording and a replay past the 512 MiB a whole read takes are described,
+// walked to their last packet and checked, a piece at a time, from their files.
+void a_replay_past_whole_reads_reads_in_pieces() {
+    using namespace oa::formats::oademo;
+    namespace fs = std::filesystem;
+    const fs::path scratch = oa::test::make_scratch_directory("oademo-past-whole-reads");
+    const oa::test::MadeRecording made = oa::test::recording_past_whole_reads();
+    const auto walk_to_end = [&](RecordingWalk& walk) {
+        oa::formats::tad::Packet packet;
+        uint64_t last_time = 0;
+        for (;;) {
+            bool ended = false;
+            if (!walk.next(packet, ended))
+                return false;
+            if (ended)
+                break;
+            last_time = packet.time_ms;
+        }
+        OA_CHECK(walk.packets() == made.packets);
+        OA_CHECK(last_time == ((made.packets - 1) / oa::test::made_packets_per_tick + 1) * 33U);
+        return true;
+    };
+    {
+        const fs::path tad_file = scratch / "long.tad";
+        const oa::test::MadeFile written = oa::test::write_made_tad(made, tad_file);
+        OA_CHECK(written.recording_bytes > oa::test::whole_read_most_bytes);
+        std::ifstream in(tad_file, std::ios::binary);
+        RecordingWalk walk;
+        OA_CHECK(walk.open_tad(RecordingSource{&in, read_file_recording}));
+        OA_CHECK(walk.head().map_name == "Long Map" && walk.head().players.size() == 2);
+        OA_CHECK(walk_to_end(walk) && walk.bytes_read() == written.recording_bytes);
+        in.close();
+        std::error_code removed;
+        fs::remove(tad_file, removed);
+    }
+    Replay replay = sample();
+    replay.meta.map.name = "Long Map";
+    const fs::path replay_file = scratch / "long.oademo";
+    const oa::test::MadeFile written =
+        oa::test::write_made_replay(made, replay, replay_file, scratch / "long.frame");
+    OA_CHECK(written.bytes > oa::test::whole_read_most_bytes);
+    OA_CHECK(written.recording_bytes > oa::test::whole_read_most_bytes);
+    FileArchive file;
+    file.in.open(replay_file, std::ios::binary);
+    const ArchiveSource source{&file, read_file_archive, written.bytes};
+    const DescriptionResult described = read_description(source);
+    OA_CHECK(described.ok());
+    if (described.ok()) {
+        OA_CHECK(described.meta->map.name == "Long Map");
+        OA_CHECK(described.meta->recording.bytes == written.recording_bytes);
+        OA_CHECK(described.meta->recording.sha256 == written.recording_sha256);
+        OA_CHECK(described.meta->recording.packets == made.packets);
+    }
+    RecordingWalk walk;
+    OA_CHECK(walk.open_replay(source));
+    std::optional<std::string> timeline;
+    OA_CHECK(walk.replay() != nullptr && walk.replay()->read_timeline(timeline).empty());
+    OA_CHECK(timeline == std::optional<std::string>("{\"mark\":1}"));
+    OA_CHECK(walk_to_end(walk) && walk.bytes_read() == written.recording_bytes);
+    OA_CHECK(walk.replay() != nullptr && walk.replay()->finished());
+    file.in.close();
+    std::error_code removed;
+    fs::remove_all(scratch, removed);
+}
+
 } // namespace
 
 int main() {
@@ -1317,5 +1923,12 @@ int main() {
     the_words_of_an_index_are_pinned();
     an_export_is_plain_and_the_same_twice();
     a_replay_export_keeps_a_clean_recording();
+    a_framed_write_is_the_write();
+    a_recording_reads_in_pieces();
+    a_recording_read_in_pieces_is_refused_where_read_refuses_it();
+    a_description_reads_from_its_source();
+    a_timeline_reads_from_its_reader();
+    a_walk_gives_what_a_parse_gives();
+    a_replay_past_whole_reads_reads_in_pieces();
     return oa::test::check_exit_status();
 }

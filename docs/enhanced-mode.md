@@ -362,9 +362,15 @@ For the suite's network case of Revision 1:
 - Pass:
   - every 300th tick, each player's live units are the same on every
     machine;
-  - at the end, once every mover has stood still on its owner for 300
-    ticks and a whole round of full records (the room's unit limit in
-    ticks) has passed since a unit last appeared on any machine, every
+  - at the end, on a tick common to every machine. The machines drift
+    apart (one guest ran about 700 ticks behind its host), and a copy's
+    health arrives with its owner's full record, sent on the owner's clock,
+    so each machine first settles on its own clock: every one of its own
+    movers has stood still for 300 ticks, a whole round of full records
+    (the room's unit limit in ticks) has passed since a unit last appeared
+    on it, and it has reached tick 2,100, 1,800 ticks after the move. Once
+    every machine has settled, all play on to the first multiple of 300
+    after the latest machine's settled tick, plus 300, and there every
     unit's owning player (by who plays it, not by slot), type, map cell and
     health are the same on every machine; a mover still moving fails the
     run and is named;
@@ -377,7 +383,9 @@ For the suite's network case of Revision 1:
 - `native-net-route-burst` plays the same plan with two programs on one
   machine, 1,000 movers each on Painted Desert, and
   `native-net-route-burst-loss` with `-e 10` on the guest
-  ([testing](development/testing.md#network-play)).
+  ([testing](development/testing.md#network-play)). Its two programs keep
+  step, so it compares at the last tick both have read once both have
+  settled.
 - Plus an Off run of the same stage, whose wire is byte for byte the base's
   (the capture compare of the crossplay cases), and a battle room with a
   3.1c machine, which plays Off with unchanged bytes.

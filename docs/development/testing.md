@@ -151,6 +151,15 @@ saved. A file whose digest differs is refused and not kept. With the server
 stopped the list reads "Core Prime cannot be reached." `replays-core-prime-clean`
 clears the working folder before each run. The check never calls a live host.
 
+`native-replays-library-walk` (`--check-library-replay`,
+`tools/check_native_library_replays.py`) places that same recorded game in a
+scratch player's `Recordings` and walks it through the Library as a replay of
+any length: listed, given its timeline by the Library's index pass, watched to
+the middle, watched from there to its end with no error, and exported as a
+`.oademo` and a `.tad`; then `oa-tool replay info` and the recording dump read
+it, and the index pass alone gives its length and peak memory. Given
+`--replay` naming a replay past 512 MiB, the script walks that one instead.
+
 `native-replays-import` (`--check-replay-import`,
 `tools/check_native_replay_import.py`) copies a made-up `.oademo` and a
 made-up `.tad` into `Recordings/Imported` and selects each, copies nothing
@@ -714,7 +723,10 @@ names, these run the game headless:
   `.oademo`; a headless game without `--record-game` writes no
   `Recordings` folder; and a replay of a game with a mod names the mod by a
   SHA-256 (the folder's, computed by the check, for a mod folder). `netgame-recording-partials` and `demo-playback`
-  check the same rules without the game;
+  check the same rules without the game, and `session-demo-long-recording`
+  makes a recording past 512 MiB packet by packet, finishes it cut part way
+  and whole as a `.tad`, reads it back packet for packet and plays every
+  frame of both (it writes about 1.1 GB to a scratch folder);
 - `native-replays-skirmish` (`tools/check_native_replays_skirmish.py`) runs
   two built-in computer players on Ashap Plateau for 9000 ticks with and
   without `--record-game` and compares the `--trace-digest` streams, plays
