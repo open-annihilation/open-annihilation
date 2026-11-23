@@ -319,7 +319,7 @@ constexpr FeatureSet version_2_features =
 /// Old version 3: regional routes and corner advances.
 constexpr FeatureSet version_3_features =
     set_of({capacity, local_flow, routes_large_regions, indexed_searches, route_corner_advance});
-/// Old version 4, the new-game preset: version 3 with swept ground steps.
+/// Old version 4: version 3 with swept ground steps.
 constexpr FeatureSet version_4_features = set_of(
     {capacity,
      local_flow,
@@ -403,9 +403,48 @@ constexpr std::array<FeatureSet, cardinal_queue_escape_version + 1> version_feat
     version_13_features,
 }};
 
-/// Revision 1's features. Provisional until they are decided: old
-/// version 4's set, today's new-game preset.
-constexpr FeatureSet revision_1_features = version_4_features;
+/// Revision 1's features, the set measured in the gate battles and
+/// approved. Frozen: every later build plays exactly these.
+constexpr FeatureSet revision_1_features = set_of(
+    {capacity,
+     local_flow,
+     routes_fine_regions,
+     route_corner_advance,
+     ai_strike_retarget,
+     credited_fallback_search,
+     ai_attack_retention,
+     ai_rally_retention,
+     occupancy_free_planning,
+     steering_projection_reuse,
+     exact_indexed_searches,
+     wide_strike_recruits,
+     paced_cohort_targets,
+     dispatch_cohort_retention,
+     counterflow_queue_escape,
+     idle_goal_skip,
+     static_interior_refresh_skip}
+);
+
+/// Tells whether a set holds only known features, every feature its
+/// features need, no two features that exclude each other, and capacity
+/// when it holds anything: the set feature_set_problem accepts and
+/// close_features leaves unchanged.
+///
+/// @param set the features
+/// @return true when the set is closed and conflict-free
+constexpr bool closed_and_conflict_free(FeatureSet set) noexcept {
+    if (!(set - known_features).empty())
+        return false;
+    for (const FeatureInfo& row : feature_rows) {
+        if (!set.has(row.id))
+            continue;
+        if (!set.contains(row.needs) || row.excludes - set != row.excludes)
+            return false;
+    }
+    return set.empty() || set.has(capacity);
+}
+
+static_assert(closed_and_conflict_free(revision_1_features));
 
 /// The first engine version of each feature, in id order. A new feature
 /// names its version here and nowhere else.

@@ -34,6 +34,13 @@ ALIAS_FEATURES = {
     11: [1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
     13: [1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27],
 }
+# Revision 1's feature ids: capacity, local_flow, routes_fine_regions,
+# route_corner_advance, ai_strike_retarget, credited_fallback_search,
+# ai_attack_retention, ai_rally_retention, occupancy_free_planning,
+# steering_projection_reuse, exact_indexed_searches, wide_strike_recruits,
+# paced_cohort_targets, dispatch_cohort_retention, counterflow_queue_escape,
+# idle_goal_skip and static_interior_refresh_skip.
+REVISION_1_FEATURES = [1, 2, 5, 7, 11, 18, 20, 21, 23, 25, 28, 29, 30, 31, 32, 33, 34]
 # 0.9.3 packed as major << 16 | minor << 8 | patch.
 NEEDED_ENGINE = 0x00000903
 
@@ -137,7 +144,7 @@ def main():
             raise RuntimeError("enhanced network recording failed\n" + record.stdout + record.stderr)
         # A network game plays a revision, never a preset of its own.
         network = recording_enhanced(recording)
-        if network[0] != 1 or network[2] != NEEDED_ENGINE:
+        if network != (1, sector_bits(REVISION_1_FEATURES), NEEDED_ENGINE):
             raise RuntimeError(f"{recording.name}: Enhanced Mode sector {network} is not Revision 1")
         playback = subprocess.run(
             base + ["--no-enhanced-mode", "--play-demo", str(recording), "--match-ticks",

@@ -184,6 +184,9 @@ void Runtime::check_enhanced_mode() {
     const settings::EngineSettings kept = engine_settings();
     const auto command_line_version = options_.enhanced_mode_version;
     options_.enhanced_mode_version.reset();
+    // A new game with Enhanced Mode on plays Revision 1, which matches no old
+    // version's set.
+    const mode::Choice revision_one{1, mode::revision_features(1)};
     auto chosen = kept;
     chosen.enhanced_mode = false;
     apply_engine_settings(chosen);
@@ -192,7 +195,7 @@ void Runtime::check_enhanced_mode() {
 
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == mode::current_version, "On did not resolve the preset");
+    require(enhanced_mode_choice(*this) == revision_one, "On did not resolve the preset");
     const std::string enhanced_hash = simulation_hash(*this);
     require(enhanced_hash != released_hash, "the preset did not enter the simulation hash");
     for (const uint32_t previous :
@@ -207,14 +210,12 @@ void Runtime::check_enhanced_mode() {
           mode::cohort_target_version,
           mode::cohort_retention_version,
           mode::cardinal_queue_escape_version}) {
-        if (previous == mode::current_version)
-            continue;
         require(hold_enhanced_rules_once(previous), "an earlier preset was refused");
         require(enhanced_mode_version(*this) == previous, "an earlier preset was upgraded");
         require(simulation_hash(*this) != enhanced_hash, "different presets share an identity");
         release_enhanced_rules_once(true);
         require(
-            enhanced_mode_version(*this) == mode::current_version,
+            enhanced_mode_choice(*this) == revision_one,
             "releasing old rules did not restore the new-game preset"
         );
         require(simulation_hash(*this) == enhanced_hash, "releasing old rules changed identity");
@@ -234,7 +235,7 @@ void Runtime::check_enhanced_mode() {
     apply_engine_settings(chosen);
 
     start_benchmark_skirmish_as_chosen();
-    require(enhanced_mode_version(*this) == mode::current_version, "the match lost its preset");
+    require(enhanced_mode_choice(*this) == revision_one, "the match lost its preset");
     require(
         match_->world().slots.size() == 20'001, "the match did not reserve two 10,000-unit ranges"
     );
@@ -253,10 +254,10 @@ void Runtime::check_enhanced_mode() {
         mover_definition.footprint_x <= 2 && mover_definition.footprint_z <= 2,
         "the flow fixture unit exceeds its placement spacing"
     );
-    const auto check_group_entrypoints = [&](uint32_t version) {
+    const auto check_group_entrypoints = [&](const mode::Choice& wanted) {
         using Point = sim::ground_orders::Point;
         using Record = sim::match_runtime::Match::OrderRecordView;
-        require(enhanced_mode_version(*this) == version, "entrypoint fixture changed rules");
+        require(enhanced_mode_choice(*this) == wanted, "entrypoint fixture changed rules");
         const auto type = sim::unit_spawn::find_type_index(spawn_type_names_, "ARMPW");
         require(type != 0, "entrypoint fixture lacks ARMPW");
         const auto& definition = spawn_types_[type];
@@ -391,8 +392,8 @@ void Runtime::check_enhanced_mode() {
                 plot.blocking_feature = true;
             }
             std::array<Point, 2> specialized_expected = formations;
-            const bool distributed = mode::uses_distributed_battle_flow(version);
-            if ((version == mode::battle_flow_version || distributed) && scenario != 0)
+            const bool distributed = wanted.features.has(mode::Feature::distributed_arrivals);
+            if (wanted.features.has(mode::Feature::group_destination_repair) && scenario != 0)
                 specialized_expected[1] = click;
             auto expected = specialized_expected;
             if (distributed && scenario != 0) {
@@ -520,9 +521,18 @@ void Runtime::check_enhanced_mode() {
         }
         clear_local_selection();
         require(match_->fault() == nullptr, "entrypoint regression recorded a native fault");
-        std::printf(
-            "Enhanced Mode: generic/specialized/play-host group entrypoints agree in v%u\n", version
-        );
+        const uint32_t alias = mode::alias_version(wanted.features);
+        if (alias == mode::no_alias_version)
+            std::printf(
+                "Enhanced Mode: generic/specialized/play-host group entrypoints agree in "
+                "Revision %u\n",
+                static_cast<unsigned>(wanted.revision)
+            );
+        else
+            std::printf(
+                "Enhanced Mode: generic/specialized/play-host group entrypoints agree in v%u\n",
+                static_cast<unsigned>(alias)
+            );
     };
     constexpr int32_t patch_width = 28;
     constexpr int32_t patch_height = 12;
@@ -657,16 +667,14 @@ void Runtime::check_enhanced_mode() {
     require(save_match_game(enhanced_save, "Enhanced Mode", 0), "the enhanced save failed");
     chosen.enhanced_mode = false;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == mode::current_version, "a live match changed mode");
+    require(enhanced_mode_choice(*this) == revision_one, "a live match changed mode");
     require(simulation_hash(*this) == enhanced_hash, "a live match changed rules identity");
     leave_match();
     load(Screen::main_menu);
     require(enhanced_mode_version(*this) == mode::off_version, "the next game did not take Off");
     require(simulation_hash(*this) == released_hash, "Off did not restore the original hash");
     require(load_saved_game(enhanced_save), "the enhanced save did not load with Off selected");
-    require(
-        enhanced_mode_version(*this) == mode::current_version, "the save did not restore its mode"
-    );
+    require(enhanced_mode_choice(*this) == revision_one, "the save did not restore its mode");
     require(!engine_settings().enhanced_mode, "loading changed the menu preference");
     require(match_->world().slots.size() == 20'001, "the saved match lost its unit ranges");
     require(match_->unit_player_mask() == 3, "the saved match lost its allocation mask");
@@ -693,13 +701,12 @@ void Runtime::check_enhanced_mode() {
         "the restored shared field or progress clocks did not advance"
     );
     std::puts("Enhanced Mode: populated pending flow tables restored and continued");
-    check_group_entrypoints(mode::current_version);
+    check_group_entrypoints(revision_one);
     require(hold_enhanced_rules_once(mode::off_version), "a subsequent load could not hold Off");
     release_enhanced_rules_once(true);
     require(
         engine_settings_->restored_enhanced_choice &&
-            mode::alias_version(engine_settings_->restored_enhanced_choice->features) ==
-                mode::current_version &&
+            *engine_settings_->restored_enhanced_choice == revision_one &&
             engine_settings_->restored_enhanced_started,
         "a failed subsequent load lost the active match's mode hold"
     );
@@ -733,7 +740,7 @@ void Runtime::check_enhanced_mode() {
         enhanced_mode_version(*this) == mode::off_version, "a released save acquired new rules"
     );
     require(engine_settings().enhanced_mode, "loading changed the menu preference");
-    check_group_entrypoints(mode::off_version);
+    check_group_entrypoints(mode::Choice{});
     std::array<sim::unit_spawn::Request, 2> reordered_units{};
     std::array<bool, 2> found_units{};
     for (const auto& slot : match_->world().slots) {
@@ -755,7 +762,7 @@ void Runtime::check_enhanced_mode() {
     require(found_units[0] && found_units[1], "the allocation-order fixture lacks its units");
     leave_match();
     load(Screen::main_menu);
-    require(enhanced_mode_version(*this) == mode::current_version, "leaving lost the menu's On");
+    require(enhanced_mode_choice(*this) == revision_one, "leaving lost the menu's On");
     bootstrap_match({.units_per_player = 10'000, .place_commanders = false, .seat_roster = true});
     constexpr std::array<uint8_t, 2> reversed_order{1, 0};
     require(
@@ -792,8 +799,6 @@ void Runtime::check_enhanced_mode() {
           mode::cohort_target_version,
           mode::cohort_retention_version,
           mode::cardinal_queue_escape_version}) {
-        if (previous == mode::current_version)
-            continue;
         require(hold_enhanced_rules_once(previous), "old-save fixture could not select its rules");
         bootstrap_match(
             {.units_per_player = 10'000, .place_commanders = false, .seat_roster = true}
@@ -809,17 +814,17 @@ void Runtime::check_enhanced_mode() {
         leave_match();
         load(Screen::main_menu);
         require(
-            enhanced_mode_version(*this) == mode::current_version,
+            enhanced_mode_choice(*this) == revision_one,
             "old-save fixture changed the new-game preference"
         );
         require(load_saved_game(old_save), "an earlier Enhanced save did not load");
         require(enhanced_mode_version(*this) == previous, "an earlier save was upgraded");
         require(simulation_hash(*this) == old_hash, "an earlier save changed rules identity");
-        check_group_entrypoints(previous);
+        check_group_entrypoints(mode::Choice{1, mode::version_features(previous)});
         leave_match();
         load(Screen::main_menu);
         require(
-            enhanced_mode_version(*this) == mode::current_version,
+            enhanced_mode_choice(*this) == revision_one,
             "leaving an earlier save kept its old rules"
         );
     }
@@ -828,9 +833,7 @@ void Runtime::check_enhanced_mode() {
           mode::cohort_retention_version + 1,
           mode::cardinal_queue_escape_version + 1})
         require(!hold_enhanced_rules_once(unsupported), "an unknown version was accepted");
-    require(
-        enhanced_mode_version(*this) == mode::current_version, "a rejected version changed rules"
-    );
+    require(enhanced_mode_choice(*this) == revision_one, "a rejected version changed rules");
     show_mission_briefing();
     start_campaign_mission();
     require(match_ != nullptr, "the campaign fixture did not start");
@@ -841,12 +844,11 @@ void Runtime::check_enhanced_mode() {
     chosen.enhanced_mode = false;
     apply_engine_settings(chosen);
     require(load_saved_game(campaign_save), "the enhanced campaign did not load");
-    require(enhanced_mode_version(*this) == mode::current_version, "the campaign lost its mode");
+    require(enhanced_mode_choice(*this) == revision_one, "the campaign lost its mode");
     restart_campaign_mission();
     require(match_ != nullptr, "the loaded campaign did not restart");
     require(
-        enhanced_mode_version(*this) == mode::current_version,
-        "a campaign restart lost its recorded mode"
+        enhanced_mode_choice(*this) == revision_one, "a campaign restart lost its recorded mode"
     );
     require(!engine_settings().enhanced_mode, "the campaign changed the menu preference");
     leave_match();
@@ -916,7 +918,7 @@ void Runtime::check_enhanced_mode() {
         enhanced_mode_version(*this) == 10, "the CLI fixture did not restore its v10 selection"
     );
     require(load_saved_game(enhanced_save), "the default save did not load under CLI v10");
-    require(enhanced_mode_version(*this) == 4, "the CLI upgraded saved default rules");
+    require(enhanced_mode_choice(*this) == revision_one, "the CLI upgraded saved default rules");
     leave_match();
     load(Screen::main_menu);
     require(enhanced_mode_version(*this) == 10, "leaving default save lost the CLI selection");
@@ -1012,7 +1014,10 @@ void Runtime::check_enhanced_mode() {
     require(enhanced_mode_version(*this) == 0, "CLI zero did not leave Enhanced Mode Off");
     chosen.enhanced_mode = true;
     apply_engine_settings(chosen);
-    require(enhanced_mode_version(*this) == 4, "menu On after CLI zero did not select default v4");
+    require(
+        enhanced_mode_choice(*this) == revision_one,
+        "menu On after CLI zero did not select Revision 1"
+    );
     options_.enhanced_mode_version.reset();
     const std::string mode_key(settings::key::enhanced_mode);
     preference_values_[mode_key] = "1";
