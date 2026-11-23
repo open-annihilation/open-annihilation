@@ -3070,7 +3070,7 @@ void recording_remaps_source_peer_ids() {
 }
 
 /// Replays all campaign allocations and restored range order, including silent participants.
-void enhanced_recordings_keep_original_unit_ranges() {
+void enhanced_recordings_keep_their_unit_ranges() {
     for (const uint8_t count : {uint8_t{3}, uint8_t{OA_PLAYER_COUNT}}) {
         auto setup = live_setup(count, false);
         setup.unit_checks.resize(1);
@@ -3619,7 +3619,7 @@ int main() {
     recording_carries_limits();
     recording_carries_enhanced_mode();
     recording_remaps_source_peer_ids();
-    enhanced_recordings_keep_original_unit_ranges();
+    enhanced_recordings_keep_their_unit_ranges();
     tad_wide_lengths_match_the_wire();
     wide_records_reach_the_binding();
     limits_verdicts();
