@@ -290,20 +290,23 @@ has arrived.
 
 For the suite's network case of Revision 1:
 
-- Machines: the Mac Studio hosts on macOS; its Windows and Linux guests
-  join. Every machine plays Enhanced Mode, Revision 1.
+- Machines: the Linux arm64 package hosts, and the Windows x64 package
+  (under Wine) and the Linux x86_64 package join, each in its own container
+  on one network on the Mac Studio. The macOS build cannot reach that
+  network, so every machine's recording is played back on macOS instead.
+  Every machine plays Enhanced Mode, Revision 1.
 - Starting each machine: the suite starts every engine from the command
   line, as its other crossplay cases do, and readies and starts the battle
-  room as they do. The host runs `--host --map MAP --start-positions fixed
-  --enhanced-mode --net-route-burst 3000`, and each guest `--join ADDRESS
-  --side arm --net-route-burst 3000`: a host started with launch settings
+  room as they do. The host runs `--host --map "King of the Hill"
+  --start-positions fixed --enhanced-mode --net-route-burst 1500`, and each
+  guest `--join ADDRESS --side arm --net-route-burst 1500`: a host started with launch settings
   such as `--map` admits only guests whose start is a launch too, which a
   launch setting such as `--side` makes it. Each machine also writes
   `--trace-units FILE` and `--net-record FILE`. A host in Enhanced Mode
   opens its room with a unit limit that holds the movers beside the
   commander.
 - Stage: nothing more is clicked. Once the match starts, each machine gives
-  its own player 3,000 movers, and at tick 300 sends them all one row south
+  its own player 1,500 movers, and at tick 300 sends them all one row south
   in one group move ([`--net-route-burst`](command-line.md#network-play)).
   Every machine lays out the same blocks: one for each player, by the order
   of the players' unit ranges, clear of every start position of the map
@@ -311,8 +314,10 @@ For the suite's network case of Revision 1:
   staggered rows, and a mover is made only where it can walk its march, so
   that every mover can reach its goal and stand still there. The match then
   plays on until every mover has stood still and a round of full unit
-  records has passed: about 3,200 ticks for 3,000 movers a player, and
-  1,200 for 1,000.
+  records has passed: about 2,700 to 3,000 ticks for 1,500 movers a player,
+  and 1,200 for 1,000. King of the Hill is the one installed map with room
+  for three blocks at that size; no map has room for three blocks of
+  3,000.
 - Runs: one with no loss, then one with 10% of the frames lost on one link
   (shaped by the suite; `-e 10` on one guest instead loses that share of
   every frame the guest sends).
