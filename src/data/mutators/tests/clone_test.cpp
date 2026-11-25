@@ -21,6 +21,16 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 namespace mutators = oa::data::mutators;
@@ -739,6 +749,33 @@ constexpr std::chrono::minutes k_budget_time_limit{10};
 /// check when the real-time limit stops it.
 constexpr double k_budget_stop_seconds = 60.0;
 
+/// Processor time this program has spent so far.
+///
+/// On Windows std::clock counts real time since the program started, so a
+/// busy machine would stretch it; the process's own user and kernel times
+/// are read there instead.
+///
+/// @return seconds of processor time, or nothing when the system cannot say
+std::optional<double> processor_seconds() {
+#if defined(_WIN32)
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user))
+        return std::nullopt;
+    constexpr unsigned word_bits = 32;
+    constexpr double ticks_per_second = 10000000.0;
+    const auto ticks = [](FILETIME value) {
+        return (static_cast<uint64_t>(value.dwHighDateTime) << word_bits) |
+               static_cast<uint64_t>(value.dwLowDateTime);
+    };
+    return static_cast<double>(ticks(kernel) + ticks(user)) / ticks_per_second;
+#else
+    const std::clock_t spent = std::clock();
+    if (spent == static_cast<std::clock_t>(-1))
+        return std::nullopt;
+    return static_cast<double>(spent) / CLOCKS_PER_SEC;
+#endif
+}
+
 /// The allowance is large enough that the loop's own Lua instructions do not
 /// spend it, and small enough that the charged clone work does, well before
 /// the long real-time limit the case runs under.
@@ -749,12 +786,18 @@ void expect_budget_stop(const fs::path& game, const fs::path& package, std::stri
     input.time_limit = k_budget_time_limit;
     // The bound is on the processor time this test spends, so other programs
     // sharing the machine do not stretch it. The real time is printed too.
-    const std::clock_t processor_started = std::clock();
+    const auto processor_started = processor_seconds();
     const auto started = std::chrono::steady_clock::now();
     const mutators::PipelineResult result = mutators::run_pipeline(store, input);
     const auto elapsed = std::chrono::steady_clock::now() - started;
-    const double processor_seconds =
-        static_cast<double>(std::clock() - processor_started) / CLOCKS_PER_SEC;
+    const auto processor_stopped = processor_seconds();
+    expect(
+        processor_started && processor_stopped,
+        std::string(label) + " could not read the processor time"
+    );
+    const double spent_seconds = processor_started && processor_stopped
+                                     ? *processor_stopped - *processor_started
+                                     : k_budget_stop_seconds;
     const auto milliseconds =
         std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
     std::printf(
@@ -762,7 +805,7 @@ void expect_budget_stop(const fs::path& game, const fs::path& package, std::stri
         static_cast<int>(label.size()),
         label.data(),
         static_cast<long long>(milliseconds),
-        processor_seconds * 1000.0
+        spent_seconds * 1000.0
     );
     expect(!result.playable(), std::string(label) + " applied");
     expect(!result.mutators.empty(), std::string(label) + " result");
@@ -779,8 +822,8 @@ void expect_budget_stop(const fs::path& game, const fs::path& package, std::stri
         expect(result.mutators[0].phase == mutators::Phase::hooks, std::string(label) + " phase");
     }
     expect(
-        processor_seconds < k_budget_stop_seconds,
-        std::string(label) + " took " + std::to_string(processor_seconds) + " s of processor time"
+        spent_seconds < k_budget_stop_seconds,
+        std::string(label) + " took " + std::to_string(spent_seconds) + " s of processor time"
     );
     expect(result.layer.entries.empty(), std::string(label) + " served a file");
     expect(!store.mutator_layer_mounted(), std::string(label) + " left a layer mounted");
