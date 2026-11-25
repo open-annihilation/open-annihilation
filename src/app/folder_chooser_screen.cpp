@@ -334,6 +334,35 @@ class ChooserScreen {
         return kept_;
     }
 
+    /// Paints the locator once for the text-fit check over a scratch home with fixed places,
+    /// then removes the home. A folder of the machine's own home may ask the player before it
+    /// is read (Documents and Downloads do on macOS), and a run nobody watches would wait for
+    /// that answer, so none is read.
+    ///
+    /// @param root where the home is made; replaced if it is already there
+    /// @return true when the home was made and the locator painted
+    bool paint_scratch_home(const fs::path& root) {
+        struct Wiper {
+            fs::path folder;
+
+            ~Wiper() { remove_picture_scene(folder); }
+        } wiper{root};
+
+        PictureScene scene;
+        if (!build_picture_scene(root, scene)) {
+            std::cerr << "open-annihilation: text-fit check: the folder chooser's home could "
+                         "not be made\n";
+            return false;
+        }
+        home_ = scene.home;
+        staged_facts_ = scene.desktop;
+        start();
+        // The text-fit check ends the chooser after its first painted pass.
+        while (!done_)
+            pass();
+        return true;
+    }
+
   private:
 
     /// A gamepad the chooser opened.
@@ -1482,6 +1511,31 @@ bool run_folder_chooser_key_check(
     }
     ChooserScreen screen(options, host, window, renderer, GameFilesNeeded{});
     return screen.drive(picture, deck, phone);
+}
+
+bool run_folder_chooser_text_fit(
+    const Options& options,
+    const FolderChooserDisplayHooks& display,
+    const GameFilesNeeded& needed,
+    const fs::path& scene_root
+) {
+    if (!options.check_text_fit) {
+        std::cerr << "open-annihilation: the folder chooser paints a scratch home only for "
+                     "--check-text-fit\n";
+        return false;
+    }
+    SDL_Window* window = display.window != nullptr ? display.window(display.context) : nullptr;
+    SDL_Renderer* renderer = window != nullptr && display.renderer != nullptr
+                                 ? display.renderer(display.context)
+                                 : nullptr;
+    if (window == nullptr || renderer == nullptr) {
+        std::cerr << "open-annihilation: text-fit check: the folder chooser's window cannot "
+                     "open\n";
+        return false;
+    }
+    RendererHost* host = display.host != nullptr ? display.host(display.context) : nullptr;
+    ChooserScreen screen(options, host, window, renderer, needed);
+    return screen.paint_scratch_home(scene_root);
 }
 
 bool run_folder_chooser_until_resolved(
