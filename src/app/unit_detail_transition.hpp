@@ -51,23 +51,22 @@ struct Heading {
     float cosine{1};
 };
 
-/// Returns cached screen-sizing coefficients for all unit heading words.
+/// Heading words in one whole turn.
+inline constexpr double heading_words_per_turn = 65536.0;
+
+/// Returns the screen-sizing coefficients for one unit heading word.
+///
+/// They are worked out on each call rather than kept for every heading word:
+/// a kept table would hold 512 KiB for the rest of the run from the first
+/// drawn match on, on every machine.
+///
 /// @param word unit heading, 65536 per turn
-/// @return its sine and cosine; no simulation calculation uses this table
-[[nodiscard]] inline const Heading& heading(uint16_t word) noexcept {
-    constexpr std::size_t heading_count = std::size_t{1} << 16;
-    static const auto table = [] {
-        std::array<Heading, heading_count> result{};
-        constexpr double radians_per_word = 2 * std::numbers::pi / heading_count;
-        for (std::size_t index = 0; index < result.size(); ++index) {
-            const double angle = index * radians_per_word;
-            result[index] = {
-                static_cast<float>(std::sin(angle)), static_cast<float>(std::cos(angle))
-            };
-        }
-        return result;
-    }();
-    return table[word];
+/// @return its sine and cosine, each taken in double and rounded to float;
+///         no simulation calculation uses them
+[[nodiscard]] inline Heading heading(uint16_t word) noexcept {
+    constexpr double radians_per_word = 2 * std::numbers::pi / heading_words_per_turn;
+    const double angle = word * radians_per_word;
+    return {static_cast<float>(std::sin(angle)), static_cast<float>(std::cos(angle))};
 }
 
 /// Returns one type's containing model diameter projected at zoom one.
@@ -90,7 +89,7 @@ model_pixels(const Geometry& geometry, const Projection& projection, uint16_t tu
         std::all_of(dimensions.begin(), dimensions.end(), [](double value) { return value == 0; }))
         return 0;
     double pixels{};
-    const auto& direction = heading(turn);
+    const Heading direction = heading(turn);
     for (std::size_t row = 0; row < 2; ++row) {
         const double x = projection[row * dimensions.size()];
         const double y = projection[row * dimensions.size() + 1];

@@ -787,6 +787,30 @@ void physical_size_follows_camera_and_unit_turn() {
     OA_CHECK(detail::model_pixels(type, side) == 0);
 }
 
+void each_heading_word_turns_by_its_share_of_a_turn() {
+    namespace detail = oa::app::unit_detail_transition;
+    constexpr uint32_t quarter_turn = 16384;
+    const auto at = [](uint32_t word) { return detail::heading(static_cast<uint16_t>(word)); };
+    OA_CHECK(at(0).sine == 0 && at(0).cosine == 1);
+    OA_CHECK(at(quarter_turn).sine == 1 && std::abs(at(quarter_turn).cosine) < 1e-7F);
+    OA_CHECK(std::abs(at(2 * quarter_turn).sine) < 1e-7F && at(2 * quarter_turn).cosine == -1);
+    OA_CHECK(at(3 * quarter_turn).sine == -1 && std::abs(at(3 * quarter_turn).cosine) < 1e-7F);
+    bool unit_length = true, quadrants = true;
+    for (uint32_t word = 0; word <= std::numeric_limits<uint16_t>::max(); ++word) {
+        const auto turn = at(word);
+        const double length = double{turn.sine} * turn.sine + double{turn.cosine} * turn.cosine;
+        unit_length = unit_length && std::abs(length - 1) < 1e-6;
+        // Inside each quarter both signs are known: sine first rises, then cosine falls.
+        if (word % quarter_turn == 0)
+            continue;
+        const uint32_t quarter = word / quarter_turn;
+        quadrants = quadrants && (turn.sine > 0) == (quarter < 2) &&
+                    (turn.cosine > 0) == (quarter == 0 || quarter == 3);
+    }
+    OA_CHECK(unit_length);
+    OA_CHECK(quadrants);
+}
+
 void unit_size_keeps_models_farther_out_and_does_not_flicker() {
     namespace detail = oa::app::unit_detail_transition;
     const detail::Projection classic{1, 0, 0, 0, -0.5F, 1};
@@ -860,6 +884,7 @@ int main() {
     loaded_mesh_size_is_independent_of_collision_bounds();
     the_automatic_boundary_uses_physical_population_size();
     physical_size_follows_camera_and_unit_turn();
+    each_heading_word_turns_by_its_share_of_a_turn();
     unit_size_keeps_models_farther_out_and_does_not_flicker();
     unchanged_size_samples_do_not_request_geometry_again();
     return oa::test::check_exit_status();
