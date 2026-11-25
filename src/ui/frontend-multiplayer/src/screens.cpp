@@ -5305,6 +5305,14 @@ void multiplayer_bind_clock(const LobbyClock& clock) noexcept {
     g_clock = clock;
 }
 
+LobbyClock multiplayer_clock() noexcept {
+    return g_clock;
+}
+
+uint32_t multiplayer_clock_ms() {
+    return elapsed_ms();
+}
+
 void multiplayer_bind_display_modes(const LobbyDisplayModes& display_modes) noexcept {
     g_display_modes = display_modes;
 }

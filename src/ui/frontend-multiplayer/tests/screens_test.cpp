@@ -3627,6 +3627,23 @@ void check_connection_keys(Driver& d) {
     expect_shift_tab(d, "Shift+Tab undoes one step of the new game");
 }
 
+/// The bound clock reads back, and the clock's time follows it; unbinding
+/// leaves the steady clock.
+void check_bound_clock() {
+    const mp::LobbyClock kept = mp::multiplayer_clock();
+    uint32_t held = 123'456;
+    mp::multiplayer_bind_clock({&held, [](void* context) {
+                                    return *static_cast<const uint32_t*>(context);
+                                }});
+    expect(mp::multiplayer_clock().context == &held, "the bound clock reads back");
+    expect(mp::multiplayer_clock_ms() == 123'456, "the clock's time is the bound clock's");
+    held = 124'000;
+    expect(mp::multiplayer_clock_ms() == 124'000, "the clock's time follows the bound clock");
+    mp::multiplayer_bind_clock({});
+    expect(mp::multiplayer_clock().now_ms == nullptr, "unbinding leaves the steady clock");
+    mp::multiplayer_bind_clock(kept);
+}
+
 /// A letter bound to Next button still types, and Next button moved to F7
 /// walks where Tab walked. A layout that restates Tab walks as Tab does.
 void check_rebound_keys(Driver& d) {
@@ -5185,6 +5202,7 @@ int main() {
     check_player_row_focus(d);
     check_connection_keys(d);
     check_rebound_keys(d);
+    check_bound_clock();
 
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);

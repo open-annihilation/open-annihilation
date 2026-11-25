@@ -456,19 +456,30 @@ void Runtime::check_brain_room() {
     require(!any_seat(), "a seat button shows with no brain installed");
     if (LayerScreen* seats = oa_layer().find("brain-room"))
         oa_layer().close(seats);
-    // Two frames of one moment: the interface's clock is held while both are
-    // drawn, so whatever steps by it (the chat line's caret) draws the same
-    // however long a frame takes. It runs again after, however this ends.
+    // Two frames of one moment: the interface's clock and the battle room's
+    // own are held while both are drawn, so whatever steps by them (the chat
+    // line's caret blinks by the room's) draws the same however long a frame
+    // takes. Both run again after, however this ends.
     std::size_t differing = 0;
     {
         struct HeldClock {
             Runtime& runtime;
             std::optional<uint32_t> kept{};
+            mp::LobbyClock kept_room{};
+            uint32_t room_ms{};
 
-            ~HeldClock() { runtime.fake_frontend_tick_ = kept; }
-        } held_clock{*this, fake_frontend_tick_};
+            ~HeldClock() {
+                mp::multiplayer_bind_clock(kept_room);
+                runtime.fake_frontend_tick_ = kept;
+            }
+        } held_clock{
+            *this, fake_frontend_tick_, mp::multiplayer_clock(), mp::multiplayer_clock_ms()
+        };
 
         fake_frontend_tick_ = frontend_tick();
+        mp::multiplayer_bind_clock({&held_clock.room_ms, [](void* held) {
+                                        return *static_cast<const uint32_t*>(held);
+                                    }});
         const renderer::Surface closed = capture();
         keep_brain_room_screen();
         const renderer::Surface allowed = capture();
