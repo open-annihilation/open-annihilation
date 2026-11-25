@@ -68,4 +68,21 @@ bool run_folder_chooser_key_check(
     const std::filesystem::path& picture
 );
 
+/// Paints the locator once for the text-fit check (--check-text-fit) over a scratch home
+/// (Desktop, Documents, Downloads and Games) with fixed places, made under `scene_root` and
+/// removed afterwards. It does not read the machine's own folders: one the system guards
+/// would ask first and hold a run nobody watches.
+///
+/// @param options the parsed command line, with the text-fit check asked for
+/// @param display how the locator reaches the game's window
+/// @param needed why there is no folder, as the locator shows it
+/// @param scene_root where the scratch home is made; replaced if it is already there
+/// @return true when the home was made and the locator painted
+bool run_folder_chooser_text_fit(
+    const Options& options,
+    const FolderChooserDisplayHooks& display,
+    const GameFilesNeeded& needed,
+    const std::filesystem::path& scene_root
+);
+
 } // namespace oa::app

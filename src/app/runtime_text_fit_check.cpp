@@ -13,8 +13,9 @@
 // for the frame read, those whose drawing it keeps among them; a kept
 // notice whose OK is too wide for its button must be recorded first. The Game
 // files screen and the folder chooser paint through their own painter, which
-// records the same way. A startup notice drawn by the game's own windows is
-// opened too; that painter keeps no record. SKIRMISH is painted with
+// records the same way. The folder chooser lists a scratch home the check
+// makes, never the machine's own. A startup notice drawn by the game's own
+// windows is opened too; that painter keeps no record. SKIRMISH is painted with
 // Mutators reading "Mutators", its text "Mutators · off" and then
 // "Mutators · 5 on", with three computer rows' brain buttons, one of them
 // a long name, and NEWGAME with Mutators and with the campaign brain button
@@ -2642,12 +2643,17 @@ void Runtime::check_text_fit() {
             GameFilesNeeded needed;
             needed.needed = true;
             needed.chooser = true;
-            std::optional<GameDirectory> chosen_folder;
             kit::begin_text_fit_frame();
-            std::ignore = run_folder_chooser_until_resolved(options_, hooks, needed, chosen_folder);
+            // The locator lists a home of the check's own, beside the game
+            // files folder. The machine's home holds folders the system may
+            // ask about before they are read (Documents and Downloads on
+            // macOS), and a run nobody watches would wait for the answer.
+            require(
+                run_folder_chooser_text_fit(options_, hooks, needed, here / "text-fit-locator"),
+                "the folder chooser was not painted over its scratch home"
+            );
             keep();
             apply_output_mode();
-            require(!chosen_folder, "the folder chooser kept a folder");
 
             // The keys overlay, beside the side column of one skirmish, at
             // 640x480 and 1280x720.
