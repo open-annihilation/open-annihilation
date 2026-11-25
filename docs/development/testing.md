@@ -700,9 +700,12 @@ names, these run the game headless:
   come). The machines are compared on what the network shares, never on
   world digests: every 300th tick each player's live units are the same on
   both; once every mover has stood still on its owner for 300 ticks and a
-  round of full unit records has passed, every unit's owning player, type,
-  map cell and health are the same on both, and a mover still moving fails
-  the check and is named; both machines print their `route burst:` and
+  round of full unit records has passed, every unit's owning player, type
+  and map cell are the same on both, and a mover still moving fails the
+  check and is named; once a full record of every copy has arrived on both
+  (a copy holds health 0 until then), every unit's health is the same on
+  both too, and a copy still waiting when the check stops the match fails
+  it and is named; both machines print their `route burst:` and
   `route batches:` lines, with the other player's whole burst applied and
   no step held longer than 30 ticks. `native-net-route-burst-loss` starts
   the guest with `-e 10`, and holds steps to 150 ticks

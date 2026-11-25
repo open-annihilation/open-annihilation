@@ -17,14 +17,21 @@ through a pipe, so nothing large is kept). In the 3.1c protocol a machine
 simulates only its own player's units and follows the other's from its
 records, with a lag: it numbers its own player 0, its copies hold no orders,
 and a copy's health comes with its owner's round-robin full record, one unit a
-tick. So the machines are compared on what the network shares, never on world
-digests:
+tick. A copy is made with health 0 and keeps it until the first full record
+of it arrives: its owner sends unit N of its range at its ticks N, N plus the
+room's unit limit, and so on, never at tick 0, so its commander, unit 0, has
+its first full record a whole round after the match starts. So the machines
+are compared on what the network shares, never on world digests:
 - every 300th tick, each player's live units, the same on both machines;
 - once every mover has stood still on its owner for 300 ticks and a whole
   round of full records (the room's unit limit in ticks) has passed since the
   last unit appeared on either machine, every unit's owning player (by who
-  plays it, not by slot), type, map cell and health, the same on both
-  machines; a mover still moving then is named and fails the check;
+  plays it, not by slot), type and map cell, the same on both machines; a
+  mover still moving then is named and fails the check;
+- once, at that tick or later, a full record of every copy has arrived on
+  both machines, so that no copy holds health 0, every unit's owning player,
+  type, map cell and health, the same on both machines; a copy still at
+  health 0 when the check stops the match is named and fails the check;
 - each machine's "route burst: player P movers M tick T" line, the two
   players at different places, every mover sent at tick 300;
 - each machine's "route batches:" line as it leaves the match, with the other
@@ -33,7 +40,18 @@ digests:
 
 With --guest-loss PERCENT the guest starts with -e PERCENT and loses that
 share of every frame it sends; its lost creates reach the host late, and the
-end comparison waits a whole round of full records after the last.
+settle waits a whole round of full records after the last. Under loss a
+copy's health waits for more than the round: for the full record to arrive.
+The full record rides on the last part of its owner's route batch; a lost
+part is sent again 6 or 30 ticks later, and again if that is lost too, while
+the receiver holds every later batch of that owner until it has the part
+(up to the hold bound), so the record arrives late but arrives. The guest's
+commander's first full record leaves the guest at its tick 1,020 with 1,000
+movers, a round after the match starts, while the settle counts its round
+from the sampled tick at which a unit last appeared, 30 here; so a hold of
+about 20 ticks brings that record to the host after the settle tick. The
+check therefore plays on until a full record of every copy has arrived, and
+compares health there.
 
 The scratch folder is removed whatever happens, so a second run starts as the
 first did.
@@ -114,16 +132,18 @@ class UnitStream:
     """One machine's --trace-units lines, read from a pipe as the game writes them.
 
     Every SAMPLE_STEP-th tick it keeps each live unit's owner slot, type,
-    position and health. It counts each owner's live units every
-    COUNT_STEP-th tick, notes the last sampled tick at which each of this
-    machine's own units (owner 0) stood somewhere new, and the last sampled
-    tick at which a unit appeared.
+    position and health, for the last 40 sampled ticks and any tick held
+    with keep(). It counts each owner's live units every COUNT_STEP-th tick,
+    notes the last sampled tick at which each of this machine's own units
+    (owner 0) stood somewhere new, and the last sampled tick at which a unit
+    appeared.
     """
 
     def __init__(self, path):
         self.lock = threading.Lock()
         self.counts = {}
         self.recent = collections.OrderedDict()
+        self.kept = {}
         self.complete = -1
         self.moved = {}
         self.appeared = 0
@@ -184,6 +204,31 @@ class UnitStream:
         """The last complete sampled tick, the last own move and the last appearance."""
         with self.lock:
             return self.complete, max(self.moved.values(), default=0), self.appeared
+
+    def keep(self, tick):
+        """Holds a sampled tick's units after it leaves the last 40, when they are still held."""
+        with self.lock:
+            rows = self.recent.get(tick)
+            if rows is not None:
+                self.kept[tick] = rows
+
+    def rows(self, tick):
+        """Each live unit at a sampled tick still held, by slot; None for a tick not held."""
+        with self.lock:
+            held = self.recent.get(tick)
+            return held if held is not None else self.kept.get(tick)
+
+    def unrecorded(self, tick):
+        """The copies that hold health 0 at a sampled tick, by slot; None for a tick not held.
+
+        A copy, a unit of another machine's player, holds health 0 from its
+        create until the first full record of it arrives from its owner.
+        """
+        rows = self.rows(tick)
+        if rows is None:
+            return None
+        return sorted(slot for slot, (owner, _, _, _, health) in rows.items()
+                      if owner != 0 and health == 0)
 
 
 class Game:
@@ -348,10 +393,29 @@ def settled_tick(games, round_ticks):
     return tick
 
 
+def recorded_tick(games):
+    """The last sampled tick both machines have read, once no copy holds health 0 there; else None.
+
+    A copy holds health 0 until the first full record of it arrives
+    (UnitStream.unrecorded).
+    """
+    tick = min(game.units.progress()[0] for game in games)
+    if any(copies is None or copies for copies in (game.units.unrecorded(tick) for game in games)):
+        return None
+    return tick
+
+
 def play_match(host, guest, round_ticks):
-    """Readies both machines, presses the host's START, plays until the units settle, and quits both."""
+    """Readies both machines, presses the host's START, plays on, and quits both.
+
+    The match plays until the units settle (settled_tick) and a full record
+    of every copy has arrived on both machines (recorded_tick), or until
+    MOST_TICKS. Returns the tick the units settled at, held on both machines,
+    or None when they did not settle.
+    """
     games = [host, guest]
     clients = [open_client(game) for game in games]
+    settle = None
     try:
         for client in clients:
             automation.wait_screen(client, "mp_battleroom")
@@ -369,7 +433,12 @@ def play_match(host, guest, round_ticks):
                     raise RouteBurstFailure(f"{game.name}'s units: {game.units.error}")
             if "main_menu" in screens:
                 raise RouteBurstFailure(f"the match returned to the menu on {screens}")
-            if settled_tick(games, round_ticks) is not None:
+            if settle is None:
+                settle = settled_tick(games, round_ticks)
+                if settle is not None:
+                    for game in games:
+                        game.units.keep(settle)
+            if settle is not None and recorded_tick(games) is not None:
                 break
             if min(game.units.progress()[0] for game in games) >= MOST_TICKS:
                 break
@@ -385,6 +454,7 @@ def play_match(host, guest, round_ticks):
             client.close()
     for game in games:
         game.wait_end()
+    return settle
 
 
 def identities(game, other):
@@ -414,11 +484,11 @@ def compare_counts(host, guest, last):
     return compared
 
 
-def compare_units(host, guest, tick):
-    """Requires every unit's owning player, type, cell and health equal on both machines at tick.
+def compare_units(host, guest, tick, health):
+    """Requires every unit's owning player, type and cell equal on both machines at tick.
 
-    A unit that moved on its owner within SETTLE_TICKS of tick is named.
-    Returns the units compared.
+    With health true, its health too. A unit that moved on its owner within
+    SETTLE_TICKS of tick is named. Returns the units compared.
     """
     host_player = identities(host, guest)
     guest_player = identities(guest, host)
@@ -436,12 +506,15 @@ def compare_units(host, guest, tick):
             raise RouteBurstFailure(
                 f"{len(moving)} of {game.name}'s units still moved within {SETTLE_TICKS} ticks "
                 f"of tick {tick}: {named}")
-    on_host = host.units.recent[tick]
-    on_guest = guest.units.recent[tick]
+    on_host = host.units.rows(tick)
+    on_guest = guest.units.rows(tick)
+    if on_host is None or on_guest is None:
+        raise RouteBurstFailure(f"a machine no longer held its units of tick {tick}")
 
     def shared(row, player):
-        owner, unit_type, x, z, health = row
-        return player(owner), unit_type, (x >> 16) // 16, (z >> 16) // 16, health
+        owner, unit_type, x, z, hit_points = row
+        unit = (player(owner), unit_type, (x >> 16) // 16, (z >> 16) // 16)
+        return (*unit, hit_points) if health else unit
 
     differing = []
     for slot in sorted(set(on_host) | set(on_guest)):
@@ -450,8 +523,9 @@ def compare_units(host, guest, tick):
         if held[0] != held[1]:
             differing.append(f"unit {slot}: host {held[0]}, guest {held[1]}")
     if differing:
+        compared = "player, type, cell, health" if health else "player, type, cell"
         raise RouteBurstFailure(
-            f"{len(differing)} units differ at tick {tick} (player, type, cell, health): "
+            f"{len(differing)} units differ at tick {tick} ({compared}): "
             + "; ".join(differing[:8]))
     return len(on_host)
 
@@ -484,7 +558,7 @@ def check(native, game_dir, workdir, movers, guest_loss):
             raise RouteBurstFailure("the host did not give its room the movers' unit limit")
         evidence.append(f"host: {limit[0].group(0)}")
         round_ticks = int(limit[0].group(1))
-        play_match(host, guest, round_ticks)
+        settled = play_match(host, guest, round_ticks)
         places = set()
         for game in games:
             found = game.found(BURST)
@@ -505,23 +579,34 @@ def check(native, game_dir, workdir, movers, guest_loss):
         common = sorted(set(host.units.recent) & set(guest.units.recent))
         if not common:
             raise RouteBurstFailure("the machines read no units at a common tick")
+        last = common[-1]
         # Unsettled by MOST_TICKS, the comparison names the units still moving.
-        settled = settled_tick(games, round_ticks)
-        tick = max(sample for sample in common if settled is None or sample <= settled)
+        tick = last if settled is None else settled
         if settled is None and tick < max(game.units.appeared for game in games) + round_ticks:
             progress = {game.name: game.units.progress() for game in games}
             raise RouteBurstFailure(
                 f"no round of full records passed after the last unit appeared, by tick "
                 f"{MOST_TICKS} (last read, last own move, last appearance: {progress})")
-        compared = compare_counts(host, guest, tick)
+        compared = compare_counts(host, guest, last)
         evidence.append("each player's live units agree at ticks "
                         f"{', '.join(str(at) for at, _ in compared)}: {compared[-1][1]}")
-        units = compare_units(host, guest, tick)
+        units = compare_units(host, guest, tick, health=False)
         if settled is None:
             raise RouteBurstFailure(f"the units did not settle by tick {MOST_TICKS}")
         evidence.append(f"at tick {tick}, after every mover stood still {SETTLE_TICKS} ticks and "
                         f"a round of {round_ticks} full records, all {units} units agree on "
-                        "player, type, cell and health")
+                        "player, type and cell")
+        # A copy's health waits for the first full record of it to arrive.
+        waiting = {game.name: game.units.unrecorded(last) for game in games}
+        if any(waiting.values()):
+            raise RouteBurstFailure(
+                f"by tick {last} no full record had arrived of "
+                f"{sum(len(copies) for copies in waiting.values())} copies, which held health 0: "
+                + "; ".join(f"{name}'s copies of units {', '.join(map(str, copies[:8]))}"
+                            for name, copies in waiting.items() if copies))
+        units = compare_units(host, guest, last, health=True)
+        evidence.append(f"at tick {last}, once a full record of every copy had arrived on both "
+                        f"machines, all {units} units agree on player, type, cell and health")
         bound = LOSSY_HOLD_BOUND if guest_loss else HOLD_BOUND
         for game in games:
             found = game.found(BATCHES)
