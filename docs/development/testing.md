@@ -1865,8 +1865,9 @@ and 1920x1080. `native-key-capture`
 (`--check-key-capture`) captures a chord, swaps a clash only once the
 question's confirm button is pressed, times Choose what happens… for P on
 Load, which Patrol uses, and each move of the pointer over the question
-(each under 100 ms), hears Primary+ through Find by key, and settles a
-draft clash from Settle…. `native-library`
+(each under 100 ms of the main thread's processor time, or of real time
+where the thread's clock cannot be read), hears Primary+ through Find by
+key, and settles a draft clash from Settle…. `native-library`
 (`--check-library`) writes real layouts and the player's own changes into
 the check's Keys folder, presses USE and checks where it asks, What moves,
 Keep them on top and Start clean, that the own changes are never written
@@ -2423,6 +2424,12 @@ int main() {
   stall a test for longer. Drive the clock the code reads where it takes
   one, or poll with a generous limit, and make a check that something has
   not happened yet hold however late it runs.
+- Hold a bound on how long work takes to the program's own processor
+  time, which other programs sharing the machine do not stretch, and print
+  the real time beside it: `oa::test::WorkTimer`
+  (`oa/test/processor_time.hpp`, target `oa-test-processor-time`) reads
+  both. On Windows `std::clock` counts real time, so it is no processor
+  clock there.
 
 ### Expected values
 

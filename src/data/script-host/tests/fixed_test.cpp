@@ -10,6 +10,7 @@
 #include "oa/formats/tdf.hpp"
 #include "oa/formats/tdf/number.hpp"
 #include "oa/test/check.hpp"
+#include "oa/test/processor_time.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -18,7 +19,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <map>
 #include <optional>
 #include <set>
@@ -1460,10 +1460,16 @@ void run_lua() {
     }
 }
 
+/// Most processor time a loop over `fixed`'s C work may spend before the
+/// allowance stops it.
+constexpr double scan_stop_seconds = 20.0;
+
 /// A loop over `fixed`'s C work must stop on the instruction allowance.
 ///
 /// The real-time limit is long, so a busy machine cannot turn the stop into
-/// a time stop. The processor bound is what says the charge fired in time.
+/// a time stop. The processor bound is what says the charge fired in time:
+/// it is this program's processor time, which other programs sharing the
+/// machine do not stretch.
 void expect_scan_budget(const char* source) {
     Package package;
     host::ScriptError error;
@@ -1477,21 +1483,17 @@ void expect_scan_budget(const char* source) {
     OA_CHECK(sandbox.has_value());
     if (!sandbox)
         return;
-    const std::clock_t processor_started = std::clock();
-    const auto started = std::chrono::steady_clock::now();
+    const oa::test::WorkTimer timer;
     const bool ran = run_source(*sandbox, package, source, error);
-    const double processor_seconds =
-        static_cast<double>(std::clock() - processor_started) / CLOCKS_PER_SEC;
-    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  std::chrono::steady_clock::now() - started
-    )
-                                  .count();
+    const oa::test::WorkTime took = timer.elapsed();
+    // A processor time the system cannot give fails the bound.
+    const double spent_seconds = took.processor_seconds.value_or(scan_stop_seconds);
     const std::string_view text(source);
     const std::string_view first = text.substr(0, text.find('\n'));
     std::printf(
         "fixed scan stopped in %lld ms (%.0f ms of processor time), %llu units: %.*s\n",
-        static_cast<long long>(milliseconds),
-        processor_seconds * 1000.0,
+        static_cast<long long>(took.real.count()),
+        spent_seconds * 1000.0,
         static_cast<unsigned long long>(sandbox->instructions_used()),
         static_cast<int>(first.size()),
         first.data()
@@ -1499,7 +1501,8 @@ void expect_scan_budget(const char* source) {
     OA_CHECK(!ran);
     OA_CHECK(error.kind == host::ErrorKind::instruction_budget);
     OA_CHECK(sandbox->instructions_used() >= host::default_instruction_budget);
-    OA_CHECK(processor_seconds < 20.0);
+    OA_CHECK(took.processor_seconds.has_value());
+    OA_CHECK(spent_seconds < scan_stop_seconds);
 }
 
 void charged_scans_stop() {

@@ -76,6 +76,16 @@ target_compile_features(oa-test-support INTERFACE cxx_std_20)
 add_library(oa-test-match INTERFACE)
 add_library(oa::test::match ALIAS oa-test-match)
 target_link_libraries(oa-test-match INTERFACE oa-test-support oa-sim-match-runtime oa-core-types)
+# The processor time a test's own work takes, for bounds a busy machine does
+# not stretch (oa/test/processor_time.hpp). The Windows clock is read in its
+# own source file, so that no test sees the Windows headers' macros.
+if(BUILD_TESTING)
+  add_library(oa-test-processor-time STATIC tests/support/src/processor_time.cpp)
+  add_library(oa::test::processor_time ALIAS oa-test-processor-time)
+  target_include_directories(oa-test-processor-time PUBLIC tests/support/include)
+  target_compile_features(oa-test-processor-time PUBLIC cxx_std_20)
+  target_link_libraries(oa-test-processor-time PRIVATE oa-options)
+endif()
 
 # oa-options, the compile options every target that compiles engine code
 # links (cmake/OaOptions.cmake).

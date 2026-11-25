@@ -11,13 +11,13 @@
 #include "oa/formats/tdf.hpp"
 #include "oa/test/check.hpp"
 #include "oa/test/game_assets.hpp"
+#include "oa/test/processor_time.hpp"
 #include "oa/test/scratch_directory.hpp"
 #include "oa/ui/gui_layout.hpp"
 #include "oa/ui/hud/order_panel.hpp"
 
 #include <algorithm>
 #include <chrono>
-#include <ctime>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -1679,23 +1679,37 @@ void test_refusals(const fs::path& game, const fs::path& packages) {
         OA_CHECK(run.layer.entries.empty());
 }
 
-/// Runs one package and reports the processor time it took, which a busy
-/// machine does not stretch the way it stretches the real time.
-mutators::PipelineResult
-run_timed(const fs::path& game, const fs::path& packages, const char* id, long& cpu_ms) {
-    const std::clock_t cpu = std::clock();
-    const auto started = std::chrono::steady_clock::now();
-    mutators::PipelineResult run = run_packages(game, packages, {id});
-    cpu_ms = static_cast<long>((std::clock() - cpu) * 1000 / CLOCKS_PER_SEC);
-    const auto spent = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - started
-    );
+/// Real time each phase of a loop case may run. These cases are about the
+/// instruction allowance; the real-time limit has its own tests, and a busy
+/// machine must not turn an allowance stop into a time stop here.
+constexpr std::chrono::minutes k_loop_time_limit{10};
+
+/// Runs one package under the long real-time limit, so that only the
+/// instruction allowance stops its loop, and reports the processor time it
+/// took, which a busy machine does not stretch the way it stretches the real
+/// time.
+///
+/// @param store the store the package runs over
+/// @param packages the folder that holds the package
+/// @param id the package's id and folder name
+/// @param[out] took the processor time and the real time the run took
+/// @return the pipeline's result
+mutators::PipelineResult run_timed(
+    oa::AssetStore& store, const fs::path& packages, const char* id, oa::test::WorkTime& took
+) {
+    mutators::PipelineInput input = input_for(packages, {id});
+    input.time_limit = k_loop_time_limit;
+    const oa::test::WorkTimer timer;
+    mutators::PipelineResult run = mutators::run_pipeline(store, input);
+    took = timer.elapsed();
+    if (store.mutator_layer_mounted())
+        store.unmount_mutator_layer();
     std::fprintf(
         stderr,
-        "%s: %ld ms of processor time, %lld ms real\n",
+        "%s: %.0f ms of processor time, %lld ms real\n",
         id,
-        cpu_ms,
-        static_cast<long long>(spent.count())
+        took.processor_seconds.value_or(-1.0) * 1000.0,
+        static_cast<long long>(took.real.count())
     );
     return run;
 }
@@ -1718,10 +1732,34 @@ constexpr bool optimised_build() {
 #endif
 }
 
+/// Most processor time an optimised build may spend on a loop the allowance
+/// stops.
+constexpr double k_loop_stop_seconds = 3.0;
+
+/// Checks that a loop run by run_timed stopped on the instruction allowance,
+/// and that an optimised build stopped it within k_loop_stop_seconds of
+/// processor time.
+///
+/// An unoptimised build spends several times that bound, so only the stop is
+/// checked there.
+///
+/// @param run the pipeline's result
+/// @param took what the run took
+void expect_allowance_stop(const mutators::PipelineResult& run, const oa::test::WorkTime& took) {
+    OA_CHECK(!run.mutators.empty());
+    if (run.mutators.empty())
+        return;
+    OA_CHECK(run.mutators.front().cause == mutators::Cause::instruction_budget);
+    if (optimised_build()) {
+        OA_CHECK(took.processor_seconds.has_value());
+        OA_CHECK(took.processor_seconds.value_or(k_loop_stop_seconds) < k_loop_stop_seconds);
+    }
+}
+
 /// A loop of builds or of removals stops on the instruction allowance, at a
-/// small part of the real-time limit's worth of work. The 3 s processor-time
-/// bound is for an optimised build: an unoptimised one spends several times
-/// that, near the hook's real-time limit, so only the stop is checked there.
+/// small part of the work the long real-time limit would allow. The 3 s
+/// processor-time bound is for an optimised build: an unoptimised one spends
+/// several times that, so only the stop is checked there.
 void test_budget(const fs::path& game, const fs::path& packages) {
     write_package(
         packages,
@@ -1736,14 +1774,10 @@ void test_budget(const fs::path& game, const fs::path& packages) {
         hook_script("menus", "for i = 1, 50000000 do collection:remove(\"RGPLANT\") end")
     );
     for (const char* id : {"ridge-builds-loop", "ridge-remove-loop"}) {
-        long cpu_ms = 0;
-        const mutators::PipelineResult run = run_timed(game, packages, id, cpu_ms);
-        OA_CHECK(!run.mutators.empty());
-        if (run.mutators.empty())
-            continue;
-        OA_CHECK(run.mutators.front().cause == mutators::Cause::instruction_budget);
-        if (optimised_build())
-            OA_CHECK(cpu_ms < 3000);
+        oa::AssetStore store(game);
+        oa::test::WorkTime took;
+        const mutators::PipelineResult run = run_timed(store, packages, id, took);
+        expect_allowance_stop(run, took);
     }
 }
 
@@ -1780,7 +1814,7 @@ void test_game_data() {
     applied(run_on(store, packages, {"ridge-armcom"}));
 
     // A loop of builds, or of removals, stops on the instruction allowance
-    // at a small part of the real-time limit's worth of work.
+    // at a small part of the work the long real-time limit would allow.
     write_package(
         packages,
         "ridge-armcom-loop",
@@ -1794,26 +1828,9 @@ void test_game_data() {
         hook_script("menus", "for i = 1, 50000000 do collection:remove(\"ARMSOLAR\") end")
     );
     for (const char* id : {"ridge-armcom-loop", "ridge-armsolar-loop"}) {
-        const std::clock_t cpu = std::clock();
-        const auto started = std::chrono::steady_clock::now();
-        const mutators::PipelineResult loop = run_on(store, packages, {id});
-        const long cpu_ms = static_cast<long>((std::clock() - cpu) * 1000 / CLOCKS_PER_SEC);
-        const auto spent = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - started
-        );
-        std::fprintf(
-            stderr,
-            "%s: %ld ms of processor time, %lld ms real\n",
-            id,
-            cpu_ms,
-            static_cast<long long>(spent.count())
-        );
-        OA_CHECK(!loop.mutators.empty());
-        if (loop.mutators.empty())
-            continue;
-        OA_CHECK(loop.mutators.front().cause == mutators::Cause::instruction_budget);
-        if (optimised_build())
-            OA_CHECK(cpu_ms < 3000);
+        oa::test::WorkTime took;
+        const mutators::PipelineResult loop = run_timed(store, packages, id, took);
+        expect_allowance_stop(loop, took);
     }
 
     write_package(

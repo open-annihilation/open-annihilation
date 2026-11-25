@@ -59,7 +59,9 @@ if(BUILD_TESTING)
   add_test(NAME data-mutators-clashes COMMAND oa-data-mutators-clashes-test)
 
   add_executable(oa-data-mutators-clone-test tests/clone_test.cpp)
-  target_link_libraries(oa-data-mutators-clone-test PRIVATE oa-data-mutators oa-test-support)
+  target_link_libraries(
+    oa-data-mutators-clone-test PRIVATE oa-data-mutators oa-test-support oa-test-processor-time
+  )
   add_test(NAME data-mutators-clone COMMAND oa-data-mutators-clone-test)
   set_tests_properties(data-mutators-clone PROPERTIES TIMEOUT 30)
 
@@ -131,6 +133,7 @@ if(BUILD_TESTING)
   target_link_libraries(
     oa-data-mutators-maps-test
     PRIVATE oa-data-mutators oa-data-campaign oa-test-support oa-test-game-data
+            oa-test-processor-time
   )
   target_compile_definitions(
     oa-data-mutators-maps-test
@@ -183,6 +186,7 @@ if(BUILD_TESTING)
             oa-ui-hud
             oa-ui-gui-layout
             oa-test-game-data
+            oa-test-processor-time
   )
   add_test(NAME data-mutators-menus COMMAND oa-data-mutators-menus-test)
   set_tests_properties(data-mutators-menus PROPERTIES TIMEOUT 60)

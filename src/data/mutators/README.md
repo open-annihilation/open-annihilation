@@ -285,8 +285,9 @@ is absent from the journal and the layer, and the next entry uses the
 same path. Removing the first entry of `marked.tdf` leaves a placeholder
 and a note that names no unit. A loop of refused calls under `pcall` leaves
 nothing behind, and a loop of `builds` and one of `remove` stop on the
-instruction allowance at a small part of the real-time limit's processor
-time. An optimised build requires that stop inside 3 s of processor time.
+instruction allowance under a long real-time limit, which a busy machine
+cannot reach first. An optimised build requires that stop inside 3 s of
+processor time.
 An unoptimised build (the Visual Studio Debug configuration, or compiled
 at `-O0`) checks the same stop and leaves that bound out, because it
 spends several times as long.
@@ -311,7 +312,8 @@ field, a write that then errors, and the session loader reading the
 served text. It also runs refused writes in a `pcall` loop, loops of
 long-key reads, writes, `:set` calls and unit lookups that stop on a
 small instruction allowance under a long real-time limit, within 20 s of
-processor time, a write count past the limit, and placed
+processor time, 40000 writes journalled within 5 s of processor time, a
+write count past the limit, and placed
 names that an earlier hook cloned or removed. `data-mutators-maps-data`
 is the same program with `--data`: it reads every installed map and
 writes nothing, then points every map whose schemas name a profile at

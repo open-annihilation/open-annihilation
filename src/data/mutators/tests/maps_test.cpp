@@ -12,13 +12,13 @@
 #include "oa/test/check.hpp"
 #include "oa/test/game_assets.hpp"
 #include "oa/test/game_data.hpp"
+#include "oa/test/processor_time.hpp"
 #include "oa/test/scratch_directory.hpp"
 
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -1020,21 +1020,17 @@ void expect_budget_stop(
     input.time_limit = k_budget_time_limit;
     // The bound is on the processor time this test spends, so other programs
     // sharing the machine do not stretch it. The real time is printed too.
-    const std::clock_t processor_started = std::clock();
-    const auto started = std::chrono::steady_clock::now();
+    const oa::test::WorkTimer timer;
     const mutators::PipelineResult result = mutators::run_pipeline(store, input);
-    const double processor_seconds =
-        static_cast<double>(std::clock() - processor_started) / CLOCKS_PER_SEC;
-    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  std::chrono::steady_clock::now() - started
-    )
-                                  .count();
+    const oa::test::WorkTime took = timer.elapsed();
+    // A processor time the system cannot give fails the bound.
+    const double spent_seconds = took.processor_seconds.value_or(k_budget_stop_seconds);
     std::printf(
         "%.*s stopped in %lld ms (%.0f ms of processor time)\n",
         static_cast<int>(id.size()),
         id.data(),
-        static_cast<long long>(milliseconds),
-        processor_seconds * 1000.0
+        static_cast<long long>(took.real.count()),
+        spent_seconds * 1000.0
     );
     OA_CHECK(!result.playable());
     OA_CHECK(!result.mutators.empty());
@@ -1050,7 +1046,8 @@ void expect_budget_stop(
                 result.mutators.front().message.c_str()
             );
     }
-    OA_CHECK(processor_seconds < k_budget_stop_seconds);
+    OA_CHECK(took.processor_seconds.has_value());
+    OA_CHECK(spent_seconds < k_budget_stop_seconds);
     OA_CHECK(served_entry(result, valley.ota_path) == nullptr);
     release(store);
 }
@@ -1102,22 +1099,35 @@ void test_budgets(
         valley
     );
 
-    // Each write is journalled in constant time, so many writes stay quick.
+    // Each write is journalled in constant time, so many writes stay quick:
+    // within 5 s of this program's processor time, which other programs
+    // sharing the machine do not stretch. The long real-time limit keeps such
+    // a machine from stopping the run; the real time is printed too.
     const char* many = R"(function mutate(ctx)
   return { maps = function(map, ctx)
     for i = 1, 40000 do map.header.gravity = i % 2 end
   end }
 end
 )";
-    const auto started = std::chrono::steady_clock::now();
-    const mutators::PipelineResult written =
-        run_one(store, scratch, "ridge-many-writes", "[\"maps\"]", many, valley);
-    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  std::chrono::steady_clock::now() - started
-    )
-                                  .count();
+    release(store);
+    const fs::path many_package = scratch / "pkg-many-writes";
+    write_package(many_package, "ridge-many-writes", "[\"maps\"]", many);
+    mutators::PipelineInput many_input = make_input({load_mutator(many_package)});
+    many_input.map = valley;
+    many_input.time_limit = k_budget_time_limit;
+    const oa::test::WorkTimer timer;
+    const mutators::PipelineResult written = mutators::run_pipeline(store, many_input);
+    const oa::test::WorkTime took = timer.elapsed();
+    constexpr double many_writes_seconds = 5.0;
+    const double spent_seconds = took.processor_seconds.value_or(many_writes_seconds);
+    std::printf(
+        "ridge-many-writes wrote in %lld ms (%.0f ms of processor time)\n",
+        static_cast<long long>(took.real.count()),
+        spent_seconds * 1000.0
+    );
     OA_CHECK(written.playable());
-    OA_CHECK(milliseconds < 5000);
+    OA_CHECK(took.processor_seconds.has_value());
+    OA_CHECK(spent_seconds < many_writes_seconds);
     std::size_t rows = 0;
     for (const mutators::JournalEntry& entry : written.journal.entries) {
         if (entry.field == "gravity")

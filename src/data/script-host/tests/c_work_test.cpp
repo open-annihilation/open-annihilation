@@ -7,6 +7,7 @@
 #include "lua.hpp"
 #include "oa/data/script_host/script_host.hpp"
 #include "oa/test/check.hpp"
+#include "oa/test/processor_time.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -14,7 +15,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <map>
 #include <optional>
 #include <string>
@@ -466,20 +466,18 @@ void expect_budget(const char* source) {
     put(package, "mutator.lua", source);
     // The bound is on the processor time this test spends, so other programs
     // sharing the machine do not stretch it. The wall time is printed too.
-    const std::clock_t processor_started = std::clock();
-    const auto started = std::chrono::steady_clock::now();
+    const double stop_seconds = budget_stop_seconds * time_scale;
+    const oa::test::WorkTimer timer;
     const bool ran = sandbox->run_file("mutator.lua", "tick", nullptr, error);
-    const auto elapsed = std::chrono::steady_clock::now() - started;
-    const double processor_seconds =
-        static_cast<double>(std::clock() - processor_started) / CLOCKS_PER_SEC;
-    const auto milliseconds =
-        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+    const oa::test::WorkTime took = timer.elapsed();
+    // A processor time the system cannot give fails the bound.
+    const double spent_seconds = took.processor_seconds.value_or(stop_seconds);
     const std::string_view text(source);
     const std::string_view first_line = text.substr(0, text.find('\n'));
     std::printf(
         "stopped in %lld ms (%.0f ms of processor time): %.*s\n",
-        static_cast<long long>(milliseconds),
-        processor_seconds * 1000.0,
+        static_cast<long long>(took.real.count()),
+        spent_seconds * 1000.0,
         static_cast<int>(first_line.size()),
         first_line.data()
     );
@@ -487,7 +485,8 @@ void expect_budget(const char* source) {
     OA_CHECK(error.kind == host::ErrorKind::instruction_budget);
     OA_CHECK(message_has(error, "50000000"));
     OA_CHECK(sandbox->instructions_used() >= host::default_instruction_budget);
-    OA_CHECK(processor_seconds < budget_stop_seconds * time_scale);
+    OA_CHECK(took.processor_seconds.has_value());
+    OA_CHECK(spent_seconds < stop_seconds);
 }
 
 void expect_range(const char* source, const char* function, const char* count) {
