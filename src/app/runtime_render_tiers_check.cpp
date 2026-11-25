@@ -1197,8 +1197,6 @@ int Runtime::check_render_tiers() {
             card.filter != policy::ScaleFilter::sharp_bilinear)
             fail(which + ": the HUD strips are not drawn sharp-bilinear from the prescale target");
         const auto hud_rgb = gamma_of(match_hud_cpu_.rgb);
-        auto minimap = radar_state_.display_image;
-        minimap.rgb = gamma_of(minimap.rgb);
         const Area pointer = cursor();
         Difference difference;
         double sum = 0.0;
@@ -1223,19 +1221,6 @@ int Runtime::check_render_tiers() {
                 {strip.x, strip.y, strip.w, strip.h},
                 {reference.rgb.data(), reference.width, reference.height, reference.width}
             );
-            // The minimap's contacts are painted after the chrome is
-            // scaled, at layout resolution, in every graphics tier.
-            if (!minimap.rgb.empty())
-                blit_rect(
-                    reference,
-                    minimap,
-                    radar_state_.display_rect.x,
-                    radar_state_.display_rect.y,
-                    0,
-                    0,
-                    static_cast<int>(minimap.width),
-                    static_cast<int>(minimap.height)
-                );
             const int right =
                 std::min(strip.x + strip.w - strip_edge_inset, static_cast<int>(read.width));
             const int bottom =

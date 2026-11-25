@@ -21,11 +21,6 @@ geometry is prepared later. The option changes nothing while Enhanced Mode
 is off. Ray tracing is not part of Enhanced Mode, and this release does
 not ship it.
 
-The desktop minimap draws visible contacts at the scaled layout, with a
-compact core for each owner, instead of enlarging contacts already merged
-in the 126-pixel radar. Fog, radar and the input coordinates are unchanged.
-That drawing is not part of Enhanced Mode.
-
 ## Revision 1
 
 Revision 1 is seventeen features, played together. A click gives the same
