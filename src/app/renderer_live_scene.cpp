@@ -27,6 +27,7 @@
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <cmath>
@@ -10347,8 +10348,12 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
     if (bands < 2)
         return result;
     // Each invocation clears all records; only bounded packet capacities remain.
-    thread_local ParallelModelLists storage;
-    result.storage = &storage;
+    // The lists are made on the first such range a thread prepares, so the
+    // game's other threads do not each carry their room.
+    thread_local std::unique_ptr<ParallelModelLists> storage;
+    if (!storage)
+        storage = std::make_unique<ParallelModelLists>();
+    result.storage = storage.get();
     result.bands = bands;
     scene.model_work_counts.candidate_bands = bands;
     std::array<std::size_t, maximum_bands> order{};
@@ -10399,7 +10404,7 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
         base::float_precision::restore_float_control(previous);
     });
     for (uint32_t band = 0; band < bands; ++band) {
-        const auto& list = storage.lists[band];
+        const auto& list = storage->lists[band];
         if (list.failure || list.stopped != result.spans[band].last || !list.vertices.empty() ||
             !list.translucent_vertices.empty() || !list.unit_ranges.empty() ||
             !list.translucent_ranges.empty() || !list.cards.markers.empty() ||
@@ -10407,7 +10412,7 @@ ParallelModelRange prepare_parallel_models(const Inputs& in, Scene& scene, bool 
             list.texels_packed != 0) {
             // A partial worker allocation must not consume the memory
             // the ordinary serial retry needs.
-            for (auto& temporary : storage.lists)
+            for (auto& temporary : storage->lists)
                 temporary = {};
             result.bands = 0;
             scene.model_work_counts.fallback_frames = 1;
