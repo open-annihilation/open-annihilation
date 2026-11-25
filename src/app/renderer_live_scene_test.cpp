@@ -10,6 +10,7 @@
 #include "renderer_water_surface.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
+#include "oa/test/allocation_refusal.hpp"
 #include "oa/test/check.hpp"
 #include "oa/present/rle.hpp"
 #include "oa/platform/job_pool.hpp"
@@ -44,8 +45,10 @@ thread_local std::size_t ground_allocation_to_refuse = std::numeric_limits<std::
 #endif
 
 /// Refuses one selected ordinary allocation only during an explicit preparation check.
+/// The standard library's own container bookkeeping is neither counted nor refused.
 void* operator new(std::size_t bytes) {
-    if (watch_ground_allocations && ground_allocations++ == ground_allocation_to_refuse) {
+    if (watch_ground_allocations && !oa::test::library_bookkeeping_block(bytes) &&
+        ground_allocations++ == ground_allocation_to_refuse) {
         ++refused_ground_allocations;
         throw std::bad_alloc{};
     }

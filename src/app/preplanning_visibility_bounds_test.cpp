@@ -6,6 +6,7 @@
 #include "preplanning_visibility_bounds.hpp"
 #include "presentation_interpolation.hpp"
 
+#include "oa/test/allocation_refusal.hpp"
 #include "oa/test/check.hpp"
 
 #include <algorithm>
@@ -36,9 +37,10 @@ thread_local std::size_t refused_allocations{};
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
 #endif
 
-/// Refuses a single allocation only inside the explicit recovery controls.
+/// Refuses a single allocation only inside the explicit recovery controls,
+/// passing the standard library's own container bookkeeping by.
 void* operator new(std::size_t bytes) {
-    if (refuse_allocation) {
+    if (refuse_allocation && !oa::test::library_bookkeeping_block(bytes)) {
         refuse_allocation = false;
         ++refused_allocations;
         throw std::bad_alloc{};
