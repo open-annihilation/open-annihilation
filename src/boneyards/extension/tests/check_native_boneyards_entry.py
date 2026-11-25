@@ -1126,7 +1126,10 @@ def run_facing(arguments, game_tree, run_dir, user, data, tmp, prefs, extra, ans
             player.call("ui.key", {"chord": "B", "phase": "tap"}, 30)
             player.call("ui.wait", {"control": TURN_ON, "timeout_ms": 30000}, 60)
         button = TURN_ON if answer == "turn-on" else CANCEL
-        player.call("ui.click", {"name": button}, 30)
+        # Turn on fetches and installs the package in the frame that takes the
+        # click, and the click is answered after that frame, so on a busy
+        # machine it may take as long as the entry the click starts.
+        player.call("ui.click", {"name": button}, 240 if answer == "turn-on" else 30)
         if answer == "turn-on":
             output = wait_log(log_path, process, OPENED, 240)
         else:
