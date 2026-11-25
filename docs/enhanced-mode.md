@@ -348,8 +348,11 @@ For the suite's network case of Revision 1:
   machine, 1,000 movers each on Painted Desert, and
   `native-net-route-burst-loss` with `-e 10` on the guest
   ([testing](development/testing.md#network-play)). Its two programs keep
-  step, so it compares at the last tick both have read once both have
-  settled.
+  step, so it compares player, type and cell at the last tick both have read
+  once both have settled, and health once a full record of every copy has
+  also arrived on both: a commander's first full record rides on its
+  owner's tick 1,020, and a lost part carrying it is sent again, so it can
+  come later than the settle.
 - Plus an Off run of the same stage, whose wire is byte for byte the base's
   (the capture compare of the crossplay cases), and a battle room with a
   3.1c machine, which plays Off with unchanged bytes.
