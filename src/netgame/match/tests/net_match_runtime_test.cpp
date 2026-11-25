@@ -809,7 +809,11 @@ void preparing_a_binding_keeps_canonical_records() {
             CHECK(world.game.players[0].first_unit == oa_ref_from_index(kUnitsPerPlayer + 1));
             // Reassigning ranges now would reverse both participants' ranges
             // and overwrite the recorded unit's owner and squad.
-            std::swap(world.game.players[0].player_id, world.game.players[1].player_id);
+            auto first_id = world.game.players[0].player_id;
+            auto second_id = world.game.players[1].player_id;
+            std::swap(first_id, second_id);
+            world.game.players[0].player_id = first_id;
+            world.game.players[1].player_id = second_id;
             world.units[1].squad = recorded_squad;
             const Game game = world.game;
             std::vector<uint8_t> units(sizeof(Unit) * world.unit_slot_count);
