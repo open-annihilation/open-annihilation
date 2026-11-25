@@ -205,7 +205,16 @@ void caster_index_runs_tests() {
     OA_CHECK(!limit.shadow_runs_ready && limit.shadow_runs.empty());
 
     // Optional metadata failure must leave the original drawable topology usable.
-    for (const std::size_t refused : {std::size_t{0}, std::size_t{1}}) {
+    // Every allocation a successful preparation makes is refused in turn.
+    auto counted = valid;
+    ground_allocations = 0;
+    ground_allocation_to_refuse = std::numeric_limits<std::size_t>::max();
+    watch_ground_allocations = true;
+    cards::prepare_shadow_runs(counted);
+    watch_ground_allocations = false;
+    const auto allocations = ground_allocations;
+    OA_CHECK(counted.shadow_runs_ready && allocations != 0);
+    for (std::size_t refused = 0; refused < allocations; ++refused) {
         auto allocation = valid;
         ground_allocations = refused_ground_allocations = 0;
         ground_allocation_to_refuse = refused;

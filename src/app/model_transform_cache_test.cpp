@@ -7,6 +7,7 @@
 #include "presentation_interpolation.hpp"
 
 #include "oa/present/model/model_draw.hpp"
+#include "oa/test/allocation_refusal.hpp"
 #include "oa/test/check.hpp"
 
 #include <array>
@@ -32,9 +33,10 @@ thread_local size_t failed_cache_allocations{};
 #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
 #endif
 
-/// Fails one requested ordinary allocation while testing snapshot recovery.
+/// Fails one requested ordinary allocation while testing snapshot recovery,
+/// passing the standard library's own container bookkeeping by.
 void* operator new(size_t bytes) {
-    if (fail_next_cache_allocation) {
+    if (fail_next_cache_allocation && !oa::test::library_bookkeeping_block(bytes)) {
         fail_next_cache_allocation = false;
         ++failed_cache_allocations;
         throw std::bad_alloc{};
