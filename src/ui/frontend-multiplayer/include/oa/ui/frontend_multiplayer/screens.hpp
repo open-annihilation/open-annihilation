@@ -67,6 +67,18 @@ struct LobbyClock {
 /// @param clock The clock; a null now_ms restores the steady clock.
 void multiplayer_bind_clock(const LobbyClock& clock) noexcept;
 
+/// The clock multiplayer_bind_clock last bound.
+///
+/// @return The clock; a null now_ms is the steady clock.
+[[nodiscard]] LobbyClock multiplayer_clock() noexcept;
+
+/// The multiplayer screens' clock now, as their timers and the text boxes'
+/// caret read it.
+///
+/// @return The bound clock's milliseconds, else the steady clock's since the
+/// screens started.
+[[nodiscard]] uint32_t multiplayer_clock_ms();
+
 /// The screen size the battle room's RES column shows for the local player:
 /// the size the game plays at, which the settings' Screen size chooses. The
 /// column only shows it; the room changes no setting.
