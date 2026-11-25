@@ -3,12 +3,13 @@
 
 // --check-key-capture: capturing a chord over a paused skirmish, a clash and
 // its swap after its confirm button, the clash question opening and
-// following the pointer in under 100 ms, Escape held for a second, a refused
-// Escape, Settings' chord, Find by key hearing Primary+, and a draft clash
-// settled from Settle…. With --snapshot it writes key-capture-<w>x<h>.ppm and
-// key-clash-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080, and
-// key-find-1280x720.ppm.
+// following the pointer in under 100 ms of the main thread's processor time,
+// Escape held for a second, a refused Escape, Settings' chord, Find by key
+// hearing Primary+, and a draft clash settled from Settle…. With --snapshot
+// it writes key-capture-<w>x<h>.ppm and key-clash-<w>x<h>.ppm at 640x480,
+// 1280x720 and 1920x1080, and key-find-1280x720.ppm.
 
+#include "benchmark_thread_cpu.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
 #include "pad_state.hpp"
@@ -21,7 +22,6 @@
 
 #include <SDL3/SDL.h>
 
-#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -108,6 +108,61 @@ struct RestoreStream {
 /// @param step the step
 void note(std::string_view line) {
     std::cout << "key capture check: " << line << '\n';
+}
+
+/// The most time the clash question may take to open or to follow one move
+/// of the pointer, in milliseconds.
+constexpr int64_t prompt_budget_ms = 100;
+
+/// What one step of the question took on the main thread.
+struct StepTime {
+    /// The main thread's processor time, in milliseconds; nothing where the
+    /// thread's clock cannot be read.
+    std::optional<int64_t> processor_ms{};
+    int64_t real_ms{}; ///< the real time, in milliseconds
+
+    /// Returns the time held to the budget: the processor time, which other
+    /// programs sharing the machine do not stretch, or the real time where
+    /// the thread's clock cannot be read.
+    ///
+    /// @return milliseconds
+    [[nodiscard]] int64_t held_ms() const { return processor_ms.value_or(real_ms); }
+};
+
+/// Times one step on the calling thread, in its processor time and in real
+/// time.
+///
+/// @param step the step to run
+/// @return what it took
+template <typename Step>
+StepTime time_step(const Step& step) {
+    constexpr uint64_t nanoseconds_per_millisecond = 1'000'000;
+    const std::optional<uint64_t> processor_started = benchmark_timing::thread_cpu_nanoseconds();
+    const auto started = std::chrono::steady_clock::now();
+    step();
+    StepTime taken;
+    taken.real_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started
+    )
+                        .count();
+    const std::optional<uint64_t> processor_stopped = benchmark_timing::thread_cpu_nanoseconds();
+    if (processor_started && processor_stopped && *processor_stopped >= *processor_started)
+        taken.processor_ms = static_cast<int64_t>(
+            (*processor_stopped - *processor_started) / nanoseconds_per_millisecond
+        );
+    return taken;
+}
+
+/// Says what a step took: its processor time with the real time beside it,
+/// or the real time alone where the thread's clock cannot be read.
+///
+/// @param taken what the step took
+/// @return the words for the log
+std::string step_time_text(const StepTime& taken) {
+    if (!taken.processor_ms)
+        return std::to_string(taken.real_ms) + " ms (real time; no thread clock)";
+    return std::to_string(*taken.processor_ms) + " ms of processor time (" +
+           std::to_string(taken.real_ms) + " ms real)";
 }
 
 } // namespace
@@ -429,7 +484,9 @@ void Runtime::check_key_capture() {
     // The question works out what each outcome leaves as it opens. Pressing
     // Choose what happens… and moving the pointer over the question each
     // stay well inside a frame, in a match with the game's GUI keys and
-    // Category words listed.
+    // Category words listed. The main thread's processor time is held to
+    // the budget, so other programs sharing the machine do not stretch it;
+    // the real time is printed beside it.
     note("P for Load names Patrol, and Choose what happens… opens at once");
     clear_search();
     type_search("order.load");
@@ -444,17 +501,9 @@ void Runtime::check_key_capture() {
                 .text.find("Patrol") != std::string::npos,
         "P for Load does not name Patrol"
     );
-    const auto milliseconds_since = [](std::chrono::steady_clock::time_point start) {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::steady_clock::now() - start
-        )
-            .count();
-    };
-    const auto opening = std::chrono::steady_clock::now();
-    click_named("oa.key-editor.capture.ok");
-    const auto open_ms = milliseconds_since(opening);
+    const StepTime opened = time_step([&] { click_named("oa.key-editor.capture.ok"); });
     require(named("oa.key-editor.clash").has_value(), "Choose what happens… did not ask");
-    int64_t slowest_ms = 0;
+    std::optional<StepTime> slowest;
     for (const std::string_view part :
          {"oa.key-editor.clash.replace",
           "oa.key-editor.clash.swap",
@@ -466,17 +515,24 @@ void Runtime::check_key_capture() {
             control.window_x + control.window_width / 2,
             control.window_y + control.window_height / 2
         };
-        const auto moved = std::chrono::steady_clock::now();
-        pointer_at(pixel, SDL_EVENT_MOUSE_MOTION, 0);
-        frames(1);
-        slowest_ms = std::max<int64_t>(slowest_ms, milliseconds_since(moved));
+        const StepTime moved = time_step([&] {
+            pointer_at(pixel, SDL_EVENT_MOUSE_MOTION, 0);
+            frames(1);
+        });
+        if (!slowest || moved.held_ms() > slowest->held_ms())
+            slowest = moved;
     }
-    std::cout << "key capture check: Choose what happens… took " << open_ms
-              << " ms, the slowest move over the question " << slowest_ms << " ms\n";
+    const StepTime slowest_move = slowest.value_or(StepTime{});
+    std::cout << "key capture check: Choose what happens… took " << step_time_text(opened)
+              << ", the slowest move over the question " << step_time_text(slowest_move) << '\n';
     if (prompt_times_compared) {
-        require(open_ms < 100, "Choose what happens… took " + std::to_string(open_ms) + " ms");
         require(
-            slowest_ms < 100, "a move over the question took " + std::to_string(slowest_ms) + " ms"
+            opened.held_ms() < prompt_budget_ms,
+            "Choose what happens… took " + step_time_text(opened)
+        );
+        require(
+            slowest_move.held_ms() < prompt_budget_ms,
+            "a move over the question took " + step_time_text(slowest_move)
         );
     }
     cancel_prompt();
