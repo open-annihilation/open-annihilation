@@ -664,6 +664,11 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(app-renderer-live-${oa_live_part} PROPERTIES TIMEOUT 60)
     endforeach()
     set_tests_properties(app-renderer-live-gpu PROPERTIES SKIP_RETURN_CODE 77)
+    # The scene's Debug build runs its cases about eight times slower than
+    # Check: 218 s against 26 s alone in the Visual Studio lane, which a
+    # full run stretches about 2.4 times. Debug gets three times
+    # the limit; every other build keeps 60 s.
+    set_tests_properties(app-renderer-live-scene PROPERTIES TIMEOUT $<IF:$<CONFIG:Debug>,180,60>)
     # The scene's terrain is held to the simulation's own ground.
     target_link_libraries(oa-app-renderer-live-scene-test PRIVATE oa-sim-unit-movement)
     # The overlay is held to the painters' own blends and text.
