@@ -3,11 +3,14 @@
 
 // Match chrome, side HUD, resource readout, fog and minimap.
 #include "oa/app/runtime.hpp"
-#include "director_state.hpp"
+
 #include "oa/present/colour_vision/colour_vision.hpp"
 #include "oa/present/gaf_sprites.hpp"
 #include "oa/present/surface.h"
+#include "oa/present/world_renderer/world_camera.hpp"
+#include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/ui/hud/shape_cues.hpp"
+#include "oa/ui/hud/shared_views.hpp"
 #include "gui_actions.hpp"
 #include "oa_layer.hpp"
 #include "oa/data/input_actions/actions.hpp"
@@ -22,17 +25,13 @@
 #include "oa/ui/hud/kill_board.hpp"
 #include "oa/ui/hud/status_panel.hpp"
 #include "oa/present/world_renderer/world_fog.hpp"
-#include "oa/present/world_renderer/world_camera.hpp"
-#include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/present/surface.hpp"
-#include "oa/sim/weapon_execution/weapon_keys.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
 #include "oa/ui/hud/build_page_fit.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/order_panel.hpp"
 #include "oa/ui/hud/resource_bar.hpp"
-#include "oa/ui/hud/shared_views.hpp"
 #include "oa/ui/hud/unit_panel.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/kit/canvas.hpp"
@@ -1550,9 +1549,6 @@ oa::present::world_renderer::OverlayRaster Runtime::source_overlay_raster() {
 
 void Runtime::blit_match_minimap() {
     auto& radar = radar_state_;
-    radar.display_image.rgb.clear();
-    radar.display_image.width = radar.display_image.height = 0;
-    radar.display_rect = {};
     if (!match_ || radar.built_for != &match_->state() || radar.well == nullptr)
         return;
     auto& game = match_->state().game;
@@ -1774,129 +1770,6 @@ void Runtime::blit_match_minimap() {
     radar_picture_ = {hit.x, hit.y, hit.width, hit.height};
     radar_map_w_ = game.map_pixel_width;
     radar_map_h_ = game.map_pixel_height;
-    prepare_minimap_display();
-}
-
-void Runtime::prepare_minimap_display() {
-    namespace wr = oa::present::world_renderer;
-    namespace hud = oa::ui::hud;
-    auto& radar = radar_state_;
-    // Shape cues keep the radar's compact markers drawn above, including
-    // its blinking, cursor and range marks, rather than replacing them with dots.
-    if (!match_ || radar.surfaces.mapped == nullptr || match_hud_cpu_.rgb.empty() ||
-        oa::present::colour_vision::shape_cues_active() ||
-        oa::ui::display_layout::placed_mode(match_layout_) ||
-        (director_ != nullptr && !director_->presentation.show_interface))
-        return;
-    const auto& world = match_->state();
-    const auto& game = world.game;
-    const auto rect = radar_picture_;
-    if (rect.width <= game.radar_width && rect.height <= game.radar_height)
-        return;
-    if (game.map_pixel_width <= 0 || game.map_pixel_height <= 0 || game.radar_width <= 0 ||
-        game.radar_height <= 0 || rect.width <= 0 || rect.height <= 0 ||
-        rect.width > wr::radar_display_edge_limit || rect.height > wr::radar_display_edge_limit ||
-        rect.x < 0 || rect.y < 0 || rect.x + rect.width > match_layout_.width ||
-        rect.y + rect.height > match_layout_.height)
-        return;
-    const auto pixels = static_cast<std::size_t>(rect.width) * rect.height;
-    radar.display_indices.resize(pixels);
-    radar.display_owners.resize(pixels);
-    oa::Surface target{};
-    oa::present::init_surface(
-        target, rect.width, rect.height, rect.width, radar.display_indices.data()
-    );
-    wr::RadarContactHost host{};
-    host.user = this;
-    host.allied_units_shown = ui_rules().allied_unit_display.enabled;
-    host.point_visible = [](void* user, const oa::FixedVec3& position) {
-        auto& self = *static_cast<Runtime*>(user);
-        try {
-            return self.match_->point_shown(
-                self.match_->state().game.viewpoint_player,
-                {static_cast<uint32_t>(position.x),
-                 static_cast<uint32_t>(position.y),
-                 static_cast<uint32_t>(position.z)}
-            );
-        } catch (const std::exception&) {
-            return false;
-        }
-    };
-    host.projectile_hidden = [](void* user, const oa::Projectile& shot) {
-        const auto& self = *static_cast<Runtime*>(user);
-        const auto* weapon = oa::world_weapon_def(&self.match_->state(), shot.def);
-        return weapon != nullptr &&
-               oa::sim::weapon_execution::silent_ownerless_shot(
-                   shot, *weapon, self.match_->rules_view().weapon(oa::oa_weapon_def_id(weapon))
-               );
-    };
-    std::array<uint8_t, OA_PLAYER_COUNT> colors{};
-    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
-        colors[player] = hud::player_dot_color(world, player);
-    std::array<wr::RadarOutline, OA_PLAYER_COUNT + 1> outlines{};
-    const auto column = [&](int32_t x) {
-        return std::clamp(
-            static_cast<int32_t>(int64_t{x - game.radar_offset_x} * rect.width / game.radar_width),
-            0,
-            rect.width - 1
-        );
-    };
-    const auto row = [&](int32_t y) {
-        return std::clamp(
-            static_cast<int32_t>(
-                int64_t{y - game.radar_offset_y} * rect.height / game.radar_height
-            ),
-            0,
-            rect.height - 1
-        );
-    };
-    outlines[0] = {
-        {column(game.radar_view_rect.x1),
-         row(game.radar_view_rect.y1),
-         column(game.radar_view_rect.x2),
-         row(game.radar_view_rect.y2)},
-        wr::game_ui_color(game, wr::ui_color_radar_marks)
-    };
-    std::size_t outline_count = 1;
-    if (ui_rules().camera_sharing.enabled) {
-        hud::MinimapFrame frame{};
-        frame.width = rect.width;
-        frame.height = rect.height;
-        frame.map_width = game.map_pixel_width;
-        frame.map_height = game.map_pixel_height;
-        frame.view_width =
-            static_cast<int32_t>(int64_t{visible_map_width()} * rect.width / game.map_pixel_width);
-        frame.view_height = static_cast<int32_t>(
-            int64_t{visible_map_height()} * rect.height / game.map_pixel_height
-        );
-        std::array<hud::CameraRectangle, OA_PLAYER_COUNT> shared{};
-        const auto count =
-            hud::camera_rectangles(world, shared_views_, local_player_watches(), frame, shared);
-        for (uint32_t index = 0; index < count; ++index) {
-            const auto& camera = shared[index];
-            outlines[outline_count++] = {
-                {camera.left, camera.top, camera.right, camera.bottom}, camera.color
-            };
-        }
-    }
-    (void)wr::radar_compose_display(
-        world,
-        *radar.surfaces.mapped,
-        target,
-        radar.sprites,
-        host,
-        colors,
-        radar.display_owners,
-        std::span<const wr::RadarOutline>(outlines).first(outline_count)
-    );
-    radar.display_image.width = static_cast<uint32_t>(rect.width);
-    radar.display_image.height = static_cast<uint32_t>(rect.height);
-    radar.display_image.rgb.resize(pixels * 3U);
-    for (std::size_t pixel = 0; pixel < pixels; ++pixel) {
-        const auto color = static_cast<std::size_t>(radar.display_indices[pixel]) * 4U;
-        std::copy_n(match_palette_.data() + color, 3, radar.display_image.rgb.data() + pixel * 3U);
-    }
-    radar.display_rect = rect;
 }
 
 void Runtime::draw_status_panel() {

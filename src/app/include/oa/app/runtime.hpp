@@ -12150,15 +12150,6 @@ class Runtime final : public menu::Host,
     /// frame.
     void blit_match_minimap();
 
-    /// Builds minimap contacts at the displayed HUD resolution.
-    /// Retains the original radar geometry for input and uses the ordinary
-    /// picture when a separate contact layer cannot be prepared.
-    void prepare_minimap_display();
-
-    /// Draws the prepared minimap picture at its final display rectangle.
-    /// Does nothing when the ordinary HUD already supplies the picture.
-    void present_minimap_display();
-
     /// Returns the RGB of a match palette index.
     ///
     /// @param index palette index
@@ -22835,16 +22826,6 @@ class Runtime final : public menu::Host,
         /// kept under ui.megamap's enhanced minimap (enhance_radar_picture);
         /// empty otherwise.
         std::vector<uint8_t> game_picture{};
-
-        /// The displayed minimap's palette indices and per-pixel owner masks.
-        std::vector<uint8_t> display_indices{};
-        std::vector<uint16_t> display_owners{};
-        /// The minimap composed at the destination resolution, without HUD scaling.
-        renderer::Surface display_image{};
-        HudRect display_rect{};
-        SDL_Texture* display_texture = nullptr;
-        int display_texture_w = 0;
-        int display_texture_h = 0;
 
         /// Frees the radar surfaces and well.
         void release();
