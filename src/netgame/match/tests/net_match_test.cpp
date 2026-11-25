@@ -539,7 +539,11 @@ void launch_helpers() {
     }
     // Machines with different player slots give each peer id the same
     // physical range: peer 0x200 still owns the first range after the swap.
-    std::swap(world->game.players[3].player_id, world->game.players[9].player_id);
+    auto first_id = world->game.players[3].player_id;
+    auto second_id = world->game.players[9].player_id;
+    std::swap(first_id, second_id);
+    world->game.players[3].player_id = first_id;
+    world->game.players[9].player_id = second_id;
     CHECK(match_assign_enhanced_unit_ranges(world, enhanced_players));
     CHECK(world->game.players[3].base_unit_id == 1);
     CHECK(world->game.players[9].base_unit_id == enhanced_limit + 1);

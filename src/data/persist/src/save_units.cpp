@@ -79,9 +79,9 @@ uint8_t saved_stockpile(const World& world, const Unit& unit, uint32_t slot) noe
         return held;
 
     const oa_ref32 source = world_unit_ref(&world, &unit);
-    const int32_t live_count = std::min(
-        world.game.projectile_count, static_cast<int32_t>(world_projectile_capacity(&world))
-    );
+    const int32_t projectile_count = world.game.projectile_count;
+    const int32_t live_count =
+        std::min(projectile_count, static_cast<int32_t>(world_projectile_capacity(&world)));
     if (held >= saved_stockpile_limit)
         return held;
 

@@ -106,8 +106,9 @@ void draw_projectiles(
     if (world.projectiles == nullptr)
         return;
     const auto viewer = game.viewpoint_player;
+    const auto projectile_count = game.projectile_count;
     const auto count =
-        std::min(game.projectile_count, static_cast<int32_t>(world_projectile_capacity(&world)));
+        std::min(projectile_count, static_cast<int32_t>(world_projectile_capacity(&world)));
     for (int32_t index = 0; index < count; ++index) {
         const Projectile& shot = world.projectiles[index];
         const WeaponDef* weapon = world_weapon_def(&world, shot.def);
@@ -240,8 +241,9 @@ void display_projectiles(
     if (world.projectiles == nullptr)
         return;
     const auto& game = world.game;
+    const auto projectile_count = game.projectile_count;
     const auto count =
-        std::min(game.projectile_count, static_cast<int32_t>(world_projectile_capacity(&world)));
+        std::min(projectile_count, static_cast<int32_t>(world_projectile_capacity(&world)));
     for (int32_t index = 0; index < count; ++index) {
         const auto& shot = world.projectiles[index];
         const auto* weapon = world_weapon_def(&world, shot.def);

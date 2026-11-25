@@ -122,6 +122,30 @@ void operator delete[](void* pointer, size_t) noexcept {
     std::free(pointer);
 }
 
+/// Allocates as operator new does, returning null instead of throwing.
+void* operator new(size_t size, const std::nothrow_t&) noexcept {
+    try {
+        return ::operator new(size);
+    } catch (const std::bad_alloc&) {
+        return nullptr;
+    }
+}
+
+/// Allocates an array as operator new[] does, returning null instead of throwing.
+void* operator new[](size_t size, const std::nothrow_t&) noexcept {
+    return ::operator new(size, std::nothrow);
+}
+
+/// Releases storage operator new (nothrow) gave.
+void operator delete(void* pointer, const std::nothrow_t&) noexcept {
+    ::operator delete(pointer);
+}
+
+/// Releases storage operator new[] (nothrow) gave.
+void operator delete[](void* pointer, const std::nothrow_t&) noexcept {
+    ::operator delete(pointer);
+}
+
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
