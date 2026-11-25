@@ -8,8 +8,10 @@
 // a vector's default and move constructors. A refusal there ends the program
 // at once, before the code under test can recover. Release builds and the
 // other standard libraries have no such block, so a test passes these blocks
-// by: it neither counts nor refuses them, and refuses the same storage in
-// every build.
+// by: it neither counts nor refuses them. The block is told by its size alone,
+// so in such a build storage of exactly that size is passed by too; every
+// other build still counts and refuses it. A test that refuses allocations by
+// number therefore counts them first rather than naming them.
 #pragma once
 
 #include <cstddef>
