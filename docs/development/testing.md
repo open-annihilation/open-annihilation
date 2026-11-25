@@ -2424,6 +2424,12 @@ int main() {
   stall a test for longer. Drive the clock the code reads where it takes
   one, or poll with a generous limit, and make a check that something has
   not happened yet hold however late it runs.
+- Hold a bound on how long work takes to the program's own processor
+  time, which other programs sharing the machine do not stretch, and print
+  the real time beside it: `oa::test::WorkTimer`
+  (`oa/test/processor_time.hpp`, target `oa-test-processor-time`) reads
+  both. On Windows `std::clock` counts real time, so it is no processor
+  clock there.
 
 ### Expected values
 

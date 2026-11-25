@@ -92,7 +92,7 @@ if(BUILD_TESTING)
   # Library work charged to the allowance, against Lua's own results.
   add_executable(oa-data-script-host-c-work-test tests/c_work_test.cpp)
   target_link_libraries(oa-data-script-host-c-work-test PRIVATE
-    oa-data-script-host oa-test-support oa-options)
+    oa-data-script-host oa-test-support oa-test-processor-time oa-options)
   add_test(NAME data-script-host-c-work COMMAND oa-data-script-host-c-work-test)
   set_tests_properties(data-script-host-c-work PROPERTIES TIMEOUT 180)
 
@@ -155,7 +155,7 @@ if(BUILD_TESTING)
   # Fixed counts against an independent table, through C++ and through a sandbox.
   add_executable(oa-data-script-host-fixed-test tests/fixed_test.cpp)
   target_link_libraries(oa-data-script-host-fixed-test PRIVATE
-    oa-data-script-host oa-formats-tdf oa-test-support oa-options)
+    oa-data-script-host oa-formats-tdf oa-test-support oa-test-processor-time oa-options)
   add_test(NAME data-script-host-fixed COMMAND oa-data-script-host-fixed-test)
   set_tests_properties(data-script-host-fixed PROPERTIES TIMEOUT 60)
 
