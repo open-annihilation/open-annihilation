@@ -87,6 +87,16 @@ bool clear_cell(
     return host.can_occupy(unit, cell, occupancy);
 }
 
+/// Tests whether a direction lies within a turn either side of the unit's heading.
+///
+/// @param unit moving unit
+/// @param direction heading of the step, in the unit heading's units
+/// @param turn widest turn allowed either side
+/// @return whether the unit reaches the step without turning further than `turn`
+bool within_turn(const Unit& unit, uint16_t direction, uint16_t turn) noexcept {
+    return std::abs(std::bit_cast<int16_t>(uint16_t(direction - unit.heading))) <= turn;
+}
+
 /// Tests a bounded short segment, including the two sides of diagonal cell crossings.
 ///
 /// @param unit moving unit
@@ -326,9 +336,17 @@ LocalFlowDecision choose_route_flow(
         constexpr int64_t minimum_forward_ratio_denominator = 4;
         return forward * minimum_forward_ratio_denominator <= std::abs(cross);
     };
+    // A ground unit turns as it drives and cannot step sideways or back. A
+    // passing point well off its heading turns it round, and in a crowd the
+    // next choice turns it back again: it circles on the spot. Passing points
+    // therefore lie within an eighth turn of its heading, a quarter turn on a
+    // mature retry; when none is clear the unit keeps its route and waits.
+    const auto widest_turn = probe.allow_reverse ? quarter_turn : eighth_turn;
     constexpr std::array<int32_t, 4> turns{-eighth_turn, eighth_turn, -quarter_turn, quarter_turn};
     for (const auto reach : {cell_step, cell_step * 2})
         for (const auto angle : turns) {
+            if (!within_turn(unit, static_cast<uint16_t>(heading + angle), widest_turn))
+                continue;
             const auto velocity = aim_velocity(static_cast<uint16_t>(heading + angle), 0, reach);
             std::array<Fixed, 3> candidate;
             if (!offset_point(unit.position, velocity[0], velocity[2], reach, reach, candidate) ||
@@ -341,7 +359,9 @@ LocalFlowDecision choose_route_flow(
             return result;
         }
     // Do not back away from distant traffic: approach a passing place first.
-    if (blocker_distance <= cell_step * 2) {
+    // Only a unit already turned back from its route backs away.
+    if (blocker_distance <= cell_step * 2 &&
+        within_turn(unit, static_cast<uint16_t>(heading + half_turn), widest_turn)) {
         const auto velocity =
             aim_velocity(static_cast<uint16_t>(heading + half_turn), 0, cell_step);
         std::array<Fixed, 3> candidate;
@@ -381,6 +401,13 @@ LocalFlowDecision choose_cell_escape(
     });
     const auto occupancy = uint8_t(movement.flags & occupancy_mask);
     for (const auto index : order) {
+        // A mature escape steps aside, never back behind the unit's shoulder.
+        if (!within_turn(
+                unit,
+                oa::base::game_math::direction(-directions[index][0], -directions[index][1]),
+                quarter_turn
+            ))
+            continue;
         auto candidate = unit.position;
         auto expected = unit.cell;
         const unsigned axis = directions[index][0] == 0 ? 1 : 0;

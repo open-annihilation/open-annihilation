@@ -40,7 +40,9 @@ instead of building it again for every query.
 **Local traffic.** Ground units steer around other moving units for a short
 while, and a unit that has been blocked only briefly waits before it asks
 for another full route. The order you gave stays in place. After a run of
-blocked ticks the unit plans again.
+blocked ticks the unit plans again. A unit steps aside only a little off
+the way it faces, and never turns round to let traffic by, so a crowd waits
+its turn instead of circling on the spot.
 
 **Shared routes.** Nearby ground destinations share a coarse route, built
 on a fine grid. Each edge is checked again against the ground and against
