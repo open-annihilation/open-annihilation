@@ -348,6 +348,20 @@ its owner's range, so it is the limit the simulation enforces. With no
 match it is nil, and `me:unit_count_of` checks its argument and returns
 nil.
 
+`sim-brains-counts` (`tests/counts_test.cpp`) seats a brain on the
+computer-build fixture with Category words on its types. It counts by
+name, record, index and tag, case-insensitively, with a repeated word, an
+unknown tag, indexes outside the table and refused values; counts that
+follow units made and freed within one tick; a full-awareness seat that
+still counts only its own; a dismissed unit gone at once, and a captured
+one counted until the next sweep frees its slot; `game.unit_limit` at 40
+and 250 with Enhanced Mode Off and at 10,000 and 60 under Revision 1, with
+the range filled until the match refuses a unit; a seat with no match; and
+a 60-tick run whose turns read what the slots hold, with the same random
+stream and state hash as a seat that does not count. `app-brain-check-data`
+counts the check match's commander against the installed game, and asks
+every word of every loaded type's `Category` line.
+
 ## Events
 
 The first seated brain registers one listener on the match's event fan-out.

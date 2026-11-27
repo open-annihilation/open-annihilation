@@ -102,6 +102,15 @@ if(BUILD_TESTING)
   add_test(NAME sim-brains-sight COMMAND oa-sim-brains-sight-test)
   set_tests_properties(sim-brains-sight PROPERTIES TIMEOUT 180)
 
+  # The seat's own units counted by name and by tag, and the match's unit
+  # limit, with Enhanced Mode Off and under Revision 1.
+  add_executable(oa-sim-brains-counts-test tests/counts_test.cpp)
+  target_include_directories(oa-sim-brains-counts-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_link_libraries(oa-sim-brains-counts-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-data-enhanced-mode oa-sim-state-hash)
+  add_test(NAME sim-brains-counts COMMAND oa-sim-brains-counts-test)
+  set_tests_properties(sim-brains-counts PROPERTIES TIMEOUT 180)
+
   # Unit, weapon and feature records. The made-up brain is definition-reader.
   # --data compares every installed unit with the value the match loaded.
   add_executable(oa-sim-brains-defs-test tests/defs_test.cpp)
