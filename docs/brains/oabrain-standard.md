@@ -662,6 +662,7 @@ name raises and `pairs(game)` yields both.
 | `game.build_list(type)` | A new sequence of `units` records, the builder's list. |
 | `game.build_list_cap` | How many ids that list keeps. |
 | `game.downloadables_allowed` | False when the computer players were configured for a campaign. Nil outside a match. |
+| `game.unit_limit` | How many units each player may have in this match. Nil outside a match. [7.5.2 Counting units](#752-counting-units). |
 | `game.units` | Full awareness only. [7.7 Full awareness](#77-full-awareness). |
 
 `game.mod.sides` lists every loaded SIDEDATA side in order from `SIDE0`,
@@ -839,7 +840,8 @@ is 2. It returns nil when the seat's table does not reach the type.
 | `me:allies()` | The allied players. |
 | `me:players()` | The players in the game. `#me:players()` is how many. Each row has `player`, `name`, `side`, `team`, `allied`, `computer`, `alive`, `start`, `start_x`, `start_z` and `allies`. |
 | `me:units()`, `me:each_unit(fn)` | The seat's occupied slots, in slot order. `each_unit` takes the list before the first call. |
-| `me:unit_count()` | How many of those units. |
+| `me:unit_count()` | How many of those units. [7.5.2 Counting units](#752-counting-units). |
+| `me:unit_count_of(what)` | How many of the seat's units are of one type, by name, record or index, or carry one tag. [7.5.2 Counting units](#752-counting-units). |
 | `me:squad(n)`, `me:squad_size(n)`, `me:squad_member(n, i)` | Squads in the engine's member order. Squads 1 to 9 are the lists the engine holds. |
 | `me.full_awareness` | The flag the seat was given. |
 | `me.seen`, `me.seen_tick` | The seen list, as unit handles, and the refresh tick. |
@@ -948,6 +950,92 @@ solar collector costs 760 energy and 145 metal with a build time of 2495:
 an earlier engine they are nil. A brain that needs them asks for
 `">= 0.8.7"` in `requires.engine`
 ([3.7 works-with and requires](#37-works-with-and-requires)).
+
+#### 7.5.2 Counting units
+
+`me:unit_count()` is how many units the seat's player has now: every unit
+holding one of the player's unit slots, finished or still a nanoframe. It
+is the count the match itself keeps, so the call is one read. A unit that
+dies, or is captured, stops counting when the match frees its slot: when
+its death is carried out in a unit sweep, that tick's or the next. So a
+turn can count a unit marked to die once more, with `dying` true. A gift
+or a capture is a new unit of the receiver's.
+
+`me:unit_count_of(what)` counts the same units, of one type or one tag.
+`what` is one of:
+
+- a unit's name, such as `"ARMCOM"`, ignoring ASCII case, a unit record,
+  such as `units.ARMCOM`, or a type index. That type's units are counted.
+- a tag: a word of a unit type's `Category` line, ignoring ASCII case. The
+  units of every type whose line carries the word are counted. These are
+  the words `units[i].category` lists, the words the keys editor shows
+  under Tags and `select.tag-` binds, and the words the console's select
+  command takes. `CTRL_B`, `CTRL_C`, `CTRL_F` and `CTRL_V` are the words
+  Ctrl+B, Ctrl+C, Ctrl+F and Ctrl+V select by, and `CTRL_` and any other
+  letter is that Ctrl+letter's. `ALL` is every type. A key binding's own
+  id, such as `select.builders`, is not a tag.
+
+A word that is a unit's name counts that type, even when some line also
+carries the word as a tag. A known type or tag the seat has none of is 0.
+A word that is no unit's name and no loaded type's tag, a record or an
+index outside the type table, is nil. The tags are the loaded units', so
+which words exist depends on the game and the mod: the base game has
+`VTOL` for aircraft, and no `AIR`. Any other value, such as a unit handle,
+a table or a number that is not an integer, raises
+`unit_count_of expects a unit name, a tag, a unit record or a type index`.
+
+Both count only the seat's own units, with or without full awareness. Use
+`game.units` ([7.7 Full awareness](#77-full-awareness)) to count another
+player's.
+
+`game.unit_limit` is how many units each player may have in this match:
+the unit slots the match gave each player. With Enhanced Mode Off it is
+3.1c's unit limit as the match was set up with it, from the preferences,
+the battle room or the mod's profile. When the match plays an Enhanced
+Mode revision it is that match's larger limit, up to 10,000. It does not
+change during the match. A new unit needs a free slot, so
+`game.unit_limit - me:unit_count()` is the room left. A slot freed by a
+death can stay closed to new units for a short while
+(`units.id-reuse-delay`), so a full army may build a little later than
+the room says.
+
+The charge of `me:unit_count()` is one unit. `me:unit_count_of` charges
+one unit, plus one per type a tag holds, plus, when a unit has been made
+or freed since the seat last counted, or the tick has moved on, one unit
+per 64 of the player's unit slots to count them again. The first tag the
+seat asks charges one unit for each word of each type's `Category` line,
+and the bytes of each different word, once for the match. Every answer is
+read from the match's state as it stands when the call is made, not from
+this computer's settings, so the same match gives the same answers.
+Outside a match, `me:unit_count_of` checks its argument and returns nil,
+and `game.unit_limit` is nil.
+
+```lua
+local hooks = {}
+
+function hooks.onTick(tick)
+  if tick % 30 ~= 0 then
+    return
+  end
+  local room = game.unit_limit - me:unit_count()
+  if room <= 0 then
+    return -- at the limit: nothing more can be built
+  end
+  local builders = me:unit_count_of("CTRL_B") or 0
+  local aircraft = me:unit_count_of("VTOL") or 0
+  if builders < 4 then
+    -- order another builder
+  elseif aircraft < room // 10 then
+    -- order aircraft, keeping room for the rest of the army
+  end
+end
+
+return hooks
+```
+
+`me:unit_count_of` and `game.unit_limit` came with the engine's 0.9.3. On
+an earlier engine `me:unit_count_of` is nil and so is `game.unit_limit`.
+A brain that needs them asks for `">= 0.9.3"` in `requires.engine`.
 
 ### 7.6 What a handle reads
 

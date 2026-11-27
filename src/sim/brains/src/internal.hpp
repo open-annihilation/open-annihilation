@@ -124,6 +124,27 @@ struct StoredOption {
     char text[option_text_bytes + 1]{};
 };
 
+/// The seat's own units by type, counted at most once for one state of them.
+///
+/// Every unit of the seat's player is made with `Player.units_created` and
+/// `Player.unit_count` going up by one, and freed with `unit_count` going
+/// down by one. So when the tick and both counts match the ones the tally
+/// was taken at, no unit has been made or freed since, and the counts hold.
+struct UnitTally {
+    /// `Game.tick` of the count.
+    uint32_t tick{};
+    /// `Player.units_created` at the count.
+    uint32_t created{};
+    /// `Player.unit_count` at the count.
+    uint16_t live{};
+    /// False until the first count.
+    bool counted{};
+    /// Entries `by_type` holds: the match's type count when it was made.
+    uint32_t types{};
+    /// The seat's units of each type index. Null until the first count.
+    std::unique_ptr<uint32_t[]> by_type{};
+};
+
 /// One seated brain. The sources are declared before the sandbox, so the
 /// sandbox is destroyed first and never reads the sources after they go.
 struct Seat {
@@ -208,6 +229,8 @@ struct Seat {
     /// Movement regions built when a script asks whether two points meet.
     /// One class is labelled at most once a tick.
     RegionCache regions{};
+    /// The seat's units by type, for `me:unit_count_of`.
+    UnitTally tally{};
     /// True when this brain runs beside the built-in player.
     bool shadow{};
     /// The calls Lua reaches the match through. Empty until the seat is filled.
@@ -326,6 +349,15 @@ void install_libraries(lua_State* state, Seat& seat);
 /// @param state the sandbox state
 /// @param seat the seat being opened
 void install_chat(lua_State* state, Seat& seat);
+/// Installs `me:unit_count_of` and `game.unit_limit`.
+///
+/// Works when the seat's match is null: the method then checks its argument
+/// and returns nil, and the field is nil.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_unit_counts(lua_State* state, Seat& seat);
+
 /// Installs `game.map`. With no match and no world the field is nil.
 /// A tool seat installs the map from the world its calls carry.
 ///

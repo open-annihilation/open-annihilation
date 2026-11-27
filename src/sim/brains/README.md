@@ -49,10 +49,12 @@ brain plays as the built-in computer player.
   unless the seat has full awareness and the host provides that check, and
   `brain.order_counts` is all zeros. With no match, `me.seen` and `me.radar`
   are empty, `me:sees` and `me:sees_unit` are false, and `me.sight` and
-  `me.explored` are nil. Networks and grids are installed last, after the
-  orders. `brain.network` and `brain.tensor` still work when the seat has no
-  match. `brain.grid` returns nil then, without reading its arguments or any
-  match field.
+  `me.explored` are nil. Networks and grids are installed after the
+  orders, then `brain.record`, then `me:unit_count_of` and
+  `game.unit_limit`. `brain.network` and `brain.tensor` still work when the
+  seat has no match. `brain.grid` returns nil then, without reading its
+  arguments or any match field. `me:unit_count_of` checks its argument and
+  returns nil, and `game.unit_limit` is nil.
 
 ## State
 
@@ -309,10 +311,42 @@ returns false and counts one refusal.
 positions with the engine's own maths. A unit whose position the seat may not
 read contributes nil.
 
+`me:unit_count` reads `Player.unit_count`, the count the match keeps: it
+goes up as a unit takes one of the player's slots and down as
+`teardown_dead_unit` frees one, so it is the occupied slots `me:units`
+lists. A seat with no match walks its host's world instead.
+
 With no match, the four fields from B01 remain, `handed_over` is false, and
 the other getters are nil. `me:units` and `me:squad` are empty,
 `me:unit_count` and `me:squad_size` are 0, and `me:assign` returns false.
 `brain.distance` and `brain.direction` still work on positions.
+
+## Counting units
+
+`install_unit_counts` adds `me:unit_count_of(what)` and `game.unit_limit`.
+`what` is resolved by `find_unit_type`, which takes what
+`resolve_unit_type` takes without raising. A string that is no unit's name
+is a tag: a word of a type's `Category` line, folded to lower case, or
+`all`. The tag table, in the registry under `oa.brain.tags`, maps each word
+of every type's `UnitDefinition::categories` to its types in type order,
+once per seat, the first time a tag is asked. Those are the category
+registry's words, every one but `ALL`, so `ALL` is handled on its own as
+`Player.unit_count`.
+
+`Seat::tally` holds the seat's units by type index. It is counted again by
+walking the player's slots only when `Game.tick`, `Player.units_created`
+or `Player.unit_count` differs from the count it was taken at: a unit is
+made with the last two going up together and freed with the count going
+down, so when all three match nothing has changed. The walk charges one
+unit per 64 slots. A name or an index then charges one unit, and a tag one
+unit plus one per type it holds.
+
+`game.unit_limit` is `Game.units_per_player`, the slots the match's pool
+gave each player: 3.1c's limit with Enhanced Mode Off, the capacity
+feature's limit under a revision. A unit is made only in a free slot of
+its owner's range, so it is the limit the simulation enforces. With no
+match it is nil, and `me:unit_count_of` checks its argument and returns
+nil.
 
 ## Events
 

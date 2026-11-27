@@ -537,6 +537,28 @@ same way. What goes into each, and a commander building a solar
 collector worked through, is
 [7.5.1 The economy](oabrain-standard.md#751-the-economy).
 
+`me:unit_count()` is how many units the seat has, nanoframes included,
+and `game.unit_limit` is how many each player may have in this match:
+3.1c's limit, or the larger one an Enhanced Mode match plays, up to
+10,000. The difference is the room left to build. `me:unit_count_of` counts
+one type, by a record or a name, or one tag, a word of the units'
+`Category` lines such as `CTRL_B` (builders) or `VTOL` (the base game's
+aircraft). A word no loaded unit carries is nil, so a brain that plays
+any mod falls back with `or 0`:
+
+```lua
+local room = game.unit_limit - me:unit_count()
+local builders = me:unit_count_of("CTRL_B") or 0
+if room > 0 and builders < 4 then
+  -- queue another builder
+end
+```
+
+Both count only the seat's own units, and are cheap enough for every
+tick. They came with the engine's 0.9.3: ask for `">= 0.9.3"` in
+`requires.engine`. The words, the edge cases and the charge are
+[7.5.2 Counting units](oabrain-standard.md#752-counting-units).
+
 During `start`, before the first tick, `each_unit` can still
 be empty: the commander arrives as `onUnitIdle` on tick 1. Classify then,
 or from the timer, and remember the records so later ticks do not draw

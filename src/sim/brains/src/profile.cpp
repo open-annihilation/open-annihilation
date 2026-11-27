@@ -231,6 +231,7 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_networks(state, seat);
     install_grids(state, seat);
     install_record(state, seat);
+    install_unit_counts(state, seat);
     lua_getglobal(state, "brain");
     if (lua_type(state, -1) != LUA_TTABLE) {
         lua_pop(state, 1);
