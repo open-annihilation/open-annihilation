@@ -236,7 +236,7 @@ class FlowCache {
     ///
     /// @param bytes saved state of this cache's size
     /// @return whether every slot, label, node and the running job are in range
-    [[nodiscard]] bool valid_landmasses(std::span<const uint8_t> bytes) const noexcept;
+    [[nodiscard]] bool valid_landmasses(std::span<const uint8_t> bytes) noexcept;
 
     /// Runs the queued landmass work within the tick's landmass budget.
     ///

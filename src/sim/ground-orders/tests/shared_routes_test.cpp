@@ -2648,6 +2648,90 @@ size_t field_at(uint32_t cells, uint32_t index) {
     return 128 + 64 * 48 + size_t(index) * (84 + size_t(cells) * 5);
 }
 
+/// Where the parts of a landmass job lie in the saved state of a 128 by 64
+/// map with landmass_limits(): four fields, then the landmass section.
+struct LandmassLayout {
+    static constexpr size_t nodes = 64 * 32, fields = 4, footprint_cells = 128 * 64;
+    static constexpr size_t section = 128 + 64 * 48 + fields * (84 + nodes * 5);
+    static constexpr size_t job_kind = section + 12, job_step = section + 20;
+    static constexpr size_t job_head = section + 28, job_tail = section + 32;
+    static constexpr size_t job_flood = section + 36;
+    /// The label slot, its two nearest-node slots, then the labels being
+    /// built, each footprint cell's state and the flood queue.
+    static constexpr size_t labels_slot = section + 64,
+                            nearest_slots = labels_slot + 32 + nodes * 4;
+    static constexpr size_t build = nearest_slots + 2 * (24 + nodes * 4);
+    static constexpr size_t cells = build + nodes * 4, queue = cells + footprint_cells;
+};
+
+/// Asks for a far-shore route and advances a cache over the channel map one
+/// tick at a time until `stop` holds for its saved state.
+///
+/// @return the saved state at that tick, or empty when it never held
+template <typename Stop>
+std::vector<uint8_t>
+label_until(FlowCache& cache, Grid& grid, Stop stop, uint32_t& tick, uint32_t ticks = 400) {
+    const auto west = unit_at(8, 32);
+    const auto far_shore = circle(100, 32);
+    for (const auto last = tick + ticks; tick < last;) {
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        (void)cache.route(context(), west, far_shore, points, count, grid.sampler());
+        cache.advance(++tick, 0, grid.sampler());
+        const auto bytes = cache.state_bytes();
+        if (stop(bytes))
+            return {bytes.begin(), bytes.end()};
+    }
+    return {};
+}
+
+/// A saved flood whose queue repeats a cell is refused: flooding on from it
+/// would put more cells than the queue holds, past the end of the state.
+void landmass_floods_that_repeat_a_cell_are_refused() {
+    using L = LandmassLayout;
+    Grid grid(128, 64);
+    cut_channel(grid);
+    const auto limits = landmass_limits(64);
+    FlowCache original(128, 64, limits), restored(128, 64, limits);
+    uint32_t tick = 0;
+    // Halfway through the west landmass's flood, with cells waiting.
+    const auto saved = label_until(
+        original,
+        grid,
+        [](std::span<const uint8_t> bytes) {
+            return word_at(bytes, L::job_kind) == 1 && word_at(bytes, L::job_step) == 1 &&
+                   word_at(bytes, L::job_flood) != 0xffffffffu &&
+                   word_at(bytes, L::job_head) + 4 < word_at(bytes, L::job_tail);
+        },
+        tick
+    );
+    CHECK(!saved.empty());
+    if (saved.empty())
+        return;
+    CHECK(restored.restore(saved));
+    const auto tail = word_at(saved, L::job_tail);
+    const auto first = word_at(saved, L::queue);
+    const auto refused = [&](const std::vector<uint8_t>& broken) {
+        CHECK(!restored.restore(broken));
+        CHECK(std::equal(saved.begin(), saved.end(), restored.state_bytes().begin()));
+    };
+    // Every entry the flood's first cell.
+    auto broken = saved;
+    for (uint32_t q = 0; q < tail; ++q)
+        write_word(broken, L::queue + size_t(q) * 4, first);
+    refused(broken);
+    // The same, with the queue as long as every cell of the map.
+    write_word(broken, L::job_tail, uint32_t(L::footprint_cells));
+    for (uint32_t q = tail; q < L::footprint_cells; ++q)
+        write_word(broken, L::queue + size_t(q) * 4, first);
+    refused(broken);
+    // One cell twice.
+    broken = saved;
+    write_word(broken, L::queue + size_t(tail - 1) * 4, word_at(saved, L::queue + 4));
+    refused(broken);
+    CHECK(restored.restore(saved));
+}
+
 /// A block of ground nodes 12 to 36 wide and 6 to 25 high on a 96 by 64 map,
 /// between a unit at node (10, 16) and its goal at node (38, 16): round the
 /// south is 46 levels, round the north 48.
@@ -3050,6 +3134,7 @@ int main() {
     unseen_water_joins_landmasses();
     landmass_work_is_bounded_and_follows_map_changes();
     landmass_work_resumes_after_restore_and_refuses_malformed_bytes();
+    landmass_floods_that_repeat_a_cell_are_refused();
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();

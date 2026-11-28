@@ -355,6 +355,8 @@ FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
     if (crowd_weight_ != 0)
         state_size_ += crowd_header_size + static_cast<std::size_t>(fields_) * crowd_mark_size;
     state_ = std::make_unique<uint8_t[]>(state_size_);
+    // A mark a coarse node while restoring fields, or a bit a footprint cell
+    // (at most four a node) while restoring the landmass flood.
     restore_marks_ = std::make_unique<uint8_t[]>(cells_);
     if (landmass_slots_ != 0) {
         auto* section = state_.get() + landmass_offset_;
@@ -875,7 +877,10 @@ void FlowCache::label_landmasses(
     // Marks a footprint cell reached by the flood, and its node labelled.
     const auto reach = [&](uint32_t cell) {
         cells[cell] = cell_reached;
-        put32(at(queue, tail++), cell);
+        // A flood reaches each cell once, so its queue holds at most every
+        // cell; restore refuses a queue that repeats one.
+        if (tail < total)
+            put32(at(queue, tail++), cell);
         if (const auto node = node_of(cell); node != no_node) {
             put32(at(build, node), flood);
             ++flood_nodes;
@@ -1167,7 +1172,7 @@ FlowCache::LandmassPlacement FlowCache::place_goal(
     return placement;
 }
 
-bool FlowCache::valid_landmasses(std::span<const uint8_t> bytes) const noexcept {
+bool FlowCache::valid_landmasses(std::span<const uint8_t> bytes) noexcept {
     const auto* section = bytes.data() + landmass_offset_;
     if (std::memcmp(section, state_.get() + landmass_offset_, job_kind_offset) != 0)
         return false;
@@ -1238,11 +1243,19 @@ bool FlowCache::valid_landmasses(std::span<const uint8_t> bytes) const noexcept 
                 if (label != label_unvisited && !valid_label(label, node))
                     return false;
             }
-            // The flood's queue holds the cells it reached, each once.
+            // The flood's queue holds the cells it reached, each once: a
+            // repeated cell would let the flood put more cells than the
+            // queue holds.
+            auto* queued = restore_marks_.get();
+            std::memset(queued, 0, (static_cast<std::size_t>(total) + 7) / 8);
             for (uint32_t q = 0; q < tail; ++q) {
                 const auto cell = at(queue, q);
                 if (cell >= total || bytes[cells + cell] != cell_reached)
                     return false;
+                const auto bit = static_cast<uint8_t>(1u << (cell % 8));
+                if ((queued[cell / 8] & bit) != 0)
+                    return false;
+                queued[cell / 8] |= bit;
             }
         }
         return true;

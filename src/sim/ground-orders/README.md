@@ -197,7 +197,8 @@ labels are made again in the background, at least 300 ticks apart, when
 the static revision changed or after 900 ticks. Landmass work is bounded
 per tick (`landmass_work_per_tick`, 32,768: scanned or flooded cells and
 probes, with cleared entries and nearest-map nodes counted more cheaply),
-and is saved with the fields.
+and is saved with the fields. Restore refuses a flood whose queue repeats a
+cell: flooding on from it would put more cells than the queue holds.
 
 With a crowd weight (`FlowLimits::crowd_weight`; the match asks for 6), a
 field's breadth-first search puts off each node it discovers by
