@@ -532,8 +532,9 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         // nodes around it, so an army's routes spread over ways of about the
         // same length instead of all taking the one its crowds stand in.
         constexpr uint32_t fine_flow_crowd_weight = 6;
-        // A field that met a crowd is built again round the crowds of the
-        // moment 240 ticks (eight seconds) after it completed.
+        // A field that met a crowd, and that units asked for since it
+        // completed, is built again round the crowds of the moment 240 ticks
+        // (eight seconds) after it completed.
         constexpr uint32_t fine_flow_crowd_rebuild_ticks = 240;
         auto flow_limits = sim::ground_orders::FlowLimits{};
         flow_limits.fields = fine_flow_field_limit;

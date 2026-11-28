@@ -2860,8 +2860,18 @@ void crowd_delays_follow_the_weight() {
     CHECK(cache.counters().cells_expanded == 64);
 }
 
-/// Builds a field that met a crowd again after its rebuild ticks, one a
-/// refresh period, and never a field that met none.
+/// Asks a player's route from (2, 2) to (28, 28).
+FlowResult ask_corner_route(FlowCache& cache, Crowds& crowds, uint32_t player) {
+    auto ctx = context();
+    ctx.player = player;
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    return cache.route(ctx, unit_at(2, 2), circle(28, 28), points, count, crowds.sampler());
+}
+
+/// Builds a field that met a crowd, and that units asked for since it
+/// completed, again after its rebuild ticks, one a refresh period, and never
+/// a field that met none.
 void crowd_shaped_fields_are_rebuilt_after_their_rebuild_ticks() {
     Grid grid(32, 32);
     Crowds crowds(grid);
@@ -2869,14 +2879,9 @@ void crowd_shaped_fields_are_rebuilt_after_their_rebuild_ticks() {
     crowds.stand(2, 3, 3, 3, 3, 1);
     FlowCache cache(32, 32, crowd_limits(3, 2048));
     // Player 0's field, player 1's (no units) and player 2's, in that order.
-    for (uint32_t player = 0; player < 3; ++player) {
-        auto ctx = context();
-        ctx.player = player;
-        std::array<RoutePoint, navigation_capacity> points{};
-        uint32_t count{};
-        (void)cache.route(ctx, unit_at(2, 2), circle(28, 28), points, count, crowds.sampler());
-        (void)cache.route(ctx, unit_at(2, 2), circle(28, 28), points, count, crowds.sampler());
-    }
+    for (uint32_t player = 0; player < 3; ++player)
+        for (int ask = 0; ask < 2; ++ask)
+            (void)ask_corner_route(cache, crowds, player);
     cache.advance(1, 0, crowds.sampler());
     const auto completed = [&](uint32_t index) {
         return word_at(cache.state_bytes(), field_at(256, index) + 80);
@@ -2889,8 +2894,12 @@ void crowd_shaped_fields_are_rebuilt_after_their_rebuild_ticks() {
     CHECK(mark(0) == 1 && mark(1) == 0 && mark(2) == 1);
     // 240 ticks after tick 1 the next refresh period is tick 270: player 0's
     // field first, player 2's a period later.
-    for (uint32_t tick = 2; tick < 270; ++tick)
+    for (uint32_t tick = 2; tick < 270; ++tick) {
         cache.advance(tick, 0, crowds.sampler());
+        if (tick == 100)
+            for (uint32_t player = 0; player < 3; ++player)
+                CHECK(ask_corner_route(cache, crowds, player) == FlowResult::ready);
+    }
     CHECK(cache.counters().fields_started == 3);
     crowds.clear();
     cache.advance(270, 0, crowds.sampler());
@@ -2912,6 +2921,43 @@ void crowd_shaped_fields_are_rebuilt_after_their_rebuild_ticks() {
     for (uint32_t tick = 40; tick <= 900; ++tick)
         kept.advance(tick, 0, crowds.sampler());
     CHECK(kept.counters().fields_started == 1);
+}
+
+/// Keeps a crowd-shaped field nobody asked for since it completed, however
+/// long ago, and builds it again at the first refresh after it is asked for.
+void crowd_fields_nobody_asks_for_are_kept() {
+    Grid grid(32, 32);
+    Crowds crowds(grid);
+    crowds.stand(0, 7, 7, 8, 8, 2);
+    FlowCache cache(32, 32, crowd_limits(1, 2048));
+    const auto completed = [&]() { return word_at(cache.state_bytes(), field_at(256, 0) + 80); };
+    // Asked for twice before tick 1, completed at tick 1 and not asked since.
+    build_field(cache, crowds, unit_at(2, 2), circle(28, 28));
+    CHECK(cache.counters().fields_started == 1 && completed() == 1);
+    for (uint32_t tick = 40; tick <= 600; ++tick)
+        cache.advance(tick, 0, crowds.sampler());
+    CHECK(cache.counters().fields_started == 1 && completed() == 1);
+    // Asked for at tick 601: built again at tick 630, still round the crowd.
+    CHECK(ask_corner_route(cache, crowds, 0) == FlowResult::ready);
+    for (uint32_t tick = 601; tick <= 630; ++tick)
+        cache.advance(tick, 0, crowds.sampler());
+    CHECK(cache.counters().fields_started == 2 && completed() == 630);
+    // Not asked for since: kept through the refreshes after its rebuild ticks.
+    for (uint32_t tick = 631; tick <= 1500; ++tick)
+        cache.advance(tick, 0, crowds.sampler());
+    CHECK(cache.counters().fields_started == 2 && completed() == 630);
+    // A request in the tick it completed, after it completed, counts.
+    FlowCache asked(32, 32, crowd_limits(1, 2048));
+    for (int ask = 0; ask < 2; ++ask)
+        (void)ask_corner_route(asked, crowds, 0);
+    asked.advance(1, 0, crowds.sampler());
+    CHECK(word_at(asked.state_bytes(), field_at(256, 0)) == 3);
+    CHECK(ask_corner_route(asked, crowds, 0) == FlowResult::ready);
+    for (uint32_t tick = 2; tick < 270; ++tick)
+        asked.advance(tick, 0, crowds.sampler());
+    CHECK(asked.counters().fields_started == 1);
+    asked.advance(270, 0, crowds.sampler());
+    CHECK(asked.counters().fields_started == 2);
 }
 
 /// A 32 by 32 map whose middle rows stand full of player 0's units, so that a
@@ -3112,6 +3158,7 @@ int main() {
     crowds_turn_fields_onto_the_free_way();
     crowd_delays_follow_the_weight();
     crowd_shaped_fields_are_rebuilt_after_their_rebuild_ticks();
+    crowd_fields_nobody_asks_for_are_kept();
     restored_crowd_builds_continue_byte_for_byte();
     malformed_crowd_frontiers_are_refused();
     exact_footprint_segments_cover_boundary_events();

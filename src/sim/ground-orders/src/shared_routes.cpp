@@ -447,15 +447,16 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
                 oldest_age = age;
             }
         }
-        // Crowds move on: a field built round them is built again from the
-        // crowds of now, the longest completed first, when no dirty field is
-        // due.
+        // Crowds move on: a field built round them that units asked for
+        // since it completed is built again from the crowds of now, the
+        // longest completed first, when no dirty field is due. A field nobody
+        // asked for keeps its tree and leaves the building to others.
         if (!oldest && crowd_weight_ != 0 && crowd_rebuild_ticks_ != 0)
             for (uint32_t i = 0; i < fields_; ++i) {
                 auto* f = field(state, cells_, i);
                 const auto age = tick - get32(f + completed_tick_offset);
                 if (get32(f) != complete || get32(state + crowd_mark_offset(i)) == 0 ||
-                    age < crowd_rebuild_ticks_)
+                    age < crowd_rebuild_ticks_ || tick - get32(f + last_use_offset) > age)
                     continue;
                 if (!oldest || age > oldest_age) {
                     oldest = f;

@@ -753,8 +753,9 @@ saved state per coarse node, 15 MiB on a map of 1,024 by 512 cells
 The match also gives the cache a crowd weight of 6 and crowd rebuild ticks
 of 240, so a field reaches a coarse node `(units * 6 + 4) / 9` levels late,
 `units` being its player's own live ground units in the 3x3 nodes around it,
-and a field built round crowds is built again from the crowds of the moment
-240 ticks after it completed. `advance_path_search` passes the counts as
+and a field built round crowds that units asked for since it completed is
+built again from the crowds of the moment 240 ticks after it completed.
+`advance_path_search` passes the counts as
 `FlowSampler::ground_units`: the first time a field asks in a call,
 `EnhancedState::count_crowds` counts every live unit with movement state
 and no transport at the node `((cell_x + 1) / 2, (cell_z + 1) / 2)`, into

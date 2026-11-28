@@ -57,8 +57,8 @@ struct FlowLimits {
     /// nodes or more builds by distance alone too.
     uint32_t crowd_weight{};
     /// Ticks a field that met a crowd keeps after it completes before it is
-    /// built again around the crowds of that moment; zero keeps it. Used only
-    /// with a crowd weight.
+    /// built again around the crowds of that moment, if a request asked for
+    /// it since it completed; zero keeps it. Used only with a crowd weight.
     uint32_t crowd_rebuild_ticks{};
 };
 
@@ -120,10 +120,11 @@ struct FlowCounters {
 /// the field's player's own ground units in the 3x3 coarse nodes around it
 /// that tick: the node waits in the queue, one level a turn, before it is
 /// expanded, so the field's routes lead round crowds where a way of about the
-/// same length is free. A field that met a crowd is built again, from the
-/// crowds of that moment, once the crowd rebuild ticks have passed since it
-/// completed: one field a refresh period, the longest completed first, when
-/// no field the map changed under is due.
+/// same length is free. A field that met a crowd, and that a request asked
+/// for since it completed, is built again, from the crowds of that moment,
+/// once the crowd rebuild ticks have passed since it completed: one field a
+/// refresh period, the longest completed first, when no field the map changed
+/// under is due.
 ///
 /// The state is canonical byte storage with no pointers and may be saved, but
 /// is owner-local navigation state and must not enter shared simulation hashes.

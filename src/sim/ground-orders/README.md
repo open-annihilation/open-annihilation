@@ -215,10 +215,13 @@ the delays need no storage of their own and a map of 2^24 nodes or more
 builds by distance alone. A field whose build met a delay is marked; with
 crowd rebuild ticks (`crowd_rebuild_ticks`; the match asks for 240), at each
 30-tick refresh with no dirty field due, the marked completed field that
-completed longest ago, at least that many ticks before, is built again from
-the crowds of that moment. The crowd section after the landmass section
-holds the weight, the rebuild ticks and each field's mark, 8 bytes and 4 a
-field; without a weight there is no section and the layout is as before.
+completed longest ago, at least that many ticks before, and that a request
+asked for since it completed, is built again from the crowds of that moment.
+A field nobody asks for keeps its tree, so the fields of destinations no
+longer in use do not keep the building busy. The crowd section after the
+landmass section holds the weight, the rebuild ticks and each field's mark,
+8 bytes and 4 a field; without a weight there is no section and the layout
+is as before.
 Restore accepts every ring a build leaves, each discovered node in it at
 most once, and refuses a node waiting in the queue that has a child, a
 discovered node that does not lead to the root, more entries put than 256
