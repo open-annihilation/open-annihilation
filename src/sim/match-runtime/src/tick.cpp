@@ -395,22 +395,14 @@ void Match::advance_path_search() {
                 std::array<sim::ground_orders::RoutePoint, sim::ground_orders::navigation_capacity>
                     route{};
                 uint32_t count{};
+                // Where the route leads: the goal, or the nearest point of the
+                // unit's own landmass when the goal is out of its reach.
+                sim::ground_orders::RoutePoint destination{};
                 const auto result = ctx.match->enhanced_->shared_routes->route(
-                    flow, unit.record, *navigation.goal, route, count, *ctx.sampler
+                    flow, unit.record, *navigation.goal, route, count, *ctx.sampler, &destination
                 );
                 if (result == sim::ground_orders::FlowResult::ready) {
                     if (mature_collision) {
-                        constexpr int32_t cell_width = 16, half_cell = cell_width / 2;
-                        const sim::ground_orders::RoutePoint destination{
-                            static_cast<int16_t>(
-                                int32_t(navigation.goal->cell[0]) * cell_width +
-                                int32_t(flow.footprint_x) * half_cell
-                            ),
-                            static_cast<int16_t>(
-                                int32_t(navigation.goal->cell[1]) * cell_width +
-                                int32_t(flow.footprint_z) * half_cell
-                            )
-                        };
                         const bool direct_goal = count == 2 && route[1] == destination;
                         const bool same_route =
                             sim::ground_orders::route_present(navigation) &&

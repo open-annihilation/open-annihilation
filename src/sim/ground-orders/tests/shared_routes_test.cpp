@@ -557,7 +557,7 @@ void revisions_and_restore_pending() {
         grid.cells[z * 64 + 30] = 0;
     CHECK(query(first, grid, unit, goal) == FlowResult::fallback);
     CHECK(first.counters().invalidations == 0);
-    constexpr size_t first_dirty = 128 + 64 * 48 + 68;
+    constexpr size_t first_dirty = 128 + 64 * 48 + 72;
     CHECK(first.state_bytes()[first_dirty] == 1);
     first.advance(30, 1, grid.sampler());
     // The repeated destination keeps its field across the revision. The
@@ -1581,7 +1581,7 @@ void fine_route_restore_refuses_other_formats_atomically() {
     const FlowLimits limits{2, 8192, 64, 256};
     FlowCache fine(128, 128, limits);
     constexpr size_t format_offset = 4, stride_offset = 28;
-    CHECK(fine.state_bytes()[format_offset] == 3);
+    CHECK(fine.state_bytes()[format_offset] == 4);
     CHECK(fine.state_bytes()[stride_offset] == 2);
     // Both destinations share one 96-cell region and its field.
     CHECK(query(fine, grid, unit_at(4, 4), circle(40, 40)) == FlowResult::fallback);
@@ -1593,7 +1593,7 @@ void fine_route_restore_refuses_other_formats_atomically() {
     CHECK(!fine.restore(forged));
     CHECK(std::equal(saved.begin(), saved.end(), fine.state_bytes().begin()));
     // The format word is bytes 4 to 7; every other format is refused.
-    for (const uint32_t format : {1u, 2u, 4u, 0x100u + 3u}) {
+    for (const uint32_t format : {1u, 2u, 3u, 0x100u + 4u}) {
         forged = saved;
         for (size_t i = 0; i < 4; ++i)
             forged[format_offset + i] = static_cast<uint8_t>(format >> (i * 8));
@@ -1668,25 +1668,57 @@ void fine_completed_fields_keep_a_polling_window_after_restore() {
     check_window(std::numeric_limits<uint32_t>::max() - 20);
 }
 
-/// Does not reserve a failed field's storage for the polling window.
-void failed_fields_keep_immediate_replacement() {
+/// Roots no field at a goal no coarse node connects to. A field whose root is
+/// closed before it is built fails; another destination may take its storage
+/// at once, and otherwise it is given up for 300 ticks and then freed.
+void blocked_goals_root_no_field_and_failed_fields_retry() {
     const FlowLimits limits{1, 1024, 2048, 1024};
     const auto unit = unit_at(8, 16);
     const auto first = circle(40, 16), second = circle(112, 16);
+    const auto close_first = [](Grid& grid, uint8_t open) {
+        for (uint32_t z = 12; z <= 20; ++z)
+            for (uint32_t x = 36; x <= 44; ++x)
+                grid.cells[z * grid.width + x] = open;
+    };
+    const auto fail_first = [&](FlowCache& cache, Grid& grid) {
+        CHECK(query(cache, grid, unit, first) == FlowResult::fallback);
+        CHECK(query(cache, grid, unit, first) == FlowResult::pending);
+        close_first(grid, 0);
+        cache.advance(1, 0, grid.sampler());
+    };
+    constexpr size_t first_field = 128 + 64 * 48;
+    constexpr uint8_t empty_phase = 0, failed_phase = 4;
     Grid grid(128, 32);
     for (uint32_t z = 0; z < grid.height; ++z)
         for (uint32_t x = 104; x < grid.width; ++x)
             grid.cells[z * grid.width + x] = 0;
-    FlowCache failed(128, 32, limits);
-    CHECK(query(failed, grid, unit, second) == FlowResult::fallback);
-    CHECK(query(failed, grid, unit, second) == FlowResult::pending);
-    failed.advance(1, 0, grid.sampler());
-    constexpr size_t first_field = 128 + 64 * 48;
-    constexpr uint8_t failed_phase = 4;
-    CHECK(failed.state_bytes()[first_field] == failed_phase);
-    CHECK(query(failed, grid, unit, first) == FlowResult::fallback);
-    CHECK(query(failed, grid, unit, first) == FlowResult::pending);
-    CHECK(failed.counters().fields_started == 2);
+    FlowCache cache(128, 32, limits);
+    // The blocked goal is asked for twice and takes no storage.
+    CHECK(query(cache, grid, unit, second) == FlowResult::fallback);
+    CHECK(query(cache, grid, unit, second) == FlowResult::fallback);
+    CHECK(cache.counters().fields_started == 0);
+    fail_first(cache, grid);
+    CHECK(cache.counters().fields_started == 1);
+    CHECK(cache.state_bytes()[first_field] == failed_phase);
+    CHECK(query(cache, grid, unit, first) == FlowResult::fallback);
+    for (uint32_t tick = 2; tick <= 300; ++tick)
+        cache.advance(tick, 0, grid.sampler());
+    CHECK(cache.state_bytes()[first_field] == failed_phase);
+    for (uint32_t tick = 301; tick <= 330; ++tick)
+        cache.advance(tick, 0, grid.sampler());
+    CHECK(cache.state_bytes()[first_field] == empty_phase);
+    // Opened again, the destination takes a field without a new admission.
+    close_first(grid, 1);
+    CHECK(query(cache, grid, unit, first) == FlowResult::pending);
+    CHECK(cache.counters().fields_started == 2);
+
+    Grid other(128, 32);
+    FlowCache replaced(128, 32, limits);
+    fail_first(replaced, other);
+    CHECK(replaced.state_bytes()[first_field] == failed_phase);
+    CHECK(query(replaced, other, unit, second) == FlowResult::fallback);
+    CHECK(query(replaced, other, unit, second) == FlowResult::pending);
+    CHECK(replaced.counters().fields_started == 2);
 }
 
 /// Resumes full-budget fields whose active frontier uses indices above 65,535.
@@ -1696,7 +1728,7 @@ void maximum_fine_fields_restore_active_wide_frontiers() {
     const FlowLimits limits{64, 8'388'608, 2048, 65'536};
     FlowCache original(grid.width, grid.height, limits);
     FlowCache restored(grid.width, grid.height, limits);
-    constexpr size_t maximum_state_bytes = 41'951'360;
+    constexpr size_t maximum_state_bytes = 41'951'616;
     CHECK(original.state_bytes().size() == maximum_state_bytes);
     const auto read32 = [](std::span<const uint8_t> bytes, size_t at) {
         return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 | uint32_t(bytes[at + 2]) << 16 |
@@ -1718,15 +1750,15 @@ void maximum_fine_fields_restore_active_wide_frontiers() {
         CHECK(original.counters().cells_cleared - before.cells_cleared <= 65'536);
     }
     CHECK(original.counters().cells_cleared == limits.total_cells);
-    constexpr size_t coarse_cells = 131'072, metadata_size = 80;
+    constexpr size_t coarse_cells = 131'072, metadata_size = 84;
     constexpr size_t last_field = 128 + 64 * 48 + 63 * (metadata_size + coarse_cells * 5);
     constexpr size_t last_queue = last_field + metadata_size + coarse_cells;
     const auto bytes = original.state_bytes();
     constexpr uint32_t building_phase = 2, wide_seed = 125'316;
     CHECK(read32(bytes, last_field) == building_phase);
-    CHECK(read32(bytes, last_field + 48) == wide_seed);
+    CHECK(read32(bytes, last_field + 52) == wide_seed);
     CHECK(read32(bytes, last_queue) == wide_seed);
-    CHECK(read32(bytes, last_field + 60) > 1);
+    CHECK(read32(bytes, last_field + 64) > 1);
     CHECK(read32(bytes, last_queue + 4) > std::numeric_limits<uint16_t>::max());
     CHECK(restored.restore(bytes));
     const auto unit = unit_at(772, 488);
@@ -2266,14 +2298,14 @@ void malformed_frontiers_are_rejected() {
     };
     constexpr size_t field = 128 + 64 * 48;
     std::vector<uint8_t> broken(cache.state_bytes().begin(), cache.state_bytes().end());
-    write32(broken, field + 52, 256); // clearing cannot resume beyond its last cell
+    write32(broken, field + 56, 256); // clearing cannot resume beyond its last cell
     CHECK(!restored.restore(broken));
     // One expansion a tick discovers all 16x16 nodes.
     for (uint32_t tick = 1; tick < 260; ++tick)
         cache.advance(tick, 0, grid.sampler());
     CHECK(restored.restore(cache.state_bytes()));
     broken.assign(cache.state_bytes().begin(), cache.state_bytes().end());
-    constexpr size_t directions = field + 80, queue = directions + 256;
+    constexpr size_t directions = field + 84, queue = directions + 256;
     write32(broken, queue + 4, broken[queue]); // duplicate seed queue entry
     CHECK(!restored.restore(broken));
     broken.assign(cache.state_bytes().begin(), cache.state_bytes().end());
@@ -2283,8 +2315,247 @@ void malformed_frontiers_are_rejected() {
     broken[directions + 1] = 4;
     CHECK(!restored.restore(broken));
     broken.assign(cache.state_bytes().begin(), cache.state_bytes().end());
-    write32(broken, field + 68, 2); // dirty state is a boolean
+    write32(broken, field + 72, 2); // dirty state is a boolean
     CHECK(!restored.restore(broken));
+}
+
+/// The world point a route to a footprint-origin cell of `context()` ends on.
+RoutePoint cell_point(int16_t x, int16_t z) {
+    return {static_cast<int16_t>(x * 16 + 8), static_cast<int16_t>(z * 16 + 8)};
+}
+
+/// Limits with landmass labels for one movement class and player.
+FlowLimits landmass_limits(uint32_t work = FlowLimits{}.landmass_work_per_tick) {
+    FlowLimits limits{4, 16'384, 2048, 65'536};
+    limits.landmass_slots = 1;
+    limits.landmass_work_per_tick = work;
+    return limits;
+}
+
+/// Blocks a channel of water at columns 60 to 67, from the top row to the
+/// bottom, splitting a 128 by 64 map into two landmasses of 960 nodes.
+void cut_channel(Grid& grid, uint8_t open = 0) {
+    for (uint32_t z = 0; z < grid.height; ++z)
+        for (uint32_t x = 60; x < 68; ++x)
+            grid.cells[z * grid.width + x] = open;
+}
+
+/// What a route asked for until it was ready came to.
+struct Settled {
+    bool ready{};
+    RoutePoint destination{};
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+};
+
+/// Asks for a route tick after tick, advancing the cache between requests,
+/// until it is ready or `ticks` ticks have passed.
+Settled settle(
+    FlowCache& cache,
+    const FlowSampler& sampler,
+    const oa::Unit& unit,
+    const Goal& goal,
+    uint32_t& tick,
+    FlowContext ctx = context(),
+    uint32_t ticks = 200
+) {
+    Settled settled;
+    for (uint32_t attempt = 0; attempt <= ticks; ++attempt) {
+        settled.ready =
+            cache.route(
+                ctx, unit, goal, settled.points, settled.count, sampler, &settled.destination
+            ) == FlowResult::ready;
+        if (settled.ready)
+            break;
+        cache.advance(++tick, ctx.static_revision, sampler);
+    }
+    return settled;
+}
+
+/// A goal on another landmass, in the water between or off the map is
+/// replaced by the node of the unit's own landmass nearest it, straight across
+/// the water, and each landmass has fields of its own.
+void unreachable_goals_take_the_nearest_node_of_the_unit_landmass() {
+    Grid grid(128, 64);
+    cut_channel(grid);
+    FlowCache cache(128, 64, landmass_limits());
+    uint32_t tick = 0;
+    const auto west = unit_at(8, 32), east = unit_at(120, 32);
+    const auto expect = [&](const oa::Unit& unit, const Goal& goal, RoutePoint destination) {
+        const auto settled = settle(cache, grid.sampler(), unit, goal, tick);
+        CHECK(settled.ready);
+        CHECK(settled.destination == destination);
+        CHECK(settled.count >= 2 && settled.points[settled.count - 1] == destination);
+        for (uint32_t i = 1; i < settled.count; ++i)
+            CHECK(segment_avoids_blocked_cells(grid, settled.points[i - 1], settled.points[i]));
+    };
+    // The far shore, the water and past the west edge of the map.
+    expect(west, circle(100, 32), cell_point(58, 32));
+    expect(west, circle(63, 20), cell_point(58, 20));
+    expect(west, circle(-40, 10), cell_point(0, 10));
+    expect(east, circle(20, 32), cell_point(68, 32));
+    // Both shores' goals lie in the first 96-cell region, but each landmass
+    // builds its own field.
+    CHECK(cache.counters().fields_started == 2);
+    // A goal on the unit's own landmass is kept.
+    expect(west, circle(40, 50), cell_point(40, 50));
+}
+
+/// A unit on a landmass below 256 nodes keeps its goal; a unit on a larger
+/// one whose goal is on the small one is sent to its own shore.
+void small_landmasses_keep_their_goals() {
+    Grid grid(128, 64);
+    for (uint32_t z = 0; z < grid.height; ++z)
+        for (uint32_t x = 64; x < grid.width; ++x) {
+            const bool island = x >= 80 && x < 96 && z >= 8 && z < 24;
+            grid.cells[z * grid.width + x] = island ? 1 : 0;
+        }
+    FlowCache cache(128, 64, landmass_limits());
+    uint32_t tick = 0;
+    const auto marooned = settle(cache, grid.sampler(), unit_at(88, 16), circle(8, 32), tick);
+    CHECK(!marooned.ready);
+    CHECK(marooned.destination == (RoutePoint{}));
+    const auto ashore = settle(cache, grid.sampler(), unit_at(8, 16), circle(88, 16), tick);
+    CHECK(ashore.ready && ashore.destination == cell_point(62, 16));
+}
+
+/// Ground the player has not seen counts as passable, so a channel nobody has
+/// seen joins its shores and no goal is replaced.
+void unseen_water_joins_landmasses() {
+    Grid grid(128, 64);
+    cut_channel(grid);
+    const FlowSampler fogged{
+        &grid, [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) -> uint8_t {
+            const auto& g = *static_cast<Grid*>(p);
+            if (x >= 60 && x < 68 && z >= 0 && static_cast<uint32_t>(z) < g.height)
+                return 2;
+            return const_cast<Grid&>(g).sampler().cell(p, klass, player, x, z);
+        }
+    };
+    FlowCache cache(128, 64, landmass_limits());
+    uint32_t tick = 0;
+    const auto settled = settle(cache, fogged, unit_at(8, 32), circle(100, 32), tick);
+    CHECK(settled.ready && settled.destination == cell_point(100, 32));
+}
+
+/// Landmass work stays within its budget, and labels made again after the
+/// map changes join landmasses a new crossing connects.
+void landmass_work_is_bounded_and_follows_map_changes() {
+    Grid grid(128, 64);
+    cut_channel(grid);
+    constexpr uint32_t work = 512;
+    FlowCache cache(128, 64, landmass_limits(work));
+    const auto west = unit_at(8, 32);
+    const auto far_shore = circle(100, 32);
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    CHECK(
+        cache.route(context(), west, far_shore, points, count, grid.sampler()) ==
+        FlowResult::pending
+    );
+    uint32_t tick = 0, labelling_ticks = 0;
+    uint64_t most = 0;
+    while (cache.route(context(), west, far_shore, points, count, grid.sampler()) ==
+               FlowResult::pending &&
+           tick < 200) {
+        const auto before = grid.queries;
+        cache.advance(++tick, 0, grid.sampler());
+        most = std::max(most, grid.queries - before);
+        ++labelling_ticks;
+    }
+    // Each probe is a unit of work; a reached cell's last neighbours may run
+    // past the budget.
+    CHECK(most <= work + 4);
+    CHECK(labelling_ticks > 4);
+    auto settled = settle(cache, grid.sampler(), west, far_shore, tick);
+    CHECK(settled.ready && settled.destination == cell_point(58, 32));
+    // A causeway opens the channel at revision 1. The labels keep serving
+    // until they are made again, at least 300 ticks after they were made.
+    for (uint32_t z = 28; z < 36; ++z)
+        for (uint32_t x = 60; x < 68; ++x)
+            grid.cells[z * grid.width + x] = 1;
+    const auto opened = tick;
+    bool crossed = false;
+    while (!crossed && tick < opened + 600) {
+        cache.advance(++tick, 1, grid.sampler());
+        settled = settle(cache, grid.sampler(), west, far_shore, tick, context(0, 1), 0);
+        crossed = settled.ready && settled.destination == cell_point(100, 32);
+        if (settled.ready && !crossed)
+            CHECK(settled.destination == cell_point(58, 32));
+    }
+    CHECK(crossed);
+    CHECK(tick >= opened + 300 - labelling_ticks);
+}
+
+/// Restoring the state halfway through labelling or a nearest-node map goes on
+/// exactly as the original, and malformed landmass bytes are refused whole.
+void landmass_work_resumes_after_restore_and_refuses_malformed_bytes() {
+    Grid grid(128, 64);
+    cut_channel(grid);
+    const auto limits = landmass_limits(64);
+    FlowCache original(128, 64, limits), restored(128, 64, limits);
+    const auto west = unit_at(8, 32);
+    const auto far_shore = circle(100, 32);
+    bool ready = false;
+    for (uint32_t tick = 1; tick <= 400 && !ready; ++tick) {
+        std::array<RoutePoint, navigation_capacity> a{}, b{};
+        uint32_t ac{}, bc{};
+        RoutePoint ad{}, bd{};
+        const auto ar = original.route(context(), west, far_shore, a, ac, grid.sampler(), &ad);
+        const auto br = restored.route(context(), west, far_shore, b, bc, grid.sampler(), &bd);
+        CHECK(ar == br && ac == bc && a == b && ad == bd);
+        ready = ar == FlowResult::ready;
+        if (ready)
+            CHECK(ad == cell_point(58, 32));
+        original.advance(tick, 0, grid.sampler());
+        restored.advance(tick, 0, grid.sampler());
+        CHECK(
+            std::equal(
+                original.state_bytes().begin(),
+                original.state_bytes().end(),
+                restored.state_bytes().begin()
+            )
+        );
+        if (tick % 7 == 0)
+            CHECK(restored.restore(original.state_bytes()));
+    }
+    CHECK(ready);
+
+    // The landmass section follows the fields: its header, one label slot of
+    // 32 bytes and labels, two nearest-node slots of 24 bytes and nodes, and
+    // the labels being built, four bytes a node each; then each footprint
+    // cell's state, one byte, and the flood queue, four bytes a cell.
+    constexpr size_t nodes = 64 * 32, fields = 4, footprint_cells = 128 * 64;
+    constexpr size_t section = 128 + 64 * 48 + fields * (84 + nodes * 5);
+    constexpr size_t labels = section + 64 + 32, nearest = section + 64 + 32 + nodes * 4;
+    constexpr size_t job_kind = section + 12, job_slot = section + 16;
+    const auto write32 = [](std::vector<uint8_t>& bytes, size_t offset, uint32_t value) {
+        for (uint32_t i = 0; i < 4; ++i)
+            bytes[offset + i] = static_cast<uint8_t>(value >> (i * 8));
+    };
+    const std::vector<uint8_t> saved(original.state_bytes().begin(), original.state_bytes().end());
+    CHECK(saved.size() == section + 64 + 32 + 2 * 24 + 4 * nodes * 4 + footprint_cells * 5);
+    const auto refused = [&](size_t offset, uint32_t value) {
+        auto broken = saved;
+        write32(broken, offset, value);
+        CHECK(!restored.restore(broken));
+        CHECK(std::equal(saved.begin(), saved.end(), restored.state_bytes().begin()));
+    };
+    CHECK(restored.restore(saved));
+    // A landmass is named by its first footprint cell, which comes before every
+    // node of it: node 10 is the origin of cell 20.
+    refused(labels + 4 * 10, 21);
+    // A nearest node lies on the map.
+    refused(nearest + 24 + 4 * 5, uint32_t(nodes));
+    // The running job's kind and slot are in range.
+    refused(job_kind, 3);
+    auto running = saved;
+    write32(running, job_kind, 1);
+    write32(running, job_slot, 1);
+    CHECK(!restored.restore(running));
+    // Another slot count is another cache.
+    refused(section, 2);
+    CHECK(restored.restore(saved));
 }
 
 } // namespace
@@ -2304,7 +2575,12 @@ int main() {
     fine_route_restore_refuses_other_formats_atomically();
     fine_routes_cross_an_offset_bridge_and_resume_safe_prefixes();
     fine_completed_fields_keep_a_polling_window_after_restore();
-    failed_fields_keep_immediate_replacement();
+    blocked_goals_root_no_field_and_failed_fields_retry();
+    unreachable_goals_take_the_nearest_node_of_the_unit_landmass();
+    small_landmasses_keep_their_goals();
+    unseen_water_joins_landmasses();
+    landmass_work_is_bounded_and_follows_map_changes();
+    landmass_work_resumes_after_restore_and_refuses_malformed_bytes();
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();

@@ -47,7 +47,10 @@ its turn instead of circling on the spot.
 **Shared routes.** Nearby ground destinations share a coarse route, built
 on a fine grid. Each edge is checked again against the ground and against
 what that player can see before a unit follows it. A corridor too narrow
-for that grid uses the ordinary route search.
+for that grid uses the ordinary route search. A unit sent somewhere it
+cannot walk to, into water, off the map or onto ground cut off from its
+own, heads for the nearest point of its own ground instead. Ground the
+player has not seen counts as open.
 
 **Passing a corner.** A blocked ground unit may pass the next corner of its
 route when its footprint has a clear line beyond that corner and the ground
@@ -186,11 +189,12 @@ Enhanced saves retain both the original participants and their physical
 unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
 A match with local traffic flow over shared routes, such as Revision 1,
-saves five owner-local navigation tables: shared fields, the current
-static-map revision, temporary traffic heads, actual-progress clocks and
-the shared-route scan clock. The scan clock prevents a load pass and a
-regular pass at the same tick from polling the unit ranges twice. These
-tables stay outside shared world and trace hashes.
+saves five owner-local navigation tables: shared fields with the ground
+each player's units can reach, the current static-map revision, temporary
+traffic heads, actual-progress clocks and the shared-route scan clock. The
+scan clock prevents a load pass and a regular pass at the same tick from
+polling the unit ranges twice. These tables stay outside shared world and
+trace hashes.
 
 Unit movement travels between the machines of an Enhanced match as complete
 route batches ([Network transport](#network-transport)): a tick of route

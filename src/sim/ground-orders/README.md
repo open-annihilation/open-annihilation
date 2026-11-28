@@ -172,12 +172,31 @@ Pending requests leave the full search's retry stamp untouched. The cache
 retains its cursors and frontiers in validated little-endian save bytes;
 it is owner-local state, excluded from shared simulation digests.
 
-The saved state is format 3. A route prefix holds at most 32 coarse edges,
+The saved state is format 4. A route prefix holds at most 32 coarse edges,
 and when the goal's own branch of the tree is needed the route follows it.
 A completed field keeps 60 ticks before a new destination may take its
 storage. A blocked connection rejects that route and marks the field for
-bounded refresh while preserving other useful branches. Restoring another
-format fails without changes. A route can also remove one unnecessary bend
+bounded refresh while preserving other useful branches. No field is rooted
+at a goal that connects to no coarse node; a field whose root cannot be
+connected when it is built is given up for 300 ticks, then freed. Restoring
+another format fails without changes.
+
+With landmass slots (`FlowLimits::landmass_slots`; the match asks for
+eight), each movement class and player's coarse nodes are labelled by
+landmass: a flood over footprint cells, a step between two cells a
+footprint can stand on joining them, with unseen ground passable as the
+sampler reports it. A landmass is named by its first footprint cell in scan
+order and one below 256 nodes names none. A unit on a named landmass whose
+goal is blocked, off the map or on another landmass is routed to the node
+of its own landmass nearest the goal, by a two-pass chamfer map (5 a
+straight step, 7 a diagonal one) built per landmass; a goal no coarse node
+reaches is left as given. The landmass is part of the field key. A request
+waits while its labels are first made or its nearest-node map is built;
+labels are made again in the background, at least 300 ticks apart, when
+the static revision changed or after 900 ticks. Landmass work is bounded
+per tick (`landmass_work_per_tick`, 32,768: scanned or flooded cells and
+probes, with cleared entries and nearest-map nodes counted more cheaply),
+and is saved with the fields. A route can also remove one unnecessary bend
 after the anchor shortcut when the full chord is known and clear. It traces the actual fixed-point
 footprint pose, including both sides of exact corner crossings. This optional
 ray uses at most 128 probes per request within the existing per-tick extraction

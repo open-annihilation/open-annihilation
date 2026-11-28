@@ -523,9 +523,14 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     if (shared_routes) {
         constexpr uint32_t fine_flow_field_limit = 80;
         constexpr uint32_t fine_flow_cell_limit = 8 * 1024 * 1024;
+        // Movement class and player pairs whose landmasses are labelled, so
+        // that a goal a unit cannot reach is replaced by the nearest point it
+        // can.
+        constexpr uint32_t fine_flow_landmass_slots = 8;
         auto flow_limits = sim::ground_orders::FlowLimits{};
         flow_limits.fields = fine_flow_field_limit;
         flow_limits.total_cells = fine_flow_cell_limit;
+        flow_limits.landmass_slots = fine_flow_landmass_slots;
         enhanced_->shared_routes = std::make_unique<sim::ground_orders::FlowCache>(
             spatial_.terrain_width, spatial_.terrain_height, flow_limits
         );

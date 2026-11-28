@@ -729,7 +729,7 @@ and player knowledge.
 A clear, budgeted connection to the next corner can omit the first coarse
 anchor without changing the field or the ordinary navigator.
 
-The shared fields use format 3, with nodes every two terrain cells. A wreck
+The shared fields use format 4, with nodes every two terrain cells. A wreck
 can block every four-cell anchor across a bridge while leaving a ground unit
 enough room to pass between them; the two-cell graph retains those lanes. A
 route prefix holds at most 32 coarse edges. The match allows at most 80
@@ -738,6 +738,17 @@ largest allocation. A completed field gets 60 ticks of residence before a
 new key can evict it, providing a bounded opportunity for pending clients to
 receive its routes. Save restore rejects a shared-field grid or format that
 does not match.
+
+The match gives the cache eight landmass slots: each movement class and
+player whose units ask for routes has its coarse nodes labelled by the
+ground its footprint can walk to, and a unit on a landmass of at least 256
+nodes whose goal it cannot reach, in water, off the map or on another
+landmass, is routed to the nearest node of its own landmass. The tick
+passes the route's destination back with the route, so a long-blocked unit
+treats a clear leg to that point as it treats a clear leg to its goal. The
+labels, the maps and the labelling's working state add about 120 bytes of
+saved state per coarse node, 15 MiB on a map of 1,024 by 512 cells
+(`match-enhanced-navigation-state` pins the sizes).
 
 An independent scan polls at most 1,024 unit slots per simulation tick,
 divided among active players, using tick-derived ranges. It does not spend
@@ -792,7 +803,7 @@ Five rule tables retain owner-local navigation across saves:
 
 | Table | Saved state |
 | --- | --- |
-| `shared-routes` | Retained fields, pending work, dirty refresh state and cache budgets |
+| `shared-routes` | Retained fields, landmass labels and nearest-node maps, pending work, dirty refresh state and cache budgets |
 | `flow-map-version` | Current static-map revision |
 | `local-flow` | Temporary traffic heads, one-tick completion history and collision clocks |
 | `flow-progress` | Actual-progress ticks |
