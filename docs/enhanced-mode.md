@@ -50,7 +50,10 @@ what that player can see before a unit follows it. A corridor too narrow
 for that grid uses the ordinary route search. A unit sent somewhere it
 cannot walk to, into water, off the map or onto ground cut off from its
 own, heads for the nearest point of its own ground instead. Ground the
-player has not seen counts as open.
+player has not seen counts as open. At each step of a patrol, a unit on
+the move keeps following its route while a fresh one is found, instead of
+first turning straight toward the patrol point. A unit that has stood still
+for a second starts afresh, as before.
 
 **Passing a corner.** A blocked ground unit may pass the next corner of its
 route when its footprint has a clear line beyond that corner and the ground

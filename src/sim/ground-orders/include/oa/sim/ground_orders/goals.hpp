@@ -129,6 +129,13 @@ bool goal_contains(const Goal& goal, int32_t cell_x, int32_t cell_z) noexcept;
 /// @param unit unit whose cell is tested
 /// @return true when the unit's cell satisfies the goal
 bool goal_contains_unit(const Goal& goal, const sim::unit_movement::Unit& unit) noexcept;
+/// Tests whether two goals report to the same order and have the same shape,
+/// cells and ranges.
+///
+/// @param a one goal
+/// @param b the other goal
+/// @return true when every field is the same
+[[nodiscard]] bool same_goal(const Goal& a, const Goal& b) noexcept;
 /// Returns the admissible search cost from a cell to the goal.
 ///
 /// Circles and rings use the octile distance with weights 18 and 7 less the

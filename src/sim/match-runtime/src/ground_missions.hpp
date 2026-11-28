@@ -451,6 +451,65 @@ class TickHost::GroundMissions {
         );
     }
 
+    /// Replaces a patrol's goal with arriving within `tolerance` world units
+    /// of `point`, as circle_goal does, unless the unit keeps its route.
+    ///
+    /// With shared routes (routes_fine_regions), a moving ground unit
+    /// simulated here whose goal comes out the same, with a route and no
+    /// search of its own running, keeps its goal and route and asks for a
+    /// fresh route at once, as the step does without the feature; it follows
+    /// the route it has until the new one arrives, instead of turning onto a
+    /// straight line toward the point. A unit that has not moved for
+    /// patrol_replan_ticks takes the goal afresh, straight line included.
+    ///
+    /// @param point signed 16.16 patrol destination
+    /// @param tolerance arrival radius in world units
+    void patrol_goal(const sim::ground_orders::Point& point, int32_t tolerance) {
+        auto* movement = host.match.ground_runtime(s.unit_index);
+        if (movement && keeps_patrol_route(*movement, point, tolerance))
+            sim::ground_orders::restart_search(movement->navigation, tick());
+        else
+            circle_goal(point, tolerance);
+    }
+
+    /// Tells whether a patrol's step leaves the unit its goal and route
+    /// (patrol_goal).
+    ///
+    /// @param movement the unit's movement object
+    /// @param point signed 16.16 patrol destination
+    /// @param tolerance arrival radius in world units
+    /// @return true when the goal it would install is the one it follows
+    bool keeps_patrol_route(
+        sim::ground_orders::GroundRuntime& movement,
+        const sim::ground_orders::Point& point,
+        int32_t tolerance
+    ) {
+        // Ticks without moving after which a patrolling unit plans again
+        // from a straight line, as without the feature.
+        constexpr uint32_t patrol_replan_ticks = 30;
+        constexpr uint32_t interrupted_goal_events = ground::goal_events | ground::cancel_event;
+        if (!host.match.enhanced_features().has(
+                data::enhanced_mode::Feature::routes_fine_regions
+            ) ||
+            can_fly() || !s.unit || !sim::simulation_state::locally_simulated(*s.unit) ||
+            s.record.attach_parent != 0 || movement.mirrored_driver || !record.extra.goal ||
+            record.extra.goal->order != &order ||
+            ((order.raised_events | events) & interrupted_goal_events) != 0)
+            return false;
+        const auto& navigation = movement.navigation;
+        const auto& search = host.match.search_.controller;
+        if (navigation.goal != record.extra.goal.get() ||
+            !sim::ground_orders::route_present(navigation) || navigation.count < 2 ||
+            (!search.idle() && search.active().navigation == &navigation) ||
+            tick() - movement.movement.last_motion_tick >= patrol_replan_ticks)
+            return false;
+        movement.project_slot();
+        return sim::ground_orders::same_goal(
+            sim::ground_orders::make_goal(order, movement.geometry, point, tolerance),
+            *record.extra.goal
+        );
+    }
+
     /// Replaces the order's goal with standing on the border of a site; an
     /// aircraft or a unit without a movement object only drops its goal.
     ///

@@ -750,6 +750,17 @@ labels, the maps and the labelling's working state add about 120 bytes of
 saved state per coarse node, 15 MiB on a map of 1,024 by 512 cells
 (`match-enhanced-navigation-state` pins the sizes).
 
+With `routes_fine_regions`, a patrol's regular step (every 45 to 75 ticks)
+leaves a ground unit simulated here its goal and route when the goal it
+would install is the same, the unit has a route, no search of its own runs
+and it has moved within the last 30 ticks (`GroundMissions::patrol_goal`).
+The step still asks for a fresh route at once (`restart_search`), as
+installing the goal does, but the unit follows its route until the new one
+arrives instead of a straight line toward the patrol point. A unit that has
+stood still longer takes the goal afresh, straight line included, as
+without the feature. `match-patrol-route-keep` covers the kept and the
+replaced steps.
+
 An independent scan polls at most 1,024 unit slots per simulation tick,
 divided among active players, using tick-derived ranges. It does not spend
 the ordinary search credit or move its cursors. The unit of an active full
