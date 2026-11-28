@@ -2605,6 +2605,128 @@ struct Crowds {
     }
 };
 
+/// Asks for routes tick after tick, advancing the cache between ticks, and
+/// tells for each tick and request whether it was ready and led to its
+/// expected destination.
+struct TurnTaking {
+    struct Request {
+        FlowContext ctx;
+        oa::Unit unit;
+        Goal goal;
+        RoutePoint destination;
+    };
+
+    std::vector<Request> requests;
+    std::vector<std::vector<bool>> served;
+
+    void run(FlowCache& cache, Grid& grid, uint32_t ticks) {
+        served.assign(requests.size(), std::vector<bool>(ticks + 1));
+        for (uint32_t tick = 1; tick <= ticks; ++tick) {
+            for (size_t i = 0; i < requests.size(); ++i) {
+                auto& r = requests[i];
+                std::array<RoutePoint, navigation_capacity> points{};
+                uint32_t count{};
+                RoutePoint destination{};
+                served[i][tick] =
+                    cache.route(
+                        r.ctx, r.unit, r.goal, points, count, grid.sampler(), &destination
+                    ) == FlowResult::ready &&
+                    destination == r.destination;
+            }
+            cache.advance(tick, 0, grid.sampler());
+        }
+    }
+
+    /// Returns the first tick from `from` on at which request `i` was served
+    /// or not, or zero when none.
+    uint32_t first(size_t i, uint32_t from, bool value = true) const {
+        for (uint32_t tick = from; tick < served[i].size(); ++tick)
+            if (served[i][tick] == value)
+                return tick;
+        return 0;
+    }
+};
+
+/// With more movement classes and players asking than there are label
+/// slots, each takes its turn: the slot held longest passes to another once
+/// its owner has held it 900 ticks, and no other changes owner within 300
+/// ticks of that. With slots enough, no owner loses its slot.
+void landmass_slots_take_turns_when_every_slot_is_in_use() {
+    Grid grid(128, 64);
+    cut_channel(grid);
+    TurnTaking turns;
+    for (uint32_t player = 0; player < 2; ++player) {
+        auto ctx = context();
+        ctx.player = player;
+        turns.requests.push_back({ctx, unit_at(8, 32), circle(100, 32), cell_point(58, 32)});
+    }
+    {
+        FlowCache cache(128, 64, landmass_limits());
+        turns.run(cache, grid, 2100);
+        // Player 0 asks first and is served within a few ticks; player 1,
+        // asking every tick, finds the slot in use and is not served.
+        const auto first0 = turns.first(0, 1);
+        CHECK(first0 != 0 && first0 < 100);
+        const auto first1 = turns.first(1, 1);
+        // Player 0 has held the slot 900 ticks from tick 1: player 1's turn,
+        // once its labels and map are made.
+        CHECK(first1 > 901 && first1 < 1000);
+        CHECK(turns.first(0, first0, false) > 901 && turns.first(0, first0, false) <= first1);
+        // Player 0 waits until player 1 has held it 900 ticks.
+        const auto back0 = turns.first(0, first1);
+        CHECK(back0 > first1 + 800 && back0 < first1 + 1000);
+        CHECK(turns.first(1, first1, false) <= back0);
+    }
+    {
+        // Two slots: both served from the start, and kept.
+        auto limits = landmass_limits();
+        limits.landmass_slots = 2;
+        FlowCache cache(128, 64, limits);
+        turns.run(cache, grid, 2100);
+        for (size_t i = 0; i < 2; ++i) {
+            const auto first = turns.first(i, 1);
+            CHECK(first != 0 && first < 200);
+            CHECK(turns.first(i, first, false) == 0);
+        }
+    }
+}
+
+/// With more landmasses needing a nearest-node map than there are maps, each
+/// takes its turn as label slots do.
+void nearest_maps_take_turns_when_every_map_is_in_use() {
+    // Three landmasses split by channels at columns 40 to 47 and 88 to 95; a
+    // unit on each heads for water, and one label slot has two maps.
+    Grid grid(128, 64);
+    for (uint32_t z = 0; z < grid.height; ++z)
+        for (uint32_t x = 0; x < grid.width; ++x)
+            if ((x >= 40 && x < 48) || (x >= 88 && x < 96))
+                grid.cells[z * grid.width + x] = 0;
+    TurnTaking turns;
+    turns.requests = {
+        {context(), unit_at(8, 32), circle(44, 32), cell_point(38, 32)},
+        {context(), unit_at(60, 32), circle(92, 32), cell_point(86, 32)},
+        {context(), unit_at(110, 32), circle(92, 32), cell_point(96, 32)},
+    };
+    FlowCache cache(128, 64, landmass_limits());
+    turns.run(cache, grid, 2100);
+    const auto first_west = turns.first(0, 1), first_middle = turns.first(1, 1);
+    CHECK(first_west != 0 && first_west < 200 && first_middle != 0 && first_middle < 200);
+    // The east waits until the west's map, asked for first, has served 900
+    // ticks; the west then waits 300 ticks for the middle's map, and the
+    // middle at least 300 more for the east's.
+    const auto first_east = turns.first(2, 1);
+    CHECK(first_east > 900 && first_east < 1000);
+    const auto lost_west = turns.first(0, first_west, false);
+    CHECK(lost_west > 900 && lost_west <= first_east);
+    const auto back_west = turns.first(0, first_east);
+    CHECK(back_west >= lost_west + 300 && back_west < lost_west + 400);
+    CHECK(
+        turns.first(1, first_middle, false) > 1000 &&
+        turns.first(1, first_middle, false) <= back_west
+    );
+    CHECK(turns.first(2, first_east, false) >= back_west + 300);
+}
+
 /// Limits with crowds shaping the fields: the match's weight and rebuild ticks.
 FlowLimits
 crowd_limits(uint32_t fields, uint32_t work, uint32_t weight = 6, uint32_t rebuild = 240) {
@@ -3385,6 +3507,8 @@ int main() {
     landmass_floods_that_repeat_a_cell_are_refused();
     landmass_work_restores_at_every_tick();
     landmass_restore_refuses_work_a_later_save_would_refuse();
+    landmass_slots_take_turns_when_every_slot_is_in_use();
+    nearest_maps_take_turns_when_every_map_is_in_use();
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();

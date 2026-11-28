@@ -124,6 +124,13 @@ constexpr uint32_t nearest_slots_per_label_slot = 2;
 constexpr uint32_t relabel_grace = 300, relabel_period = 900;
 /// Ticks a slot stays its owner's after it was last asked for.
 constexpr uint32_t slot_keep_ticks = 300;
+/// Ticks an owner keeps a slot it has labels or a map in before another that
+/// finds every slot in use may take it: the period after which its labels are
+/// made again anyway. The slot held longest goes first, and only once no slot
+/// of its kind has changed owner for slot_keep_ticks, so with more movement
+/// classes and players asking than there are slots each takes its turn, at
+/// one labelling a turn.
+constexpr uint32_t slot_turn_ticks = relabel_period;
 /// Footprint cells made unvisited for one unit of landmass work.
 constexpr uint32_t cleared_entries_per_work = 16;
 /// The four steps of a flood between footprint cells: a diagonal step a
@@ -656,6 +663,7 @@ uint32_t FlowCache::find_labels(
     auto* state = state_.get();
     waiting = false;
     uint32_t free = no_slot, oldest = no_slot, oldest_age = 0;
+    uint32_t longest = no_slot, longest_held = 0, newest_held = slot_keep_ticks;
     for (uint32_t i = 0; i < landmass_slots_; ++i) {
         auto* slot = state + label_slot_offset(i);
         const auto phase = get32(slot + slot_phase_offset);
@@ -673,13 +681,24 @@ uint32_t FlowCache::find_labels(
         // A slot nobody asked for lately may serve another class or player;
         // the running job keeps its slot.
         const auto age = tick - get32(slot + slot_used_offset);
-        if (age >= slot_keep_ticks && !job_holds_label_slot(i) &&
-            (oldest == no_slot || age > oldest_age)) {
+        const auto held = tick - get32(slot + slot_asked_offset);
+        newest_held = std::min(newest_held, held);
+        if (job_holds_label_slot(i))
+            continue;
+        if (age >= slot_keep_ticks && (oldest == no_slot || age > oldest_age)) {
             oldest = i;
             oldest_age = age;
         }
+        if (phase == slot_labelled && held >= slot_turn_ticks &&
+            (longest == no_slot || held > longest_held)) {
+            longest = i;
+            longest_held = held;
+        }
     }
-    const auto chosen = free != no_slot ? free : oldest;
+    // Every slot in use: the labelled one held longest takes its next owner
+    // in turn.
+    const auto turn = newest_held >= slot_keep_ticks ? longest : no_slot;
+    const auto chosen = free != no_slot ? free : oldest != no_slot ? oldest : turn;
     if (chosen == no_slot)
         return no_slot;
     auto* slot = state + label_slot_offset(chosen);
@@ -707,6 +726,7 @@ FlowCache::find_nearest(uint32_t labels, uint32_t landmass, uint32_t tick, bool&
                              ? get32(section + job_slot_offset)
                              : no_slot;
     uint32_t free = no_slot, oldest = no_slot, oldest_age = 0;
+    uint32_t longest = no_slot, longest_held = 0, newest_held = slot_keep_ticks;
     for (uint32_t i = 0; i < nearest_slots_; ++i) {
         auto* slot = state + nearest_slot_offset(i);
         const auto phase = get32(slot + slot_phase_offset);
@@ -722,6 +742,8 @@ FlowCache::find_nearest(uint32_t labels, uint32_t landmass, uint32_t tick, bool&
             waiting = phase != nearest_ready;
             return i;
         }
+        if (current)
+            newest_held = std::min(newest_held, tick - get32(slot + nearest_asked_offset));
         if (i == running)
             continue;
         if (!current) {
@@ -734,8 +756,17 @@ FlowCache::find_nearest(uint32_t labels, uint32_t landmass, uint32_t tick, bool&
             oldest = i;
             oldest_age = age;
         }
+        const auto held = tick - get32(slot + nearest_asked_offset);
+        if (phase == nearest_ready && held >= slot_turn_ticks &&
+            (longest == no_slot || held > longest_held)) {
+            longest = i;
+            longest_held = held;
+        }
     }
-    const auto chosen = free != no_slot ? free : oldest;
+    // Every map in use: the finished one held longest takes its next landmass
+    // in turn.
+    const auto turn = newest_held >= slot_keep_ticks ? longest : no_slot;
+    const auto chosen = free != no_slot ? free : oldest != no_slot ? oldest : turn;
     if (chosen == no_slot)
         return no_slot;
     auto* slot = state + nearest_slot_offset(chosen);

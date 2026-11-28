@@ -194,7 +194,13 @@ straight step, 7 a diagonal one) built per landmass; a goal no coarse node
 reaches is left as given. The landmass is part of the field key. A request
 waits while its labels are first made or its nearest-node map is built;
 labels are made again in the background, at least 300 ticks apart, when
-the static revision changed or after 900 ticks. Landmass work is bounded
+the static revision changed or after 900 ticks. A slot nobody asked for in
+300 ticks goes to the next movement class and player that needs one. With
+every slot in use, they take turns: one finding none takes the labelled
+slot held longest once its owner has held it 900 ticks and no other slot
+has changed owner for 300 ticks, and a nearest-node map passes on the same
+way, so each class and player has labels part of the time rather than the
+first to ask holding every slot for good. Landmass work is bounded
 per tick (`landmass_work_per_tick`, 32,768: scanned or flooded cells and
 probes, with cleared entries and nearest-map nodes counted more cheaply),
 and is saved with the fields. Restore accepts every state the labelling

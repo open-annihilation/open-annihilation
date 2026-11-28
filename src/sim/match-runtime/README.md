@@ -741,7 +741,8 @@ does not match.
 
 The match gives the cache eight landmass slots: each movement class and
 player whose units ask for routes has its coarse nodes labelled by the
-ground its footprint can walk to, and a unit on a landmass of at least 256
+ground its footprint can walk to (with more than eight asking, they take
+turns of at least 900 ticks, at most one slot changing hands in 300 ticks), and a unit on a landmass of at least 256
 nodes whose goal it cannot reach, in water, off the map or on another
 landmass, is routed to the nearest node of its own landmass. The tick
 passes the route's destination back with the route, so a long-blocked unit

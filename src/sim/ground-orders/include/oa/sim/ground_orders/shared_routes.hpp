@@ -44,7 +44,7 @@ struct FlowLimits {
     uint32_t route_probes_per_tick{65'536};
     /// Movement class and player pairs whose coarse landmasses are labelled,
     /// each with room for two nearest-node maps; zero labels none, and every
-    /// goal is routed as given.
+    /// goal is routed as given. With more pairs asking, they take turns.
     uint32_t landmass_slots{};
     /// Landmass work a tick: nodes scanned or expanded and edges tested while
     /// labelling, with sixteen cleared label entries, or eight nodes of a
@@ -114,6 +114,9 @@ struct FlowCounters {
 /// landmass it was built for. A goal in a passage too narrow for any coarse
 /// node is left to the ordinary search. The labels are kept through map
 /// changes and labelled again in the background; the work is bounded per tick.
+/// With more movement classes and players asking than there are slots, or
+/// more landmasses than maps, each takes its turn: a slot held 900 ticks
+/// passes on, one every 300 ticks.
 ///
 /// With a crowd weight, a field's breadth-first search puts off each node it
 /// discovers by (units * weight + 4) / 9 levels, at most 255, where units are
