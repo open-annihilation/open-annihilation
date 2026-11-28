@@ -6,7 +6,7 @@
   <a href="https://github.com/open-annihilation/open-annihilation/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/open-annihilation/open-annihilation?style=flat-square&label=release&color=c0392b"></a>
   <a href="https://github.com/open-annihilation/open-annihilation/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/open-annihilation/open-annihilation/total?style=flat-square&color=2c3e50"></a>
   <a href="LICENSE"><img alt="Licence: GPL v3" src="https://img.shields.io/badge/licence-GPL%20v3-2c3e50?style=flat-square"></a>
-  <a href="https://discord.gg/KyUExvCnQ"><img alt="Discord" src="https://img.shields.io/badge/Discord-join%20us-5865F2?style=flat-square&logo=discord&logoColor=white"></a>
+  <a href="https://discord.gg/btvstShjgX"><img alt="Discord" src="https://img.shields.io/badge/Discord-join%20us-5865F2?style=flat-square&logo=discord&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -469,7 +469,7 @@ engine and plays the demo from that folder.
 
 Join the Open Annihilation Discord server to follow development, report
 problems and talk about the game:
-**[discord.gg/KyUExvCnQ](https://discord.gg/KyUExvCnQ)**
+**[discord.gg/btvstShjgX](https://discord.gg/btvstShjgX)**
 
 Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 Credits are in [CONTRIBUTORS.md](CONTRIBUTORS.md).
