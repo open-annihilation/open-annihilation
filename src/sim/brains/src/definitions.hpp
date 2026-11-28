@@ -125,6 +125,23 @@ read_weapon_field(const oa::WeaponDef& weapon, std::string_view key, FieldValue&
 /// @return true when `type` was written; does not return when the value is refused
 bool resolve_unit_type(lua_State* state, int index, const char* function, uint16_t* type);
 
+/// What `find_unit_type` made of a value.
+enum class UnitLookup : uint8_t {
+    found,     ///< a record, a name or an index of a type in the table
+    unknown,   ///< a record, a string or an integer that names no type in the table
+    not_a_type ///< any other value, a number that is not an integer included
+};
+
+/// Finds a unit type from a record, a name or a type index, without raising.
+///
+/// The values are the ones `resolve_unit_type` takes, read the same way.
+///
+/// @param state sandbox state
+/// @param index stack index of the value
+/// @param type receives the type index when the result is found
+/// @return found, unknown or not_a_type
+[[nodiscard]] UnitLookup find_unit_type(lua_State* state, int index, uint16_t* type);
+
 /// Installs `units`, `weapons` and `features`, and the unit getter `type`.
 ///
 /// With no match the three collections exist and are empty. May raise.

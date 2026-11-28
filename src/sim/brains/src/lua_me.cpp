@@ -930,7 +930,14 @@ int method_each_unit(lua_State* lua) {
 int method_unit_count(lua_State* lua) {
     charge_one(lua);
     const Seat* seat = seat_of(lua);
-    const std::size_t found = seat == nullptr ? 0 : occupied_count(*seat);
+    std::size_t found = 0;
+    // The match keeps the count in Player.unit_count, raised as a unit takes
+    // a slot and lowered as its slot is freed, so it is the occupied slots
+    // the walk would find. A seat with no match walks its host's world.
+    if (seat != nullptr && seat->match != nullptr && seat->player < OA_PLAYER_COUNT)
+        found = seat->match->state().game.players[seat->player].unit_count;
+    else if (seat != nullptr)
+        found = occupied_count(*seat);
     lua_pushinteger(lua, static_cast<lua_Integer>(found));
     return 1;
 }

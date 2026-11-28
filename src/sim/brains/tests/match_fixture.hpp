@@ -108,6 +108,9 @@ struct Fixture {
     ///     sight test passes mapping and line of sight.
     /// @param armed_vehicle whether the vehicle carries the silo's weapon, as
     ///     a mobile missile defence does
+    /// @param per_player_limit the unit slots each player has
+    /// @param unit_player_mask the players an Enhanced Mode pool lays out
+    ///     slots for, one bit each; 0 when the rules leave Enhanced Mode Off
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
@@ -116,7 +119,9 @@ struct Fixture {
         uint32_t random_seed = 1,
         const data::limits::Limits& limits = {},
         uint16_t visibility = 2,
-        bool armed_vehicle = false
+        bool armed_vehicle = false,
+        uint16_t per_player_limit = 40,
+        uint16_t unit_player_mask = 0
     ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
@@ -231,7 +236,7 @@ struct Fixture {
                                                 types,      fields,
                                                 weapons,    terrain_values,
                                                 masks,      32,
-                                                32,         40,
+                                                32,         per_player_limit,
                                                 visibility, 0,
                                                 30,         random_seed,
                                                 &scenario,  [] { return 1000u; },
@@ -240,6 +245,7 @@ struct Fixture {
                                                 0.0F,       {}};
         input.rules = rules;
         input.limits = limits;
+        input.unit_player_mask = unit_player_mask;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
         match->set_difficulty(OA_DIFFICULTY_MEDIUM);
         for (uint8_t p = 0; p < 2; ++p) {

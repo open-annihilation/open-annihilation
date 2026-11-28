@@ -33,7 +33,7 @@ add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua
   src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
   src/failure.cpp src/save.cpp src/report.cpp src/lua_profile.cpp src/lua_map.cpp src/reach.cpp src/route.cpp src/lua_sight.cpp
   src/lua_orders.cpp src/lua_sites.cpp src/lua_networks.cpp src/lua_grids.cpp src/seat_calls.cpp
-  src/shadow.cpp src/logs.cpp src/lua_record.cpp
+  src/shadow.cpp src/logs.cpp src/lua_record.cpp src/lua_counts.cpp
   "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")
@@ -101,6 +101,15 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
   add_test(NAME sim-brains-sight COMMAND oa-sim-brains-sight-test)
   set_tests_properties(sim-brains-sight PROPERTIES TIMEOUT 180)
+
+  # The seat's own units counted by name and by tag, and the match's unit
+  # limit, with Enhanced Mode Off and under Revision 1.
+  add_executable(oa-sim-brains-counts-test tests/counts_test.cpp)
+  target_include_directories(oa-sim-brains-counts-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_link_libraries(oa-sim-brains-counts-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-data-enhanced-mode oa-sim-state-hash)
+  add_test(NAME sim-brains-counts COMMAND oa-sim-brains-counts-test)
+  set_tests_properties(sim-brains-counts PROPERTIES TIMEOUT 180)
 
   # Unit, weapon and feature records. The made-up brain is definition-reader.
   # --data compares every installed unit with the value the match loaded.

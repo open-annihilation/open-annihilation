@@ -758,6 +758,34 @@ bool resolve_unit_type(lua_State* lua, int index, const char* function, uint16_t
     return luaL_error(lua, "%s expects a unit type: a record, a name or an index", name) != 0;
 }
 
+UnitLookup find_unit_type(lua_State* lua, int index, uint16_t* type) {
+    uint16_t found = 0;
+    bool named = false;
+    if (unit_record(lua, index, &found)) {
+        named = true;
+    } else if (lua_type(lua, index) == LUA_TSTRING) {
+        std::size_t length = 0;
+        const char* text = lua_tolstring(lua, index, &length);
+        named = text != nullptr &&
+                lookup_name(lua, static_cast<uint8_t>(Kind::unit), text, length, &found);
+        if (!named)
+            return UnitLookup::unknown;
+    } else if (lua_isinteger(lua, index)) {
+        const lua_Integer number = lua_tointeger(lua, index);
+        if (number < 1 || number > 0xffff)
+            return UnitLookup::unknown;
+        found = static_cast<uint16_t>(number);
+        named = true;
+    }
+    if (!named)
+        return UnitLookup::not_a_type;
+    if (!type_in_table(lua, found))
+        return UnitLookup::unknown;
+    if (type != nullptr)
+        *type = found;
+    return UnitLookup::found;
+}
+
 void install_definitions(lua_State* lua, Seat& seat) {
     store_seat(lua, seat);
     set_meta(lua, unit_meta, record_index, record_newindex, nullptr, nullptr);

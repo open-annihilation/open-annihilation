@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The check match against the installed game: its unit types, the commander
-// at the centre, and the player and base game a brain's start reads.
+// at the centre, the player and base game a brain's start reads, and the
+// commander counted by its name and the words of its Category line.
 
 #include "oa/app/brain_check.hpp"
 #include "oa/app/game_directory.hpp"
@@ -29,6 +30,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -329,6 +331,177 @@ void read_side_match(oa::sim::match_runtime::Match& match, void* context) {
     }
 }
 
+struct Counted {
+    std::vector<std::pair<std::string, lua_Integer>> values;
+    std::string missing;
+    lua_Integer tags{-1};
+    uint32_t limit{};
+    std::string commander;
+};
+
+// Counts its own commander by name, record and the words of its Category
+// line, and asks every word of every loaded type's line. A nil count is -1.
+constexpr std::string_view counting_brain = R"(local function count(what)
+  local found = me:unit_count_of(what)
+  if found == nil then
+    return -1
+  end
+  return found
+end
+return {
+  start = function()
+    local commander = game.mod.sides[1].commander
+    counted = {
+      total = me:unit_count(),
+      limit = game.unit_limit,
+      name = count(commander),
+      record = count(units[commander]),
+      commander_tag = count("commander"),
+      ctrl_c = count("CTRL_C"),
+      arm = count("arm"),
+      core = count("CORE"),
+      vtol = count("VTOL"),
+      air = count("AIR"),
+      all = count("ALL"),
+    }
+    local words = {}
+    for index = 1, #units do
+      for _, word in ipairs(units[index].category) do
+        if me:unit_count_of(word) == nil then
+          missing = word
+        end
+        words[string.lower(word)] = true
+      end
+    end
+    tags = 0
+    for _ in pairs(words) do
+      tags = tags + 1
+    end
+  end
+}
+)";
+
+void read_counted(void* context, lua_State* state) {
+    auto* counted = static_cast<Counted*>(context);
+    lua_getglobal(state, "counted");
+    if (lua_istable(state, -1)) {
+        for (const char* key :
+             {"total",
+              "limit",
+              "name",
+              "record",
+              "commander_tag",
+              "ctrl_c",
+              "arm",
+              "core",
+              "vtol",
+              "air",
+              "all"}) {
+            lua_getfield(state, -1, key);
+            counted->values.emplace_back(
+                key, lua_isinteger(state, -1) ? lua_tointeger(state, -1) : -2
+            );
+            lua_pop(state, 1);
+        }
+    }
+    lua_pop(state, 1);
+    lua_getglobal(state, "missing");
+    if (lua_isstring(state, -1))
+        counted->missing = lua_tostring(state, -1);
+    lua_pop(state, 1);
+    lua_getglobal(state, "tags");
+    if (lua_isinteger(state, -1))
+        counted->tags = lua_tointeger(state, -1);
+    lua_pop(state, 1);
+}
+
+void read_counting_match(oa::sim::match_runtime::Match& match, void* context) {
+    auto* counted = static_cast<Counted*>(context);
+    counted->limit = match.state().game.units_per_player;
+    for (uint32_t slot = 1; slot < match.state().unit_slot_count; ++slot) {
+        const oa::Unit& unit = match.state().units[slot];
+        if (unit.type_index != 0 && unit.type_index < match.state().unit_def_count)
+            counted->commander = match.state().unit_defs[unit.type_index].unit_name;
+    }
+    if (oa::data::script_host::Sandbox* sandbox = oa::sim::brains::seat_sandbox(match, 1)) {
+        oa::data::script_host::ScriptError script_error;
+        OA_CHECK(sandbox->run_host("read", counted, read_counted, script_error));
+    }
+}
+
+lua_Integer counted_value(const Counted& counted, std::string_view key) {
+    for (const auto& [name, value] : counted.values)
+        if (name == key)
+            return value;
+    return -3;
+}
+
+void counts_read_the_loaded_units(const fs::path& game, const fs::path& scratch) {
+    const fs::path folder = scratch / "unit-counter";
+    write_text(
+        folder / "oabrain.yaml",
+        "oabrain: 1\n"
+        "id: unit-counter\n"
+        "name: \"Unit Counter\"\n"
+        "version: \"1\"\n"
+        "author:\n"
+        "  name: \"A. Maker\"\n"
+        "description: \"Counts its own units.\"\n"
+        "tags: [\"experimental\"]\n"
+        "works-with: [\"ta-3.1c\"]\n"
+        "levels:\n"
+        "  - id: firm\n"
+        "    name: \"Firm\"\n"
+        "    difficulty: medium\n"
+    );
+    write_text(folder / "brain.lua", counting_brain);
+    std::string failure;
+    const std::optional<oa::app::InstalledBrain> installed =
+        oa::app::read_installed_brain(scratch, "unit-counter", failure);
+    if (!installed)
+        std::fprintf(stderr, "brain: %s\n", failure.c_str());
+    OA_CHECK(installed.has_value());
+    if (!installed)
+        return;
+    oa::app::BrainCheckRequest request;
+    request.game_dir = game;
+    request.brain = *installed;
+    request.choice.id = installed->manifest.id;
+    request.choice.level = "firm";
+    Counted counted;
+    std::string problem;
+    const std::optional<oa::app::BrainCheckReport> report =
+        oa::app::check_brain_against_game(request, problem, read_counting_match, &counted);
+    if (!report)
+        std::fprintf(stderr, "brain check: %s\n", problem.c_str());
+    OA_CHECK(report.has_value());
+    if (!report)
+        return;
+    if (!report->seated)
+        std::fprintf(stderr, "unit-counter: %s\n", report->error.c_str());
+    OA_CHECK(report->seated);
+    // The check match seats the first side's commander, Arm's in the base
+    // game. Its Category line carries ARM, commander and CTRL_C, and no
+    // aircraft word; the base game has VTOL for aircraft and no AIR.
+    OA_CHECK(same_ascii(counted.commander, "ARMCOM"));
+    OA_CHECK(counted.limit > 0);
+    OA_CHECK(counted_value(counted, "limit") == static_cast<lua_Integer>(counted.limit));
+    OA_CHECK(counted_value(counted, "total") == 1);
+    OA_CHECK(counted_value(counted, "name") == 1);
+    OA_CHECK(counted_value(counted, "record") == 1);
+    OA_CHECK(counted_value(counted, "commander_tag") == 1);
+    OA_CHECK(counted_value(counted, "ctrl_c") == 1);
+    OA_CHECK(counted_value(counted, "arm") == 1);
+    OA_CHECK(counted_value(counted, "core") == 0);
+    OA_CHECK(counted_value(counted, "vtol") == 0);
+    OA_CHECK(counted_value(counted, "air") == -1);
+    OA_CHECK(counted_value(counted, "all") == 1);
+    if (!counted.missing.empty())
+        std::fprintf(stderr, "unit-counter: no count for the tag %s\n", counted.missing.c_str());
+    OA_CHECK(counted.missing.empty());
+    OA_CHECK(counted.tags > 10);
+}
+
 std::optional<fs::path> sides_fixture_of(int argc, char** argv) {
     for (int index = 1; index + 1 < argc; ++index) {
         if (std::string_view(argv[index]) == "--sides-fixture")
@@ -424,6 +597,7 @@ int main(int argc, char** argv) {
     const oa::app::InstalledBrain brain = brain_of(scratch.path);
     base_game_seats_the_commander(game, brain);
     a_unit_file_that_does_not_load_is_a_warning(game, scratch.path, brain);
+    counts_read_the_loaded_units(game, scratch.path);
     if (const std::optional<fs::path> fixture = sides_fixture_of(argc, argv))
         a_side_past_the_fifth_seats_its_commander(game, *fixture);
     return oa::test::check_exit_status();
