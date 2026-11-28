@@ -729,7 +729,7 @@ and player knowledge.
 A clear, budgeted connection to the next corner can omit the first coarse
 anchor without changing the field or the ordinary navigator.
 
-The shared fields use format 3, with nodes every two terrain cells. A wreck
+The shared fields use format 4, with nodes every two terrain cells. A wreck
 can block every four-cell anchor across a bridge while leaving a ground unit
 enough room to pass between them; the two-cell graph retains those lanes. A
 route prefix holds at most 32 coarse edges. The match allows at most 80
@@ -738,6 +738,50 @@ largest allocation. A completed field gets 60 ticks of residence before a
 new key can evict it, providing a bounded opportunity for pending clients to
 receive its routes. Save restore rejects a shared-field grid or format that
 does not match.
+
+The match gives the cache eight landmass slots: each movement class and
+player whose units ask for routes has its coarse nodes labelled by the
+ground its footprint can walk to (with more than eight asking, they take
+turns of at least 900 ticks, at most one slot changing hands in 300 ticks), and a unit on a landmass of at least 256
+nodes whose goal it cannot reach, in water, off the map or on another
+landmass, is routed to the nearest node of its own landmass. The tick
+passes the route's destination back with the route, so a long-blocked unit
+treats a clear leg to that point as it treats a clear leg to its goal. The
+labels, the maps and the labelling's working state add about 120 bytes of
+saved state per coarse node, 15 MiB on a map of 1,024 by 512 cells
+(`match-enhanced-navigation-state` pins the sizes).
+
+The match also gives the cache a crowd weight of 6 and crowd rebuild ticks
+of 240, so a field reaches a coarse node `(units * 6 + 4) / 9` levels late,
+`units` being its player's own live ground units in the 3x3 nodes around it,
+and a field built round crowds that units asked for since it completed is
+built again from the crowds of the moment 240 ticks after it completed.
+`advance_path_search` passes the counts as
+`FlowSampler::ground_units`: the first time a field asks in a call,
+`EnhancedState::count_crowds` counts every live unit with movement state,
+a type that cannot fly and no transport at the node
+`((cell_x + 1) / 2, (cell_z + 1) / 2)`, into
+one byte a node (more than 255 count as 255) of a grid for each participant
+(`unit_player_mask`, or every slot when it is empty). The counts come from
+unit state alone, so a load pass and a regular pass at the same tick count
+the same; they are scratch outside saved tables and hashes, 128 KiB a
+participant on a map of 1,024 by 512 cells. Only a player's own units
+count, so a route shows nothing of what the fog hides. The cache keeps a
+field's waiting levels in its queue entries and its crowd mark in 4 bytes,
+so the saved state grows by 8 bytes and 4 a field. An aircraft has movement
+state too, flying or landed, but no ground route goes round it
+(`match-crowd-counts`).
+
+With `routes_fine_regions`, a patrol's regular step (every 45 to 75 ticks)
+leaves a ground unit simulated here its goal and route when the goal it
+would install is the same, the unit has a route, no search of its own runs
+and it has moved within the last 30 ticks (`GroundMissions::patrol_goal`).
+The step still asks for a fresh route at once (`restart_search`), as
+installing the goal does, but the unit follows its route until the new one
+arrives instead of a straight line toward the patrol point. A unit that has
+stood still longer takes the goal afresh, straight line included, as
+without the feature. `match-patrol-route-keep` covers the kept and the
+replaced steps.
 
 An independent scan polls at most 1,024 unit slots per simulation tick,
 divided among active players, using tick-derived ranges. It does not spend
@@ -792,7 +836,7 @@ Five rule tables retain owner-local navigation across saves:
 
 | Table | Saved state |
 | --- | --- |
-| `shared-routes` | Retained fields, pending work, dirty refresh state and cache budgets |
+| `shared-routes` | Retained fields, landmass labels and nearest-node maps, pending work and the levels its nodes wait for crowds, dirty refresh state, crowd marks and cache budgets |
 | `flow-map-version` | Current static-map revision |
 | `local-flow` | Temporary traffic heads, one-tick completion history and collision clocks |
 | `flow-progress` | Actual-progress ticks |

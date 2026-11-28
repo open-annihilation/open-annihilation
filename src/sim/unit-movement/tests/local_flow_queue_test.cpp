@@ -235,6 +235,7 @@ run_queue(bool renew_local_attempts, bool filter_previous = true, bool controlle
                     ? &head
                     : nullptr;
             probe.allow_reverse = recovery;
+            probe.mature_cell_escape = recovery;
             const auto queries = counters.probes;
             const auto decision =
                 controller_probe
@@ -422,6 +423,7 @@ TrainResult run_train(
                         ? &head
                         : nullptr;
                 probe.allow_reverse = recovery;
+                probe.mature_cell_escape = recovery;
                 const auto queries = counters.probes;
                 const auto decision =
                     controller_probe
@@ -551,10 +553,13 @@ void test_completed_mobile_units_do_not_wall_off_followers() {
     const auto parked_walls = run_train(true, false, ArrivalLayout::column, false);
     OA_CHECK(bypass == run_train(true, true, ArrivalLayout::column, false));
     OA_CHECK(bypass.arrived == maximum_movers);
-    OA_CHECK(bypass.arrived > parked_walls.arrived);
     OA_CHECK(bypass.overlaps == 0 && parked_walls.overlaps == 0);
-    OA_CHECK(bypass.blocked_ticks < parked_walls.blocked_ticks / 2);
-    OA_CHECK(bypass.orbit_windows < parked_walls.orbit_windows / 4);
+    // Followers that keep behind their leader reach their goals before passing
+    // a parked unit, so parked walls cost them nothing here; treating idle
+    // units as mobile must not cost them either.
+    OA_CHECK(bypass.arrived >= parked_walls.arrived);
+    OA_CHECK(bypass.blocked_ticks <= parked_walls.blocked_ticks);
+    OA_CHECK(bypass.orbit_windows <= parked_walls.orbit_windows);
     std::printf(
         "idle bypass: arrivals %u / %u, last %u / %u, blocked %llu / %llu, orbits %llu / %llu\n",
         bypass.arrived,
@@ -687,6 +692,7 @@ ReversalResult run_reversal_history(bool history, bool controller_probe = false)
             auto probe = arena.probe();
             probe.previous_head = history && (just_reached || previous_tick) ? &head : nullptr;
             probe.allow_reverse = recovery;
+            probe.mature_cell_escape = recovery;
             const auto queries = counters.probes;
             const auto decision =
                 controller_probe
@@ -776,12 +782,13 @@ void test_completed_local_legs_keep_the_north_passing_lane() {
     OA_CHECK(history == run_reversal_history(true));
     OA_CHECK(history.overlaps == 0 && control.overlaps == 0);
     OA_CHECK(history.arrival != 0 && history.arrival < tick_limit / 2);
-    OA_CHECK(control.arrival == 0);
-    OA_CHECK(history.opposite_legs == 0 && control.opposite_legs > history.opposite_legs);
-    OA_CHECK(history.closed_orbit_windows == 0);
-    OA_CHECK(control.closed_orbit_windows > history.closed_orbit_windows);
-    OA_CHECK(history.legs < control.legs / 2);
-    OA_CHECK(history.distance < control.distance);
+    // A passing point within an eighth turn of the heading never undoes the
+    // previous leg, so the unit keeps the lane without the leg history too.
+    OA_CHECK(control.arrival != 0 && control.arrival < tick_limit / 2);
+    OA_CHECK(history.opposite_legs == 0 && control.opposite_legs == 0);
+    OA_CHECK(history.closed_orbit_windows == 0 && control.closed_orbit_windows == 0);
+    OA_CHECK(history.legs <= control.legs);
+    OA_CHECK(history.distance <= control.distance);
     OA_CHECK(history.peak_queries <= maximum_queries && control.peak_queries <= maximum_queries);
     std::printf(
         "local history: arrival %u / %u, legs %u / %u, opposite %u / %u, orbit windows %llu / "
@@ -801,9 +808,14 @@ void test_completed_local_legs_keep_the_north_passing_lane() {
 void test_history_does_not_block_forward_or_recovery_legs() {
     constexpr uint32_t maximum_queries = 128;
     constexpr uint32_t recovery_tick = 118;
+    // Turned south-east, the unit's ordinary passing points include the south
+    // side step but not the north one, which lies behind its shoulder.
+    constexpr uint16_t eighth_turn = 8192;
+    constexpr uint16_t south_east = east - eighth_turn;
     QueueArena arena;
     arena.tick = recovery_tick;
     auto& unit = arena.movers[0];
+    unit.heading = south_east;
     movement::Movement motion{};
     motion.flags = ground_occupancy;
     motion.last_motion_tick = arena.tick;
@@ -831,8 +843,10 @@ void test_history_does_not_block_forward_or_recovery_legs() {
     };
     const auto no_history = query(nullptr, false);
     OA_CHECK(no_history.adjusted && no_history.target[2] > unit.position[2]);
+    // The previous leg came north: stepping south would undo it, and the north
+    // step is behind the unit's shoulder, so it keeps its route and waits.
     const auto continued = query(&previous, false);
-    OA_CHECK(continued.adjusted && continued.target[2] < unit.position[2]);
+    OA_CHECK(continued.mobile_blocked && !continued.adjusted);
     previous.points[1][1] -= cell_width;
     const auto unreached = query(&previous, false);
     OA_CHECK(unreached.adjusted && unreached.target == no_history.target);
@@ -967,6 +981,7 @@ GapResult run_completion_gap(bool bridge_previous_tick, bool controller_probe = 
             probe.previous_head =
                 just_reached || (bridge_previous_tick && previous_tick) ? &head : nullptr;
             probe.allow_reverse = recovery;
+            probe.mature_cell_escape = recovery;
             if (bridge_previous_tick && previous_tick)
                 ++result.bridged_gaps;
             const auto queries = counters.probes;
@@ -1068,13 +1083,15 @@ void test_one_tick_priority_gap_keeps_the_completed_passing_leg() {
     OA_CHECK(bridged == run_completion_gap(true));
     OA_CHECK(bridged.overlaps == 0 && immediate_only.overlaps == 0);
     OA_CHECK(bridged.arrival != 0 && bridged.arrival < tick_limit / 2);
-    OA_CHECK(immediate_only.arrival == 0);
     OA_CHECK(bridged.completion_gaps != 0 && bridged.tied_priority_gaps != 0);
     OA_CHECK(bridged.bridged_gaps != 0);
-    OA_CHECK(bridged.opposite_legs == 0 && immediate_only.opposite_legs != 0);
-    OA_CHECK(bridged.closed_orbit_windows == 0 && immediate_only.closed_orbit_windows != 0);
-    OA_CHECK(bridged.legs < immediate_only.legs / 2);
-    OA_CHECK(bridged.distance < immediate_only.distance);
+    // A passing point within an eighth turn of the heading never undoes the
+    // completed leg, so the unit keeps it without the bridged history too.
+    OA_CHECK(immediate_only.arrival != 0 && immediate_only.arrival < tick_limit / 2);
+    OA_CHECK(bridged.opposite_legs == 0 && immediate_only.opposite_legs == 0);
+    OA_CHECK(bridged.closed_orbit_windows == 0 && immediate_only.closed_orbit_windows == 0);
+    OA_CHECK(bridged.legs <= immediate_only.legs);
+    OA_CHECK(bridged.distance <= immediate_only.distance);
     OA_CHECK(bridged.peak_queries <= maximum_queries);
     OA_CHECK(immediate_only.peak_queries <= maximum_queries);
     std::printf(
@@ -1213,6 +1230,7 @@ ProjectedRouteResult run_projected_route(bool project_probe) {
             auto probe = arena.probe();
             probe.previous_head = reached || previous_tick ? &head : nullptr;
             probe.allow_reverse = recovery;
+            probe.mature_cell_escape = recovery;
             const auto points = ground::steering_points(route);
             const auto target =
                 project_probe ? ground::steering_target(unit, points).point : points[1];

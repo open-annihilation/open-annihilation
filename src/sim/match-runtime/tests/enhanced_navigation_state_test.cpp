@@ -60,6 +60,9 @@ routes::FlowLimits fixture_route_limits(oa::data::enhanced_mode::FeatureSet feat
     if (features.has(oa::data::enhanced_mode::Feature::routes_fine_regions)) {
         limits.fields = 80;
         limits.total_cells = 8 * 1024 * 1024;
+        limits.landmass_slots = 8;
+        limits.crowd_weight = 6;
+        limits.crowd_rebuild_ticks = 240;
     }
     return limits;
 }
@@ -76,6 +79,26 @@ const runtime::RuleStateTable& table(runtime::Match& match, const char* name) {
 std::vector<uint8_t> bytes_of(const runtime::RuleStateTable& state) {
     const auto bytes = state.bytes(state.context);
     return {bytes.begin(), bytes.end()};
+}
+
+/// Asks a cache at `tick` for the landmasses of a request's movement class and
+/// player, and advances it through all but the last of the `label_ticks`
+/// ticks that label them: the request waits until the cache's next advance.
+void ask_landmasses(
+    routes::FlowCache& cache,
+    uint32_t tick,
+    const routes::FlowSampler& sampler,
+    const routes::FlowContext& context,
+    const oa::Unit& unit,
+    const routes::Goal& goal,
+    uint32_t label_ticks = 1
+) {
+    std::array<routes::RoutePoint, routes::navigation_capacity> points{};
+    uint32_t count{};
+    cache.advance(tick, context.static_revision, sampler);
+    CHECK(cache.route(context, unit, goal, points, count, sampler) == routes::FlowResult::pending);
+    for (uint32_t next = 1; next < label_ticks; ++next)
+        cache.advance(tick + next, context.static_revision, sampler);
 }
 
 void capacity_and_off_keep_no_flow_state() {
@@ -96,13 +119,14 @@ void install_pending_field(runtime::Match& match) {
         }
     };
     constexpr uint32_t field_revision = 7;
-    cache.advance(match.state().game.tick, field_revision, sampler);
     oa::Unit unit{};
     unit.cell_x = unit.cell_z = 1;
     unit.position.x = unit.position.z = 24 << 16;
     routes::Goal goal{};
     goal.cell = {14, 14};
     const routes::FlowContext context{0, 0, field_revision, 0, 1, 1};
+    ask_landmasses(cache, match.state().game.tick - 1, sampler, context, unit, goal);
+    cache.advance(match.state().game.tick, field_revision, sampler);
     std::array<routes::RoutePoint, routes::navigation_capacity> points{};
     uint32_t count{};
     CHECK(cache.route(context, unit, goal, points, count, sampler) == routes::FlowResult::fallback);
@@ -241,7 +265,7 @@ void shared_routes_use_the_fine_format() {
         const auto& actual = table(*fixture.match, "shared-routes");
         const auto bytes = expected.state_bytes();
         CHECK(bytes_of(actual) == std::vector<uint8_t>(bytes.begin(), bytes.end()));
-        CHECK(bytes[4] == 3 && bytes[28] == 2);
+        CHECK(bytes[4] == 4 && bytes[28] == 2);
     }
 }
 
@@ -332,6 +356,8 @@ void a_building_fine_frontier_continues_after_restore() {
     const routes::FlowContext context{1, 0, 0, 0, 1, 1};
     std::array<routes::RoutePoint, routes::navigation_capacity> points{};
     uint32_t count{};
+    // The 16,384 footprint cells take more than one tick to label.
+    ask_landmasses(cache, saved_tick - 4, sampler, context, unit, goal, 3);
     cache.advance(saved_tick - 1, 0, sampler);
     CHECK(cache.route(context, unit, goal, points, count, sampler) == routes::FlowResult::fallback);
     CHECK(cache.route(context, unit, goal, points, count, sampler) == routes::FlowResult::pending);
@@ -343,10 +369,10 @@ void a_building_fine_frontier_continues_after_restore() {
         return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 | uint32_t(bytes[at + 2]) << 16 |
                uint32_t(bytes[at + 3]) << 24;
     };
-    CHECK(word(saved, 4) == 3);
+    CHECK(word(saved, 4) == 4);
     CHECK(word(saved, first_field) == 2);
-    CHECK(word(saved, first_field + 56) > 0);
-    CHECK(word(saved, first_field + 56) < word(saved, first_field + 60));
+    CHECK(word(saved, first_field + 60) > 0);
+    CHECK(word(saved, first_field + 60) < word(saved, first_field + 64));
     for (auto* fixture : {&previous, &following}) {
         const auto& shared = table(*fixture->match, "shared-routes");
         CHECK(shared.restore(shared.context, saved));
@@ -366,7 +392,7 @@ void a_building_fine_frontier_continues_after_restore() {
     }
     const auto completed = bytes_of(table(*following.match, "shared-routes"));
     CHECK(word(completed, first_field) == 3);
-    CHECK(word(completed, first_field + 56) == word(completed, first_field + 60));
+    CHECK(word(completed, first_field + 60) == word(completed, first_field + 64));
 }
 
 /// Fine storage can hold the battle's working set without increasing expansion work.
@@ -378,10 +404,10 @@ void shared_field_storage_is_bounded() {
     };
 
     const std::array<StorageCase, 4> cases{
-        {{flow_set, 642, 648, 80, 41'611'200},
-         {flow_set, 1024, 512, 64, 41'951'360},
-         {revision_1, 642, 648, 80, 41'611'200},
-         {revision_1, 1024, 512, 64, 41'951'360}}
+        {{flow_set, 642, 648, 80, 54'093'032},
+         {flow_set, 1024, 512, 64, 57'681'224},
+         {revision_1, 642, 648, 80, 54'093'032},
+         {revision_1, 1024, 512, 64, 57'681'224}}
     };
     for (const auto& c : cases) {
         Fixture fixture(options_for(c.features));
@@ -404,10 +430,20 @@ void shared_field_storage_is_bounded() {
         constexpr uint32_t stride = 2;
         const uint32_t cells =
             ((c.width + stride - 1) / stride) * ((c.height + stride - 1) / stride);
-        CHECK(word(4) == 3u);
+        CHECK(word(4) == 4u);
         CHECK(word(16) == c.fields && word(20) == cells && word(28) == stride);
         CHECK(word(24) == 2048 && word(56) == 65536);
-        CHECK(bytes.size() == 128 + 64 * 48 + c.fields * (80 + size_t(cells) * 5));
+        // The fields, then the landmass section: its header, eight label slots
+        // and sixteen nearest-node maps, and the labels being built, four bytes
+        // a node each; then each map cell's state while labelling, one byte,
+        // and the flood queue, four bytes a cell; then the crowd section: the
+        // crowd weight and rebuild ticks, and each field's crowd mark.
+        const size_t fields_end = 128 + 64 * 48 + c.fields * (84 + size_t(cells) * 5);
+        const size_t crowds = fields_end + 64 + 8 * 32 + 16 * 24 +
+                              (8 + 16 + 1) * size_t(cells) * 4 + size_t(c.width) * c.height * 5;
+        CHECK(bytes.size() == crowds + 8 + c.fields * 4);
+        CHECK(word(fields_end) == 8 && word(fields_end + 4) == 16 && word(fields_end + 8) == 32768);
+        CHECK(word(crowds) == 6 && word(crowds + 4) == 240);
         CHECK(bytes.size() == c.bytes);
         CHECK(uint64_t(c.fields) * cells <= 8'388'608u);
         const auto core_rng = match.random_state(), lcg_rng = match.lcg_state();
@@ -430,6 +466,14 @@ void install_poll_field(runtime::Match& match, uint16_t unit, uint32_t tick, boo
     const routes::FlowContext context{0, 0, 0, 0, 1, 1};
     std::array<routes::RoutePoint, routes::navigation_capacity> points{};
     uint32_t count{};
+    ask_landmasses(
+        cache,
+        (pending ? tick : tick - 2) - 1,
+        sampler,
+        context,
+        match.state().units[unit],
+        *ground->navigation.goal
+    );
     cache.advance(pending ? tick : tick - 2, 0, sampler);
     CHECK(
         cache.route(
@@ -540,7 +584,11 @@ void shared_poll_progresses_without_legacy_credit(const FeatureSet& features = f
 /// Shares a depleted extraction budget in turn among the active player slots.
 void shared_poll_rotates_extraction_opportunities() {
     constexpr std::array<uint8_t, 2> sparse_players{1, 8};
-    constexpr uint32_t first_tick = 120, probes_for_one_route = 2;
+    constexpr uint32_t first_tick = 120;
+    // A route here is its unit's landmass anchor, one probe for the first seat,
+    // which stands on a coarse node, and two for the second, then a direct leg
+    // of two probes.
+    const auto probes_for_one_route = [](size_t seat) { return seat == 0 ? 3u : 4u; };
     // These are the shared-route table's serialized advance clock and budget.
     constexpr size_t cache_tick = 32, advanced_flag = 48, advanced_tick = 52;
     constexpr size_t remaining_probes = 60;
@@ -586,6 +634,20 @@ void shared_poll_rotates_extraction_opportunities() {
         };
         std::array<routes::RoutePoint, routes::navigation_capacity> points{};
         uint32_t count{};
+        cache.advance(first_tick - 3, 0, sampler);
+        for (size_t seat = 0; seat < units.size(); ++seat) {
+            const routes::FlowContext context{0, players[seat], 0, 0, 1, 1};
+            CHECK(
+                cache.route(
+                    context,
+                    match.state().units[units[seat]],
+                    *match.ground_runtime(units[seat])->navigation.goal,
+                    points,
+                    count,
+                    sampler
+                ) == routes::FlowResult::pending
+            );
+        }
         cache.advance(first_tick - 2, 0, sampler);
         for (size_t seat = 0; seat < units.size(); ++seat) {
             const auto* ground = match.ground_runtime(units[seat]);
@@ -632,7 +694,7 @@ void shared_poll_rotates_extraction_opportunities() {
             write32(bytes, cache_tick, tick);
             write32(bytes, advanced_flag, 1);
             write32(bytes, advanced_tick, tick);
-            write32(bytes, remaining_probes, probes_for_one_route);
+            write32(bytes, remaining_probes, probes_for_one_route(tick % active_count));
             CHECK(shared.restore(shared.context, bytes));
             for (const auto unit : units) {
                 auto& navigation = match.ground_runtime(unit)->navigation;
@@ -861,6 +923,7 @@ void static_barrier_keeps_shared_route_access() {
     const routes::FlowContext context{0, 0, 0, 0, 1, 1};
     std::array<routes::RoutePoint, routes::navigation_capacity> points{};
     uint32_t count{};
+    ask_landmasses(cache, 120, sampler, context, unit.record, *ground->navigation.goal);
     cache.advance(121, 0, sampler);
     CHECK(
         cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
@@ -1001,6 +1064,9 @@ void far_terrain_detour_releases_a_mature_queue() {
     const routes::FlowContext context{0, 0, 0, 0, 1, 1};
     std::array<routes::RoutePoint, routes::navigation_capacity> points{};
     uint32_t count{};
+    ask_landmasses(
+        cache, request_tick - 3, sampler, context, unit.record, *ground->navigation.goal
+    );
     cache.advance(request_tick - 2, 0, sampler);
     CHECK(
         cache.route(context, unit.record, *ground->navigation.goal, points, count, sampler) ==
@@ -1099,6 +1165,7 @@ void equivalent_shared_guides_preserve_passing_heads() {
         const routes::FlowContext context{0, 0, 0, 0, 1, 1};
         std::array<routes::RoutePoint, routes::navigation_capacity> points{};
         uint32_t count{};
+        ask_landmasses(cache, request_tick - 3, sampler, context, unit.record, *goal);
         cache.advance(request_tick - 2, 0, sampler);
         CHECK(
             cache.route(context, unit.record, *goal, points, count, sampler) ==
@@ -1329,6 +1396,9 @@ void accepted_routes_release_old_traffic_heads() {
             const routes::FlowContext context{0, 0, 0, 0, 1, 1};
             std::array<routes::RoutePoint, routes::navigation_capacity> points{};
             uint32_t count{};
+            ask_landmasses(
+                cache, 120, sampler, context, match.state().units[unit], *ground->navigation.goal
+            );
             cache.advance(121, 0, sampler);
             CHECK(
                 cache.route(

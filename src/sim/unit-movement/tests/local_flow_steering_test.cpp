@@ -252,6 +252,7 @@ Result run_cohorts(
                 probe.previous_head =
                     history && (just_reached || previous_tick) ? &agent.head : nullptr;
                 probe.allow_reverse = recovery;
+                probe.mature_cell_escape = recovery;
                 if (probe.previous_head != nullptr)
                     ++result.history_transitions;
                 const auto queries = counters.probes;
@@ -466,7 +467,21 @@ void test_sustained_opposing_cohorts() {
     OA_CHECK(radius_only == run_cohorts(false));
     OA_CHECK(current.overlaps == 0 && radius_only.overlaps == 0);
     OA_CHECK(current.arrived == agent_count);
-    OA_CHECK(current.closed_orbit_windows < radius_only.closed_orbit_windows);
+    std::printf(
+        "opposing cohorts: arrivals %u / %u, last %u / %u, orbits %llu / %llu, turn %llu / %llu\n",
+        current.arrived,
+        radius_only.arrived,
+        current.last_arrival,
+        radius_only.last_arrival,
+        static_cast<unsigned long long>(current.closed_orbit_windows),
+        static_cast<unsigned long long>(radius_only.closed_orbit_windows),
+        static_cast<unsigned long long>(current.turn),
+        static_cast<unsigned long long>(radius_only.turn)
+    );
+    // Passing points within an eighth turn of the heading are reached without
+    // orbiting under either completion test; the passed plane still saves turning.
+    OA_CHECK(current.closed_orbit_windows == 0);
+    OA_CHECK(current.closed_orbit_windows <= radius_only.closed_orbit_windows);
     OA_CHECK(current.turn < radius_only.turn);
     OA_CHECK(current.backtrack < radius_only.backtrack);
     OA_CHECK(current.progress_at_450 > radius_only.progress_at_450);
@@ -817,8 +832,16 @@ void test_cached_local_flow_distance_matches_queries_and_decisions() {
         cache.target.distance
     );
     OA_CHECK(adjusted.mobile_blocked && adjusted.adjusted && !adjusted.reverse);
-    const auto reverse = check_flow_pair(
+    // Facing its route, a unit never turns round to back away: it keeps its
+    // route and waits. One already turned back backs away.
+    const auto waiting = check_flow_pair(
         unit, motion, target, target, moving, FlowClearance::behind, cache.target.distance
+    );
+    OA_CHECK(waiting.mobile_blocked && !waiting.adjusted && !waiting.reverse);
+    auto turned = unit;
+    turned.heading = west;
+    const auto reverse = check_flow_pair(
+        turned, motion, target, target, moving, FlowClearance::behind, cache.target.distance
     );
     OA_CHECK(reverse.mobile_blocked && reverse.adjusted && reverse.reverse);
 

@@ -523,12 +523,43 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
     if (shared_routes) {
         constexpr uint32_t fine_flow_field_limit = 80;
         constexpr uint32_t fine_flow_cell_limit = 8 * 1024 * 1024;
+        // Movement class and player pairs whose landmasses are labelled, so
+        // that a goal a unit cannot reach is replaced by the nearest point it
+        // can.
+        constexpr uint32_t fine_flow_landmass_slots = 8;
+        // A field reaches a coarse node (units * 6 + 4) / 9 breadth-first
+        // levels late, units being its player's own ground units in the 3x3
+        // nodes around it, so an army's routes spread over ways of about the
+        // same length instead of all taking the one its crowds stand in.
+        constexpr uint32_t fine_flow_crowd_weight = 6;
+        // A field that met a crowd, and that units asked for since it
+        // completed, is built again round the crowds of the moment 240 ticks
+        // (eight seconds) after it completed.
+        constexpr uint32_t fine_flow_crowd_rebuild_ticks = 240;
         auto flow_limits = sim::ground_orders::FlowLimits{};
         flow_limits.fields = fine_flow_field_limit;
         flow_limits.total_cells = fine_flow_cell_limit;
+        flow_limits.landmass_slots = fine_flow_landmass_slots;
+        flow_limits.crowd_weight = fine_flow_crowd_weight;
+        flow_limits.crowd_rebuild_ticks = fine_flow_crowd_rebuild_ticks;
         enhanced_->shared_routes = std::make_unique<sim::ground_orders::FlowCache>(
             spatial_.terrain_width, spatial_.terrain_height, flow_limits
         );
+        // One grid of counts for each participant: a slot outside the
+        // participants owns no unit slots.
+        auto& crowds = enhanced_->crowd_counts;
+        if (enhanced_->shared_routes->crowd_shaped()) {
+            crowds.columns = (spatial_.terrain_width + 1) / 2;
+            crowds.rows = (spatial_.terrain_height + 1) / 2;
+            const uint16_t participants = unit_player_mask();
+            crowds.grid_of.fill(CrowdCounts::no_grid);
+            for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player)
+                if (participants == 0 || (participants & (1u << player)) != 0)
+                    crowds.grid_of[player] = static_cast<uint8_t>(crowds.grids++);
+            crowds.units = std::make_unique<uint8_t[]>(
+                crowds.grids * crowds.columns * static_cast<size_t>(crowds.rows)
+            );
+        }
     }
     // A save restores these tables by name in the order they were added:
     // keep this order.

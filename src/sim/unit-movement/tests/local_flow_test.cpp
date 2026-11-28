@@ -353,9 +353,11 @@ void test_units_turning_together_keep_their_route() {
     OA_CHECK(opposing_turn.mobile_blocked);
     OA_CHECK(opposing_turn.adjusted);
     OA_CHECK(counters.yielded_ticks == 1);
-    // Yield forward and right of the eastbound route, even while facing north.
+    // Yield forward on the side the unit faces, left of the eastbound route
+    // while it faces north: a point right of the route lies behind its
+    // shoulder and would turn it round.
     OA_CHECK(opposing_turn.target[0] > following.unit.position[0]);
-    OA_CHECK(opposing_turn.target[2] > following.unit.position[2]);
+    OA_CHECK(opposing_turn.target[2] < following.unit.position[2]);
 
     blocker.unit.heading = following.unit.heading;
     blocker.movement.last_motion_tick = grid.tick - 5;

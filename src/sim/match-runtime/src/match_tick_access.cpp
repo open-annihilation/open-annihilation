@@ -17,6 +17,19 @@ sim::ground_orders::SearchRecord MatchTickAccess::active_path_search(const Match
     return match.search_.controller.active();
 }
 
+uint32_t MatchTickAccess::crowd_units(Match& match, uint8_t player, uint32_t column, uint32_t row) {
+    if (!match.enhanced_ || !match.enhanced_->crowd_counts.units)
+        return 0;
+    auto& crowds = match.enhanced_->crowd_counts;
+    match.enhanced_->count_crowds(match);
+    if (player >= OA_PLAYER_COUNT || crowds.grid_of[player] == CrowdCounts::no_grid ||
+        column >= crowds.columns || row >= crowds.rows)
+        return 0;
+    return crowds.units
+        [crowds.grid_of[player] * crowds.columns * static_cast<size_t>(crowds.rows) +
+         static_cast<size_t>(row) * crowds.columns + column];
+}
+
 MatchTickAccess::MatchTickAccess(Match& match) : host_(std::make_unique<TickHost>(match)) {
 }
 

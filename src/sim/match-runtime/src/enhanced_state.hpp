@@ -31,6 +31,27 @@ builds_shared_routes(data::enhanced_mode::FeatureSet features) noexcept {
     return features.has(data::enhanced_mode::Feature::exact_indexed_searches);
 }
 
+/// Each participant's own live ground units at each coarse node of the shared
+/// routes, the counts their fields go round. Counted from unit state when a
+/// field first asks in an advance_path_search call, so a load pass and a
+/// regular pass at the same tick count the same; never saved or hashed.
+struct CrowdCounts {
+    /// Marks a player slot with no grid.
+    static constexpr uint8_t no_grid = 0xff;
+    /// The most units a node's count holds; more are counted as this many.
+    static constexpr uint8_t max_count = 0xff;
+
+    uint32_t columns{}, rows{}; ///< coarse nodes, one every two map cells
+    /// Each player slot's grid in `units`, or no_grid for a slot that owns
+    /// no unit slots.
+    std::array<uint8_t, OA_PLAYER_COUNT> grid_of{};
+    /// Units at each node, row by row, one grid after another.
+    std::unique_ptr<uint8_t[]> units{};
+    size_t grids{};
+    /// Whether this advance_path_search call has counted them.
+    bool counted{};
+};
+
 /// Preallocated v2 navigation and query storage, outside packed world records.
 struct Match::EnhancedState {
     /// Advances bounded target-loss checks before a built-in controller runs.
@@ -58,6 +79,13 @@ struct Match::EnhancedState {
     /// @param player the built-in controller that finished
     void capture_ai_retarget(Match& match, uint8_t player);
 
+    /// Counts each participant's live ground units, those with movement
+    /// state, a type that cannot fly and no transport, at the coarse node
+    /// ((cell_x + 1) / 2, (cell_z + 1) / 2) of their cell.
+    ///
+    /// @param match the match whose units are counted
+    void count_crowds(const Match& match) noexcept;
+
     EnhancedCounters counters{};
     sim::unit_movement::LocalFlowCounters local_flow_counters{};
     std::unique_ptr<sim::unit_movement::LocalFlowHead[]> local_flow_heads{};
@@ -72,6 +100,8 @@ struct Match::EnhancedState {
     uint32_t target_query_extras_tick{};
     bool target_query_extras_valid{};
     std::unique_ptr<sim::ground_orders::FlowCache> shared_routes{};
+    /// The units the shared fields go round; no grids without a crowd weight.
+    CrowdCounts crowd_counts{};
     uint32_t shared_static_revision{};
     std::array<uint8_t, 4> shared_static_revision_bytes{};
     std::unique_ptr<uint8_t[]> target_sighting_membership{};

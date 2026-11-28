@@ -146,6 +146,16 @@ void release_navigation(SearchController& controller, Navigation& navigation) no
 /// @param tick current game tick
 /// @param host search cancellation
 void install_goal(UnitView u, Goal* goal, uint32_t tick, Host& host);
+/// Asks for a fresh route from where the unit stands while it keeps the route
+/// it follows, as installing its goal again would, without the direct route.
+///
+/// Marks a search pending; the search timestamp resets when at least 10 ticks
+/// old, so the search may start at once. The goal, the route and the search
+/// job, if any, are left as they are.
+///
+/// @param[in,out] navigation the unit's navigator
+/// @param tick current game tick
+void restart_search(Navigation& navigation, uint32_t tick) noexcept;
 /// Installs a search result, or reports a failed search on the goal's order.
 ///
 /// An empty result raises path_failed_event unless the unit already satisfies

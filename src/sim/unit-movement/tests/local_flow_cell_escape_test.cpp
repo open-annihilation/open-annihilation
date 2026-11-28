@@ -145,7 +145,8 @@ struct Grid final : Host {
     }
 };
 
-/// Places traffic beside a corner where the ordinary backing point stays inside its origin.
+/// Places traffic beside a corner where no ordinary passing point is open: the
+/// unit faces east, so it never backs away west.
 Unit& corner(Grid& grid) {
     grid.add(6, 4, {1, 1});
     grid.add(4, 6, {1, 1});
@@ -171,14 +172,13 @@ LocalFlowDecision choose(
     return result;
 }
 
-/// Replaces an in-origin choice only when a legal neighbouring origin exists.
+/// Steps into a legal neighbouring origin where the ordinary choice keeps the route.
 void test_legal_cell_escape_and_repeat() {
     Grid previous_grid;
     auto& previous_unit = corner(previous_grid);
     LocalFlowCounters previous_counters{};
     const auto previous = choose(previous_grid, previous_unit, false, previous_counters);
-    OA_CHECK(previous.mobile_blocked && previous.adjusted);
-    OA_CHECK(origin(previous.target) == previous_unit.cell);
+    OA_CHECK(previous.mobile_blocked && !previous.adjusted);
 
     Grid grid;
     auto& unit = corner(grid);
@@ -187,7 +187,7 @@ void test_legal_cell_escape_and_repeat() {
     OA_CHECK(decision.mobile_blocked && decision.adjusted);
     OA_CHECK(origin(decision.target) == (std::array<int16_t, 2>{4, 3}));
     OA_CHECK(decision.target == (std::array<Fixed, 3>{87 * fixed_one, 0, 64 * fixed_one}));
-    OA_CHECK(counters.steering_adjustments == previous_counters.steering_adjustments);
+    OA_CHECK(counters.steering_adjustments == previous_counters.steering_adjustments + 1);
     OA_CHECK(grid.queries.size() == previous_grid.queries.size() + 3);
     OA_CHECK(grid.overlaps == 0);
 
@@ -271,9 +271,10 @@ void test_surrounded_keeps_original() {
     LocalFlowCounters off_counters{}, on_counters{};
     const auto previous = choose(off, unit, false, off_counters);
     const auto current = choose(on, on.units[3], true, on_counters);
-    OA_CHECK(previous.mobile_blocked && origin(previous.target) == unit.cell);
+    OA_CHECK(previous.mobile_blocked && !previous.adjusted);
     OA_CHECK(equal(previous, current) && equal_outcomes(off_counters, on_counters));
-    OA_CHECK(on.queries.size() == off.queries.size() + 4);
+    // The origin behind the unit is never tried, only the three ahead and beside it.
+    OA_CHECK(on.queries.size() == off.queries.size() + 3);
     OA_CHECK(off.overlaps == 0 && on.overlaps == 0);
 }
 
@@ -281,6 +282,8 @@ void test_surrounded_keeps_original() {
 void test_full_footprint_feature_veto() {
     Grid grid;
     auto& unit = corner(grid);
+    // Facing north, the unit may step east, north or west, never south behind it.
+    unit.heading = 0;
     grid.features[Grid::index(5, 3)] = true;
     LocalFlowCounters counters{};
     const auto decision = choose(grid, unit, true, counters);
@@ -392,7 +395,9 @@ void test_fixed_point_limit_does_not_wrap() {
         choose_local_flow(unit, motion, goal, decision_tick, on, probe, on_counters);
     OA_CHECK(previous.mobile_blocked && !previous.adjusted);
     OA_CHECK(equal(previous, current) && equal_outcomes(off_counters, on_counters));
-    OA_CHECK(on.queries.size() == off.queries.size() + 3);
+    // East is beyond the range and south behind the north-facing unit: only
+    // north and west are queried.
+    OA_CHECK(on.queries.size() == off.queries.size() + 2);
     OA_CHECK(on_counters.probes <= maximum_queries);
 }
 } // namespace

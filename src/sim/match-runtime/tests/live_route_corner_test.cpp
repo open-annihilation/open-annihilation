@@ -43,6 +43,7 @@ constexpr int32_t maximum_speed = 117964;
 constexpr uint16_t maximum_turn = 1120;
 constexpr uint16_t east = 49152;
 constexpr uint16_t west = 16384;
+constexpr uint16_t south_east = 40960;
 constexpr uint8_t ground_occupancy = 1;
 constexpr uint8_t land_height = 60;
 constexpr uint8_t sea_level = 30;
@@ -179,7 +180,10 @@ Result run(const Case& input, bool advances) {
     auto& match = *fixture.match;
     CHECK(mover.unit_index == 2);
     blocker.record.heading = west;
-    mover.record.heading = east;
+    // Turned south-east for the first tick, so that the passing point beside
+    // the blocker lies within an eighth turn of the mover's heading; only the
+    // head's goal key is kept from it.
+    mover.record.heading = south_east;
     CHECK(!match.order_refused(
         match.issue_ground_move(mover.unit_index, {208 * pixel, 0, 128 * pixel}, false)
     ));
@@ -539,7 +543,10 @@ uint64_t legacy_trajectory(uint32_t set, uint32_t scene, bool trace) {
     auto& mover = fixture.spawn(0, 64, 64);
     auto& match = *fixture.match;
     blocker.record.heading = west;
-    mover.record.heading = east;
+    // Turned south-east for this first tick, so that the passing point beside
+    // the blocker lies within an eighth turn of the mover's heading; only the
+    // head's goal key is kept from it.
+    mover.record.heading = south_east;
     CHECK(!match.order_refused(
         match.issue_ground_move(mover.unit_index, {208 * pixel, 0, 128 * pixel}, false)
     ));
@@ -613,7 +620,7 @@ void legacy_trajectories_remain_exact() {
     constexpr std::array<std::array<uint64_t, 3>, 3> expected{
         {{0xee445ee95c8c1bc6ull, 0xd26438bc5520bdd8ull, 0x9c8da14e224b3672ull},
          {0xee445ee95c8c1bc6ull, 0xd26438bc5520bdd8ull, 0x9c8da14e224b3672ull},
-         {0x2d6f755621ba2791ull, 0x3b6ca80bb8424bcaull, 0x2a9e52f924d434c9ull}}
+         {0x2d6f755621ba2791ull, 0x23550f833d6715d8ull, 0x2a9e52f924d434c9ull}}
     };
     for (uint32_t set = 0; set < expected.size(); ++set)
         for (uint32_t scene = 0; scene < expected[set].size(); ++scene)

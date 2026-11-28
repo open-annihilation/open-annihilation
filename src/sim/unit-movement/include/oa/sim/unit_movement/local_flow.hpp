@@ -45,6 +45,8 @@ struct LocalFlowProbe {
     /// A null pointer supplies no history.
     const LocalFlowHead* previous_head{};
     /// Whether a mature retry may undo a completed leg to explore a passing place.
+    /// Its passing points may also lie up to a quarter turn from the unit's heading
+    /// rather than an eighth.
     bool allow_reverse{true};
     /// Whether a mature, stationary retry may voluntarily yield its traffic priority.
     /// The caller schedules this from the existing retry phase and actual motion age.
@@ -53,7 +55,8 @@ struct LocalFlowProbe {
     /// leaves it in the current origin and the moving traffic the route probe found
     /// heads a quarter turn or more away from the unit's heading, across its way or
     /// against it. Behind traffic going its own way the unit keeps its place. The
-    /// caller enables this only on its retry phase.
+    /// adjacent origin lies within a quarter turn of the unit's heading, beside or
+    /// ahead of it, never behind. The caller enables this only on its retry phase.
     bool mature_cell_escape{};
 };
 
@@ -162,8 +165,11 @@ bool read_local_flow_heads(std::span<LocalFlowHead> heads, std::span<const uint8
 /// Older waiting traffic takes priority,
 /// with unit id breaking ties. Both ages use the same tick-start snapshot so
 /// an earlier unit update cannot change another unit's priority. Candidate segments retain the host's collision
-/// veto, and diagonal segments test both adjoining cells. Turn and acceleration
-/// limits remain the steering driver's responsibility.
+/// veto, and diagonal segments test both adjoining cells. Passing points lie
+/// within an eighth turn of the unit's heading (a quarter turn on a mature
+/// retry), so passing never turns a unit round; it backs away only when it is
+/// already turned back from its route. Turn and acceleration limits remain the
+/// steering driver's responsibility.
 ///
 /// @param unit moving unit
 /// @param movement current motion; last_motion_tick is the last actual progress tick

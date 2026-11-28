@@ -581,11 +581,14 @@ void Runtime::check_enhanced_mode() {
     require(flow_units.front() > base_unit, "the flow cohort lacks a preceding cursor slot");
     match_->path_search_jobs().unit_cursor[match_local_player_] =
         flow_units.front() - base_unit - 1;
+    // The requests first wait for their player's landmass labels, which the
+    // shared routes make over the next ticks; then a request admits the
+    // field, and a field admitted in a tick is cleared from the next one.
     constexpr uint32_t admission_attempts = 64;
     for (uint32_t attempt = 0;
          attempt < admission_attempts && match_->enhanced_counters().shared_route_fields == 0;
          ++attempt)
-        match_->advance_path_search();
+        step_match_simulation();
     const auto pending_flow_work = match_->enhanced_counters();
     const bool pending_field =
         pending_flow_work.shared_route_fields > 0 && pending_flow_work.shared_route_cells == 0;

@@ -31,6 +31,18 @@ class MatchTickAccess {
     /// @return the controller's job record; its unit is null when idle
     static sim::ground_orders::SearchRecord active_path_search(const Match& match);
 
+    /// Counts the crowds the shared routes go round, as a field's first
+    /// request in a path-search pass counts them, and returns one count.
+    ///
+    /// @param match match whose units are counted
+    /// @param player player slot
+    /// @param column coarse node column, one every two map cells
+    /// @param row coarse node row
+    /// @return the player's units counted at the node, or none when the
+    ///     match counts no crowds, the player has no grid or the node is off
+    ///     the map
+    static uint32_t crowd_units(Match& match, uint8_t player, uint32_t column, uint32_t row);
+
     /// The order flags' bit StartBuilding sets and StopBuilding clears.
     static constexpr uint8_t building_flag = 0x40;
 

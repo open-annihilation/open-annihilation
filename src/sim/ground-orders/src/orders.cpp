@@ -153,6 +153,12 @@ void install_goal(UnitView u, Goal* goal, uint32_t tick, Host& host) {
     n.flags |= route_changed;
 }
 
+void restart_search(Navigation& navigation, uint32_t tick) noexcept {
+    navigation.flags |= search_pending;
+    if (navigation.last_search_tick <= tick - search_restart_delay)
+        navigation.last_search_tick = 0;
+}
+
 bool accept_path(UnitView u, std::span<const RoutePoint> points) {
     auto& n = u.navigation;
     const bool failed = points.empty() && n.goal && !goal_contains_unit(*n.goal, u.geometry);

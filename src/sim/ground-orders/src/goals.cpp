@@ -184,6 +184,13 @@ bool goal_contains_unit(const Goal& g, const sim::unit_movement::Unit& unit) noe
     return goal_contains(g, unit.cell[0], unit.cell[1]);
 }
 
+bool same_goal(const Goal& a, const Goal& b) noexcept {
+    return a.order == b.order && a.shape == b.shape && a.cell == b.cell &&
+           a.tolerance == b.tolerance && a.radius_squared == b.radius_squared &&
+           a.inner_range == b.inner_range && a.inner_radius_squared == b.inner_radius_squared &&
+           a.left == b.left && a.right == b.right && a.top == b.top && a.bottom == b.bottom;
+}
+
 int32_t goal_cost(const Goal& g, int32_t x, int32_t z) noexcept {
     switch (g.shape) {
     case GoalShape::circle: {
