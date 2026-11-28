@@ -61,6 +61,8 @@ routes::FlowLimits fixture_route_limits(oa::data::enhanced_mode::FeatureSet feat
         limits.fields = 80;
         limits.total_cells = 8 * 1024 * 1024;
         limits.landmass_slots = 8;
+        limits.crowd_weight = 6;
+        limits.crowd_rebuild_ticks = 240;
     }
     return limits;
 }
@@ -402,10 +404,10 @@ void shared_field_storage_is_bounded() {
     };
 
     const std::array<StorageCase, 4> cases{
-        {{flow_set, 642, 648, 80, 54'092'704},
-         {flow_set, 1024, 512, 64, 57'680'960},
-         {revision_1, 642, 648, 80, 54'092'704},
-         {revision_1, 1024, 512, 64, 57'680'960}}
+        {{flow_set, 642, 648, 80, 54'093'032},
+         {flow_set, 1024, 512, 64, 57'681'224},
+         {revision_1, 642, 648, 80, 54'093'032},
+         {revision_1, 1024, 512, 64, 57'681'224}}
     };
     for (const auto& c : cases) {
         Fixture fixture(options_for(c.features));
@@ -434,13 +436,14 @@ void shared_field_storage_is_bounded() {
         // The fields, then the landmass section: its header, eight label slots
         // and sixteen nearest-node maps, and the labels being built, four bytes
         // a node each; then each map cell's state while labelling, one byte,
-        // and the flood queue, four bytes a cell.
+        // and the flood queue, four bytes a cell; then the crowd section: the
+        // crowd weight and rebuild ticks, and each field's crowd mark.
         const size_t fields_end = 128 + 64 * 48 + c.fields * (84 + size_t(cells) * 5);
-        CHECK(
-            bytes.size() == fields_end + 64 + 8 * 32 + 16 * 24 + (8 + 16 + 1) * size_t(cells) * 4 +
-                                size_t(c.width) * c.height * 5
-        );
+        const size_t crowds = fields_end + 64 + 8 * 32 + 16 * 24 +
+                              (8 + 16 + 1) * size_t(cells) * 4 + size_t(c.width) * c.height * 5;
+        CHECK(bytes.size() == crowds + 8 + c.fields * 4);
         CHECK(word(fields_end) == 8 && word(fields_end + 4) == 16 && word(fields_end + 8) == 32768);
+        CHECK(word(crowds) == 6 && word(crowds + 4) == 240);
         CHECK(bytes.size() == c.bytes);
         CHECK(uint64_t(c.fields) * cells <= 8'388'608u);
         const auto core_rng = match.random_state(), lcg_rng = match.lcg_state();

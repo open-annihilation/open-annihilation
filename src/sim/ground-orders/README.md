@@ -163,8 +163,9 @@ share the extraction probe budget; a ray that cannot finish within the remaining
 budget leaves that budget available for a coarse route prefix. Equal-depth
 field expansion tries cardinal neighbours before diagonals, avoiding unnecessary
 directional detours. The
-shared-route tests check individual lanes, wall-detour symmetry and regions
-split by an impassable wall.
+shared-route tests check individual lanes, wall-detour symmetry, regions
+split by an impassable wall, and a field turned by its player's crowd onto a
+free way two levels longer.
 
 Each tick clears at most 65,536 direction bytes, spends at most 2,048 seed
 and expansion credits, and allows at most 65,536 cell probes for extraction.
@@ -196,8 +197,34 @@ labels are made again in the background, at least 300 ticks apart, when
 the static revision changed or after 900 ticks. Landmass work is bounded
 per tick (`landmass_work_per_tick`, 32,768: scanned or flooded cells and
 probes, with cleared entries and nearest-map nodes counted more cheaply),
-and is saved with the fields. A route can also remove one unnecessary bend
-after the anchor shortcut when the full chord is known and clear. It traces the actual fixed-point
+and is saved with the fields.
+
+With a crowd weight (`FlowLimits::crowd_weight`; the match asks for 6), a
+field's breadth-first search puts off each node it discovers by
+`(units * weight + 4) / 9` levels, at most 255, where `units` is the sum of
+`FlowSampler::ground_units` over the 3x3 coarse nodes around it: the field's
+player's own ground units, counted once a tick. A put-off node goes back to
+the tail of the queue with one level less to wait, at the cost of one
+expansion credit, instead of being expanded, so a crowded way is reached
+later than a free one of about the same length and the field's routes take
+the free one; the root waits for no crowd. The queue is a ring of one entry
+a node whose head and tail count every entry taken and put; an entry holds
+its node in the low 24 bits and the levels it still waits in the high 8, so
+the delays need no storage of their own and a map of 2^24 nodes or more
+builds by distance alone. A field whose build met a delay is marked; with
+crowd rebuild ticks (`crowd_rebuild_ticks`; the match asks for 240), at each
+30-tick refresh with no dirty field due, the marked completed field that
+completed longest ago, at least that many ticks before, is built again from
+the crowds of that moment. The crowd section after the landmass section
+holds the weight, the rebuild ticks and each field's mark, 8 bytes and 4 a
+field; without a weight there is no section and the layout is as before.
+Restore accepts every ring a build leaves, each discovered node in it at
+most once, and refuses a node waiting in the queue that has a child, a
+discovered node that does not lead to the root, more entries put than 256
+for each discovered node, or a mark other than 0 or 1.
+
+A route can also remove one unnecessary bend after the anchor shortcut when
+the full chord is known and clear. It traces the actual fixed-point
 footprint pose, including both sides of exact corner crossings. This optional
 ray uses at most 128 probes per request within the existing per-tick extraction
 budget.

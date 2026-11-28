@@ -50,6 +50,16 @@ struct FlowLimits {
     /// labelling, with sixteen cleared label entries, or eight nodes of a
     /// nearest-node map's pass, counted as one.
     uint32_t landmass_work_per_tick{32'768};
+    /// Ninths of a breadth-first level a field spends reaching a coarse node
+    /// for each of its player's own ground units in the 3x3 coarse nodes
+    /// around it (FlowSampler::ground_units), so that its routes go round
+    /// crowds; zero builds every field by distance alone. A map of 2^24 coarse
+    /// nodes or more builds by distance alone too.
+    uint32_t crowd_weight{};
+    /// Ticks a field that met a crowd keeps after it completes before it is
+    /// built again around the crowds of that moment; zero keeps it. Used only
+    /// with a crowd weight.
+    uint32_t crowd_rebuild_ticks{};
 };
 
 /// A movement class and a player's knowledge of the static map.
@@ -69,6 +79,11 @@ struct FlowSampler {
     uint8_t (*cell)(
         void* context, uint32_t movement_class, uint32_t player, int32_t x, int32_t z
     ){};
+    /// Returns how many of the player's own live ground units stand at the
+    /// coarse node (column, row), the same count for the whole tick; asked
+    /// only for nodes on the map, and only with a crowd weight. Null adds no
+    /// delay.
+    uint32_t (*ground_units)(void* context, uint32_t player, int32_t column, int32_t row){};
 };
 
 /// Whether a shared route can replace a full per-unit search.
@@ -100,6 +115,16 @@ struct FlowCounters {
 /// node is left to the ordinary search. The labels are kept through map
 /// changes and labelled again in the background; the work is bounded per tick.
 ///
+/// With a crowd weight, a field's breadth-first search puts off each node it
+/// discovers by (units * weight + 4) / 9 levels, at most 255, where units are
+/// the field's player's own ground units in the 3x3 coarse nodes around it
+/// that tick: the node waits in the queue, one level a turn, before it is
+/// expanded, so the field's routes lead round crowds where a way of about the
+/// same length is free. A field that met a crowd is built again, from the
+/// crowds of that moment, once the crowd rebuild ticks have passed since it
+/// completed: one field a refresh period, the longest completed first, when
+/// no field the map changed under is due.
+///
 /// The state is canonical byte storage with no pointers and may be saved, but
 /// is owner-local navigation state and must not enter shared simulation hashes.
 class FlowCache {
@@ -118,6 +143,7 @@ class FlowCache {
 
     /// Clears at most 65,536 direction bytes and spends the configured expansion budget.
     /// Seed connections consume expansion credits; clearing uses contiguous slices.
+    /// A node a crowd puts off spends one credit for each level it waits.
     ///
     /// @param tick deterministic simulation tick
     /// @param static_revision current buildings/features/terrain revision
@@ -160,6 +186,10 @@ class FlowCache {
     [[nodiscard]] FlowCounters counters() const noexcept;
     /// Returns the static revision restored with the cache.
     [[nodiscard]] uint32_t static_revision() const noexcept;
+    /// Tells whether crowds shape this cache's fields.
+    ///
+    /// @return true with a crowd weight, fields and fewer than 2^24 coarse nodes
+    [[nodiscard]] bool crowd_shaped() const noexcept;
     /// Returns canonical little-endian state; no encoding or allocation is needed.
     [[nodiscard]] std::span<const uint8_t> state_bytes() const noexcept;
     /// Restores a validated state of the same map, bounds and format.
@@ -273,12 +303,38 @@ class FlowCache {
         const bool& exhausted
     ) noexcept;
 
+    /// Returns how many levels a crowd puts off a node a field discovers.
+    ///
+    /// @param sampler the tick's ground unit counts
+    /// @param player the field's player slot
+    /// @param column the node's column
+    /// @param row the node's row
+    /// @return (units * crowd weight + 4) / 9, at most 255, where units are
+    ///     the player's ground units in the 3x3 nodes around the node
+    [[nodiscard]] uint32_t crowd_delay(
+        const FlowSampler& sampler, uint32_t player, int32_t column, int32_t row
+    ) const noexcept;
+    /// Returns where a field's crowd mark lies in the state.
+    ///
+    /// @param index field index, below fields_
+    /// @return the offset of the mark: 1 when the field's build met a crowd
+    [[nodiscard]] std::size_t crowd_mark_offset(uint32_t index) const noexcept;
+    /// Checks a building or completed field's queue and tree when crowds put
+    /// nodes off: the queue holds each node it has not expanded once, and
+    /// every discovered node leads to the root through expanded ones.
+    ///
+    /// @param f the field's metadata in saved bytes
+    /// @param discovered the field's discovered nodes
+    /// @return whether the queue and tree are ones a build can leave
+    [[nodiscard]] bool valid_crowd_frontier(const uint8_t* f, uint32_t discovered) noexcept;
+
     std::unique_ptr<uint8_t[]> state_{}, restore_marks_{};
-    std::size_t state_size_{}, landmass_offset_{};
+    std::size_t state_size_{}, landmass_offset_{}, crowd_offset_{};
     uint32_t width_{}, height_{}, stride_{}, columns_{}, rows_{}, cells_{}, fields_{},
         work_per_tick_{};
     uint32_t route_probes_per_tick_{};
     uint32_t landmass_slots_{}, nearest_slots_{}, landmass_work_per_tick_{};
+    uint32_t crowd_weight_{}, crowd_rebuild_ticks_{};
 };
 
 } // namespace oa::sim::ground_orders

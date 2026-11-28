@@ -50,10 +50,15 @@ what that player can see before a unit follows it. A corridor too narrow
 for that grid uses the ordinary route search. A unit sent somewhere it
 cannot walk to, into water, off the map or onto ground cut off from its
 own, heads for the nearest point of its own ground instead. Ground the
-player has not seen counts as open. At each step of a patrol, a unit on
-the move keeps following its route while a fresh one is found, instead of
-first turning straight toward the patrol point. A unit that has stood still
-for a second starts afresh, as before.
+player has not seen counts as open. A shared route goes round the player's
+own crowds: where another way of about the same length is free, an army
+spreads over both instead of queueing for one. A route made round crowds is
+made again about eight seconds later, round the crowds of that moment. Only
+the player's own units count, so a route tells nothing of where the enemy
+stands. At each step of a patrol, a unit on the move keeps following its
+route while a fresh one is found, instead of first turning straight toward
+the patrol point. A unit that has stood still for a second starts afresh,
+as before.
 
 **Passing a corner.** A blocked ground unit may pass the next corner of its
 route when its footprint has a clear line beyond that corner and the ground
@@ -193,11 +198,11 @@ unit-range order. Loading a network save therefore preserves ownership and
 unit IDs even when player slots were ordered differently between machines.
 A match with local traffic flow over shared routes, such as Revision 1,
 saves five owner-local navigation tables: shared fields with the ground
-each player's units can reach, the current static-map revision, temporary
-traffic heads, actual-progress clocks and the shared-route scan clock. The
-scan clock prevents a load pass and a regular pass at the same tick from
-polling the unit ranges twice. These tables stay outside shared world and
-trace hashes.
+each player's units can reach and the crowds they are made round, the
+current static-map revision, temporary traffic heads, actual-progress
+clocks and the shared-route scan clock. The scan clock prevents a load pass
+and a regular pass at the same tick from polling the unit ranges twice.
+These tables stay outside shared world and trace hashes.
 
 Unit movement travels between the machines of an Enhanced match as complete
 route batches ([Network transport](#network-transport)): a tick of route

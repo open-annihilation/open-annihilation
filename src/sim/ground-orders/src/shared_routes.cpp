@@ -14,7 +14,8 @@
 namespace oa::sim::ground_orders {
 namespace {
 /// The saved state's magic and format: format 4 is the fine regional grid with
-/// landmass keys and labels, and restore refuses any other.
+/// landmass keys and labels, and crowd marks when crowds shape the fields;
+/// restore refuses any other.
 constexpr uint32_t magic = 0x3246414f, fine_format = 4;
 constexpr uint32_t fine_stride = 2;
 constexpr uint32_t large_region = 96;
@@ -44,6 +45,18 @@ constexpr size_t field_key_offset = 4, seed_goal_offset = 44, seed_node_offset =
 constexpr size_t cleared_offset = 56, head_offset = 60, tail_offset = 64, last_use_offset = 68;
 constexpr size_t dirty_offset = 72, dirty_since_offset = 76, completed_tick_offset = 80;
 constexpr uint32_t empty = 0, clearing = 1, building = 2, complete = 3, failed = 4;
+// A field's queue holds `cells` entries in a ring: head and tail count every
+// entry taken and put, and a node is in it at most once at a time. With
+// crowds, an entry's low 24 bits are its node and its high 8 bits the levels
+// the node still waits; without, the entry is the node.
+constexpr uint32_t queue_node_bits = 24, queue_node_mask = (1u << queue_node_bits) - 1;
+/// The most levels a crowd puts a node off, and the divisor of its units
+/// times the crowd weight: the weight is in ninths of a level a unit.
+constexpr uint32_t max_crowd_delay = 255, crowd_weight_scale = 9;
+// The crowd section follows the landmass section: the crowd weight and
+// rebuild ticks it was built with, then each field's mark, 1 when its
+// build met a crowd.
+constexpr size_t crowd_header_size = 8, crowd_rebuild_offset = 4, crowd_mark_size = 4;
 constexpr uint32_t refresh_period = 30, completed_refresh_grace = 60;
 constexpr uint32_t completed_admission_grace = 60;
 /// Ticks a field whose root could not be connected stays given up.
@@ -333,6 +346,14 @@ FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
         state_size_ += landmass_header_size + landmass_slots_ * (label_slot_size + node_bytes) +
                        nearest_slots_ * (nearest_slot_size + node_bytes) + node_bytes + cells * 5;
     }
+    // A queue entry holds a node in 24 bits beside its delay.
+    if (fields_ != 0 && limits.crowd_weight != 0 && cells_ <= queue_node_mask) {
+        crowd_weight_ = limits.crowd_weight;
+        crowd_rebuild_ticks_ = limits.crowd_rebuild_ticks;
+    }
+    crowd_offset_ = state_size_;
+    if (crowd_weight_ != 0)
+        state_size_ += crowd_header_size + static_cast<std::size_t>(fields_) * crowd_mark_size;
     state_ = std::make_unique<uint8_t[]>(state_size_);
     restore_marks_ = std::make_unique<uint8_t[]>(cells_);
     if (landmass_slots_ != 0) {
@@ -340,6 +361,10 @@ FlowCache::FlowCache(uint32_t width, uint32_t height, FlowLimits limits)
         put32(section + landmass_label_slots_offset, landmass_slots_);
         put32(section + landmass_nearest_slots_offset, nearest_slots_);
         put32(section + landmass_work_offset, landmass_work_per_tick_);
+    }
+    if (crowd_weight_ != 0) {
+        put32(state_.get() + crowd_offset_, crowd_weight_);
+        put32(state_.get() + crowd_offset_ + crowd_rebuild_offset, crowd_rebuild_ticks_);
     }
     put32(state_.get(), magic);
     put32(state_.get() + 4, fine_format);
@@ -420,6 +445,21 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
                 oldest_age = age;
             }
         }
+        // Crowds move on: a field built round them is built again from the
+        // crowds of now, the longest completed first, when no dirty field is
+        // due.
+        if (!oldest && crowd_weight_ != 0 && crowd_rebuild_ticks_ != 0)
+            for (uint32_t i = 0; i < fields_; ++i) {
+                auto* f = field(state, cells_, i);
+                const auto age = tick - get32(f + completed_tick_offset);
+                if (get32(f) != complete || get32(state + crowd_mark_offset(i)) == 0 ||
+                    age < crowd_rebuild_ticks_)
+                    continue;
+                if (!oldest || age > oldest_age) {
+                    oldest = f;
+                    oldest_age = age;
+                }
+            }
         if (oldest)
             restart_field(state, oldest);
     }
@@ -429,6 +469,7 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
     // separate byte budget in contiguous slices, rather than charging one
     // search expansion for each byte and delaying large cohorts for seconds.
     while (clear_budget != 0 && work < work_per_tick_ && idle < fields_) {
+        const auto field_index = cursor;
         auto* f = field(state, cells_, cursor);
         cursor = (cursor + 1) % fields_;
         if (get32(f) != clearing) {
@@ -468,9 +509,13 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
         put32(f + head_offset, 0);
         put32(f + tail_offset, 1);
         put32(f, building);
+        // The mark tells of this build only; the root waits for no crowd.
+        if (crowd_weight_ != 0)
+            put32(state + crowd_mark_offset(field_index), 0);
     }
     idle = 0;
     for (; work < work_per_tick_ && idle < fields_;) {
+        const auto field_index = cursor;
         auto* f = field(state, cells_, cursor);
         cursor = (cursor + 1) % fields_;
         if (get32(f) != building) {
@@ -487,8 +532,21 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
             put32(f + completed_tick_offset, tick);
             continue;
         }
-        const auto node = get32(queue + static_cast<std::size_t>(head++) * 4);
+        const auto entry = get32(queue + static_cast<std::size_t>(head++ % cells_) * 4);
         put32(f + head_offset, head);
+        const auto node = crowd_weight_ != 0 ? entry & queue_node_mask : entry;
+        // A node a crowd puts off goes to the back of the queue, a level
+        // less to wait, at the cost of one credit.
+        if (const auto wait = crowd_weight_ != 0 ? entry >> queue_node_bits : 0; wait != 0) {
+            put32(
+                queue + static_cast<std::size_t>(tail++ % cells_) * 4,
+                (wait - 1) << queue_node_bits | node
+            );
+            put32(f + tail_offset, tail);
+            increment(state, 4);
+            continue;
+        }
+        const auto player = get32(f + field_key_offset + 4);
         const int32_t x = static_cast<int32_t>(node % columns_);
         const int32_t z = static_cast<int32_t>(node / columns_);
         for (const auto d : expansion_order) {
@@ -506,15 +564,22 @@ void FlowCache::advance(uint32_t tick, uint32_t revision, const FlowSampler& sam
                                                        nz * static_cast<int32_t>(stride)
                                                    ))
                 continue;
-            // A valid field discovers each cell once. Keep malformed restored
-            // state bounded even if that invariant is violated.
-            if (tail == cells_) {
+            // A valid field discovers each cell once, so its queue never
+            // fills. Keep malformed restored state bounded even if that
+            // invariant is violated.
+            if (tail - head == cells_) {
                 put32(f, failed);
                 put32(f + completed_tick_offset, tick);
                 break;
             }
             directions[neighbour] = static_cast<uint8_t>((d + 4) % 8);
-            put32(queue + static_cast<std::size_t>(tail++) * 4, neighbour);
+            const auto delay = crowd_weight_ != 0 ? crowd_delay(sampler, player, nx, nz) : 0;
+            if (delay != 0)
+                put32(state + crowd_mark_offset(field_index), 1);
+            put32(
+                queue + static_cast<std::size_t>(tail++ % cells_) * 4,
+                delay << queue_node_bits | neighbour
+            );
         }
         put32(f + tail_offset, tail);
         increment(state, 4);
@@ -546,6 +611,28 @@ std::size_t FlowCache::build_labels_offset() const noexcept {
 
 uint64_t FlowCache::footprint_cells() const noexcept {
     return uint64_t{width_} * height_;
+}
+
+uint32_t FlowCache::crowd_delay(
+    const FlowSampler& sampler, uint32_t player, int32_t column, int32_t row
+) const noexcept {
+    if (!sampler.ground_units)
+        return 0;
+    uint64_t units = 0;
+    for (int32_t z = row - 1; z <= row + 1; ++z)
+        for (int32_t x = column - 1; x <= column + 1; ++x)
+            if (x >= 0 && z >= 0 && static_cast<uint32_t>(x) < columns_ &&
+                static_cast<uint32_t>(z) < rows_)
+                units += sampler.ground_units(sampler.context, player, x, z);
+    // With a weight of one, this many units already wait the most levels.
+    units = std::min<uint64_t>(units, uint64_t{max_crowd_delay} * crowd_weight_scale);
+    return static_cast<uint32_t>(std::min<uint64_t>(
+        (units * crowd_weight_ + crowd_weight_scale / 2) / crowd_weight_scale, max_crowd_delay
+    ));
+}
+
+std::size_t FlowCache::crowd_mark_offset(uint32_t index) const noexcept {
+    return crowd_offset_ + crowd_header_size + static_cast<std::size_t>(index) * crowd_mark_size;
 }
 
 bool FlowCache::job_holds_label_slot(uint32_t index) const noexcept {
@@ -1592,6 +1679,10 @@ uint32_t FlowCache::static_revision() const noexcept {
     return get32(state_.get() + 36);
 }
 
+bool FlowCache::crowd_shaped() const noexcept {
+    return crowd_weight_ != 0;
+}
+
 std::span<const uint8_t> FlowCache::state_bytes() const noexcept {
     return {state_.get(), state_size_};
 }
@@ -1623,7 +1714,7 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
         const auto seed_x = get32(f + seed_goal_offset), seed_z = get32(f + seed_goal_offset + 4);
         if (phase > failed || get32(f + dirty_offset) > 1 ||
             (phase != empty && !valid_key(key, footprint_cells())) || cleared > cells_ ||
-            head > tail || tail > cells_)
+            head > tail || (crowd_weight_ != 0 ? tail - head > cells_ : tail > cells_))
             return false;
         if (phase != empty && (get32(key + key_revision_offset) != get32(bytes.data() + 36) ||
                                seed_x >= width_ || seed_z >= height_))
@@ -1662,7 +1753,14 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
                         unseen)
                     return false;
             }
-            if (roots != 1 || discovered != tail)
+            if (roots != 1)
+                return false;
+            if (crowd_weight_ != 0) {
+                if (!valid_crowd_frontier(f, discovered))
+                    return false;
+                continue;
+            }
+            if (discovered != tail)
                 return false;
             std::memset(restore_marks_.get(), 0, cells_);
             const auto* queue = directions + cells_;
@@ -1689,7 +1787,61 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
     }
     if (landmass_slots_ != 0 && !valid_landmasses(bytes))
         return false;
+    if (crowd_weight_ != 0) {
+        if (std::memcmp(
+                bytes.data() + crowd_offset_, state_.get() + crowd_offset_, crowd_header_size
+            ) != 0)
+            return false;
+        for (uint32_t i = 0; i < fields_; ++i)
+            if (get32(bytes.data() + crowd_mark_offset(i)) > 1)
+                return false;
+    }
     std::memcpy(state_.get(), bytes.data(), state_size_);
+    return true;
+}
+
+bool FlowCache::valid_crowd_frontier(const uint8_t* f, uint32_t discovered) noexcept {
+    const auto head = get32(f + head_offset), tail = get32(f + tail_offset);
+    const auto* directions = f + metadata_size;
+    const auto* queue = directions + cells_;
+    // Each discovered node was put in the queue once, and once more for each
+    // level it waited, at most 255; the queue holds no more than were found.
+    if (tail < discovered || uint64_t{tail} > uint64_t{discovered} * (max_crowd_delay + 1) ||
+        tail - head > discovered)
+        return false;
+    // A node's marks: waiting in the queue, on the walk being followed, and
+    // known to lead to the root.
+    constexpr uint8_t queued = 1, walking = 2, rooted = 4;
+    std::memset(restore_marks_.get(), 0, cells_);
+    for (uint32_t q = head; q != tail; ++q) {
+        const auto node = get32(queue + static_cast<std::size_t>(q % cells_) * 4) & queue_node_mask;
+        if (node >= cells_ || directions[node] == unseen || restore_marks_[node] != 0)
+            return false;
+        restore_marks_[node] = queued;
+    }
+    // The caller found every discovered node's parent on the map and
+    // discovered, and the seed the only root.
+    const auto parent_of = [&](uint32_t cell) {
+        const auto direction = directions[cell];
+        const auto x = static_cast<int32_t>(cell % columns_) + dx[direction];
+        const auto z = static_cast<int32_t>(cell / columns_) + dz[direction];
+        return static_cast<uint32_t>(z) * columns_ + static_cast<uint32_t>(x);
+    };
+    restore_marks_[get32(f + seed_node_offset)] |= rooted;
+    for (uint32_t cell = 0; cell < cells_; ++cell) {
+        if (directions[cell] == unseen || (restore_marks_[cell] & rooted) != 0)
+            continue;
+        // A node is found by expanding its parent, so no parent still waits,
+        // and following parents reaches the root without coming round.
+        for (auto at = cell; (restore_marks_[at] & rooted) == 0; at = parent_of(at)) {
+            if ((restore_marks_[at] & walking) != 0 ||
+                (restore_marks_[parent_of(at)] & queued) != 0)
+                return false;
+            restore_marks_[at] |= walking;
+        }
+        for (auto at = cell; (restore_marks_[at] & rooted) == 0; at = parent_of(at))
+            restore_marks_[at] |= rooted;
+    }
     return true;
 }
 } // namespace oa::sim::ground_orders

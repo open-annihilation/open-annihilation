@@ -265,9 +265,38 @@ bool Match::prepare_search_job(
     return true;
 }
 
+void Match::EnhancedState::count_crowds(const Match& match) noexcept {
+    auto& crowds = crowd_counts;
+    const auto grid_size = crowds.columns * static_cast<size_t>(crowds.rows);
+    std::fill_n(crowds.units.get(), crowds.grids * grid_size, uint8_t{0});
+    for (size_t i = 1; i < match.slots_.size(); ++i) {
+        if (!match.movement_[i])
+            continue;
+        const auto& unit = match.state().units[i];
+        if ((unit.flags & OA_UNIT_FLAG_LIVE) == 0 || unit.attach_parent != 0 ||
+            unit.owner_index >= OA_PLAYER_COUNT)
+            continue;
+        const auto grid = crowds.grid_of[unit.owner_index];
+        const int32_t column = (unit.cell_x + 1) / 2, row = (unit.cell_z + 1) / 2;
+        if (grid == CrowdCounts::no_grid || column < 0 || row < 0 ||
+            static_cast<uint32_t>(column) >= crowds.columns ||
+            static_cast<uint32_t>(row) >= crowds.rows)
+            continue;
+        auto& count = crowds.units
+                          [grid * grid_size + static_cast<size_t>(row) * crowds.columns +
+                           static_cast<uint32_t>(column)];
+        if (count != CrowdCounts::max_count)
+            ++count;
+    }
+    crowds.counted = true;
+}
+
 void Match::advance_path_search() {
     if (enhanced_ && enhanced_->static_passability_memo)
         enhanced_->static_passability_memo->begin_pass();
+    // Counted again from unit state when a field first asks in this call.
+    if (enhanced_)
+        enhanced_->crowd_counts.counted = false;
     // Static fields ignore temporary mobile occupancy. Unknown plots retain
     // the ordinary search's passable classification, so fields reveal no fog.
     sim::ground_orders::FlowSampler flow_sampler{
@@ -307,6 +336,23 @@ void Match::advance_path_search() {
             return value;
         }
     };
+    // A field goes round its own player's ground units only, so no field
+    // tells of units the fog hides.
+    if (enhanced_ && enhanced_->crowd_counts.units)
+        flow_sampler.ground_units =
+            [](void* c, uint32_t player, int32_t column, int32_t row) -> uint32_t {
+            auto& match = *static_cast<Match*>(c);
+            auto& crowds = match.enhanced_->crowd_counts;
+            if (!crowds.counted)
+                match.enhanced_->count_crowds(match);
+            if (player >= OA_PLAYER_COUNT || crowds.grid_of[player] == CrowdCounts::no_grid ||
+                column < 0 || row < 0 || static_cast<uint32_t>(column) >= crowds.columns ||
+                static_cast<uint32_t>(row) >= crowds.rows)
+                return 0;
+            return crowds.units
+                [crowds.grid_of[player] * crowds.columns * static_cast<size_t>(crowds.rows) +
+                 static_cast<size_t>(row) * crowds.columns + static_cast<uint32_t>(column)];
+        };
     const bool shared_routes =
         builds_shared_routes(enhanced_features_) && enhanced_ && enhanced_->shared_routes;
     if (shared_routes)

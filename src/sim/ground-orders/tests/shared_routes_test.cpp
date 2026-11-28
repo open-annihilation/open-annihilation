@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <span>
 #include <vector>
 
 using namespace oa::sim::ground_orders;
@@ -2558,9 +2559,477 @@ void landmass_work_resumes_after_restore_and_refuses_malformed_bytes() {
     CHECK(restored.restore(saved));
 }
 
+/// A grid with each player's own ground units at its coarse nodes.
+struct Crowds {
+    Grid& grid;
+    uint32_t columns, rows;
+    std::array<std::vector<uint32_t>, 3> units;
+    uint64_t asked{};
+
+    explicit Crowds(Grid& g) : grid(g), columns((g.width + 1) / 2), rows((g.height + 1) / 2) {
+        for (auto& player : units)
+            player.assign(size_t(columns) * rows, 0);
+    }
+
+    /// Stands `count` units of `player` at each node of a rectangle of nodes.
+    void
+    stand(uint32_t player, uint32_t x0, uint32_t z0, uint32_t x1, uint32_t z1, uint32_t count) {
+        for (uint32_t z = z0; z <= z1; ++z)
+            for (uint32_t x = x0; x <= x1; ++x)
+                units[player][size_t(z) * columns + x] = count;
+    }
+
+    void clear() {
+        for (auto& player : units)
+            std::fill(player.begin(), player.end(), 0u);
+    }
+
+    FlowSampler sampler() {
+        return {
+            this,
+            [](void* p, uint32_t klass, uint32_t player, int32_t x, int32_t z) -> uint8_t {
+                auto inner = static_cast<Crowds*>(p)->grid.sampler();
+                return inner.cell(inner.context, klass, player, x, z);
+            },
+            [](void* p, uint32_t player, int32_t column, int32_t row) -> uint32_t {
+                auto& c = *static_cast<Crowds*>(p);
+                ++c.asked;
+                CHECK(
+                    column >= 0 && row >= 0 && uint32_t(column) < c.columns &&
+                    uint32_t(row) < c.rows
+                );
+                return player < c.units.size() ? c.units[player][size_t(row) * c.columns + column]
+                                               : 0;
+            }
+        };
+    }
+};
+
+/// Limits with crowds shaping the fields: the match's weight and rebuild ticks.
+FlowLimits
+crowd_limits(uint32_t fields, uint32_t work, uint32_t weight = 6, uint32_t rebuild = 240) {
+    FlowLimits limits{fields, 16'384, work, 65'536};
+    limits.crowd_weight = weight;
+    limits.crowd_rebuild_ticks = rebuild;
+    return limits;
+}
+
+/// Admits a field for the goal and advances the cache until it completes.
+void build_field(
+    FlowCache& cache,
+    Crowds& crowds,
+    const oa::Unit& unit,
+    const Goal& goal,
+    FlowContext ctx = context(),
+    uint32_t first_tick = 1
+) {
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    (void)cache.route(ctx, unit, goal, points, count, crowds.sampler());
+    (void)cache.route(ctx, unit, goal, points, count, crowds.sampler());
+    for (uint32_t tick = first_tick; tick < first_tick + 39; ++tick)
+        cache.advance(tick, ctx.static_revision, crowds.sampler());
+}
+
+/// Reads a little-endian word of saved bytes.
+uint32_t word_at(std::span<const uint8_t> bytes, size_t at) {
+    CHECK(at + 4 <= bytes.size());
+    return uint32_t(bytes[at]) | uint32_t(bytes[at + 1]) << 8 | uint32_t(bytes[at + 2]) << 16 |
+           uint32_t(bytes[at + 3]) << 24;
+}
+
+void write_word(std::vector<uint8_t>& bytes, size_t at, uint32_t value) {
+    for (uint32_t i = 0; i < 4; ++i)
+        bytes[at + i] = static_cast<uint8_t>(value >> (i * 8));
+}
+
+/// Where field `index` starts in a cache without landmass slots.
+size_t field_at(uint32_t cells, uint32_t index) {
+    return 128 + 64 * 48 + size_t(index) * (84 + size_t(cells) * 5);
+}
+
+/// A block of ground nodes 12 to 36 wide and 6 to 25 high on a 96 by 64 map,
+/// between a unit at node (10, 16) and its goal at node (38, 16): round the
+/// south is 46 levels, round the north 48.
+Grid two_ways() {
+    Grid grid(96, 64);
+    for (uint32_t z = 12; z <= 50; ++z)
+        for (uint32_t x = 24; x <= 73; ++x)
+            grid.cells[z * 96 + x] = 0;
+    return grid;
+}
+
+/// Tells which way round the block a route leads: -1 north, 1 south, 0 neither.
+int way_round(FlowCache& cache, Crowds& crowds) {
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    const auto result =
+        cache.route(context(), unit_at(20, 32), circle(76, 32), points, count, crowds.sampler());
+    CHECK(result == FlowResult::ready);
+    int way = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        // The block covers world z 192 to 816.
+        if (points[i][1] < 192)
+            way = way == 1 ? 2 : -1;
+        if (points[i][1] > 816)
+            way = way == -1 ? 2 : 1;
+    }
+    CHECK(way != 2);
+    return way;
+}
+
+/// Leads a field round a crowd when a way of about the same length is free.
+void crowds_turn_fields_onto_the_free_way() {
+    auto grid = two_ways();
+    Crowds crowds(grid);
+    {
+        FlowCache plain(96, 64, crowd_limits(1, 2048));
+        build_field(plain, crowds, unit_at(20, 32), circle(76, 32));
+        CHECK(way_round(plain, crowds) == 1);
+    }
+    // One unit at each node of the south way: each node there waits six
+    // levels, which the north way's two more levels beat.
+    crowds.stand(0, 11, 26, 37, 31, 1);
+    {
+        FlowCache cache(96, 64, crowd_limits(1, 2048));
+        build_field(cache, crowds, unit_at(20, 32), circle(76, 32));
+        CHECK(way_round(cache, crowds) == -1);
+        CHECK(crowds.asked > 0);
+        // Without a weight the same crowd changes nothing.
+        FlowCache unweighted(96, 64, crowd_limits(1, 2048, 0));
+        build_field(unweighted, crowds, unit_at(20, 32), circle(76, 32));
+        CHECK(way_round(unweighted, crowds) == 1);
+    }
+    // Another player's crowd, or one on the north way, leaves the south way.
+    crowds.clear();
+    crowds.stand(1, 11, 26, 37, 31, 1);
+    {
+        FlowCache cache(96, 64, crowd_limits(1, 2048));
+        build_field(cache, crowds, unit_at(20, 32), circle(76, 32));
+        CHECK(way_round(cache, crowds) == 1);
+    }
+    crowds.clear();
+    crowds.stand(0, 11, 0, 37, 5, 1);
+    {
+        FlowCache cache(96, 64, crowd_limits(1, 2048));
+        build_field(cache, crowds, unit_at(20, 32), circle(76, 32));
+        CHECK(way_round(cache, crowds) == 1);
+    }
+}
+
+/// Puts a node off by (units * weight + 4) / 9 levels, at most 255, one
+/// credit a level; the root waits for nobody.
+void crowd_delays_follow_the_weight() {
+    Grid grid(16, 16);
+    Crowds crowds(grid);
+
+    struct Case {
+        uint32_t weight, column, row, units, delayed_nodes, delay;
+    };
+
+    // The 8 by 8 nodes; the field's root is node (1, 1). Each case stands its
+    // units at one node, which the 3x3 nodes around it count.
+    const std::array<Case, 8> cases{
+        {{6, 5, 5, 3, 9, 2},
+         {6, 5, 5, 100, 9, 67},
+         {6, 5, 5, 1000, 9, 255},
+         {3, 5, 5, 3, 9, 1},
+         {12, 5, 5, 1, 9, 1},
+         {12, 5, 5, 2, 9, 3},
+         {6, 7, 7, 3, 4, 2},
+         {6, 1, 1, 3, 8, 2}}
+    };
+    for (const auto& c : cases) {
+        crowds.clear();
+        crowds.stand(0, c.column, c.row, c.column, c.row, c.units);
+        FlowCache cache(16, 16, crowd_limits(1, 4, c.weight, 0));
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        (void)cache.route(
+            context(), unit_at(14, 14), circle(2, 2), points, count, crowds.sampler()
+        );
+        (void)cache.route(
+            context(), unit_at(14, 14), circle(2, 2), points, count, crowds.sampler()
+        );
+        const auto field = field_at(64, 0);
+        uint32_t tick = 1;
+        for (; tick < 4000 && word_at(cache.state_bytes(), field) != 3; ++tick) {
+            const auto before = cache.counters().cells_expanded;
+            cache.advance(tick, 0, crowds.sampler());
+            CHECK(cache.counters().cells_expanded - before <= 4);
+        }
+        CHECK(word_at(cache.state_bytes(), field) == 3);
+        // Every node is expanded once and waits its delay.
+        CHECK(cache.counters().cells_expanded == 64 + c.delayed_nodes * c.delay);
+    }
+    // No unit counts: no delay.
+    crowds.clear();
+    crowds.stand(0, 5, 5, 5, 5, 3);
+    FlowCache cache(16, 16, crowd_limits(1, 2048));
+    auto sampler = crowds.sampler();
+    sampler.ground_units = nullptr;
+    std::array<RoutePoint, navigation_capacity> points{};
+    uint32_t count{};
+    (void)cache.route(context(), unit_at(14, 14), circle(2, 2), points, count, sampler);
+    (void)cache.route(context(), unit_at(14, 14), circle(2, 2), points, count, sampler);
+    cache.advance(1, 0, sampler);
+    CHECK(cache.counters().cells_expanded == 64);
+}
+
+/// Builds a field that met a crowd again after its rebuild ticks, one a
+/// refresh period, and never a field that met none.
+void crowd_shaped_fields_are_rebuilt_after_their_rebuild_ticks() {
+    Grid grid(32, 32);
+    Crowds crowds(grid);
+    crowds.stand(0, 7, 7, 8, 8, 2);
+    crowds.stand(2, 3, 3, 3, 3, 1);
+    FlowCache cache(32, 32, crowd_limits(3, 2048));
+    // Player 0's field, player 1's (no units) and player 2's, in that order.
+    for (uint32_t player = 0; player < 3; ++player) {
+        auto ctx = context();
+        ctx.player = player;
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        (void)cache.route(ctx, unit_at(2, 2), circle(28, 28), points, count, crowds.sampler());
+        (void)cache.route(ctx, unit_at(2, 2), circle(28, 28), points, count, crowds.sampler());
+    }
+    cache.advance(1, 0, crowds.sampler());
+    const auto completed = [&](uint32_t index) {
+        return word_at(cache.state_bytes(), field_at(256, index) + 80);
+    };
+    const auto mark = [&](uint32_t index) {
+        return word_at(cache.state_bytes(), field_at(256, 3) + 8 + 4 * index);
+    };
+    CHECK(cache.counters().fields_started == 3);
+    CHECK(completed(0) == 1 && completed(1) == 1 && completed(2) == 1);
+    CHECK(mark(0) == 1 && mark(1) == 0 && mark(2) == 1);
+    // 240 ticks after tick 1 the next refresh period is tick 270: player 0's
+    // field first, player 2's a period later.
+    for (uint32_t tick = 2; tick < 270; ++tick)
+        cache.advance(tick, 0, crowds.sampler());
+    CHECK(cache.counters().fields_started == 3);
+    crowds.clear();
+    cache.advance(270, 0, crowds.sampler());
+    CHECK(cache.counters().fields_started == 4);
+    CHECK(completed(0) == 270 && completed(1) == 1 && completed(2) == 1);
+    CHECK(mark(0) == 0);
+    for (uint32_t tick = 271; tick <= 300; ++tick)
+        cache.advance(tick, 0, crowds.sampler());
+    CHECK(cache.counters().fields_started == 5);
+    CHECK(completed(0) == 270 && completed(1) == 1 && completed(2) == 300);
+    // Built without crowds, they are kept.
+    for (uint32_t tick = 301; tick <= 900; ++tick)
+        cache.advance(tick, 0, crowds.sampler());
+    CHECK(cache.counters().fields_started == 5);
+    // With no rebuild ticks a crowd-shaped field is kept.
+    crowds.stand(0, 7, 7, 8, 8, 2);
+    FlowCache kept(32, 32, crowd_limits(1, 2048, 6, 0));
+    build_field(kept, crowds, unit_at(2, 2), circle(28, 28));
+    for (uint32_t tick = 40; tick <= 900; ++tick)
+        kept.advance(tick, 0, crowds.sampler());
+    CHECK(kept.counters().fields_started == 1);
+}
+
+/// A 32 by 32 map whose middle rows stand full of player 0's units, so that a
+/// field's queue goes round its ring more than once.
+struct CrowdedBuild {
+    Grid grid{32, 32};
+    Crowds crowds{grid};
+
+    CrowdedBuild() { crowds.stand(0, 0, 6, 15, 9, 1); }
+
+    void admit(FlowCache& cache) {
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        for (int i = 0; i < 2; ++i)
+            (void)cache.route(
+                context(), unit_at(2, 2), circle(28, 28), points, count, crowds.sampler()
+            );
+    }
+};
+
+/// Continues a crowd-shaped build byte for byte after a restore at any tick.
+void restored_crowd_builds_continue_byte_for_byte() {
+    CrowdedBuild build;
+    const auto limits = crowd_limits(1, 8);
+    FlowCache original(32, 32, limits), resumed(32, 32, limits), reloaded(32, 32, limits);
+    build.admit(original);
+    const auto field = field_at(256, 0);
+    bool resumed_after_wrap = false;
+    for (uint32_t tick = 1; tick <= 700; ++tick) {
+        const auto bytes = original.state_bytes();
+        // Restore once, mid-build, after the queue's ring came round.
+        if (!resumed_after_wrap && word_at(bytes, field) == 2 && word_at(bytes, field + 60) > 256) {
+            CHECK(resumed.restore(bytes));
+            resumed_after_wrap = true;
+        }
+        // Every state a build leaves is accepted.
+        CHECK(reloaded.restore(bytes));
+        original.advance(tick, 0, build.crowds.sampler());
+        reloaded.advance(tick, 0, build.crowds.sampler());
+        if (resumed_after_wrap)
+            resumed.advance(tick, 0, build.crowds.sampler());
+        // The crowd leaves before the rebuild at tick 270.
+        if (tick == 200)
+            build.crowds.clear();
+        CHECK(
+            std::equal(
+                original.state_bytes().begin(),
+                original.state_bytes().end(),
+                reloaded.state_bytes().begin()
+            )
+        );
+        if (resumed_after_wrap) {
+            CHECK(
+                std::equal(
+                    original.state_bytes().begin(),
+                    original.state_bytes().end(),
+                    resumed.state_bytes().begin()
+                )
+            );
+            std::array<RoutePoint, navigation_capacity> a{}, b{};
+            uint32_t ac{}, bc{};
+            const auto ar = original.route(
+                context(), unit_at(2, 2), circle(28, 28), a, ac, build.crowds.sampler()
+            );
+            const auto br = resumed.route(
+                context(), unit_at(2, 2), circle(28, 28), b, bc, build.crowds.sampler()
+            );
+            CHECK(ar == br && ac == bc && a == b);
+        }
+    }
+    CHECK(resumed_after_wrap);
+    // Built at tick 270 without the crowd.
+    CHECK(original.counters().fields_started == 2);
+    CHECK(word_at(original.state_bytes(), field) == 3);
+}
+
+/// Refuses queues, trees and marks a crowd-shaped build cannot leave.
+void malformed_crowd_frontiers_are_refused() {
+    CrowdedBuild build;
+    const auto limits = crowd_limits(1, 8);
+    FlowCache original(32, 32, limits), restored(32, 32, limits);
+    build.admit(original);
+    constexpr uint32_t cells = 256;
+    const auto field = field_at(cells, 0);
+    const auto directions = field + 84, queue = directions + cells;
+    uint32_t tick = 1;
+    for (; tick < 400 && !(word_at(original.state_bytes(), field) == 2 &&
+                           word_at(original.state_bytes(), field + 60) > cells);
+         ++tick)
+        original.advance(tick, 0, build.crowds.sampler());
+    const std::vector<uint8_t> saved(original.state_bytes().begin(), original.state_bytes().end());
+    CHECK(restored.restore(saved));
+    const auto head = word_at(saved, field + 60), tail = word_at(saved, field + 64);
+    CHECK(head < tail && tail - head >= 2);
+    const auto entry_at = [&](uint32_t q) { return queue + size_t(q % cells) * 4; };
+    const auto refused = [&](const std::vector<uint8_t>& broken) {
+        CHECK(!restored.restore(broken));
+        CHECK(std::equal(saved.begin(), saved.end(), restored.state_bytes().begin()));
+    };
+    // The mark is a boolean, and the section keeps the cache's weight.
+    const auto crowd_section = field_at(cells, 1);
+    CHECK(saved.size() == crowd_section + 8 + 4);
+    CHECK(word_at(saved, crowd_section) == 6 && word_at(saved, crowd_section + 4) == 240);
+    auto broken = saved;
+    write_word(broken, crowd_section + 8, 2);
+    refused(broken);
+    broken = saved;
+    write_word(broken, crowd_section, 7);
+    refused(broken);
+    // A queue entry names a node on the map, discovered, once.
+    broken = saved;
+    write_word(broken, entry_at(head), (word_at(saved, entry_at(head)) & 0xff000000u) | cells);
+    refused(broken);
+    broken = saved;
+    write_word(broken, entry_at(head + 1), word_at(saved, entry_at(head)));
+    refused(broken);
+    uint32_t undiscovered = 0;
+    while (undiscovered < cells && saved[directions + undiscovered] != 0xff)
+        ++undiscovered;
+    CHECK(undiscovered < cells);
+    broken = saved;
+    write_word(broken, entry_at(head), undiscovered);
+    refused(broken);
+    // The queue holds at most every node, and the build put in each
+    // discovered node once and at most 255 more times.
+    broken = saved;
+    write_word(broken, field + 60, tail - cells - 1);
+    refused(broken);
+    uint32_t discovered = 0;
+    for (uint32_t cell = 0; cell < cells; ++cell)
+        discovered += saved[directions + cell] != 0xff;
+    broken = saved;
+    write_word(broken, field + 64, discovered - 1);
+    write_word(broken, field + 60, discovered - 2);
+    refused(broken);
+    broken = saved;
+    write_word(broken, field + 64, discovered * 256 + 1);
+    write_word(broken, field + 60, discovered * 256);
+    refused(broken);
+    // A node waiting in the queue has found nothing yet: none is its child.
+    const auto waiting = word_at(saved, entry_at(head)) & 0xffffffu;
+    std::vector<bool> queued(cells);
+    for (uint32_t q = head; q != tail; ++q)
+        queued[word_at(saved, entry_at(q)) & 0xffffffu] = true;
+    const auto seed = word_at(saved, field + 52);
+    bool child_made = false;
+    for (uint32_t d = 0; d < 8 && !child_made; ++d) {
+        constexpr std::array<int32_t, 8> step_x{1, 1, 0, -1, -1, -1, 0, 1};
+        constexpr std::array<int32_t, 8> step_z{0, 1, 1, 1, 0, -1, -1, -1};
+        const int32_t x = int32_t(waiting % 16) + step_x[d], z = int32_t(waiting / 16) + step_z[d];
+        if (x < 0 || z < 0 || x >= 16 || z >= 16)
+            continue;
+        const auto cell = uint32_t(z) * 16 + uint32_t(x);
+        if (cell == seed || queued[cell] || saved[directions + cell] == 0xff)
+            continue;
+        broken = saved;
+        broken[directions + cell] = static_cast<uint8_t>((d + 4) % 8);
+        refused(broken);
+        child_made = true;
+    }
+    CHECK(child_made);
+    // Expanded nodes lead to the root: two pointing at each other do not.
+    bool cycle_made = false;
+    for (uint32_t cell = 0; cell + 1 < cells && !cycle_made; ++cell) {
+        if (cell % 16 == 15 || cell == seed || cell + 1 == seed || queued[cell] ||
+            queued[cell + 1] || saved[directions + cell] == 0xff ||
+            saved[directions + cell + 1] == 0xff)
+            continue;
+        broken = saved;
+        broken[directions + cell] = 0;
+        broken[directions + cell + 1] = 4;
+        refused(broken);
+        cycle_made = true;
+    }
+    CHECK(cycle_made);
+    CHECK(restored.restore(saved));
+    // A cache without crowds takes neither these bytes nor a waiting entry.
+    FlowCache plain(32, 32, crowd_limits(1, 8, 0)), plain_restored(32, 32, crowd_limits(1, 8, 0));
+    CHECK(!plain_restored.restore(saved));
+    build.admit(plain);
+    for (uint32_t t = 1; t <= 4; ++t)
+        plain.advance(t, 0, build.crowds.sampler());
+    std::vector<uint8_t> plain_saved(plain.state_bytes().begin(), plain.state_bytes().end());
+    CHECK(plain_saved.size() == crowd_section);
+    CHECK(word_at(plain_saved, field) == 2);
+    CHECK(plain_restored.restore(plain_saved));
+    CHECK(!restored.restore(plain_saved));
+    const auto plain_head = word_at(plain_saved, field + 60);
+    write_word(
+        plain_saved, entry_at(plain_head), word_at(plain_saved, entry_at(plain_head)) | 1u << 24
+    );
+    CHECK(!plain_restored.restore(plain_saved));
+}
+
 } // namespace
 
 int main() {
+    crowds_turn_fields_onto_the_free_way();
+    crowd_delays_follow_the_weight();
+    crowd_shaped_fields_are_rebuilt_after_their_rebuild_ticks();
+    restored_crowd_builds_continue_byte_for_byte();
+    malformed_crowd_frontiers_are_refused();
     exact_footprint_segments_cover_boundary_events();
     visible_shortcuts_keep_off_centre_footprints_clear();
     one_known_visible_bend_is_pruned_after_the_saved_anchor();
