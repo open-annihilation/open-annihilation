@@ -199,11 +199,13 @@ bool same_key(const uint8_t* a, const Key& b) noexcept {
     return std::memcmp(a, b.data(), key_size) == 0;
 }
 
-bool valid_key(const uint8_t* key, uint64_t footprint_cells) noexcept {
+/// Checks a key's movement class, player and footprint, and that its landmass
+/// is none or one of the first `landmasses` footprint cells.
+bool valid_key(const uint8_t* key, uint64_t landmasses) noexcept {
     const auto landmass = get32(key + key_landmass_offset);
     return get32(key) < 32 && get32(key + 4) < 10 && get32(key + 20) > 0 && get32(key + 20) <= 64 &&
            get32(key + 24) > 0 && get32(key + 24) <= 64 &&
-           (landmass == no_landmass || landmass < footprint_cells);
+           (landmass == no_landmass || landmass < landmasses);
 }
 
 // Supercover checks forbid diagonal corner cutting. The sampler accounts for
@@ -1181,19 +1183,30 @@ bool FlowCache::valid_landmasses(std::span<const uint8_t> bytes) noexcept {
     const auto at = [&](std::size_t offset, uint32_t entry) {
         return get32(bytes.data() + offset + static_cast<std::size_t>(entry) * 4);
     };
+    // The footprint cell a coarse node lies on, and the node of a cell that
+    // is a node's.
+    const auto origin_of = [&](uint32_t node) {
+        return (node / columns_) * stride_ * width_ + (node % columns_) * stride_;
+    };
+    const auto node_of = [&](uint32_t cell) {
+        const auto x = cell % width_, z = cell / width_;
+        return x % stride_ == 0 && z % stride_ == 0 ? (z / stride_) * columns_ + x / stride_
+                                                    : no_node;
+    };
     // A landmass is named by its first footprint cell in scan order, which no
     // node of it comes before.
     const auto valid_label = [&](uint32_t label, uint32_t node) {
-        const auto origin = (node / columns_) * stride_ * width_ + (node % columns_) * stride_;
-        return label == label_blocked || label == label_small || label <= origin;
+        return label == label_blocked || label == label_small || label <= origin_of(node);
     };
+    const auto kind = get32(section + job_kind_offset);
+    const auto slot = get32(section + job_slot_offset), step = get32(section + job_step_offset);
     for (uint32_t i = 0; i < landmass_slots_; ++i) {
         const auto offset = label_slot_offset(i);
-        const auto* slot = bytes.data() + offset;
-        const auto phase = get32(slot + slot_phase_offset);
+        const auto* label_slot = bytes.data() + offset;
+        const auto phase = get32(label_slot + slot_phase_offset);
         if (phase > slot_labelled ||
-            (phase != slot_empty &&
-             (get32(slot + slot_class_offset) >= 32 || get32(slot + slot_player_offset) >= 10)))
+            (phase != slot_empty && (get32(label_slot + slot_class_offset) >= 32 ||
+                                     get32(label_slot + slot_player_offset) >= 10)))
             return false;
         if (phase != slot_labelled)
             continue;
@@ -1203,11 +1216,15 @@ bool FlowCache::valid_landmasses(std::span<const uint8_t> bytes) noexcept {
     }
     for (uint32_t i = 0; i < nearest_slots_; ++i) {
         const auto offset = nearest_slot_offset(i);
-        const auto* slot = bytes.data() + offset;
-        const auto phase = get32(slot + slot_phase_offset);
+        const auto* map = bytes.data() + offset;
+        const auto phase = get32(map + slot_phase_offset);
         if (phase > nearest_ready ||
-            (phase != nearest_empty && (get32(slot + nearest_labels_offset) >= landmass_slots_ ||
-                                        get32(slot + nearest_landmass_offset) >= total)))
+            (phase != nearest_empty && (get32(map + nearest_labels_offset) >= landmass_slots_ ||
+                                        get32(map + nearest_landmass_offset) >= total)))
+            return false;
+        // A map is building only while the running job builds it: one left
+        // building would keep its requests waiting for good.
+        if (phase == nearest_building && (kind != nearest_job || slot != i))
             return false;
         if (phase == nearest_ready)
             for (uint32_t node = 0; node < cells_; ++node) {
@@ -1216,10 +1233,8 @@ bool FlowCache::valid_landmasses(std::span<const uint8_t> bytes) noexcept {
                     return false;
             }
     }
-    const auto kind = get32(section + job_kind_offset);
     if (kind == no_job)
         return true;
-    const auto slot = get32(section + job_slot_offset), step = get32(section + job_step_offset);
     const auto cursor = get32(section + job_cursor_offset);
     const auto head = get32(section + job_head_offset), tail = get32(section + job_tail_offset);
     const auto flood = get32(section + job_flood_offset);
@@ -1235,31 +1250,59 @@ bool FlowCache::valid_landmasses(std::span<const uint8_t> bytes) noexcept {
             (flood != no_landmass && (flood >= total || step != scanning_step || tail == 0)) ||
             (flood == no_landmass && (tail != 0 || flood_nodes != 0)) || flood_nodes > tail)
             return false;
-        if (step == scanning_step) {
-            for (uint32_t cell = 0; cell < total; ++cell)
-                if (bytes[cells + cell] > cell_reached)
+        if (step == clearing_step) {
+            // Below the cursor every footprint cell, then every node label,
+            // is cleared.
+            for (uint32_t entry = 0; entry < cursor; ++entry)
+                if (entry < total ? bytes[cells + entry] != cell_unvisited
+                                  : at(build, entry - total) != label_unvisited)
                     return false;
-            for (uint32_t node = 0; node < cells_; ++node) {
-                const auto label = at(build, node);
-                if (label != label_unvisited && !valid_label(label, node))
+            return true;
+        }
+        // The scan has looked at every cell below its cursor, and each cell's
+        // state is unvisited, blocked or reached.
+        for (uint32_t cell = 0; cell < total; ++cell)
+            if (bytes[cells + cell] > cell_reached ||
+                (cell < cursor && bytes[cells + cell] == cell_unvisited))
+                return false;
+        // A node is labelled when its cell is visited: blocked with its cell,
+        // and otherwise for the landmass that reached it.
+        uint32_t flood_labels = 0;
+        for (uint32_t node = 0; node < cells_; ++node) {
+            const auto label = at(build, node);
+            const auto state = bytes[cells + origin_of(node)];
+            if ((label == label_unvisited) != (state == cell_unvisited) ||
+                (label == label_blocked) != (state == cell_blocked) ||
+                (label != label_unvisited && !valid_label(label, node)))
+                return false;
+            flood_labels += flood != no_landmass && label == flood;
+        }
+        if (flood == no_landmass)
+            return true;
+        // A flood starts at the cell before the cursor, the first of its
+        // queue, and reaches no cell before it; its nodes are labelled for it.
+        if (cursor != flood + 1 || at(queue, 0) != flood || flood_labels != flood_nodes)
+            return false;
+        // The flood's queue holds the cells it reached, each once: a repeated
+        // cell would let the flood put more cells than the queue holds.
+        auto* queued = restore_marks_.get();
+        std::memset(queued, 0, (static_cast<std::size_t>(total) + 7) / 8);
+        uint32_t queued_nodes = 0;
+        for (uint32_t q = 0; q < tail; ++q) {
+            const auto cell = at(queue, q);
+            if (cell >= total || cell < flood || bytes[cells + cell] != cell_reached)
+                return false;
+            const auto bit = static_cast<uint8_t>(1u << (cell % 8));
+            if ((queued[cell / 8] & bit) != 0)
+                return false;
+            queued[cell / 8] |= bit;
+            if (const auto node = node_of(cell); node != no_node) {
+                if (at(build, node) != flood)
                     return false;
-            }
-            // The flood's queue holds the cells it reached, each once: a
-            // repeated cell would let the flood put more cells than the
-            // queue holds.
-            auto* queued = restore_marks_.get();
-            std::memset(queued, 0, (static_cast<std::size_t>(total) + 7) / 8);
-            for (uint32_t q = 0; q < tail; ++q) {
-                const auto cell = at(queue, q);
-                if (cell >= total || bytes[cells + cell] != cell_reached)
-                    return false;
-                const auto bit = static_cast<uint8_t>(1u << (cell % 8));
-                if ((queued[cell / 8] & bit) != 0)
-                    return false;
-                queued[cell / 8] |= bit;
+                ++queued_nodes;
             }
         }
-        return true;
+        return queued_nodes == flood_nodes;
     }
     if (slot >= nearest_slots_ || flood != no_landmass || tail != 0 || cursor > cells_)
         return false;
@@ -1712,11 +1755,14 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
         return uint64_t{get32(key + key_region_offset)} * large_region < width_ &&
                uint64_t{get32(key + key_region_offset + 4)} * large_region < height_;
     };
+    // A key names a landmass, a footprint cell, only where landmasses are
+    // labelled.
+    const uint64_t key_landmasses = landmass_slots_ != 0 ? footprint_cells() : 0;
     for (uint32_t i = 0; i < admission_count; ++i) {
         const auto* entry = bytes.data() + header_size + i * admission_size;
         const auto status = get32(entry + admission_status_offset);
         if (status > 2 ||
-            (status != 0 && (!valid_key(entry, footprint_cells()) || !valid_region(entry))))
+            (status != 0 && (!valid_key(entry, key_landmasses) || !valid_region(entry))))
             return false;
     }
     for (uint32_t i = 0; i < fields_; ++i) {
@@ -1727,7 +1773,7 @@ bool FlowCache::restore(std::span<const uint8_t> bytes) noexcept {
         const auto cleared = get32(f + cleared_offset);
         const auto seed_x = get32(f + seed_goal_offset), seed_z = get32(f + seed_goal_offset + 4);
         if (phase > failed || get32(f + dirty_offset) > 1 ||
-            (phase != empty && !valid_key(key, footprint_cells())) || cleared > cells_ ||
+            (phase != empty && !valid_key(key, key_landmasses)) || cleared > cells_ ||
             head > tail || (crowd_weight_ != 0 ? tail - head > cells_ : tail > cells_))
             return false;
         if (phase != empty && (get32(key + key_revision_offset) != get32(bytes.data() + 36) ||

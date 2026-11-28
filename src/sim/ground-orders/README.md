@@ -197,8 +197,16 @@ labels are made again in the background, at least 300 ticks apart, when
 the static revision changed or after 900 ticks. Landmass work is bounded
 per tick (`landmass_work_per_tick`, 32,768: scanned or flooded cells and
 probes, with cleared entries and nearest-map nodes counted more cheaply),
-and is saved with the fields. Restore refuses a flood whose queue repeats a
-cell: flooding on from it would put more cells than the queue holds.
+and is saved with the fields. Restore accepts every state the labelling
+leaves and nothing a later save would refuse: below a clearing's cursor
+every cell and node label is cleared; below a scan's cursor every cell is
+looked at, and each node is labelled exactly when its cell is, blocked
+with it; a running flood started at the cell before the cursor, put it
+first in its queue, holds each cell it reached once, none before its first,
+and has labelled its nodes for itself and counted them; a nearest-node map
+is building only while the running job builds it. A cache without landmass
+slots refuses a field key that names a landmass. A queue that repeated a
+cell would let the flood put more cells than the queue holds.
 
 With a crowd weight (`FlowLimits::crowd_weight`; the match asks for 6), a
 field's breadth-first search puts off each node it discovers by

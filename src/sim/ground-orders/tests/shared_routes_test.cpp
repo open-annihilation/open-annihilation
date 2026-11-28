@@ -2654,8 +2654,9 @@ struct LandmassLayout {
     static constexpr size_t nodes = 64 * 32, fields = 4, footprint_cells = 128 * 64;
     static constexpr size_t section = 128 + 64 * 48 + fields * (84 + nodes * 5);
     static constexpr size_t job_kind = section + 12, job_step = section + 20;
-    static constexpr size_t job_head = section + 28, job_tail = section + 32;
-    static constexpr size_t job_flood = section + 36;
+    static constexpr size_t job_cursor = section + 24, job_head = section + 28;
+    static constexpr size_t job_tail = section + 32, job_flood = section + 36;
+    static constexpr size_t job_flood_nodes = section + 44;
     /// The label slot, its two nearest-node slots, then the labels being
     /// built, each footprint cell's state and the flood queue.
     static constexpr size_t labels_slot = section + 64,
@@ -2730,6 +2731,206 @@ void landmass_floods_that_repeat_a_cell_are_refused() {
     write_word(broken, L::queue + size_t(tail - 1) * 4, word_at(saved, L::queue + 4));
     refused(broken);
     CHECK(restored.restore(saved));
+}
+
+/// The channel map with two small landmasses in it: a walled pond's floor on
+/// the west shore, 25 nodes, and on the east shore a comb of passages along
+/// odd rows joined by an odd column, which holds no node at all.
+Grid small_landmass_grid() {
+    Grid grid(128, 64);
+    cut_channel(grid);
+    for (uint32_t z = 40; z < 52; ++z)
+        for (uint32_t x = 20; x < 32; ++x)
+            grid.cells[z * grid.width + x] = z == 40 || z == 51 || x == 20 || x == 31 ? 0 : 1;
+    for (uint32_t z = 0; z < 22; ++z)
+        for (uint32_t x = 80; x < 128; ++x) {
+            const bool passage =
+                z < 20 && ((z % 2 == 1 && x >= 81 && x < 127) || (x == 81 && z >= 1));
+            grid.cells[z * grid.width + x] = passage ? 1 : 0;
+        }
+    return grid;
+}
+
+/// Every state a labelling and its nearest-node map leave is restored, and
+/// goes on byte for byte as the original does.
+void landmass_work_restores_at_every_tick() {
+    auto grid = small_landmass_grid();
+    const auto limits = landmass_limits(64);
+    FlowCache original(128, 64, limits), reloaded(128, 64, limits);
+    const auto west = unit_at(8, 32);
+    const auto far_shore = circle(100, 32);
+    bool ready = false;
+    uint32_t restored_ticks = 0;
+    for (uint32_t tick = 1; tick <= 600 && !ready; ++tick) {
+        CHECK(reloaded.restore(original.state_bytes()));
+        ++restored_ticks;
+        std::array<RoutePoint, navigation_capacity> a{}, b{};
+        uint32_t ac{}, bc{};
+        RoutePoint ad{}, bd{};
+        const auto ar = original.route(context(), west, far_shore, a, ac, grid.sampler(), &ad);
+        const auto br = reloaded.route(context(), west, far_shore, b, bc, grid.sampler(), &bd);
+        CHECK(ar == br && ac == bc && a == b && ad == bd);
+        ready = ar == FlowResult::ready;
+        original.advance(tick, 0, grid.sampler());
+        reloaded.advance(tick, 0, grid.sampler());
+        CHECK(
+            std::equal(
+                original.state_bytes().begin(),
+                original.state_bytes().end(),
+                reloaded.state_bytes().begin()
+            )
+        );
+    }
+    CHECK(ready);
+    CHECK(restored_ticks > 100);
+}
+
+/// Refuses landmass work that a later save of the cache would refuse: a
+/// clearing that left a cell or label below its cursor, a scan that left a
+/// cell below its cursor unlooked at or a node labelled apart from its cell, a
+/// flood that does not start before the cursor, reaches a cell before its own
+/// or does not label its own nodes, a nearest-node map building with no job,
+/// and a landmass key in a cache that labels none.
+void landmass_restore_refuses_work_a_later_save_would_refuse() {
+    using L = LandmassLayout;
+    auto grid = small_landmass_grid();
+    const auto limits = landmass_limits(64);
+    FlowCache original(128, 64, limits), restored(128, 64, limits);
+    const auto refused = [&](const std::vector<uint8_t>& saved,
+                             const std::vector<uint8_t>& broken) {
+        CHECK(restored.restore(saved));
+        CHECK(!restored.restore(broken));
+        CHECK(std::equal(saved.begin(), saved.end(), restored.state_bytes().begin()));
+    };
+    uint32_t tick = 0;
+    // The first labelling, clearing the node labels.
+    const auto clearing = label_until(
+        original,
+        grid,
+        [](std::span<const uint8_t> bytes) {
+            return word_at(bytes, L::job_kind) == 1 && word_at(bytes, L::job_step) == 0 &&
+                   word_at(bytes, L::job_cursor) > L::footprint_cells + 8;
+        },
+        tick
+    );
+    CHECK(!clearing.empty());
+    if (clearing.empty())
+        return;
+    auto broken = clearing;
+    broken[L::cells + 5] = 1;
+    refused(clearing, broken);
+    broken = clearing;
+    write_word(broken, L::build + 4 * 2, 7);
+    refused(clearing, broken);
+    // Past the cursor the entries are left as they are.
+    broken = clearing;
+    write_word(broken, L::build + (word_at(clearing, L::job_cursor) - L::footprint_cells) * 4, 7);
+    CHECK(restored.restore(broken));
+
+    // The east shore's flood, which starts at cell (68, 0), the first open
+    // cell after the channel's blocked cells (60, 0) to (67, 0).
+    const auto flooding = label_until(
+        original,
+        grid,
+        [](std::span<const uint8_t> bytes) {
+            return word_at(bytes, L::job_kind) == 1 && word_at(bytes, L::job_step) == 1 &&
+                   word_at(bytes, L::job_flood) == 68 &&
+                   word_at(bytes, L::job_head) + 4 < word_at(bytes, L::job_tail);
+        },
+        tick
+    );
+    CHECK(!flooding.empty());
+    if (flooding.empty())
+        return;
+    CHECK(word_at(flooding, L::job_cursor) == 69);
+    const auto tail = word_at(flooding, L::job_tail);
+    const auto entry = [&](uint32_t q) { return L::queue + size_t(q) * 4; };
+    const auto is_node = [](uint32_t cell) { return cell % 2 == 0 && (cell / 128) % 2 == 0; };
+    const auto node_of = [](uint32_t cell) { return (cell / 128 / 2) * 64 + cell % 128 / 2; };
+    // The cursor one cell on.
+    broken = flooding;
+    write_word(broken, L::job_cursor, 70);
+    refused(flooding, broken);
+    // The flood's first cell not first in its queue.
+    broken = flooding;
+    write_word(broken, entry(0), word_at(flooding, entry(1)));
+    write_word(broken, entry(1), word_at(flooding, entry(0)));
+    refused(flooding, broken);
+    // A cell of the west shore's flood, (1, 0), in this one's queue.
+    uint32_t plain = 1;
+    while (plain < tail && is_node(word_at(flooding, entry(plain))))
+        ++plain;
+    CHECK(plain < tail && flooding[L::cells + 1] == 2);
+    broken = flooding;
+    write_word(broken, entry(plain), 1);
+    refused(flooding, broken);
+    // One of the flood's nodes labelled otherwise, or one counted too many.
+    uint32_t node_entry = 1;
+    while (node_entry < tail && !is_node(word_at(flooding, entry(node_entry))))
+        ++node_entry;
+    CHECK(node_entry < tail);
+    broken = flooding;
+    write_word(broken, L::build + size_t(node_of(word_at(flooding, entry(node_entry)))) * 4, 0);
+    refused(flooding, broken);
+    broken = flooding;
+    write_word(broken, L::job_flood_nodes, word_at(flooding, L::job_flood_nodes) + 1);
+    refused(flooding, broken);
+    // A blocked cell the scan passed, (61, 0), unvisited; and the label of the
+    // blocked node at (60, 0) unvisited.
+    CHECK(flooding[L::cells + 61] == 1 && word_at(flooding, L::build + 30 * 4) == 0xfffffffeu);
+    broken = flooding;
+    broken[L::cells + 61] = 0;
+    refused(flooding, broken);
+    broken = flooding;
+    write_word(broken, L::build + 30 * 4, 0xffffffffu);
+    refused(flooding, broken);
+    // A nearest-node map building while the labels job runs.
+    broken = flooding;
+    write_word(broken, L::nearest_slots, 2);
+    refused(flooding, broken);
+
+    // Labelled and mapped, no job: a map left building.
+    std::vector<uint8_t> settled;
+    for (uint32_t last = tick + 400; tick < last && settled.empty();) {
+        const auto s = settle(original, grid.sampler(), unit_at(8, 32), circle(100, 32), tick);
+        if (s.ready && word_at(original.state_bytes(), L::job_kind) == 0)
+            settled.assign(original.state_bytes().begin(), original.state_bytes().end());
+        else
+            original.advance(++tick, 0, grid.sampler());
+    }
+    CHECK(!settled.empty());
+    if (settled.empty())
+        return;
+    CHECK(word_at(settled, L::nearest_slots) == 3);
+    broken = settled;
+    write_word(broken, L::nearest_slots, 2);
+    refused(settled, broken);
+    // A field key's landmass past the map's footprint cells.
+    size_t keyed = 0;
+    for (uint32_t i = 0; i < L::fields && keyed == 0; ++i)
+        if (word_at(settled, field_at(uint32_t(L::nodes), i)) != 0)
+            keyed = field_at(uint32_t(L::nodes), i);
+    CHECK(keyed != 0);
+    broken = settled;
+    write_word(broken, keyed + 4 + 36, uint32_t(L::footprint_cells));
+    refused(settled, broken);
+
+    // A cache that labels no landmasses keys every field with none.
+    Grid open(32, 32);
+    FlowCache plain_cache(32, 32, FlowLimits{1, 16'384, 2048, 65'536});
+    FlowCache plain_restored(32, 32, FlowLimits{1, 16'384, 2048, 65'536});
+    CHECK(query(plain_cache, open, unit_at(2, 2), circle(28, 28)) == FlowResult::fallback);
+    (void)query(plain_cache, open, unit_at(2, 2), circle(28, 28));
+    finish(plain_cache, open);
+    const std::vector<uint8_t> plain_saved(
+        plain_cache.state_bytes().begin(), plain_cache.state_bytes().end()
+    );
+    CHECK(word_at(plain_saved, field_at(256, 0)) == 3);
+    CHECK(word_at(plain_saved, field_at(256, 0) + 4 + 36) == 0xffffffffu);
+    CHECK(plain_restored.restore(plain_saved));
+    broken = plain_saved;
+    write_word(broken, field_at(256, 0) + 4 + 36, 5);
+    CHECK(!plain_restored.restore(broken));
 }
 
 /// A block of ground nodes 12 to 36 wide and 6 to 25 high on a 96 by 64 map,
@@ -3182,6 +3383,8 @@ int main() {
     landmass_work_is_bounded_and_follows_map_changes();
     landmass_work_resumes_after_restore_and_refuses_malformed_bytes();
     landmass_floods_that_repeat_a_cell_are_refused();
+    landmass_work_restores_at_every_tick();
+    landmass_restore_refuses_work_a_later_save_would_refuse();
     maximum_fine_fields_restore_active_wide_frontiers();
     regional_blocked_edge_keeps_an_unaffected_branch_ready();
     regional_blocked_building_edge_resumes_and_refreshes();
