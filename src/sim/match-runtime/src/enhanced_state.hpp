@@ -80,8 +80,8 @@ struct Match::EnhancedState {
     void capture_ai_retarget(Match& match, uint8_t player);
 
     /// Counts each participant's live ground units, those with movement
-    /// state and no transport, at the coarse node ((cell_x + 1) / 2,
-    /// (cell_z + 1) / 2) of their cell.
+    /// state, a type that cannot fly and no transport, at the coarse node
+    /// ((cell_x + 1) / 2, (cell_z + 1) / 2) of their cell.
     ///
     /// @param match the match whose units are counted
     void count_crowds(const Match& match) noexcept;

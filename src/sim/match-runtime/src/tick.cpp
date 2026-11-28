@@ -272,6 +272,10 @@ void Match::EnhancedState::count_crowds(const Match& match) noexcept {
     for (size_t i = 1; i < match.slots_.size(); ++i) {
         if (!match.movement_[i])
             continue;
+        // An aircraft has movement state too, but stands in no ground route.
+        const auto* type = match.slots_[i].unit ? match.slots_[i].unit->type : nullptr;
+        if (!type || (type->flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0)
+            continue;
         const auto& unit = match.state().units[i];
         if ((unit.flags & OA_UNIT_FLAG_LIVE) == 0 || unit.attach_parent != 0 ||
             unit.owner_index >= OA_PLAYER_COUNT)

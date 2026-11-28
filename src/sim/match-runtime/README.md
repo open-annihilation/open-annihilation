@@ -757,8 +757,9 @@ and a field built round crowds that units asked for since it completed is
 built again from the crowds of the moment 240 ticks after it completed.
 `advance_path_search` passes the counts as
 `FlowSampler::ground_units`: the first time a field asks in a call,
-`EnhancedState::count_crowds` counts every live unit with movement state
-and no transport at the node `((cell_x + 1) / 2, (cell_z + 1) / 2)`, into
+`EnhancedState::count_crowds` counts every live unit with movement state,
+a type that cannot fly and no transport at the node
+`((cell_x + 1) / 2, (cell_z + 1) / 2)`, into
 one byte a node (more than 255 count as 255) of a grid for each participant
 (`unit_player_mask`, or every slot when it is empty). The counts come from
 unit state alone, so a load pass and a regular pass at the same tick count
@@ -766,7 +767,9 @@ the same; they are scratch outside saved tables and hashes, 128 KiB a
 participant on a map of 1,024 by 512 cells. Only a player's own units
 count, so a route shows nothing of what the fog hides. The cache keeps a
 field's waiting levels in its queue entries and its crowd mark in 4 bytes,
-so the saved state grows by 8 bytes and 4 a field.
+so the saved state grows by 8 bytes and 4 a field. An aircraft has movement
+state too, flying or landed, but no ground route goes round it
+(`match-crowd-counts`).
 
 With `routes_fine_regions`, a patrol's regular step (every 45 to 75 ticks)
 leaves a ground unit simulated here its goal and route when the goal it
