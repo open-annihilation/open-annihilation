@@ -2873,6 +2873,65 @@ Grid small_landmass_grid() {
     return grid;
 }
 
+/// Ends the flood of a landmass below 256 nodes in bounded steps, however
+/// many footprint cells it holds: its cells come off the queue at most 16 a
+/// unit of landmass work, its nodes are labelled as naming none, and every
+/// state on the way restores and goes on byte for byte.
+void small_landmass_floods_end_in_bounded_steps() {
+    using L = LandmassLayout;
+    // Rows 0 to 21 blocked but for passages along the odd rows 1 to 19,
+    // joined by column 1, and a block of rows and columns 2 to 7: one
+    // landmass of about 1,300 cells and 9 nodes, flooded first. Rows 22 on
+    // are open ground.
+    Grid grid(128, 64);
+    for (uint32_t z = 0; z < 22; ++z)
+        for (uint32_t x = 0; x < 128; ++x) {
+            const bool passage =
+                z < 20 && ((z % 2 == 1 && x >= 1 && x < 127) || (x == 1 && z >= 1));
+            const bool block = z >= 2 && z < 8 && x >= 2 && x < 8;
+            grid.cells[z * grid.width + x] = passage || block ? 1 : 0;
+        }
+    constexpr uint32_t work = 4;
+    const auto limits = landmass_limits(work);
+    FlowCache original(128, 64, limits), reloaded(128, 64, limits);
+    const auto unit = unit_at(8, 40);
+    const auto goal = circle(100, 10);
+    uint32_t largest = 0, taking_ticks = 0, previous_tail = 0;
+    bool taking = false, ended = false;
+    for (uint32_t tick = 1; tick <= 2000 && !ended; ++tick) {
+        std::array<RoutePoint, navigation_capacity> points{};
+        uint32_t count{};
+        (void)original.route(context(), unit, goal, points, count, grid.sampler());
+        CHECK(reloaded.restore(original.state_bytes()));
+        original.advance(tick, 0, grid.sampler());
+        reloaded.advance(tick, 0, grid.sampler());
+        const auto bytes = original.state_bytes();
+        CHECK(std::equal(bytes.begin(), bytes.end(), reloaded.state_bytes().begin()));
+        const bool small_flood_whole = word_at(bytes, L::job_kind) == 1 &&
+                                       word_at(bytes, L::job_flood) == 129 &&
+                                       word_at(bytes, L::job_head) == word_at(bytes, L::job_tail);
+        const auto tail = word_at(bytes, L::job_tail);
+        if (taking) {
+            if (word_at(bytes, L::job_flood) != 129) {
+                ended = true;
+                break;
+            }
+            CHECK(previous_tail > tail && previous_tail - tail <= work * 16);
+            ++taking_ticks;
+        } else if (small_flood_whole) {
+            taking = true;
+        }
+        largest = std::max(largest, tail);
+        previous_tail = tail;
+    }
+    CHECK(ended);
+    CHECK(largest > 1'200 && taking_ticks >= largest / (work * 16) - 1);
+    // Its nodes, at cells (2, 2) and (6, 6) among others, name no landmass.
+    const auto labels = original.state_bytes();
+    CHECK(word_at(labels, L::build + (1 * 64 + 1) * 4) == 0xfffffffdu);
+    CHECK(word_at(labels, L::build + (3 * 64 + 3) * 4) == 0xfffffffdu);
+}
+
 /// Every state a labelling and its nearest-node map leave is restored, and
 /// goes on byte for byte as the original does.
 void landmass_work_restores_at_every_tick() {
@@ -3506,6 +3565,7 @@ int main() {
     landmass_work_resumes_after_restore_and_refuses_malformed_bytes();
     landmass_floods_that_repeat_a_cell_are_refused();
     landmass_work_restores_at_every_tick();
+    small_landmass_floods_end_in_bounded_steps();
     landmass_restore_refuses_work_a_later_save_would_refuse();
     landmass_slots_take_turns_when_every_slot_is_in_use();
     nearest_maps_take_turns_when_every_map_is_in_use();

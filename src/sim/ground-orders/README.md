@@ -202,7 +202,8 @@ has changed owner for 300 ticks, and a nearest-node map passes on the same
 way, so each class and player has labels part of the time rather than the
 first to ask holding every slot for good. Landmass work is bounded
 per tick (`landmass_work_per_tick`, 32,768: scanned or flooded cells and
-probes, with cleared entries and nearest-map nodes counted more cheaply),
+probes, with cleared entries, the cells of a small landmass's flood
+labelled as naming none and nearest-map nodes counted more cheaply),
 and is saved with the fields. Restore accepts every state the labelling
 leaves and nothing a later save would refuse: below a clearing's cursor
 every cell and node label is cleared; below a scan's cursor every cell is

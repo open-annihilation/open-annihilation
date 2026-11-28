@@ -131,7 +131,8 @@ constexpr uint32_t slot_keep_ticks = 300;
 /// classes and players asking than there are slots each takes its turn, at
 /// one labelling a turn.
 constexpr uint32_t slot_turn_ticks = relabel_period;
-/// Footprint cells made unvisited for one unit of landmass work.
+/// Footprint cells made unvisited, or taken off a small landmass's flood
+/// queue, for one unit of landmass work.
 constexpr uint32_t cleared_entries_per_work = 16;
 /// The four steps of a flood between footprint cells: a diagonal step a
 /// footprint can take passes through one of them.
@@ -952,11 +953,27 @@ void FlowCache::label_landmasses(
         }
         if (flood != no_landmass) {
             // The landmass is whole. One of fewer nodes than the floor names
-            // none.
-            if (flood_nodes < landmass_node_floor)
-                for (uint32_t q = 0; q < tail; ++q)
-                    if (const auto node = node_of(get32(at(queue, q))); node != no_node)
+            // none: its cells come off the queue, the last first, sixteen a
+            // unit of work, and their nodes are labelled so, however many
+            // cells it holds.
+            if (flood_nodes < landmass_node_floor && tail != 0) {
+                const auto amount = static_cast<uint32_t>(
+                    std::min<uint64_t>(tail, uint64_t(left) * cleared_entries_per_work)
+                );
+                for (uint32_t taken = 0; taken < amount; ++taken)
+                    if (const auto node = node_of(get32(at(queue, --tail))); node != no_node) {
                         put32(at(build, node), label_small);
+                        --flood_nodes;
+                    }
+                head = tail;
+                put64(
+                    section + labelled_cells_offset, get64(section + labelled_cells_offset) + amount
+                );
+                left -= (amount + cleared_entries_per_work - 1) / cleared_entries_per_work;
+                // A flood ends with its queue: none is left without cells.
+                if (tail != 0)
+                    continue;
+            }
             put64(section + labelled_cells_offset, get64(section + labelled_cells_offset) + tail);
             flood = no_landmass;
             flood_nodes = 0;

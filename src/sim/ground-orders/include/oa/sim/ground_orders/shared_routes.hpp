@@ -47,8 +47,9 @@ struct FlowLimits {
     /// goal is routed as given. With more pairs asking, they take turns.
     uint32_t landmass_slots{};
     /// Landmass work a tick: nodes scanned or expanded and edges tested while
-    /// labelling, with sixteen cleared label entries, or eight nodes of a
-    /// nearest-node map's pass, counted as one.
+    /// labelling, with sixteen cleared label entries, sixteen cells of a small
+    /// landmass labelled as naming none, or eight nodes of a nearest-node
+    /// map's pass, counted as one.
     uint32_t landmass_work_per_tick{32'768};
     /// Ninths of a breadth-first level a field spends reaching a coarse node
     /// for each of its player's own ground units in the 3x3 coarse nodes
